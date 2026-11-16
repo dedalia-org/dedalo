@@ -21,8 +21,8 @@
  *   varchar/length/index, empty_to_string, default_value;
  * - v6 side-channels promoted to plan concepts (spec §5): preserve_order
  *   (process_datum :1170-1182) → FieldPolicy; add_parents (chain_processor
- *   :305) → relation-hop flag; global_table_maps (dd_diffusion_api
- *   :1042-1060) → plan warning until the writer phase lands them.
+ *   :305) → relation-hop flag; global_table_maps (v6 diffusion_sql::
+ *   save_global_table_data :2477) → SectionPlan.globalTables (global_tables.ts).
  *
  * SECURITY: every database/table/column name that will reach a SQL target
  * goes through requireSqlIdentifier (spec §8.3) AT COMPILE TIME — a violation
@@ -70,16 +70,28 @@
 
 import { config } from '../../config/config.ts';
 import { readEnv } from '../../config/env.ts';
-import { getComponentModel } from '../../core/components/registry.ts';
+import { getFlatValueFamily, storesRelationLocators } from '../../core/components/registry.ts';
 import { getPopulatedTlds } from '../../core/db/dd_ontology.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { getModelByTipo } from '../../core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../core/ontology/tld.ts';
+import { RdfNamespaceTable } from '../resolve/rdf_graph_ir.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
+import {
+	compileGlobalTables,
+	type GlobalTableCarrier,
+	globalTableElementErrors,
+} from './global_tables.ts';
 import { requireSqlIdentifier } from './identifier.ts';
+import {
+	compileRdfElement,
+	compileRdfSection,
+	type RdfCompileContext,
+	rdfLinkErrors,
+} from './rdf_compile.ts';
 import type {
 	ColumnDef,
 	FieldPlan,
@@ -97,6 +109,7 @@ import {
 	getDatabaseNameForElement,
 	getSectionNodeForElement,
 	getSectionsForElement,
+	getTargetSectionTableNames,
 } from './virtual_tree.ts';
 
 /**
@@ -212,6 +225,13 @@ interface DdoEntry {
 	labelExpansion?: boolean;
 	/** Verbatim ddo `options` bag (PHP $ddo->options — media quality/extension). */
 	options?: Record<string, unknown>;
+	/**
+	 * Verbatim ddo `config` bag — a relation_list ddo's filters in the shape
+	 * numisdata's rdf properties carry them (owner C14 2026-11-13,
+	 * WC-2026-11-13-rdf-relation-list-config): `section_filter` /
+	 * `component_filter`, judged in compileSourceChain once the model is known.
+	 */
+	config?: Record<string, unknown>;
 }
 
 /**
@@ -265,6 +285,7 @@ function buildDdoMap(
 			const declaredSection = typeof ddo.section_tipo === 'string' ? ddo.section_tipo : undefined;
 			const declaredParent = typeof ddo.parent === 'string' ? ddo.parent : '';
 			const rawOptions = ddo.options;
+			const rawConfig = ddo.config;
 			entries.push({
 				tipo,
 				sectionTipo: declaredSection === 'self' ? sectionTipo : declaredSection,
@@ -281,6 +302,12 @@ function buildDdoMap(
 					rawOptions !== null && typeof rawOptions === 'object' && !Array.isArray(rawOptions)
 						? (rawOptions as Record<string, unknown>)
 						: undefined,
+				config:
+					rawConfig !== null && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+						? (rawConfig as Record<string, unknown>)
+						: rawConfig === undefined
+							? undefined
+							: { '(not an object)': rawConfig },
 			});
 		}
 		return entries;
@@ -303,6 +330,66 @@ function buildDdoMap(
  */
 function parentOf(ddo: DdoEntry, sectionTipo: string): string | undefined {
 	return ddo.parent !== '' && ddo.parent !== sectionTipo ? ddo.parent : undefined;
+}
+
+/** The config keys a relation_list ddo may carry (PHP class.relation_list.php :1278-1302 reads both). */
+const RELATION_LIST_CONFIG_KEYS: ReadonlySet<string> = new Set([
+	'section_filter',
+	'component_filter',
+]);
+
+/**
+ * A ddo `config` → the relation_list filters it declares (owner C14 2026-11-13,
+ * WC-2026-11-13-rdf-relation-list-config). PHP's rdf builder honoured `config`
+ * for a relation_list ddo ONLY (class.diffusion_rdf.php :1066-1082) and the
+ * relation_list class read `section_filter` (the linked-section whitelist —
+ * the inverse search's `section_tipo`, default 'all') and `component_filter`
+ * (one `from_component_tipo` locator per tipo) — class.relation_list.php
+ * :1278-1302. Those two keys are what compiles; everything else is REFUSED,
+ * never ignored: a `config` on a non-relation_list ddo (PHP read none), a key
+ * outside the pair (the PHP `resolve_configuration` dd1010 lookup +
+ * `filter_locators` SQO are NOT ported), a value that is not a list of tipos.
+ * Null = refused (recorded); `{}` = no config.
+ */
+function relationListConfigFilters(
+	ddo: DdoEntry,
+	model: string,
+	fieldTipo: string,
+	fieldLabel: string,
+	diagnostics: CompileDiagnostics,
+): { sectionFilter?: string[]; componentFilter?: string[] } | null {
+	if (ddo.config === undefined) return {};
+	const where = `field '${fieldTipo}' (${fieldLabel}): ddo '${ddo.tipo}'`;
+	if (model !== 'relation_list') {
+		diagnostics.errors.push(
+			`${where} (${model}) declares a relation_list 'config' on a model that is not relation_list — PHP read it for relation_list only; remove it or publish the target through its own ddo chain`,
+		);
+		return null;
+	}
+	const unknown = Object.keys(ddo.config).filter((key) => !RELATION_LIST_CONFIG_KEYS.has(key));
+	if (unknown.length > 0) {
+		diagnostics.errors.push(
+			`${where} declares a relation_list 'config' with unsupported key(s) ${unknown.map((key) => `'${key}'`).join(', ')} — supported: section_filter, component_filter (the PHP resolve_configuration dd1010 lookup + filter_locators query is not ported)`,
+		);
+		return null;
+	}
+	const filters: { sectionFilter?: string[]; componentFilter?: string[] } = {};
+	for (const [key, slot] of [
+		['section_filter', 'sectionFilter'],
+		['component_filter', 'componentFilter'],
+	] as const) {
+		const raw = ddo.config[key];
+		if (raw === undefined) continue;
+		const list = stringArrayOf(raw);
+		if (list === undefined) {
+			diagnostics.errors.push(
+				`${where} relation_list 'config.${key}' must be a non-empty list of tipos (got ${JSON.stringify(raw)})`,
+			);
+			return null;
+		}
+		filters[slot] = list;
+	}
+	return filters;
 }
 
 /** Accumulates errors/warnings/degradations during one element compile. */
@@ -344,9 +431,12 @@ async function uninstalledTldOf(tipo: string): Promise<string | null> {
  * Compile one ddo chain into ResolveStep[]. Each entry becomes a 'component'
  * step (plain value read), a 'relation-hop' step (the chain continues
  * through the component's locators) — depending on whether the component model
- * stores relation locators (descriptor column === 'relation' — the TS twin of
- * the PHP relation family — plus the pseudo-model relation_list, which PHP
- * special-cases into the relation branch: chain_processor :161-162) — or a
+ * stores relation locators (storesRelationLocators: descriptor column ===
+ * 'relation' MINUS component_external — the TS twin of the PHP relation
+ * family get_components_with_relations, which does not list it: a Zenon value
+ * is DERIVED, so it is a terminal (T1-42) — plus the pseudo-model
+ * relation_list, which PHP special-cases into the relation branch:
+ * chain_processor :161-162) — or a
  * 'degraded' step when the tipo is not in the ontology at all. EVERY entry
  * produces exactly one step: the chain is 1:1 with the ddo_map, which is what
  * keeps the field's leaf/column topology identical to the oracle's.
@@ -393,8 +483,11 @@ async function compileSourceChain(
 			);
 			continue;
 		}
-		const isRelationFamily =
-			getComponentModel(model)?.column === 'relation' || model === 'relation_list';
+		// A ddo `config` is a relation_list's filters (owner C14): judged here,
+		// where the model is known, and refused loudly anywhere else.
+		const configFilters = relationListConfigFilters(ddo, model, fieldTipo, fieldLabel, diagnostics);
+		if (configFilters === null) continue;
+		const isRelationFamily = storesRelationLocators(model) || model === 'relation_list';
 		if (isRelationFamily) {
 			const hop: Extract<ResolveStep, { kind: 'relation-hop' }> = {
 				kind: 'relation-hop',
@@ -406,8 +499,10 @@ async function compileSourceChain(
 			};
 			if (parent !== undefined) hop.parent = parent;
 			if (ddo.id !== undefined) hop.ddoId = ddo.id;
-			if (ddo.sectionFilter !== undefined) hop.sectionFilter = ddo.sectionFilter;
-			if (ddo.componentFilter !== undefined) hop.componentFilter = ddo.componentFilter;
+			const sectionFilter = ddo.sectionFilter ?? configFilters.sectionFilter;
+			const componentFilter = ddo.componentFilter ?? configFilters.componentFilter;
+			if (sectionFilter !== undefined) hop.sectionFilter = sectionFilter;
+			if (componentFilter !== undefined) hop.componentFilter = componentFilter;
 			if (ddo.dataSlice !== undefined) hop.dataSlice = ddo.dataSlice;
 			if (ddo.dedupeSections === true) hop.dedupeSections = true;
 			if (ddo.labelExpansion === true) hop.labelExpansion = true;
@@ -429,7 +524,15 @@ async function compileSourceChain(
 				sectionTipo: ddo.sectionTipo ?? '',
 			};
 			if (parent !== undefined) step.parent = parent;
-			if (ddo.fn !== undefined) step.fn = ddo.fn;
+			if (ddo.fn !== undefined && getFlatValueFamily(model) === 'info') {
+				// PHP component_info::get_diffusion_data OVERRIDES the common one, so
+				// a ddo fn on an info component never runs: the live compute — its
+				// PARSED face, owner D1 2026-11-13 — is the value
+				// (resolve/info_value.ts). Kept out of the step, never silent.
+				diagnostics.warnings.push(`info-fn-ignored:${ddo.fn}@${fieldTipo}`);
+			} else if (ddo.fn !== undefined) {
+				step.fn = ddo.fn;
+			}
 			if (ddo.id !== undefined) step.ddoId = ddo.id;
 			if (ddo.lang !== undefined) step.pinLang = ddo.lang;
 			// PHP $ddo->options (media quality/extension, fn arguments). Carried
@@ -697,7 +800,9 @@ async function compileFieldPlan(
 			firstStep.tipo === firstDdoTipo
 				? firstStep.model
 				: null;
-		if (firstModel !== null && getComponentModel(firstModel)?.column === 'relation') {
+		// storesRelationLocators: PHP component_external extends component_common
+		// (string), not component_relation_common (json) — T1-42.
+		if (firstModel !== null && storesRelationLocators(firstModel)) {
 			outputFormat = 'json';
 		}
 	}
@@ -713,6 +818,61 @@ async function compileFieldPlan(
 	if (outputFormat !== undefined) fieldPlan.outputFormat = outputFormat;
 	if (excludeColumn) fieldPlan.excludeColumn = true;
 	return fieldPlan;
+}
+
+/**
+ * The CARRIERS of a table node's `global_table_maps` (owner C11, 2026-11-13;
+ * plan/global_tables.ts header): the node itself first, with the columns it
+ * just compiled, then — through the domain tree, whatever element they sit
+ * under — the real table it aliases (or that it is) and every OTHER
+ * `table_alias` of that real table that SHARES the maps (an alias declaring
+ * its own `global_table_maps` has its own, key-level fallback law of
+ * globalTableMapsOfNode), each with the columns ITS direct children emit. The
+ * owner's D2 note: numisdata701's `coins`/`types` sources are columns of its
+ * alias numisdata845 — legal, filled by the alias's rows.
+ */
+async function globalTableCarriersOf(
+	tree: VirtualDiffusionTree,
+	tableNode: VirtualTreeNode,
+	ownColumns: readonly string[],
+): Promise<GlobalTableCarrier[]> {
+	const carriers: GlobalTableCarrier[] = [{ tipo: tableNode.tipo, columns: ownColumns }];
+	const realTipo = tableNode.isAlias ? tableNode.realTipo : tableNode.tipo;
+	if (realTipo === null) return carriers;
+	for (const node of tree.nodes) {
+		if (node.tipo === tableNode.tipo || carriers.some((carrier) => carrier.tipo === node.tipo)) {
+			continue;
+		}
+		const isReal = !node.isAlias && node.model === 'table' && node.tipo === realTipo;
+		const isSiblingAlias =
+			node.isAlias && node.model === 'table_alias' && node.realTipo === realTipo;
+		if (!isReal && !isSiblingAlias) continue;
+		if (node.isAlias) {
+			// An alias with its OWN maps does not share the real's (key-level law).
+			const own = (await tree.index.nodeOf(node.tipo))?.properties ?? null;
+			if (own?.global_table_maps !== undefined) continue;
+		}
+		carriers.push({ tipo: node.tipo, columns: await carrierColumnsOf(tree, node) });
+	}
+	return carriers;
+}
+
+/** The emitted column names of a carrier's direct children (excluded fields and unusable labels aside). */
+async function carrierColumnsOf(
+	tree: VirtualDiffusionTree,
+	node: VirtualTreeNode,
+): Promise<string[]> {
+	const columns: string[] = [];
+	for (const childTipo of node.directChildrenTipos) {
+		const child = await tree.index.nodeOf(childTipo);
+		if (child === null || child.properties?.exclude_column) continue;
+		try {
+			columns.push(requireSqlIdentifier(nameOrLabelOf(child) ?? '', 'column'));
+		} catch {
+			// an unusable label fails that carrier's own compile, loudly, there
+		}
+	}
+	return columns;
 }
 
 /** Compile one publishable section (a table / owl:Class virtual node). */
@@ -743,13 +903,6 @@ async function compileSectionPlan(
 		return null;
 	}
 
-	// global_table_maps (dd_diffusion_api :1042-1060): v6 secondary
-	// aggregate-table write. Becomes a plan lookup table in the writer phase;
-	// until then its presence must stay visible.
-	if (tableNode.properties?.global_table_maps !== undefined) {
-		diagnostics.warnings.push(`global_table_maps:${tableNode.tipo}`);
-	}
-
 	// Columns come from the table node's DIRECT children (oracle
 	// dd_diffusion_api::process_datum :996 — get_ar_children is first-level
 	// only). childrenTipos is the RECURSIVE UI list: using it makes a nested
@@ -769,12 +922,30 @@ async function compileSectionPlan(
 		if (fieldPlan !== null) fields.push(fieldPlan);
 	}
 
-	return {
+	const sectionPlan: SectionPlan = {
 		sectionTipo,
 		tableName,
 		tableTipo: tableNode.tipo,
 		fields,
 	};
+	// v6 global_table_maps: the section's rows ALSO land in aggregate tables
+	// (plan/global_tables.ts — compiled here, written by the sql writer).
+	const ownColumns = fields
+		.filter((field) => field.excludeColumn !== true)
+		.map((field) => field.columnName);
+	const globalTables = await compileGlobalTables(
+		{
+			index: tree.index,
+			tableNode,
+			sectionTipo,
+			carriers: await globalTableCarriersOf(tree, tableNode, ownColumns),
+			sqlTarget,
+			uninstalledTldOf,
+		},
+		diagnostics,
+	);
+	if (globalTables.length > 0) sectionPlan.globalTables = globalTables;
+	return sectionPlan;
 }
 
 /**
@@ -923,6 +1094,31 @@ export async function compileElementPlan(
 			'no sections targeted by this element (check table/owl:Class section relations)',
 		);
 	}
+	// rdf publishes GRAPHS, not columns (plan/rdf_compile.ts, T1-4): its
+	// element contract (namespaces, service_type) and one class graph per
+	// section, the data-reading properties compiled by the SAME chain compiler.
+	const rdfElement =
+		format === 'rdf' ? compileRdfElement(elementNode.properties, diagnostics.errors) : null;
+	const rdf = rdfElement?.element ?? null;
+	const rdfContext: RdfCompileContext | null =
+		format === 'rdf'
+			? {
+					index: tree.index,
+					namespaces: new RdfNamespaceTable(rdfElement?.namespaces ?? []),
+					resolveModel,
+					compileChain: async (nodeTipo, properties, sectionTipo, label) =>
+						compileSourceChain(
+							buildDdoMap(properties, await tree.index.relationTipos(nodeTipo), sectionTipo),
+							sectionTipo,
+							nodeTipo,
+							label,
+							resolveModel,
+							diagnostics,
+						),
+					errors: diagnostics.errors,
+					warnings: diagnostics.warnings,
+				}
+			: null;
 	const sections: SectionPlan[] = [];
 	for (const sectionTipo of sectionTipos) {
 		const tableNode = getSectionNodeForElement(tree, elementTipo, sectionTipo);
@@ -930,17 +1126,21 @@ export async function compileElementPlan(
 			diagnostics.errors.push(`section '${sectionTipo}': no table node under the element`);
 			continue;
 		}
-		const sectionPlan = await compileSectionPlan(
-			tree,
-			tableNode,
-			sectionTipo,
-			sqlTarget,
-			classify,
-			resolveModel,
-			diagnostics,
-		);
+		const sectionPlan =
+			rdfContext !== null
+				? await compileRdfSection(rdfContext, tableNode, sectionTipo)
+				: await compileSectionPlan(
+						tree,
+						tableNode,
+						sectionTipo,
+						sqlTarget,
+						classify,
+						resolveModel,
+						diagnostics,
+					);
 		if (sectionPlan !== null) sections.push(sectionPlan);
 	}
+	if (rdfContext !== null) diagnostics.errors.push(...rdfLinkErrors(sections));
 
 	// A MariaDB table wider than the server's row ceiling cannot be created;
 	// left to the run, errno 1118 surfaced as an untyped `diffusion.run_failed`
@@ -951,6 +1151,7 @@ export async function compileElementPlan(
 			const violation = tableRowSizeViolation(sectionPlan);
 			if (violation !== null) diagnostics.errors.push(violation);
 		}
+		diagnostics.errors.push(...globalTableElementErrors(sections));
 	}
 
 	if (diagnostics.errors.length > 0 || target === null) {
@@ -976,9 +1177,25 @@ export async function compileElementPlan(
 		sections,
 		recursion: { maxLevels },
 		langPolicy: buildLangPolicy(),
+		...(rdf !== null ? { rdf } : {}),
+		...(usesFn(sections, MAP_TARGET_SECTION_TIPO_FN)
+			? { targetSectionTables: getTargetSectionTableNames(tree, elementTipo) }
+			: {}),
 		warnings: diagnostics.warnings,
 		degradations: diagnostics.degradations,
 	};
+}
+
+/** The ddo fn whose argument is compiled into the plan (PublicationPlan.targetSectionTables). */
+const MAP_TARGET_SECTION_TIPO_FN = 'map_target_section_tipo';
+
+/** Does any component step of any field of these sections declare `fn`? */
+function usesFn(sections: SectionPlan[], fn: string): boolean {
+	return sections.some((section) =>
+		section.fields.some((field) =>
+			field.sourceChain.some((step) => step.kind === 'component' && step.fn === fn),
+		),
+	);
 }
 
 /** Non-throwing validate-shape result (dispatch `validate` action input). */

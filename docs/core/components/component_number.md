@@ -64,8 +64,8 @@
 **Value type:** `array` of `numbers` (`int` or `float`), or `null`.
 
 **Types supported:** `int` | `float`
-**Default type:** `float`
-**Default precision:** `2`
+**Default type:** none — a node without `type` stores the value as given (the client edit view still rounds it to 2 decimals)
+**Default precision:** `2` (when `type` is `float`)
 **Decimal separator (storage):** always `.` (a different *input* separator is an import-time concern only; see below)
 
 ### Storage shape inside the matrix `data` column
@@ -115,10 +115,18 @@ On the wire the datum `data` carries the values as `entries` (the array the JS v
 
 ### Type / precision formatting
 
-The client JS model applies the configured type on input:
+The server applies the node's `type` / `precision` to every value it stores — whichever door the value comes through (the edit view, an import, the API, an AI tool):
 
-- `type: "int"` → value cast to integer (`85.35` → `85`).
-- `type: "float"` (default) → value rounded to `precision` decimals (default `2`; `85.3568` with `precision: 2` → `85.36`).
+- `type: "int"` → truncated toward zero (`85.35` → `85`, `-3.7` → `-3`).
+- `type: "float"` (or any other non-empty `type`) → rounded half away from zero to `precision` decimals (default `2`; `85.3568` → `85.36`, `1.005` → `1.01`).
+- no `type` → stored as given, no rounding.
+- `0` is a number and is stored as `0`.
+
+A `precision` that is not an integer (for example the string `"2"`) is an ontology error, raised when a number has to be formatted with it: a save of a number to that field is refused with `ontology.invalid_node`, an import reports the cell as failed, and a thesaurus whose `section_map` `thesaurus.order` names that field fails to load a tree level where a term carries an order value. Clearing the field (an empty value) still saves, and a tree level with no order values still loads. The save answer carries the value as stored, so the edit view shows the rounded value.
+
+Values already stored are not re-read through the format: after changing a node's `precision`, run **Update cache → regenerate** on the section to re-store its values with the new format.
+
+The client JS model also applies the type on input, so the value the user sees while typing is already formatted.
 
 Unexpected/non-numeric values are rejected client-side: the edit view flags the input and refuses to silently overwrite the entry with `null`.
 
@@ -158,24 +166,14 @@ The `section_tipo` / `parent` wiring places the component as a column inside its
 
 | Property | Accepted values | Default | Effect |
 | --- | --- | --- | --- |
-| `type` | `"int"` \| `"float"` | `"float"` | Numeric type. `int` casts to integer; `float` enables decimal `precision`. |
-| `precision` | integer (number of decimals) | `2` | Decimals kept when `type` is `float`. Applied on read, save, and the input `step`. Ignored for `int`. |
+| `type` | `"int"` \| `"float"` | (none: stored as given) | Numeric type. `int` truncates to an integer; `float` rounds to `precision`. |
+| `precision` | integer (number of decimals) | `2` | Decimals kept when `type` is `float`. Applied on save (every door) and to the input `step`. Ignored for `int`. Negative values round the integer part. |
 | `has_dataframe` | `true` \| `false` | `false` | Pairs each value item with a dataframe (uncertainty / qualifier / context) record. Required for literal mains (relation mains activate from the slot ddo alone); the control also renders read-only (Time Machine previews). Full ontology setup incl. a coloured rating: [component_dataframe](component_dataframe.md) → "Worked example — uncertainty rating on a literal". |
 | `dato_default` | array of value items | (none) | Default value applied in `edit` mode for new records. **Not ported** — no module under `src/` reads `dato_default` yet (see [component_input_text](component_input_text.md#properties--options)). |
 | `css` | object | (none) | Per-instance CSS injected into the datum `context`. Generic, shared by every component. |
 
-!!! warning "Gap: `type`/`precision` casting is client-side only"
-    Casting/rounding to `type`/`precision` happens only in the client (JS
-    model), never on the server: the generic save path
-    (`src/core/section/record/save_component.ts`) is model-agnostic and does
-    not read `type`/`precision` — it persists whatever numeric value the
-    client sends. Normal editing behaves correctly in practice because the
-    client rounds/casts before sending; a value written through any other path
-    (import, an API client bypassing the standard UI) will not be cast or
-    rounded server-side.
-
 !!! warning "Legacy `type` object form — deprecated"
-    Ontology created **before 04/07/2024** used an object form like `"type": {"float": 2}`. This is incorrect/deprecated. Use the flat form `"type": "float"` + `"precision": 2`.
+    Ontology created **before 04/07/2024** used an object form like `"type": {"float": 2}`. This is incorrect/deprecated. Use the flat form `"type": "float"` + `"precision": 2`. The server reads an object `type` as `float` with the node's `precision` (default `2`) — the number inside the object is ignored.
 
 !!! note "Verify in ontology"
     `type` and `precision` are the only numeric-specific properties this model reads. Any other property on a real node is a shared/`request_config` property, not a `component_number` feature — verify it in the ontology before relying on it.
@@ -233,15 +231,7 @@ Alternative accepted formats:
 2. **Array of bare numbers** (v6 form) — `[104,-75.35]`.
 3. **Lang-keyed object** (legacy raw export) — `{"lg-nolan":[104]}`; the first `lg-*` partition is extracted and normalized.
 
-The import engine (`conformImportData()`, `src/core/tools/import_data.ts`) handles (2) and (3) generically (the JSON array/lang-keyed branches wrap bare numbers into `{value}` items), but **not (1) faithfully**:
-
-!!! warning "Gap: plain-number cells are not parsed to a number"
-    A bare non-JSON cell like `33.85` does not start with `[`/`{`, so it falls
-    through to the generic value-property wrap (`component_number` is a
-    `VALUE_PROPERTY_MODELS` member) and is stored as `{"value": "33.85"}` — the
-    **raw string**, not a parsed number. There is no decimal-separator option
-    and no `int`/`float` cast in the TS import path. Import numeric columns as
-    proper JSON (`[{"value":33.85}]`) to be safe until this is ported.
+The import engine (`conformImportData()`, `src/core/tools/import_data.ts`) parses all three: a plain cell with the column's decimal separator (currency symbols and units stripped), a JSON cell's numeric strings cast to numbers. The result is formatted with the node's `type` / `precision` (see above), so the import preview shows the value that will be stored.
 
 See the full import definition in [importing_data.md → Numbers](../../using/importing_data.md#numbers) and the export model in [exporting_data.md](../../using/exporting_data.md).
 

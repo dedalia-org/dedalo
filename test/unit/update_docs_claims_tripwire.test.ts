@@ -32,7 +32,17 @@
  *  C9 the post-verification lists equal RUN_VERIFY_PREDICATES, in order;
  *  C10 every claim about a declared `ontology` precondition (`min`, before the
  *     swap) agrees with the loader (accepted or refused) and the planner
- *     (hoisted before the code phase).
+ *     (hoisted before the code phase);
+ *  C11 every claim about which releases may carry a migration, and every
+ *     claim that a code-only or same-version run "cannot move the model" /
+ *     "never crosses", agrees with the migration ledger
+ *     (install/db/migrations.lock.json) and the catalog: a carry rule must
+ *     name each release whose migrations ride no compat-declaring plan (today
+ *     the line start, `7.0.0`, with `incompatible` migrations), and no text may
+ *     state that a same-version run never crosses a data model while the
+ *     ledger holds an `incompatible` migration — nothing holds the builds of
+ *     one release to one data model (T1-25 review). This check also reads
+ *     engineering/VERSIONING_SPEC.md §4 and the update-run wire-contract entry.
  *
  * Every extractor has an anti-vacuity floor, and every check has a planted
  * positive control: a mutated doc string must turn it red.
@@ -44,6 +54,7 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readMigrationLedger } from '../../install/db/migration_ledger.ts';
 import { publishedPagePaths } from '../../scripts/lib/docs_paths.ts';
 import { releaseTagFault } from '../../scripts/lib/release_tag.ts';
 import { CONFIG_CATALOG } from '../../src/config/catalog/index.ts';
@@ -52,6 +63,7 @@ import type { Principal } from '../../src/core/security/permissions.ts';
 import { RELEASE_PLANS } from '../../src/core/update/catalog.ts';
 import {
 	CATALOG_FILE_FORMAT,
+	DEFAULT_RELEASE_STEPS,
 	parseCatalogFile,
 	type ReleasePlan,
 	type ReleaseStep,
@@ -66,6 +78,7 @@ import { planRun } from '../../src/core/update/run/plan.ts';
 import { failureExit } from '../../src/core/update/run/rollback.ts';
 import { happyPath, isTerminal, TERMINAL_STATES } from '../../src/core/update/run/states.ts';
 import { RUN_VERIFY_PREDICATES } from '../../src/core/update/run/verify.ts';
+import { compareVersionArrays, DATA_LINE_START } from '../../src/core/update/version.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const UPDATES_DIR = 'docs/administration/updates';
@@ -385,7 +398,7 @@ async function checkMaintenanceColumn(corpus: Corpus): Promise<string[]> {
 // C3 — failure exits
 // ---------------------------------------------------------------------------
 
-type Scenario = 'pre' | 'compatible' | 'incompatible' | 'none';
+type Scenario = 'pre' | 'compatible' | 'incompatible' | 'none' | 'same_triple';
 
 function failureRows(
 	corpus: Corpus,
@@ -394,36 +407,54 @@ function failureRows(
 		const first = cells[0] ?? '';
 		const scenario: Scenario | null = /\bbefore\b/.test(first)
 			? 'pre'
-			: first.includes('`incompatible`')
-				? 'incompatible'
-				: /no `compat`/.test(first)
-					? 'none'
-					: first.includes('`compatible`')
-						? 'compatible'
-						: null;
+			: /\bsame[- ]version\b/.test(first)
+				? 'same_triple'
+				: first.includes('`incompatible`')
+					? 'incompatible'
+					: /no `compat`/.test(first)
+						? 'none'
+						: first.includes('`compatible`')
+							? 'compatible'
+							: null;
 		return { scenario, documented: backticked(cells[1] ?? '')[0] ?? '', row: first };
 	});
 }
 
+/**
+ * The measured exit of each documented scenario. 'none' is the REAL code-only
+ * shape (no compat, the default steps undeclared); 'same_triple' plants the
+ * strongest catalog claim (the triple itself `incompatible`) — owner ruling
+ * 2026-11-11 (T1-25): a same-version run is not COUNTED as a crossing,
+ * whatever its triple (a ruling, not a model guarantee — C11).
+ */
 function measuredExit(scenario: Scenario): string {
+	const sameTriple = scenario === 'same_triple';
+	const release = sameTriple ? '7.0.0' : '7.0.1';
 	const compat =
-		scenario === 'compatible' ? 'compatible' : scenario === 'incompatible' ? 'incompatible' : null;
+		scenario === 'compatible'
+			? 'compatible'
+			: scenario === 'incompatible' || sameTriple
+				? 'incompatible'
+				: null;
 	const plans: Record<string, ReleasePlan> = {
-		'7.0.1': {
-			version: '7.0.1',
-			compat,
-			steps: [{ kind: 'code' }, { kind: 'schema' }],
-			declared: true,
-		},
+		[release]:
+			scenario === 'none'
+				? { version: release, compat, steps: DEFAULT_RELEASE_STEPS, declared: false }
+				: {
+						version: release,
+						compat,
+						steps: [{ kind: 'code' }, { kind: 'schema' }],
+						declared: true,
+					},
 	};
 	const journal: RunJournal = createRunJournal({
-		from: { release: '7.0.0', data: '7.0.0', model: '7.0.0' },
-		to: { release: '7.0.1', data: '7.0.0', model: '7.0.0' },
+		from: { release: sameTriple ? '7.0.0-beta.7' : '7.0.0', data: '7.0.0', model: '7.0.0' },
+		to: { release: sameTriple ? '7.0.0-beta.8' : '7.0.1', data: '7.0.0', model: '7.0.0' },
 		plan: [],
 		releasePlans: plans,
 	});
 	const record = (step: ReleaseStep, outcome: 'ok' | 'failed') => ({
-		release: '7.0.1',
+		release,
 		step,
 		started: journal.created,
 		finished: journal.created,
@@ -450,7 +481,7 @@ function checkFailureTable(corpus: Corpus): string[] {
 			found.push(`failure '${row.row}': docs say ${row.documented}, rollback.ts says ${truth}`);
 	}
 	const covered = new Set(rows.map((row) => row.scenario));
-	for (const scenario of ['pre', 'compatible', 'incompatible', 'none'] as const)
+	for (const scenario of ['pre', 'compatible', 'incompatible', 'none', 'same_triple'] as const)
 		if (!covered.has(scenario)) found.push(`failure scenario '${scenario}' is not documented`);
 	return found;
 }
@@ -880,8 +911,110 @@ describe('anti-vacuity: the extractors find the claims', () => {
 		).toBeGreaterThanOrEqual(4);
 		expect(verifyLists(CORPUS).length).toBeGreaterThanOrEqual(2);
 		expect(preconditionClaims(CORPUS).length).toBeGreaterThanOrEqual(2);
+		// the manual and the spec each state the carry rule; the line start is uncovered today
+		expect(
+			carriageClaims(CORPUS).filter((claim) => claim.kind === 'carry').length,
+		).toBeGreaterThanOrEqual(2);
+		expect(uncoveredMigrationReleases().get('7.0.0')?.length ?? 0).toBeGreaterThan(0);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// C11 — migration carriage and "never crosses" claims (T1-25 review)
+// ---------------------------------------------------------------------------
+
+const VERSIONING_SPEC = 'engineering/VERSIONING_SPEC.md';
+const WC_UPDATE_RUN = 'engineering/wire_contract/WC-2026-10-30-update-run.md';
+const LEDGER = await readMigrationLedger();
+
+/** C11 reads the corpus plus the spec and the wire-contract entry that state the same rules. */
+function c11Corpus(corpus: Corpus): Corpus {
+	return {
+		...corpus,
+		[VERSIONING_SPEC]: read(VERSIONING_SPEC),
+		[WC_UPDATE_RUN]: read(WC_UPDATE_RUN),
+	};
+}
+
+/**
+ * MEASURED: the ledger releases whose migrations ride no compat-declaring plan
+ * (no catalog entry, or a code-only one) — the releases a carry rule does NOT
+ * cover — with the `incompatible` files each carries.
+ */
+function uncoveredMigrationReleases(
+	ledger = LEDGER,
+	plans: Readonly<Record<string, ReleasePlan>> = RELEASE_PLANS,
+): Map<string, string[]> {
+	const uncovered = new Map<string, string[]>();
+	for (const [file, entry] of Object.entries(ledger.migrations)) {
+		const plan = plans[entry.release];
+		if (plan !== undefined && plan.compat !== null) continue;
+		const files = uncovered.get(entry.release) ?? [];
+		if (entry.class === 'incompatible') files.push(file);
+		uncovered.set(entry.release, files);
+	}
+	return uncovered;
+}
+
+/** Does `sentence` name `version` as a bare release (not `7.0.0-beta.7`, not `7.0.0.1`)? */
+function namesRelease(sentence: string, version: string): boolean {
+	const escaped = version.replaceAll('.', '\\.');
+	return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-]|\\.\\d)`).test(sentence);
+}
+
+const CARRY_RULE = [
+	/\b(?:adds?|carr(?:y|ies)) a migration\b[^.]*\bmust declare\b/i,
+	/\bincompatible`? migration needs an `?incompatible\b/i,
+	/\bcode-only\b[^.]*\bcannot (?:change|move) the (?:data )?model\b/i,
+];
+const SAME_VERSION = /\bsame[- ](?:version|triple)\b/i;
+const NEVER_CROSSES = /\b(?:never cross(?:es)?|cannot (?:change|move) the (?:data )?model)\b/i;
+
+type CarriageClaim = { where: string; kind: 'carry' | 'never_crosses'; sentence: string };
+
+function carriageClaims(corpus: Corpus): CarriageClaim[] {
+	return Object.entries(c11Corpus(corpus)).flatMap(([where, text]) =>
+		sentences(text).flatMap((sentence): CarriageClaim[] => {
+			const found: CarriageClaim[] = [];
+			if (CARRY_RULE.some((rule) => rule.test(sentence)))
+				found.push({ where, kind: 'carry', sentence });
+			if (SAME_VERSION.test(sentence) && NEVER_CROSSES.test(sentence))
+				found.push({ where, kind: 'never_crosses', sentence });
+			return found;
+		}),
+	);
+}
+
+function checkCarriageClaims(corpus: Corpus, ledger = LEDGER): string[] {
+	const uncovered = uncoveredMigrationReleases(ledger);
+	const incompatible = Object.entries(ledger.migrations)
+		.filter(([, entry]) => entry.class === 'incompatible')
+		.map(([file]) => file);
+	const found: string[] = [];
+	// the uncovered releases may only be the line start (migration_content_hash_tripwire)
+	for (const release of uncovered.keys()) {
+		const triple = release.split('.').map(Number);
+		if (compareVersionArrays(triple, DATA_LINE_START) > 0)
+			found.push(`ledger: release ${release} carries a migration without a compat-declaring plan`);
+	}
+	for (const claim of carriageClaims(corpus)) {
+		const head = `${claim.where}: "${claim.sentence.slice(0, 140)}"`;
+		if (claim.kind === 'carry') {
+			const unnamed = [...uncovered.keys()].filter(
+				(release) => !namesRelease(claim.sentence, release),
+			);
+			if (unnamed.length > 0)
+				found.push(
+					`${head} — states the carry rule without naming ${unnamed.join(', ')}, whose migrations (incompatible: ${unnamed.flatMap((r) => uncovered.get(r) ?? []).join(', ') || 'none'}) ride no compat-declaring release`,
+				);
+		} else if (incompatible.length > 0) {
+			found.push(
+				`${head} — a same-version run is NOT held to one data model: the ledger holds incompatible migrations (${incompatible.join(', ')}) and nothing stops a later build of a release from adding one; say it is not COUNTED as a crossing (owner ruling), never that it cannot cross`,
+			);
+		}
+	}
+	return found;
+}
 
 describe('the docs equal the code', () => {
 	test('C1 phase order', () => expect(checkOrder(CORPUS)).toEqual([]));
@@ -899,6 +1032,8 @@ describe('the docs equal the code', () => {
 	test('C9 verify predicates', () => expect(checkVerify(CORPUS)).toEqual([]));
 	test('C10 ontology precondition (loader + planner)', () =>
 		expect(checkPrecondition(CORPUS)).toEqual([]));
+	test('C11 migration carriage + "never crosses" claims (ledger + catalog)', () =>
+		expect(checkCarriageClaims(CORPUS)).toEqual([]));
 });
 
 describe('positive controls: a planted drift is caught', () => {
@@ -1054,5 +1189,40 @@ describe('positive controls: a planted drift is caught', () => {
 				),
 			).length,
 		).toBeGreaterThan(0);
+	});
+	test('C11 an unscoped carry rule, a "never crosses" same-version claim, a migration on a code-only patch', () => {
+		expect(
+			checkCarriageClaims(
+				mutate(
+					CORPUS,
+					INDEX,
+					'After `7.0.0`, a code-only release (one that declares no `compat`) cannot change the data model: its default `ontology` and `schema` phases run, but every release after `7.0.0` that adds',
+					'A code-only release (one that declares no `compat`) cannot change the data model: its default `ontology` and `schema` phases run, but every release that adds',
+				),
+			).length,
+		).toBeGreaterThan(0);
+		expect(
+			checkCarriageClaims(
+				mutate(
+					CORPUS,
+					INDEX,
+					'It walks no release, and by an owner ruling it is not counted as a crossing',
+					'It walks no release, so a same-version run never crosses a data model',
+				),
+			).length,
+		).toBeGreaterThan(0);
+		// a migration ledgered on the code-only 7.0.1 is an uncovered release past the line start
+		const planted = {
+			format: LEDGER.format,
+			migrations: {
+				...LEDGER.migrations,
+				'0099_probe.sql': {
+					sha256: '0'.repeat(64),
+					class: 'incompatible' as const,
+					release: '7.0.1',
+				},
+			},
+		};
+		expect(checkCarriageClaims(CORPUS, planted).length).toBeGreaterThan(0);
 	});
 });

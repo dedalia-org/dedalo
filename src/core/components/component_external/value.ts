@@ -241,6 +241,12 @@ export interface DerivedExternalValue {
 export interface DeriveExternalOptions {
 	/** The read's emission context, when there is one (prefetch + test seams). */
 	readonly emission?: EmissionContext;
+	/**
+	 * The data lang the remote row is fetched in, when the CALLER fixes it (a
+	 * publication run: one lang per run, never the trigger's — T1-42). Absent =
+	 * the request's ambient data lang (the facade's own backstop).
+	 */
+	readonly dataLang?: string;
 }
 
 /**
@@ -324,7 +330,7 @@ export async function deriveExternalValue(
 				api.externalRowViewKey(sectionTipo, remoteId),
 				sectionTipo,
 				api.remoteFieldsOf(fieldsMap),
-			) ?? (await fetchOwnRow(api, sectionTipo, remoteId, fieldsMap, options.emission));
+			) ?? (await fetchOwnRow(api, sectionTipo, remoteId, fieldsMap, options));
 
 		return toDerived(service, api.mapRowToEntries(resolved.model, rowView, fieldsMap), rowView);
 	} catch (error) {
@@ -414,12 +420,15 @@ async function fetchOwnRow(
 	sectionTipo: string,
 	remoteId: string,
 	fieldsMap: Parameters<typeof api.mapRowToEntries>[2],
-	emission: EmissionContext | undefined,
+	options: DeriveExternalOptions,
 ): Promise<ExternalRowView> {
-	const deps = externalTransportDepsForRead(emission);
+	const deps = externalTransportDepsForRead(options.emission);
 	const views = await api.fetchExternalRows(
 		[{ sectionTipo, remoteId, remoteFields: api.remoteFieldsOf(fieldsMap) }],
-		deps === undefined ? {} : { deps },
+		{
+			...(deps === undefined ? {} : { deps }),
+			...(options.dataLang === undefined ? {} : { dataLang: options.dataLang }),
+		},
 	);
 	const view = views.get(api.externalRowViewKey(sectionTipo, remoteId));
 	if (view === undefined) {

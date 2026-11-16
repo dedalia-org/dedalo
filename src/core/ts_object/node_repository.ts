@@ -21,6 +21,13 @@
  * format_number_value (:378), pick_order_value_for_parent (:466).
  */
 
+import {
+	formatNumber,
+	NUMBER_FORMAT_NONE,
+	type NumberFormatSource,
+	numberFormatOf,
+	resolveNumberFormat,
+} from '../components/component_number/number_format.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../ontology/resolver.ts';
@@ -82,40 +89,31 @@ function groupLocators(locators: NodeLocator[]): Map<string, number[]> {
 }
 
 /**
- * FORMAT_NUMBER_VALUE (PHP :378): reproduce component_number::set_format_form_type
- * so batched order values carry the same type/rounding as a component read.
- * Empty (and not the integer 0) → null. No type → float. 'int' → trunc.
+ * FORMAT_NUMBER_VALUE (PHP :378): the order value as a component read carries it
+ * — component_number's format law (`component_number/number_format.ts`, T1-40),
+ * the ONE copy shared with the save door. v6 empty semantics: null / '' / false
+ * → null, but `0` and `'0'` are the number 0 (frozen v7's `empty()` also nulled
+ * `'0'` — a regression vs v6). A string is read as PHP `(float)` reads it
+ * (leading number); one with no number at all is no order (null).
  */
-export function formatNumberValue(
-	value: unknown,
-	type: string | null,
-	precision = 2,
-): number | string | null {
-	// PHP empty(): '' , null, 0, '0', false all "empty"; but $value!==0 keeps int 0.
-	const isEmpty =
-		value === null ||
-		value === undefined ||
-		value === '' ||
-		value === false ||
-		value === 0 ||
-		value === '0';
-	if (isEmpty && value !== 0) {
+export function formatNumberValue(value: unknown, format: NumberFormatSource): number | null {
+	if (value === null || value === undefined || value === '' || value === false) {
 		return null;
 	}
-	if (type === null || type === '' || type === undefined) {
-		return Number.parseFloat(String(value));
-	}
-	switch (type) {
-		case 'int':
-			return Math.trunc(Number(value));
-		default: {
-			// 'float' and anything else: round to precision.
-			const numeric = Number(value);
-			return Number.isFinite(numeric)
-				? Number(numeric.toFixed(Math.trunc(precision))) + 0
-				: Number.parseFloat(String(value));
-		}
-	}
+	const numeric = typeof value === 'string' ? Number.parseFloat(value.trim()) : Number(value);
+	return Number.isFinite(numeric) ? formatNumber(numeric, resolveNumberFormat(format)) : null;
+}
+
+/**
+ * The order component's number format (type/precision from the order node's
+ * props), resolved LAZILY (T1-40 review): a malformed order node refuses
+ * (`ontology.invalid_node`) only when a row carries an order value to format —
+ * never eagerly for a whole section group (PHP failed per formatted value).
+ */
+async function orderFormatSource(orderTipo: string | null): Promise<NumberFormatSource> {
+	if (orderTipo === null) return NUMBER_FORMAT_NONE;
+	const properties = (await getNode(orderTipo))?.properties ?? null;
+	return () => numberFormatOf(properties, orderTipo);
 }
 
 /**
@@ -251,17 +249,7 @@ export async function fetchNodeInfo(
 			});
 		}
 
-		// Order component number format (type/precision from the order node props).
-		let orderNumberType: string | null = null;
-		let orderNumberPrecision = 2;
-		if (safeOrderTipo !== null) {
-			const props = ((await getNode(safeOrderTipo))?.properties ?? null) as {
-				type?: string;
-				precision?: number;
-			} | null;
-			orderNumberType = props?.type ?? null;
-			orderNumberPrecision = props?.precision ?? 2;
-		}
+		const orderNumberFormat = await orderFormatSource(safeOrderTipo);
 
 		// is_indexable section-level rules (PHP: roots never indexable; unresolved model → false).
 		const indexablePossible =
@@ -312,7 +300,7 @@ export async function fetchNodeInfo(
 			} else {
 				orderValue = row.order_value ?? null;
 			}
-			const formatted = formatNumberValue(orderValue, orderNumberType, orderNumberPrecision);
+			const formatted = formatNumberValue(orderValue, orderNumberFormat);
 			const isIndexable =
 				indexablePossible &&
 				row.indexable_value !== null &&

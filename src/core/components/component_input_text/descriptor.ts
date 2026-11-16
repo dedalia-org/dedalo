@@ -11,6 +11,7 @@ export const component_input_text: ComponentModel = {
 	render: 'text',
 	importAppend: 'items',
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'string',
 	searchBuilder: 'string',
 	flatValue: 'string',
 	importValueProperty: true,

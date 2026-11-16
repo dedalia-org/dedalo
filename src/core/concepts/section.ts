@@ -45,7 +45,8 @@ export const GROUPER_MODELS: readonly string[] = [
 
 /**
  * Legacy grouper alias (PHP common::$ar_temp_map_models, class.common.php:430):
- * section_group_div renders as a section_group (with add_label=false, :3892).
+ * section_group_div renders as a section_group (with add_label=false — PHP
+ * section_group_json.php:92-107; TS emitter: resolve/structure_context.ts buildCore).
  */
 export const GROUPER_MODEL_ALIASES: Readonly<Record<string, string>> = {
 	section_group_div: 'section_group',
@@ -127,6 +128,33 @@ export const ACTIVITY_WHEN_TIPO = 'dd547';
 
 /** The Time Machine section (dd15) — the audit-history log, consultation-only. */
 export const TIME_MACHINE_SECTION_TIPO = 'dd15';
+
+/** The per-user EDITING search preset (PHP DEDALO_TEMP_PRESET_SECTION_TIPO). */
+export const TEMP_PRESET_SECTION_TIPO = 'dd655';
+
+/** The daily user-activity statistics (PHP USER_ACTIVITY_SECTION_TIPO). */
+export const USER_ACTIVITY_SECTION_TIPO = 'dd1521';
+
+/**
+ * Sections the Time Machine NEVER versions — PHP v7
+ * core/tm_record/class.tm_record.php `$excluded_section_tipos` = [dd655, dd15,
+ * dd1521] (guarded in tm_record::create and component_common::save). v6 had no
+ * such list; it appeared with PHP v7 and the TS port first carried only dd15
+ * (T1-20 / O16).
+ *  - dd655: the editing search preset, rewritten on EVERY filter edit of the
+ *    search panel — volatile per-user state, not heritage data;
+ *  - dd15: the Time Machine itself (its rows are the history);
+ *  - dd1521: a derived daily aggregate, rebuildable by rebuild_user_stats.
+ * Consequence (same as PHP): saves, deletes and bulk runs on them leave no
+ * history — a deleted one cannot be recovered, a bulk revert does not touch
+ * them. Every TM writer funnels through time_machine.ts `isTmAuditedAddress`.
+ * Gate: test/unit/tm_excluded_sections_native.test.ts.
+ */
+export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([
+	TEMP_PRESET_SECTION_TIPO,
+	TIME_MACHINE_SECTION_TIPO,
+	USER_ACTIVITY_SECTION_TIPO,
+]);
 
 /**
  * The Time Machine NOTES section (rsc832, PHP DEDALO_TIME_MACHINE_NOTES_SECTION_TIPO,

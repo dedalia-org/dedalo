@@ -113,12 +113,25 @@ export function registerRetentionCatalog(): void {
 				// The statement lives in the matrix DML writer home; this module
 				// decides only WHETHER and FROM WHEN (sql_confinement T2).
 				const { pruneMatrixEventRowsByAge } = await import('../db/matrix_write.ts');
-				const result = await pruneMatrixEventRowsByAge(
+				const outcome = await pruneMatrixEventRowsByAge(
 					'matrix_activity',
 					cutoffIso(days, options),
-					{ apply: options.apply },
+					{
+						apply: options.apply,
+						batchRows: options.batchRows,
+						signal: options.signal,
+					},
 				);
-				return { ...result, detail };
+				return {
+					candidates: outcome.candidates,
+					deleted: outcome.deleted,
+					detail: {
+						...detail,
+						batches: outcome.batches,
+						batch_rows: outcome.batchRows,
+						stopped: outcome.stopped,
+					},
+				};
 			},
 		},
 	});
@@ -137,7 +150,13 @@ export function registerRetentionCatalog(): void {
 			prune: async (options) => {
 				const days = Math.max(0, readNumber('DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS'));
 				const { pruneSettledLedgerRows } = await import('../diffusion_bridge/diffusion_delete.ts');
-				return pruneSettledLedgerRows({ windowDays: days, apply: options.apply, now: options.now });
+				return pruneSettledLedgerRows({
+					windowDays: days,
+					apply: options.apply,
+					now: options.now,
+					batchRows: options.batchRows,
+					signal: options.signal,
+				});
 			},
 		},
 	});

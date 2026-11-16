@@ -42,6 +42,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { CORE_ONTOLOGY_TLDS } from '../ontology/core_tlds.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { SEED_DUMP_PATH } from './paths.ts';
@@ -131,18 +132,7 @@ function errorText(error: unknown): string {
  * any engine write or read can touch them.
  */
 export async function completeFreshInstall(): Promise<string> {
-	// DERIVED SEARCH STORES — per-(store, table) refill of everything the seed
-	// restored (db_assets.ts ensureSearchStores). Its errors are RETURNED (a
-	// booting server logs and serves); an install whose search stores did not
-	// build is not an install that worked, so here they refuse.
-	const { ensureSearchStores } = await import('../db/db_assets.ts');
-	const stores = await ensureSearchStores();
-	if (stores.errors.length > 0) {
-		refuseInstall(
-			'install.step_failed',
-			`Derived search stores could not be built: ${stores.errors.map(errorText).join(' | ')}`,
-		);
-	}
+	const stamped = await buildAndStampSearchStores();
 	// CORE HIERARCHIES (A7): Languages is ACTIVATED against the terms the seed
 	// already ships in matrix_langs — never imported (hierarchy_activate.ts
 	// header carries the measurement). Here, in the restore, so every surface
@@ -152,7 +142,42 @@ export async function completeFreshInstall(): Promise<string> {
 	// itself refuses `install.step_failed`, naming each failed tld).
 	const { activateCoreHierarchies } = await import('./hierarchy_activate.ts');
 	const core = await activateCoreHierarchies(-1);
-	return `Database installed from seed (core ontologies: ${CORE_ONTOLOGY_TLDS.join(', ')}) + derived search stores + core hierarchies activated (${core.activated.join(', ')}) — OK`;
+	return `Database installed from seed (core ontologies: ${CORE_ONTOLOGY_TLDS.join(', ')}) + derived search stores (stamped: ${stamped.join(', ')}) + core hierarchies activated (${core.activated.join(', ')}) — OK`;
+}
+
+/**
+ * DERIVED SEARCH STORES — per-(store, table) refill of everything the seed
+ * restored (db_assets.ts ensureSearchStores), then the DERIVATION STAMP over
+ * what it filled (T1-25 / D05): every pair ensure just refilled is fresh, so
+ * nothing is refilled twice, and the first update re-derives nothing. A resumed
+ * install (ensure healthy, stamps absent) re-derives the seed-sized stores once
+ * and converges. Ensure's errors are RETURNED (a booting server logs and
+ * serves); an install whose search stores did not build — or could not be
+ * stamped — is not an install that worked, so here they refuse. Unbounded
+ * statements: a refill is bulk work, not a request (ancillary.ts, same reason).
+ */
+async function buildAndStampSearchStores(): Promise<string[]> {
+	const { ensureSearchStores, reconcileSearchStoreDerivation } = await import('../db/db_assets.ts');
+	const { withUnboundedStatements } = await import('../db/postgres.ts');
+	return withUnboundedStatements(async () => {
+		const stores = await ensureSearchStores();
+		if (stores.errors.length > 0) {
+			refuseInstall(
+				'install.step_failed',
+				`Derived search stores could not be built: ${stores.errors.map(errorText).join(' | ')}`,
+			);
+		}
+		const derivation = await reconcileSearchStoreDerivation(stores.backfilledTables);
+		if (derivation.errors > 0) {
+			refuseInstall(
+				'install.step_failed',
+				`Derived search stores could not be stamped: ${derivation.errors} re-derive error(s), see the log`,
+			);
+		}
+		return derivation.decisions
+			.filter(({ action }) => action !== 'absent')
+			.map(({ store }) => store);
+	});
 }
 
 /**
@@ -550,14 +575,44 @@ async function seedTablesProblem(conn: DbConnDescriptor): Promise<SeedVerdict | 
 			};
 }
 
-/** completeFreshInstall's work: the relation index, every core hierarchy usable. */
+/** completeFreshInstall's work: the relation index, the store stamps, every core hierarchy usable. */
 async function engineHalfProblem(conn: DbConnDescriptor): Promise<SeedVerdict | null> {
 	if ((await scalar(conn, 'SELECT EXISTS (SELECT 1 FROM matrix_relation_index)')) !== 't') {
 		return { ok: false, detail: 'the derived relation index is empty' };
 	}
+	// Before anything reads the engine pool: the stamps are read over `conn`.
+	const { searchStoreStampProblem } = await import('../db/db_assets.ts');
+	const stamps = searchStoreStampProblem(await searchStoreStampsOf(conn));
+	if (stamps !== null) return { ok: false, detail: stamps };
 	const { coreHierarchiesProblem } = await import('./hierarchy_activate.ts');
 	const hierarchies = await coreHierarchiesProblem();
 	return hierarchies === null ? null : { ok: false, detail: hierarchies };
+}
+
+/**
+ * The comment on every declared derived search store, read over `conn` (the
+ * installer's own connection, not the engine pool): store → comment, null when
+ * it carries none; a store that does not exist is absent from the map. A psql
+ * failure reads as no store at all (the verify then names every one).
+ */
+export async function searchStoreStampsOf(
+	conn: DbConnDescriptor,
+): Promise<Map<string, string | null>> {
+	const { SEARCH_STORE_BACKFILLS } = await import('../db/db_assets.ts');
+	const names = SEARCH_STORE_BACKFILLS.map(({ store }) => {
+		if (!/^[a-z_]+$/.test(store)) {
+			throw new DedaloError('internal.invariant', {
+				message: `db_restore: search store name '${store}' is outside [a-z_]`,
+			});
+		}
+		return `'${store}'`;
+	});
+	const json = await scalar(
+		conn,
+		`SELECT coalesce(json_object_agg(relname, obj_description(oid, 'pg_class')), '{}') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p') AND relname IN (${names.join(', ')})`,
+	);
+	if (json === null || json === '') return new Map();
+	return new Map(Object.entries(JSON.parse(json) as Record<string, string | null>));
 }
 
 /**

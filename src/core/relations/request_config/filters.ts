@@ -28,10 +28,16 @@
  * config item whose sqo carries either key.
  */
 
-import { memoizedReadMatrixRecord } from '../../db/record_memo.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
-import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../../ontology/resolver.ts';
-import { readComponentItems } from '../../resolve/component_data.ts';
+import { getNode } from '../../ontology/resolver.ts';
+import type { Principal } from '../../security/permissions.ts';
+import {
+	ddoFunctionName,
+	readStoredComponentData,
+	type WalkDdo,
+	type WalkReader,
+	walkComponentData,
+} from '../component_data_walk.ts';
 
 /**
  * The most ids ONE `hierarchy_terms` fixed_filter term may expand to.
@@ -96,17 +102,42 @@ export async function expandFilterByList(
 			sectionTipo,
 			mode: 'edit',
 			lang,
-			permissions: 3,
+			...(await filterFieldPermissions(sectionTipo, componentTipo)),
 			addRequestConfig: false, // PHP simple context omits request_config
 		});
 
+		// No owner RECORD: a search-panel filter field lists the vocabulary, not
+		// one record's options. The principal scopes it inside getDatalist.
 		const { getDatalist } = await import('../datalist.ts');
 		const node = await getNode(componentTipo);
-		const datalist = await getDatalist(componentTipo, node?.properties ?? null, sectionTipo, lang);
+		const datalist = await getDatalist(
+			componentTipo,
+			node?.properties ?? null,
+			{ section_tipo: sectionTipo, section_id: null },
+			lang,
+		);
 
 		expanded.push({ context, datalist });
 	}
 	return expanded;
+}
+
+/**
+ * A filter field's simple-context permissions: the CALLER's real level (PHP
+ * builds the context through the component instance, get_permissions), not a
+ * hard-coded 3 — and the principal, so the context's own principal-gated parts
+ * match (the search panel's precedent, resolve/section_elements_context.ts).
+ * No request principal (an internal build) keeps the old full level.
+ */
+async function filterFieldPermissions(
+	sectionTipo: string,
+	componentTipo: string,
+): Promise<{ permissions: number; principal?: Principal }> {
+	const { currentPrincipal } = await import('../../security/request_context.ts');
+	const principal = currentPrincipal();
+	if (principal === undefined) return { permissions: 3 };
+	const { getPermissions } = await import('../../security/permissions.ts');
+	return { permissions: await getPermissions(principal, sectionTipo, componentTipo), principal };
 }
 
 /** One fixed_filter descriptor as stored in the ontology. */
@@ -163,7 +194,7 @@ export async function expandFixedFilter(
 					const value = rawValue as {
 						q?: string;
 						path?: unknown[];
-						ddo_map?: { tipo?: string; parent?: string; section_tipo?: string; last?: boolean }[];
+						ddo_map?: WalkDdo[];
 						q_operator?: unknown;
 						search_section_id?: boolean;
 						use_from_component_tipo?: boolean;
@@ -180,14 +211,18 @@ export async function expandFixedFilter(
 					const initDdo = ddoMap.find(
 						(ddo) => ddo.parent === 'self' || ddo.parent === callerSectionTipo,
 					);
-					const resolveDdo = ddoMap.find((ddo) => ddo.tipo === value.q);
-					if (resolveDdo !== undefined) resolveDdo.last = true;
+					// The leaf is the first ddo naming `q` — passed to the walker, never
+					// written onto the (cached, ontology-owned) ddo as PHP's `last`.
+					const leafDdo = ddoMap.find((ddo) => ddo.tipo === value.q);
 
 					const componentData =
-						initDdo !== undefined
-							? await resolveComponentDataRecursively(ddoMap, initDdo, {
-									section_tipo: callerSectionTipo,
-									section_id: callerSectionId,
+						initDdo !== undefined && callerSectionId !== null
+							? await walkComponentData({
+									ddoMap,
+									start: initDdo,
+									leaf: leafDdo,
+									address: { section_tipo: callerSectionTipo, section_id: callerSectionId },
+									read: fixedFilterReader,
 								})
 							: [];
 
@@ -278,75 +313,19 @@ export async function expandFixedFilter(
 }
 
 /**
- * Walk a ddo_map chain depth-first, reading each component's stored data and
- * passing the result locators as context to the next level (PHP
- * resolve_component_data_recursively :3171). The ddo marked `last` is the
- * leaf — its data returns directly; non-leaf ddos fan out into their
- * recursive descendants, merging results in order.
+ * The fixed_filter READ POLICY for the shared ddo_map walker
+ * (relations/component_data_walk.ts): a plain ddo reads its stored data; an
+ * `fn` / `data_fn` ddo (PHP dispatches get_calculation_data) is UNCOVERED here
+ * — no live fixed_filter uses it, and a silent empty filter would match more
+ * than the author meant.
  */
-async function resolveComponentDataRecursively(
-	ddoMap: { tipo?: string; parent?: string; last?: boolean; fn?: string; data_fn?: string }[],
-	current: { tipo?: string; last?: boolean; fn?: string; data_fn?: string },
-	// KEPT UNION: the walk cursor is fed by the previous level's STORED locator
-	// (see the fan-out below) — unswept string ids and external remote ids both
-	// reach here; the value is only ever Number()'d for the row read.
-	data: { section_tipo: string; section_id: number | string | null },
-): Promise<unknown[]> {
-	const tipo = current.tipo;
-	if (typeof tipo !== 'string' || data.section_id === null || data.section_id === undefined) {
-		return [];
-	}
-	const fn = current.fn ?? current.data_fn;
+const fixedFilterReader: WalkReader = async (ddo, address) => {
+	const fn = ddoFunctionName(ddo);
 	if (fn !== undefined) {
-		// PHP dispatches fn 'get_calculation_data'; no live fixed_filter uses it.
 		throw new DedaloError('engine.uncovered_scope', {
 			message: `resolveComponentDataRecursively: fn '${fn}' is not implemented (uncovered scope)`,
 			coordinates: { fn: String(fn) },
 		});
 	}
-	const model = await getModelByTipo(tipo);
-	if (model === null) return [];
-	const table = await getMatrixTableFromTipo(data.section_tipo);
-	if (table === null) return [];
-	const record = await memoizedReadMatrixRecord(table, data.section_tipo, Number(data.section_id));
-	if (record === null) return [];
-	const componentData = readComponentItems(record, tipo, model) ?? [];
-	if (componentData.length === 0) return [];
-
-	if (current.last === true) {
-		return componentData;
-	}
-
-	// Fan out into the ddo's recursive descendants (PHP get_ddo_children_recursive).
-	const children = collectDdoDescendants(ddoMap, tipo);
-	const merged: unknown[] = [];
-	for (const element of componentData) {
-		// KEPT UNION: raw stored component element (unswept legacy string form /
-		// external remote id) passed on as the next level's read cursor.
-		const target = element as { section_tipo?: string; section_id?: number | string } | null;
-		if (typeof target?.section_tipo !== 'string' || target.section_id === undefined) continue;
-		for (const childDdo of children) {
-			const result = await resolveComponentDataRecursively(ddoMap, childDdo, {
-				section_tipo: target.section_tipo,
-				section_id: target.section_id,
-			});
-			merged.push(...result);
-		}
-	}
-	return merged;
-}
-
-/** All recursive descendants of a ddo in the flat map, pre-order (PHP :3238). */
-function collectDdoDescendants(
-	ddoMap: { tipo?: string; parent?: string; last?: boolean }[],
-	parentTipo: string,
-): { tipo?: string; parent?: string; last?: boolean }[] {
-	const descendants: { tipo?: string; parent?: string; last?: boolean }[] = [];
-	for (const ddo of ddoMap) {
-		if (ddo.parent === parentTipo && typeof ddo.tipo === 'string') {
-			descendants.push(ddo);
-			descendants.push(...collectDdoDescendants(ddoMap, ddo.tipo));
-		}
-	}
-	return descendants;
-}
+	return readStoredComponentData(ddo.tipo, address);
+};

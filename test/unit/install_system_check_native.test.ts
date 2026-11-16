@@ -40,6 +40,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { processEnvValue, seedProcessEnv, unsetProcessEnv } from '../../src/config/env.ts';
 import { type FirewallFacts, parseUfwStatus } from '../../src/core/install/host/firewall.ts';
 import { unsupportedOsSentence } from '../../src/core/install/host/os_support.ts';
 import { pendingStackFacts, type StackFacts } from '../../src/core/install/host/stack/facts.ts';
@@ -64,6 +65,7 @@ import {
 	type SystemCheckRow,
 } from '../../src/core/install/screen_model.ts';
 import { processorText } from '../../src/core/install/server_info.ts';
+import { emptyTarget } from '../helpers/install_fake_executor.ts';
 import {
 	DOCKER,
 	SCRATCH_DIR,
@@ -97,6 +99,24 @@ const fakePsql = (name: string, version: string): (() => PsqlProbe) => {
 	const dir = pathDir(name, { psql: [`#!/bin/sh\necho '${version}'\n`, 0o755] });
 	return () => probePsqlAt([], { PATH: dir });
 };
+
+/**
+ * Run `work` with the host scratch seam armed on a fresh MARKED root (host/scratch.ts):
+ * docker/trial's Installation row then reads the checkout's stack files and host record
+ * under it, never the developer's own checkout. The seam is restored after.
+ */
+async function withScratchHostRoot<T>(work: () => Promise<T>): Promise<T> {
+	const root = mkdtempSync(join(scratch, 'host_root_'));
+	mkdirSync(join(root, SCRATCH_DIR), { recursive: true });
+	const previous = processEnvValue('DEDALO_INSTALL_HOST_ROOT');
+	seedProcessEnv({ DEDALO_INSTALL_HOST_ROOT: root });
+	try {
+		return await work();
+	} finally {
+		if (previous === undefined) unsetProcessEnv(['DEDALO_INSTALL_HOST_ROOT']);
+		else seedProcessEnv({ DEDALO_INSTALL_HOST_ROOT: previous });
+	}
+}
 
 const rowOf = (outcome: ProbeOutcome, label: string) =>
 	(outcome.rows ?? []).find((row) => row.label === label);
@@ -168,13 +188,19 @@ describe('System check — route-aware over a PATH without psql', () => {
 
 	for (const route of ['docker', 'trial'] as const) {
 		test(`${route}: no PostgreSQL client row; Docker, Compose and the disk rows instead`, async () => {
-			const outcome = await systemCheck(route, {
-				psql: freshHost,
-				stack: async () => scratchStackFacts(),
-			});
+			// The Installation row measures the checkout's stack files + host record: under a
+			// marked scratch root, never the developer's own checkout (its gitignored
+			// .dedalo.env / compose.override.yaml / .dedalo-install/ would fail it there and
+			// pass on a clean CI clone — T1-P08 review).
+			const outcome = await withScratchHostRoot(() =>
+				systemCheck(route, {
+					psql: freshHost,
+					stack: async () => scratchStackFacts(),
+				}),
+			);
 			const labels = (outcome.rows ?? []).map((row) => row.label);
 			expect(labels).not.toContain('PostgreSQL client');
-			for (const label of ['Docker', 'Compose', 'Disk']) {
+			for (const label of ['Docker', 'Compose', 'Disk', 'Installation']) {
 				expect(rowOf(outcome, label)?.state, label).toBe('ok');
 			}
 			expect(outcome.ok).toBe(true);
@@ -184,14 +210,18 @@ describe('System check — route-aware over a PATH without psql', () => {
 	test('docker: the stack rows fail with stack_preflight’s OWN sentences (one rule, one wording)', async () => {
 		const noDocker: StackFacts = { ...pendingStackFacts(), user: 'operator', uid: 1000 };
 		const small: StackFacts = { ...scratchStackFacts(), freeGib: 3 };
-		const absent = await systemCheck('docker', { psql: freshHost, stack: async () => noDocker });
+		const absent = await withScratchHostRoot(() =>
+			systemCheck('docker', { psql: freshHost, stack: async () => noDocker }),
+		);
 		expect(rowOf(absent, 'Docker')).toEqual({
 			state: 'fail',
 			label: 'Docker',
 			detail: STACK_MACHINE_CHECKS.docker(noDocker) as string,
 		});
 		expect(absent.ok).toBe(false);
-		const full = await systemCheck('docker', { psql: freshHost, stack: async () => small });
+		const full = await withScratchHostRoot(() =>
+			systemCheck('docker', { psql: freshHost, stack: async () => small }),
+		);
 		expect(rowOf(full, 'Disk')?.detail).toBe(STACK_MACHINE_CHECKS.disk(small) as string);
 		expect(rowOf(full, 'Disk')?.state).toBe('fail');
 	}, 60000);
@@ -458,11 +488,14 @@ describe('System check — the processor on aarch64 (C3-49)', () => {
 
 describe('Developer: a psql older than the server it installs into is a WARNING (C3-49)', () => {
 	const connect = async () => ({ can_connect: true, db_exists: true, msg: 'connected' });
+	// The target is fresh (T1-P08: the probe also asks the run's fresh-target rule).
+	const inspect = async () => emptyTarget();
 	const answers = { route: 'developer', db_database: 'dedalo_dev', db_username: 'dedalo' };
 
 	test('psql 16 against PostgreSQL 18: warned with the fix; 18 against 18 (or newer): nothing', async () => {
 		const older = await databaseProbe(answers, 'pw', {
 			connect,
+			inspect,
 			serverVersion: async () => '180001',
 			psqlVersion: async () => 'psql (PostgreSQL) 16.4',
 		});
@@ -470,6 +503,7 @@ describe('Developer: a psql older than the server it installs into is a WARNING 
 		expect(older.detail).toContain('warning: psql 16 is older than the server (PostgreSQL 18)');
 		const same = await databaseProbe(answers, 'pw', {
 			connect,
+			inspect,
 			serverVersion: async () => '180001',
 			psqlVersion: async () => 'psql (PostgreSQL) 18.1',
 		});

@@ -124,7 +124,10 @@ export async function resolveMediaToolContext(
 	const lang =
 		typeof options.lang === 'string' ? options.lang : translatable ? currentDataLang() : null;
 	const identity: MediaIdentity = { componentTipo, sectionTipo, sectionId, lang };
-	const pathOpts = await resolveMediaPathOptions(componentTipo, sectionTipo);
+	// RECORD-SCOPED: `additional_path`'s bucket and an image's `image_id` file stem
+	// are this record's sibling values, so every media tool (and the ingest it
+	// feeds) addresses the files PHP wrote (T1-10).
+	const pathOpts = await resolveMediaPathOptions(componentTipo, sectionTipo, sectionId);
 
 	// Read the stored media items (for files_info / external_source).
 	const items = await readStoredMediaItems(sectionTipo, sectionId, componentTipo);

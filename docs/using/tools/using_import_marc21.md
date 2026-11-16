@@ -21,14 +21,14 @@ Concrete scenario: a museum library has thousands of monograph records in its IL
 When NOT to use it:
 
 - To load Dédalo's own `dedalo_raw` exports back, use [CSV import](using_import_dedalo_csv.md).
-- For a Zotero bibliography (RDF/XML), use [Zotero import](using_import_zotero.md).
+- For a Zotero bibliography (CSL JSON), use [Zotero import](using_import_zotero.md).
 - For an arbitrary RDF/OWL graph, use [RDF import](using_import_rdf.md).
 
 ## Before you can use it
 
 The import is driven by a **field map** the tool reads from its configuration, not by anything you set at import time. The map is a flat list of rules — each rule names a MARC field (and optional subfield) and the target component `tipo`. One rule names the field used as the record identifier.
 
-An administrator copies the reference configuration into the Tools configuration section and reshapes it there before the tool can map correctly. Until a valid map exists for the section, the tool parses the file but has nothing to write into. This is a setup step; the [developer reference](../../development/tools/reference/tool_import_marc21.md) documents the exact shape.
+The tool ships with a reference map for Publications. To change it, an administrator copies it into the **Tools configuration** of `tool_import_marc21` and edits it there; that copy then replaces the shipped map. A rule with a key the import does not know, or a malformed rule, stops the import with a message naming the rule — fix it in the Tools configuration. The [developer reference](../../development/tools/reference/tool_import_marc21.md) documents every rule key.
 
 ## Where to find it
 
@@ -39,7 +39,7 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 1. **Export the MARC21 file** from your ILS as a `.mrc` binary.
 2. **Open the tool** on the target section.
 3. **Drop or select** the `.mrc` file onto the drop zone.
-4. **Fill the Values form** if the configuration renders one — those values are applied alongside the mapped fields.
+4. **Fill the Values form** if the configuration renders one — those values are written into every imported record, and replace a mapped value of the same field.
 5. **Click IMPORT.** The tool parses each record, applies the field map, and creates or updates records. Because the run can be long, the request is given an extended timeout — wait for it to finish.
 6. **Read the result message**, which reports created, updated and failed counts.
 
@@ -48,8 +48,8 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 !!! tip "Choose a stable identifier field"
     The rule that names the identifier field (for example **907 $a**) is what lets a re-import update the same records instead of duplicating them. Point it at a control field your ILS keeps stable across exports.
 
-!!! warning "Some advanced mapping transforms are not applied"
-    The engine implements the core rules — field, subfield, subfield joining with a separator, a conditional subfield match, and the identifier field. Several transforms that a reference configuration may list are **not implemented today** and are silently skipped: concatenating a value across several fields, taking the leftmost N characters, parsing a value into a date, mapping a raw code to a locator, setting companion components, and the explicit skip-on-empty flag. A configuration that relies on them stores the raw extracted value untransformed. Confirm with your administrator that your map only uses supported rules — the [developer reference](../../development/tools/reference/tool_import_marc21.md) lists them precisely.
+!!! note "Values that cannot be mapped are listed, not guessed"
+    A year that is not in the field, or a language or material code the map does not know, is not written. The result lists it per record so you can correct the record or extend the map.
 
 !!! warning "Verify a sample before a large load"
     Run a small file first and inspect the created records. A large ILS export is easier to correct while it is a handful of records than after thousands are written.
@@ -57,7 +57,7 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 ## Related
 
 - **[CSV import](using_import_dedalo_csv.md)** — CSV import, including Dédalo's own `dedalo_raw` exports.
-- **[Zotero import](using_import_zotero.md)** — Zotero RDF/XML bibliographic import into Publications.
+- **[Zotero import](using_import_zotero.md)** — Zotero CSL JSON bibliographic import into Publications.
 - **[RDF import](using_import_rdf.md)** — RDF/OWL graph import from a linked-data vocabulary.
 - **[Media file import](using_import_files.md)** — media ingest (shares the drop-zone pattern).
 - **[Importing data](../importing_data.md)** — the per-component import-data contract.

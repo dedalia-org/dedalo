@@ -3,8 +3,8 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1828344,
-		"sha256": "54adbf0bb24195adf8123706fad589cb2dac7d86143a26bee04f18e9f7ff829d",
+		"bytes": 1828336,
+		"sha256": "7e8b607a7ddaafcc203ae27d2af184a0944ac654c2b322b394f991562d58fd4b",
 		"content_sha256": "f74f6bb21a5e9d0a7a121f206e821ede65d0deae120f59f8edf66bccf93bb2a5",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
@@ -36,7 +36,7 @@
 		"install/import/ontology/7.0/ontology.json": "3dd3167c7321192513df9a3c90d1aac02a174495f9dd7ccdcb0e45eec75f0f1c",
 		"install/import/ontology/7.0/ontologytype.copy.gz": "9c1c802960df68388872520a677f602b56fed4bcd291f54beed9004fd43633ef",
 		"install/import/ontology/7.0/rsc.copy.gz": "d6aeb57093c144f3bc6f9dcbffe3a3c59729a7b12f078f85fe00ae9933443ccf",
-		"scripts/seed_build_child.ts": "97e9caa5785d2fca86fd692fa468800d1f63c4b22b39798496d1705142471513",
+		"scripts/seed_build_child.ts": "c352b3c246a13eb58b3ecc58e1704cf1d01b95ed6d0904b8bdf36644d8438035",
 		"src/core/install/copy_section_ids.ts": "f9a9efa56897f0bc862b64343cca5dfc3e175f44b38537d789e85225ec0ce4cc",
 		"src/core/install/seed_build.ts": "8977fdc4445d9297eab732fd5dfa9f44063bcb16815ad5e58ca6b437096ba4c4",
 		"src/core/install/seed_sources.ts": "64d9af586ba6c61a5e9f103b163e36f48a3119d2fba6ac4187be588a704edae6"
@@ -84,7 +84,7 @@
 	},
 	"verified": {
 		"checks": [
-			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores + core hierarchies activated (lg) — OK",
+			"Database installed from seed (core ontologies: dd, rsc, ontology, ontologytype, hierarchy, lg) + derived search stores (stamped: matrix_string_search, matrix_relation_index) + core hierarchies activated (lg) — OK",
 			"boot migrations: 13 applied, 0 skipped; online: 2 applied",
 			"ontology dd in sync (1731 nodes)",
 			"ontology rsc in sync (1566 nodes)",
@@ -93,7 +93,9 @@
 			"ontology hierarchy in sync (137 nodes)",
 			"ontology lg in sync (9 nodes)",
 			"matrix_string_search filled by the boot self-heal (73317 rows)",
+			"matrix_string_search stamped with its declared derivation",
 			"matrix_relation_index filled by the boot self-heal (175137 rows)",
+			"matrix_relation_index stamped with its declared derivation",
 			"lg (Languages) active",
 			"root password set and verified"
 		]

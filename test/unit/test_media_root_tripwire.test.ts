@@ -147,6 +147,10 @@ const EXEMPT_RESOLVERS: Record<string, string> = {
 		'Reads it ONLY to ask `mediaRootIsMarked` — the guard question itself, asked in the safe direction. Before the hourly sweeper reconciles markers it checks that this process is not holding a throwaway session store against an unmarked (i.e. production) root; a marked root is what makes the reconcile SAFE there, so calling the refusing guard would invert the test. It builds no path and writes nothing.',
 	'tools/tool_export/server/artifact_store.ts':
 		'Reads it ONLY as a path to stay AWAY from (`webServedTrees` — the placement rule refuses an export root that overlaps the web-served media tree). It never builds a path under it, never writes into it; its own writes go to the export root, which has its own marker guard (`assertExportArtifactsRoot`).',
+	'src/config/writable_roots.ts':
+		'THE BOOT CHECK of the writable roots (owner C32): reads every configured writer path — the media root among them — as a STRING to judge against the unit’s ReadWritePaths= manifest. It builds no path under it, reads no directory, writes nothing; a path outside the roots refuses the boot before any writer runs.',
+	'src/core/media/stem_rules.ts':
+		'Reads it only as `=== null` (no media root: no files can exist, the stem lock has nothing to judge); every location it then tests for existence is produced by `media/path.ts buildMediaLocation` from guarded options (resolveMediaPathOptions), and it never writes — the lock asks whether a file EXISTS, nothing more.',
 };
 
 /** Every `.ts` file under the scanned dirs, tests and node_modules excluded. */
@@ -677,6 +681,8 @@ const EXPORT_ROOT_KEY_OWNERS: Record<string, string> = {
 	'src/config/config.ts': 'DEFINES the key (readString of DEDALO_EXPORT_ARTIFACTS_DIR).',
 	[EXPORT_STORE_FILE]:
 		'THE store: resolves the root through defaultExportArtifactsRoot(), which the seam redirects, and every write door asks assertExportArtifactsRoot.',
+	'src/config/writable_roots.ts':
+		'THE BOOT CHECK of the writable roots (owner C32): reads the configured value as a STRING to judge it against the unit’s ReadWritePaths= manifest (an explicit export dir outside the roots refuses the boot). It opens no store and writes nothing; the seam is irrelevant to a comparison.',
 };
 
 describe('test media root — RULE 7a: one reader of the export-artifacts root key', () => {

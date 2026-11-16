@@ -22,16 +22,24 @@
  * (WC-2026-08-14-tm-ddo-mode-retired), history cells are LIST reads, and the
  * tool's preview pane renders an EDIT read.
  *
- * No mode takes the generic portal path: PHP never paginated nor expanded a
- * select-family value into subdatum rows.
+ * No mode takes the generic portal path: PHP never paginated a select-family
+ * value nor expanded its option targets into subdatum rows. The ONE subdatum
+ * PHP did emit is the DATAFRAME of a component_select (component_select_json
+ * :196-234, v6 :90-108 — `get_subdatum` restricted to the dataframe ddo of the
+ * config's show map): edit/default arm, non-empty value, one frame item per
+ * stored item × slot, appended AFTER the select's own item
+ * (emitStoredItemFrames; WC-2026-11-12-select-dataframe-subdatum).
  */
 
+import type { Ddo } from '../../concepts/ddo.ts';
 import { configOwnerOf } from '../../concepts/emit_row.ts';
-import { getNode } from '../../ontology/resolver.ts';
+import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
 import { buildDataItem } from '../../resolve/component_data.ts';
 import { datalistLabelLang, getEditDatalist, getRelationListValue } from '../datalist.ts';
+import type { ElementNode, EmitScope } from '../element_registry.ts';
 import type { RelationEmitContext, RelationModelResolver } from '../registry.ts';
+import { emitDataframeItem, mainItemPairId } from '../relation_core.ts';
 
 /** Relation models whose LIST value is label strings (relation_common get_list_value). */
 export const SELECT_FAMILY_MODELS: ReadonlySet<string> = new Set([
@@ -43,7 +51,14 @@ export const SELECT_FAMILY_MODELS: ReadonlySet<string> = new Set([
 	'component_relation_model',
 ]);
 
-type StoredLocator = { section_tipo?: unknown; section_id?: unknown };
+/**
+ * The select-family models whose stored items pair with dataframe frames.
+ * PHP: only component_select_json calls get_subdatum (select_lang /
+ * radio_button / check_box / publication / relation_model controllers: none).
+ */
+const FRAME_PAIRING_SELECT_MODELS: ReadonlySet<string> = new Set(['component_select']);
+
+type StoredLocator = { id?: unknown; section_tipo?: unknown; section_id?: unknown };
 type NodeProperties = Parameters<typeof getEditDatalist>[1];
 
 /** The component's stored locators (keyed by the DATA tipo — WC-020 aliases). */
@@ -70,7 +85,7 @@ async function listLabels(
 	return getRelationListValue(
 		context.ddo.tipo,
 		properties,
-		configOwnerOf(context.row).section_tipo,
+		configOwnerOf(context.row),
 		await datalistLabelLang(),
 		storedLocators,
 	);
@@ -113,7 +128,7 @@ async function buildOptionsItem(
 		(await getEditDatalist(
 			context.ddo.tipo,
 			properties,
-			configOwnerOf(context.row).section_tipo,
+			configOwnerOf(context.row),
 			await datalistLabelLang(),
 			storedLocators,
 		));
@@ -161,7 +176,7 @@ async function ownReadOnlyDatalist(
 		getEditDatalist(
 			context.ddo.tipo,
 			properties,
-			configOwnerOf(context.row).section_tipo,
+			configOwnerOf(context.row),
 			labelLang,
 			storedLocators,
 		),
@@ -187,5 +202,87 @@ export const selectFamilyResolver: RelationModelResolver = {
 		item.row_section_id = context.row.section_id;
 		item.parent_tipo = context.callerTipo;
 		context.emission.items.push(item);
+		await emitStoredItemFrames(context, storedLocators);
 	},
 };
+
+/**
+ * The dataframe subdatum of a component_select (PHP component_select_json
+ * :196-234): when the value is non-empty and the mode is the `edit: default:`
+ * arm (never list — labels — nor search — PHP's value is empty there), each
+ * component_dataframe child of the select's NODE (its effective config, the
+ * caller's injected slots included — the same node the portal resolver and the
+ * literal path resolve, never a second config read) emits one frame item per
+ * stored item, paired by mainItemPairId, through the ONE frame emitter.
+ * The select's own item is NOT bound to the node: its context entry stays as
+ * it was. 'solved' resolves a node without children → no frames.
+ */
+async function emitStoredItemFrames(
+	context: RelationEmitContext,
+	storedLocators: StoredLocator[],
+): Promise<void> {
+	if (!pairsStoredItemFrames(context, storedLocators)) return;
+	const node = await resolveSelectNode(context);
+	const slots = await dataframeSlotsOf(node.children as unknown as Ddo[]);
+	const frameScope: EmitScope = { parentNode: node, path: context.scope?.path ?? [] };
+	for (const locator of storedLocators) {
+		for (const slot of slots) {
+			await emitDataframeItem(
+				slot,
+				context.record,
+				context.ddo.tipo,
+				mainItemPairId(locator),
+				slot.mode ?? context.ddoMode,
+				context.row,
+				context.defaultLang,
+				context.callerTipo,
+				context.emission,
+				context.depth,
+				context.emitDdo,
+				frameScope,
+			);
+		}
+	}
+}
+
+/** PHP's guard: component_select, `case 'edit': default:` arm, `!empty($value)`. */
+function pairsStoredItemFrames(
+	context: RelationEmitContext,
+	storedLocators: StoredLocator[],
+): boolean {
+	return (
+		FRAME_PAIRING_SELECT_MODELS.has(context.model) &&
+		context.ddoMode !== 'list' &&
+		context.ddoMode !== 'search' &&
+		storedLocators.length > 0
+	);
+}
+
+/** The select's node — the ONE emitted-element spelling (element_node.ts), as models/portal.ts resolves it. */
+async function resolveSelectNode(context: RelationEmitContext): Promise<ElementNode> {
+	const { resolveEmittedElement } = await import('../element_node.ts');
+	const { scope } = context;
+	return resolveEmittedElement({
+		ddo: context.ddo,
+		ddoMap: context.ddoMap,
+		row: context.row,
+		model: context.model,
+		ddoMode: context.ddoMode,
+		ddoLang: context.ddoLang,
+		defaultMode: context.defaultMode,
+		defaultLang: context.defaultLang,
+		callerTipo: context.callerTipo,
+		registry: context.emission.nodes,
+		...(scope !== undefined ? { scope } : {}),
+		useOwnConfig: context.allowOwnConfigChildren,
+	});
+}
+
+/** The component_dataframe children of a node (PHP `$ddo_dataframes`). */
+async function dataframeSlotsOf(children: readonly Ddo[]): Promise<Ddo[]> {
+	const slots: Ddo[] = [];
+	for (const child of children) {
+		if ((await getModelByTipo(child.tipo)) === 'component_dataframe') slots.push(child);
+	}
+	return slots;
+}

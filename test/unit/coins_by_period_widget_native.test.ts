@@ -30,16 +30,17 @@
  * Before both guards a curator-made loop in hierarchy49 / the parent chain was
  * an unbounded recursion (stack overflow, 500).
  *
- * CROSS-INVARIANT TENSION — READ BEFORE "FIXING" THE STRICT MATCH. The term
- * lookup in routeCoinsToPeriods compares section_tipo AND section_id with ===,
- * so a locator whose section_id is a NUMBER never matches a term whose
- * section_id is the STRING the pg driver returns — it falls to '?'. That is
- * PHP-faithful and is what the first test pins. This file is also listed in
- * INLINE_SECTION_ID_MATCH_RATCHET (test/unit/ws_a_tripwires.test.ts), a
- * shrink-only ratchet whose destination is concepts/locator.ts compareLocators
- * — which is LOOSER here. The two invariants disagree: migrating this matcher
- * would CHANGE THE EMITTED COUNTS. If that ratchet entry is ever retired, this
- * test must be revisited together with an engineering/wire_contract/ entry.
+ * LOCATOR LAW (T1-11, WC-2026-11-12-numisdata-widgets-locator-law). Every
+ * locator match in this widget — coin period → term, tree child → row, parent
+ * stamp → term — goes through concepts/locator.ts compareLocators: section_tipo
+ * strict, section_id LOOSE (int 187 == "187"). Stored locators are INT since
+ * WC-2026-08-10-section-id-int-canonical while legacy string ones survive
+ * (unmigrated installs, TM, old backups), so a strict === made the widget
+ * route EVERY coin to '?' on int data. The flag convention ("duplicated" set
+ * when the first locator's section_id is 2) is the same loose compare
+ * (isFlagSet, widget_common.ts). The use_parent model is the FIRST hierarchy27
+ * locator (v6 semantics — resolveModelSectionId); the frozen PHP v7 is_object()
+ * check never matched an array-stored model and is a regression, not a contract.
  */
 // Migrated to the generic `test` TLD 2026-08-20 (AGENTS.md hard rule). Install tipos
 // were replaced by their twins from src/core/test_data/test_tld_tipo_map.json; the
@@ -53,6 +54,7 @@ import {
 	expandHierarchyChildren,
 	findParentWithModel,
 	type HierarchyEntry,
+	resolveModelSectionId,
 	routeCoinsToPeriods,
 	type ThesaurusRow,
 } from '../../src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts';
@@ -111,40 +113,55 @@ const loc = (sectionId: unknown, sectionTipo = 'test1026') => ({
 });
 
 describe('routeCoinsToPeriods — coin → term routing', () => {
-	test('locator match is STRICT ===: string id counts, number id falls to "?"', () => {
-		// quirk: pinned, not fixed. See the CROSS-INVARIANT TENSION note in the
-		// file header — this strictness is PHP-faithful and disagrees with the
-		// compareLocators destination of INLINE_SECTION_ID_MATCH_RATCHET.
-		const terms = [entry('187')];
+	test('locator law: string AND number ids both match the term (compareLocators)', () => {
+		// int is canonical (WC-2026-08-10), legacy strings survive — both count.
+		for (const termId of ['187', 187]) {
+			const terms = [entry(termId)];
+			const empty = routeCoinsToPeriods(
+				terms,
+				[coin(1, [loc('187')]), coin(2, [loc(187)])],
+				PERIOD_TIPO,
+				DUPLICATED_TIPO,
+				false,
+				0,
+			);
+			expect(terms[0]?.count).toBe(2);
+			expect(empty).toBeNull();
+		}
+	});
+
+	test('locator law: section_tipo stays STRICT (same id, other section → "?")', () => {
+		const terms = [entry(187)];
 		const empty = routeCoinsToPeriods(
 			terms,
-			[coin(1, [loc('187')]), coin(2, [loc(187)])],
+			[coin(1, [loc(187, 'test1027')])],
 			PERIOD_TIPO,
 			DUPLICATED_TIPO,
 			false,
 			0,
 		);
-		expect(terms[0]?.count).toBe(1);
+		expect(terms[0]?.count).toBeNull();
 		expect(empty).toBe(1);
 	});
 
-	test('duplicated skip is LOOSE (String()-cast): "2" and 2 skip, "20" does not', () => {
-		// quirk: pinned, not fixed — PHP used a loose == '2' here, unlike
-		// get_archive_weights' strict ===.
-		const terms = [entry('187')];
+	test('duplicated flag is the locator law: 2, "2" and "02" skip; "20" and 20 do not', () => {
+		const terms = [entry(187)];
 		const empty = routeCoinsToPeriods(
 			terms,
 			[
-				coin(1, [loc('187')], [{ section_id: '2' }]),
-				coin(2, [loc('187')], [{ section_id: 2 }]),
-				coin(3, [loc('187')], [{ section_id: '20' }]),
+				coin(1, [loc(187)], [{ section_id: '2' }]),
+				coin(2, [loc(187)], [{ section_id: 2 }]),
+				coin(3, [loc(187)], [{ section_id: '02' }]),
+				coin(4, [loc(187)], [{ section_id: '20' }]),
+				coin(5, [loc(187)], [{ section_id: 20 }]),
+				coin(6, [loc(187)], [{}]), // no section_id → not a flag
 			],
 			PERIOD_TIPO,
 			DUPLICATED_TIPO,
 			false,
 			0,
 		);
-		expect(terms[0]?.count).toBe(1); // only the '20' coin survived the skip
+		expect(terms[0]?.count).toBe(3); // coins 4, 5 and 6 survive the skip
 		expect(empty).toBeNull(); // skipped coins do NOT feed the catch-all
 	});
 
@@ -322,6 +339,41 @@ describe('expandHierarchyChildren — DFS flatten + parent stamps', () => {
 	});
 });
 
+describe('expandHierarchyChildren — locator law on the tree walk', () => {
+	test('INT child locators over STRING rows (legacy) and INT rows (canonical) → full DFS', () => {
+		const stringRows = [
+			tsRow('10', [loc(187), loc(200)]),
+			tsRow('187', [loc(900)]),
+			tsRow('900'),
+			tsRow('200'),
+		];
+		const intRows = [
+			tsRow(10, [loc(187), loc('200')]),
+			tsRow(187, [loc('900')]),
+			tsRow(900),
+			tsRow(200),
+		];
+		for (const rows of [stringRows, intRows]) {
+			const out: ThesaurusRow[] = [];
+			expandHierarchyChildren(rows, loc(10), null, out);
+			expect(out.map((el) => Number(el.section_id))).toEqual([10, 187, 900, 200]);
+			expect(out.map((el) => (el.parent ? Number(el.parent.section_id) : null))).toEqual([
+				null,
+				10,
+				187,
+				10,
+			]);
+		}
+	});
+
+	test('a mixed-type CYCLE still terminates (10 → "187" → 10)', () => {
+		const rows = [tsRow(10, [loc('187')]), tsRow(187, [loc(10)])];
+		const out: ThesaurusRow[] = [];
+		expandHierarchyChildren(rows, loc(10), null, out);
+		expect(out.map((el) => el.section_id)).toEqual([10, 187]);
+	});
+});
+
 describe('findParentWithModel — upward model walk', () => {
 	test('self-match short-circuits (the term itself is returned)', () => {
 		const term = entry('187', { model_section_id: 5, parent: loc('10') });
@@ -351,10 +403,66 @@ describe('findParentWithModel — upward model walk', () => {
 		expect(findParentWithModel([orphan], orphan, 5)).toBeNull();
 	});
 
+	test('locator law: an INT parent stamp finds a STRING-id ancestor (and vice versa)', () => {
+		const grand = entry('1', { model_section_id: 5 });
+		const leaf = entry(187, { model_section_id: 42, parent: loc(1) });
+		expect(findParentWithModel([grand, leaf], leaf, 5)).toBe(grand);
+		const intGrand = entry(1, { model_section_id: 5 });
+		const legacyLeaf = entry('187', { model_section_id: 42, parent: loc('1') });
+		expect(findParentWithModel([intGrand, legacyLeaf], legacyLeaf, 5)).toBe(intGrand);
+	});
+
 	test('a CYCLE returns null (which routes those coins to "?")', () => {
 		const a = entry('10', { model_section_id: 42, parent: loc('187') });
 		const b = entry('187', { model_section_id: 42, parent: loc('10') });
 		expect(findParentWithModel([a, b], a, 5)).toBeNull();
+	});
+});
+
+describe('resolveModelSectionId — the use_parent model (v6: first hierarchy27 locator)', () => {
+	test('array-stored model (the v7 relation shape) → its first locator section_id', () => {
+		expect(resolveModelSectionId({ hierarchy27: [loc(1), loc(7)] }, 1)).toBe(1);
+		expect(resolveModelSectionId({ hierarchy27: [loc('3')] }, 1)).toBe('3');
+	});
+
+	test('legacy non-array object model is still read', () => {
+		expect(resolveModelSectionId({ hierarchy27: loc(4) as unknown as unknown[] }, 1)).toBe(4);
+	});
+
+	test('no model (absent / empty / null relation / non-locator) → target + 1 (never matches)', () => {
+		expect(resolveModelSectionId({}, 1)).toBe(2);
+		expect(resolveModelSectionId({ hierarchy27: [] }, '1')).toBe(2);
+		expect(resolveModelSectionId(null, 1)).toBe(2);
+		expect(resolveModelSectionId({ hierarchy27: ['x'] }, 1)).toBe(2);
+	});
+
+	test('chain: an array-stored model ancestor receives the rolled-up count', () => {
+		const rows = [
+			tsRow(10, [loc(187)]),
+			{ ...tsRow(187), relation: { hierarchy27: [loc(9, 'test1027')] } },
+		];
+		rows[0] = {
+			...rows[0],
+			relation: { ...rows[0]?.relation, hierarchy27: [loc(1, 'test1027')] },
+		} as ThesaurusRow;
+		const ordered: ThesaurusRow[] = [];
+		expandHierarchyChildren(rows as ThesaurusRow[], loc(10), null, ordered);
+		const terms: HierarchyEntry[] = ordered.map((row) =>
+			entry(row.section_id, {
+				parent: row.parent ?? null,
+				model_section_id: resolveModelSectionId(row.relation, 1),
+			}),
+		);
+		const empty = routeCoinsToPeriods(
+			terms,
+			[coin(1, [loc('187')])],
+			PERIOD_TIPO,
+			DUPLICATED_TIPO,
+			true,
+			1,
+		);
+		expect(terms.map((el) => el.count)).toEqual([1, null]);
+		expect(empty).toBeNull();
 	});
 });
 
@@ -372,7 +480,7 @@ describe('rewire proof — the inline copies are GONE from computeGetCoinsByPeri
 		expect(body).toContain('buildPeriodValue(');
 		// …and (b) the inline logic no longer lives there.
 		expect(body).not.toContain('emptyPeriodCount = (emptyPeriodCount ?? 0) + 1');
-		expect(body).not.toContain('PHP LOOSE ==');
+		expect(body).not.toContain('isFlagSet(');
 		expect(body).not.toContain('const surviving');
 		expect(body).not.toContain('const contiguous');
 		expect(body).not.toContain('const nextKey');
@@ -381,6 +489,9 @@ describe('rewire proof — the inline copies are GONE from computeGetCoinsByPeri
 		expect(source.split('const surviving').length - 1).toBe(1);
 		expect(source.split('const contiguous').length - 1).toBe(1);
 		expect(source.split('const nextKey').length - 1).toBe(1);
-		expect(source.split('PHP LOOSE ==').length - 1).toBe(1);
+		// the flag + model rules live in ONE place each (outside the body)
+		expect(source.split('isFlagSet(').length - 1).toBe(1);
+		expect(body).toContain('resolveModelSectionId(');
+		expect(body).not.toContain('isObjectModel');
 	});
 });

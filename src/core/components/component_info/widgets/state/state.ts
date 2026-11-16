@@ -252,10 +252,12 @@ async function computeStateDataList(ipo: unknown[], context: WidgetContext): Pro
 					? context.sectionTipo
 					: declaredSection;
 			const node = await getNode(componentTipo);
+			// No owner RECORD: the widget lists the vocabulary of a path, not the
+			// options of one record's field.
 			const items = await getDatalist(
 				componentTipo,
 				node?.properties ?? null,
-				ownerSection,
+				{ section_tipo: ownerSection, section_id: null },
 				'lg-nolan',
 			);
 			for (const item of items) {

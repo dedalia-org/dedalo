@@ -286,7 +286,8 @@ breath:
 >    stored form (int for an address, the remote id verbatim otherwise).
 > 3. **grid_value leaves.** The model's inert `relation` column is not a locator
 >    bag: the export fan-out treats component_external as a PLAIN leaf
->    (`atoms.ts isStoredRelationModel`), so grid_value Zenon columns emit values.
+>    (`registry.ts storesRelationLocators`, since 2026-11-12 shared with the
+>    publication compile), so grid_value Zenon columns emit values.
 >
 > Ledger: `WC-2026-09-24-external-foreign-target-and-verbatim-id`. Gate:
 > `test/unit/external_section_id_verbatim_native.test.ts`.
@@ -404,6 +405,16 @@ breath:
 > addenda (b) (items 3-5) and (c) (the derived-model test, the diffusion drop).
 > Gates: `test/unit/external_record_field_set_native.test.ts`,
 > `test/unit/diffusion_frontier_scope_native.test.ts` (LAW 3).
+
+> **ADDENDUM 2026-11-12 — the PUBLICATION chain** (`src/diffusion/resolve/external_value.ts`).
+> A component_external ddo compiles to a TERMINAL `component` step
+> (`storesRelationLocators`) and is derived through `deriveExternalValue` (ownership,
+> verbatim id, never throws); a hop locator with no matrix row is walked on the identity-only
+> placeholder when an owned component_external child applies (the read path's law). One fetch
+> lang per run (plan main lang, else `DEDALO_DATA_LANG_DEFAULT` — `DeriveExternalOptions.dataLang`);
+> one `fetchExternalRows` per hop; an empty value in a missing-value state is a run error line on
+> the published record. Ledger: `WC-2026-11-12-diffusion-external-chain`. Gate:
+> `test/unit/diffusion_external_chain_native.test.ts`.
 
 ---
 

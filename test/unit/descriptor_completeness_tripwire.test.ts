@@ -29,7 +29,12 @@
  *     owner-approved set (component_iri, 2026-11-11), on canonical descriptors
  *     only, and the ontology layer reads it alias-following through the
  *     resolver seam (getComponentModelNodeRules) — dropping it silently would
- *     disarm the health check's model rule.
+ *     disarm the health check's model rule;
+ *  8. the "no add button" context law (`forbidsAddButton`) is declared by
+ *     EXACTLY the PHP oracle set — the two json controllers that stamp
+ *     show_interface.button_add=false (component_relation_related_json.php:77,
+ *     component_relation_parent_json.php:77) — on canonical relation models,
+ *     and the accessor follows aliases (T1-29 / O05).
  *
  * ALLOWLIST LIFECYCLE (DEC-12 refinement — who clears these and when):
  * entries here are cleared by whoever ports the missing behavior, in the
@@ -43,6 +48,7 @@ import {
 	allComponentModels,
 	getComponentModel,
 	getFlatValueFamily,
+	getForbidsAddButton,
 	getImportAppendPolicy,
 	getRenderClass,
 	getSearchBuilderFamily,
@@ -144,6 +150,15 @@ const NO_IMPORT_CONFORM: ReadonlySet<string> = new Set(['component_external']);
  * → check_box → true), so ONLY canonical models declare the facet. Every model
  * NOT listed here is sortable by omission (component_common base = true). Cleared
  * only if PHP flips a model's get_sortable. Pins buildCore's resolveSortable.
+ *
+ * PLUS the engine's own non-sortable set (owner C39 2026-11-13,
+ * WC-2026-11-13-sort-non-scalar-refused — a DELIBERATE divergence from PHP's
+ * get_sortable, which answered true and then sorted these by NULL): models with
+ * no `.value` scalar (component_iri frames, component_filter_records' ACL
+ * document) and the one SECRET (component_password — its row order would be a
+ * comparison oracle). An order by any `sortable: false` model is REFUSED by the
+ * search assembler (search.invalid_sqo), so the list affordance and the write
+ * of the sqo are one answer.
  */
 const PHP_NON_SORTABLE_CANONICAL = [
 	'component_3d',
@@ -156,6 +171,15 @@ const PHP_NON_SORTABLE_CANONICAL = [
 	'component_relation_index',
 	'component_security_access',
 	'component_svg',
+].sort();
+const C39_NON_SORTABLE_CANONICAL = [
+	'component_filter_records',
+	'component_iri',
+	'component_password',
+].sort();
+const NON_SORTABLE_CANONICAL = [
+	...PHP_NON_SORTABLE_CANONICAL,
+	...C39_NON_SORTABLE_CANONICAL,
 ].sort();
 
 /** PHP component_common::$components_using_value_property — the oracle pin. */
@@ -276,12 +300,12 @@ function appendKind(
  * Computed-value models that do NOT carry the `derived` facet, each with the
  * reason it was audited out. The facet means "the stored key is never the
  * value" (types.ts) — consumers SKIP or REFUSE the key — so a model whose
- * stored bytes ARE read must stay out of it. SHRINK-ONLY.
+ * stored bytes ARE read must stay out of it. SHRINK-ONLY. EMPTY since owner
+ * C10 2026-11-13 ruled component_info derived (its last entry;
+ * WC-2026-11-13-info-derived-async-published): every computed-value model
+ * carries the facet.
  */
-const NOT_DERIVED_BY_FACET: Readonly<Record<string, string>> = {
-	component_info:
-		'its widget values are STORED mirrors (the observer cascade / reconcile write them) that list and search read — the stored key is its value',
-};
+const NOT_DERIVED_BY_FACET: Readonly<Record<string, string>> = {};
 
 /** The derived-value models, read from the descriptor FACTS (+ the extra hand list). */
 function computedDerivedModels(descriptors: readonly ComponentModel[]): Set<string> {
@@ -403,29 +427,12 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 			'a frame is folded INTO its main’s cell, never a value column of its own (dedalo_raw mints its slot column from the stored slice)',
 		],
 		[
-			'component_info',
-			'PHP exports per-widget sub_id columns (component_info::get_export_value) — not ported yet; ledgered T0-9 residue',
-		],
-		[
-			'component_geolocation',
-			'no flat text value: geo exports through its own geo / geojson diffusion functions; the value cell is ledgered unresolved',
-		],
-		[
-			'component_json',
-			'an opaque config blob: no flat text value; the value cell is ledgered unresolved (dedalo_raw exports the stored slice)',
-		],
-		[
 			'component_password',
 			'a secret: never exported as a value (the tool_export client excludes it from the pickable elements)',
 		],
-		[
-			'component_security_access',
-			'an ACL matrix blob (misc column): no flat text value; ledgered unresolved',
-		],
-		[
-			'component_filter_records',
-			'a saved record-filter blob (misc column): no flat text value; ledgered unresolved',
-		],
+		// component_security_access / component_filter_records left this list on
+		// 2026-11-13 (owner C44: EXPORTABLE as `json` cells, like any component —
+		// WC-2026-11-13-export-acl-components-exportable).
 	]);
 
 	/** The canonical models with no flat-value family, minus the named exemptions. */
@@ -512,6 +519,31 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 				descriptor.flatValue === 'datalist' ? descriptor.model : undefined,
 				`${descriptor.model}: flatValue 'datalist' needs a datalist (relation) model`,
 			).toBeUndefined();
+			expect(
+				descriptor.forbidsAddButton,
+				`${descriptor.model}: forbidsAddButton on non-relation model`,
+			).toBeUndefined();
+		}
+	});
+
+	test('forbidsAddButton is declared by exactly the PHP oracle set (canonical only)', () => {
+		// frozen PHP: the only json controllers stamping show_interface.button_add=false
+		// are component_relation_related_json.php:77 and component_relation_parent_json.php:77
+		const declared = descriptors.filter((descriptor) => descriptor.forbidsAddButton !== undefined);
+		expect(declared.map((descriptor) => descriptor.model).sort()).toEqual([
+			'component_relation_parent',
+			'component_relation_related',
+		]);
+		for (const descriptor of declared) {
+			expect(descriptor.alias, `${descriptor.model}: forbidsAddButton on an alias`).toBeUndefined();
+			expect(descriptor.forbidsAddButton).toBe(true);
+		}
+		// alias-following: every alias of a declaring model answers true, nothing else does
+		for (const descriptor of descriptors) {
+			const canonical = descriptor.alias ?? descriptor.model;
+			expect(getForbidsAddButton(descriptor.model), descriptor.model).toBe(
+				canonical === 'component_relation_parent' || canonical === 'component_relation_related',
+			);
 		}
 	});
 
@@ -522,6 +554,25 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 				descriptor.column,
 				`${descriptor.model}: searchBuilder '${descriptor.searchBuilder}' on column '${descriptor.column}'`,
 			).toBe(FAMILY_COLUMN[descriptor.searchBuilder]);
+		}
+	});
+
+	test('calculationData is never declared on a relation-column model (derived) nor an alias', () => {
+		// components/registry.ts getCalculationDataId DERIVES `relation` from
+		// column === 'relation'; a declared facet there would shadow the walk.
+		// Aliases inherit their canonical model's facet.
+		const declared = descriptors.filter((descriptor) => descriptor.calculationData !== undefined);
+		expect(declared.map((descriptor) => descriptor.model).sort()).toEqual([
+			'component_date',
+			'component_info',
+			'component_number',
+		]);
+		for (const descriptor of declared) {
+			expect(
+				descriptor.column,
+				`${descriptor.model}: calculationData on a relation column`,
+			).not.toBe('relation');
+			expect(descriptor.alias, `${descriptor.model}: calculationData on an alias`).toBeUndefined();
 		}
 	});
 
@@ -681,12 +732,12 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect([...COMPONENTS_WITH_RELATIONS].sort()).toEqual(PHP_COMPONENTS_WITH_RELATIONS);
 	});
 
-	test('descriptor sortable:false set equals the PHP get_sortable() oracle', () => {
+	test('descriptor sortable:false set equals the PHP get_sortable() oracle + the C39 non-scalar/secret set', () => {
 		const declaredFalse = descriptors
 			.filter((d) => d.sortable === false)
 			.map((d) => d.model)
 			.sort();
-		expect(declaredFalse).toEqual(PHP_NON_SORTABLE_CANONICAL);
+		expect(declaredFalse).toEqual(NON_SORTABLE_CANONICAL);
 	});
 
 	test('no descriptor declares sortable:true (omitted = true is the base)', () => {
@@ -744,6 +795,46 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect(text).toBe(
 			descriptors.filter((d) => d.column !== undefined && d.alias === undefined).length - 3,
 		);
+	});
+
+	// ------------------------------------------------------------------
+	// DATA-ITEM EMPTINESS (`dataItemEmptiness`, T1-34 / O14): the language
+	// fallback judges a lang slice by the model's item rule, never by count —
+	// a class-translatable model without a rule would make that read throw.
+	// ------------------------------------------------------------------
+
+	/** Class-translatable canonical models that declare no emptiness rule. */
+	function missingEmptiness(list: readonly ComponentModel[]): string[] {
+		return list
+			.filter((d) => isCanonical(d) && d.classSupportsTranslation === true)
+			.filter((d) => d.dataItemEmptiness === undefined)
+			.map((d) => d.model);
+	}
+
+	test('every classSupportsTranslation model declares dataItemEmptiness (and only those)', () => {
+		const translatable = descriptors.filter((d) => d.classSupportsTranslation === true);
+		expect(translatable.length).toBeGreaterThanOrEqual(5); // anti-vacuity
+		expect(missingEmptiness(descriptors)).toEqual([]);
+		for (const descriptor of descriptors) {
+			if (descriptor.dataItemEmptiness === undefined) continue;
+			expect(
+				descriptor.classSupportsTranslation === true && isCanonical(descriptor),
+				`${descriptor.model}: dataItemEmptiness on a model the fallback never judges`,
+			).toBe(true);
+		}
+		// The rules mirror the PHP class hierarchy (is_empty overrides).
+		const ruleOf = (model: string) => descriptors.find((d) => d.model === model)?.dataItemEmptiness;
+		expect(ruleOf('component_text_area')).toBe('rich_text');
+		expect(ruleOf('component_input_text')).toBe('string');
+		expect(ruleOf('component_email')).toBe('string');
+		expect(ruleOf('component_password')).toBe('common');
+		expect(ruleOf('component_iri')).toBe('iri');
+	});
+
+	test('positive control: input_text WITHOUT its emptiness rule reddens the census', () => {
+		const inputText = descriptors.find((d) => d.model === 'component_input_text') as ComponentModel;
+		const { dataItemEmptiness: _dropped, ...stripped } = inputText;
+		expect(missingEmptiness([stripped as ComponentModel])).toEqual(['component_input_text']);
 	});
 
 	test('ontologyTranslatable is stated by EXACTLY the owner-approved models, canonical only', () => {
@@ -959,8 +1050,14 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 			if (!isCanonical(descriptor)) expect(descriptor.derived, descriptor.model).toBeUndefined();
 		}
 		expect(isDerivedModel('component_relation_children')).toBe(true);
-		expect(isDerivedModel('component_info')).toBe(false);
+		// owner C10 2026-11-13: component_info is derived (its aliases through the hop)
+		expect(isDerivedModel('component_info')).toBe(true);
+		expect(isDerivedModel('component_calculation')).toBe(true);
+		expect(isDerivedModel('component_state')).toBe(true);
 		expect(isDerivedModel('component_portal')).toBe(false);
+		// owner C44 2026-11-13: the two ACL models export as JSON cells
+		expect(getFlatValueFamily('component_security_access')).toBe('json');
+		expect(getFlatValueFamily('component_filter_records')).toBe('json');
 	});
 
 	test('a canonical descriptor without the facet makes the accessor THROW, never default', () => {

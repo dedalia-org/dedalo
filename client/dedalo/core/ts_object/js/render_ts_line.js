@@ -56,6 +56,7 @@
 	import {render_link_children} from './view_default_edit_ts_object.js'
 	import {bound_sqo_limit} from '../../common/js/sqo_limit.js'
 	import {a11y} from '../../common/js/a11y.js'
+	import {render_value} from '../../common/js/utils/render_escape.js'
 
 
 
@@ -680,7 +681,10 @@ const render_term = function(options) {
 		const term_text = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'term_text unselectable' + (is_descriptor ? '' : ' no_descriptor'),
-			inner_html		: term_text_value,
+			// server-built markup (escaped record text + optional <mark>) when the
+			// element says render_class 'html'; anything else is escaped as text
+			// (WC-2026-11-12-tree-term-escaped)
+			inner_html		: render_value(term_text_value, item.render_class),
 			parent			: term_node
 		})
 		self.term_text = term_text
@@ -816,7 +820,7 @@ const render_ontology_term = function(options) {
 		const term_text_node = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'term_text' + (is_descriptor ? '' : ' no_descriptor'),
-			inner_html		: term_text,
+			inner_html		: render_value(term_text, item.render_class),
 			parent			: term_node
 		})
 		// an empty term is shown as a defect, never as a blank line

@@ -40,9 +40,21 @@
  *  - `machine_name` / `use_machine_name` are derived too. A JSON node from
  *    before the columns does not state them: the loader fills them with the
  *    parser's own legacy derivation (deriveLegacyMachineName — the counted
- *    rungs), which is exactly what its unconverted record parses back to, so
- *    the round trip and the gate compare like with like until P4 regenerates
- *    the JSON through the converter kernel.
+ *    rungs), so the inverse writes the legacy record shape (no ontology43/44
+ *    where they equal that derivation).
+ *
+ * THE PACKAGE IMPORT REWRITE (T1-P05, WC-2026-11-04-ontology-machine-names).
+ * Materializing the JSON IS an ontology import of a repo-owned package, so it
+ * runs the class-L rewrite every import door runs (ontology_update.ts
+ * importOntologyPackage, data_io_import.ts importOntologyFile, the seed
+ * compiler): `convertImportedMachineNames`, after the records + registry row and
+ * BEFORE the re-derive. The suite database at rest is then a FIXED POINT of the
+ * `ontology_machine_names` boot reconcile — before this, any scheduler-enabled
+ * server booting on the suite database rewrote ~8400 fixture records (with Time
+ * Machine rows) and the machine-name gates flapped with suite order. Unlike the
+ * import doors it is LOUD: a throw propagates, and an unarmed release (no
+ * ontology43/44) refuses — a silently legacy fixture is exactly the bug. The
+ * class-S strays stay as they are (root's adjudication, D3); the gate banks them.
  *
  * `propiedades` round-trips by MEANING, not bytes: the parser re-encodes the
  * stored value with PHP's JSON_PRETTY_PRINT, while the seed's rows are
@@ -76,6 +88,10 @@ import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { clearOntologyDerivedCaches } from '../ontology/cache_invalidation.ts';
 import { deriveLegacyMachineName } from '../ontology/machine_name.ts';
+import {
+	convertImportedMachineNames,
+	importedMachineNameLine,
+} from '../ontology/machine_name_reconcile.ts';
 import {
 	ontologyRecordFromNode,
 	provisionOntologyMainRegistry,
@@ -115,6 +131,8 @@ export interface MaterializeResult {
 	 * dd_ontology after the rebuild, so the gate must see it.
 	 */
 	strays: string[];
+	/** The import rewrite's operator line per TLD that had something to say (module header). */
+	machineNames: string[];
 }
 
 /* ------------------------------------------------------------------ guard */
@@ -273,6 +291,24 @@ async function straySectionIds(
 }
 
 /**
+ * The class-L import rewrite of one materialized `<tld>0` section (module header),
+ * LOUD: an unarmed release refuses. `isOntologyServer` is passed `false` on purpose —
+ * the import doors skip the rewrite on an ontology server because there it would
+ * convert master's own records, but this door has already refused every database that
+ * is not the marked suite database, so a developer whose config says "ontology server"
+ * still gets the fixture every installation's boot would leave.
+ */
+async function convertTldMachineNames(sectionTipo: string): Promise<string | null> {
+	const outcome = await convertImportedMachineNames(sectionTipo, false);
+	if (outcome.skipped !== null) {
+		refuse(`the machine-name import rewrite of '${sectionTipo}' was skipped: ${outcome.skipped}`, {
+			section_tipo: sectionTipo,
+		});
+	}
+	return importedMachineNameLine(sectionTipo, outcome);
+}
+
+/**
  * Write the WHOLE JSON ontology (the hand-authored Test area AND the clone
  * twins the suite replays the frozen store against) into the database and
  * derive dd_ontology from it, one TLD at a time. IDEMPOTENT: each record is deleted and re-inserted
@@ -291,7 +327,13 @@ export async function materializeTestTldOntology(
 	const doc = options.doc ?? (await loadTestTldOntologyDoc());
 
 	const byTld = groupNodesByTld(doc.nodes);
-	const result: MaterializeResult = { tlds: [...byTld.keys()], nodes: 0, rebuilt: [], strays: [] };
+	const result: MaterializeResult = {
+		tlds: [...byTld.keys()],
+		nodes: 0,
+		rebuilt: [],
+		strays: [],
+		machineNames: [],
+	};
 
 	for (const [tld, nodes] of byTld) {
 		const sectionTipo = `${tld}0`;
@@ -308,6 +350,11 @@ export async function materializeTestTldOntology(
 		// — that silent default is the difference between the JSON's main node
 		// and the one the rebuild would mint, i.e. permanent drift.
 		if (mainNode !== undefined) await provisionOntologyMainRegistry(mainNode);
+
+		// The package import rewrite, in the import doors' order: after the
+		// records, BEFORE the re-derive (module header).
+		const machineNames = await convertTldMachineNames(sectionTipo);
+		if (machineNames !== null) result.machineNames.push(machineNames);
 
 		// dd_ontology is DERIVED — the same single writer an operator's "rebuild
 		// ontology" uses. Never an upsert from here.

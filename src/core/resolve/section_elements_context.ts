@@ -22,8 +22,13 @@
 import { logSectionSuppressesSectionInfo } from '../concepts/section.ts';
 import { sql } from '../db/postgres.ts';
 import { labelByTipo } from '../ontology/labels.ts';
-import { getModelByTipo, getSectionRealTipo, getTranslatableByTipo } from '../ontology/resolver.ts';
-import { resolveVirtualEditScope } from '../relations/request_config/implicit.ts';
+import {
+	getModelByTipo,
+	getSectionRealTipo,
+	getTranslatableByTipo,
+	isUnimplementedComponentModel,
+} from '../ontology/resolver.ts';
+import { resolveVirtualEditScope } from '../ontology/virtual_scope.ts';
 import { getPermissions, getSectionPermissions, type Principal } from '../security/permissions.ts';
 import { currentDataLang } from './request_lang.ts';
 import { buildStructureContext, type StructureContextEntry } from './structure_context.ts';
@@ -46,7 +51,28 @@ export interface SectionElementsContextOptions {
 	ar_section_tipo?: string | string[];
 	context_type?: string;
 	ar_components_exclude?: string[];
+	/**
+	 * `true` (exact, PHP `=== true`): the requested sections are grouped by REAL
+	 * section (getSectionRealTipo) and ONE block is built per family, on the
+	 * real tipo — the thesaurus / ontology search panels (every active
+	 * hierarchy is a virtual section over hierarchy20) list each field once,
+	 * not once per hierarchy. See elementFamilies.
+	 */
 	use_real_sections?: boolean;
+}
+
+/**
+ * One block of the element list: the section it is BUILT on and the requested
+ * (readable) members it stands for — itself alone without `use_real_sections`,
+ * every readable virtual sibling of one real section with it.
+ */
+interface ElementFamily {
+	/** The section whose elements are listed (the real tipo under use_real_sections). */
+	built: string;
+	/** The readable requested sections of the family, request order. */
+	members: string[];
+	/** The HIGHEST section grant among the members (section::get_section_permissions). */
+	sectionPerm: number;
 }
 
 /** Grouper models included alongside components (PHP ar_include_elements). */
@@ -97,6 +123,10 @@ async function elementTiposInSection(
 			// Only components/groupers are collected and recursed into; sections and
 			// areas are neither, so the walk never crosses into a child section.
 			if (!isComponent && !isGrouper) continue;
+			// An unimplemented model (no descriptor: v5 dead name or unported) is
+			// neither collected nor recursed into — the client has no module for it
+			// (T1-27; PHP $ar_temp_exclude_models + the semantic_node subtree rule).
+			if (isUnimplementedComponentModel(model)) continue;
 			// A section_group_div is a layout-only wrapper: PHP recurses THROUGH it
 			// (its children belong to the enclosing grouper) but never emits it as a
 			// context entry (:3890-3894 skips on the section_group_div legacy model).
@@ -134,7 +164,9 @@ async function sectionInfoElements(): Promise<{ tipo: string; model: string }[]>
 	];
 	for (const row of children) {
 		const model = (await getModelByTipo(row.tipo)) ?? row.model ?? '';
-		if (model.startsWith('component_')) elements.push({ tipo: row.tipo, model });
+		if (model.startsWith('component_') && !isUnimplementedComponentModel(model)) {
+			elements.push({ tipo: row.tipo, model });
+		}
 	}
 	return elements;
 }
@@ -255,9 +287,13 @@ async function stampTargetSections(
 	}
 }
 
-/** Strip the fields PHP omits from a simple context (tools, buttons). */
+/**
+ * Strip the fields PHP omits from a simple context (tools, buttons, add_label —
+ * PHP builds these via get_structure_context_simple, class.common.php:3951,
+ * never section_group_json.php, the only add_label emitter).
+ */
 function toSimple(entry: StructureContextEntry): Record<string, unknown> {
-	const { tools, buttons, ...rest } = entry as StructureContextEntry & {
+	const { tools, buttons, add_label, ...rest } = entry as StructureContextEntry & {
 		tools?: unknown;
 		buttons?: unknown;
 	};
@@ -286,72 +322,177 @@ export async function buildSectionElementsContext(
 	const exclude = new Set<string>(options.ar_components_exclude ?? DEFAULT_EXCLUDE);
 	const lang = currentDataLang();
 	const contexts: Record<string, unknown>[] = [];
+	const families = await elementFamilies(
+		principal,
+		sectionTipos,
+		options.use_real_sections === true,
+	);
+	for (const family of families) {
+		contexts.push(...(await sectionBlock(principal, family, exclude, lang)));
+	}
+	return contexts;
+}
 
+/**
+ * The blocks to build for the requested sections (PHP class.common.php
+ * :3789-3808 order): the section read gate FIRST — a member the principal may
+ * not read is skipped (not denied) BEFORE any grouping, so an unreadable
+ * sibling never claims its family — then, under `use_real_sections`, grouping
+ * by REAL section in first-seen order (PHP `section_real_tipo` + `continue` on
+ * an already-resolved real). Without the flag every requested tipo is its own
+ * block, repeats included (unchanged shape).
+ */
+async function elementFamilies(
+	principal: Principal,
+	sectionTipos: readonly string[],
+	useRealSections: boolean,
+): Promise<ElementFamily[]> {
+	const families = new Map<string, ElementFamily>();
 	for (const sectionTipo of sectionTipos) {
 		// Section-level permission (PHP section::get_section_permissions): capped
 		// at read (1) for consultation-only sections so the client renders them
-		// read-only. Component-level perms below stay uncapped (PHP parity).
+		// read-only. Component-level perms stay uncapped (PHP parity).
 		const sectionPerm = await getSectionPermissions(principal, sectionTipo);
 		if (sectionPerm < 1) continue; // PHP skips unauthorized sections (not deny).
-
-		const sectionEntry = await buildStructureContext({
-			configFrom: { source: 'own', reason: 'search-panel-element' },
-			tipo: sectionTipo,
-			sectionTipo,
-			mode: 'list',
-			lang,
-			permissions: sectionPerm,
-			addRequestConfig: false,
-			principal,
-		});
-		if (sectionEntry !== null) contexts.push(toSimple(sectionEntry));
-
-		// The section's own elements (virtual-aware, DFS order), THEN the common
-		// section-info elements (dd196 + children) — but only when the section has
-		// elements of its own (PHP :3847 appends them only if ar_elements non-empty).
-		const ownElements = await elementTiposInSection(sectionTipo);
-		// WC-045: dd542 (and any SUPPRESS_SECTION_INFO section) omits the whole
-		// section-info group; dd196's children live only under dd196, never in
-		// ownElements, so skipping the append fully removes them.
-		const suppressInfo = logSectionSuppressesSectionInfo(sectionTipo);
-		const infoElements = ownElements.length > 0 && !suppressInfo ? await sectionInfoElements() : [];
-		const infoTipos = new Set(infoElements.map((element) => element.tipo));
-
-		for (const { tipo, model } of [...ownElements, ...infoElements]) {
-			if (exclude.has(model) || model === 'component_password') continue;
-			// section-info elements are shown to global admins regardless of the
-			// per-element ACL (PHP forces their permission to 1); everyone else gets
-			// the normal gate, which for dd196's components denies them.
-			const perm =
-				infoTipos.has(tipo) && principal.isGlobalAdmin
-					? 1
-					: await getPermissions(principal, sectionTipo, tipo);
-			if (perm < 1) continue;
-
-			const isComponent = model.startsWith('component_');
-			const translatable = isComponent ? await getTranslatableByTipo(tipo) : false;
-			// PHP builds each COMPONENT in mode 'search' (class.common.php:3915-22 —
-			// component_common::get_instance(…, 'search', …)) while the section and
-			// groupers stay 'list' (:3811, :3928). Search mode is what stamps the
-			// operator tooltip (search_operators_info / search_options_title) and, for
-			// portals, resolves the search-mode source config rather than the list
-			// section_list swap.
-			const entry = await buildStructureContext({
-				configFrom: { source: 'own', reason: 'search-panel-element' },
-				tipo,
-				sectionTipo,
-				mode: isComponent ? 'search' : 'list',
-				lang: translatable ? lang : 'lg-nolan',
-				permissions: perm,
-				addRequestConfig: false,
-				principal,
+		if (!useRealSections) {
+			families.set(`${families.size}\u0000${sectionTipo}`, {
+				built: sectionTipo,
+				members: [sectionTipo],
+				sectionPerm,
 			});
-			if (entry === null) continue;
-			const simple = toSimple(entry);
-
-			await stampTargetSections(simple, { model, tipo, sectionTipo, principal });
-			contexts.push(simple);
+			continue;
 		}
+		const real = await getSectionRealTipo(sectionTipo);
+		const family = families.get(real) ?? { built: real, members: [], sectionPerm: 0 };
+		family.members.push(sectionTipo);
+		family.sectionPerm = Math.max(family.sectionPerm, sectionPerm);
+		families.set(real, family);
+	}
+	return [...families.values()];
+}
+
+/**
+ * THE ELEMENT GRANT of a family: the HIGHEST level any readable member holds
+ * on `tipo` (owner C34 2026-11-13, T1-27 D1 ruled (b), order-independent —
+ * WC-2026-11-13-use-real-sections-highest-grant). PHP read the FIRST readable
+ * requested member's grant (`$base_section_tipo`), so a field granted only in
+ * the second hierarchy was hidden when the first came first. Matches the
+ * search engine's per-row `some` verdict (conform.ts rootVerdict): nothing
+ * offered here is unfilterable, and the list grants nothing — every read
+ * re-keys per record. Section-info elements (dd196's children) are forced
+ * readable for global admins (PHP :3870-3877) and gated normally for everyone
+ * else, which for dd196's components denies them.
+ */
+async function familyElementGrant(
+	principal: Principal,
+	family: ElementFamily,
+	tipo: string,
+	isInfoElement: boolean,
+): Promise<number> {
+	if (isInfoElement && principal.isGlobalAdmin) return 1;
+	let highest = 0;
+	for (const member of family.members) {
+		highest = Math.max(highest, await getPermissions(principal, member, tipo));
+	}
+	return highest;
+}
+
+/**
+ * One block: the section entry, then each permitted element of the BUILT
+ * section (its own elements, virtual-aware, DFS order; then the common
+ * section-info elements). Under `use_real_sections` the built section is the
+ * REAL one, so a virtual member's exclude_elements are NOT applied and every
+ * entry carries the real tipo as `section_tipo` / `parent` (PHP: section
+ * instance, children walk and element instances all on the real tipo).
+ */
+async function sectionBlock(
+	principal: Principal,
+	family: ElementFamily,
+	exclude: ReadonlySet<string>,
+	lang: string,
+): Promise<Record<string, unknown>[]> {
+	const sectionTipo = family.built;
+	const contexts: Record<string, unknown>[] = [];
+	const sectionEntry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'search-panel-element' },
+		tipo: sectionTipo,
+		sectionTipo,
+		mode: 'list',
+		lang,
+		permissions: family.sectionPerm,
+		addRequestConfig: false,
+		principal,
+	});
+	if (sectionEntry !== null) contexts.push(toSimple(sectionEntry));
+
+	// The section's own elements (virtual-aware, DFS order), THEN the common
+	// section-info elements (dd196 + children) — but only when the section has
+	// elements of its own (PHP :3847 appends them only if ar_elements non-empty).
+	const ownElements = await elementTiposInSection(sectionTipo);
+	// WC-045: dd542 (and any SUPPRESS_SECTION_INFO section) omits the whole
+	// section-info group; dd196's children live only under dd196, never in
+	// ownElements, so skipping the append fully removes them.
+	const suppressInfo = logSectionSuppressesSectionInfo(sectionTipo);
+	const infoElements = ownElements.length > 0 && !suppressInfo ? await sectionInfoElements() : [];
+	const infoTipos = new Set(infoElements.map((element) => element.tipo));
+	const elements = [...ownElements, ...infoElements].filter(
+		({ model }) => !exclude.has(model) && model !== 'component_password',
+	);
+	contexts.push(...(await blockElements(principal, family, elements, infoTipos, lang)));
+	return contexts;
+}
+
+/** The permitted elements of one block, each as its simple context. */
+async function blockElements(
+	principal: Principal,
+	family: ElementFamily,
+	elements: readonly { tipo: string; model: string }[],
+	infoTipos: ReadonlySet<string>,
+	lang: string,
+): Promise<Record<string, unknown>[]> {
+	const contexts: Record<string, unknown>[] = [];
+	for (const { tipo, model } of elements) {
+		const perm = await familyElementGrant(principal, family, tipo, infoTipos.has(tipo));
+		if (perm < 1) continue;
+		const simple = await elementSimpleContext(principal, {
+			tipo,
+			model,
+			sectionTipo: family.built,
+			perm,
+			lang,
+		});
+		if (simple !== null) contexts.push(simple);
 	}
 	return contexts;
+}
+
+/**
+ * One element's simple context, target sections stamped. PHP builds each
+ * COMPONENT in mode 'search' (class.common.php:3915-22 —
+ * component_common::get_instance(…, 'search', …)) while the section and
+ * groupers stay 'list' (:3811, :3928). Search mode is what stamps the operator
+ * tooltip (search_operators_info / search_options_title) and, for portals,
+ * resolves the search-mode source config rather than the list section_list swap.
+ */
+async function elementSimpleContext(
+	principal: Principal,
+	element: { tipo: string; model: string; sectionTipo: string; perm: number; lang: string },
+): Promise<Record<string, unknown> | null> {
+	const { tipo, model, sectionTipo, perm, lang } = element;
+	const isComponent = model.startsWith('component_');
+	const translatable = isComponent ? await getTranslatableByTipo(tipo) : false;
+	const entry = await buildStructureContext({
+		configFrom: { source: 'own', reason: 'search-panel-element' },
+		tipo,
+		sectionTipo,
+		mode: isComponent ? 'search' : 'list',
+		lang: translatable ? lang : 'lg-nolan',
+		permissions: perm,
+		addRequestConfig: false,
+		principal,
+	});
+	if (entry === null) return null;
+	const simple = toSimple(entry);
+	await stampTargetSections(simple, { model, tipo, sectionTipo, principal });
+	return simple;
 }

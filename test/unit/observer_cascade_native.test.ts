@@ -920,7 +920,7 @@ describe('unconditional cascade — the flagship chain shape', () => {
 			OBSERVED,
 			REF_SECTION,
 			REF_A,
-			{ saved: SAVED_ITEMS, removed: [] },
+			{ saved: SAVED_ITEMS, removed: [], origin: 'keys' },
 			-1,
 		);
 
@@ -958,7 +958,11 @@ describe('bounded dispatch on a planted CYCLE', () => {
 			CYCLE_X,
 			TERM_SECTION,
 			CYCLE_TERM,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: CYCLE_TERM }], removed: [] },
+			{
+				saved: [{ section_tipo: TERM_SECTION, section_id: CYCLE_TERM }],
+				removed: [],
+				origin: 'keys',
+			},
 			-1,
 		);
 		// X → hop Y → hop X → hop Y REFUSED (already dispatched) — exactly one
@@ -1008,7 +1012,11 @@ describe('converged diamond — execute-once dedup', () => {
 			DIAMOND_OBS,
 			TERM_SECTION,
 			DIAMOND_TERM,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: DIAMOND_TERM }], removed: [] },
+			{
+				saved: [{ section_tipo: TERM_SECTION, section_id: DIAMOND_TERM }],
+				removed: [],
+				origin: 'keys',
+			},
 			-1,
 		);
 		expect((getCounters().observers_cascade_converged_skipped ?? 0) - convergedBefore).toBe(1);
@@ -1031,7 +1039,7 @@ describe('recompute hops are gated on wrote:true', () => {
 			RELAY,
 			TERM_SECTION,
 			TERM_ON,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ON }], removed: [] },
+			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ON }], removed: [], origin: 'keys' },
 			-1,
 		);
 		// the recompute persisted (fresh mirror) …
@@ -1049,7 +1057,7 @@ describe('recompute hops are gated on wrote:true', () => {
 			RELAY,
 			TERM_SECTION,
 			TERM_ON,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ON }], removed: [] },
+			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ON }], removed: [], origin: 'keys' },
 			-1,
 		);
 		expect(await bagOf(MIRROR, TERM_ON)).toEqual([mirrorEntry(1, REF_ON)]);
@@ -1247,7 +1255,7 @@ describe('level-0 propagation — refused inside a transaction, swallowed outsid
 					RELAY,
 					TERM_SECTION,
 					TERM_A,
-					{ saved: brokenItems, removed: [] },
+					{ saved: brokenItems, removed: [], origin: 'keys' },
 					-1,
 				);
 			}),
@@ -1262,7 +1270,7 @@ describe('level-0 propagation — refused inside a transaction, swallowed outsid
 			RELAY,
 			TERM_SECTION,
 			TERM_A,
-			{ saved: brokenItems, removed: [] },
+			{ saved: brokenItems, removed: [], origin: 'keys' },
 			-1,
 		);
 		expect(result).toEqual([]);
@@ -1283,12 +1291,15 @@ describe('W11: deletePortalLocator lock', () => {
 		expect(anchor).toBeGreaterThan(-1);
 		const body = source.slice(anchor);
 		expect(body).toContain('await withTransaction(');
-		expect(body).toContain('FOR UPDATE');
+		// The writer's lock — FOR NO KEY UPDATE under the lock-mode law (T1-19 / D01).
+		expect(body).toContain('FOR NO KEY UPDATE');
 		// the lock precedes the read; the write is the chokepoint's removal-law
 		// entry, whose ledger fans the observers out after the COMMIT — the door
 		// itself propagates nothing (write_obligations_tripwire leg B4 derives it)
-		expect(body.indexOf('FOR UPDATE')).toBeLessThan(body.indexOf('readMatrixRecord('));
-		expect(body.indexOf('persistRelationRemovalKeys(')).toBeGreaterThan(body.indexOf('FOR UPDATE'));
+		expect(body.indexOf('FOR NO KEY UPDATE')).toBeLessThan(body.indexOf('readMatrixRecord('));
+		expect(body.indexOf('persistRelationRemovalKeys(')).toBeGreaterThan(
+			body.indexOf('FOR NO KEY UPDATE'),
+		);
 		// ZERO-ROW GUARD (review 2026-08-02): a FOR UPDATE matching no row locks
 		// NOTHING; under READ COMMITTED the later read could then see a freshly
 		// committed row and run the whole RMW unlocked. The lock result MUST be
@@ -1385,7 +1396,11 @@ describe('the generalized default branch — re-save through the observer’s ow
 			ORD_SRC,
 			REF_SECTION,
 			REF_A,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }], removed: [] },
+			{
+				saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }],
+				removed: [],
+				origin: 'keys',
+			},
 			-1,
 		);
 		expect(idsOf(await bagOf(ORD_PORTAL, TERM_ORD))).toEqual([
@@ -1402,7 +1417,11 @@ describe('the generalized default branch — re-save through the observer’s ow
 			ORD_SRC,
 			REF_SECTION,
 			REF_A,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }], removed: [] },
+			{
+				saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD }],
+				removed: [],
+				origin: 'keys',
+			},
 			-1,
 		);
 		expect(await tmRowsAt(ORD_PORTAL, TERM_SECTION, TERM_ORD)).toBe(tmBefore + 1);
@@ -1412,7 +1431,13 @@ describe('the generalized default branch — re-save through the observer’s ow
 		const refusedBefore = getCounters().observers_server_shape_not_covered ?? 0;
 		const hopBefore = getCounters().observers_component_to_search_missing ?? 0;
 		const relayBagBefore = JSON.stringify(await bagOf(INV_OBS, REF_INV, REF_SECTION));
-		await propagateToObservers(INV_SRC, TERM_SECTION, TERM_INV, { saved: [], removed: [] }, -1);
+		await propagateToObservers(
+			INV_SRC,
+			TERM_SECTION,
+			TERM_INV,
+			{ saved: [], removed: [], origin: 'keys' },
+			-1,
+		);
 		// no longer the classifier's perform_not_covered refusal…
 		expect((getCounters().observers_server_shape_not_covered ?? 0) - refusedBefore).toBe(0);
 		// …but a relay to the ONE record referencing TERM_INV (REF_INV), whose hop
@@ -1430,7 +1455,11 @@ describe('the generalized default branch — re-save through the observer’s ow
 			ORD_SRC,
 			REF_SECTION,
 			REF_A,
-			{ saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD_DEEP }], removed: [] },
+			{
+				saved: [{ section_tipo: TERM_SECTION, section_id: TERM_ORD_DEEP }],
+				removed: [],
+				origin: 'keys',
+			},
 			-1,
 			new Date(),
 			freshGuard(`${ORD_SRC}@${REF_SECTION}/${REF_A}`, MAX_CASCADE_DEPTH),
@@ -1447,7 +1476,13 @@ describe('the generalized default branch — re-save through the observer’s ow
 	test('12e. a planted RING with a declared-order portal terminates, counted, the host written ONCE', async () => {
 		const tmBefore = await tmRowsAt(RING_A, TERM_SECTION, RING_TERM);
 		const cycleBefore = getCounters().observers_cascade_cycle_refused ?? 0;
-		await propagateToObservers(RING_B, TERM_SECTION, RING_TERM, { saved: [], removed: [] }, -1);
+		await propagateToObservers(
+			RING_B,
+			TERM_SECTION,
+			RING_TERM,
+			{ saved: [], removed: [], origin: 'keys' },
+			-1,
+		);
 		expect(idsOf(await bagOf(RING_A, RING_TERM))).toEqual([
 			REF_L_ALPHA,
 			REF_L_BRAVO,

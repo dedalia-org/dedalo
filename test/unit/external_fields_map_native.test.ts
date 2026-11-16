@@ -276,3 +276,66 @@ describe('parseFieldsMap refuses malformed cataloguing loudly', () => {
 		expect(parseFieldsMap(null, { tipo: 'x' })).toEqual([]);
 	});
 });
+
+/**
+ * T1-P06 — AN EMPTY VALUE IS NO ENTRY (WC-2026-11-13-external-empty-entry-dropped).
+ * A remote field that is present but holds nothing visible is a MISSING value,
+ * exactly like an absent field: no entry, no degradation. An entry `""` reached
+ * the wire as a blank span the list view framed with separators (`| |`) and an
+ * export cell `""` claiming "the service holds an empty value".
+ */
+describe('an empty value is no entry (T1-P06)', () => {
+	const plain = parseFieldsMap([{ local: 'dato', remote: 'v' }], { tipo: 'x' });
+	const rich = parseFieldsMap([{ local: 'dato', remote: 'v', format: 'rich' }], { tipo: 'x' });
+
+	test('an empty plain string emits nothing and degrades nothing', () => {
+		// Positive control: the same mapping DOES emit a non-empty value, so the
+		// empty verdicts below cannot pass on a mapping that emits nothing at all.
+		expect(mapRowToEntries(wikidataLike, viewOf({ v: 'x' }), plain).entries).toHaveLength(1);
+		expect(mapRowToEntries(wikidataLike, viewOf({ v: '<em>x</em>' }), rich).entries).toHaveLength(
+			1,
+		);
+		const result = mapRowToEntries(wikidataLike, viewOf({ v: '' }), plain);
+		expect(result.entries).toEqual([]);
+		expect(result.source_status).toBeUndefined();
+	});
+
+	test('a whitespace-only plain string emits nothing', () => {
+		const result = mapRowToEntries(wikidataLike, viewOf({ v: '  \t' }), plain);
+		expect(result.entries).toEqual([]);
+		expect(result.source_status).toBeUndefined();
+	});
+
+	test('empty items of a plain array are dropped, the real one kept', () => {
+		const result = mapRowToEntries(wikidataLike, viewOf({ v: ['', 'x', '  '] }), plain);
+		expect(result.entries).toEqual(['x']);
+		expect(result.source_status).toBeUndefined();
+	});
+
+	test('markup with no visible text after sanitising emits nothing, and no entries_kind', () => {
+		for (const raw of ['<script>x</script>', '<br>', '<em> </em>']) {
+			const result = mapRowToEntries(wikidataLike, viewOf({ v: raw }), rich);
+			expect(result.entries).toEqual([]);
+			expect(result.entries_kind).toBeUndefined();
+			expect(result.source_status).toBeUndefined();
+		}
+	});
+
+	test('empties never consume a count slot and their kind leaves with them', () => {
+		overrideExternalSettingsForTests({ maxEntryChars: 8192, maxEntries: 2 });
+		const result = normalizeEntries([
+			{ text: '', kind: 'text' },
+			{ text: 'a', kind: 'markup' },
+			{ text: ' ', kind: 'text' },
+			{ text: 'b', kind: 'text' },
+		]);
+		expect(result.entries).toEqual(['a', 'b']);
+		expect(result.kinds).toEqual(['markup', 'text']);
+		expect(result.droppedOverCount).toBe(0);
+	});
+
+	test('non-empty text is NOT trimmed', () => {
+		const result = mapRowToEntries(wikidataLike, viewOf({ v: ' x ' }), plain);
+		expect(result.entries).toEqual([' x ']);
+	});
+});

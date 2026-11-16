@@ -40,6 +40,7 @@ import {
 	getNodesWithProperty,
 } from '../ontology/resolver.ts';
 import { getSectionRealTipo } from '../resolve/security_access_datalist.ts';
+import { listEffectiveToolConfigurationOverrides, toolConfigGeneration } from '../tools/config.ts';
 import { TOOL_PICKER_WIRING } from '../tools/picker_wiring.ts';
 import { isIndexable } from '../ts_object/ts_object.ts';
 import { getElementTargetSectionTipos } from './request_config/build.ts';
@@ -373,7 +374,8 @@ async function toolDeclaredTargets(callerTipo: string): Promise<string[]> {
 }
 
 /**
- * The tool-declared target index, built once per ontology generation.
+ * The tool-declared target index, built once per ontology generation AND per
+ * tool-config generation (its two sources — see toolDeclaredTargetIndex).
  *
  * The scan itself is a by-PROPERTY read (`getNodesWithProperty`, the canonical
  * home for what the per-tipo cache cannot serve); the DERIVED index is what is
@@ -381,7 +383,10 @@ async function toolDeclaredTargets(callerTipo: string): Promise<string[]> {
  * an edited tool_config takes effect on the next resolve, never after a
  * restart. One entry keyed by the whole index, the observer-registry shape.
  */
-const toolDeclaredTargetsCache = createOntologyCache<'index', Map<string, string[]>>();
+const toolDeclaredTargetsCache = createOntologyCache<
+	'index',
+	{ generation: number; index: Map<string, string[]> }
+>();
 
 /**
  * The models a tool-declared picker source may widen — the PORTAL family, whose
@@ -488,11 +493,36 @@ function addPairToIndex(
 	index.set(linkerTipo, merged);
 }
 
+/**
+ * THE TWO DECLARATION SOURCES of the index. The ontology's
+ * `properties.tool_config` bags, and — owner C36 2026-11-13
+ * (WC-2026-11-12-tool-configuration-override addendum) — the tool-configuration
+ * OVERRIDES (Tools configuration dd996 / register default dd1324
+ * `properties.tool_config[]`, `tools/config.ts`): an override's ddo_map is what
+ * the element's tool stamp hands the client, so a picker section it pairs into
+ * a linker role is OFFERED in the UI; the write door reads the same bytes and
+ * accepts it. Before, such a pick was offered and refused `off_target` — two
+ * authorities, one enforced. Paired by ROLE through the same wiring table, so
+ * an override widens the TARGET gate exactly as an ontology bag would and
+ * nothing else (gates 2-4 unchanged).
+ */
 async function toolDeclaredTargetIndex(): Promise<Map<string, string[]>> {
+	const generation = toolConfigGeneration();
 	const cached = toolDeclaredTargetsCache.get('index');
-	if (cached !== undefined) return cached;
+	// Rebuilt when EITHER source moved: a dd_ontology write clears the ontology
+	// cache; a dd996 / dd1324 write bumps the tool-config generation stamped here.
+	if (cached !== undefined && cached.generation === generation) return cached.index;
 
 	const index = new Map<string, string[]>();
+	await indexOntologyToolConfigs(index);
+	await indexOverrideToolConfigs(index);
+
+	toolDeclaredTargetsCache.set('index', { generation, index });
+	return index;
+}
+
+/** Source 1: every ontology node's `properties.tool_config` bag, tool by tool. */
+async function indexOntologyToolConfigs(index: Map<string, string[]>): Promise<void> {
 	for (const node of await getNodesWithProperty('tool_config')) {
 		const bag = node.properties.tool_config;
 		if (bag === null || typeof bag !== 'object') continue;
@@ -500,9 +530,13 @@ async function toolDeclaredTargetIndex(): Promise<Map<string, string[]>> {
 			await indexToolConfig(index, toolName, rawConfig);
 		}
 	}
+}
 
-	toolDeclaredTargetsCache.set('index', index);
-	return index;
+/** Source 2: the EFFECTIVE tool-configuration override entries (tools/config.ts). */
+async function indexOverrideToolConfigs(index: Map<string, string[]>): Promise<void> {
+	for (const override of await listEffectiveToolConfigurationOverrides()) {
+		await indexToolConfig(index, override.toolName, { ddo_map: override.ddoMap });
+	}
 }
 
 /**

@@ -190,7 +190,14 @@ const INDEX6 = 'zzxv15';
 const INDEX6C = 'zzxv28'; // D9: the CONFIGURED twin (explicit map: targets A6 + B6)
 const POINTER6 = 'zzxv16';
 const POINTER6B = 'zzxv24';
-const A6_RELATION_LIST = 'zzxv19'; // → [A7_LABEL]
+const A6_RELATION_LIST = 'zzxv19'; // → [A7_LABEL, A6_SECRET_COLUMN]
+/**
+ * T1-15 (O12): a second related_list column of A6 the SCOPED persona holds no
+ * grant on (admin only) — A6 itself stays readable, so only the column-level
+ * STEP 5 filter (implicit children) keeps its value out of the scoped export.
+ */
+const A6_SECRET_COLUMN = 'zzxv29';
+const A6_SECRET_VALUE = 'zzxv index secret column';
 const B6_RELATION_LIST = 'zzxv25'; // → [B6_LABEL]
 const A6_SECTION_ID = 'zzxv26';
 const B6_SECTION_ID = 'zzxv27';
@@ -442,8 +449,9 @@ const S = situation({
 			parent: A6,
 			model: 'relation_list',
 			term: term('zz t09 a6 rl'),
-			relations: [{ tipo: A7_LABEL }],
+			relations: [{ tipo: A7_LABEL }, { tipo: A6_SECRET_COLUMN }],
 		},
+		labelNode(A6_SECRET_COLUMN, A6),
 		{ tipo: A6_SECTION_ID, parent: A6, model: 'component_section_id', term: term('zz t09 a6 id') },
 		{
 			tipo: POINTER6,
@@ -1710,6 +1718,7 @@ const ADMIN_GRANTS = [
 	{ sectionTipo: A6, tipo: A6_FILTER, level: 3 },
 	{ sectionTipo: A6, tipo: R7, level: 3 },
 	{ sectionTipo: A6, tipo: A7_LABEL, level: 3 },
+	{ sectionTipo: A6, tipo: A6_SECRET_COLUMN, level: 3 },
 	{ sectionTipo: A6, tipo: INDEX6, level: 3 },
 	{ sectionTipo: A6, tipo: INDEX6C, level: 3 },
 	{ sectionTipo: B6, tipo: B6_LABEL, level: 3 },
@@ -1859,6 +1868,12 @@ describe.if(DB_READY)(
 				pointsAtTarget,
 				[A7_LABEL, 'zzxv index visible'],
 				INDEX_VISIBLE,
+			);
+			// T1-15: the admin-only related_list column's value on the visible pointer
+			await sql.unsafe(
+				`UPDATE matrix_test SET string = string || $3::text::jsonb
+				 WHERE section_tipo = $1 AND section_id = $2`,
+				[A6, INDEX_VISIBLE, encodeForJsonb({ [A6_SECRET_COLUMN]: text(A6_SECRET_VALUE) })],
 			);
 			await writeG6(
 				A6,
@@ -2089,9 +2104,14 @@ describe.if(DB_READY)(
 					expect(await tipos(identity.admin, B6)).toEqual(full);
 					expect(await tipos(undefined, B6)).toEqual(full);
 					expect(await tipos(identity.scoped, B6)).toEqual([B6_SECTION_ID]);
-					expect(await tipos(identity.scoped, A6)).toEqual(
-						index.tipo === INDEX6 ? [A6_SECTION_ID, A7_LABEL] : [A7_LABEL, B6_LABEL],
-					);
+					// a READABLE pointing section: its children are principal-free — the
+					// column-level grant is applied by the walk (readableMapChildren), not here
+					const a6 =
+						index.tipo === INDEX6
+							? [A6_SECTION_ID, A7_LABEL, A6_SECRET_COLUMN]
+							: [A7_LABEL, B6_LABEL];
+					expect(await tipos(identity.admin, A6)).toEqual(a6);
+					expect(await tipos(identity.scoped, A6)).toEqual(a6);
 				});
 
 				/**
@@ -2129,8 +2149,10 @@ describe.if(DB_READY)(
 						).rows[0]?.c['0'];
 					// config-less: [section_id, ...related_list] per pointer; configured: its map
 					const id = (n: number) => (index.tipo === INDEX6 ? `${n}, ` : '');
+					// config-less: A6's admin-only related_list column joins pointer 5 (T1-15)
+					const secret = index.tipo === INDEX6 ? `, ${A6_SECRET_VALUE}` : '';
 					expect(await cellOf(identity.admin)).toBe(
-						`${id(5)}zzxv index visible | ${id(6)}zzxv index hidden | ${id(7)}${UNREADABLE_SENTINEL} | ${id(8)}${UNREADABLE_SENTINEL} other`,
+						`${id(5)}zzxv index visible${secret} | ${id(6)}zzxv index hidden | ${id(7)}${UNREADABLE_SENTINEL} | ${id(8)}${UNREADABLE_SENTINEL} other`,
 					);
 					expect(await cellOf(identity.scoped)).toBe(
 						`${id(5)}zzxv index visible | ${id(6)}zzxv index hidden | ${EXISTENCE} | ${EXISTENCE_OTHER}`,
@@ -2138,5 +2160,43 @@ describe.if(DB_READY)(
 				});
 			});
 		}
+
+		/**
+		 * T1-15 (O12) — the COLUMN-level grant on the export door: a related_list
+		 * column of a READABLE pointing section the scoped persona holds no grant
+		 * on stays out of its export. The per-locator children are tagged
+		 * IMPLICIT (config_children.ts relationIndexLocatorChildren), so the
+		 * frontier's implicit-children key drops it (atoms.ts readableMapChildren);
+		 * an untagged child is read at the subdatum floor, which raises 0 to 1.
+		 * Config-less only: the configured twin's explicit map does not name it.
+		 */
+		describe('D6 — config-less: a 0-grant related_list column of a readable pointing section', () => {
+			for (const format of ['value', 'grid_value']) {
+				test(`export ${format}: absent for the scoped persona, present for admin`, async () => {
+					const ddo = { path: [{ section_tipo: A6, component_tipo: INDEX6 }] };
+					const admin = await exportG6(identity.admin, ddo, format, INDEX_TARGET);
+					expect(admin.startsWith('OK:')).toBe(true);
+					expect(admin).toContain(A6_SECRET_VALUE);
+					const scoped = await exportG6(identity.scoped, ddo, format, INDEX_TARGET);
+					expect(scoped.startsWith('OK:')).toBe(true);
+					// the pointer row is there (its granted column) …
+					expect(scoped).toContain('zzxv index visible');
+					// … the ungranted column's value is not
+					expect(scoped).not.toContain(A6_SECRET_VALUE);
+				});
+			}
+
+			test('interactive resolveCellValue: the same column withheld from the scoped persona', async () => {
+				const cell = (principal: Principal) =>
+					asPrincipal(principal, async () => {
+						clearFieldsSeparatorCache();
+						return (await resolveCellValue(A6, INDEX_TARGET, INDEX6, LANG, [])) ?? '';
+					});
+				expect(await cell(identity.admin)).toContain(A6_SECRET_VALUE);
+				const scoped = await cell(identity.scoped);
+				expect(scoped).toContain('zzxv index visible');
+				expect(scoped).not.toContain(A6_SECRET_VALUE);
+			});
+		});
 	},
 );

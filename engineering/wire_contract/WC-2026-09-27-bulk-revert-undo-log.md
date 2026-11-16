@@ -1378,3 +1378,51 @@ W4 cross-write (audit 2026-09-26, S3-1 / S3-2).
   wiped row present at the address, a D2 refusal `created_record_kept`) stays located,
   as before. Gate: `bulk_revert_undo_native` "a MISSING cascade target refused before
   any record-scope check is never LOCATED (SEC-16)".
+
+## Addendum 2026-11-12 — the save-before (T1-21 / O16)
+
+The dd15 history gains rows; no envelope changes. PHP `tm_record::create($values,
+$previous_data)` (v6 `JSON_RecordObj_matrix`) recorded the value a save overwrote when
+that (record, tipo, lang) had no history yet; the TS writer had lost it, so the first edit
+of an imported / v6-migrated / history-less value left no trace of what it replaced.
+
+- **The law, in the ONE writer** (`relations/dataframe_slots.ts` `recordMainHistory` →
+  `recordChangeBackfill`, before the rows or pairs): a change that rewrites a lane — a
+  language lane, or the frame lane (lg-nolan value + frames) — whose BEFORE image holds
+  something, whose image actually changed, and which has NO visible history for the living
+  record generation, first records that BEFORE image as a visible row. Every door gets it
+  because every door writes through the one writer: the component save (main and slot),
+  tool_lang, apply_value, the portal locator removal, the relation_parent write, the
+  wiped-filter reconcile, bulk revert / undo.
+- **Changed lanes only** (PHP `same_data` + its per-lang probe): a save of lg-spa never
+  backfills lg-eng; an unchanged save, a duplicate's re-save row, an apply_value of the
+  current value backfill nothing. The record-lifecycle doors (delete, observer, duplicate)
+  keep their wider all-lanes backfill (`recordMainBackfill` without a lane filter).
+- **Under a run too**: the backfill is ordinary visible history (`bulk_process_id` NULL,
+  `tm_role` NULL — PHP dropped the bulk id "to prevent revert it"); the run's pairs follow
+  it and a revert of the run leaves it in place. `saveTm: false` outside a run writes no
+  row, backfill included (PHP `$save_tm === false`).
+- **Stamp**: one minute before the change (`db_timestamp.ts` `BACKFILL_LEAD_MS`,
+  `backfillTimestamp(now)` — v7 PHP's now − PT1M; v6 used the record's created_date),
+  derived from the same instant as the change's own stamp (`historyStamp`). `RunStamp`
+  requires `backfillTimestamp`, so `tsc` refuses a door that omits it. Consequence: in the
+  timestamp-ordered dd15 list a backfill row can sort below another lane's row written in
+  that minute; lane reconstruction is id-ordered and unaffected (as for the delete/observer
+  backfills).
+- **One probe** (`time_machine.ts` `hasVisibleLaneHistory`, `withTmHistory`: epoch AND
+  `tm_role IS NULL`; `anyTag` for an unsliced main): the save-before, the delete doors and
+  the observer backfill ask it; the two inline copies are gone. A dead generation's rows or
+  a hidden undo-log row never count as history. An address the TM does not audit
+  (`isTmAuditedAddress`) is not probed.
+- **The save door reads the BEFORE slots for every main** (an unsliced one included), so
+  its backfill row is the frame lane as it stood (value + frames).
+
+Gate: `test/unit/tm_save_before_native.test.ts`.
+
+## Addendum 2026-11-12 — update_cache's external-mirror refresh is outside the log (T1-38)
+
+- `tool_update_cache` now RECOMPUTES an external portal (WC-2026-11-12-update-cache-external-mirror-refresh)
+  instead of re-saving it. That write is an observer mirror write and stays outside the
+  undo log under the existing exemption above (beside D4's media `files_info`): no
+  `bulk_process_id`, so a revert of the run leaves the recomputed mirror (a restored
+  covered slot would be recomputed anyway). Attribution to the run is open (T1-38 plan, D1).

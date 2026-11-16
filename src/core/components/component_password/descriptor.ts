@@ -13,6 +13,10 @@ export const component_password: ComponentModel = {
 	importAppend: { refuse: 'opaque: a password is one secret value — use replace' },
 	monovalue: true,
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'common',
 	importValueProperty: true,
 	secretValue: true,
+	// Never a sort key: the relative order of rows would be a comparison oracle
+	// over the stored hashes (owner C39 2026-11-13, WC-2026-11-13-sort-non-scalar-refused).
+	sortable: false,
 };

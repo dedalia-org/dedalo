@@ -160,14 +160,17 @@ export async function buildSectionButtons(
 		// object, so the enriched map reaches the wire BOTH on tools[n]
 		// .tool_config and on the button's own properties.tool_config (the
 		// client's open_tool consumes tools[0]; unenriched, tool_common.js
-		// never builds the configured components). The register-record config
-		// override (tool_common::get_tool_configuration) is NOT ported — same
-		// ledger as the element-tools stamp in resolve/structure_context.ts.
+		// never builds the configured components). The Tools-configuration /
+		// register override (tool_common::get_tool_configuration, keyed on the
+		// button tipo + the section) replaces the ontology ddo_map — and, PHP-
+		// exact, an override alone makes the button carry that tool (it is not
+		// written back into the button's properties: a fresh object in PHP).
+		// T1-43, WC-2026-11-12-tool-configuration-override.
 		let tools: unknown[] | null = null;
 		if (TOOL_BUTTON_MODELS.has(row.model)) {
 			tools = [];
 			const { getSuperuserUserTools, getUserTools } = await import('../tools/registry.ts');
-			const { enrichToolConfig } = await import('../tools/section_tool_context.ts');
+			const { resolveElementToolConfig } = await import('../tools/section_tool_context.ts');
 			// PHP uses the FULL user tools list (get_user_tools), not the
 			// element-filtered get_tools. No principal (legacy path) → the
 			// superuser list, matching the admin-exact caller-cap proxy above.
@@ -177,11 +180,16 @@ export async function buildSectionButtons(
 					: await getSuperuserUserTools();
 			const toolConfigBag = (properties?.tool_config ?? {}) as Record<string, unknown>;
 			for (const tool of userTools) {
-				const rawConfig = toolConfigBag[tool.name];
-				if (rawConfig === undefined || rawConfig === null) continue;
-				const enriched = await enrichToolConfig(rawConfig, sectionTipo, sectionTipo);
-				toolConfigBag[tool.name] = structuredClone(enriched);
-				tools.push(enriched !== null ? { ...tool, tool_config: enriched } : { ...tool });
+				const { enriched, fromOntology } = await resolveElementToolConfig(
+					tool.name,
+					toolConfigBag[tool.name],
+					row.tipo,
+					sectionTipo,
+					{ tipo: sectionTipo, sectionTipo },
+				);
+				if (enriched === null) continue;
+				if (fromOntology) toolConfigBag[tool.name] = structuredClone(enriched);
+				tools.push({ ...tool, tool_config: enriched });
 			}
 		}
 

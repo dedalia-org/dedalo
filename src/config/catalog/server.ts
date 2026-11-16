@@ -94,6 +94,31 @@ another version, which the engine would not understand.
 Unset (every installation that is not a container): nothing is published, and the proxy serves
 the client from the installation tree as before. Never set in a pre-swap boot check.`,
 	},
+	DEDALO_WRITABLE_ROOTS_MANIFEST: {
+		// Written into the server's systemd drop-in by the production installer
+		// (src/core/install/host/systemd/render.ts serverDropin); read at boot by
+		// src/config/writable_roots.ts, never set by hand.
+		type: 'string',
+		scope: 'environment',
+		default: undefined,
+		heading: 'The manifest of the paths the service unit lets the engine write',
+		typeLabel: 'absolute path',
+		typeSuffix: '(set by the installer’s systemd drop-in; unset = no check)',
+		doc: `Set by the production installer in the instance's systemd drop-in, never by hand. The
+server unit runs with \`ProtectSystem=strict\`: the whole file system is read-only to the engine
+except the roots the drop-in lists in \`ReadWritePaths=\` — the install folder, the backup
+directory, the media root and the published client, the socket directories and the temp
+directories. The installer writes that same list, derived from the install answers, into a small
+JSON file beside the drop-in and names it here.
+
+At boot the engine checks every path it is configured to write (the private directory,
+\`MEDIA_PATH\`, \`DEDALO_BACKUP_DIR\`, the export artifacts, the ontology IO directory, the
+client publish directory, the socket directory…) against that list and **refuses to start**
+(exit 78, which the unit never restarts) when one lies outside it, naming the command that
+re-renders the units from the install's plan. Without the check a path moved in \`.env\` to a
+place the unit does not allow would fail at its first write, in the middle of an upload or a
+backup. Unset (every installation that is not a production systemd instance): no check.`,
+	},
 	DEDALO_CONTAINER_IMAGE: {
 		// Read from the PROCESS environment only (src/core/update/image_source.ts):
 		// the container stack declares the image it runs. Not DEDALO_IMAGE_*: that

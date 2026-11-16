@@ -54,7 +54,6 @@ import { stackFactsOf } from './facts.ts';
 import {
 	CERT_DIR,
 	CERT_MOUNT,
-	CERTBOT_IMAGE,
 	CONTAINER,
 	CONTAINER_MEDIA_RULES,
 	certPathsOf,
@@ -130,7 +129,14 @@ export function renderEnvFile(ctx: HostPlanCtx, password: string = PASSWORD_PLAC
 	].join('\n');
 }
 
-/** The Let's Encrypt renewal: the certbot service, its volumes, nginx reloading to pick renewals up. */
+/**
+ * The Let's Encrypt renewal: the full stack's `certbot` service switched ON
+ * (`profiles: !reset []` — Compose >= 2.24.4, which stack_preflight requires),
+ * nginx mounting the certificate volumes and reloading to pick renewals up. The
+ * certbot image, volumes and renewal loop come from docker-compose.yml itself:
+ * this override spells NO image (T1-17 — a second spelling is the unpinned
+ * `certbot/certbot` it used to carry).
+ */
 function letsEncryptOverride(): string[] {
 	return [
 		'services:',
@@ -141,16 +147,8 @@ function letsEncryptOverride(): string[] {
 		`      - letsencrypt:${CONTAINER.letsencrypt}:ro`,
 		`      - certbot_www:${CONTAINER.acmeWebroot}:ro`,
 		'  certbot:',
-		`    image: ${CERTBOT_IMAGE}`,
-		'    restart: unless-stopped',
-		'    volumes:',
-		`      - letsencrypt:${CONTAINER.letsencrypt}`,
-		`      - certbot_www:${CONTAINER.acmeWebroot}`,
-		'    entrypoint: >',
-		`      sh -c "trap exit TERM; while :; do certbot renew --webroot -w ${CONTAINER.acmeWebroot} --quiet; sleep 12h & wait $\${!}; done"`,
-		'volumes:',
-		'  letsencrypt:',
-		'  certbot_www:',
+		"    # Enabled here; image, volumes and renewal loop are docker-compose.yml's.",
+		'    profiles: !reset []',
 	];
 }
 

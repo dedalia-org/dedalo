@@ -161,6 +161,12 @@ text_area to that per-record language (v6 `get_original_lang`, ported
 - **List values** emit in the original language (the item's `lang` follows), so
   a list of interviews shows each transcript in its own language instead of an
   empty current-lang slice.
+- **Tag statistics** (the `tags` info widget, rsc244) count the same slice the
+  list shows — original lang, equivalence-aware, else the request data lang, no
+  further fallback (v6 `class.tags.php`; frozen PHP v7 read item [0] of every
+  lang). `original_lang.ts::resolveRecordTextLang` is the one resolution both
+  consume. WC-2026-11-13-tags-widget-original-lang; gate
+  `test/unit/tags_widget_original_lang_native.test.ts`.
 - Resolution: `src/core/components/component_text_area/original_lang.ts`
   (ontology-related select_lang → lg1 locator →
   `select_lang.ts::getLangCodeBySectionId`). A record without a value, or a

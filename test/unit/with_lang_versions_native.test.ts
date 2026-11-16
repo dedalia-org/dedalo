@@ -739,8 +739,12 @@ describe('the neighbour the rule must not drag along: select-family option label
 			}),
 		).toBe('updated');
 		const props = null;
-		const eng = (await getEditDatalist(RADIO, props, SECTION, ENG, [])).map((o) => String(o.label));
-		const spa = (await getEditDatalist(RADIO, props, SECTION, SPA, [])).map((o) => String(o.label));
+		const eng = (
+			await getEditDatalist(RADIO, props, { section_tipo: SECTION, section_id: null }, ENG, [])
+		).map((o) => String(o.label));
+		const spa = (
+			await getEditDatalist(RADIO, props, { section_tipo: SECTION, section_id: null }, SPA, [])
+		).map((o) => String(o.label));
 		// FLOOR: the two langs label differently, or the gate below proves nothing.
 		expect(eng.length).toBeGreaterThan(0);
 		expect(eng).not.toEqual(spa);

@@ -50,6 +50,7 @@ else {
 		save_unsaved_components: unreached('save_unsaved_components'),
 		orphan_unsaved_instance: unreached('orphan_unsaved_instance'),
 		deactivate_components: unreached('deactivate_components'),
+		run_escape_ladder: unreached('run_escape_ladder'),
 		is_empty: unreached('is_empty'),
 		activate_edit_in_list: unreached('activate_edit_in_list'),
 		bind_edit_in_list: unreached('bind_edit_in_list'),

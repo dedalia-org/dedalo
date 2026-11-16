@@ -51,6 +51,12 @@ import { recordTimeMachine } from '../../db/time_machine.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { type DdDate, ddDateFromMtime, type FileInfoEntry } from '../files_info.ts';
+import {
+	applyProvenanceRepair,
+	mediaItemTargetIndex,
+	type ProvenanceRepair,
+	type ProvenanceTarget,
+} from '../provenance_repair.ts';
 
 const MEDIA_COLUMN: MatrixJsonbColumn = 'media';
 
@@ -362,6 +368,16 @@ export interface ReconcileOptions {
 }
 
 /**
+ * The provenance repair a regenerate door resolved before the lock
+ * (provenance_repair.ts), applied by the repair UNDER it — after the mint or the
+ * merge, to the item of the target lang, filling only absent keys.
+ */
+export interface ReconcileProvenance {
+	repair: ProvenanceRepair | null;
+	target: ProvenanceTarget;
+}
+
+/**
  * The OPERATOR'S REPAIR — reconcile, and MINT the stored item when the component
  * has none and the scan found files.
  *
@@ -373,10 +389,11 @@ export interface ReconcileOptions {
  */
 export async function repairStoredFilesInfo(
 	input: FilesInfoReconcileInput,
+	provenance: ReconcileProvenance | null = null,
 ): Promise<FilesInfoReconcileResult> {
 	// NEVER a drawing reset: sync_files repairs a stale index, it does not delete
 	// a curator's layers (see ReconcileOptions).
-	return await runReconcile(input, true, {});
+	return await runReconcile(input, true, {}, provenance);
 }
 
 /**
@@ -430,6 +447,7 @@ async function runReconcile(
 	input: FilesInfoReconcileInput,
 	allowCreate: boolean,
 	options: ReconcileOptions,
+	provenance: ReconcileProvenance | null = null,
 ): Promise<FilesInfoReconcileResult> {
 	const resetDrawing = options.resetDrawing === true;
 	const drawingAudit = drawingAuditFor(input, options);
@@ -441,24 +459,20 @@ async function runReconcile(
 			if (items.length === 0) {
 				if (!allowCreate || input.freshFilesInfo.length === 0) return { skip: 'noop' };
 				decided = 'created';
-				return {
-					write: buildUploadedMediaItems({
-						lang: input.lang,
-						existingItems: [],
-						filesInfo: input.freshFilesInfo,
-						nameKeys: null, // provenance is unknown to a scan — PHP writes files_info alone
-					}),
-				};
+				const minted = buildUploadedMediaItems({
+					lang: input.lang,
+					existingItems: [],
+					filesInfo: input.freshFilesInfo,
+					nameKeys: null, // provenance is unknown to a scan — PHP writes files_info alone
+				});
+				// …and then PHP's regenerate step 1 runs on the minted item too.
+				return { write: withProvenance(minted, provenance).items };
 			}
-			const { items: updated, changed } = mergeFilesInfoIntoItems(
-				items,
-				input.lang,
-				input.freshFilesInfo,
-				resetDrawing,
-			);
-			if (!changed) return { skip: 'noop' };
+			const merged = mergeFilesInfoIntoItems(items, input.lang, input.freshFilesInfo, resetDrawing);
+			const repaired = withProvenance(merged.items, provenance);
+			if (!merged.changed && !repaired.changed) return { skip: 'noop' };
 			decided = 'refreshed';
-			return { write: updated };
+			return { write: repaired.items };
 		},
 		{
 			lockWait: 'request',
@@ -476,6 +490,15 @@ async function runReconcile(
 	}
 	if (outcome.action !== 'written') return { action: 'noop', affected: 0 };
 	return { action: decided, affected: outcome.affected };
+}
+
+/** The provenance repair on the locked items, when the door resolved one. */
+function withProvenance(
+	items: StoredMediaItem[],
+	provenance: ReconcileProvenance | null,
+): { items: StoredMediaItem[]; changed: boolean } {
+	if (provenance === null) return { items, changed: false };
+	return applyProvenanceRepair(items, provenance.repair, provenance.target);
 }
 
 /** The one media-key write: `media -> <componentTipo>` = items. */
@@ -550,10 +573,7 @@ export function buildUploadedMediaItems(input: UploadedMediaItemsInput): StoredM
 	const items: StoredMediaItem[] = input.existingItems.map((item) => ({ ...item }));
 	// Locate the item to update: the lang-matched item (translatable) or the
 	// first item (non-translatable). Create it when absent.
-	const targetIndex =
-		input.lang !== null
-			? items.findIndex((item) => (item.lang ?? null) === input.lang)
-			: items.findIndex(() => true);
+	const targetIndex = mediaItemTargetIndex(items, input.lang);
 
 	const uploadDate = input.uploadDate ?? ddDateFromMtime(new Date());
 	const names: Record<string, unknown> =

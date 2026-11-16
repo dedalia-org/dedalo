@@ -234,7 +234,12 @@ afterAll(async () => {
 
 describe('the door — getDatalist applies the model option source', () => {
 	test('component_select_lang options are the project languages, not the lg1 section', async () => {
-		const options = await getDatalist(SELECT_LANG, null, SECTION, LANG);
+		const options = await getDatalist(
+			SELECT_LANG,
+			null,
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		const projectLangs = await getSelectLangDatalist(LANG);
 		// Floor: an empty list would make every equality below vacuous.
 		expect(projectLangs.length).toBeGreaterThan(0);
@@ -242,7 +247,15 @@ describe('the door — getDatalist applies the model option source', () => {
 		// The language token, not a record id — the select_lang option shape.
 		for (const option of options) expect(String(option.section_id)).toMatch(/^lg-/);
 		// The probe and the build agree about what the options ARE.
-		expect(await probeDatalistSize(SELECT_LANG, null, SECTION, LANG, 100_000)).toBe(options.length);
+		expect(
+			await probeDatalistSize(
+				SELECT_LANG,
+				null,
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+				100_000,
+			),
+		).toBe(options.length);
 	});
 });
 
@@ -281,6 +294,45 @@ describe('the save echo carries the edit read datalist', () => {
 });
 
 describe('the temporal echo carries the edit read datalist', () => {
+	/**
+	 * C6's `restricted` completion marks STORED picks the built list lacks. The
+	 * temporal door's locators are the CLIENT's payload (no insert law, read ≥ 1
+	 * on the component): completing them answered "this row exists" for any
+	 * section/id the caller named — an existence oracle. The temporal echo now
+	 * carries the built list and nothing else (datalist.ts DatalistCompletion
+	 * 'picked'); the persisted doors keep the marker (datalist_projects_scope).
+	 */
+	test('a client pick naming an EXISTING row outside the list gets NO restricted entry on the temporal echo (2026-11-14)', async () => {
+		const read = await readEdit('component_select', 'test91', recordId);
+		// test91's options are dd64 records; the test3 playground record exists and is
+		// not one of them — exactly the pick the stored-value marker would complete.
+		const outside = {
+			section_tipo: SECTION,
+			section_id: recordId,
+			type: 'dd151',
+			from_component_tipo: 'test91',
+		};
+		const response = await save(
+			'component_select',
+			'test91',
+			recordId,
+			[{ action: 'insert', key: 0, value: outside }],
+			{ is_temporal: true },
+		);
+		const echo = mainItem(response.body, 'test91');
+		// The pick reached the echo (the leg is not vacuous)…
+		expect(echo.entries).toEqual([
+			expect.objectContaining({ section_id: recordId, section_tipo: SECTION }),
+		]);
+		// …and the datalist is the edit read's: no `restricted` entry, no row looked up.
+		expect(
+			(echo.datalist ?? []).filter(
+				(option) => (option as { restricted?: unknown }).restricted === true,
+			),
+		).toEqual([]);
+		expect(echo.datalist).toEqual(read.datalist);
+	});
+
 	test('component_select_lang (test89)', async () => {
 		const read = await readEdit('component_select_lang', SELECT_LANG, recordId);
 		const response = await save(
@@ -349,7 +401,11 @@ describe('a stored NON-project lang gets ONE "<name> *" entry at every edit door
 	});
 
 	test('the shared option list (getDatalist) never carries it', async () => {
-		expect(entriesOfMissing(await getDatalist(SELECT_LANG, null, SECTION, LANG))).toEqual([]);
+		expect(
+			entriesOfMissing(
+				await getDatalist(SELECT_LANG, null, { section_tipo: SECTION, section_id: null }, LANG),
+			),
+		).toEqual([]);
 	});
 
 	test('list mode shows the same application-lang label', async () => {

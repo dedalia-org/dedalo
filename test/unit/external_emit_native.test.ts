@@ -190,6 +190,18 @@ describe('the emitted item (the shape the client renders)', () => {
 		}
 	});
 
+	test('an all-empty remote value emits the item with NO entry, undegraded (T1-P06)', async () => {
+		// The record view and the list column must not render a blank entry the
+		// client frames with separators ("| |"): an empty value is a missing one.
+		const item = await emitOne(
+			REMOTE_ID,
+			parkRow('ok', { id: REMOTE_ID, authors: { primary: [], secondary: [], corporate: [] } }),
+		);
+		expect(item.tipo).toBe(COMPONENT);
+		expect(item.entries).toEqual([]);
+		expect(Object.hasOwn(item, 'source_status')).toBe(false);
+	});
+
 	test('the zero-padded section_id is echoed VERBATIM — never Number()d', async () => {
 		const item = await emitOne(REMOTE_ID, parkRow('ok', AUTHORS_ROW));
 		// The client matches its instance by String(el.section_id) === String(self.section_id);

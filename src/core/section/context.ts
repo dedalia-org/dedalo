@@ -14,6 +14,7 @@ import { getSectionMap } from '../ontology/section_map.ts';
 import type { StructureContextEntry } from '../resolve/structure_context.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
 import { currentPrincipal } from '../security/request_context.ts';
+import { stampElementToolConfigs } from '../tools/section_tool_context.ts';
 import { buildSectionButtons, sectionRelationListTipo } from './buttons.ts';
 import {
 	canAccessTimeMachineList,
@@ -89,13 +90,24 @@ export async function stampSectionContext(
 	// getSectionTools additionally returns [] for a consultation-only section
 	// (Activity dd542 / Time Machine dd15, TODO-042) — those log sections carry
 	// no toolbar.
+	//
+	// Each section tool carries its config through the ONE element stamp (PHP
+	// :1874-1916 runs for sections too): the section's ontology
+	// properties.tool_config with the Tools-configuration / register override
+	// ddo_map for (section, section) — T1-43,
+	// WC-2026-11-12-tool-configuration-override.
 	if (params.simple !== true) {
 		const { getSectionTools } = await import('../tools/registry.ts');
-		const toolConfigKeys = Object.keys(
-			(params.properties as { tool_config?: Record<string, unknown> } | null)?.tool_config ?? {},
+		const toolConfigBag =
+			(params.properties as { tool_config?: Record<string, unknown> } | null)?.tool_config ?? {};
+		const sectionTools = await getSectionTools(params.tipo, Object.keys(toolConfigBag));
+		entry.tools = await stampElementToolConfigs(
+			entry,
+			sectionTools.tools,
+			toolConfigBag,
+			params.tipo,
+			params.tipo,
 		);
-		const sectionTools = await getSectionTools(params.tipo, toolConfigKeys);
-		entry.tools = sectionTools.tools;
 	}
 }
 

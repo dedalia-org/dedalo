@@ -79,7 +79,13 @@ import { component_select_lang } from './component_select_lang/descriptor.ts';
 import { component_state } from './component_state/descriptor.ts';
 import { component_svg } from './component_svg/descriptor.ts';
 import { component_text_area } from './component_text_area/descriptor.ts';
-import type { ComponentModel, ImportAppendPolicy, ItemGateId, RenderClass } from './types.ts';
+import type {
+	CalculationDataId,
+	ComponentModel,
+	ImportAppendPolicy,
+	ItemGateId,
+	RenderClass,
+} from './types.ts';
 
 /** Every registered descriptor. One entry per `component_<model>/descriptor.ts`. */
 const ALL_DESCRIPTORS: readonly ComponentModel[] = [
@@ -195,9 +201,39 @@ export function getResolveDataId(model: string): ComponentModel['resolveData'] {
 	return resolveCanonical(model)?.resolveData;
 }
 
+/**
+ * What a model feeds a calculation widget input (PHP get_calculation_data),
+ * alias-following: the declared facet, else `relation` for every
+ * relation-column model (derived, as the relation search dispatch), else
+ * undefined — the caller refuses loudly.
+ */
+export function getCalculationDataId(model: string): CalculationDataId | undefined {
+	const descriptor = resolveCanonical(model);
+	if (descriptor === undefined) return undefined;
+	if (descriptor.calculationData !== undefined) return descriptor.calculationData;
+	return descriptor.column === 'relation' ? 'relation' : undefined;
+}
+
 /** Flat display-value family (relation_list grid cells). Alias-following. */
 export function getFlatValueFamily(model: string): ComponentModel['flatValue'] {
 	return resolveCanonical(model)?.flatValue;
+}
+
+/**
+ * Whether a model's value is a STORED locator bag a chain walk can fan out
+ * through — the TS twin of PHP component_relation_common::
+ * get_components_with_relations(). component_external sits on the relation
+ * column for column-map parity only (its descriptor calls the column INERT):
+ * its value is DERIVED from the remote record, so it is a plain leaf / terminal.
+ * Fanning it out read a bag no record holds and blanked every Zenon column —
+ * in the export walk (export/atoms.ts) and in the publication compile
+ * (diffusion/plan/compile.ts, T1-42) alike. ONE predicate for both.
+ */
+export function storesRelationLocators(model: string | null | undefined): boolean {
+	if (typeof model !== 'string' || model === '') return false;
+	return (
+		getComponentModel(model)?.column === 'relation' && getFlatValueFamily(model) !== 'external'
+	);
 }
 
 /**
@@ -217,6 +253,15 @@ export function isMonovalueModel(model: string): boolean {
  */
 export function getItemGate(model: string): ItemGateId | undefined {
 	return resolveCanonical(model)?.itemGate;
+}
+
+/**
+ * Whether the model's context is stamped `show_interface.button_add = false`
+ * (`forbidsAddButton` facet, alias-following). Read by
+ * resolve/structure_context.ts buildStructureContext.
+ */
+export function getForbidsAddButton(model: string): boolean {
+	return resolveCanonical(model)?.forbidsAddButton === true;
 }
 
 /**

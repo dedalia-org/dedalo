@@ -75,6 +75,34 @@ describe('status', () => {
 		expect(shown.lines.join('\n')).toContain('7.0.2 schema — pending');
 	});
 
+	test("status prints the post-verify verdicts, and an ok verdict's OFFER (C33) as its own root line", async () => {
+		const root = scratch();
+		const refresh =
+			'sudo /opt/dedalo/bun/1.4.4/bun run /home/ded_zzhu/dedalo/scripts/ops/host_units_refresh.ts --instance zzhu';
+		const verified = {
+			...runAt(3),
+			verify: [
+				{ id: 'schema_clean', ok: true, detail: 'every boot migration applied, hashes = ledger' },
+				{
+					id: 'host_units',
+					ok: true,
+					detail:
+						"the host's systemd unit templates are not this release's render (dedalo-ts@.service)",
+					offer: refresh,
+				},
+			],
+		};
+		await writeRunJournal(root, verified);
+		const shown = await cli(root, 'status');
+		expect(shown.code).toBe(0);
+		const text = shown.lines.join('\n');
+		expect(text).toContain('verify schema_clean — ok: every boot migration applied');
+		expect(text).toContain("verify host_units — ok: the host's systemd unit templates are not");
+		expect(text).toContain(`    to do (as root): ${refresh}`);
+		// a verdict without an offer prints no to-do line
+		expect(text.split('to do (as root)').length).toBe(2);
+	});
+
 	test('an unreadable journal → 4', async () => {
 		const root = scratch();
 		writeFileSync(join(root, '20261030T000000Z_torn.json'), '{"format":');

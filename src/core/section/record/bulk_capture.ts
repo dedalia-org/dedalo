@@ -35,10 +35,9 @@
  *     there: the change loop mutates stored items in place (date `time`
  *     recomputation, id stamping), so a reference would record the after-state
  *     as the before-state. A main save reads its slots there too (the cascade
- *     rewrites them later in the save) — skipped only for a plain save of an
- *     unsliced main whose door lane IS the frame lane (it has no other lane;
- *     its lg-nolan row is written anyway); a slot
- *     save needs only the slot's own image — the rest of the record is
+ *     rewrites them later in the save) — every main, an unsliced one included:
+ *     its save-before backfill records the frame lane as it stood (T1-21); a
+ *     slot save needs only the slot's own image — the rest of the record is
  *     unchanged by it, under the same lock.
  *   - AFTER is RE-READ from the row inside the save's transaction, after every
  *     write of the save — the persisted bytes, whatever branch wrote them.
@@ -52,13 +51,13 @@ import type { MatrixJsonbColumn } from '../../db/matrix.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import {
 	historyMainsOf,
+	historyStamp,
 	type MainIdentity,
 	type MainState,
 	readKeyImage,
 	readMainSlots,
 	readMainState,
 	recordMainHistory,
-	type SlotImages,
 	type SlotTarget,
 	withSlotImage,
 } from '../../relations/dataframe_slots.ts';
@@ -127,17 +126,15 @@ interface SlotSaveHistory {
 
 export type SaveHistory = MainSaveHistory | SlotSaveHistory;
 
-/** What the save leaves for its history: saveTm, one stamp. */
+/**
+ * What the save leaves for its history: saveTm, and the ONE instant its rows
+ * are stamped from (the change's stamp and its save-before backfill's —
+ * dataframe_slots.ts historyStamp).
+ */
 export interface SaveHistoryDone {
 	saveTm: boolean;
-	timestamp: string;
+	now: Date;
 }
-
-/**
- * No slot read: a plain save of an UNSLICED main — its only lane is the frame
- * lane, whose lg-nolan row it writes whatever the frames did.
- */
-const UNREAD_SLOTS: SlotImages = { slots: [], images: {} };
 
 /**
  * THE DOOR LANE of a main save (relations/main_lanes.ts): a sliced model's
@@ -175,13 +172,14 @@ export async function beginSaveHistory(input: SaveHistoryInput): Promise<SaveHis
 		...laneLaw(input.sliced, input.translatable),
 		lang: saveDoorLane(input),
 	};
-	// A sliced main can hold language items even from its lg-nolan door (a
-	// transliterable base save's `remove` / `clear` reaches every language), so
-	// its language rows need the real BEFORE frames (recordFrameLaneBaseline).
-	const readSlots = bulkId !== null || identity.lang !== NOLAN || input.sliced;
+	// The BEFORE slots are read for every main, under the lock: a sliced main's
+	// language rows need the real BEFORE frames (recordFrameLaneBaseline), and
+	// every main's save-before backfill records its frame lane AS IT STOOD —
+	// an unsliced main's lg-nolan value composed with its frames
+	// (recordMainHistory → recordChangeBackfill).
 	const before: MainState = {
 		value: structuredClone(input.lockedImage),
-		slots: readSlots ? await readMainSlots(input.target, identity.tipo) : UNREAD_SLOTS,
+		slots: await readMainSlots(input.target, identity.tipo),
 	};
 	return { kind: 'main', bulkId, target: input.target, identity, userId: input.userId, before };
 }
@@ -203,7 +201,7 @@ async function finishMainSave(history: MainSaveHistory, done: SaveHistoryDone): 
 		target,
 		identity,
 		{ before: history.before, after },
-		{ userId: history.userId, timestamp: done.timestamp, bulkId: history.bulkId },
+		historyStamp(history.userId, history.bulkId, done.now),
 	);
 }
 
@@ -215,7 +213,7 @@ async function finishSlotSave(history: SlotSaveHistory, done: SaveHistoryDone): 
 		callerMain: history.callerMain,
 		requestLang: history.requestLang,
 	});
-	for (const identity of mains) await recordSlotMain(history, identity, done.timestamp);
+	for (const identity of mains) await recordSlotMain(history, identity, done.now);
 }
 
 /**
@@ -226,7 +224,7 @@ async function finishSlotSave(history: SlotSaveHistory, done: SaveHistoryDone): 
 async function recordSlotMain(
 	history: SlotSaveHistory,
 	identity: MainIdentity,
-	timestamp: string,
+	now: Date,
 ): Promise<void> {
 	const { target } = history;
 	const after = await readMainState(target, identity, [history.slotTipo]);
@@ -238,6 +236,6 @@ async function recordSlotMain(
 		target,
 		identity,
 		{ before, after },
-		{ userId: history.userId, timestamp, bulkId: history.bulkId },
+		historyStamp(history.userId, history.bulkId, now),
 	);
 }

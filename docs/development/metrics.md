@@ -131,11 +131,24 @@ from them on read:
 
 ## Slow-query investigation
 
-The counters tell you *that* the server is slow; they do not tell you which SQL is
-to blame. There is deliberately no in-process per-statement timing — that work
-belongs to the database, which already does it better. Use Postgres itself:
-`EXPLAIN ANALYZE` for a suspect query, and `pg_stat_statements` for the ranking
-of what actually costs the install its time.
+The counters tell you *that* the server is slow. Which SQL is to blame is the
+**slow-query log**: the engine times every statement on all three lanes
+(`src/core/db/query_tap.ts`) and writes one warn line per statement that takes
+`DEDALO_SLOW_QUERY_MS` or longer — on by default at `5000` since 7.0:
+
+```text
+[db] slow query 7312ms (threshold 5000ms, lane transaction): SELECT …
+```
+
+The lane tells you where it ran: `transaction` is the write path (a save, an
+import row), `pooled` an ordinary statement on the pool, `reserved` a connection
+one caller holds for itself (the boot migrations, a long-running job). Raise
+the threshold in `../private/.env` to log less, lower it to catch more;
+`DEDALO_SLOW_QUERY_MS=0` turns the log off. The key is documented in
+[config_db](../administration/configuration/config_db.md). The log names the statement, not its plan:
+for the *why*, use Postgres itself — `EXPLAIN ANALYZE` on the logged statement,
+and `pg_stat_statements` for the ranking of what costs the install its time
+overall, including statements that stay under the threshold.
 
 ## Adding a metric
 

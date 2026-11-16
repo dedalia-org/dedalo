@@ -432,7 +432,8 @@ describe('equivalence expansion (static pins)', () => {
 		expect(lawCSource).toContain("observedModel !== 'component_relation_related'");
 		expect(lawCSource).toContain('RELATED_MULTIDIRECTIONAL');
 		// The expansion runs for law (c) only, on the observable resolvers.
-		expect(resolversSource).toContain("if (input.law.kind === 'inverse_search') {");
+		// `law` is optional since the refresh_data perform shares the resolvers with no law (WC-2026-11-13-observer-refresh-data).
+		expect(resolversSource).toContain("if (input.law?.kind === 'inverse_search') {");
 		expect(resolversSource).toContain('await expandEquivalenceTargets(');
 	});
 

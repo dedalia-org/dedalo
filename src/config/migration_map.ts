@@ -615,6 +615,8 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_SMOKE_BOOT',
 	// declared by the container stacks, never by an operator (installer unification D2)
 	'DEDALO_CLIENT_PUBLISH_DIR',
+	// written into the server drop-in by the production installer (C32, 2026-11-13)
+	'DEDALO_WRITABLE_ROOTS_MANIFEST',
 	'DEDALO_CONTAINER_IMAGE',
 	'DEDALO_CONTAINER_IMAGE_MODE',
 	// postgres pool

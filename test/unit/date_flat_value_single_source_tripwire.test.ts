@@ -129,6 +129,11 @@ const CENSUS: readonly CensusEntry[] = [
 		role: 'machine-timestamp',
 		why: 'interpolates year/month into a DOWNLOAD URL, not into a date value',
 	},
+	{
+		file: 'src/diffusion/resolve/rdf_graph_ir.ts',
+		role: 'distinct-php-method',
+		why: 'the CANONICAL XSD lexical form of an rdf typed literal (owner C12, WC-2026-11-13-rdf-canonical-xsd-lexical): zero-pads the year/month/day fields of a value the ontology already typed gYear/date/dateTime; a published machine form, never the human flat date value',
+	},
 ];
 
 const CENSUS_FILES = new Set(CENSUS.map((entry) => entry.file));

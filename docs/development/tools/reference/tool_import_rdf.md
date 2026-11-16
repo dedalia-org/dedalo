@@ -117,7 +117,7 @@ numisdata1167  owl:Class           term nmo:Material        relations [material1
 
 ## Related
 
-- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_marc21](tool_import_marc21.md) · [tool_import_zotero](tool_import_zotero.md) — the other import tools (file-based, where this one is IRI/graph-based). `tool_import_zotero` shares the RDF/XML parser (`src/core/tools/rdf_xml.ts`).
+- [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_marc21](tool_import_marc21.md) · [tool_import_zotero](tool_import_zotero.md) — the other import tools (file-based, where this one is IRI/graph-based).
 - [Importing data](../../../using/importing_data.md) — the import model, per-component conform contract and language handling these writes go through.
 - [tool_export](tool_export.md) and [Exporting data](../../../using/exporting_data.md) — the export counterpart.
 - [Creating new tools](../creating_tools.md) · [Server contract](../server_contract.md) — the tool model, `apiActions`, gates and lifecycle this page builds on.

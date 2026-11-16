@@ -63,6 +63,15 @@ import { join, relative, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { config } from '../../src/config/config.ts';
 import { parseEnvFile } from '../../src/config/env.ts';
+import {
+	declaredSearchStoreDerivations,
+	searchStoreStampProblem,
+} from '../../src/core/db/db_assets.ts';
+import {
+	installStampOf,
+	searchStoreStampsOf,
+	seedComplete,
+} from '../../src/core/install/db_restore.ts';
 import { offeredHierarchies } from '../../src/core/install/hierarchy_meta.ts';
 import {
 	OFFICIAL_CODE_SERVER,
@@ -306,9 +315,41 @@ async function assertOntologyOutcome(
 	expect(Number(await scratchScalar('SELECT count(*) FROM matrix_relation_index'))).toBeGreaterThan(
 		0,
 	);
+	await assertSearchStoresStamped();
 	// The staging dir, resolved the installer's way but under THIS run's private dir.
 	const staging = join(scratchDir, relative(installPrivateDir(), installOntologyStagingDir()));
 	expect(existsSync(staging), `${staging} left behind`).toBe(false);
+}
+
+/**
+ * T1-25 / D05: the install STAMPS the derived search stores it filled
+ * (completeFreshInstall), so the first update does not re-derive them all; and
+ * the seed verify refuses an install whose stores are unstamped (read over the
+ * verify's own connection — the stamp clause answers before anything reads
+ * the engine pool, which points at the suite database here).
+ */
+async function assertSearchStoresStamped(): Promise<void> {
+	const declared = declaredSearchStoreDerivations();
+	expect(declared.length).toBeGreaterThanOrEqual(2);
+	for (const { store, stamp } of declared) {
+		expect(
+			await scratchScalar(`SELECT obj_description(to_regclass('public.${store}'), 'pg_class')`),
+			`${store} stamp`,
+		).toBe(stamp);
+	}
+	expect(searchStoreStampProblem(await searchStoreStampsOf(scratchConn()))).toBeNull();
+	const first = declared[0] as (typeof declared)[number];
+	const installId = await installStampOf(scratchConn());
+	expect(installId).not.toBeNull();
+	await scratchScalar(`COMMENT ON TABLE "${first.store}" IS NULL`);
+	try {
+		const verdict = await seedComplete(scratchConn(), installId as string);
+		expect(verdict.ok).toBe(false);
+		expect(verdict.detail).toContain(first.store);
+	} finally {
+		await scratchScalar(`COMMENT ON TABLE "${first.store}" IS '${first.stamp}'`);
+	}
+	expect(searchStoreStampProblem(await searchStoreStampsOf(scratchConn()))).toBeNull();
 }
 
 /**

@@ -48,7 +48,12 @@ export const mediaEmitHook: ComponentEmitHook = {
 			const { resolveMediaPathOptions } = await import('./ontology_path.ts');
 			const avSpec = mediaTypeOf('component_av');
 			if (avSpec !== null) {
-				const avPathOpts = await resolveMediaPathOptions(ddo.tipo, row.section_tipo);
+				const avPathOpts = await resolveMediaPathOptions(
+					ddo.tipo,
+					row.section_tipo,
+					Number(row.section_id),
+					{ record },
+				);
 				effectiveItems = storedItems.map((raw) => {
 					const it = raw as Record<string, unknown>;
 					const freshFilesInfo = scanFilesInfo(
@@ -90,6 +95,7 @@ export const mediaEmitHook: ComponentEmitHook = {
 					ddo.tipo,
 					row.section_tipo,
 					Number(row.section_id),
+					record,
 				);
 			}
 		}
@@ -124,7 +130,12 @@ async function posterframeUrl(context: EmitHookContext): Promise<string | null> 
 	const { fileVersionToken } = await import('./url_version.ts');
 	const { resolveMediaPathOptions } = await import('./ontology_path.ts');
 	const { config: cfg } = await import('../../config/config.ts');
-	const pathOpts = await resolveMediaPathOptions(ddo.tipo, row.section_tipo);
+	const pathOpts = await resolveMediaPathOptions(
+		ddo.tipo,
+		row.section_tipo,
+		Number(row.section_id),
+		{ record: context.record },
+	);
 	// ONE GRAMMAR (path.ts posterframeLocation). This used to be an inline
 	// template string — a third copy of the posterframe path beside the two
 	// in tools/posterframe.ts — and it silently ignored
@@ -213,13 +224,18 @@ async function resolveImageBaseSvgUrl(
 	componentTipo: string,
 	sectionTipo: string,
 	sectionId: number,
+	record: MatrixRecord,
 ): Promise<string | null> {
 	try {
 		const spec = mediaTypeOf('component_image');
 		if (spec === null) return null;
 		const { resolveMediaPathOptions } = await import('./ontology_path.ts');
 		const { baseSvgUrl } = await import('./svg_overlay.ts');
-		const pathOpts = await resolveMediaPathOptions(componentTipo, sectionTipo);
+		// Record-scoped from the row in hand (no extra read): an image naming its files
+		// by `properties.image_id` keeps its envelope at `<stem>.svg` (T1-10).
+		const pathOpts = await resolveMediaPathOptions(componentTipo, sectionTipo, sectionId, {
+			record,
+		});
 		return baseSvgUrl(spec, { componentTipo, sectionTipo, sectionId, lang: null }, pathOpts);
 	} catch {
 		return null;

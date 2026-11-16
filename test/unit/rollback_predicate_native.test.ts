@@ -18,13 +18,23 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rollbackCheck } from '../../scripts/update_run_rollback_check.ts';
-import type { ReleasePlan, ReleaseStepKind } from '../../src/core/update/catalog_file.ts';
+import {
+	DEFAULT_RELEASE_STEPS,
+	type ReleasePlan,
+	type ReleaseStepKind,
+} from '../../src/core/update/catalog_file.ts';
 import {
 	createRunJournal,
 	type RunJournal,
 	writeRunJournal,
 } from '../../src/core/update/run/journal.ts';
-import { dbRestoreReport, failureExit } from '../../src/core/update/run/rollback.ts';
+import { planRun } from '../../src/core/update/run/plan.ts';
+import {
+	canAutoRollback,
+	dbRestoreReport,
+	failureExit,
+	phaseCrossesModel,
+} from '../../src/core/update/run/rollback.ts';
 
 const roots: string[] = [];
 const scratch = () => {
@@ -173,5 +183,154 @@ describe('the leaf CLI the shell scripts execute', () => {
 			{ stdout: 'pipe', stderr: 'pipe' },
 		);
 		expect(answer.exitCode).toBe(2);
+	});
+});
+
+describe('owner ruling 2026-11-11 (T1-25): code-only and same-triple are not counted as crossings', () => {
+	// BUILT through the real planner (planRun) with planted plans; each run is
+	// judged against BOTH the full plans (production effects.plans) and the
+	// journal's own release_plans (the leaf CLI), failing each post-swap
+	// database phase in turn.
+	const plan = (
+		version: string,
+		compat: ReleasePlan['compat'],
+		steps: ReleasePlan['steps'] = DEFAULT_RELEASE_STEPS,
+		declared = false,
+	): ReleasePlan => ({ version, compat, steps, declared });
+	const CODE_ONLY = { '7.0.0': plan('7.0.0', null), '7.0.1': plan('7.0.1', null) };
+	const WITH_MINOR = {
+		...CODE_ONLY,
+		'7.1.0': plan(
+			'7.1.0',
+			'incompatible',
+			[{ kind: 'code' }, { kind: 'schema' }, { kind: 'data', sql: ['select 1'] }],
+			true,
+		),
+	};
+
+	/** The planned run, failing the planned phase at `failAt` (every earlier one ok). */
+	function plannedRun(
+		installedRelease: string,
+		target: string,
+		plans: Record<string, ReleasePlan>,
+		failAt: (entry: RunJournal['plan'][number]) => boolean,
+		data: readonly number[] = [7, 0, 0],
+		targetData: readonly number[] = data,
+	): RunJournal {
+		const planned = planRun({ installedRelease, installedData: data, target, plans, targetData });
+		if (!planned.ok) throw new Error(`unplannable: ${JSON.stringify(planned)}`);
+		const fail = planned.plan.findIndex(failAt);
+		if (fail === -1) throw new Error(`no such phase in ${JSON.stringify(planned.plan)}`);
+		const journal = createRunJournal({
+			from: planned.from,
+			to: planned.to,
+			plan: planned.plan,
+			releasePlans: planned.releasePlans,
+		});
+		return {
+			...journal,
+			state: 'BACKED_UP',
+			phases: planned.plan.slice(0, fail + 1).map((entry, index) => ({
+				...entry,
+				started: '2026-11-12T10:00:00.000Z',
+				finished: '2026-11-12T10:01:00.000Z',
+				outcome: index === fail ? 'failed' : 'ok',
+				evidence: {},
+			})),
+		};
+	}
+	const at = (release: string, kind: ReleaseStepKind) => (entry: RunJournal['plan'][number]) =>
+		entry.release === release && entry.step.kind === kind;
+	const exits = (journal: RunJournal, plans: Record<string, ReleasePlan>) => [
+		failureExit(journal, plans),
+		failureExit(journal, journal.release_plans),
+	];
+
+	test('a code-only patch (default steps, no compat): any post-swap phase failing rolls the code back', () => {
+		for (const kind of ['ontology', 'schema', 'ancillary'] as const) {
+			const journal = plannedRun('7.0.0', '7.0.1', CODE_ONLY, at('7.0.1', kind));
+			expect(exits(journal, CODE_ONLY)).toEqual(['ROLLED_BACK_CODE', 'ROLLED_BACK_CODE']);
+			expect(canAutoRollback(journal, CODE_ONLY).allowed).toBe(true);
+		}
+	});
+
+	test('a code-only patch declaring [code]: the appended target schema failing rolls the code back', () => {
+		const plans = { ...CODE_ONLY, '7.0.1': plan('7.0.1', null, [{ kind: 'code' }], true) };
+		const journal = plannedRun('7.0.0', '7.0.1', plans, at('7.0.1', 'schema'));
+		expect(exits(journal, plans)).toEqual(['ROLLED_BACK_CODE', 'ROLLED_BACK_CODE']);
+	});
+
+	test('same triple (prerelease → prerelease / stable, a dev reinstall, even an incompatible triple): rolls back', () => {
+		const cases: [string, string, Record<string, ReleasePlan>, number[]][] = [
+			['7.0.0-beta.7', '7.0.0-beta.8', CODE_ONLY, [7, 0, 0]],
+			['7.0.0-beta.8', '7.0.0', CODE_ONLY, [7, 0, 0]],
+			['7.0.1-dev', '7.0.1-dev', CODE_ONLY, [7, 0, 0]],
+			['7.1.0-beta.2', '7.1.0', WITH_MINOR, [7, 1, 0]],
+		];
+		for (const [from, to, plans, data] of cases) {
+			const triple = to.split('-')[0] as string;
+			const journal = plannedRun(from, to, plans, at(triple, 'schema'), data);
+			expect(exits(journal, plans)).toEqual(['ROLLED_BACK_CODE', 'ROLLED_BACK_CODE']);
+		}
+	});
+
+	test('controls (fail closed): a walked incompatible, unknown or contract-faulty release still crosses', () => {
+		const minor = plannedRun(
+			'7.0.1',
+			'7.1.0',
+			WITH_MINOR,
+			at('7.1.0', 'data'),
+			[7, 0, 0],
+			[7, 1, 0],
+		);
+		expect(exits(minor, WITH_MINOR)).toEqual(['NEEDS_DB_RESTORE', 'NEEDS_DB_RESTORE']);
+		const faulty = {
+			...CODE_ONLY,
+			'7.0.1': plan('7.0.1', null, [{ kind: 'code' }, { kind: 'schema' }], true),
+		};
+		const contract = plannedRun('7.0.0', '7.0.1', faulty, at('7.0.1', 'schema'));
+		expect(exits(contract, faulty)).toEqual(['NEEDS_DB_RESTORE', 'NEEDS_DB_RESTORE']);
+		const unknown = run([
+			['7.0.2', 'code', 'ok'],
+			['99.0.0', 'schema', 'failed'],
+		]);
+		expect(failureExit(unknown, PLANS)).toBe('NEEDS_DB_RESTORE');
+	});
+
+	test('a walk over a code-only patch into an incompatible minor crosses only at the minor', () => {
+		const early = plannedRun(
+			'7.0.0',
+			'7.1.0',
+			WITH_MINOR,
+			at('7.0.1', 'schema'),
+			[7, 0, 0],
+			[7, 1, 0],
+		);
+		expect(exits(early, WITH_MINOR)).toEqual(['ROLLED_BACK_CODE', 'ROLLED_BACK_CODE']);
+		const late = plannedRun(
+			'7.0.0',
+			'7.1.0',
+			WITH_MINOR,
+			at('7.1.0', 'data'),
+			[7, 0, 0],
+			[7, 1, 0],
+		);
+		expect(exits(late, WITH_MINOR)).toEqual(['NEEDS_DB_RESTORE', 'NEEDS_DB_RESTORE']);
+	});
+
+	test('phaseCrossesModel: an unreadable installed release is never read as "not walked"', () => {
+		const journal = {
+			...run([['7.0.2', 'code', 'ok']]),
+			from: { release: 'garbage', data: '7.0.0', model: '7.0.0' },
+		};
+		const phase = {
+			...(journal.phases[0] as RunJournal['phases'][number]),
+			release: '7.0.1',
+			step: { kind: 'schema' as const },
+		};
+		expect(phaseCrossesModel(phase, journal, { '7.0.1': plan('7.0.1', 'incompatible') })).toBe(
+			true,
+		);
+		expect(phaseCrossesModel(phase, journal, { '7.0.1': plan('7.0.1', 'compatible') })).toBe(false);
 	});
 });

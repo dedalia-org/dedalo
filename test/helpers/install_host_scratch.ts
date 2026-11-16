@@ -278,7 +278,10 @@ export function productionPlan(
  * SHARED_LISTERS: a gate imports this, never chooses the root itself).
  */
 export function systemdTemplateNames(): string[] {
-	return readdirSync(join(REPO_ROOT, 'deploy/systemd')).sort();
+	// the unit files only: deploy/systemd/shipped_digests.json (the C33 ledger) is not a template
+	return readdirSync(join(REPO_ROOT, 'deploy/systemd'))
+		.filter((name) => name.endsWith('.service') || name.endsWith('.timer'))
+		.sort();
 }
 
 /**
@@ -302,6 +305,11 @@ export function sourceFiles(): Map<string, string> {
 			readFileSync(join(REPO_ROOT, 'deploy/systemd', name), 'utf8'),
 		);
 	}
+	// the shipped-template digest ledger (C33): the fake source is a release, with its memory
+	files.set(
+		'deploy/systemd/shipped_digests.json',
+		readFileSync(join(REPO_ROOT, 'deploy/systemd/shipped_digests.json'), 'utf8'),
+	);
 	files.set(
 		'deploy/selinux/dedalo_engine.cil.tpl',
 		readFileSync(join(REPO_ROOT, 'deploy/selinux/dedalo_engine.cil.tpl'), 'utf8'),
@@ -1060,6 +1068,10 @@ const LIST_KEYS: ReadonlySet<string> = new Set([
 	'ExecStartPre',
 	'ExecStartPost',
 	'Wants',
+	// the writable roots (C32): one assignment per root, an empty one resets the list
+	'ReadWritePaths',
+	'ReadOnlyPaths',
+	'InaccessiblePaths',
 ]);
 
 /**

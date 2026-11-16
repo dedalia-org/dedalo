@@ -87,6 +87,16 @@ export interface RequestConfigContext {
 	 */
 	modelDefaultTargets?: readonly string[];
 	/**
+	 * The CALLER's own `properties.children_view` (PHP build_request_config_v5
+	 * :119-121 `$this->properties`): the view every IMPLICIT ddo takes
+	 * (implicit.ts implicitDdoView). The owner's OWN properties — an rqo
+	 * properties override counts, the list-mode section_list swap never does —
+	 * so a caller that swaps before the build (own_config.ts) states it here;
+	 * absent = read from the properties handed to buildRequestConfigForElement.
+	 * The explicit builder ignores it (PHP v6 explicit does not apply it).
+	 */
+	ownerChildrenView?: string | null;
+	/**
 	 * Where a refused level >= 2 `section_tipo: 'self'` ddo reports its typed
 	 * notice (owner decision (c) — self_depth.ts partitionDeepSelfDdos, applied
 	 * per block in parseBlock below). The ddo is SKIPPED whether or not a sink

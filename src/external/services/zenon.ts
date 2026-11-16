@@ -121,27 +121,74 @@ function formatArrayValues(raw: unknown): FormattedValue {
 }
 
 /**
- * `zenon_authors` — PHP class.component_external.php:213-232, reproduced
- * exactly. `authors` is an object of role → { "Name": […] }:
+ * `zenon_authors` — v6 PHP class.component_external.php:213-232. `authors` is
+ * an object of role → { "Name": […] }:
  *
  *   for each NON-EMPTY role:  "<role>: " + KEYS of the role object joined ' - '
  *   the roles themselves joined ' | '
  *
  * "Empty" is PHP's `empty()`: an empty array/object/string is skipped, which is
- * why `secondary: []` and `corporate: []` contribute nothing.
+ * why `secondary: []` and `corporate: []` contribute nothing. All roles empty →
+ * `''`, which the emission drops as a missing value (T1-P06).
+ *
+ * Two deliberate divergences from v6 (which warned on a foreach over a scalar
+ * and rendered garbage), ledgered in WC-2026-11-13-external-empty-entry-dropped:
+ * a non-object `authors` (string, number, boolean, array) is REFUSED whole, and
+ * a role holding a scalar is REFUSED (the other roles still render) — a lost
+ * value is reported as `dropped_unrenderable`, never shown blank or as
+ * `primary: 0 - 1 - 2`.
  */
 function formatZenonAuthors(raw: unknown): FormattedValue {
-	if (typeof raw !== 'object' || raw === null) return { text: '', kind: 'text' };
+	return formatAuthorRoles(raw, (role, names) => `${role}: ${names.join(' - ')}`, VALUE_SEPARATOR);
+}
+
+/**
+ * `zenon_author_names` — the SEARCH rendering of the same `authors` object
+ * (owner C55, 2026-11-13; `searchFormats` below): the NAMES of every non-empty
+ * role joined ' - ', roles joined ' - ' too, no role labels — what the v6
+ * browser formatter showed in the autocomplete dropdown ('Doe, J. - Roe, R. -
+ * DAI'). A dropdown answers "who wrote it"; the API's role keys (`primary`,
+ * `corporate`) are untranslated vocabulary that belongs to the record view,
+ * which keeps `zenon_authors`. Same empty and refusal rules as `zenon_authors`
+ * — the two renderings never disagree on WHAT is a value.
+ */
+function formatZenonAuthorNames(raw: unknown): FormattedValue {
+	return formatAuthorRoles(raw, (_role, names) => names.join(' - '), ' - ');
+}
+
+/** The shared walk of a VuFind `authors` object: one text per non-empty role, joined. */
+function formatAuthorRoles(
+	raw: unknown,
+	renderRole: (role: string, names: readonly string[]) => string,
+	roleSeparator: string,
+): FormattedValue {
+	// Empty first: VuFind's json_encode writes an empty assoc array as `[]`, so a
+	// record with no authors arrives as `authors: []` — missing, never refused.
+	if (isPhpEmpty(raw)) return { text: '', kind: 'text' };
+	if (!isPlainObject(raw)) return { text: '', kind: 'text', refused: 1 };
 	const roles: string[] = [];
-	for (const [role, value] of Object.entries(raw as Record<string, unknown>)) {
+	let refused = 0;
+	for (const [role, value] of Object.entries(raw)) {
 		if (isPhpEmpty(value)) continue;
+		if (typeof value !== 'object' || value === null) {
+			refused++;
+			continue;
+		}
 		// array_keys((array)$element): the NAMES are the keys of the role object.
 		const names = Array.isArray(value)
 			? value.map((_item, index) => String(index))
-			: Object.keys(value as Record<string, unknown>);
-		roles.push(`${role}: ${names.join(' - ')}`);
+			: Object.keys(value);
+		roles.push(renderRole(role, names));
 	}
-	return { text: roles.join(VALUE_SEPARATOR), kind: 'text' };
+	return {
+		text: roles.join(roleSeparator),
+		kind: 'text',
+		...(refused === 0 ? {} : { refused }),
+	};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** PHP `empty()` for the shapes a JSON payload can produce. */
@@ -303,7 +350,11 @@ export const zenon: ExternalServiceModel = {
 	formats: {
 		array_values: formatArrayValues,
 		zenon_authors: formatZenonAuthors,
+		zenon_author_names: formatZenonAuthorNames,
 	},
+	// The autocomplete dropdown shows author NAMES, the record keeps the roles
+	// (owner C55; WC-2026-08-06-external-search-request item 4, addendum 2026-11-13).
+	searchFormats: { zenon_authors: 'zenon_author_names' },
 	// Zenon's public API needs no credential today; the KEY NAME exists so that
 	// adding one is config, not code. A value never comes from the ontology.
 	credentialCatalogKey: 'DEDALO_EXTERNAL_ZENON_API_KEY',

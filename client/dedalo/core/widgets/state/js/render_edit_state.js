@@ -582,7 +582,7 @@ const get_value_element = (i, data, self) => {
 					const row_label = get_label[output_item.label] || output_item.id
 					const label = ui.create_dom_element({
 						element_type	: 'label',
-						inner_html		: row_label,
+						text_content		: row_label,
 						parent			: container
 					})
 
@@ -833,7 +833,7 @@ const get_value_element = (i, data, self) => {
 													  && same_section_id(item.value.section_id, new_data.locator.section_id))
 							: {label: ''}
 
-						node.node_label_list.innerHTML = datalist_item.label
+						node.node_label_list.textContent = datalist_item.label
 					}
 
 				}else{

@@ -31,7 +31,6 @@
  */
 
 import { compareLocators, type Locator } from '../concepts/locator.ts';
-import { dbTimestamp } from '../db/db_timestamp.ts';
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import {
 	allocateComponentItemId,
@@ -56,7 +55,7 @@ import {
 	removeInlineByIdKey,
 	updateInlineValueByIdKey,
 } from './dataframe.ts';
-import { recordKeyChangeRows } from './dataframe_slots.ts';
+import { historyStamp, recordKeyChangeRows } from './dataframe_slots.ts';
 import { NOLAN } from './main_lanes.ts';
 
 /**
@@ -484,13 +483,13 @@ export async function persistTreeKeys(
 		{ userId: actor },
 		{ actor },
 	);
-	const timestamp = dbTimestamp();
+	const stamp = historyStamp(actor, null);
 	for (const [index, { key, after }] of writes.entries()) {
 		await recordKeyChangeRows(
 			record,
 			key,
 			{ before: befores[index] ?? [], after: after ?? [], requestLang: NOLAN },
-			{ userId: actor, timestamp },
+			stamp,
 		);
 	}
 }

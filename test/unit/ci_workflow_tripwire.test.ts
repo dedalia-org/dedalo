@@ -125,6 +125,14 @@
  *      event by its own run id (a dispatch sharing the sha group would EVICT the
  *      queued push run). Which `if:` a tier job may carry — including that a FAILED
  *      dedupe runs the tiers — is tier_wiring_tripwire leg F's (evaluated there).
+ *  20. THE SECRET SCAN'S ALLOWLIST NEVER COVERS A TREE WE SHIP (T1-17 / S11,
+ *      2026-11-12) — `.gitleaks.toml`'s history-only block held `^vendor/`, the
+ *      prefix of the client's SHIPPED vendor tree (ckeditor, pdfjs, …), so every
+ *      future commit there was out of the weekly history scan while the block
+ *      said the tree was deleted. Held by OUTCOME over `git ls-files`: an
+ *      allowlist path matching a tracked file is an exact-file pattern (or one of
+ *      the two named shipped-bundle prefixes); a block whose description says
+ *      history-only matches NO tracked file.
  *
  * SCANNERS THAT ARE NOT GATED HERE, deliberately: CodeQL (.github/workflows/codeql.yml)
  * and the secret scan (.github/workflows/security.yml) are third-party analyses whose
@@ -846,6 +854,10 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 		"It installs the authz door fixture's scratch projects, profiles and users on the suite database, runs the mapped and CSV importers as those users so they create (or are refused) real test3 records, and measures every refusal on the stored rows and the section's row count, so it cannot run without a live suite Postgres.",
 	],
 	[
+		'test/unit/boot_marker_native.test.ts',
+		'It spawns the REAL server (src/server.ts) supervised on a scratch socket and watches the boot marker appear before the socket binds and vanish once /health answers — a boot runs the schema migrations and /health pings the database, so it cannot run without a live suite Postgres.',
+	],
+	[
 		'test/unit/install_ontology_door_native.test.ts',
 		"It drives the installer's ontology door (stage + import through the update panel's shared lower layer) against the suite Postgres, serving its zz packages from a loopback ontology-master stand-in, and measures dd_ontology / matrix_ontology / registry / matrix_dd rows and their census around every case, so it cannot run without a live suite Postgres.",
 	],
@@ -880,6 +892,14 @@ const NOT_HERMETIC: ReadonlyMap<string, string> = new Map([
 	[
 		'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
 		"It resolves every model tipo the vendored release names through the suite database's dd_ontology (the parser's projectModel rule: modelNameOf over readDdOntologyRow) and reads the component_iri / component_input_text model tipos from it, so it cannot run without a live suite Postgres.",
+	],
+	[
+		'test/unit/datalist_projects_scope_native.test.ts',
+		'It builds the zzdlp situation (a project-gated option section and its select) on the suite database, mints the ACL fixture identities and scratch dd128 users with dd170 / dd478 data, and runs the real option search per principal, so it cannot run without a live suite Postgres.',
+	],
+	[
+		'test/unit/datalist_record_filter_native.test.ts',
+		'It builds the zzdlr situation (owner, person, option and grouping sections with their records) on the suite database and drives the datalist build, the read door and the save echo against those rows, so it cannot run without a live suite Postgres.',
 	],
 ]);
 
@@ -2003,6 +2023,81 @@ describe('CI workflow tripwire', () => {
 			/^\s*useDefault\s*=\s*true\s*$/m.test(src),
 			'.gitleaks.toml must set `[extend] useDefault = true`. Without it, our two allowlists REPLACE ~170 upstream provider rules and the scan reports a clean repo because it stopped looking — and GitLab loads this same file wholesale through .gitlab/secret-detection-ruleset.toml, so the blindness would be on both platforms at once.',
 		).toBe(true);
+	});
+
+	// Rule 20 (T1-17 / S11, 2026-11-12) — an allowlist path never whitelists a shipped tree.
+	describe('the gitleaks allowlist paths are scoped to what they excuse (rule 20)', () => {
+		/** The two shipped minified-bundle prefixes the "we ship verbatim" block names. */
+		const SHIPPED_BUNDLE_PREFIXES = ['client/dedalo/lib/', 'publication/.*/docu/ui/'];
+		interface Allowlist {
+			readonly description?: string;
+			readonly paths?: string[];
+		}
+		const allowlists = (Bun.TOML.parse(read('.gitleaks.toml')) as { allowlists: Allowlist[] })
+			.allowlists;
+		const listed = Bun.spawnSync(['git', 'ls-files'], { cwd: repoRoot, stdout: 'pipe' });
+		const files = new TextDecoder().decode(listed.stdout).split('\n').filter(Boolean);
+		const matching = (pattern: string): string[] =>
+			files.filter((file) => new RegExp(pattern).test(file));
+		/**
+		 * One file, by name: a LITERAL path — an optional `^` or `(^|/)` anchor, then
+		 * only path characters and `\.` escapes, end-anchored. Any other regex
+		 * syntax (`[^\n]+`, `\S+`, `\w*`, `.`, `?`, `{n}`, `|`) can name a tree
+		 * (T1-17 review: `^vendor/[^\n]+$` passed the old wildcard-spelling check).
+		 */
+		const isExactFile = (pattern: string): boolean =>
+			/^(\^|\(\^\|\/\))?([A-Za-z0-9_/-]|\\\.)+\$$/.test(pattern) && !pattern.endsWith('/$');
+
+		test('the census is not blind', () => {
+			expect(files.length).toBeGreaterThan(1000);
+			expect(allowlists.flatMap((list) => list.paths ?? []).length).toBeGreaterThanOrEqual(5);
+			// (`client/dedalo/lib/` matches nothing today: a stale prefix excuses nothing.)
+			expect(matching('publication/.*/docu/ui/').length).toBeGreaterThan(0);
+			// Control: the old prefix is a shipped tree (the predicate below would red it).
+			expect(matching('^vendor/').length).toBeGreaterThan(0);
+			expect(isExactFile('^vendor/')).toBe(false);
+			expect(isExactFile('(^|/)scripts/ci/bun_pin_hashes\\.ts$')).toBe(true);
+			expect(isExactFile('^vendor/symfony/mime/MimeTypes\\.php$')).toBe(true);
+			// End-anchored wildcards are trees, whatever their spelling.
+			for (const tree of [
+				'^vendor/[^\\n]+$',
+				'^vendor/\\S+$',
+				'^vendor/\\w*/x\\.js$',
+				'^vendor/.$',
+				'^vendor/(a|b)\\.js$',
+			])
+				expect(isExactFile(tree), tree).toBe(false);
+		});
+
+		test('a path matching a tracked file is an exact file (or a named shipped-bundle prefix)', () => {
+			// Spelling AND outcome: a literal path that still matches more than one
+			// tracked file (an unanchored name repeated across trees) is a tree too.
+			const broad = allowlists
+				.flatMap((list) => list.paths ?? [])
+				.filter((pattern) => !SHIPPED_BUNDLE_PREFIXES.includes(pattern))
+				.filter((pattern) => matching(pattern).length > 0)
+				.filter((pattern) => !isExactFile(pattern) || matching(pattern).length > 1);
+			expect(
+				broad,
+				'A .gitleaks.toml allowlist path matches tracked files with a prefix: every file under it, present and future, is out of the scan. List the exact file(s) the finding was in:',
+			).toEqual([]);
+		});
+
+		test('a history-only block matches no tracked file', () => {
+			// A block that SAYS its files are gone: history-only, deleted, existed only before.
+			const saysGone = /history-only|deleted from the|existed only/i;
+			const history = allowlists.filter(
+				(list) => saysGone.test(list.description ?? '') && (list.paths ?? []).length > 0,
+			);
+			expect(history.length).toBeGreaterThanOrEqual(1);
+			const live = history
+				.flatMap((list) => list.paths ?? [])
+				.flatMap((pattern) => matching(pattern).map((file) => `${pattern} → ${file}`));
+			expect(
+				live,
+				'A history-only allowlist path matches a file in the tree — its description is false and the file is unscanned:',
+			).toEqual([]);
+		});
 	});
 
 	// Rule 1b (2026-09-26) — ONE CI IMAGE on every host (scripts/lib/ci_image.ts). Until

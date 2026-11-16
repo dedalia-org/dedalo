@@ -137,3 +137,11 @@ No parity fixture holds an external emission or a diffusion unpublish of a
 non-address id; no re-harvest. Behaviour: `external_record_field_set_native`
 ("api_config RESIDUE is not externality"), `diffusion_frontier_scope_native`
 (LAW 3), mutation-verified.
+
+## Addendum 2026-11-12 (d) — the publication chain
+
+The diffusion resolver now applies the same law: ownership (a foreign target asks nothing), the
+remote id verbatim (the host row's `section_id`), component_external a TERMINAL (the ONE
+predicate `registry.ts storesRelationLocators`, hoisted from `atoms.ts isStoredRelationModel`),
+and a remote-only target walked on the identity-only placeholder. Ledger:
+`WC-2026-11-12-diffusion-external-chain`. Gate: `test/unit/diffusion_external_chain_native.test.ts`.

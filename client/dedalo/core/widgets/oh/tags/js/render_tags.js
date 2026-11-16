@@ -300,7 +300,7 @@ const get_value_element = (i, data, values_container, self) => {
 
 			// update reactive items value
 			for (let i = 0; i < reactive_items.length; i++) {
-				reactive_items[i].value.innerHTML = get_value_from_data(reactive_items[i].widget_id)
+				reactive_items[i].value.textContent = get_value_from_data(reactive_items[i].widget_id)
 			}
 		}
 		// Event channel: 'update_widget_value_<ipo_index>_<widget_instance_id>'

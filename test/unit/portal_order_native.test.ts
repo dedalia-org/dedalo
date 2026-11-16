@@ -1413,7 +1413,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 			TERM_TEXT,
 			TERM_SECTION,
 			termEcho,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			USER_ID,
 			new Date(),
 			freshGuard(MAX_CASCADE_DEPTH),
@@ -1425,7 +1425,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 			TERM_TEXT,
 			TERM_SECTION,
 			termEcho,
-			{ saved: [], removed: [] },
+			{ saved: [], removed: [], origin: 'keys' },
 			USER_ID,
 		);
 		expect(idsOf(await storedAt(HOST_SECTION, host, HOSTED_REL))).toEqual([midDelta, midEcho]);
@@ -1521,7 +1521,7 @@ describe('observer re-sort — editing a target re-sorts its hosts, no host save
 				ORDER_COLUMN,
 				SECTION,
 				target,
-				{ saved: [], removed: [] },
+				{ saved: [], removed: [], origin: 'keys' },
 				USER_ID,
 			);
 		} finally {
@@ -1727,13 +1727,15 @@ describe('backfill — ontology-change trigger, the operator run', () => {
 		await seedPortalRecord('asc');
 		expect((await project()).kind).toBe('projected');
 		expect(await hostIds(host)).toEqual([alpha, bravo, charlie]);
-		expect(await hostTm(host)).toBe(tm + 1);
+		// + its save-before row: the host is seeded RAW, with no history (the
+		// order as planted — re-pinned 2026-11-12, T1-21).
+		expect(await hostTm(host)).toBe(tm + 2);
 
 		// same declaration re-projected: the trigger queues nothing — the host stays as planted
 		await seedHost(host, [bravo, charlie, alpha]);
 		expect((await project()).kind).toBe('projected');
 		expect(await hostIds(host)).toEqual([bravo, charlie, alpha]);
-		expect(await hostTm(host)).toBe(tm + 1);
+		expect(await hostTm(host)).toBe(tm + 2);
 	}, 60000);
 
 	test('rebuildOntology: CHANGING the order (asc → desc) re-sorts the host after COMMIT; an unchanged rebuild runs nothing', async () => {
@@ -2025,7 +2027,8 @@ describe('backfill — ontology-change trigger, the operator run', () => {
 		}
 		expect(mediaJobs.status(job?.id ?? '')?.status).toBe('done');
 		expect(await hostIds(host)).toEqual([charlie, bravo, alpha]);
-		expect(await hostTm(host)).toBe(tm + 1);
+		// + the save-before row of the RAW-seeded host (re-pinned 2026-11-12, T1-21).
+		expect(await hostTm(host)).toBe(tm + 2);
 	}, 120000);
 
 	test('an ontology UPDATE runs ONE sweep after every tld (deriveOntologyPackages batch): none between two tlds, one over both changed portals', async () => {

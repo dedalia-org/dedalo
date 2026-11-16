@@ -24,6 +24,7 @@
  *   encoded through the one COPY codec (src/core/db/copy_text.ts).
  */
 
+import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { encodeCopyField } from '../db/copy_text.ts';
 import { MATRIX_COPY_COLUMNS } from '../db/matrix_write.ts';
@@ -171,13 +172,33 @@ function gzLines(lines: readonly string[]): Uint8Array {
 }
 
 /**
+ * (Re)write `ontology.json`'s `files_sha256` from the CURRENT bytes of every
+ * `*.copy.gz` in `files` (in place) — what a current master's export publishes
+ * (U-41). A gate that replaces a file's bytes AFTER building calls it again to
+ * keep the package self-consistent (the change is then the shape, not the digest).
+ */
+export function stampOntologyDigests(files: Map<string, Uint8Array>): Map<string, Uint8Array> {
+	const json = files.get('ontology.json') ?? refuse('the package has no ontology.json');
+	const info = JSON.parse(Buffer.from(json).toString('utf8')) as Record<string, unknown>;
+	const digests: Record<string, string> = {};
+	for (const [name, bytes] of files) {
+		if (name.endsWith('.copy.gz')) digests[name] = createHash('sha256').update(bytes).digest('hex');
+	}
+	info.files_sha256 = digests;
+	files.set('ontology.json', Buffer.from(JSON.stringify(info, null, 4), 'utf8'));
+	return files;
+}
+
+/**
  * The files of an ontology source for `tlds`: `ontology.json` (version =
- * `options.version` ?? this engine's), one `<tld>.copy.gz` per TLD, and
- * `matrix_dd.copy.gz` when `options.matrixDdLines` is given.
+ * `options.version` ?? this engine's; `files_sha256` over every package, as a
+ * current master publishes — `options.digests: false` omits it, the older-master
+ * case), one `<tld>.copy.gz` per TLD, and `matrix_dd.copy.gz` when
+ * `options.matrixDdLines` is given.
  */
 export function buildOntologyPackage(
 	tlds: readonly FixtureOntologyTld[],
-	options: { version?: string; matrixDdLines?: string[] } = {},
+	options: { version?: string; matrixDdLines?: string[]; digests?: boolean } = {},
 ): Map<string, Uint8Array> {
 	for (const definition of tlds) assertScratch(definition);
 	const info = {
@@ -195,5 +216,5 @@ export function buildOntologyPackage(
 	}
 	if (options.matrixDdLines !== undefined)
 		files.set('matrix_dd.copy.gz', gzLines(options.matrixDdLines));
-	return files;
+	return options.digests === false ? files : stampOntologyDigests(files);
 }

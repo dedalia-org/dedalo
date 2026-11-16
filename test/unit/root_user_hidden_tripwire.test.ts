@@ -10,7 +10,12 @@
  *      MAIN section is Users (PHP search::build_main_where,
  *      core/search/trait.where.php:100-103) — closing list rows, full_count,
  *      autocomplete typeahead, client filter_by_locators pins and
- *      isRecordInScope in one clause, for EVERY caller incl. admins.
+ *      isRecordInScope in one clause, for EVERY caller incl. admins — with ONE
+ *      server-only escape hatch, `SearchOptions.includeRootUser` (PHP
+ *      `include_negative`), whose callers are PINNED below: the select-family
+ *      option list (relations/datalist.ts) and nothing else. A new door passing
+ *      it (a list, an export, a typeahead) reddens this file until it is
+ *      reviewed and added to INCLUDE_ROOT_USER_CALLERS with a reason.
  *   2. principalCanAccessRecord refuses any non-positive section_id BEFORE the
  *      global-admin bypass, for ALL sections (PHP security::
  *      user_can_access_record, class.security.php:1007-1009) — closing
@@ -50,6 +55,7 @@
 // ship with every installation.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { shippedTextFiles } from '../helpers/shipped_text_corpus.ts';
 import '../../src/core/components/registry.ts';
 import { config } from '../../src/config/config.ts';
 import { coreApiActions } from '../../src/core/api/handlers/dd_core_api.ts';
@@ -196,6 +202,59 @@ describe('root user record is hidden from every search door', () => {
 	});
 });
 
+/**
+ * The includeRootUser escape hatch — every file that SPELLS the option, and how
+ * many times. The definition (sql_assembler.ts) threads it from SearchOptions to
+ * composeMainWhere; datalist.ts is the one legitimate caller (PHP select edit
+ * `include_negative=true`). Anything else is a door that would serve root in
+ * list rows / full_count — refuse it until reviewed.
+ */
+const INCLUDE_ROOT_USER_CALLERS: Readonly<Record<string, { count: number; reason: string }>> = {
+	'src/core/search/sql_assembler.ts': {
+		count: 9,
+		reason: 'the DEFINITION: SearchOptions → WhereOptions → composeMainWhere',
+	},
+	'src/core/relations/datalist.ts': {
+		count: 1,
+		reason:
+			'the select-family option list (PHP include_negative): stored "who = root" stays labelled',
+	},
+};
+
+describe('the includeRootUser escape hatch has exactly the pinned callers', () => {
+	test('no file outside the pin spells includeRootUser, and the pinned counts hold', async () => {
+		const repoRoot = new URL('../../', import.meta.url).pathname;
+		const found: Record<string, number> = {};
+		// The shared shipped-text corpus (client, tools, src, scripts, publication,
+		// deploy) — a superset of every tree that can import the search builder.
+		const shipped = shippedTextFiles();
+		expect(shipped.length).toBeGreaterThan(2500);
+		for (const file of shipped) {
+			if (!/\.(?:ts|js|mjs)$/.test(file)) continue;
+			const text = await Bun.file(`${repoRoot}${file}`).text();
+			const count = text.match(/includeRootUser/g)?.length ?? 0;
+			if (count > 0) found[file] = count;
+		}
+		const expected = Object.fromEntries(
+			Object.entries(INCLUDE_ROOT_USER_CALLERS).map(([file, pin]) => [file, pin.count]),
+		);
+		expect(found).toEqual(expected);
+	});
+
+	test('OUTCOME: the hatch lifts the pin, and its absence keeps it — for an admin too', async () => {
+		const lifted = await buildSearchSql(
+			{ section_tipo: [USERS], limit: 10 },
+			{ principal: SUPERUSER, includeRootUser: true },
+		);
+		expect(lifted.sql).not.toContain('section_id > 0');
+		const kept = await buildSearchSql(
+			{ section_tipo: [USERS], limit: 10 },
+			{ principal: SUPERUSER },
+		);
+		expect(kept.sql).toContain('section_id > 0');
+	});
+});
+
 describe('root user record stays resolvable by the direct-fetch paths (requires shared DB)', () => {
 	test('readMatrixRecord reaches (dd128,-1) — the exemption every label path builds on', async () => {
 		const record = await readMatrixRecord('matrix_users', USERS, -1);
@@ -214,7 +273,12 @@ describe('root user record stays resolvable by the direct-fetch paths (requires 
 	});
 
 	test('getDatalist still enumerates -1 (PHP edit-mode include_negative parity)', async () => {
-		const items = await getDatalist('zzroottrip2', USERS_ENUM_PROPERTIES, USERS, 'lg-nolan');
+		const items = await getDatalist(
+			'zzroottrip2',
+			USERS_ENUM_PROPERTIES,
+			{ section_tipo: USERS, section_id: null },
+			'lg-nolan',
+		);
 		// WC-2026-08-10-section-id-int-canonical: datalist options carry the
 		// option record's address as an INT (this emission is the byte funnel
 		// the select family posts back and saves).

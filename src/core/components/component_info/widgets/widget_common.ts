@@ -12,7 +12,8 @@
  * tripwire).
  */
 
-import { isMatrixTable } from '../../../db/matrix.ts';
+import { compareLocators, type Locator } from '../../../concepts/locator.ts';
+import { isMatrixTable, type MatrixRecord } from '../../../db/matrix.ts';
 import { memoizedReadMatrixRecord } from '../../../db/record_memo.ts';
 import { DedaloError } from '../../../errors/dedalo_error.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../../ontology/resolver.ts';
@@ -36,6 +37,22 @@ export interface WidgetContext {
 	userId?: number | null;
 	/** Global-admin flag of that user (admins resolve the superuser tool set, PHP parity). */
 	isAdmin?: boolean;
+	/**
+	 * Compute the ASYNC widgets too (isAsync — PHP is_async(): user_activity).
+	 * The read/edit path never sets it: there the client fetches an async
+	 * widget through its own get_widget_data call, exactly as PHP skipped it.
+	 * Publication and export set it (owner C9 2026-11-13 — v6 published the
+	 * column; PHP v7 and this engine until then published NULL):
+	 * WC-2026-11-13-info-derived-async-published.
+	 */
+	includeAsync?: true;
+	/**
+	 * The calculation inputs being computed above this one (`tipo@section/id`
+	 * keys, outermost first) — threaded BY ARGUMENT through chained calculation
+	 * inputs (components/calculation_data.ts) so a cycle refuses instead of
+	 * recursing. Absent at a top-level read.
+	 */
+	calculationStack?: readonly string[];
 }
 
 /**
@@ -145,6 +162,23 @@ export function isLegacyStateResidue(items: unknown[]): boolean {
 }
 
 /**
+ * The numisdata FLAG convention (PHP get_archive_weights / get_coins_by_period
+ * `'2'`): a yes/no flag component is "set" when its FIRST locator's section_id
+ * is 2. Value-based, by the locator law (WC-2026-11-12-numisdata-widgets-locator-law):
+ * stored locators are INT since WC-2026-08-10-section-id-int-canonical and
+ * legacy string ones survive, so 2, "2" and "02" are all the flag. section_tipo
+ * is NOT compared — PHP never did, and the vocabulary section is install-defined.
+ */
+export const FLAG_SET_SECTION_ID = 2;
+
+/** Whether a flag component's items say "set" (first locator section_id == 2). */
+export function isFlagSet(items: readonly unknown[]): boolean {
+	return compareLocators(items[0] as Locator, { section_id: FLAG_SET_SECTION_ID } as Locator, [
+		'section_id',
+	]);
+}
+
+/**
  * The registry contract of one widget implementation (PHP <widget> extends
  * widget_common). `name` is the ontology/client identity and the registry
  * key; `path` mirrors the ontology-authored value and locates the CLIENT
@@ -222,29 +256,42 @@ export function phpRound(value: number, precision: number): number {
 }
 
 /**
- * A component's data as PHP component_common::get_data() returns it — the
- * FULL stored item array, NO lang filtering (that is get_data_lang, which the
- * widget classes never call; test_info reads the first item of a translatable
- * source verbatim — verified against live PHP on test3/1's lg-eng-only data).
+ * The host record's matrix row as the widgets read it — or null when there is
+ * no readable record (no table, a non-matrix store, no row).
  *
  * The ROW read goes through the read-scoped memo (db/record_memo.ts): widgets
- * ask this helper for one component at a time, so a widget with N declared
- * paths over the same record would otherwise fetch that whole row N times. The
- * memo makes it once per read; with no read scope active it is a direct read.
+ * ask for one component at a time, so a widget with N declared paths over the
+ * same record would otherwise fetch that whole row N times. The memo makes it
+ * once per read; with no read scope active it is a direct read.
+ */
+export async function readWidgetRecord(
+	sectionTipo: string,
+	sectionId: number | string,
+): Promise<MatrixRecord | null> {
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	if (table === null) return null;
+	// A VIRTUAL section whose declared matrix_table is not a readable record
+	// store (dd15 Time Machine -> matrix_time_machine, flat columns, rejected by
+	// the identifier allowlist) has NO record to read: serve the empty value the
+	// same way section/read.ts serves its no-record branch, never a 500.
+	if (!isMatrixTable(table)) return null;
+	return memoizedReadMatrixRecord(table, sectionTipo, Number(sectionId));
+}
+
+/**
+ * A component's data as PHP component_common::get_data() returns it — the
+ * FULL stored item array, NO lang filtering (that is get_data_lang; test_info
+ * reads the first item of a translatable source verbatim — verified against
+ * live PHP on test3/1's lg-eng-only data). The ONE widget that reads a lang
+ * slice is `tags` (oh/tags.ts — the record's text slice, v6 class.tags.php;
+ * T1-44, WC-2026-11-13-tags-widget-original-lang).
  */
 export async function readWidgetComponentData(
 	sectionTipo: string,
 	sectionId: number | string,
 	componentTipo: string,
 ): Promise<unknown[]> {
-	const table = await getMatrixTableFromTipo(sectionTipo);
-	if (table === null) return [];
-	// A VIRTUAL section whose declared matrix_table is not a readable record
-	// store (dd15 Time Machine -> matrix_time_machine, flat columns, rejected by
-	// the identifier allowlist) has NO record to read: serve the empty value the
-	// same way section/read.ts serves its no-record branch, never a 500.
-	if (!isMatrixTable(table)) return [];
-	const record = await memoizedReadMatrixRecord(table, sectionTipo, Number(sectionId));
+	const record = await readWidgetRecord(sectionTipo, sectionId);
 	if (record === null) return [];
 	const model = await getModelByTipo(componentTipo);
 	if (model === null) return [];

@@ -161,7 +161,7 @@ export async function fixDataframeOrphanEntries(
 	const orphanSignatures = new Set(orphans.map((entry) => JSON.stringify(entry)));
 	return withTransaction(async () => {
 		const rows = (await sql.unsafe(
-			`SELECT relation FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+			`SELECT relation FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 			[sectionTipo, sectionId],
 		)) as { relation: Record<string, unknown> | null }[];
 		const relation = rows[0]?.relation;

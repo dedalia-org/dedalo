@@ -72,7 +72,12 @@ const N3 = 932253; // → D3
 const N4 = 932254; // → D1, D2
 const N5 = 932255; // no locator
 const CHAIN_MAINS = [N1, N2, N3, N4, N5];
-const OWNED = [T1, T2, T3, T4, T5, ...MAINS, E1, E2, D1, D2, D3, ...CHAIN_MAINS];
+// Third universe (T1-36) — locators whose id is NOT a record address
+// (external ids stored verbatim, WC-2026-08-10). They reach no record.
+const MP = 932261; // → '000932201' (zero-padded twin of T1's address)
+const MR = 932262; // → '000932201', T2
+const MQ = 932263; // → 'Q42' (opaque)
+const OWNED = [T1, T2, T3, T4, T5, ...MAINS, E1, E2, D1, D2, D3, ...CHAIN_MAINS, MP, MR, MQ];
 
 function locator(sectionId: number) {
 	return {
@@ -322,5 +327,96 @@ describe.if(DB_READY)('deep-path semantics: relation leaves and two hops', () =>
 		);
 		// E2 holds both; E1 is 1939.
 		expect(shared.ids).toEqual([N2, N4]);
+	});
+});
+
+/** A raw stored locator whose id is text — never canonicalized by a writer. */
+const textLocator = (sectionId: string) => ({ ...locator(0), section_id: sectionId });
+const rawLinks = (...items: unknown[]) => ({ relation: { [HOP]: items } });
+
+/** The ids among `universe` in the order a deep ORDER BY TEXT serves them. */
+async function orderedIds(universe: readonly number[]): Promise<number[]> {
+	const built = await buildSearchSql(
+		sanitizeClientSqo(
+			structuredClone({
+				section_tipo: [SECTION],
+				limit: 'all',
+				order: [{ direction: 'ASC', path: path(TEXT) }],
+			}) as never,
+		),
+		{},
+	);
+	const found = (await sql.unsafe(built.sql, built.params as never[])) as { section_id: number }[];
+	return found.map((row) => Number(row.section_id)).filter((id) => universe.includes(id));
+}
+
+describe.if(DB_READY)('non-address locator ids reach no record (T1-36, DATA-26 hop join)', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('search_deep_semantics_native');
+		await purge();
+		// lg-spa (the suite's data lang), so the ORDER expression reads the value
+		await insert(T1, {
+			string: { [TEXT]: [{ id: 1, lang: 'lg-spa', value: 'zzdeep alpha one' }] },
+		});
+		await insert(T2, { string: { [TEXT]: [{ id: 1, lang: 'lg-spa', value: 'zzdeep beta two' }] } });
+		await insert(M1, links(T1));
+		await insert(M2, links(T2));
+		await insert(M5, {});
+		await insert(MP, rawLinks(textLocator('000932201')));
+		await insert(MR, rawLinks(textLocator('000932201'), locator(T2)));
+	});
+	afterAll(purge);
+
+	const UNIVERSE = [M1, M2, M5, MP, MR];
+
+	describe('zero-padded id: never the record of its numeric value', () => {
+		test("'-alpha': the padded locator is not T1", async () => {
+			const result = await run({ $and: [text('-alpha')] }, UNIVERSE);
+			expect(result.ids).toEqual([M2, M5, MP, MR]);
+			// the FORWARD (correlated) shape is the one under test
+			expect(result.countSql).toContain('NOT EXISTS (SELECT 1 FROM');
+		});
+
+		test('$not over a positive leaf: same answer', async () => {
+			const result = await run({ $and: [{ $not: [text('zzdeep alpha')] }] }, UNIVERSE);
+			expect(result.ids).toEqual([M2, M5, MP, MR]);
+		});
+
+		test("'!*': a record whose only locator reaches nothing holds no value", async () => {
+			const result = await run({ $and: [text('!*')] }, UNIVERSE);
+			expect(result.ids).toEqual([M5, MP]);
+		});
+
+		test('complement law: positive ∪ negation = universe, disjoint (both shapes agree)', async () => {
+			const positive = await run({ $and: [text('alpha')] }, UNIVERSE);
+			const negative = await run({ $and: [text('-alpha')] }, UNIVERSE);
+			expect(positive.ids).toEqual([M1]);
+			expect(positive.ids.filter((id) => negative.ids.includes(id))).toEqual([]);
+			expect([...positive.ids, ...negative.ids].sort()).toEqual([...UNIVERSE].sort());
+		});
+
+		test('order by the related text: the padded locator sorts with the empty values', async () => {
+			expect(await orderedIds([M1, M2, MP])).toEqual([M1, M2, MP]);
+		});
+	});
+
+	describe('opaque id: the search answers instead of failing', () => {
+		beforeAll(async () => {
+			await insert(MQ, rawLinks(textLocator('Q42')));
+		});
+
+		test("'-alpha' over a section holding an opaque locator id", async () => {
+			const result = await run({ $and: [text('-alpha')] }, [...UNIVERSE, MQ]);
+			expect(result.ids).toEqual([M2, M5, MP, MR, MQ]);
+		});
+
+		test("'!*' counts the opaque locator as reaching nothing", async () => {
+			const result = await run({ $and: [text('!*')] }, [...UNIVERSE, MQ]);
+			expect(result.ids).toEqual([M5, MP, MQ]);
+		});
+
+		test('order by the related text does not fail', async () => {
+			expect(await orderedIds([M1, M2, MP, MQ])).toEqual([M1, M2, MP, MQ]);
+		});
 	});
 });

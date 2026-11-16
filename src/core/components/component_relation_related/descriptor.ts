@@ -16,4 +16,5 @@ export const component_relation_related: ComponentModel = {
 	flatValue: 'datalist',
 	search: { status: 'ported' },
 	importConform: 'relation',
+	forbidsAddButton: true,
 };

@@ -232,6 +232,13 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	'core/tools/paths.ts:rootsCache',
 	'core/tools/config.ts:defaultConfigCache',
 	'core/tools/config.ts:installConfigCache',
+	// The per-(tool, tipo, section_tipo) override ddo_maps DERIVED from the two
+	// config maps above (T1-43): install-global config data, same lifecycle,
+	// cleared by the same resetConfigCache(); handed out as deep clones only.
+	'core/tools/config.ts:overrideIndexCache',
+	// Invalidation counter, not request state: the three caches above skip a
+	// set whose build spans a resetConfigCache() (T1-43 review).
+	'core/tools/config.ts:configGeneration',
 	// One-second memo of WHICH job pfiles exist on disk (media/jobs.ts). Request-
 	// INDEPENDENT by construction: it caches a DIRECTORY LISTING of a private
 	// tree, never a record, a user or a language. The in-memory registry is read
@@ -326,10 +333,12 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
 	// of hashing two API trees on every get_value. Install-static facts (the running
 	// tree's release or refusal + a time), overwritten by every round, never identity.
 	'core/publication_host/api_reconcile.ts:lastVerdict',
-	// Retention scheduler (audit 2026-08-26 P2-9): the armed latch and the daily
-	// interval handle. Same class as the reconcile scheduler above — process-wide
+	// Retention scheduler (audit 2026-08-26 P2-9): the armed latch, the daily
+	// interval handle and the drain abort handle (T1-24). Same class as the
+	// reconcile scheduler above — process-wide
 	// wiring, no request identity (a retention pass is keyed by STORE name and has
 	// no actor at all).
+	'core/retention/scheduler.ts:drain',
 	'core/retention/scheduler.ts:started',
 	'core/retention/scheduler.ts:timer',
 	// Login-timing decoy hash (foundation audit AUTHZ-03): a memoized Argon2id

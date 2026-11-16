@@ -62,9 +62,13 @@ const EXEMPT: Readonly<Record<string, string>> = {
 	'src/core/media/tools/files_info_persist.ts':
 		'reconcileStoredFilesInfo: the PER-RECORD kernel the media tools call on one component (create-vs-refresh rule); the cross-corpus sweep over the same kernel is the registered `files_info` definition (files_info_reconcile.ts)',
 	'src/core/db/db_assets.ts':
-		'inspectSearchStores: a SCHEMA-PROVISIONING probe (declared triggers/tables vs the catalog), converged by ensureSearchStores at boot (DEC-19) — provisioning, not a data-store pair. reconcileSearchStoreDerivation: a store re-derived when its derivation STAMP is older than the code constant (a version check, not a second data store), run only by the update run (run/ancillary.ts)',
+		'inspectSearchStores: a SCHEMA-PROVISIONING probe (declared triggers/tables vs the catalog), converged by ensureSearchStores at boot (DEC-19) — provisioning, not a data-store pair. reconcileSearchStoreDerivation: a store re-derived when its derivation STAMP is older than the code constant (a version check, not a second data store), run by the update run (run/ancillary.ts) and by the install (db_restore.ts completeFreshInstall), over what it just filled (T1-25)',
 	'src/core/update/run/ancillary.ts':
 		"the update run's ancillary SEQUENCER (reconcileTools / reconcileSearchStores / reconcileMediaRules): each step only calls an existing door — importTools, the registered observer_mirrors reconcile, db_assets.ts ensureSearchStores + reconcileSearchStoreDerivation, writeRuleFiles — in a fixed order after an update; it compares no two stores of its own",
+	'src/core/install/probes.ts':
+		"inspectPosted: the System check / Database screen's PREFLIGHT over ONE store — db_restore.ts inspectTargetDatabase on the posted connection (catalog reads only, T1-P08); it reconciles nothing and has no second store",
+	'src/core/media/provenance_repair.ts':
+		"the PER-RECORD provenance kernel (T1-P04): recovers ONE media item's absent original_file_name / original_normalized_name from the same record's target_filename sibling, called by the two regenerate doors (update_cache, sync_files) under their row lock — a one-record fill of absent keys, no second store and no cross-corpus sweep",
 	'scripts/repair_tm_timestamps.ts':
 		'ONE-STORE data repair (matrix_time_machine timestamps rewritten in place under DEC-03), no second store is compared',
 	'scripts/repair_geolocation_studio_default.ts':

@@ -15,4 +15,5 @@ export const component_json: ComponentModel = {
 	searchBuilder: 'json',
 	importValueProperty: true,
 	importConform: 'json',
+	flatValue: 'json', // export/panel cell = each stored item as JSON (PHP get_export_value base)
 };

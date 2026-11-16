@@ -519,7 +519,7 @@ const build_totals_charts = function(raw_totals) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_chart_title',
-			inner_html		: s.label,
+			text_content		: s.label,
 			parent			: card
 		})
 		const body = ui.create_dom_element({
@@ -550,7 +550,7 @@ const build_totals_charts = function(raw_totals) {
 				const fb = ui.create_dom_element({
 					element_type : 'pre',
 					class_name   : 'user_activity_chart_fallback',
-					inner_html   : JSON.stringify(totals[key], null, 2),
+					text_content   : JSON.stringify(totals[key], null, 2),
 					parent       : hosts[key]
 				})
 				fb.title = 'D3 unavailable — raw data shown.'
@@ -664,20 +664,20 @@ const build_summary_strip = function(totals) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_summary_label',
-			inner_html		: tile.label,
+			text_content		: tile.label,
 			parent			: t
 		})
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'user_activity_summary_value',
-			inner_html		: tile.value,
+			text_content		: tile.value,
 			parent			: t
 		})
 		if (tile.hint) {
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'user_activity_summary_hint',
-				inner_html		: tile.hint,
+				text_content		: tile.hint,
 				parent			: t
 			})
 		}

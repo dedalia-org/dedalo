@@ -368,7 +368,7 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 	'test/unit/census_derivation_tripwire.test.ts':
 		'ROOTS: `.` ×2 — this gate: `git ls-files` for the tracked-directory set every written root is checked against.',
 	'test/unit/ci_workflow_tripwire.test.ts':
-		'ROOTS: `.github/workflows`; `.github/workflows-selfhosted`; `scripts` `test`.',
+		'ROOTS: `.`; `.github/workflows`; `.github/workflows-selfhosted`; `scripts` `test` — `git ls-files` over the whole index is rule 20 (a gitleaks allowlist path must match <=1 tracked file).',
 	'test/unit/client_caller_chain_tripwire.test.ts': 'ROOTS: `client/dedalo/core` `tools`.',
 	'test/unit/client_error_contract_tripwire.test.ts':
 		"ROOTS: `client/dedalo` `tools` ×3; `src` — browser JS: the corpus scan and the `git ls-files` totality check are both fed the census SCAN_ROOTS (whole trees, `**/*.js` — the retired `*/js/**` sub-path left nine tracked tool files outside, GATE-31); the third site is the shared lister's own scan reached through them; `src` is the stray-browser-JS detector.",
@@ -401,7 +401,8 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 		'ROOTS: `client/dedalo/core/area_maintenance`; `client/dedalo/core/area_maintenance/widgets` — the area JS, and the widget LESS one level down.',
 	'test/unit/docs_current_engine_tripwire.test.ts': 'ROOTS: `docs`.',
 	'test/unit/docs_locator_shape_tripwire.test.ts': 'ROOTS: `docs`.',
-	'test/unit/engine_install_tld_tripwire.test.ts': 'ROOTS: `src`.',
+	'test/unit/engine_install_tld_tripwire.test.ts':
+		'ROOTS: `src` `src/tld` `tools`; `src/tld`; `tools` — the generic engine minus the packages (leg 1) and the import edges over src/ + tools/ (leg 3); the package directories under src/tld (legs 2, 5); the tool trees, .ts + .js (leg 6).',
 	'test/unit/engineering_currency_tripwire.test.ts': 'ROOTS: `engineering`.',
 	'test/unit/error_taxonomy_tripwire.test.ts': 'ROOTS: `client/dedalo` `tools`; `src` `tools`.',
 	'test/unit/external_client_render_tripwire.test.ts':
@@ -634,7 +635,7 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 	'test/helpers/vendored_ontology_corpus.ts': {
 		roots: [['install/import/ontology']],
 		scope:
-			'the vendored ontology PACKAGES — every `<tld>.copy.gz` under install/import/ontology/<major.minor>/ (the release the seed compiles from and the ontology-server role serves), read by external_law_registry_tripwire (every shipped set_dato_external node maps to one law)',
+			'the vendored ontology PACKAGES — every `<tld>.copy.gz` under install/import/ontology/<major.minor>/ (the release the seed compiles from and the ontology-server role serves), read by external_law_registry_tripwire (every shipped set_dato_external node maps to one law) and calculation_fn_registry_tripwire (every shipped calculation formula is registered)',
 	},
 	'test/helpers/migrations_corpus.ts': {
 		roots: [['install/db/migrations']],
@@ -647,9 +648,9 @@ const SHARED_LISTERS: Readonly<Record<string, SharedLister>> = {
 			"the installer's systemd unit templates the host-step gates' fake source tree plants (deploy/systemd/, systemdTemplateNames); scratchFilePaths lists the CALLER's own mkdtemp scratch host, never a repo directory",
 	},
 	'test/helpers/deploy_artifact_corpus.ts': {
-		roots: [['.'], ['.', 'deploy'], ['deploy'], ['deploy']],
+		roots: [['.'], ['.'], ['.'], ['.', 'deploy'], ['deploy'], ['deploy']],
 		scope:
-			'what the engine SHIPS to an operator — the reverse-proxy configurations and systemd units under deploy/, the compose stacks git tracks at the repo root, and (trackedComposeFiles) those plus the deploy/ compose variants',
+			'what the engine SHIPS to an operator — the reverse-proxy configurations and systemd units under deploy/, the compose stacks git tracks at the repo root, (trackedComposeFiles) those plus the deploy/ compose variants, and (trackedRepoFiles) the whole git index for gates that classify operator artifacts by NAME wherever they live',
 	},
 	'test/helpers/prose_markdown_corpus.ts': {
 		roots: [['docs', 'engineering']],

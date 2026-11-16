@@ -1,6 +1,6 @@
 /**
  * R2 drive gate: MARC21 map application + import, scratch-twin against the real
- * DB. extractMarcValues/applyMarcMap are pure-tested; then a synthetic MARC record
+ * DB. extractMarcValue/transformMarcValue/applyMarcMap are pure-tested; then a synthetic MARC record
  * + a synthetic marc21_map is imported into a DISPOSABLE record (deleted after),
  * closing the "marc21_map→section import drive".
  */
@@ -20,9 +20,10 @@ import { deleteSectionRecord } from '../../src/core/section/record/delete_record
 import { importMappedRecords } from '../../src/core/tools/import_execute.ts';
 import {
 	applyMarcMap,
-	extractMarcValues,
+	extractMarcValue,
 	type MarcMapEntry,
 	parseMarcRecord,
+	transformMarcValue,
 } from '../../src/core/tools/marc21.ts';
 
 const SECTION = 'test2966';
@@ -98,16 +99,153 @@ describe('MARC21 map application (pure)', () => {
 		]),
 	);
 
-	test('extractMarcValues by subfield / joined / control field', () => {
-		expect(extractMarcValues(record, { field: '245', subfield: 'a' })).toEqual(['The Title']);
-		expect(extractMarcValues(record, { field: '245' })).toEqual(['The Title An Author']);
-		expect(extractMarcValues(record, { field: '001' })).toEqual(['REC-1']);
+	test('extractMarcValue by subfield / joined / control field', () => {
+		expect(extractMarcValue(record, { field: '245', subfield: 'a' })).toBe('The Title');
+		expect(extractMarcValue(record, { field: '245' })).toBe('The Title An Author');
+		// A control field is readable (PHP read '' there — kept extension, WC).
+		expect(extractMarcValue(record, { field: '001' })).toBe('REC-1');
+		expect(extractMarcValue(record, { field: '999' })).toBe('');
+	});
+
+	// T1-6: the PHP get_value / get_field / extract_marc21_value semantics.
+	const repeated = parseMarcRecord(
+		buildMarc([
+			{ tag: '700', subs: [['a', 'First, A.']] },
+			{
+				tag: '700',
+				subs: [
+					['a', 'Second, B.'],
+					['e', 'ed.'],
+				],
+			},
+			{ tag: '710', subs: [['a', 'An Entity']] },
+			{
+				tag: '945',
+				subs: [
+					['a', 'Shelf X'],
+					['j', '100'],
+				],
+			},
+			{
+				tag: '945',
+				subs: [
+					['a', 'Shelf Y'],
+					['j', '193'],
+				],
+			},
+		]),
+	);
+
+	test('without field_multiple only the FIRST occurrence is read', () => {
+		expect(extractMarcValue(repeated, { field: '700', subfield: 'a' })).toBe('First, A.');
+	});
+
+	test('field_multiple joins every occurrence of every listed tag (PHP default ". ")', () => {
+		expect(
+			extractMarcValue(repeated, { field: ['700', '710'], field_multiple: true, subfield: 'a' }),
+		).toBe('First, A.. Second, B.. An Entity');
+		expect(
+			extractMarcValue(repeated, {
+				field: '700',
+				field_multiple: true,
+				row_separator: ' | ',
+				subfield_separator: ' - ',
+			}),
+		).toBe('First, A. | Second, B. - ed.');
+	});
+
+	test('conditional: the guarded occurrence, else NO value (owner C16 — never another copy)', () => {
+		const guard = (value: string) => ({
+			field: '945',
+			subfield: 'a',
+			marc21_conditional: { subfield: 'j', value },
+		});
+		expect(extractMarcValue(repeated, guard('193'))).toBe('Shelf Y');
+		// PHP fell back to the first occurrence — another library's copy data.
+		expect(extractMarcValue(repeated, guard('555'))).toBe('');
+	});
+
+	test("occurrences:'all' joins every occurrence of the ONE tag without field_multiple (owner C17)", () => {
+		expect(extractMarcValue(repeated, { field: '700', subfield: 'a', occurrences: 'all' })).toBe(
+			'First, A.. Second, B.',
+		);
+		expect(
+			extractMarcValue(repeated, { field: '700', occurrences: 'all', row_separator: ' | ' }),
+		).toBe('First, A. | Second, B. ed.');
+		// A tag with one occurrence, and one with none, read as before.
+		expect(extractMarcValue(repeated, { field: '710', subfield: 'a', occurrences: 'all' })).toBe(
+			'An Entity',
+		);
+		expect(extractMarcValue(repeated, { field: '999', occurrences: 'all' })).toBe('');
+	});
+
+	test('transformMarcValue: punctuation, partial_left_content, year, dd_data_map, id', () => {
+		const entry = (over: Partial<MarcMapEntry> = {}): MarcMapEntry => ({
+			component_tipo: INPUT_TEXT,
+			field: '260',
+			...over,
+		});
+		expect(transformMarcValue('Barcelona :', entry())).toEqual({
+			kind: 'literal',
+			text: 'Barcelona',
+		});
+		expect(transformMarcValue('[1987]', entry())).toEqual({ kind: 'literal', text: '[1987]' });
+		expect(transformMarcValue('c1987.', entry({ partial_left_content: 4 }))).toEqual({
+			kind: 'literal',
+			text: '1987',
+		});
+		expect(
+			transformMarcValue('c1987.', entry({ partial_left_content: 4, date_format: 'year' })),
+		).toEqual({ kind: 'structured', json: '[{"start":{"year":1987}}]' });
+		expect(transformMarcValue('s.d.', entry({ date_format: 'year' })).kind).toBe('refused');
+		const languages = { spa: [{ section_tipo: 'lg1', section_id: '1' }], und: [] };
+		expect(transformMarcValue('spa', entry({ dd_data_map: languages }))).toEqual({
+			kind: 'structured',
+			json: '[{"section_tipo":"lg1","section_id":"1"}]',
+		});
+		expect(transformMarcValue('yyy', entry({ dd_data_map: languages }))).toEqual({
+			kind: 'refused',
+			reason: "no dd_data_map entry for 'yyy'",
+		});
+		// The id is the code lookup's value: trimmed, never stripped.
+		expect(transformMarcValue(' B123. ', entry({ is_id: true }))).toEqual({
+			kind: 'literal',
+			text: 'B123.',
+		});
+	});
+
+	test('applyMarcMap: dd_action follows a value, never a clear; "0" is a value', () => {
+		const zero = parseMarcRecord(
+			buildMarc([
+				{ tag: '020', subs: [['a', '0']] },
+				{ tag: '041', subs: [['a', 'und']] },
+			]),
+		);
+		const action = { test87: [{ section_tipo: 'dd64', section_id: '1' }] };
+		const mapped = applyMarcMap(zero, [
+			{ component_tipo: INPUT_TEXT, field: '020', subfield: 'a', dd_action: action },
+			{
+				component_tipo: 'test91',
+				field: '041',
+				subfield: 'a',
+				dd_data_map: { und: [] },
+				dd_action: action,
+			},
+		]);
+		expect(mapped.fields).toEqual([
+			{ component_tipo: INPUT_TEXT, values: ['0'], literal: true },
+			{ component_tipo: 'test87', values: ['[{"section_tipo":"dd64","section_id":"1"}]'] },
+			{ component_tipo: 'test91', values: ['[]'] },
+		]);
 	});
 
 	test('applyMarcMap resolves fields + carries the identifier verbatim', () => {
 		const map: MarcMapEntry[] = [{ component_tipo: INPUT_TEXT, field: '245', subfield: 'a' }];
 		const mapped = applyMarcMap(record, map, { field: '001' });
-		expect(mapped.fields).toEqual([{ component_tipo: INPUT_TEXT, values: ['The Title'] }]);
+		// `literal`: the value is TEXT, never parsed as a JSON cell (T1-6).
+		expect(mapped.fields).toEqual([
+			{ component_tipo: INPUT_TEXT, values: ['The Title'], literal: true },
+		]);
 		// DATA-08 (2026-08-30): the control field's value is an IDENTIFIER, carried
 		// as-is for the door's code lookup. It was previously read as a section_id,
 		// so this record addressed record 1 whenever the ILS number happened to

@@ -429,8 +429,8 @@ describe('the option list is keyed by the label fields the reader may see (TODO-
 
 	const labels = async (actor: Principal | undefined) => {
 		const build = () =>
-			getDatalist('dd1725', null, USERS, 'lg-eng').then((items) =>
-				items.filter((i) => i.section_id === OA_GRANT_PROFILE_ID).map((i) => i.label),
+			getDatalist('dd1725', null, { section_tipo: USERS, section_id: null }, 'lg-eng').then(
+				(items) => items.filter((i) => i.section_id === OA_GRANT_PROFILE_ID).map((i) => i.label),
 			);
 		return actor === undefined
 			? build()

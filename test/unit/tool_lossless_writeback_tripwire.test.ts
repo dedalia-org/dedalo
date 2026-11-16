@@ -371,7 +371,42 @@ else {
 				contents:
 					'export const clone = (value) => (value === undefined || value === null ? value : structuredClone(value));\n' +
 					'export const get_json_langs = async () => [];\n' +
+					// is_equal is the client's deep equality (utils/util.js); Bun's is the same
+					// structural comparison for the plain JSON values a save carries.
+					'export const is_equal = (a, b) => Bun.deepEquals(a, b);\n' +
 					'export const tr = { get_mark_pattern: () => /(?!)/g };\n',
+				loader: 'js',
+			}));
+			// The save-outcome reader (T1-P01). api_error.js is a PURE, import-free client
+			// module, so the REAL one is loaded: the driver must judge a save's answer by
+			// the same request_failed every other client door uses. render_api_error.js
+			// pulls ui.js (DOM), so error_text is stubbed to the code it would translate.
+			build.onResolve({ filter: /core\/common\/js\/api_error\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: join(ROOT, 'client', 'dedalo', 'core', 'common', 'js', 'api_error.js') }
+					: undefined,
+			);
+			build.onResolve({ filter: /core\/common\/js\/render_api_error\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: 'render-api-error-stub', namespace: 'tool-lang-error-stub' }
+					: undefined,
+			);
+			build.onLoad({ filter: /.*/, namespace: 'tool-lang-error-stub' }, () => ({
+				contents: "export const error_text = (api_error) => (api_error && api_error.code) || '';\n",
+				loader: 'js',
+			}));
+			// The ONE escaper (C26, render_escape_tripwire): browser_translation.js renders
+			// its streaming overlay through render_value. It pulls util.js (DOM), so the
+			// stub answers the text as given — this leg judges the SAVE, never the overlay.
+			build.onResolve({ filter: /core\/common\/js\/utils\/render_escape\.js$/ }, (args) =>
+				importerIsToolLang(args.importer)
+					? { path: 'render-escape-stub', namespace: 'tool-lang-escape-stub' }
+					: undefined,
+			);
+			build.onLoad({ filter: /.*/, namespace: 'tool-lang-escape-stub' }, () => ({
+				contents:
+					"export const render_value = (value) => String(value ?? '');\n" +
+					"export const render_join = (values, separator) => (values ?? []).map((v) => String(v ?? '')).join(separator ?? '');\n",
 				loader: 'js',
 			}));
 			// SUFFIX-matched, not `^\.\/…` (2026-08-31). A plugin `filter` is tested against
@@ -444,7 +479,27 @@ else {
 		/** The stored, human-made Spanish text the run must not overwrite. */
 		const STORED = '<p>El texto humano existente, revisado por la archivera.</p>';
 
-		async function runTranslation(messages: { status: string; data: Record<string, unknown> }[]) {
+		/**
+		 * How the target component ANSWERS (T1-P01). `component_common.prototype.save` never
+		 * rejects: a failed save RESOLVES its failure envelope and every pre-wire refusal
+		 * resolves `false`, so the driver must read the answer, not wait for a rejection.
+		 * - `save`: the save's answer (default: a v2 success envelope);
+		 * - `dbData`: the component's stored baseline (`db_data`) the no-change exit compares;
+		 * - `refreshFails`: the post-save re-render rejects;
+		 * - `beforeSettle`: runs after the worker messages, BEFORE the run is awaited — a
+		 *   pending `save` lets it look at what the operator sees while the save is in flight.
+		 */
+		interface TargetBehaviour {
+			save?: () => Promise<unknown>;
+			dbData?: Record<string, unknown>;
+			refreshFails?: boolean;
+			beforeSettle?: (status: ReturnType<typeof fakeNode>) => void;
+		}
+
+		async function runTranslation(
+			messages: { status: string; data: Record<string, unknown> }[],
+			behaviour: TargetBehaviour = {},
+		) {
 			const globals = globalThis as Record<string, any>;
 			const savedDocument = globals.document;
 			const savedWorker = globals.Worker;
@@ -473,11 +528,15 @@ else {
 				const saves: unknown[] = [];
 				const target: Record<string, any> = {
 					data: { value: [STORED], entries: [{ id: 7, value: STORED }] },
+					db_data: behaviour.dbData ?? { entries: [{ id: 7, value: STORED }] },
 					save: (items: unknown) => {
 						saves.push(items);
-						return Promise.resolve({ result: true });
+						return behaviour.save ? behaviour.save() : Promise.resolve({ ok: true, data: {} });
 					},
-					refresh: () => Promise.resolve(true),
+					refresh: () =>
+						behaviour.refreshFails
+							? Promise.reject(new Error('re-render failed'))
+							: Promise.resolve(true),
 				};
 				const status = fakeNode();
 				const promise = translate_component_browser({
@@ -499,6 +558,7 @@ else {
 				for (const message of messages) {
 					(worker as Record<string, any>).onmessage({ data: message });
 				}
+				behaviour.beforeSettle?.(status);
 				let rejected = false;
 				let resolved: unknown = null;
 				await promise.then(
@@ -551,6 +611,80 @@ else {
 			expect(rejected).toBe(false);
 			expect(saves.length, 'a complete run must still save').toBe(1);
 			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		// -- T1-P01: the SAVE'S ANSWER decides the outcome, not the save call returning ----
+		/** A complete run: every block translated, the result is this text. */
+		const TRANSLATED = '<p>Uno.</p><p>Dos.</p>';
+		const COMPLETE_RUN = [
+			{ status: 'on_chunk', data: { remaining: 1, accumulated_text: '<p>Uno.</p>' } },
+			{ status: 'end', data: { remaining: 0, accumulated_text: TRANSLATED } },
+		];
+
+		test('a save that FAILED on the server is a failed run — never "completed", never resolved', async () => {
+			const { saves, status, rejected } = await runTranslation(COMPLETE_RUN, {
+				save: () =>
+					Promise.resolve({
+						ok: false,
+						error: { is_api_error: true, code: 'record.save_failed' },
+					}),
+			});
+			expect(saves.length, 'the complete run must reach the save').toBe(1);
+			expect(rejected, 'a failed save resolved — tool_lang_multi counts it ok').toBe(true);
+			const lines = statusLines(status).join('\n');
+			expect(lines, 'the operator was told it completed').not.toContain('completed');
+			expect(lines).toContain('not saved');
+			expect(lines, 'the reason the server gave is not named').toContain('record.save_failed');
+		});
+
+		test('a save REFUSED before the wire (false, value not stored) is a failed run', async () => {
+			// identity revoked / already saving / superseded: save() answers `false` and the
+			// stored baseline still holds the old text — nothing was written
+			const { rejected, status } = await runTranslation(COMPLETE_RUN, {
+				save: () => Promise.resolve(false),
+				dbData: { entries: [{ id: 7, value: STORED }] },
+			});
+			expect(rejected, 'a refused save resolved as success').toBe(true);
+			expect(statusLines(status).join('\n')).not.toContain('completed');
+		});
+
+		test('a save answering false because the value IS ALREADY STORED is a success (no-change exit)', async () => {
+			// the counterfactual of the case above: an identical re-translation takes save()'s
+			// no-change exit, which also answers `false` — the value is in the database
+			const { rejected, resolved } = await runTranslation(COMPLETE_RUN, {
+				save: () => Promise.resolve(false),
+				dbData: { entries: [{ id: 7, value: TRANSLATED }] },
+			});
+			expect(rejected).toBe(false);
+			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		test('a re-render failing AFTER a landed save does not report the stored translation as failed', async () => {
+			const { rejected, resolved } = await runTranslation(COMPLETE_RUN, { refreshFails: true });
+			expect(rejected, 'the value is stored; a failed repaint is not a failed translation').toBe(
+				false,
+			);
+			expect((resolved as { result?: boolean } | null)?.result).toBe(true);
+		});
+
+		test('"completed" is not painted while the save is still on the wire', async () => {
+			let answer: (value: unknown) => void = () => {};
+			const pending = new Promise((done) => {
+				answer = done;
+			});
+			let inFlight = '';
+			const { status, rejected } = await runTranslation(COMPLETE_RUN, {
+				save: () => pending,
+				beforeSettle: (container) => {
+					inFlight = statusLines(container).join('\n');
+					answer({ ok: true, data: {} });
+				},
+			});
+			expect(inFlight, 'success was claimed before the save answered').not.toContain('completed');
+			expect(rejected).toBe(false);
+			expect(statusLines(status).join('\n'), 'a landed save must still say so').toContain(
+				'completed',
+			);
 		});
 
 		test('an empty result is refused too — it would BLANK the target language', async () => {
@@ -666,6 +800,8 @@ else {
 			'the `data`-column METADATA twin is written by section/record/record_metadata.ts#setRecordMetadata (updateMatrixRecord) past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): system bookkeeping MERGED into the column (created_date / created_by_user_id only; label and diffusion_info kept), mirrored from the dd199/dd200 audit value — no component value changes, so no stamp, no history, no index.',
 		hierarchy:
 			'the HIERARCHY INVARIANT single writer (ontology/hierarchy_state.ts#write, #nameRootTerm), the `<tld>0` provisioning (hierarchy_provision.ts#provisionVirtualSections) and the ontology definition writers (ontology_write.ts#writeOntologyMainKey, #createParentGrouper) write past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): registry, descriptor and definition rows derived from the hierarchy record, with unstamped saves as in PHP — no Time Machine row, no obligation hook.',
+		dataframeRemoval:
+			'a recomputed mirror that DROPS a locator takes that item’s paired dataframe frames with it (relations/save.ts#removeDataframeDataById, write_obligations RAW_CALLER_EXEMPT — PHP remove_dataframe_data_by_id) in the SAME audited observer write that lands the mirror through its chokepoint entry (persistObserverMirrorKeys): it only REMOVES frames whose main item the law dropped, what remains keeps its stored order, so no curated value is transformed.',
 		ontology:
 			'ontology DEFINITION rows — the main node and parent-grouper records in matrix_ontology (ontology/ontology_write.ts#writeOntologyMainKey, #createParentGrouper) — are written past the chokepoint BY DESIGN (write_obligations RAW_CALLER_EXEMPT): system definitions re-derived from the ontology records by the write driver, which has its own gates; unstamped as in PHP, and no curated value is transformed.',
 	} as const;
@@ -688,7 +824,7 @@ else {
 					verdict: 'refuses',
 					must_contain: 'refuse_run(',
 					reason:
-						'CLI-14. The worker skips a failed block and posts an `end` indistinguishable from a complete run, so the main thread counts the on_block_error messages itself and REFUSES: nothing is saved, the streamed partial is put back, the lost blocks are named and the promise rejects (a resolve would be counted as ok by both callers). Proved by LEG 2 above.',
+						'CLI-14. The worker skips a failed block and posts an `end` indistinguishable from a complete run, so the main thread counts the on_block_error messages itself and REFUSES: nothing is saved, the streamed partial is put back, the lost blocks are named and the promise rejects (a resolve would be counted as ok by both callers). T1-P01: a complete run is only reported done when the save ANSWERED that the value is stored (save_landed — component_common save() never rejects, it resolves a failure envelope or false); a save that did not land is named and rejects too. Proved by LEG 2 above.',
 				},
 			},
 		},
@@ -736,6 +872,17 @@ else {
 					verdict: 'derived-state',
 					reason:
 						'T0-11 D2 = b: the PDF transcription is DERIVED from the record’s PDF (pdftotext) and written ONLY into an EMPTY lang slice — the emptiness is re-read UNDER the row lock in the transaction that writes (pdf_transcription.ts writeLocked: readMatrixKeyForUpdate, then readComponentItems), so a curated or concurrently committed transcription is kept, never transformed or replaced. Gate: pdf_transcription_native (gate 6). Under the run’s bulkProcessId: a bulk revert clears the fill.',
+				},
+			},
+		},
+
+		'tools/tool_update_cache/server/index.ts :: refreshExternalForRow': {
+			doors: {
+				runExternalRefresh: {
+					verdict: 'derived-state',
+					bypass_reason: BYPASS.dataframeRemoval,
+					reason:
+						'T1-38: an EXTERNAL portal (source.mode external) is RECOMPUTED by its law through the shared refresh runner (external_refresh.ts runExternalRefresh → observers.ts refreshExternalMirror → recomputeExternalRelation), never re-saved: the mirror is a calculation over OTHER records, recomputed and written under the target row lock in its own transaction (bounded per record), no curated value is read back and transformed. A refused law / non-host record writes nothing and is reported (WC-2026-11-12-update-cache-external-mirror-refresh; gate update_cache_external_mirror_native).',
 				},
 			},
 		},
@@ -863,7 +1010,7 @@ else {
 				importMappedRecords: {
 					verdict: 'operator-value',
 					reason:
-						'writes the MARC21 records the operator imports, through the field mapping they declared: one set_data per mapped field of each record. The values come from the imported file, never from the value they replace.',
+						'writes the MARC21 records the operator imports, through the field map the Tools configuration declares plus the Values form the operator typed: one set_data per mapped field of each record. The values come from the imported file or the form, never from the value they replace.',
 				},
 			},
 		},
@@ -872,7 +1019,23 @@ else {
 				importMappedRecords: {
 					verdict: 'operator-value',
 					reason:
-						'writes the Zotero export the operator imports, through the declared field mapping: one set_data per mapped field of each record. The values come from the imported file, never from the value they replace.',
+						'writes the Zotero CSL-JSON export the operator imports, through the field map the Tools configuration declares plus the Values form the operator typed: one set_data per mapped field of each record, and a container-title link found or created by its exact name. The values come from the imported file or the form, never from the value they replace.',
+				},
+			},
+		},
+		'tools/tool_import_zotero/server/index.ts :: ingestPrepared': {
+			doors: {
+				processUploadedFile: {
+					verdict: 'operator-value',
+					bypass_reason: BYPASS.filesInfo,
+					reason:
+						'ingests the PDF an imported item names in `archive` (staged in the same upload), and the cover rendered from it, into the committed record’s pdf / identifying image component (derivatives built from THAT file). The written files_info describes the imported file, never a transform of the stored one.',
+				},
+				persistUploadedMedia: {
+					verdict: 'operator-value',
+					bypass_reason: BYPASS.filesInfo,
+					reason:
+						'records the imported PDF / cover on the media item: the stored items are RE-READ under the row lock and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
 				},
 			},
 		},
@@ -1569,8 +1732,15 @@ else {
 	 * importImagePair and bibliography importDocumentForPublication, each × processUploadedFile
 	 * and × persistUploadedMedia — the same files_info writers as tool_upload / tool_import_files,
 	 * each reasoned with BYPASS.filesInfo. New doors, not backlog.
+	 * 21 → 23 (2026-11-12, T1-7): tool_import_zotero ingestPrepared (was ingestInto) — the `archive` PDF and its
+	 * cover — × processUploadedFile and × persistUploadedMedia, the same files_info writers,
+	 * reasoned with BYPASS.filesInfo. New doors, not backlog.
+	 * 23 → 24 (2026-11-12, T1-38): tool_update_cache refreshExternalForRow × runExternalRefresh —
+	 * an external portal is recomputed by its law (the mirror lands through its chokepoint
+	 * entry); the bypass is the dropped item's frame strip, reasoned with
+	 * BYPASS.dataframeRemoval. A new door, not backlog.
 	 */
-	const BYPASS_TOOL_CELLS = 21;
+	const BYPASS_TOOL_CELLS = 24;
 
 	/**
 	 * The tether of every SERVER PENDING cell: what turns red when the defect is fixed
@@ -1675,6 +1845,12 @@ else {
 			matches: (target) => target === 'install/db/online_migration.ts',
 			reason:
 				'the PURE grammar of an online migration (its header: no DB import, nothing that writes a row); the install seed compiler reads only isOnlineMigration() to choose whether a migration file runs in one transaction.',
+		},
+		{
+			id: 'migration-seal',
+			matches: (target) => target === 'install/db/migration_seal.ts',
+			reason:
+				'the MIGRATION SEAL (owner ruling C31): the release cut (scripts/changelog.ts) freezes a triple’s incompatible-migration set into migrations.sealed.json — a repo file written at the cut, no DB handle, never a row; the tripwire half reads it.',
 		},
 		{
 			id: 'migration-ledger',
@@ -3999,6 +4175,7 @@ else {
 				'suite',
 				'migration-runner',
 				'online-migration-grammar',
+				'migration-seal',
 				'migration-ledger',
 				'json-data',
 				'tool-client-js',

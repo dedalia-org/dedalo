@@ -290,7 +290,7 @@ const get_value_element = (i, data, inputs_container, self) => {
 			const label_before = ui.create_dom_element({
 				element_type	: "label",
 				class_name		: 'before',
-				inner_html		: get_label[current_label_before] || current_label_before,
+				text_content	: get_label[current_label_before] || current_label_before,
 				parent			: li
 			})
 
@@ -298,7 +298,8 @@ const get_value_element = (i, data, inputs_container, self) => {
 			const element_value = ui.create_dom_element({
 				element_type	: "span",
 				class_name		: 'value',
-				inner_html		: value,
+				// a computed value is DATA (number / date string), never markup
+				text_content	: value,
 				parent			: li
 			})
 
@@ -326,13 +327,13 @@ const get_value_element = (i, data, inputs_container, self) => {
 				const current_data = changed_data.find(el => el.widget_id===data_map.id)
 
 				if(typeof current_data==='undefined'){
-					element_value.innerHTML = ''
+					element_value.textContent = ''
 					label_before.textContent = ''
 					label_after.textContent = ''
 					return
 				}
 				const value = current_data.value
-				element_value.innerHTML = value
+				element_value.textContent = value ?? ''
 
 				// labels
 				const label_suffix = Number(value)===1 ? '_singular' : ''

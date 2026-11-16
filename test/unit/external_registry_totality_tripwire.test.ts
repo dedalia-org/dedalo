@@ -190,6 +190,12 @@ describe('every adapter is fully declared', () => {
 			// A declared search capability with no builder is legal (the engine side
 			// is unported) — but unwrapSearch without buildSearchRequest is not.
 			if (model.unwrapSearch !== undefined) expect(model.buildSearchRequest).toBeDefined();
+			// A search-only rendering (searchFormats, owner C55) names a declared
+			// format on BOTH sides, or a search cell would throw bad_config at run time.
+			for (const [recordFormat, searchFormat] of Object.entries(model.searchFormats ?? {})) {
+				expect(model.formats?.[recordFormat], `${model.service} searchFormats key`).toBeDefined();
+				expect(model.formats?.[searchFormat], `${model.service} searchFormats value`).toBeDefined();
+			}
 		});
 
 		test(`${model.service} id codec round-trips and yields locator-safe tokens`, () => {

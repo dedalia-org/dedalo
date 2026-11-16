@@ -123,3 +123,96 @@
 Item 1's entry shape gains a required `declared: boolean` (the master's `ReleasePlan.declared`);
 an entry without it fails the whole read. Why, and the backup step's refusal now ending the run
 `REFUSED` (`update.refused`): `WC-2026-11-01-update-plan-declared`.
+
+## Addendum 2026-11-12 (T1-25) — code-only and same-triple runs are not counted as crossings
+
+No JSON shape changes; the run's terminal STATE does (`/health` `update_run.state`, the panel's
+job end, `bun run update check`'s verdict). Owner ruling 2026-11-11: a code-only release (no
+`compat` — its default `ontology`/`schema` steps, or the target-schema phase the planner appends;
+see the review addendum below for what that holds after the line start `7.0.0`) and a same-triple run (a prerelease → its next prerelease or its stable,
+a nightly reinstall: the walk is empty) are NOT a data-model crossing. Such a run failing after
+the swap now ends `ROLLED_BACK_CODE` (was `NEEDS_DB_RESTORE`), and the rollback sentinel is never
+flipped to `needs_restore` before its phases. The predicate (`run/rollback.ts`
+`phaseCrossesModel`): a post-swap, non-skipped database phase crosses iff its release is WALKED
+(triple above the installed one) AND its plan is `incompatible`, absent (never assumed
+compatible), or code-only yet DECLARING a database step (a contract fault). An unreadable
+installed release counts as walked. Runs that already ended `NEEDS_DB_RESTORE` are not
+reclassified. Gates: `rollback_predicate_native` (owner ruling describe),
+`update_run_resume_native` (T1-25 cases), `update_docs_claims_tripwire` (C3 `none`/`same_triple`).
+
+## Addendum 2026-11-12 (T1-25 review) — the ruling is not a model guarantee
+
+No shape or state change. The addendum above first stated both cases as model guarantees; neither
+held for the shipped ledger. After the
+line start `7.0.0`, a migration needs a release that declares `compat` and an `incompatible` one an
+`incompatible` release (`migration_content_hash_tripwire`), so a code-only release past `7.0.0`
+cannot move the model. The line start itself carries `incompatible` migrations with no catalog
+rung, and the builds of one triple are not held to one data model (`7.0.0-beta.8` added the
+`incompatible` `0015_dd_ontology_machine_names.sql` over `7.0.0-beta.7`): a same-triple run is NOT
+COUNTED as a crossing by the ruling, and its automatic rollback can put back a build that does not
+fit the database. No gate refuses an `incompatible` migration added to a triple after its first
+build (open, owner decision). Gate on every statement of these rules: `update_docs_claims_tripwire`
+C11 (measured against `install/db/migrations.lock.json` and the catalog).
+
+## Addendum 2026-11-13 (owner ruling C33) — `verify[]` entries may carry `offer`; the `host_units` predicate
+
+- The journal's post-verify entries (`journal.verify[]`, the file under `<private>/update/runs/`
+  and `bun run update status --json`) gain an OPTIONAL `offer: string` — a ROOT command the run
+  names but never runs. It rides only an `ok` verdict: an offer is something to do after a verified
+  run, never a failure.
+- `RUN_VERIFY_PREDICATES` gains `host_units` (after `data_model`): on a production systemd
+  instance (the server drop-in names `DEDALO_WRITABLE_ROOTS_MANIFEST`, C32) it compares the host's
+  `/etc/systemd/system/<template>` files with this release's render of `deploy/systemd/` (any OS
+  row). ALWAYS `ok` — the run is the service user and never writes `/etc/systemd`; when a template
+  differs or is absent, `offer` = the manifest's `refresh` (`sudo <bun> run
+  <tree>/scripts/ops/host_units_refresh.ts --instance <i>`). Not a systemd instance: `ok`, "no unit
+  templates to compare". The `/health` wire view is UNCHANGED (`update_run: {state}` only — a host
+  path never rides the anonymous probe).
+- `bun run update status` prints one `  verify <id> — ok|RED: <detail>` line per verdict and a
+  `    to do (as root): <offer>` line under a verdict that carries one (`scripts/update.ts`).
+- Gates: `update_run_state_machine_native` (host_units predicate + `readHostUnitsState`),
+  `update_cli_native` (status), `update_docs_claims_tripwire` C9 (the documented predicate lists).
+
+
+## Addendum 2026-11-14 (C32/C33 review gap) — the shared template upgrade DEFERS to the siblings
+
+- `scripts/ops/host_units_refresh.ts` / `refreshInstanceUnits`: a template of an earlier shipped
+  release is upgraded ONLY when every other registered instance on the host already runs this
+  release's drop-ins and manifest (rendered from its own install record, byte-equal on disk).
+  Otherwise it is KEPT: `UnitsRefreshReport` gains `deferred: string[]` (the kept template paths)
+  and `blockers: {instance, reason, refresh?}[]` (each sibling not there yet, with its own
+  re-render command; no command when its record cannot be read), the CLI prints one
+  `kept      <path>` line per deferred template and `next` carries the sentence naming the
+  blockers. The same decision drives the installer's `host_units` step (its line says `KEPT (...)`
+  and names the blockers; its verify accepts the kept render; the Review's command list is
+  unchanged). The update run's `host_units` predicate and its `offer` are UNCHANGED — the operator
+  runs the offered command, which now tells them which sibling to re-render first.
+- Why: `dedalo-ts@.service` runs `ProtectSystem=strict` and reads its writable roots from the
+  drop-in; upgrading the one shared template under an instance whose drop-in has no
+  `ReadWritePaths=` would run that instance read-only at its next restart.
+- Gate: `install_host_steps_native` "THE SIBLING LAW" (two instances, one legacy: refresh deferred
+  then upgraded by the legacy instance's own refresh; the step keeps the template and completes;
+  an unreadable sibling record blocks). Docs: `docs/install/multi_instance.md` (Re-rendering the
+  units), `docs/install/production.md` (`host_units`), `engineering/PRODUCTION.md`.
+- **Same day, review of the above — the blocker's REMEDY is judged on the sibling's TREE.** The
+  first cut named the sibling's own command alone (`<its tree>/scripts/ops/host_units_refresh.ts`),
+  which on a sibling still on an earlier release is a MISSING FILE (the script shipped with this
+  release), and whose own refresh would render ITS release's drop-ins — never byte-equal to this
+  render, so the blocker could never clear by running it. Each `blockers[]` entry now carries
+  `remedy` (`units.ts siblingTreeVerdict` → `siblingRemedy`): the command alone when the sibling's
+  tree holds the script AND its `build_info.txt` sha equals this source tree's (`same_release`);
+  "update that instance to this release first (its Maintenance panel), then re-render it as root:
+  …" when the script is absent (`no_command`) or the stamps differ (`other_release`); "make sure
+  its tree runs this release … then …" when a stamp is a checkout's placeholder (`unknown`). The
+  sentence (`deferredTemplateSentence`, the step's line, the CLI's `next`) composes `reason — remedy`.
+  The update run's `host_units` detail (`legacy` / `differs`) now ends with the law: on a
+  multi-instance host the offered command keeps a shared template until every instance runs this
+  release, names each one to bring there first, and the offer stands until the last is re-rendered.
+  **A corrupt or other-schema sibling record** is a blocker too: `siblingBlocker` catches a
+  throwing reader (the CLI's `readHostRecord` refuses `install.state_conflict` on it) and names the
+  sibling with this module's own sentence — the refreshing instance's own drop-ins and manifest
+  are still rewritten (before: the throw escaped `refreshInstanceUnits`, nothing written, the
+  refusing instance unbootable until an unrelated record was repaired). Gate cases added to "THE
+  SIBLING LAW" (remedy per verdict, through the refresh and `siblingTreeVerdict`; corrupt JSON and
+  other-schema plan → blocker, own files rendered); `update_run_state_machine_native` host_units
+  (the clause).

@@ -74,10 +74,11 @@ DB_PASSWORD="my_password"
 DB_POOL_ACQUIRE_TIMEOUT_MS `int`
 
 How long (in milliseconds) a request waits for a free database connection when the
-pool is fully in use, before it gives up. The default `0` means *wait forever*.
+pool is fully in use, before it gives up. The default is `30000` (30 seconds); `0`
+means *wait forever*, the behaviour of earlier versions.
 
-Setting it — `30000` is a sensible production value — turns pool exhaustion from a
-silent, indefinite hang into a loud, diagnosable answer: the request fails with the error
+The bound turns pool exhaustion from a silent, indefinite hang into a loud, diagnosable
+answer: the request fails with the error
 `db.pool_exhausted` (HTTP 503, "try again in a moment"). It does not make the server
 slower: it only bounds how long it is willing to be stuck. Every way of taking a
 connection counts against the pool — a query, a transaction, a connection reserved for
@@ -89,7 +90,7 @@ them.
 DB_POOL_ACQUIRE_TIMEOUT_MS=30000
 ```
 
-*Default: 0*
+*Default: 30000*
 
 ---
 
@@ -233,11 +234,11 @@ DB_SSLMODE=disable
 DB_STATEMENT_TIMEOUT_MS `int`
 
 The maximum time (in milliseconds) any single database statement of ordinary request
-traffic may run before PostgreSQL cancels it. The default `0` means no limit.
+traffic may run before PostgreSQL cancels it. The default is `60000` (one minute); `0`
+means no limit.
 
-**A production installation should set it** — `60000` (one minute) is the recommended
-value: one runaway query must not be able to occupy a connection forever and starve
-every other user. It is also the only bound on a search that cannot stop early: some
+One runaway query must not be able to occupy a connection forever and starve every other
+user. The ceiling is also the only bound on a search that cannot stop early: some
 columns are deliberately left unindexed, and a term that matches nothing there reads
 the whole table — on a large activity log that is minutes, and a user closing the
 browser does NOT cancel it. A statement stopped by this ceiling answers with the error
@@ -245,23 +246,26 @@ browser does NOT cancel it. A statement stopped by this ceiling answers with the
 
 Long-running MAINTENANCE does not run under this ceiling, so it does not have to be
 sized around it: the maintenance-area actions (reindex, vacuum, search-store rebuilds,
-the bulk transforms) and the data-update engine run on a separate maintenance connection
-pool whose statements are unbounded (`DB_MAINTENANCE_POOL_MAX`), and the boot
-migrations lift the ceiling for their own transaction. Not yet exempt, so measure them
-on your installation before setting a value: the search-store builds a boot runs when
-it finds a store missing or damaged, the observer mirror reconcile
-(`scripts/observer_reconcile.ts`) and the activity-log retention prune on a very large
-log. Choose a value comfortably above your slowest legitimate *request* — if searches
-or exports on very large sections are part of daily work, measure them first (see
+the bulk transforms), the data-update engine, the search-store builds a boot runs when
+it finds a store missing or damaged, and the observer mirror reconcile
+(`scripts/observer_reconcile.ts`) run on a separate maintenance connection pool whose
+statements are unbounded (`DB_MAINTENANCE_POOL_MAX`), and the boot migrations lift the
+ceiling for their own transaction. The retention prunes (`DEDALO_ACTIVITY_RETENTION_DAYS`,
+`DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS`) run in short committed batches, each far below
+the ceiling, so a very large log is pruned a batch at a time and never rolled back.
+
+Choose a value comfortably above your slowest legitimate *request* — if searches or
+exports on very large sections are part of daily work, measure them first (see
 `DEDALO_SLOW_QUERY_MS`). An export's record selection is computed under this ceiling
 as well, in the background lane too: an export whose selection takes longer to compute
-is refused with `db.statement_timeout` before its first line.
+is refused with `db.statement_timeout` before its first line. Set `0` to restore the
+unbounded behaviour of earlier versions.
 
 ```bash
 DB_STATEMENT_TIMEOUT_MS=60000
 ```
 
-*Default: 0*
+*Default: 60000*
 
 ---
 
@@ -349,15 +353,15 @@ TM_COUNT_CACHE_TTL_MS=30000
 
 DEDALO_SLOW_QUERY_MS `int`
 
-This parameter defines the time limit for query calls: if a statement takes longer than this value, Dédalo logs a warning line naming it. Set to `0` (the default) to disable slow-query logging.
+This parameter defines the time limit for query calls: if a statement takes longer than this value (in milliseconds), Dédalo logs a warning line naming it. The default is `5000` (5 seconds); set `0` to disable slow-query logging, the behaviour of earlier versions.
 
-Every statement is measured, whichever connection it runs on: the ordinary pooled ones, the ones inside a transaction (that is, the whole write path — saving a record, importing, publishing) and the ones on a connection reserved for a single caller (maintenance, background locks). The warning line names the lane it came from, so an unexpectedly slow save is as visible as an unexpectedly slow search.
+Every statement is measured, whichever connection it runs on: the ordinary pooled ones, the ones inside a transaction (that is, the whole write path — saving a record, importing, publishing) and the ones on a connection reserved for a single caller (maintenance, background locks). The warning line names the lane it came from, so an unexpectedly slow save is as visible as an unexpectedly slow search. It is a log line only: the statement itself is never interrupted (that is the request statement ceiling, `DB_STATEMENT_TIMEOUT_MS`).
 
 ```bash
-DEDALO_SLOW_QUERY_MS=1200
+DEDALO_SLOW_QUERY_MS=5000
 ```
 
-*Default: 0*
+*Default: 5000*
 
 ---
 

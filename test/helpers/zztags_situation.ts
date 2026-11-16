@@ -1,11 +1,13 @@
 /**
  * THE `zztags` SCRATCH SITUATION — a text_area that declares the tag properties
- * `get_tags_info` resolves (`tags_index`, `tags_notes`, `tags_persons`), built
- * rather than borrowed (AGENTS.md: a test BUILDS the situation it tests).
+ * `get_tags_info` resolves (`tags_index`, `tags_notes`, `tags_persons`) plus the
+ * `tags_draw` the edit-read repair reads, built rather than borrowed (AGENTS.md:
+ * a test BUILDS the situation it tests).
  *
- * ONE definition, shared by the two gates that build it
+ * ONE definition, shared by the gates that build it
  * (`text_area_tags_info_action_native` — the action's argument/lang/payload
- * branches — and `tags_info_read_door_native` — the read door and its hops), so
+ * branches — `tags_info_read_door_native` — the read door and its hops — and
+ * `text_area_broken_tag_repair_native` — the edit-read tag integrity), so
  * the scratch TLD cannot drift into two shapes. Each gate ensures it in
  * beforeAll and drops it (residue asserted) in afterAll; `bun test` runs files
  * of one process sequentially, so the two never hold it at the same time.
@@ -17,6 +19,8 @@
  *     zztags2  component_text_area (translatable) — declares the tag config
  *     zztags3  component_autocomplete_hi — the tags_index source
  *     zztags8  component_filter — the host's projects filter
+ *     zztags11 component_portal — the tags_draw source (the edit-read tag
+ *              integrity repair, text_area_broken_tag_repair_native)
  *   zztags4  section (the note section, project-gated by zztags10)
  *     zztags5  component_input_text   note title
  *     zztags6  component_text_area    note body
@@ -42,6 +46,7 @@ export const ZZTAGS_NOTE_PUBLISHABLE = 'zztags7';
 export const ZZTAGS_HOST_FILTER = 'zztags8';
 export const ZZTAGS_PERSONS_PORTAL = 'zztags9';
 export const ZZTAGS_NOTE_FILTER = 'zztags10';
+export const ZZTAGS_DRAW_PORTAL = 'zztags11';
 
 export const ZZTAGS_SITUATION = situation({
 	tld: 'zztags',
@@ -56,6 +61,7 @@ export const ZZTAGS_SITUATION = situation({
 			is_translatable: true,
 			properties: {
 				tags_index: { tipo: ZZTAGS_TAGS_INDEX, section_id: 'self', section_tipo: 'self' },
+				tags_draw: { tipo: ZZTAGS_DRAW_PORTAL, section_id: 'self', section_tipo: 'self' },
 				tags_notes: {
 					[ZZTAGS_NOTE_SECTION]: [
 						{
@@ -90,6 +96,7 @@ export const ZZTAGS_SITUATION = situation({
 			},
 		},
 		{ tipo: ZZTAGS_HOST_FILTER, model: 'component_filter', parent: ZZTAGS_SECTION },
+		{ tipo: ZZTAGS_DRAW_PORTAL, model: 'component_portal', parent: ZZTAGS_SECTION },
 		{ tipo: ZZTAGS_NOTE_SECTION, model: 'section', parent: 'dd14' },
 		{ tipo: ZZTAGS_NOTE_TITLE, model: 'component_input_text', parent: ZZTAGS_NOTE_SECTION },
 		{ tipo: ZZTAGS_NOTE_BODY, model: 'component_text_area', parent: ZZTAGS_NOTE_SECTION },

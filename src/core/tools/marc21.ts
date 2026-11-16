@@ -175,54 +175,255 @@ function parseField(
 	return { tag, indicator1, indicator2, subfields };
 }
 
-/** A marc21_map entry (PHP config->main[]): which MARC field/subfield → component. */
-export interface MarcMapEntry {
-	component_tipo: string;
-	/** MARC tag, e.g. '245'. */
-	field: string;
+/**
+ * A field/subfield spec — what `field_to_section_id.value` and every map entry
+ * carry (PHP `$element_vars`, read by get_value / get_field).
+ *
+ * `field` is ONE tag unless `field_multiple` is set, in which case it may also
+ * be a list of tags: every occurrence of every listed tag contributes, joined
+ * by `row_separator` (PHP get_value :1069). Without `field_multiple` only the
+ * FIRST occurrence of the tag is read (PHP `$record->getField()`), exactly as
+ * the config grammar the master ontology ships was written against.
+ */
+export interface MarcValueSpec {
+	field: string | readonly string[];
+	field_multiple?: boolean;
+	/** Joins the occurrences of a `field_multiple` / `occurrences:'all'` spec (PHP default '. '). */
+	row_separator?: string;
+	/**
+	 * Without `field_multiple` a tag is read at its FIRST occurrence (PHP
+	 * get_value). `'all'` (owner C17, opt-in) reads EVERY occurrence of the ONE
+	 * tag, the non-empty ones joined by `row_separator` — a repeated 700 as one
+	 * value without listing several tags. Never beside `marc21_conditional`
+	 * (which names one occurrence by definition; the parser refuses the pair).
+	 */
+	occurrences?: 'all';
 	/** Subfield code; omit to join ALL subfields with subfield_separator. */
 	subfield?: string;
 	subfield_separator?: string;
-	/** Guard: only extract when this subfield equals this value (PHP marc21_conditional). */
-	marc21_conditional?: { subfield: string; value: string };
-}
-
-/** A single field/subfield spec (field_to_section_id.value or a map entry). */
-export interface MarcValueSpec {
-	field: string;
-	subfield?: string;
-	subfield_separator?: string;
+	/**
+	 * Guard: the FIRST occurrence whose guard subfield equals `value` supplies the
+	 * spec's subfield (PHP extract_conditional_value). When no occurrence passes
+	 * the value is '' — NOTHING is written (owner C16). PHP fell back to the
+	 * unconditional first occurrence, i.e. imported ANOTHER library's copy data
+	 * (a 945 holdings line of a different `$j`) as if it were this one's.
+	 */
 	marc21_conditional?: { subfield: string; value: string };
 }
 
 /**
- * Extract the value(s) for a field/subfield spec from a record (PHP get_value).
- * One value per matching field occurrence: a control field's raw value, the named
- * subfield's value(s), or all subfields joined by subfield_separator. The
- * conditional guard skips occurrences whose guard subfield ≠ the expected value.
+ * A marc21_map entry (PHP config->map[]): which MARC field/subfield → which
+ * component, and the per-entry value transforms (PHP transform_marc21_value).
  */
-export function extractMarcValues(record: MarcRecord, spec: MarcValueSpec): string[] {
-	const separator = spec.subfield_separator ?? ' ';
-	const values: string[] = [];
-	for (const field of record.fields) {
-		if (field.tag !== spec.field) continue;
-		const conditional = spec.marc21_conditional;
-		if (conditional !== undefined) {
-			const guard = field.subfields?.find((s) => s.code === conditional.subfield);
-			if (guard === undefined || guard.value !== conditional.value) continue;
-		}
-		if (field.value !== undefined) {
-			values.push(field.value);
-			continue;
-		}
-		const subfields = field.subfields ?? [];
-		if (spec.subfield !== undefined) {
-			for (const s of subfields) if (s.code === spec.subfield) values.push(s.value);
-		} else {
-			values.push(subfields.map((s) => s.value).join(separator));
+export interface MarcMapEntry extends MarcValueSpec {
+	component_tipo: string;
+	/**
+	 * The `name:'id'` entry — the record's control number. Its value is written
+	 * TRIMMED ONLY, never punctuation-stripped: it is the same identifier the code
+	 * lookup searches for (trimmed only, `applyMarcMap` below), and a stored code
+	 * that differs from the searched one by a trailing '.' would duplicate the
+	 * record on every re-import.
+	 */
+	is_id?: boolean;
+	/** Keep the first run of digits of the value, as an integer (PHP :643). */
+	partial_left_content?: number;
+	/** `'year'`: the value becomes a component_date `{start:{year}}` (PHP :655). */
+	date_format?: 'year';
+	/** Code → stored data (locators), e.g. `{"spa":[{section_tipo,section_id}]}` (PHP :668). */
+	dd_data_map?: Readonly<Record<string, readonly unknown[]>>;
+	/** Companion writes `{component tipo: data}` made when this entry yields a value (PHP :882). */
+	dd_action?: Readonly<Record<string, readonly unknown[]>>;
+}
+
+/** The tags a spec reads, in config order. */
+function specTags(spec: MarcValueSpec): readonly string[] {
+	return typeof spec.field === 'string' ? [spec.field] : spec.field;
+}
+
+/**
+ * The text of ONE field occurrence (PHP get_field :1131): the named subfield's
+ * FIRST value ('' when absent), or every subfield joined; trimmed.
+ *
+ * A CONTROL field (00X, no subfields) answers its raw value — an extension:
+ * PHP read '' there because File_MARC control fields carry no `subfields`.
+ * Kept deliberately (WC-2026-11-12-marc21-config-map-and-transforms): `001`
+ * is the record's own control number and the obvious thing to map.
+ */
+function fieldText(field: MarcField, spec: MarcValueSpec): string {
+	if (field.value !== undefined) return field.value.trim();
+	const subfields = field.subfields ?? [];
+	if (spec.subfield !== undefined) {
+		return (subfields.find((s) => s.code === spec.subfield)?.value ?? '').trim();
+	}
+	return subfields
+		.map((s) => s.value)
+		.join(spec.subfield_separator ?? ' ')
+		.trim();
+}
+
+/** Every occurrence of `tags` (in tag order), the non-empty texts joined by `row_separator`. */
+function joinedOccurrences(
+	record: MarcRecord,
+	spec: MarcValueSpec,
+	tags: readonly string[],
+): string {
+	const parts: string[] = [];
+	for (const tag of tags) {
+		for (const field of record.fields) {
+			if (field.tag !== tag) continue;
+			const text = fieldText(field, spec);
+			if (text !== '') parts.push(text);
 		}
 	}
-	return values.filter((v) => v !== '');
+	return parts.join(spec.row_separator ?? '. ');
+}
+
+/**
+ * PHP get_value (:1069): the first occurrence of the tag, or — with
+ * `field_multiple` — every occurrence of every listed tag, the non-empty ones
+ * joined by `row_separator`. `occurrences:'all'` (C17) is the same join over
+ * the ONE tag of a spec without `field_multiple`.
+ */
+function unconditionalValue(record: MarcRecord, spec: MarcValueSpec): string {
+	if (spec.field_multiple === true) return joinedOccurrences(record, spec, specTags(spec));
+	const tag = specTags(spec)[0] as string;
+	if (spec.occurrences === 'all') return joinedOccurrences(record, spec, [tag]);
+	const first = record.fields.find((f) => f.tag === tag);
+	return first === undefined ? '' : fieldText(first, spec);
+}
+
+/**
+ * PHP extract_conditional_value (:561): the FIRST occurrence whose guard
+ * subfield equals the expected value supplies the spec's subfield (''
+ * when that occurrence lacks it). `null` = no occurrence passed the guard.
+ */
+function conditionalValue(
+	record: MarcRecord,
+	spec: MarcValueSpec,
+	guard: { subfield: string; value: string },
+): string | null {
+	for (const field of record.fields) {
+		if (field.tag !== specTags(spec)[0]) continue;
+		const guardValue = field.subfields?.find((s) => s.code === guard.subfield)?.value;
+		if (guardValue === guard.value) return fieldText(field, spec);
+	}
+	return null;
+}
+
+/**
+ * The value a spec reads from a record (PHP extract_marc21_value :505 +
+ * get_value + get_field): ONE trimmed string, '' when absent. A guarded spec
+ * whose guard no occurrence passes is '' (owner C16) — the PHP `?? get_value`
+ * fallback is deliberately NOT ported (WC-2026-11-12-marc21-config-map-and-transforms,
+ * addendum 2026-11-13).
+ */
+export function extractMarcValue(record: MarcRecord, spec: MarcValueSpec): string {
+	const guard = spec.marc21_conditional;
+	if (guard === undefined) return unconditionalValue(record, spec);
+	return conditionalValue(record, spec, guard) ?? '';
+}
+
+/**
+ * What a map entry's transforms made of the extracted text:
+ *  - `literal` — TEXT for the component, conformed as text and never parsed as
+ *    a CSV/JSON cell (a MARC '[1987]' is a bracketed inferred date, not JSON);
+ *  - `structured` — stored data as JSON (a dd_date, the dd_data_map locators);
+ *  - `refused` — the transform could not produce a value; the field is reported
+ *    and NOT written (no silent narrowing).
+ */
+export type MarcTransformed =
+	| { kind: 'literal'; text: string }
+	| { kind: 'structured'; json: string }
+	| { kind: 'refused'; reason: string };
+
+/** PHP `(int)$string`: the leading integer, 0 when there is none. */
+function leadingInt(text: string): number {
+	const match = /^\s*[+-]?\d+/.exec(text);
+	return match === null ? 0 : Number.parseInt(match[0], 10);
+}
+
+/** PHP partial_left_content (:643): the first run of digits as an int, 0 when none. */
+function firstDigits(text: string): string {
+	const match = /\d+/.exec(text);
+	return String(match === null ? 0 : Number.parseInt(match[0], 10));
+}
+
+/** `date_format:'year'` (PHP :655): a year > 0 or a refusal (PHP stored an empty date). */
+function yearDate(text: string): MarcTransformed {
+	const year = leadingInt(text);
+	if (year <= 0) return { kind: 'refused', reason: `no year in '${text}'` };
+	return { kind: 'structured', json: JSON.stringify([{ start: { year } }]) };
+}
+
+/** `dd_data_map` (PHP :668): the mapped data, or a refusal on a miss (PHP wrote the raw code). */
+function mappedData(
+	text: string,
+	map: Readonly<Record<string, readonly unknown[]>>,
+): MarcTransformed {
+	if (!Object.hasOwn(map, text)) {
+		return { kind: 'refused', reason: `no dd_data_map entry for '${text}'` };
+	}
+	return { kind: 'structured', json: JSON.stringify(map[text]) };
+}
+
+/**
+ * PHP transform_marc21_value (:610), in its order: trim; strip trailing
+ * ` \t,:.` (never on the `id` entry); partial_left_content; date_format;
+ * dd_data_map. `raw` is the extracted, already-trimmed text.
+ */
+export function transformMarcValue(raw: string, entry: MarcMapEntry): MarcTransformed {
+	let text = entry.is_id === true ? raw.trim() : raw.trim().replace(/[ \t,:.]+$/, '');
+	if (entry.partial_left_content !== undefined) text = firstDigits(text);
+	if (entry.date_format === 'year') return yearDate(text);
+	if (entry.dd_data_map !== undefined) return mappedData(text, entry.dd_data_map);
+	return { kind: 'literal', text };
+}
+
+/** One component's values for a mapped record — structurally the executor's `MappedField`. */
+export interface MarcMappedField {
+	component_tipo: string;
+	values: string[];
+	/** The values are TEXT: conform them as text, never as a JSON cell. */
+	literal?: boolean;
+	/** A transform refusal: reported by the executor, never written. */
+	refusal?: string;
+}
+
+type MarcYield = Exclude<MarcTransformed, { kind: 'refused' }>;
+
+/** The entry's own field: literal TEXT, or structured JSON. */
+function ownField(entry: MarcMapEntry, transformed: MarcYield): MarcMappedField {
+	return transformed.kind === 'literal'
+		? { component_tipo: entry.component_tipo, values: [transformed.text], literal: true }
+		: { component_tipo: entry.component_tipo, values: [transformed.json] };
+}
+
+/** PHP `!empty($value)`: an empty text, a structured clear ('[]', a dd_data_map 'und') yielded nothing. */
+function yieldedValue(transformed: MarcYield): boolean {
+	return transformed.kind === 'literal' ? transformed.text !== '' : transformed.json !== '[]';
+}
+
+/** The entry's dd_action companions (none when it declares none). */
+function companionFields(entry: MarcMapEntry): MarcMappedField[] {
+	if (entry.dd_action === undefined) return [];
+	return Object.entries(entry.dd_action).map(([tipo, data]) => ({
+		component_tipo: tipo,
+		values: [JSON.stringify(data)],
+	}));
+}
+
+/** The fields one map entry contributes: its own value, then its dd_action companions. */
+function entryFields(raw: string, entry: MarcMapEntry): MarcMappedField[] {
+	const transformed = transformMarcValue(raw, entry);
+	if (transformed.kind === 'refused') {
+		return [{ component_tipo: entry.component_tipo, values: [raw], refusal: transformed.reason }];
+	}
+	// A text the strip emptied (264$a ':', 020$a '.') yields NOTHING: no field
+	// (an empty literal would CLEAR the component, defeating "last non-empty
+	// wins" for a tipo bound twice) and no dd_action companion.
+	if (transformed.kind === 'literal' && transformed.text === '') return [];
+	const own = ownField(entry, transformed);
+	return yieldedValue(transformed) ? [own, ...companionFields(entry)] : [own];
 }
 
 /**
@@ -234,19 +435,25 @@ export interface MarcMappedRecord {
 	 * The `field_to_section_id` value, trimmed but otherwise VERBATIM — a library
 	 * control number ('.b12345678', 'ocm12345678', '42'). It is NOT an address:
 	 * the tool door resolves it against the section's code component
-	 * (tools/tool_import_marc21/server/index.ts, `resolveImportCodes`).
+	 * (src/core/tools/import_code_lookup.ts, `resolveMappedCodes`).
 	 *
 	 * Null when the config names no id field, or this record's id field is absent
 	 * or blank — both mean "this record names no identifier", which the door
 	 * reads as "create".
 	 */
 	code: string | null;
-	fields: { component_tipo: string; values: string[] }[];
+	/**
+	 * In MAP ORDER, companions right after their entry — the executor saves them
+	 * sequentially, so a tipo bound by two entries (020/022 → one standard-number
+	 * component) keeps the LAST non-empty one, as PHP's sequential saves did.
+	 */
+	fields: MarcMappedField[];
 }
 
 /** `907` / `907$a` — how a refusal names the field it read the identifier from. */
 export function marcSpecLabel(spec: MarcValueSpec): string {
-	return spec.subfield === undefined ? spec.field : `${spec.field}$${spec.subfield}`;
+	const tags = specTags(spec).join('|');
+	return spec.subfield === undefined ? tags : `${tags}$${spec.subfield}`;
 }
 
 /**
@@ -295,15 +502,15 @@ export function applyMarcMap(
 	if (fieldToSectionId !== undefined) {
 		// Whitespace is the transmission format's padding (MARC pads its fixed
 		// fields), never part of the identifier.
-		const raw = (extractMarcValues(record, fieldToSectionId)[0] ?? '').trim();
+		const raw = extractMarcValue(record, fieldToSectionId).trim();
 		if (raw !== '') code = raw;
 	}
-	const fields = map
-		.map((entry) => ({
-			component_tipo: entry.component_tipo,
-			values: extractMarcValues(record, entry),
-		}))
-		.filter((f) => f.values.length > 0);
+	const fields: MarcMappedField[] = [];
+	for (const entry of map) {
+		const raw = extractMarcValue(record, entry);
+		// '' only is empty: '0' is a value (PHP empty() also skipped '0' — divergence, WC).
+		if (raw !== '') fields.push(...entryFields(raw, entry));
+	}
 	return { code, fields };
 }
 

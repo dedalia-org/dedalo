@@ -2,15 +2,19 @@
  * get_archive_weights widget (PHP core/widgets/numisdata/get_archive_weights).
  *
  * Cross-archive weight/diameter statistics over the coins linked via the
- * source portal. Coins whose 'used' flag is absent or section_id === '2'
- * (strict string compare, as PHP) are excluded; coins whose 'duplicated'
- * first locator has section_id === '2' are excluded. Per-coin measurement
- * means feed the archive-level mean/max/min/count.
+ * source portal. Coins whose 'used' flag is absent or set, and coins whose
+ * 'duplicated' flag is set, are excluded — "set" is isFlagSet (first locator
+ * section_id 2 by the locator law: int 2, "2", "02"). PHP compared `=== '2'`,
+ * which was right only while locators were string-canonical; against the INT
+ * locators of WC-2026-08-10 it counted unused and duplicated coins
+ * (WC-2026-11-12-numisdata-widgets-locator-law). Per-coin measurement means
+ * feed the archive-level mean/max/min/count.
  */
 
 import {
 	findTyped,
 	type InfoWidgetDescriptor,
+	isFlagSet,
 	phpRound,
 	readWidgetComponentData,
 	type WidgetContext,
@@ -56,15 +60,15 @@ async function computeGetArchiveWeights(
 				coinId,
 				used?.component_tipo ?? '',
 			)) as { section_id?: unknown }[];
-			// skip when the flag is absent or strictly '2' (PHP === '2')
-			if (usedData.length === 0 || usedData[0]?.section_id === '2') continue;
+			// skip when the 'used' flag is absent or set (2 = no)
+			if (usedData.length === 0 || isFlagSet(usedData)) continue;
 
 			const duplicatedData = (await readWidgetComponentData(
 				coinSection,
 				coinId,
 				duplicated.component_tipo ?? '',
 			)) as { section_id?: unknown }[];
-			if (duplicatedData.length > 0 && duplicatedData[0]?.section_id === '2') continue;
+			if (isFlagSet(duplicatedData)) continue;
 
 			const weightItems = (await readWidgetComponentData(
 				coinSection,

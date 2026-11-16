@@ -423,7 +423,7 @@ async function lockDay(
 	const rows = (await sql.unsafe(
 		`SELECT section_id, number FROM "${table}"
 		 WHERE section_tipo = $1 AND relation @> $2::text::jsonb AND date @> $3::text::jsonb
-		 ORDER BY section_id LIMIT 1 FOR UPDATE`,
+		 ORDER BY section_id LIMIT 1 FOR NO KEY UPDATE`,
 		[ledger.section, userProbe, dayProbe],
 	)) as { section_id: number; number: Record<string, unknown> | null }[];
 	const row = rows[0];

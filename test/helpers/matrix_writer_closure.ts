@@ -108,11 +108,13 @@ export const MATRIX_WRITE = 'src/core/db/matrix_write.ts';
  */
 export const MATRIX_WRITE_NON_DML: Record<string, string> = {
 	readMatrixKeyForUpdate:
-		'a locked READ (SELECT … FOR UPDATE); the write that follows it is a primitive.',
+		'a locked READ (SELECT … FOR NO KEY UPDATE, the writer’s lock — T1-19 lock-mode law); the write that follows it is a primitive.',
 	readMatrixKeyForShare:
 		'a locked READ (SELECT … FOR SHARE) — the tree cycle walk’s ancestor read; it changes no value.',
 	lockMatrixRowsForUpdate:
-		'a locked READ of a row SET (SELECT section_id … ORDER BY section_id FOR UPDATE) — the sorted lock batch of the tree’s sibling rewrites; it changes no value, the writes that follow are primitives.',
+		'a locked READ of a row SET (SELECT section_id … ORDER BY section_id FOR NO KEY UPDATE) — the sorted lock batch of the tree’s sibling rewrites; it changes no value, the writes that follow are primitives.',
+	lockMatrixRowsForKeyShare:
+		'a locked READ of a row SET (SELECT section_id … FOR KEY SHARE) — the locator TARGETS of a save (T1-19 / D01): keeps them from being deleted until COMMIT; it changes no value.',
 	allocateComponentItemId:
 		'an UPDATE of the per-component item COUNTER in `meta` (a real write, but never a component value; the value write that consumes the id is a primitive). Not a curated-record primitive for the writer closure, yet a write door for the read-only scope: it calls assertNotReadOnlyRequest and is pinned by tool_read_only_action_tripwire (CLASSIFIED_WRITERS).',
 	absorbComponentItemIds:

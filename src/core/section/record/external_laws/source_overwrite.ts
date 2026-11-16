@@ -116,7 +116,7 @@ async function readSourceOverwriteRow(
 ): Promise<{ bag: StoredLocator[] | null; pointer: unknown; idx: unknown } | undefined> {
 	const { targetSection, targetId, table, lock } = context;
 	const rows = (await sql.unsafe(
-		`SELECT relation->$3 AS bag, relation->$4 AS pointer, relation_search->$3 AS idx FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR UPDATE' : ''}`,
+		`SELECT relation->$3 AS bag, relation->$4 AS pointer, relation_search->$3 AS idx FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR NO KEY UPDATE' : ''}`,
 		[targetSection, targetId, law.observerTipo, law.pointerTipo],
 	)) as { bag: StoredLocator[] | null; pointer: unknown; idx: unknown }[];
 	return rows[0];

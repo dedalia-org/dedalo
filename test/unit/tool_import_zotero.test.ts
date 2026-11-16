@@ -1,20 +1,14 @@
 /**
- * R2 gate: tool_import_zotero — the ACTION SURFACE and the staged-file
- * confinement only.
+ * R2 gate: tool_import_zotero — the ACTION SURFACE, the server-config refusal
+ * and the staged-file confinement. The import semantics (CSL-JSON through the
+ * server map, T1-7) are gated end to end in tool_import_zotero_native.test.ts
+ * and the reader/mapper in csl_json.test.ts.
  *
- * (!) The module's IMPORT SEMANTICS are known-broken and ESCALATED by the
- * 2026-07 tools audit, so this file deliberately does NOT pin them: a Zotero
- * export is CSL-JSON (PHP `json_decode`), not RDF/XML, and the field-map lives
- * in `config.map` as `{name, ddo_map:[…]}` entries — not as the
- * `{predicate, component_tipo}` pairs the module reads out of `config.main`.
- * With any real tool configuration the action refuses the batch. Re-porting it
- * is a rewrite; asserting the current mapping shape here would only cement it.
- *
- * What IS gated: the wire it shares with tool_import_marc21 — `key_dir` arrives
- * ONCE at the TOP LEVEL and must be server-sanitized, because the pre-audit code
- * interpolated it raw, so `key_dir:'../<other uid>'` still satisfied the
- * staging-root prefix check and let one user's import consume another user's
- * staged upload.
+ * What IS gated here: the wire it shares with tool_import_marc21 — `key_dir`
+ * arrives ONCE at the TOP LEVEL and must be server-sanitized, because the
+ * pre-audit code interpolated it raw, so `key_dir:'../<other uid>'` still
+ * satisfied the staging-root prefix check and let one user's import consume
+ * another user's staged upload — and the refusal of a run without a SERVER map.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -23,14 +17,22 @@ import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { withScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
 const SCRATCH_USER = 987663;
 
-/** The map shape the module accepts TODAY (see the escalation note above). */
-const CURRENT_MAP_SHAPE = {
-	config: {
-		main: [{ predicate: 'http://purl.org/dc/elements/1.1/title', component_tipo: 'test52' }],
-	},
+/** What render_tool_import_zotero posts: the ontology tool_config (ddo_map only). */
+const CLIENT_TOOL_CONFIG = { ddo_map: [] };
+
+/** A minimal SERVER config (dd996) over test3 — every key, so no register default leaks in. */
+const SERVER_CONFIG = {
+	main: [],
+	typology: [],
+	standard_type: [],
+	map: [
+		{ name: 'id', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
+		{ name: 'title', ddo_map: [{ tipo: 'test52', section_tipo: 'test3' }] },
+	],
 };
 
 async function runImport(options: Record<string, unknown>): Promise<ToolResponse> {
@@ -53,40 +55,48 @@ describe('tool_import_zotero module', () => {
 		expect(loaded!.module.backgroundRunnable).toEqual(['import_files']);
 	});
 
-	test('refuses a batch with no field-map (the guard every real config trips)', async () => {
-		const refusal = await refusalOf(
-			runImport({
-				section_tipo: 'test3',
-				tool_config: { config: { map: [{ name: 'title', ddo_map: [{ tipo: 'test52' }] }] } },
-				files_data: [{ name: 'zotero.json' }],
-				key_dir: 'zotero_scratch',
-			}),
+	test('a SERVER config with no map refuses the batch, naming where the map lives', async () => {
+		// A client-posted map is ignored: only the Tools configuration counts.
+		const refusal = await withScratchToolConfig('tool_import_zotero', { map: [] }, () =>
+			refusalOf(
+				runImport({
+					section_tipo: 'test3',
+					tool_config: { ddo_map: [], map: SERVER_CONFIG.map },
+					files_data: [{ name: 'zotero.json' }],
+					key_dir: 'zotero_scratch',
+				}),
+			),
 		);
 		expect(refusal.code).toBe('request.invalid_options');
-		expect(refusal.publicMessage).toContain('Missing Zotero field-map');
+		expect(refusal.publicMessage).toContain("Zotero config 'map'");
+		expect(refusal.publicMessage).toContain('dd996');
 	});
 
 	test('a traversing key_dir is REFUSED (never reaches another users staging dir)', async () => {
 		// stagingDir still refuses with an UNTYPED engine throw (add_file.ts is a
 		// different sweep); it reaches the chokepoint as internal.unexpected.
-		expect(
-			runImport({
-				section_tipo: 'test3',
-				tool_config: CURRENT_MAP_SHAPE,
-				files_data: [{ name: 'zotero.json' }],
-				key_dir: `../${SCRATCH_USER}/zotero_scratch`,
-			}),
-		).rejects.toThrow(/Unsafe path segment/);
+		await withScratchToolConfig('tool_import_zotero', SERVER_CONFIG, async () => {
+			await expect(
+				runImport({
+					section_tipo: 'test3',
+					tool_config: CLIENT_TOOL_CONFIG,
+					files_data: [{ name: 'zotero.json' }],
+					key_dir: `../${SCRATCH_USER}/zotero_scratch`,
+				}),
+			).rejects.toThrow(/Unsafe path segment/);
+		});
 	});
 
 	test('non-.json entries are skipped and a missing export is a per-file error', async () => {
-		const res = await runImport({
-			section_tipo: 'test3',
-			tool_config: CURRENT_MAP_SHAPE,
-			// PHP filters the dropzone batch to .json; the .pdf is an attachment.
-			files_data: [{ name: 'attachment.pdf' }, { name: 'absent.json' }],
-			key_dir: 'zotero_scratch',
-		});
+		const res = await withScratchToolConfig('tool_import_zotero', SERVER_CONFIG, () =>
+			runImport({
+				section_tipo: 'test3',
+				tool_config: CLIENT_TOOL_CONFIG,
+				// PHP filters the dropzone batch to .json; the .pdf is an attachment.
+				files_data: [{ name: 'attachment.pdf' }, { name: 'absent.json' }],
+				key_dir: 'zotero_scratch',
+			}),
+		);
 		expect(res.ok).toBe(true);
 		expect((res.data as { errors: string[] }).errors).toEqual([
 			'absent.json: staged file not found',

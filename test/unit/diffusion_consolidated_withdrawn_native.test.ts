@@ -30,6 +30,7 @@ import { rdfWriter } from '../../src/diffusion/writers/rdf.ts';
 import type { DiffusionWriter, WriterSession } from '../../src/diffusion/writers/types.ts';
 import { xmlWriter } from '../../src/diffusion/writers/xml.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
+import { TEST_RDF_ELEMENT, testRdfDocument } from '../helpers/rdf_test_documents.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = scratchDir('ts_diffusion_consolidated_withdrawn');
@@ -70,6 +71,7 @@ function plan(format: string, section: SectionPlan, serviceName: string): Public
 		recursion: { maxLevels: 2 },
 		langPolicy: { langs: ['lg-eng'], mainLang: 'lg-eng' },
 		warnings: [],
+		...(format === 'rdf' ? { rdf: TEST_RDF_ELEMENT } : {}),
 	};
 }
 
@@ -146,10 +148,18 @@ describe('a run that publishes nothing withdraws the consolidated artifacts', ()
 			const dir = `${ROOT}/${c.dir}`;
 			// RUN 1: two records published, the consolidated artifacts land holding both.
 			const first = await openRun(c);
-			await first.writeRows(c.section, [
-				row(1, c.column, 'withdrawn-one'),
-				row(2, c.column, 'withdrawn-two'),
-			]);
+			if (c.format === 'rdf') {
+				// the rdf writer publishes record GRAPHS (T1-4), never rows
+				await first.writeGraphs?.(c.section, [
+					testRdfDocument(1, [['withdrawn-one', 'en']]),
+					testRdfDocument(2, [['withdrawn-two', 'en']]),
+				]);
+			} else {
+				await first.writeRows(c.section, [
+					row(1, c.column, 'withdrawn-one'),
+					row(2, c.column, 'withdrawn-two'),
+				]);
+			}
 			const firstSummary = await closeRun(first, first.takeArtifacts?.() ?? []);
 			for (const name of c.consolidated) {
 				expect(existsSync(`${dir}/${name}`), `run 1 did not land ${name}`).toBe(true);
@@ -183,6 +193,71 @@ describe('a run that publishes nothing withdraws the consolidated artifacts', ()
 			const third = await openRun(c);
 			const again = await closeRun(third, []);
 			expect(again.errors).toEqual([]);
+			for (const name of c.consolidated) expect(existsSync(`${dir}/${name}`)).toBe(false);
+		});
+	}
+});
+
+/**
+ * Owner C49 (WC-2026-11-13-external-outage-keeps-previous-row, addendum 2026-11-14):
+ * a record held back on an external outage writes no file, so it never entered the
+ * run manifest the close consolidates from — it vanished from the merged document
+ * and the zip, and a run that held EVERY record withdrew both (the "never unpublish
+ * by outage" ruling broken at the artifacts consumers download). The runner now
+ * carries the held records through `keepPublished`: the previous file joins the
+ * manifest, a record that never had one does not.
+ */
+describe('a run that HOLDS records on an outage keeps their previous files in the consolidated artifacts (C49)', () => {
+	for (const c of CASES) {
+		test(`${c.format}: publish 2 → hold both (+ one never published) → merged document and zip still hold both; hold only the never-published one → withdrawn`, async () => {
+			const dir = `${ROOT}/${c.dir}`;
+			rmSync(dir, { recursive: true, force: true });
+			const first = await openRun(c);
+			if (c.format === 'rdf') {
+				await first.writeGraphs?.(c.section, [
+					testRdfDocument(1, [['held-one', 'en']]),
+					testRdfDocument(2, [['held-two', 'en']]),
+				]);
+			} else {
+				await first.writeRows(c.section, [
+					row(1, c.column, 'held-one'),
+					row(2, c.column, 'held-two'),
+				]);
+			}
+			expect((await closeRun(first, first.takeArtifacts())).errors).toEqual([]);
+			const zipName = c.consolidated[c.consolidated.length - 1] as string;
+			const before = readFileSync(`${dir}/${zipName}`);
+
+			// RUN 2: every record held back (outage) — nothing written, nothing removed.
+			const second = await openRun(c);
+			expect(second.keepPublished).toBeDefined();
+			// 3 was never published: nothing to keep (RED before: no keepPublished at all)
+			expect(await second.keepPublished?.(c.section, [1, 2, 3])).toEqual([1, 2]);
+			const events = second.takeArtifacts();
+			expect(events.map((e) => [e.op, e.sectionId])).toEqual([
+				['wrote', 1],
+				['wrote', 2],
+			]);
+			const summary = await closeRun(second, events);
+			expect(summary.errors).toEqual([]);
+			for (const name of c.consolidated) {
+				expect(
+					existsSync(`${dir}/${name}`),
+					`${name} withdrawn by a run that held every record`,
+				).toBe(true);
+			}
+			expect(readFileSync(`${dir}/${zipName}`).includes('test6100')).toBe(true);
+			// the per-record files are untouched (kept, never rewritten)
+			expect(readdirSync(dir).filter((name) => !name.includes('.tmp-'))).toHaveLength(
+				2 + c.consolidated.length,
+			);
+			expect(before.length).toBeGreaterThan(0);
+
+			// RUN 3: both unpublished, the never-published one held: nothing left → withdrawn.
+			const third = await openRun(c);
+			await third.removeRecords(c.section, [1, 2]);
+			expect(await third.keepPublished?.(c.section, [3])).toEqual([]);
+			expect((await closeRun(third, third.takeArtifacts())).errors).toEqual([]);
 			for (const name of c.consolidated) expect(existsSync(`${dir}/${name}`)).toBe(false);
 		});
 	}

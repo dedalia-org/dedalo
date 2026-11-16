@@ -48,9 +48,10 @@ import { findSectionIdByCode } from '../../src/core/tools/import_code_lookup.ts'
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { applyMarcMap, type MarcRecord } from '../../src/core/tools/marc21.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { applyRdfMap } from '../../src/core/tools/rdf_xml.ts';
+import { mapCslItem, readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
 // ---------------------------------------------------------------------------
 // The situation this file builds.
@@ -224,28 +225,33 @@ const stagingRoot = resolve(
 const stagedDir = resolve(stagingRoot, KEY_DIR);
 
 /**
- * The REAL authoring shape (tools/tool_import_marc21/sample_config.json): the
+ * The REAL config shape (getToolConfig, flat — tools/tool_import_marc21/register.json dd1633): the
  * `id` entry is both the code-component DECLARATION (its ddo_map is what PHP's
  * get_section_id_from_code read) and an ordinary binding — its own field/tipo
  * write the control number INTO that component, which is what makes the next
  * import of the same file find the record instead of duplicating it.
  */
-const TOOL_CONFIG = {
-	config: {
-		main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
-		map: [
-			{ info: 'Title mention', field: '245', subfield: 'a', tipo: TITLE_COMPONENT },
-			{
-				info: 'Control number',
-				name: 'id',
-				field: '907',
-				subfield: 'a',
-				tipo: CODE_COMPONENT,
-				ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: SECTION }],
-			},
-		],
-	},
+const SERVER_CONFIG = {
+	main: [{ name: 'field_to_section_id', value: { field: '907', subfield: 'a' } }],
+	map: [
+		{ info: 'Title mention', field: '245', subfield: 'a', tipo: TITLE_COMPONENT },
+		{
+			info: 'Control number',
+			name: 'id',
+			field: '907',
+			subfield: 'a',
+			tipo: CODE_COMPONENT,
+			ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: SECTION }],
+		},
+	],
 };
+/**
+ * T1-6: the map is the SERVER's (Tools configuration dd996 over dd1633), so
+ * SERVER_CONFIG is installed as a scratch dd996 record for this file's runs; the
+ * client posts its ontology tool_config, which carries only the ddo_map.
+ */
+const TOOL_CONFIG = { ddo_map: [] };
+let teardownConfig: () => Promise<void> = async () => {};
 
 // ---------------------------------------------------------------------------
 // Reading the situation back.
@@ -332,6 +338,7 @@ async function seedValue(sectionId: number, componentTipo: string, value: string
 let bulkProcessHighWater = 0;
 
 beforeAll(async () => {
+	teardownConfig = await installScratchToolConfig('tool_import_marc21', SERVER_CONFIG);
 	mkdirSync(stagedDir, { recursive: true });
 	stageFile('curated.mrc', [CURATED_CODE]);
 	stageFile('truncating_pair.mrc', [TRUNCATING_A, TRUNCATING_B]);
@@ -362,6 +369,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+	await teardownConfig();
 	rmSync(stagingRoot, { recursive: true, force: true });
 	// The records the RUNS created are found by the code they carry — their ids
 	// are the engine's, not ours, so they cannot be hard-coded.
@@ -431,27 +439,45 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 	});
 
 	/**
-	 * The Zotero door has the OTHER half of the frozen behaviour missing, not this
-	 * one: its records all come from `applyRdfMap`, which hard-codes
-	 * `sectionId: null`, so every Zotero import CREATES. It cannot overwrite a
-	 * curated record; it can only duplicate one (PHP's get_section_id_from_code is
-	 * unported there, and the door's own header records that its RDF/XML parser
-	 * and config reader do not match a real Zotero export at all). This assertion
-	 * pins the half that matters to DATA-08: no identifier-shaped literal, however
-	 * numeric, comes back from that door as an address.
+	 * The Zotero door (T1-7) carries its identifiers the same way: the item's
+	 * Zotero KEY is a CODE, resolved through the code component by the shared
+	 * `resolveMappedCodes`, and PHP's second address — `field_to_section_id`
+	 * (default `call-number`), which it CAST to a section_id — is a second
+	 * IDENTIFIER (owner C18): written into the component the map binds it to and
+	 * carried as `identifier` for the door's code lookup. The mapper yields no
+	 * address at all. This pins the half that matters to DATA-08: no
+	 * identifier-shaped value, however numeric, comes back from that mapper as an
+	 * address.
 	 */
-	test('the Zotero/RDF mapper yields no address for any identifier-shaped value', () => {
+	test('the Zotero mapper yields no address for any identifier-shaped value', () => {
 		const idish = ['42', String(NUMERIC_VICTIM_ID), '007', '.b12345678', '900323abc', '0'];
-		const subjects = idish.map((value) => ({
-			about: `urn:x-test:${value}`,
-			type: null,
-			properties: [{ predicate: 'dc:identifier', value, resource: null }],
-		}));
-		const mapped = applyRdfMap(subjects, [
-			{ predicate: 'dc:identifier', component_tipo: CODE_COMPONENT },
-		]);
-		expect(mapped).toHaveLength(idish.length);
-		expect(mapped.map((record) => record.sectionId)).toEqual(idish.map(() => null));
+		const cfg = readZoteroConfig({
+			map: [
+				{ name: 'id', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
+				{ name: 'call-number', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
+			],
+			main: [{ name: 'field_to_section_id', value: 'call-number' }],
+		});
+		expect(cfg.identifierTarget).toEqual({ sectionTipo: 'test3', componentTipo: CODE_COMPONENT });
+		const kindOf = new Map([[CODE_COMPONENT, 'text' as const]]);
+		const mapped = idish.map((value) =>
+			mapCslItem(
+				{ id: `http://zotero.org/users/1/items/${value}`, 'call-number': ` ${value}x ` },
+				cfg,
+				{ kindOf },
+			),
+		);
+		expect(mapped.map((record) => record.code)).toEqual(idish);
+		for (const record of mapped) {
+			expect('sectionId' in record).toBe(false);
+			expect('resolvedSectionId' in record).toBe(false);
+			// The call-number is a VALUE of its component (trimmed only) and the
+			// identifier the door looks up — a string, never a number.
+			expect(record.identifier).toBe(`${record.code}x`);
+			expect(record.fields.map((field) => field.values)).toEqual([
+				[JSON.stringify([{ value: record.code }]), JSON.stringify([{ value: `${record.code}x` }])],
+			]);
+		}
 	});
 });
 

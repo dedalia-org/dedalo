@@ -459,12 +459,22 @@ const TRIPWIRES = [
 	'test/unit/update_docs_claims_tripwire.test.ts',
 	'test/unit/media_url_version_tripwire.test.ts',
 	'test/unit/external_law_registry_tripwire.test.ts',
+	'test/unit/calculation_fn_registry_tripwire.test.ts',
 	'test/unit/tool_reason_keys_tripwire.test.ts',
 	'test/unit/create_door_census_tripwire.test.ts',
 	'test/unit/host_agent_requested_mode_tripwire.test.ts',
 	'test/unit/iri_label_unscoped_lookup_tripwire.test.ts',
 	'test/unit/ontology_model_rules_native.test.ts',
 	'test/unit/ontology_model_rules_shipped_tripwire.test.ts',
+	'test/unit/datalist_projects_scope_native.test.ts',
+	'test/unit/datalist_record_filter_native.test.ts',
+	'test/unit/component_value_gate_census_tripwire.test.ts',
+	// T1-17 / S11 — operator images pinned tag@digest, updated by Dependabot, derived by the installer (2026-11-12).
+	'test/unit/operator_image_pin_tripwire.test.ts',
+	// T1-26 / S15 — the installer verifies every ontology file against its source's digest (2026-11-12).
+	'test/unit/install_ontology_digest_native.test.ts',
+	// T1-26 / S15 — the engine writes the boot marker its watchdog's grace reads (2026-11-12).
+	'test/unit/boot_marker_native.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

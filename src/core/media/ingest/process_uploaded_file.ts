@@ -464,6 +464,24 @@ function ocrPendingText(transcription: PdfTranscriptionOutcome): Omit<UploadedPd
 	};
 }
 
+/**
+ * THE STEM UNIQUENESS RULE at the upload door (stem_rules.ts, T1-10 OD-1 ruled
+ * c): a `properties.image_id` stem another record of the section holds is
+ * refused BEFORE the staged file is moved — an upload under a shared stem
+ * overwrote the other record's master (PHP). The save rule refuses the stem's
+ * storage; this catches a PHP-era pair that already shares one. A no-op for an
+ * identity whose options carry no stem (the identifier names the files).
+ */
+async function assertUploadStemUnique(
+	identity: MediaIdentity,
+	pathOpts: MediaPathOptions,
+): Promise<void> {
+	const stem = pathOpts.fileIdOverride;
+	if (typeof stem !== 'string' || stem === '') return;
+	const { assertUploadStemFree } = await import('../stem_rules.ts');
+	await assertUploadStemFree(identity, stem);
+}
+
 export async function processUploadedFile(input: IngestInput): Promise<IngestResult> {
 	const { spec, identity } = input;
 	// RECORD-SCOPED PATH OPTIONS. `properties.additional_path` names a sibling
@@ -473,6 +491,7 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 	// ingest write where PHP wrote; a caller that already resolved the record form
 	// stays authoritative (completeMediaPathOptions never overrides).
 	const pathOpts = await completeMediaPathOptions(identity, input.pathOpts);
+	await assertUploadStemUnique(identity, pathOpts);
 	// '' is "unset", not a tier: the client sends an empty selector value, and
 	// tool_upload / tool_import_files must not disagree about what it means. One
 	// normalisation for every entry point.

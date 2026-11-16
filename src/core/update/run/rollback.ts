@@ -1,17 +1,34 @@
 /**
  * THE ONE ROLLBACK PREDICATE (update audit 2026-10-29, U-02; design §3.1;
- * owner decision D-2): may the code be put back AUTOMATICALLY?
+ * owner decision D-2; owner ruling 2026-11-11, T1-25): may the code be put
+ * back AUTOMATICALLY?
  *
  * Only while the install has not left the data model the previous code runs
  * on. A phase that touches the database — `schema`, `data`, `ontology` — of a
- * release whose catalog compat is `incompatible` crosses the model: from then
- * on the previous code would run against a database it does not understand,
- * so the only sound way back is a database restore TOGETHER with the code, and
- * that is a human decision (NEEDS_DB_RESTORE), never a supervisor's. A phase
- * counts as soon as it STARTED: a failed migration file rolled back, but the
- * files before it in the same phase committed. A phase that ran BEFORE the code
- * swap never counts: it ran under the previous code, which survived it (that is
- * what an ontology precondition step is for).
+ * WALKED release (its triple is above the installed one) whose catalog compat
+ * is `incompatible` crosses the model: from then on the previous code would run
+ * against a database it does not understand, so the only sound way back is a
+ * database restore TOGETHER with the code, and that is a human decision
+ * (NEEDS_DB_RESTORE), never a supervisor's. A phase counts as soon as it
+ * STARTED: a failed migration file rolled back, but the files before it in the
+ * same phase committed. A phase that ran BEFORE the code swap never counts: it
+ * ran under the previous code, which survived it (that is what an ontology
+ * precondition step is for).
+ *
+ * A CODE-ONLY release (no compat: its default ontology/schema steps, or the
+ * target-schema phase plan.ts appends) and a SAME-TRIPLE run (a prerelease →
+ * its next prerelease or stable, a nightly reinstall: it walks no release) are
+ * NOT COUNTED as crossings (owner ruling 2026-11-11). After the line start
+ * (7.0.0) a code-only release cannot move the model: a migration needs a
+ * compat-declaring release, an incompatible one an incompatible release
+ * (migration_content_hash_tripwire). A same-triple run CAN: the builds of one
+ * triple are not held to one data model (7.0.0-beta.8 added an incompatible
+ * migration over beta.7), so its automatic rollback is the ruling, not a
+ * guarantee (update_docs_claims_tripwire C11 holds every prose statement of
+ * this to the migration ledger). Unknown stays fail
+ * closed: a walked release with no plan, a code-only release that nevertheless
+ * DECLARES a database step (a contract fault the validator refuses), or an
+ * unreadable installed release all count as crossing.
  *
  * Pure. HOW IT REACHES THE SUPERVISOR: not by the shell scripts asking it. The
  * executor (executor.ts stepOnce) flips the code sentinel to `needs_restore`
@@ -21,10 +38,13 @@
  * CLI (scripts/update_run_rollback_check.ts, `bun run update check`) is the
  * OPERATOR's view of the same predicate. Removing the sentinel flip would leave
  * nothing between a model-crossing failure and an automatic rollback.
+ * Gates: rollback_predicate_native (the ruling's describe), update_run_resume_native.
  */
 
 import { RELEASE_PLANS } from '../catalog.ts';
 import type { ReleasePlan, ReleaseStepKind } from '../catalog_file.ts';
+import { parseReleaseVersion } from '../release_identity.ts';
+import { compareVersionArrays } from '../version.ts';
 import type { RunJournal } from './journal.ts';
 
 const DATABASE_PHASES: ReadonlySet<ReleaseStepKind> = new Set(['schema', 'data', 'ontology']);
@@ -36,33 +56,68 @@ export interface RollbackVerdict {
 	reason: string;
 }
 
+type Plans = Readonly<Record<string, ReleasePlan>>;
+type Phase = RunJournal['phases'][number];
+
+/**
+ * Was `release` WALKED from the installed release — its triple strictly above
+ * the installed one? A same-triple phase (the target-schema phase of a
+ * prerelease → stable run, a nightly reinstall) walks nothing: the data model
+ * cannot move inside one triple. Unreadable = walked (fail closed).
+ */
+function walkedFrom(release: string, installed: string): boolean {
+	const phase = parseReleaseVersion(release);
+	const from = parseReleaseVersion(installed);
+	if (phase === null || from === null) return true;
+	return compareVersionArrays(phase.triple, from.triple) > 0;
+}
+
+/** Does a WALKED release's plan move the data model? Unknown = yes (never assumed compatible). */
+function planCrossesModel(plan: ReleasePlan | undefined): boolean {
+	if (plan === undefined) return true;
+	if (plan.compat !== null) return plan.compat === 'incompatible';
+	// Code-only (no compat): its default steps cannot move the model. A
+	// DECLARED database step without compat is a contract fault — fail closed.
+	return plan.declared && plan.steps.some((step) => DATABASE_PHASES.has(step.kind));
+}
+
+/**
+ * PURE: does this phase cross the data model — a database phase after the code
+ * swap (the caller checks the position), not skipped, of a walked release whose
+ * plan moves the model (see the header)?
+ */
+export function phaseCrossesModel(phase: Phase, journal: RunJournal, plans: Plans): boolean {
+	if (phase.outcome === 'skipped' || !DATABASE_PHASES.has(phase.step.kind)) return false;
+	if (!walkedFrom(phase.release, journal.from.release)) return false;
+	return planCrossesModel(plans[phase.release]);
+}
+
 /** Can `journal`'s code be rolled back automatically (same data model throughout)? */
 export function canAutoRollback(
 	journal: RunJournal,
-	plans: Readonly<Record<string, ReleasePlan>> = RELEASE_PLANS,
+	plans: Plans = RELEASE_PLANS,
 ): RollbackVerdict {
 	const swap = journal.phases.findIndex((phase) => phase.step.kind === 'code');
 	const crossing = journal.phases.find(
-		(phase, index) =>
-			swap !== -1 &&
-			index > swap &&
-			phase.outcome !== 'skipped' &&
-			DATABASE_PHASES.has(phase.step.kind) &&
-			plans[phase.release]?.compat !== 'compatible',
+		(phase, index) => swap !== -1 && index > swap && phaseCrossesModel(phase, journal, plans),
 	);
 	if (crossing === undefined) {
 		return {
 			allowed: true,
 			crossedBy: null,
 			reason:
-				'no database phase of an incompatible release ran: the previous code still fits the database',
+				'no database phase of a walked incompatible release ran (code-only and same-version releases are not counted as crossings, owner ruling 2026-11-11): the previous code is put back',
 		};
 	}
 	const crossedBy = `${crossing.release} ${crossing.step.kind}`;
+	const why =
+		plans[crossing.release] === undefined
+			? ' (no catalog plan for that release — never assumed compatible)'
+			: '';
 	return {
 		allowed: false,
 		crossedBy,
-		reason: `the ${crossedBy} phase moved the database to a data model the previous code does not run on — restore the database backup together with the previous code (a human decision)`,
+		reason: `the ${crossedBy} phase moved the database to a data model the previous code does not run on${why} — restore the database backup together with the previous code (a human decision)`,
 	};
 }
 

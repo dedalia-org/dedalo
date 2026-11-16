@@ -50,6 +50,8 @@
  */
 
 import { isDiffusionLangCode } from '../../config/lang_code.ts';
+import { computeInfoWidgets } from '../../core/components/component_info/widgets/registry.ts';
+import { normalizeWidgetEntryKeys } from '../../core/components/component_info/widgets/widget_common.ts';
 import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
 import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core/concepts/sqo.ts';
@@ -74,6 +76,7 @@ import {
 } from '../../core/security/frontier_scope.ts';
 import { getPermissions, type Principal } from '../../core/security/permissions.ts';
 import {
+	currentPrincipal,
 	currentRequestContext,
 	type RequestContext,
 	runWithRequestContext,
@@ -104,6 +107,7 @@ import {
 	segmentIdentityKey,
 	wireSegment,
 } from './atoms.ts';
+import { cleanTextValue } from './clean_text.ts';
 import type { ExportDdoInput } from './compile_columns.ts';
 import { compileExportPlan } from './compile_columns.ts';
 import {
@@ -578,7 +582,9 @@ function createTabulator(options: {
 						shown = true;
 					}
 				} else if (entry.flat !== null && entry.flat !== '') {
-					rawCells[String(column.i)] = entry.flat;
+					// PHP :321-326: clean(join(atoms)) when the join is not '' — a cell
+					// that CLEANS to '' is kept (WC-2026-11-12-export-text-cell-clean)
+					rawCells[String(column.i)] = cleanTextValue(entry.flat);
 					shown = true;
 				}
 				noteMedia(shown ? column.i : null, entry.media);
@@ -616,7 +622,8 @@ function createTabulator(options: {
 						newColLines,
 					);
 					if (entry.parents.flat !== null) {
-						rawCells[String(parentsColumn.i)] = entry.parents.flat;
+						// a split-out of atoms PHP joined into the term's cell: same cleanup
+						rawCells[String(parentsColumn.i)] = cleanTextValue(entry.parents.flat);
 					}
 				}
 				if (!isRaw && entry.references !== undefined) {
@@ -651,7 +658,8 @@ function createTabulator(options: {
 						newColLines,
 					);
 					if (entry.references.flat !== null) {
-						rawCells[String(referencesColumn.i)] = entry.references.flat;
+						// a split-out of atoms PHP joined into the term's cell: same cleanup
+						rawCells[String(referencesColumn.i)] = cleanTextValue(entry.references.flat);
 					}
 					// its media is ITS OWN (read by the `#references` walk), credited
 					// to this column — or to none when the cell shows nothing
@@ -695,12 +703,15 @@ function createTabulator(options: {
 					// separator (number/text_area/… ', '; input_text/date/iri
 					// records_separator ?? ' | '; T0-9 D7), PHP empty() included (a
 					// lone '0' / '' atom is an empty cell). The ONE bypass is PHP's: a
-					// single section_id atom keeps its value as is (its int).
+					// single section_id atom keeps its value as is (its int). Every
+					// other cell is CLEANED after the join (PHP join_cell →
+					// clean_text_value; WC-2026-11-12-export-text-cell-clean), then
+					// an empty result is dropped (PHP :361-364).
 					const single = atoms.length === 1 ? (atoms[0] as GridAtom) : null;
 					const joined =
 						single !== null && single.cellType === 'section_id'
 							? single.value
-							: joinExportAtoms(atoms);
+							: cleanTextValue(joinExportAtoms(atoms));
 					if (joined !== '') cells[String(ordinal)] = joined;
 				}
 				lines.push({ t: 'row', rec: recId, sub: rowIndex, c: cells });
@@ -1732,6 +1743,12 @@ async function computedRawSlice(
 	componentTipo: string,
 	model: string,
 ): Promise<unknown[] | undefined> {
+	// component_info: the LIVE computed items (PHP get_raw_export_value wraps
+	// get_data — the live compute), never its stored `misc` slot
+	// (WC-2026-09-03). Derived since owner C10 2026-11-13 (its `derived` facet);
+	// keyed on its `info` family because the computed value is the WIDGET
+	// aggregate, not a locator set like the derived relation models below.
+	if (getFlatValueFamily(model) === 'info') return liveInfoRawItems(run, record, componentTipo);
 	if (!isDerivedModel(model)) return undefined;
 	if (getFlatValueFamily(model) === 'inverse') {
 		const entries = await resolveInverseEntries(record.section_tipo, Number(record.section_id), {
@@ -1752,6 +1769,27 @@ async function computedRawSlice(
 		);
 	}
 	return undefined;
+}
+
+/** A component_info's live items for its dedalo_raw cell (computedRawSlice). */
+async function liveInfoRawItems(
+	run: ExportRun,
+	record: { section_id: number; section_tipo: string },
+	componentTipo: string,
+): Promise<unknown[]> {
+	const principal = run.atoms.frontier?.principal ?? currentPrincipal();
+	const computed = await computeInfoWidgets(componentTipo, {
+		sectionTipo: record.section_tipo,
+		sectionId: Number(record.section_id),
+		mode: 'edit',
+		lang: currentDataLang(),
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+		// an export door: the async widgets are computed too (owner C9
+		// 2026-11-13 — WC-2026-11-13-info-derived-async-published)
+		includeAsync: true,
+	});
+	return computed === null ? [] : normalizeWidgetEntryKeys(computed);
 }
 
 /**

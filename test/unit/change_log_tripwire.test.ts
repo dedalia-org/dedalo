@@ -238,6 +238,15 @@ describe('release notes: frozen at the cut, equal to the derivation, written by 
 			join(REPO_ROOT, 'src', 'core', 'update', 'release_identity.ts'),
 			join(SCRATCH, 'src', 'core', 'update', 'release_identity.ts'),
 		);
+		// …and the migration seal the cut writes (C31): its module, the ledger reader it
+		// imports, the REAL ledger, and a seal that knows nothing of 7.0.1 yet.
+		for (const name of ['migration_seal.ts', 'migration_ledger.ts', 'migrations.lock.json']) {
+			cpSync(join(REPO_ROOT, 'install', 'db', name), join(SCRATCH, 'install', 'db', name));
+		}
+		file(
+			'install/db/migrations.sealed.json',
+			`${JSON.stringify({ format: 1, triples: { '7.0.0': ['0001_baseline.sql'] } })}\n`,
+		);
 		file('changes/README.md', '# changes\n');
 		file(
 			'changes/7.0.0/release.json',
@@ -275,6 +284,15 @@ describe('release notes: frozen at the cut, equal to the derivation, written by 
 			},
 		);
 		expect(run.exitCode, run.stderr.toString()).toBe(0);
+		// The cut SEALED the new triple (C31): 7.0.1's incompatible set — none in the ledger
+		// today — joins the seal; the sealed 7.0.0 is untouched.
+		expect(
+			JSON.parse(readFileSync(join(SCRATCH, 'install', 'db', 'migrations.sealed.json'), 'utf8')),
+		).toEqual({
+			format: 1,
+			triples: { '7.0.0': ['0001_baseline.sql'], '7.0.1': [] },
+		});
+		expect(run.stdout.toString()).toContain('Sealed the migration set of 7.0.1');
 		const written = parseRelease(
 			'release.json',
 			readFileSync(join(SCRATCH, 'changes', '7.0.1', 'release.json'), 'utf8'),

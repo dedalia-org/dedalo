@@ -40,12 +40,17 @@
  *
  * Media-file duplication (engineering/MEDIA_SPEC.md Phase B; CLOSURE_PLAN Step 2
  * CORE-5, WC-2026-09-30-media-key-locked-transform): the clone NEVER stores the
- * source's index. Its media items are inserted with `files_info: []` (an
- * external item keeps its URL entries), so neither the committed row nor its
- * history can name the SOURCE record's files, even if the process dies right
- * after the insert. The files are then copied through the record-scoped walk
- * (media/file_ops.ts duplicateSectionMediaFiles — the `additional_path` bucket
- * of THIS record honoured), and the clone's index is re-scanned AT THE CLONE'S
+ * source's index. Its media items are inserted with `files_info: []`, no
+ * `svg_file_data` and an emptied `lib_data` raster href (the vector editor's
+ * layer-0 `<image>`; an external item keeps its URL entries), so neither the
+ * committed row nor its history can name the SOURCE record's files, even if the
+ * process dies right after the insert. The files are then copied through the
+ * record-scoped walk (media/file_ops.ts duplicateSectionMediaFiles — the
+ * `additional_path` bucket of THIS record honoured); a component_image's SVG
+ * envelope is rebuilt for the clone, layers kept and its raster href repointed
+ * (media/svg_overlay.ts duplicateSvgEnvelope — T1-22 / OX3,
+ * WC-2026-11-12-duplicate-image-svg-envelope), its `lib_data` raster href
+ * likewise (withRasterHref), and the clone's index is re-scanned AT THE CLONE'S
  * IDENTITY through the one locked media-key writer (files_info_persist.ts
  * transformStoredMediaItems), always, even after a failed copy; the written
  * items feed the history rows. A copy that is not complete — a refused bucket,
@@ -121,7 +126,7 @@
 
 import { config } from '../../../config/config.ts';
 import { incrementCounter } from '../../api/counters.ts';
-import { isMediaModel, mediaTypeOf } from '../../concepts/media.ts';
+import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../../concepts/media.ts';
 import { isConsultationOnlySection, TM_NOTES_SECTION_TIPO } from '../../concepts/section.ts';
 import { isConvertibleSectionIdString, isSectionId } from '../../concepts/section_id.ts';
 import { isDataframeEntry } from '../../concepts/subdatum.ts';
@@ -132,9 +137,13 @@ import { DedaloError } from '../../errors/dedalo_error.ts';
 import { logError } from '../../errors/log.ts';
 import { type ComponentMediaCopy, duplicateSectionMediaFiles } from '../../media/file_ops.ts';
 import { resolveMediaPathOptions } from '../../media/ontology_path.ts';
+import type { MediaPathOptions } from '../../media/path.ts';
+import { type ClearedStem, stripImageIdSiblings } from '../../media/stem_rules.ts';
+import { defaultRasterUrl, duplicateSvgEnvelope, svgFileDataOf } from '../../media/svg_overlay.ts';
 import type { StoredMediaItem } from '../../media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../ontology/resolver.ts';
 import {
+	historyStamp,
 	type LaneIdentity,
 	mainIdentity,
 	mainStorage,
@@ -147,6 +156,7 @@ import { assertParentLinkKeysAcyclic, type ParentKeyWrite } from '../../relation
 import { currentDataLang } from '../../resolve/request_lang.ts';
 import {
 	afterRecordWrite,
+	assertBirthLocatorTargetsLive,
 	dropCoveredObserverUnits,
 	ownDataCoveredSlots,
 	prepareBirthColumns,
@@ -159,7 +169,6 @@ import {
 	buildRecordMetadata,
 	CREATED_BY_USER,
 	CREATED_DATE,
-	dbTimestamp,
 	MODIFIED_BY_USER,
 	MODIFIED_DATE,
 } from './create_record.ts';
@@ -216,9 +225,19 @@ export interface MediaCopyVerdict {
 	 * Where it stopped: `no_media_root` (no media root to copy under), `copy`
 	 * (the walk or a file copy failed), `rescan` (the clone's index could not be
 	 * re-scanned), `missing` / `locked` (the clone's row, at the write-back),
-	 * `count` (fewer files copied than the source claimed or held).
+	 * `envelope` (a component_image's SVG envelope could not be rebuilt for the
+	 * clone — e.g. the source's drawing was refused by the envelope write door),
+	 * `count` (fewer files copied than the source claimed or held). Precedence:
+	 * copy > rescan|missing|locked > envelope > count.
 	 */
-	stage?: 'no_media_root' | 'copy' | 'rescan' | 'missing' | 'locked' | 'count';
+	stage?: 'no_media_root' | 'copy' | 'rescan' | 'missing' | 'locked' | 'envelope' | 'count';
+	/**
+	 * The `properties.image_id` sibling the duplicate CLEARED on the clone so this
+	 * image's files are named by the clone's identifier, not the source's stem
+	 * (T1-10 OD-1 ruled b; stem_rules.ts stripImageIdSiblings). Absent when the
+	 * image declares no sibling or the source's was empty.
+	 */
+	clearedStemSibling?: string;
 }
 
 /** Why a component stopped — for the LOG line only, never a verdict field (SEC-18). */
@@ -274,6 +293,28 @@ export async function duplicateSectionRecord(
 		await dropCoveredObserverUnits(values as MatrixWriteValues, coveredMains);
 		followRelationDrop(copied, (values.relation ?? {}) as Record<string, unknown>);
 	}
+	// 1c. The clone's `properties.image_id` SIBLING(S) are CLEARED (T1-10 OD-1,
+	//     owner ruling 2026-11-13 b): a component_image names its files by that
+	//     sibling's value, so a clone carrying the source's stem would address the
+	//     SOURCE's files — step 4b then copied a file onto itself (PHP) and a
+	//     later delete of either record took the other's media away. Cleared, the
+	//     clone's files land under its own identifier and the stem rules
+	//     (media/stem_rules.ts) never see a shared stem. Reported on the image
+	//     component's verdict (`clearedStemSibling`) and logged.
+	const clearedStems = await stripImageIdSiblings(sectionTipo, values as MatrixWriteValues);
+	if (clearedStems.length > 0) {
+		const clearedTipos = new Set(clearedStems.map((entry) => entry.siblingTipo));
+		copied.splice(
+			0,
+			copied.length,
+			...copied.filter((component) => !clearedTipos.has(component.tipo)),
+		);
+		for (const entry of clearedStems) {
+			console.info(
+				`[duplicate_record] the clone of ${sectionTipo}/${sourceSectionId} does not carry the image_id sibling '${entry.siblingTipo}' (stem '${entry.stem}', images ${entry.imageTipos.join(',')}): its files are named by its own identifier`,
+			);
+		}
+	}
 
 	// 2. Fresh audit metadata: created AND modified stamps (stampDuplicateAudit).
 	await stampDuplicateAudit(values, sectionTipo, userId, now);
@@ -318,8 +359,20 @@ export async function duplicateSectionRecord(
 			...(await ownDataCoveredSlots(sectionTipo)),
 		]),
 	];
+	//    THE LOCATOR-TARGET LAW on the birth (record_write.ts §3h,
+	//    assertBirthLocatorTargetsLive — owner ruling 2026-11-13 C28 a): every
+	//    locator the clone copied is an ADDED link, its target locked FOR KEY
+	//    SHARE to COMMIT inside this same transaction; a target DELETED meanwhile
+	//    (or a legacy locator to a deleted record on the source) REFUSES the
+	//    duplicate — `relation.target_deleted`, the row and the counter rolled
+	//    back, nothing addressed by the id exists.
 	const newSectionId = await withTransaction(async () => {
 		const id = await insertMatrixRecordWithCounter(table, sectionTipo, values);
+		await assertBirthLocatorTargetsLive(
+			{ table, sectionTipo, sectionId: id },
+			values,
+			'duplicateSectionRecord',
+		);
 		await assertParentLinkKeysAcyclic(
 			{ table, sectionTipo, sectionId: id },
 			relationKeyWrites(values.relation),
@@ -342,6 +395,7 @@ export async function duplicateSectionRecord(
 		copied,
 		claimed,
 		mediaRoot: mediaOptions.mediaRoot,
+		clearedStems,
 	});
 	mediaOptions.verdicts?.push(...verdicts);
 
@@ -675,8 +729,11 @@ function isExternalItem(item: unknown): boolean {
 /**
  * The copied media items WITHOUT the source's index: each non-external item's
  * `files_info` emptied (an external item keeps its URL entries — they name no
- * file of either record). What the source index claimed — its existing,
- * non-external entries — is recorded in `claimed`.
+ * file of either record), its `svg_file_data` dropped (the rendered drawing
+ * embeds the SOURCE raster's URL; step 4b writes the clone's own back) and its
+ * `lib_data` raster href emptied (withRasterHref — step 4b points it at the
+ * clone). What the source index claimed — its existing, non-external entries —
+ * is recorded in `claimed`.
  */
 function stripSourceIndex(
 	items: readonly unknown[],
@@ -687,10 +744,64 @@ function stripSourceIndex(
 	const stripped = items.map((item) => {
 		if (item === null || typeof item !== 'object' || isExternalItem(item)) return item;
 		count += claimedFileCount((item as { files_info?: unknown }).files_info);
-		return { ...(item as Record<string, unknown>), files_info: [] };
+		const { svg_file_data: _sourceDrawing, ...kept } = item as Record<string, unknown>;
+		return withRasterHref({ ...kept, files_info: [] }, '');
 	});
 	claimed.set(tipo, count);
 	return stripped;
+}
+
+/** The vector editor's raster layer: layer 0 (vector_editor.js load_data reads its `<image>` href). */
+function isRasterLayer(layer: unknown): layer is Record<string, unknown> {
+	return (
+		layer !== null &&
+		typeof layer === 'object' &&
+		(layer as { layer_id?: unknown }).layer_id === 0 &&
+		Array.isArray((layer as { layer_data?: unknown }).layer_data)
+	);
+}
+
+/** A plain JSON object (not null, not an array). */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** One layer-0 element with its `href`/`xlink:href` (whichever it carries) set to `url`. */
+function withElementHref(element: unknown, url: string): unknown {
+	if (!isJsonObject(element) || element.element !== 'image' || !isJsonObject(element.attr)) {
+		return element;
+	}
+	const repointed: Record<string, unknown> = { ...element.attr };
+	for (const key of ['href', 'xlink:href']) if (key in repointed) repointed[key] = url;
+	return { ...element, attr: repointed };
+}
+
+/**
+ * A media item whose `lib_data` raster `<image>` (layer 0 — the vector editor's
+ * raster, from which its edit view loads the picture) names `url` instead of
+ * whatever it named. A duplicate's copy of the SOURCE's layers names the source
+ * raster there: emptied at insert (stripSourceIndex), set to the clone's own
+ * default raster in step 4b (withCloneDrawings) — the same href-only repoint the
+ * envelope gets (duplicateSvgEnvelope). Drawing layers are kept verbatim; a
+ * non-array `lib_data` (component_pdf's `{offset}`) or none is left as is. A new
+ * object: the source's items are never mutated.
+ */
+function withRasterHref(item: Record<string, unknown>, url: string): Record<string, unknown> {
+	const layers = item.lib_data;
+	if (!Array.isArray(layers) || !layers.some(isRasterLayer)) return item;
+	return {
+		...item,
+		lib_data: layers.map((layer) =>
+			isRasterLayer(layer)
+				? {
+						...layer,
+						layer_data: (layer.layer_data as unknown[]).map((element) =>
+							withElementHref(element, url),
+						),
+					}
+				: layer,
+		),
+	};
 }
 
 /** The existing, non-external entries of one item's `files_info` (what its index claims). */
@@ -1054,6 +1165,8 @@ interface RecordMediaCopy {
 	claimed: ReadonlyMap<string, number>;
 	/** See DuplicateMediaOptions.mediaRoot (null = none, undefined = the configured one). */
 	mediaRoot: string | null | undefined;
+	/** The image_id siblings step 1c cleared on the clone (stem_rules.ts stripImageIdSiblings). */
+	clearedStems: readonly ClearedStem[];
 }
 
 /**
@@ -1113,6 +1226,7 @@ async function duplicateRecordMedia(input: RecordMediaCopy): Promise<MediaCopyVe
 			sourceFiles: input.claimed.get(component.tipo) ?? 0,
 			copiedFiles: copy?.copiedFiles ?? 0,
 			incomplete: false,
+			...clearedStemSiblingOf(input.clearedStems, component.tipo),
 		};
 		const detail: IncompleteDetail = {};
 		if (copy?.error !== undefined) {
@@ -1136,12 +1250,27 @@ async function duplicateRecordMedia(input: RecordMediaCopy): Promise<MediaCopyVe
 	return verdicts;
 }
 
+/** The verdict field naming the sibling step 1c cleared for this image (nothing when none was). */
+function clearedStemSiblingOf(
+	clearedStems: readonly ClearedStem[],
+	imageTipo: string,
+): Pick<MediaCopyVerdict, 'clearedStemSibling'> {
+	const cleared = clearedStems.find((entry) => entry.imageTipos.includes(imageTipo));
+	return cleared === undefined ? {} : { clearedStemSibling: cleared.siblingTipo };
+}
+
 /**
  * The clone's index, AT THE CLONE'S IDENTITY, through the one locked media-key
  * writer: the items read under the row lock are re-scanned (record-scoped path
  * options, so a named bucket is the clone's own; no shrink hold — this is a
  * fresh copy, not a partial-media box's valid index), and the written items
  * replace the copied ones in `values` and `copied` (the history reads them).
+ *
+ * BEFORE the transform, a component_image's envelope is rebuilt for the clone
+ * (cloneImageEnvelopes); the transform then gives each item whose source carried
+ * `svg_file_data` the clone's own envelope content, so the row and its history
+ * name the clone's raster. A failed envelope is the `envelope` stage — below
+ * any rescan failure, which it never masks.
  */
 async function reindexCloneMedia(
 	input: RecordMediaCopy,
@@ -1162,13 +1291,19 @@ async function reindexCloneMedia(
 			input.newSectionId,
 		);
 		const pathOpts = { ...resolved, mediaRoot: input.mediaRoot ?? undefined };
+		const envelopes = await cloneImageEnvelopes(input, component.tipo, spec, pathOpts);
 		const { rescanMediaItems } = await import('../../media/repair.ts');
 		const { transformStoredMediaItems } = await import('../../media/tools/files_info_persist.ts');
 		const outcome = await transformStoredMediaItems(
 			identityBase,
 			(locked) => ({
-				write: rescanMediaItems(locked, { spec, identityBase, pathOpts, holdShrink: false })
-					.items as StoredMediaItem[],
+				write: withCloneDrawings(
+					rescanMediaItems(locked, { spec, identityBase, pathOpts, holdShrink: false }).items,
+					envelopes.drawings,
+					spec.model === 'component_image'
+						? (lang) => defaultRasterUrl(spec, { ...identityBase, lang }, pathOpts)
+						: null,
+				) as StoredMediaItem[],
 			}),
 			// The duplicate's own clone, which the interactive caller waits for.
 			{ lockWait: 'request' },
@@ -1182,10 +1317,121 @@ async function reindexCloneMedia(
 			input.values.media = media;
 			component.items = outcome.items as CopiedComponent['items'];
 		}
-		return {};
+		return envelopes.failure === undefined ? {} : { stage: 'envelope', cause: envelopes.failure };
 	} catch (error) {
 		return { stage: 'rescan', cause: error };
 	}
+}
+
+/** What cloneImageEnvelopes did: the clone's drawing per item lang, and the first failure. */
+interface CloneEnvelopes {
+	/** lang (null = untranslatable) → the clone's envelope content, for items whose source carried `svg_file_data`. */
+	drawings: Map<string | null, string>;
+	failure?: unknown;
+}
+
+/** A media item that can carry a drawing: an object, and not an external one. */
+function isDrawableItem(item: unknown): item is Record<string, unknown> {
+	return item !== null && typeof item === 'object' && !isExternalItem(item);
+}
+
+/** The drawable media items the SOURCE record stores under `tipo` (none when absent). */
+function sourceDrawableItems(input: RecordMediaCopy, tipo: string): Record<string, unknown>[] {
+	const items = (input.sourceColumns.media as Record<string, unknown> | null | undefined)?.[tipo];
+	return Array.isArray(items) ? items.filter(isDrawableItem) : [];
+}
+
+/** The component and both records' path options of one envelope rebuild. */
+interface EnvelopeRebuild {
+	tipo: string;
+	spec: MediaTypeSpec;
+	sourcePathOpts: MediaPathOptions;
+	targetPathOpts: MediaPathOptions;
+}
+
+/**
+ * Step 4b, component_image only: rebuild the SVG envelope of each drawable
+ * item lang for the clone (media/svg_overlay.ts duplicateSvgEnvelope — the
+ * source's file, else its `svg_file_data`, else the default; href repointed at
+ * the clone). Never a throw: the first failure is answered (the `envelope`
+ * verdict) and the other langs still get theirs.
+ */
+async function cloneImageEnvelopes(
+	input: RecordMediaCopy,
+	tipo: string,
+	spec: MediaTypeSpec,
+	targetPathOpts: MediaPathOptions,
+): Promise<CloneEnvelopes> {
+	const result: CloneEnvelopes = { drawings: new Map() };
+	const items = spec.model === 'component_image' ? sourceDrawableItems(input, tipo) : [];
+	if (items.length === 0) return result;
+	try {
+		// The SOURCE's own record-scoped options: its bucket is its own.
+		const resolved = await resolveMediaPathOptions(tipo, input.sectionTipo, input.sourceSectionId);
+		const rebuild: EnvelopeRebuild = {
+			tipo,
+			spec,
+			sourcePathOpts: { ...resolved, mediaRoot: targetPathOpts.mediaRoot },
+			targetPathOpts,
+		};
+		for (const item of items) await cloneItemEnvelope(input, rebuild, item, result);
+	} catch (error) {
+		result.failure = error;
+	}
+	return result;
+}
+
+/** One item lang's envelope (cloneImageEnvelopes); its failure is recorded, never thrown. */
+async function cloneItemEnvelope(
+	input: RecordMediaCopy,
+	rebuild: EnvelopeRebuild,
+	item: Record<string, unknown>,
+	result: CloneEnvelopes,
+): Promise<void> {
+	// One identifier on disk per lang — the same fan-out as persistSvgEnvelopesForKeys.
+	const lang = (item.lang as string | null | undefined) ?? null;
+	const base = { componentTipo: rebuild.tipo, sectionTipo: input.sectionTipo, lang };
+	const svgFileData = svgFileDataOf(item);
+	try {
+		const written = await duplicateSvgEnvelope(
+			rebuild.spec,
+			{
+				source: {
+					identity: { ...base, sectionId: input.sourceSectionId },
+					pathOpts: rebuild.sourcePathOpts,
+				},
+				target: {
+					identity: { ...base, sectionId: input.newSectionId },
+					pathOpts: rebuild.targetPathOpts,
+				},
+			},
+			svgFileData,
+		);
+		if (svgFileData !== null && written.content !== null) {
+			result.drawings.set(lang, written.content);
+		}
+	} catch (error) {
+		result.failure ??= error;
+	}
+}
+
+/**
+ * The rescanned clone items, each non-external one given the clone's drawing for
+ * its lang (when there is one) and, for a component_image, its `lib_data` raster
+ * href pointed at the clone's default raster for that lang (withRasterHref).
+ */
+function withCloneDrawings(
+	items: unknown[],
+	drawings: ReadonlyMap<string | null, string>,
+	rasterUrl: ((lang: string | null) => string) | null,
+): unknown[] {
+	return items.map((item) => {
+		if (!isDrawableItem(item)) return item;
+		const lang = (item.lang as string | null | undefined) ?? null;
+		const drawing = drawings.get(lang);
+		const drawn = drawing === undefined ? item : { ...item, svg_file_data: drawing };
+		return rasterUrl === null ? drawn : withRasterHref(drawn, rasterUrl(lang));
+	});
 }
 
 /**
@@ -1259,11 +1505,8 @@ async function recordDuplicateHistory(
 	relationBag: unknown,
 	audit: { userId: number; now: Date },
 ): Promise<void> {
-	const saveStamp = { userId: audit.userId, timestamp: dbTimestamp(audit.now), bulkId: null };
-	const backfillStamp = {
-		userId: audit.userId,
-		timestamp: dbTimestamp(new Date(audit.now.getTime() - 60_000)),
-	};
+	const saveStamp = historyStamp(audit.userId, null, audit.now);
+	const backfillStamp = { userId: audit.userId, timestamp: saveStamp.backfillTimestamp };
 	for (const component of copied) {
 		const storage = await mainStorage(component.tipo);
 		if (storage?.model === 'component_dataframe') continue;

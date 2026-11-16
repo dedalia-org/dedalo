@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 918,
-		"functions": 16045,
-		"functionsOverCap": 654,
-		"filesOverCap": 257
+		"files": 946,
+		"functions": 16679,
+		"functionsOverCap": 643,
+		"filesOverCap": 255
 	},
 	"ledger": [
 		{
@@ -195,6 +195,51 @@
 			"generated": "2026-11-11",
 			"functionsOverCap": 654,
 			"filesOverCap": 257
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 653,
+			"filesOverCap": 257
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 652,
+			"filesOverCap": 257
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 650,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 649,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 648,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 647,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-12",
+			"functionsOverCap": 645,
+			"filesOverCap": 256
+		},
+		{
+			"generated": "2026-11-13",
+			"functionsOverCap": 644,
+			"filesOverCap": 255
+		},
+		{
+			"generated": "2026-11-14",
+			"functionsOverCap": 643,
+			"filesOverCap": 255
 		}
 	],
 	"files": {
@@ -242,13 +287,12 @@
 		"src/core/client_libs/serving.ts": 11,
 		"src/core/components/component_date/date_value.ts": 20,
 		"src/core/components/component_external/value.ts": 12,
-		"src/core/components/component_info/widgets/calculation/calculation.ts": 16,
 		"src/core/components/component_info/widgets/dd/user_activity.ts": 17,
 		"src/core/components/component_info/widgets/dmm/get_archive_states.ts": 32,
 		"src/core/components/component_info/widgets/grid.ts": 16,
 		"src/core/components/component_info/widgets/mdcat/sum_dates.ts": 36,
-		"src/core/components/component_info/widgets/numisdata/get_archive_weights.ts": 27,
-		"src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts": 30,
+		"src/core/components/component_info/widgets/numisdata/get_archive_weights.ts": 26,
+		"src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts": 27,
 		"src/core/components/component_info/widgets/oh/descriptors.ts": 17,
 		"src/core/components/component_info/widgets/oh/media_icons.ts": 27,
 		"src/core/components/component_info/widgets/oh/tags.ts": 9,
@@ -256,7 +300,6 @@
 		"src/core/components/component_info/widgets/state/state.ts": 38,
 		"src/core/components/component_info/widgets/test/test_info.ts": 12,
 		"src/core/components/component_info/widgets/widget_common.ts": 18,
-		"src/core/components/component_text_area/emit.ts": 8,
 		"src/core/components/component_text_area/original_lang.ts": 9,
 		"src/core/components/component_text_area/tag_delete.ts": 13,
 		"src/core/components/component_text_area/tag_endpoint.ts": 8,
@@ -277,7 +320,7 @@
 		"src/core/db/matrix_write.ts": 10,
 		"src/core/db/postgres.ts": 8,
 		"src/core/diffusion_bridge/diffusion_delete.ts": 14,
-		"src/core/diffusion_bridge/diffusion_graph.ts": 15,
+		"src/core/diffusion_bridge/diffusion_graph.ts": 14,
 		"src/core/error_report/gate.ts": 7,
 		"src/core/geoip/download.ts": 10,
 		"src/core/geoip/ensure.ts": 9,
@@ -285,7 +328,7 @@
 		"src/core/identify/criteria.ts": 19,
 		"src/core/identify/match.ts": 30,
 		"src/core/identify/path_read.ts": 24,
-		"src/core/identify/preview.ts": 14,
+		"src/core/identify/preview.ts": 13,
 		"src/core/identify/profile.ts": 14,
 		"src/core/identify/profile_source.ts": 10,
 		"src/core/install/config_persist.ts": 10,
@@ -306,7 +349,7 @@
 		"src/core/media/engine/spawn.ts": 11,
 		"src/core/media/engine/verify_content.ts": 16,
 		"src/core/media/file_date.ts": 9,
-		"src/core/media/file_ops.ts": 18,
+		"src/core/media/file_ops.ts": 17,
 		"src/core/media/files_info.ts": 12,
 		"src/core/media/ingest/add_file.ts": 8,
 		"src/core/media/ingest/companion_writes.ts": 7,
@@ -324,7 +367,7 @@
 		"src/core/media/svg_overlay.ts": 9,
 		"src/core/media/thumb.ts": 8,
 		"src/core/media/tool_support.ts": 13,
-		"src/core/media/tools/files_info_persist.ts": 10,
+		"src/core/media/tools/files_info_persist.ts": 9,
 		"src/core/media/tools/fragment.ts": 11,
 		"src/core/media/tools/posterframe.ts": 10,
 		"src/core/media/tools/rotation.ts": 26,
@@ -348,7 +391,7 @@
 		"src/core/relations/config_ddo_map.ts": 12,
 		"src/core/relations/dataframe.ts": 9,
 		"src/core/relations/datalist.ts": 19,
-		"src/core/relations/filter_projects.ts": 15,
+		"src/core/relations/filter_projects.ts": 13,
 		"src/core/relations/models/portal.ts": 8,
 		"src/core/relations/models/relation_index.ts": 16,
 		"src/core/relations/models/relation_related.ts": 7,
@@ -364,7 +407,7 @@
 		"src/core/relations/request_config/presets.ts": 18,
 		"src/core/relations/save.ts": 24,
 		"src/core/relations/select_lang.ts": 9,
-		"src/core/resolve/component_data.ts": 9,
+		"src/core/resolve/component_data.ts": 8,
 		"src/core/resolve/dd_info.ts": 12,
 		"src/core/resolve/environment.ts": 14,
 		"src/core/resolve/lang_fallback.ts": 7,
@@ -373,9 +416,9 @@
 		"src/core/resolve/read_tm.ts": 17,
 		"src/core/resolve/related_sections.ts": 15,
 		"src/core/resolve/relation_list.ts": 38,
-		"src/core/resolve/section_elements_context.ts": 19,
+		"src/core/resolve/section_elements_context.ts": 10,
 		"src/core/resolve/security_access_datalist.ts": 20,
-		"src/core/resolve/structure_context.ts": 85,
+		"src/core/resolve/structure_context.ts": 78,
 		"src/core/resolve/tm_filter.ts": 18,
 		"src/core/resolve/truncate_html.ts": 36,
 		"src/core/search/bare_count.ts": 7,
@@ -385,14 +428,14 @@
 		"src/core/search/builders/builder_number.ts": 10,
 		"src/core/search/builders/builder_relation.ts": 13,
 		"src/core/search/builders/builder_relation_children.ts": 9,
-		"src/core/search/builders/builder_section_id.ts": 17,
+		"src/core/search/builders/builder_section_id.ts": 13,
 		"src/core/search/builders/builder_string.ts": 32,
 		"src/core/search/builders/types.ts": 7,
 		"src/core/search/conform.ts": 30,
 		"src/core/search/order_path.ts": 13,
 		"src/core/search/search_related.ts": 15,
 		"src/core/search/sql_assembler.ts": 50,
-		"src/core/section/buttons.ts": 17,
+		"src/core/section/buttons.ts": 16,
 		"src/core/section/indexation_grid.ts": 42,
 		"src/core/section/list_definitions/section_list.ts": 8,
 		"src/core/section/locks.ts": 15,
@@ -403,7 +446,7 @@
 		"src/core/section/record/duplicate_record.ts": 19,
 		"src/core/section/record/observer_reconcile.ts": 15,
 		"src/core/section/record/observer_subscriptions.ts": 44,
-		"src/core/section/record/observers.ts": 28,
+		"src/core/section/record/observers.ts": 26,
 		"src/core/section/record/record_defaults.ts": 23,
 		"src/core/section/record/record_metadata.ts": 10,
 		"src/core/section/record/save_component.ts": 84,
@@ -425,7 +468,7 @@
 		"src/core/tools/config.ts": 11,
 		"src/core/tools/dispatch.ts": 17,
 		"src/core/tools/import_conform.ts": 35,
-		"src/core/tools/import_csv.ts": 12,
+		"src/core/tools/import_csv.ts": 11,
 		"src/core/tools/import_csv_execute.ts": 15,
 		"src/core/tools/import_data.ts": 16,
 		"src/core/tools/import_execute.ts": 13,
@@ -441,9 +484,9 @@
 		"src/core/tools/serving.ts": 8,
 		"src/core/tools/transcription_asr.ts": 17,
 		"src/core/tools/translation.ts": 14,
-		"src/core/ts_object/node_repository.ts": 40,
+		"src/core/ts_object/node_repository.ts": 36,
 		"src/core/ts_object/search.ts": 8,
-		"src/core/ts_object/term_resolver.ts": 13,
+		"src/core/ts_object/term_resolver.ts": 11,
 		"src/core/ts_object/ts_api.ts": 12,
 		"src/core/ts_object/ts_object.ts": 22,
 		"src/core/update/code_download.ts": 7,

@@ -33,7 +33,10 @@ export type SectionIdOp = 'none' | 'between' | 'sequence' | 'compare' | 'notEqua
  * Polarity: '!=n' NEG(twin '=n') — on a deep path "no related record has id
  * n", TRUE when there is no relation at all (owner decision D2 2026-09-24,
  * WC-2026-09-29-search-deep-leaf-mixed-rule); everything else pos. A '!=' with no digits
- * drops the clause (the builder returns false), so it classifies 'none'.
+ * drops the clause (the builder returns false), so it classifies 'none' — and
+ * so does a '...' with no digits on EITHER side (owner C41 2026-11-13, ruled
+ * (b) open half-range: an empty range is an empty input, not PHP's `>= 0 AND
+ * <= 0`; WC-2026-11-12-section-id-open-between addendum).
  */
 export function classifySectionId(
 	rawQ: unknown,
@@ -41,7 +44,10 @@ export function classifySectionId(
 ): Classified<SectionIdOp> {
 	const effective = `${qOperator ?? ''}${sectionIdQ(rawQ) ?? ''}`;
 	if (effective === '') return { kind: 'pos', op: 'none' };
-	if (effective.includes('...')) return { kind: 'pos', op: 'between' };
+	if (effective.includes('...')) {
+		const { low, high } = parseSectionIdBetween(effective);
+		return { kind: 'pos', op: low === null && high === null ? 'none' : 'between' };
+	}
 	if (effective.includes(',')) return { kind: 'pos', op: 'sequence' };
 	if (effective.startsWith('!=')) {
 		const value = digitsOnly(effective.slice(2));
@@ -52,6 +58,44 @@ export function classifySectionId(
 		return { kind: 'pos', op: 'compare' };
 	}
 	return { kind: 'pos', op: 'equal' };
+}
+
+/** The two bounds of an 'a...b' q, digits-only; null when that side is empty. */
+export function parseSectionIdBetween(effective: string): {
+	low: string | null;
+	high: string | null;
+} {
+	const [lowRaw, highRaw] = effective.split('...');
+	const low = digitsOnly(lowRaw ?? '');
+	const high = digitsOnly(highRaw ?? '');
+	return { low: low === '' ? null : low, high: high === '' ? null : high };
+}
+
+/**
+ * '...' between → $and of two comparisons (mirrors the PHP clone approach).
+ * An OPEN range ('5...' / '...5') is an OPEN HALF-RANGE (owner C41, T1-35 D1
+ * ruled (b) 2026-11-13): the typed bound is enforced, the absent side adds NO
+ * predicate — '5...' = id ≥ 5, '...5' = id ≤ 5 (negative ids included). PHP
+ * substituted low → 0 and high → low ('5...' meant exactly 5; recorded in
+ * WC-2026-11-12-section-id-open-between). Returning false here (the pre-T1-35
+ * shape) dropped the leaf and WIDENED the result to the whole section. '...'
+ * with no digits on either side never reaches this branch: the classifier
+ * answers 'none' (an empty input).
+ */
+function buildBetween(
+	bounds: { low: string | null; high: string | null },
+	columnExpr: string,
+	INT: string,
+): BuilderResult {
+	const predicates: BuilderResult[] = [];
+	if (bounds.low !== null) {
+		predicates.push(fragment(`${columnExpr} >= _Q1_${INT}`, { _Q1_: bounds.low }));
+	}
+	if (bounds.high !== null) {
+		predicates.push(fragment(`${columnExpr} <= _Q1_${INT}`, { _Q1_: bounds.high }));
+	}
+	if (predicates.length === 2) return compound('$and', predicates);
+	return predicates[0] ?? false;
 }
 
 export function buildSectionIdFragment(
@@ -74,17 +118,7 @@ export function buildSectionIdFragment(
 	// enforced above, so the cast can never fail at runtime.
 	const INT = '::integer';
 
-	// '...' between → $and of two comparisons (mirrors the PHP clone approach).
-	if (op === 'between') {
-		const [lowRaw, highRaw] = effective.split('...');
-		const low = digitsOnly(lowRaw ?? '');
-		const high = digitsOnly(highRaw ?? '');
-		if (low === '' || high === '') return false;
-		return compound('$and', [
-			fragment(`${columnExpr} >= _Q1_${INT}`, { _Q1_: low }),
-			fragment(`${columnExpr} <= _Q1_${INT}`, { _Q1_: high }),
-		]);
-	}
+	if (op === 'between') return buildBetween(parseSectionIdBetween(effective), columnExpr, INT);
 	// ',' sequence → = ANY('{a,b,c}'::integer[])
 	if (op === 'sequence') {
 		const ids = effective

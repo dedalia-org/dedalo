@@ -835,6 +835,7 @@
 	"reset_to_seed": "Reimposta al seed",
 	"reset_warning": "Questo ELIMINA e reimporta dal seed, scartando qualsiasi modifica locale",
 	"resize": "Ridimensiona",
+	"restricted": "(riservato)",
 	"reuse_tag": "Riutilizza etichetta",
 	"reverse_relations": "Relazioni inverse",
 	"rotate": "Ruotare",

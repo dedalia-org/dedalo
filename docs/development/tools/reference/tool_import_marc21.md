@@ -16,12 +16,13 @@ Use it for any one-shot or recurring bulk ingest of bibliographic data already a
 
 `tools/tool_import_marc21/server/index.ts` (+ `src/core/tools/marc21.ts`) implements a from-scratch ISO 2709 parser (no 3rd-party library) plus `applyMarcMap` → the shared import executor, scratch-twin verified (a synthetic MARC record + map produces the mapped record, then deleted — no orphans). The single remotely callable action is `import_files`.
 
-1. **WRITE gate.** Declaratively gated `permission: 'targets', minLevel: 2` on the caller pair AND every component the `config.map` binds (the `id` entry's ddo_map code component included), enforced before the handler runs. A missing `section_tipo` or empty `files_data` returns an error response immediately.
-2. **Config shape.** `readMarcMap` reads the marc21 map from `tool_config.config.main` as **one flat array** of `{name, value}` entries: it treats the entry named `field_to_section_id` as the id anchor and every other entry as a field-mapping rule. `tool_config.config` must carry exactly that one `main` array — a config shaped with `main` and a separate `map` block will not map correctly, because `readMarcMap` never reads a `map` key. Build (or reshape) the config to the single flat-array shape before relying on a production marc21_map.
-3. **Per-file parse.** Each staged `.mrc` file (path-confined under the user's upload temp dir) is read and parsed with `parseMarc` (`src/core/tools/marc21.ts`), a from-scratch ISO 2709 reader.
-4. **Per-record mapping.** `applyMarcMap` extracts and transforms each mapped field (subfield/joined/control-field extraction, `field_to_section_id` resolution) into a `MappedRecord`.
-5. **Execute.** `importMappedRecords` (the shared executor, `src/core/tools/import_execute.ts`) resolves target vs. new records and writes through `createSectionRecord`/`saveComponentData` — the same executor the other import tools use.
-6. Returns `{result, msg, errors, created, updated, failed}`.
+1. **WRITE gate.** Declaratively gated `permission: 'targets', minLevel: 2` on the caller pair and every **Values** field (`input_component` rows of the client `tool_config.ddo_map`), enforced before the handler runs. The field map's components are not known before the run (the map is server configuration), so the shared executor asks the write door for **every mapped field of every record**: a component the caller may not write is reported `IGNORED` and never written. A missing `section_tipo` or empty `files_data` returns an error response immediately.
+2. **Config.** `parseMarcConfig` reads the map from the **server**: `getToolConfig('tool_import_marc21')`, i.e. the Tools configuration (dd996) per key over the register default (dd1633). `map` holds the field→component rules; `main` holds the global settings, of which the entry named `field_to_section_id` is the identifier spec. The client-posted `tool_config` is read for its `ddo_map` only — a posted `map`/`main` is ignored. Every rule is validated before a file is read: a missing or empty `map`, a rule without `tipo`, a malformed field or transform, or an **unknown key** refuses the run (`request.invalid_options`) naming the rule (its index and `info`) and the key. A background run reads the configuration when it runs, not when it was queued.
+3. **Values form.** The non-empty `input_component` fields of `components_temp_data` become extra fields of every record (after the mapped ones, so a Values value wins). A Values field of a section other than the import section refuses the run before anything is written.
+4. **Per-file parse.** Each staged `.mrc` file (path-confined under the user's upload temp dir) is read and parsed with `parseMarc` (`src/core/tools/marc21.ts`), a from-scratch ISO 2709 reader.
+5. **Per-record mapping.** `applyMarcMap` extracts each rule's value (`extractMarcValue`), transforms it (`transformMarcValue`) and appends the rule's `dd_action` companions. Text is passed to the executor as **literal** text, never parsed as a JSON cell (a `[1987]` stays the text `[1987]`); dates and locators are passed as JSON and validated by the component's import conform.
+6. **Execute.** The identifiers are resolved to records (code lookup), then `importMappedRecords` (the shared executor, `src/core/tools/import_execute.ts`) writes each record in its own transaction, fields in map order — so a component bound by two rules keeps the last non-empty value.
+7. Returns `{summary, errors, created, updated, failed}`; on a run that wrote something, the Values form is consumed (cleared).
 
 Only `import_files` is dispatchable; the parser, mapper and executor are plain functions, not separately exposed actions.
 
@@ -35,31 +36,30 @@ Only `import_files` is dispatchable; the parser, mapper and executor are plain f
 
 | Action | Permission | Key options it reads |
 | --- | --- | --- |
-| `import_files` | declarative `permission: 'targets', minLevel: 2` on `(section_tipo, tipo)` + `(section_tipo, <every config.map tipo>)` | `section_tipo` (target section, **required**), `tipo` (portal/component context), `section_id` (current section), `tool_config` (carries `ddo_map` + the `config.main` marc21 map array — see the shape divergence above), `files_data` (uploaded `.mrc` file objects), `components_temp_data` (manual "Values" inputs), `key_dir` (upload directory id) |
+| `import_files` | declarative `permission: 'targets', minLevel: 2` on `(section_tipo, tipo)` + every Values field; each mapped field re-checked per record by the executor | `section_tipo` (target section, **required**), `tipo` (portal/component context), `section_id` (current section), `tool_config` (its `ddo_map` only — the Values form fields), `files_data` (uploaded `.mrc` file objects), `components_temp_data` (manual "Values" inputs), `key_dir` (upload directory id) |
 
-`import_files` is the only remotely callable action. It is **not** in `backgroundRunnable`; the long-running work runs synchronously behind the client's extended request timeout.
+`import_files` is the only remotely callable action. It is `backgroundRunnable` (lane `maintenance`).
 
-The behaviour of the import is driven by the tool **configuration**, not by the request options. **Rule keys actually implemented by `applyMarcMap`/`extractMarcValues` (`src/core/tools/marc21.ts`):**
+The behaviour of the import is driven by the tool **configuration**, not by the request options. **Rule keys** (`src/core/tools/marc21.ts`), applied in this order:
 
-| Key | Meaning | TS status |
-| --- | --- | --- |
-| `field` | MARC field tag, e.g. `"245"` | ✅ |
-| `subfield` | Specific subfield code (`"a"`); omit to concatenate all subfields | ✅ |
-| `component_tipo` | Target Dédalo component tipo (the value is written here) | ✅ |
-| `subfield_separator` | Separator when joining all subfields of a field | ✅ |
-| `marc21_conditional` | `{subfield, value}` — only extract when that sibling subfield equals `value` (e.g. 945 holdings where `$j == 193`) | ✅ |
-| `field_to_section_id` | `{field, subfield}` (e.g. 907 $a) used to identify a record for update vs. create | ✅ (read as the one `config.main` entry named `field_to_section_id`) |
+| Key | Meaning |
+| --- | --- |
+| `tipo` | Target component tipo (**required**) |
+| `field` | MARC tag, e.g. `"245"`. Without `field_multiple` or `occurrences` only the **first** occurrence of the tag is read |
+| `subfield` | Subfield code (`"a"`): the first such subfield of the occurrence; omit to join all subfields |
+| `subfield_separator` | Separator when joining all subfields (default a space) |
+| `field_multiple` + `row_separator` | `field` may be a list of tags; every occurrence of every listed tag is read, the non-empty ones joined with `row_separator` (default `". "`) — e.g. the 6xx indexation block |
+| `occurrences: "all"` | Opt-in for a **single** tag: every repetition of the tag is read, the non-empty ones joined with `row_separator` (default `". "`) — e.g. the repeated 700 added entries as one value. Cannot combine with `marc21_conditional`; any other value than `"all"` refuses the run |
+| `marc21_conditional` | `{subfield, value}`: read the first occurrence whose `subfield` equals `value` (e.g. 945 holdings where `$j == 193`). When **no** occurrence matches, **nothing is written** — the other occurrences are other libraries' copies, never this one's. Needs a single-tag `field` and a `subfield` |
+| *(always)* | The value is trimmed and trailing spaces, tabs, `,`, `:` and `.` are stripped — except on the `name: "id"` rule, whose value is only trimmed (it is the code a re-import searches for) |
+| `partial_left_content` | Positive integer: keep the first run of digits as a number (`"c1987."` → `1987`) |
+| `date_format: "year"` | Store the number as a date with that start year. A value with no year above 0 is not written and is listed in `failed` |
+| `dd_data_map` | `{code: [data]}`: store the data mapped to the code (e.g. 998 $f language code → a `lg1` locator; `[]` clears). An unmapped code is not written and is listed in `failed`. Cannot combine with `date_format` |
+| `dd_action` | `{component tipo: [data]}`: companion values written when the rule produced a value (e.g. the standard-number type when an ISBN is present) |
+| `skip_on_empty` | Accepted and inert: an empty value is never written |
+| `info`, `name`, `ddo_map` | Documentation; `name: "id"` + `ddo_map` declare the code component the identifier is matched against |
 
-**Rule keys with no implementation in `marc21.ts` today** — a config using any of these silently loses that transform (the field still extracts, but untransformed):
-
-| Key | Intended meaning | TS status |
-| --- | --- | --- |
-| `field_multiple` + `row_separator` | Concatenate values across several fields with this separator (e.g. the 6xx indexation block) | ⬜ not implemented |
-| `partial_left_content` | Take the leftmost N chars, parsed as integer (e.g. a 4-digit year) | ⬜ not implemented |
-| `date_format: "year"` | Wrap the value as a `dd_date` start year | ⬜ not implemented |
-| `dd_data_map` | Map a raw code to a Dédalo locator (e.g. 998 $f language code → a `lg1` section reference) | ⬜ not implemented |
-| `dd_action` | Companion components to set when the main value is populated (e.g. set the standard-number type when an ISBN is present) | ⬜ not implemented |
-| `skip_on_empty` | Do not store when the extracted value is empty | ⬜ not implemented (extraction already filters empty values, but the explicit flag/semantics aren't modeled) |
+`main` entry `field_to_section_id` — `{field, subfield}` (e.g. 907 $a) — is read the same way (first occurrence, trimmed) and identifies the record to update. `"0"` is a value; only an empty string is empty. Control fields (`001`–`009`) are readable. Any other key refuses the run.
 
 Config anchors beyond `field_to_section_id` (`code`, `section`, `project`, `pdf`, `identifying_image`, `transcription`, `transcription_review`, `field_standard_number`) that would drive companion writes (PDF/image/standard-number handling) have no implementation in `marc21.ts` or the shared import executor — only the plain field→component mapping is applied.
 
@@ -72,7 +72,7 @@ Config anchors beyond `field_to_section_id` (`code`, `section`, `project`, `pdf`
 - **active** (dd1354 → dd64 section_id 1 = Yes): registered active.
 - **show_in_inspector** (dd1331 → dd64 section_id 2 = No): **not** flagged for the inspector panel in this register; the tool is surfaced through the section's tool config / ddo_map rather than an inspector button. `show_in_component` (dd1332) is absent → defaults false.
 - `properties` (dd1335): `{ "open_as": "window", "windowFeatures": null }` — opens in its own window.
-- `default_config` (dd1633): a MARC reference config carrying separate `main` and `map` blocks (mirrored in `sample_config.json`). **This is the two-block shape `readMarcMap` does not read** (see *Config shape* above) — do not use it as-is. Per the comment in the config, do not edit dd1633 directly either: copy it into the Tools configuration section (dd996), reshape it to the single flat `main` array, and edit there.
+- `default_config` (dd1633): the MARC reference config, `{main, map, info}` (mirrored in `sample_config.json`), used when the Tools configuration (dd996) does not define a key. Per the comment in the config, do not edit dd1633: copy it into the Tools configuration section (dd996) and edit there — dd996 wins per key, so a dd996 `map` replaces the whole default `map`.
 - UI labels (dd1372): `file_processor`, `target_componet`, `quality`, retrieved client-side via `get_tool_label(...)`.
 
 Because surfacing is element-driven (`getElementTools`, `src/core/tools/registry.ts`), the tool appears on Publications-style sections (rsc205 in the reference config) once the user's profile is authorized for it and the section carries the tool in its config.
@@ -91,7 +91,7 @@ const rqo = {
         tipo                 : self.caller.tipo,
         section_tipo         : self.caller.section_tipo, // e.g. 'rsc205' (Publications) — WRITE-gated
         section_id           : self.caller.section_id,
-        tool_config          : self.tool_config,        // carries ddo_map
+        tool_config          : self.tool_config,        // only its ddo_map is read
         files_data           : self.files_data,          // uploaded *.mrc descriptors
         components_temp_data : self.service_tmp_section.get_components_data(),
         key_dir              : self.key_dir
@@ -106,7 +106,7 @@ A single `map` rule (from the reference config) that ingests the title statement
 { "info": "Title mention", "field": "245", "tipo": "rsc140" }
 ```
 
-A conditional holdings rule (945 $a, only when sibling $j equals 193 — ✅ supported on TS) and a year-from-imprint rule (**⬜ `partial_left_content`/`date_format` are not implemented on TS** — the extracted string would be stored as-is, not parsed into a `dd_date`):
+A conditional holdings rule (945 $a from the copy whose $j equals 193 — a record with no such copy gets no value), a year-from-imprint rule (`"c1987."` → a date with start year 1987) and a rule joining every repeated 700 added entry into the secondary personal-name component `rsc352`:
 
 ``` json
 { "info": "Topographic", "field": "945", "subfield": "a", "tipo": "rsc359",
@@ -114,6 +114,9 @@ A conditional holdings rule (945 $a, only when sibling $j equals 193 — ✅ sup
 
 { "info": "Publication date", "field": "260", "subfield": "c", "tipo": "rsc224",
   "partial_left_content": 4, "date_format": "year" }
+
+{ "info": "Secondary entry - Personal name", "field": "700", "subfield": "a", "tipo": "rsc352",
+  "occurrences": "all", "row_separator": " | " }
 ```
 
 ## Related

@@ -1333,11 +1333,15 @@ async function leave(code: number, lines: readonly string[] = []): Promise<never
 	return process.exit(code);
 }
 
-/** The main-screen line after a quit: an unfinished install (its state file) is KEPT, never "nothing". */
+/**
+ * The main-screen line after a quit: an UNFINISHED install (its state file,
+ * in_progress) is KEPT, never "nothing"; a finished one quit at the System
+ * check (T1-P08) is not "unfinished" — nothing was installed by this run.
+ */
 function quitNotice(): string[] {
 	let unfinished: boolean;
 	try {
-		unfinished = readStateFile() !== null;
+		unfinished = readStateFile()?.outcome === 'in_progress';
 	} catch {
 		unfinished = true;
 	}

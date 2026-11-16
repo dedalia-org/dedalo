@@ -171,6 +171,7 @@ never writes to `dd_ontology` and needs no migration:
 | Field node `properties->process->ddo_map` | Compiled to a `ResolveStep` tree with parent linkage (`self` resolution, auto-from-relations fallback, `fn` variants) |
 | `properties->process->parser` chains | Split at compile: **10 rewriter fns** are absorbed into plan structure (`parents`, `get_locator`, `merge_columns`, `map_section_tipo_to_name`, `publication_unix_timestamp`, truncations/filters/slices); **23 runtime fns** run as pure value transforms — see the [parser cookbook & reference](parsers.md) for every fn with in→out examples. All 33 names stay resolvable; an unknown name fails `validate` loudly |
 | `exclude_column`, `varchar/length/index`, `output_format`, `empty_to_string`, `default_value`, `preserve_order` | First-class `FieldPlan` / `FieldPolicy` / `ColumnDef` concepts (including the component-class `output_format` fallback: relation-family fields default to `json`) |
+| Table node `properties->global_table_maps` | Global (aggregate) tables, e.g. `numisdata701` → `numisdata876` (`map_global`): compiled to `SectionPlan.globalTables`. The global `table` node's own fields are its columns; every published row of the section is also written there, one row per language, keyed `<section_tipo>_<section_id>` (a VARCHAR sized by the node's own `section_id` field), with the provenance columns the node declares (`ref_section_id`, `ref_section_tipo`, `ref_table`, `link`) and each `columns_map` item (`source_columns` read from the source table or the automatic `section_id`/`lang`; `format: "string"` joins them with `separator`, default ` \| `). Rows are replaced on every publication and withdrawn on unpublish, record delete and the `public_tier` reconcile. A map naming a column that exists in neither table is not written and is reported as a `global_table_maps_unruled:` warning by `validate` |
 | `component_publication` + ontology `is_publishable` | The publication gate — evaluated per record, **fail-closed** (any gate error ⇒ unpublish) |
 
 The admin-only `validate` action compiles an element and returns every error and
@@ -378,19 +379,20 @@ Implementing a new fn is one registered function plus tests:
   `resolver.ts`, implementations in `ddo_fns.ts`) where batched matrix reads,
   the relations engine and the per-run caches are available. Examples:
   `parse_tag_to_html` (text-tag → publication HTML), `get_geojson_data`
-  (geo-tag ↔ geolocation pairing), `get_diffusion_iconography` (nested
-  iconography portals) — each gated against cells the previous engine actually
-  published.
+  (geo-tag ↔ geolocation pairing) and its flat `get_geolocation_data`
+  variant, `get_diffusion_iconography` (nested iconography portals),
+  `map_target_section_tipo` (a hierarchy's target section → the table name the
+  element publishes it under, e.g. `hierarchy83` reading `hierarchy53`) — each
+  gated against the values the previous engine published.
 
 Every fn ships with the engine (the ontology stays pure data — a deliberate
 security line); the registries are the single place to touch.
 
 !!! warning "Honest ledger — known gaps"
-    - Two niche fn variants remain unported and fail **loudly per field** (the
+    - One niche fn variant remains unported and fails **loudly per field** (the
       column falls to its policy default): the typology-based `parents`
-      truncation options and `get_geolocation_data` (the pre-GeoJSON variant).
-      Zero and one uses respectively in the reference domain; the extension
-      seam above is their landing path.
+      truncation options. No use in the reference domain; the extension seam
+      above is its landing path.
     - SQL-target **media publication markers** are now written natively by
       `src/diffusion/targets/mediastore/media_index.ts` — the single writer of
       the filesystem marker allowlist, mirroring row existence in the target
@@ -399,9 +401,15 @@ security line); the registries are the single place to touch.
       retired (S2-31/DEC-19 cutover).
     - The `diffusion_server_control` maintenance widget still reports the old
       engine; its re-home is coordinated with the cutover.
-    - rdf `rdf:about` uses a urn fallback until dd1010 entity URIs are wired;
-      xmlns prefixes resolve from a pinned well-known set until the compiler
-      carries `properties->xmlns`.
+    - rdf publishes each record's RDF graph: subject IRIs from the
+      publication-services base IRIs (dd1010), namespaces from the element's
+      `properties.diffusion.xmlns`. An element whose definition is incomplete
+      (no `service_type`, a class without `entity_publication_uri`, an
+      undeclared prefix) is refused at compile time with every cause named; a
+      record whose base IRI does not resolve is not written, its previous
+      file is removed, and the run report names it. A linked record is
+      inlined only when the user who started the publication may read it. A relation_list `config` inside an rdf property is not
+      supported yet (refused at compile time).
     - File-run `diffusion_data` lists the merged + zip links (not yet one link
       per record).
     - `tool_export` record resolution now RIDES the shared engine

@@ -51,6 +51,7 @@ import { sql } from '../../src/core/db/postgres.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { SYNTHETIC_HIERARCHY_A_TLD } from '../../src/core/test_data/synthetic_hierarchy_constants.ts';
 import cloneMapJson from '../../src/core/test_data/test_tld_tipo_map.json';
+import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 import avGolden from './fixtures/indexation_grid_native/av_grid.golden.json';
 import mediaGolden from './fixtures/indexation_grid_native/media_grid.golden.json';
 
@@ -474,6 +475,41 @@ describe('indexation grid av + media branches (TS-native, oracle-captured golden
 		);
 	});
 
+	test("image_id (T1-10 review): ONE row's refused stem empties that cell, never the grid; a camera name is a stem", async () => {
+		// rsc29 declares `image_id: rsc34`. A PHP-era 'Filename' the stem law refuses
+		// ('/' or '"') — or one the old over-broad refusal read as another record's
+		// file ('IMG_20230512_142233': an all-digit "section") — used to throw
+		// media.invalid_identifier out of the whole grid request.
+		const filename = seed('rsc', 34);
+		const setFilename = async (value: string | null): Promise<void> => {
+			const bag = value === null ? null : { [filename]: [{ id: 1, lang: 'lg-nolan', value }] };
+			await sql`
+				UPDATE matrix_test SET string = ${bag === null ? null : JSON.stringify(bag)}::text::jsonb
+				WHERE section_tipo = 'test2' AND section_id = ${SCRATCH_RSC170_ID}`;
+		};
+		const imageUrls = (data: unknown): string[] =>
+			(JSON.stringify(data).match(/\/dedalo\/media\/image\/[^"?]+/g) ?? []) as string[];
+		try {
+			for (const refused of ['a/b', 'x"y']) {
+				await setFilename(refused);
+				const { status, data } = await tsGrid(gridRqo(['test6101']));
+				expect(status).toBe(200);
+				const json = JSON.stringify(data);
+				expect(json).toContain(`"value":[${SCRATCH_ID}]`); // the row is still there
+				expect(json).toContain('"cell_type":"img","action":null,"value":[""]'); // its image cell: no URL
+				expect(imageUrls(data)).toEqual([]);
+			}
+			for (const camera of ['IMG_20230512_142233', 'inv_1987_23']) {
+				await setFilename(camera);
+				const { status, data } = await tsGrid(gridRqo(['test6101']));
+				expect(status).toBe(200);
+				expect(imageUrls(data)).toEqual([`/dedalo/media/image/thumb/90000000/${camera}.jpg`]);
+			}
+		} finally {
+			await setFilename(null);
+		}
+	});
+
 	test('the door default: an absent limit is 500 under a ceiling above it (the clamp notice names the window served)', async () => {
 		// The page primitive (sqo.ts clampClientPage) gives get_indexation_grid its
 		// OWN default of 500 — the thesaurus "show indexations" page — still
@@ -498,6 +534,58 @@ describe('indexation grid av + media branches (TS-native, oracle-captured golden
 			requested: 'limit absent, offset -5',
 			applied: 'limit 500, offset 0',
 		});
+	});
+
+	test('T1-43: a Tools-configuration override replaces the tool cell ddo_map (tool_configuration override)', async () => {
+		// The grid's tool_indexation cell is the element stamp of the av text_area
+		// (seed rsc36 on test3). An override for that (tipo, section_tipo) replaces
+		// the ontology ddo_map — WC-2026-11-12-tool-configuration-override.
+		const indexationMaps = (data: unknown): unknown[][] => {
+			const maps: unknown[][] = [];
+			const walk = (node: unknown): void => {
+				if (Array.isArray(node)) {
+					for (const n of node) walk(n);
+				} else if (node !== null && typeof node === 'object') {
+					const record = node as Record<string, unknown>;
+					const toolConfig = record.tool_config as { ddo_map?: unknown[] } | undefined;
+					if (record.name === 'tool_indexation' && toolConfig?.ddo_map !== undefined) {
+						maps.push(toolConfig.ddo_map);
+					}
+					for (const v of Object.values(record)) walk(v);
+				}
+			};
+			walk(data);
+			return maps;
+		};
+		const before = indexationMaps((await tsGrid(gridRqo(['test3']))).data);
+		expect(before.length).toBeGreaterThan(0);
+		expect(before[0]?.length).toBeGreaterThan(1); // the ontology's multi-entry map
+		const teardown = await installScratchToolConfig('tool_indexation', {
+			properties: {
+				tool_config: [
+					{
+						tipo: seed('rsc', 36),
+						section_tipo: 'test3',
+						ddo_map: [{ tipo: 'self', section_tipo: 'self', role: 'transcription_component' }],
+					},
+				],
+			},
+		});
+		try {
+			const after = indexationMaps((await tsGrid(gridRqo(['test3']))).data);
+			expect(after.length).toBe(before.length);
+			for (const map of after) {
+				expect(map).toHaveLength(1);
+				expect(map[0]).toMatchObject({
+					tipo: seed('rsc', 36),
+					section_tipo: 'test3',
+					role: 'transcription_component',
+					model: 'component_text_area',
+				});
+			}
+		} finally {
+			await teardown();
+		}
 	});
 
 	test('after revert the term grid is empty again for both target sections', async () => {

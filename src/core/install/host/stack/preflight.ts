@@ -41,11 +41,11 @@ import { join } from 'node:path';
 import { imageSourceRefusedFor, installerIdentity } from '../../installer_identity.ts';
 import type { HostCtx, HostPlanCtx, HostRunResult, HostStepDefinition } from '../contract.ts';
 import { type HostFacts, pendingFacts } from '../facts.ts';
+import type { HostFs } from '../fs.ts';
 import { ran } from '../production/common.ts';
 import { hostRefuse } from '../refuse.ts';
 import { checkCertificateFiles } from '../tls_files.ts';
 import { chainTrustVerdict, SYSTEM_CA_BUNDLES } from '../tls_trust.ts';
-import { inCheckout } from './common.ts';
 import { gatherStackFacts, type StackFacts } from './facts.ts';
 import { type ImageProbeOutcome, probeImageAvailability } from './image_verify.ts';
 import {
@@ -165,6 +165,36 @@ function machineProblems(facts: StackFacts): string[] {
 	return failing(facts, ['disk', 'operator']);
 }
 
+/** Where an existing stack install is looked for: the checkout, read through the host fs. */
+export interface ExistingStackPlace {
+	readonly source: string;
+	readonly fs: Pick<HostFs, 'exists'>;
+	/** The route's compose file (stackFileOf) — named in the `down -v` hint. */
+	readonly stackFile: string;
+}
+
+/**
+ * A Dédalo instance (its private volume), or an earlier install's stack files,
+ * already here — ONE wording for the run, the Review and the System check
+ * (T1-P08: screen 2 says it, not the Review after every question).
+ */
+export function existingStackProblems(place: ExistingStackPlace, facts: StackFacts): string[] {
+	const { source, fs, stackFile } = place;
+	return [
+		...(facts.volumes.includes(PRIVATE_VOLUME)
+			? [
+					`this machine already has a Dédalo instance (volume ${PRIVATE_VOLUME}) — the seed restore needs an empty database: keep that instance, or destroy it first (docker compose -f ${stackFile} --env-file ${ENV_FILE} down -v)`,
+				]
+			: []),
+		...[ENV_FILE, OVERRIDE_FILE]
+			.filter((name) => fs.exists(join(source, name)))
+			.map(
+				(name) =>
+					`${join(source, name)} is from an earlier install — remove it (or keep that instance) and run this again`,
+			),
+	];
+}
+
 /** An instance, or an earlier install's stack files, already here. */
 function instanceProblems(ctx: HostCtx, facts: StackFacts): string[] {
 	const stack = stackFileOf(ctx.answers);
@@ -172,17 +202,7 @@ function instanceProblems(ctx: HostCtx, facts: StackFacts): string[] {
 		...(existsSync(join(ctx.source, stack))
 			? []
 			: [`${stack} is not in ${ctx.source} — run the installer from a Dédalo checkout`]),
-		...(facts.volumes.includes(PRIVATE_VOLUME)
-			? [
-					`this machine already has a Dédalo instance (volume ${PRIVATE_VOLUME}) — the seed restore needs an empty database: keep that instance, or destroy it first (docker compose -f ${stack} --env-file ${ENV_FILE} down -v)`,
-				]
-			: []),
-		...[ENV_FILE, OVERRIDE_FILE]
-			.filter((name) => ctx.fs.exists(inCheckout(ctx, name)))
-			.map(
-				(name) =>
-					`${inCheckout(ctx, name)} is from an earlier install — remove it (or keep that instance) and run this again`,
-			),
+		...existingStackProblems({ source: ctx.source, fs: ctx.fs, stackFile: stack }, facts),
 	];
 }
 

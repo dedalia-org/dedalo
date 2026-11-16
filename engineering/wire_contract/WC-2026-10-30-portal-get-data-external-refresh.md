@@ -112,3 +112,13 @@ the update-external button; otherwise none. Every edit view that gated its toolb
 No fixture re-harvest: the read's served bytes are unchanged for every request without
 the flag, and a flagged read serves the same shape over fresh data plus optional
 `notices`.
+
+## Addendum 2026-11-12 — the refresh runner is shared with update_cache (T1-38)
+
+- The permitted refresh (`runRefresh`, now exported `runExternalRefresh(target, grant,
+  lockTimeout)`) has a second caller: `tool_update_cache`'s regenerate of an external
+  portal, under that tool's per-row WRITE grant and per-record lock bound
+  (WC-2026-11-12-update-cache-external-mirror-refresh). Law and host stay the runner's own
+  checks. The read door's wire is UNCHANGED (same preconditions, notices, reasons, 3s
+  bound; a record deleted between grant and lock still serves as a no-drift read).
+- `observers_external_refresh_busy` now also counts update_cache rows held past their bound.

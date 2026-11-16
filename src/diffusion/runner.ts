@@ -87,6 +87,7 @@ import {
 	publicationTargetLockKey,
 	withFencedBatch,
 } from './jobs/target_fence.ts';
+import type { ResolvedBatch } from './resolve/resolver.ts';
 import type { WriterCloseContext } from './writers/types.ts';
 
 /** Parse `--<name> <value>` (also tolerates `--<name>=<value>`). */
@@ -185,6 +186,23 @@ function mergeErrorLines(lines: readonly string[], extra: readonly string[]): st
 		if (!merged.includes(line)) merged.push(line);
 	}
 	return merged;
+}
+
+/**
+ * The records of a batch this run PUBLISHES — the dd1758 'published' ledger
+ * rows and the vanished-record check are theirs: gate 'publish', MINUS the
+ * records the resolver held back on an external OUTAGE (owner C49,
+ * ResolvedBatch.skipped — no row written, no row removed, the previous
+ * publication and its ledger row stand; the next run retries). PURE, exported
+ * for the gate (diffusion_external_chain_native).
+ */
+export function publishedRecordsOf(
+	batch: Pick<ResolvedBatch, 'records' | 'skipped'>,
+): ResolvedBatch['records'] {
+	const held = new Set(batch.skipped.map((entry) => String(entry.sectionId)));
+	return batch.records.filter(
+		(record) => record.status === 'publish' && !held.has(String(record.sectionId)),
+	);
 }
 
 /** The real publication pipeline. */
@@ -369,7 +387,7 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 				// the archive while this batch waited is unpublished, never written.
 				let rows = batch.rows;
 				const unpublishIds = [...batch.unpublishIds];
-				const publishing = batch.records.filter((record) => record.status === 'publish');
+				const publishing = publishedRecordsOf(batch);
 				const vanished = new Set<string>();
 				if (publishing.length > 0) {
 					const table = await getMatrixTableFromTipo(batch.section.sectionTipo);
@@ -390,7 +408,31 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 					}
 				}
 				if (rows.length > 0) await session.writeRows(batch.section, rows);
+				// rdf: one document per published record (ResolvedBatch.graphs), the
+				// same vanished-record filter as rows.
+				const documents = (batch.graphs ?? []).filter(
+					(document) => !vanished.has(String(document.sectionId)),
+				);
+				if (documents.length > 0) {
+					if (session.writeGraphs === undefined) {
+						throw new DedaloError('internal.invariant', {
+							message: `diffusion runner: plan '${plan.planId}' resolved rdf graphs but its writer has no writeGraphs`,
+						});
+					}
+					await session.writeGraphs(batch.section, documents);
+				}
 				if (unpublishIds.length > 0) await session.removeRecords(batch.section, unpublishIds);
+				// Owner C49: a record held back on an external OUTAGE keeps its previous
+				// publication — for a file writer that publication is a per-record file
+				// the close consolidates FROM THE MANIFEST, so the held records are carried
+				// into it here (kept, not rewritten); otherwise they vanished from the
+				// merged document and zip, and a run holding every record withdrew both.
+				if (batch.skipped.length > 0 && session.keepPublished !== undefined) {
+					await session.keepPublished(
+						batch.section,
+						batch.skipped.map((entry) => entry.sectionId),
+					);
+				}
 				const artifacts = session.takeArtifacts();
 				const writerCheckpoint = await session.checkpoint();
 

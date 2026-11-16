@@ -57,7 +57,7 @@ This is exactly what `bun run scripts/create_tool.ts --name=... --label=... --mo
 | `labels` | array | UI strings: `[{"lang": "lg-eng", "name": "key", "value": "Text"}, ...]`, retrieved in JS via `get_tool_label('key')` |
 | `ontology` | array\|null | Optional tool ontology extension nodes |
 | `config` | object\|null | Runtime configuration definition. Properties flagged `"client": true` are exposed to the browser (`getToolClientConfig`) — never put secrets there |
-| `default_config` | object\|null | Factory default configuration; per-install overridable in the Tools configuration section (dd996) |
+| `default_config` | object\|null | Factory default configuration; per-install overridable in the Tools configuration section (dd996). May carry `properties.tool_config` entries that redefine the tool's components for one field or button ([Server contract](server_contract.md), section *Per-field override*) |
 
 Every field maps to a fixed ontology tipo (`TOOL_NAME`, `TOOL_VERSION`, `CONFIG`, `DEFAULT_CONFIG`, `PROPERTIES`, `LABELS`, `AFFECTED_MODELS`, `AFFECTED_TIPOS`, `ACTIVE`, …) declared once in `src/core/tools/ontology_map.ts` — use those constants in any code reading registry data, never literal `dd1326`-style strings.
 

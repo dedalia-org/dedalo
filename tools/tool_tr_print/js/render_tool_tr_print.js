@@ -8,6 +8,7 @@
 	import {ui} from '../../../core/common/js/ui.js'
 	import {tr} from '../../../core/common/js/tr.js'
 	import {error_text, error_debug_suffix} from '../../../core/common/js/render_api_error.js'
+	import {render_join, render_value} from '../../../core/common/js/utils/render_escape.js'
 
 
 
@@ -239,7 +240,7 @@ const get_content_data_edit = async function(self) {
 		for (let i = 0; i < node_len; i++) {
 			const raw_data	= self.ar_raw_data[i].value || ''
 			const text_node	= self.tags_to_html(raw_data)
-			right_container_text.insertAdjacentHTML('beforeend', text_node);
+			right_container_text.insertAdjacentHTML('beforeend', render_value(text_node, self.transcription_component?.context?.render_class));
 		}
 
 	// content_data
@@ -404,7 +405,7 @@ const render_text_process_options = function(self, content_data) {
 							const raw_data	= self.ar_raw_data[i].value || ''
 							const text_node	= self.tags_to_html(raw_data)
 							// add the new one
-							content_data.right_container_text.insertAdjacentHTML('beforeend', text_node);
+							content_data.right_container_text.insertAdjacentHTML('beforeend', render_value(text_node, self.transcription_component?.context?.render_class));
 						}
 
 					// loading
@@ -788,7 +789,7 @@ const render_text_process_options = function(self, content_data) {
 					const raw_data = self.ar_raw_data[i].value || ''
 					const text_node = self.tags_to_html(raw_data)
 					// add the new one
-					content_data.right_container_text.insertAdjacentHTML("beforeend", text_node);
+					content_data.right_container_text.insertAdjacentHTML('beforeend', render_value(text_node, self.transcription_component?.context?.render_class));
 				}
 			}
 
@@ -1122,7 +1123,9 @@ const render_default = function(self) {
 				const pattern_lang = tr.get_mark_pattern('lang');
 				current_fragment = current_fragment.replace(pattern_lang, `<span class="lang">$6: </span>`);
 
-				right_block.insertAdjacentHTML("beforeend", current_fragment)
+				// the record text by the SERVER's class (text_area: 'html', sanitized on save); the tag
+				// markup added above rides the same class — the ONE escaper, render_escape_tripwire
+				right_block.insertAdjacentHTML('beforeend', render_value(current_fragment, self.transcription_component?.context?.render_class))
 		}
 		ar_default_render.push(data_block)
 	}// end for (let i = 0; i < node_len; i++)
@@ -1238,7 +1241,7 @@ const render_header = function(self) {
 			const section_label_node = ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'section_label',
-				inner_html		: section_label,
+				text_content		: section_label,
 				parent			: head
 			})
 
@@ -1263,7 +1266,7 @@ const render_header = function(self) {
 					ui.create_dom_element({
 						element_type	: 'span',
 						class_name 		: 'component_value',
-						inner_html		: value[i].section_id || '',
+						text_content		: value[i].section_id || '',
 						parent			: section_id_container
 					})
 
@@ -1280,12 +1283,12 @@ const render_header = function(self) {
 				// Flatten the component's value array into a single display string;
 			// ' | ' separates multi-value fields. Entries are flat strings on the
 			// v7 wire (WC-065) or {id, value, …} objects on legacy payloads.
-			const current_component_value = current_component_data && current_component_data.value
-					? current_component_data.value.map(item => item?.value ?? item).join(' | ')
-					: null
+			const current_component_values = current_component_data && current_component_data.value
+					? current_component_data.value.map(item => item?.value ?? item)
+					: []
 
 				// Skip empty values
-				if( !current_component_value || current_component_value.length === 0) {
+				if( current_component_values.length === 0 || current_component_values.join('').length === 0) {
 					continue;
 				}
 
@@ -1300,10 +1303,12 @@ const render_header = function(self) {
 					text_content	: label + ': ',
 					parent			: component_container
 				})
+				// the values by the SERVER's class (the context entry's render_class), the
+				// separator as text — the ONE escaper (render_escape_tripwire)
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name 		: 'component_value',
-					inner_html		: current_component_value,
+					inner_html		: render_join(current_component_values, ' | ', current_component.render_class),
 					parent			: component_container
 				})
 			}

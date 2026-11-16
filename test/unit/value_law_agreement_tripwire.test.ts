@@ -40,6 +40,7 @@ import {
 	isConvertibleSectionIdString,
 	SECTION_ID_ADDRESS_SQL_PATTERN,
 	sectionIdAddressSqlPredicate,
+	sectionIdAddressSqlValue,
 } from '../../src/core/concepts/section_id.ts';
 import {
 	type AssetEntry,
@@ -48,6 +49,7 @@ import {
 	SEARCH_STORE_BACKFILLS,
 } from '../../src/core/db/db_assets.ts';
 import definitions from '../../src/core/db/db_pg_definitions.json';
+import { proseMarkdownFiles } from '../helpers/prose_markdown_corpus.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
 import { WRITE_PATH_CORPUS_FLOOR, writePathSourceFiles } from '../helpers/write_path_corpus.ts';
 
@@ -63,6 +65,42 @@ const ENGINE_FILES_FLOOR = WRITE_PATH_CORPUS_FLOOR;
 
 function code(rel: string): string {
 	return stripComments(readFileSync(join(ROOT, rel), 'utf8'));
+}
+
+/**
+ * Occurrences of a locator's section_id text cast to a number type — any
+ * alias, through `)` / `NULLIF(…, '')` wrappers (DATA-26 census, T1-36).
+ */
+const LOCATOR_ID_CAST =
+	/->>\s*'section_id'\s*\)*\s*(?:,\s*''\s*\)\s*)?::\s*(?:bigint|integer|int[248]?|numeric|smallint)\b/g;
+function locatorIdCasts(source: string): number {
+	return [...source.matchAll(LOCATOR_ID_CAST)].length;
+}
+
+/**
+ * The value form of the law as a regex over ANY locator expression: the
+ * helper's own output with a placeholder, every later use of the expression a
+ * backreference (a law guarding one expression is no cover for another).
+ */
+const ADDRESS_VALUE_FORM = (() => {
+	const hole = '\u0000';
+	const parts = sectionIdAddressSqlValue(hole)
+		.split(hole)
+		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+	return new RegExp(
+		parts.reduce((acc, part, index) => acc + (index === 1 ? '([^()\\s]+)' : '\\1') + part),
+		'g',
+	);
+})();
+
+/**
+ * Locator-id casts a manual page shows OUTSIDE the address law: whitespace
+ * folded (a manual wraps long SQL), every law occurrence removed, the rest
+ * counted with the same census regex as the engine leg.
+ */
+function docCastsOutsideLaw(text: string): number {
+	const folded = text.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')');
+	return locatorIdCasts(folded.replace(ADDRESS_VALUE_FORM, '<law>'));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +305,11 @@ describe('DATA-33 — getSectionRealTipo is the ONE virtual→real law', () => {
 			'src/core/section/record/declared_components.ts',
 			'src/core/identify/profile.ts',
 			'src/core/identify/profile_source.ts',
-			'src/core/relations/request_config/implicit.ts',
+			// (implicit.ts LEFT this list with T1-23: the virtual edit scope moved to
+			// ontology/virtual_scope.ts — listed here — the ONE exclude_elements law
+			// the edit config, the elements context, the birth defaults and the
+			// record wipe scope all read)
+			'src/core/ontology/virtual_scope.ts',
 			// (explicit.ts LEFT this list with T0-2: its button lookup now DELEGATES
 			// to section/buttons.ts sectionButtonRows — listed above — the ONE
 			// virtual-aware + exclude_elements-aware button resolution; it no
@@ -324,15 +366,10 @@ describe('DATA-26 — the trigger, its twins and the app agree on what a record 
 			loose.filter((rel) => LOOSE_AS_CLASSIFIER[rel] === undefined),
 			'the loose numeric filter admits zero-padded external ids',
 		).toEqual([]);
-		// every file that CASTS a locator's section_id to int, or regex-tests it, names the predicate
-		const casters = ENGINE_FILES.filter((rel) => {
-			const source = code(rel);
-			return /\(e->>'section_id'\)::int/.test(source) || /->>'section_id' !?~/.test(source);
-		});
-		expect(casters.length).toBeGreaterThanOrEqual(1);
-		expect(casters).toContain('src/core/db/db_assets.ts');
-		for (const rel of casters) {
-			expect(code(rel), `${rel} casts a locator id outside the predicate`).toMatch(
+		// every file that regex-tests a locator's section_id names the predicate
+		const testers = ENGINE_FILES.filter((rel) => /->>\s*'section_id'\s*\)*\s*!?~/.test(code(rel)));
+		for (const rel of testers) {
+			expect(code(rel), `${rel} regex-tests a locator id outside the predicate`).toMatch(
 				/RELATION_INDEX_ADDRESS_PREDICATE|sectionIdAddressSqlPredicate\(/,
 			);
 		}
@@ -340,6 +377,83 @@ describe('DATA-26 — the trigger, its twins and the app agree on what a record 
 		const report = code('src/core/area_maintenance/widgets/database_info.ts');
 		expect(report).toContain('NOT ${sectionIdAddressSqlPredicate("e->>\'section_id\'")}');
 		expect(report).toContain('non_numeric_locators_by_table');
+	});
+
+	test('every locator-id CAST lives in the address law (per occurrence, any alias, any int type; planted offenders detected)', () => {
+		expect(ENGINE_FILES.length).toBeGreaterThan(ENGINE_FILES_FLOOR);
+		// the scanner must see through the spellings the fossils used
+		for (const planted of [
+			"NULLIF((rel_x->>'section_id'), '')::bigint",
+			"(u.relation->'dd1725'->0->>'section_id')::int",
+			"(misc->'v'->>'section_id')::bigint",
+			"(e->>'section_id')::int",
+			"(e ->> 'section_id')::integer",
+			"x->>'section_id'::numeric",
+			"(loc->>'section_id')::int8",
+		]) {
+			expect(locatorIdCasts(planted), planted).toBe(1);
+		}
+		expect(locatorIdCasts("(e->>'section_id')::text")).toBe(0);
+		expect(locatorIdCasts("e->>'section_tipo'")).toBe(0);
+		// ENUMERATED, shrink-only: a cast that is safe OUTSIDE the helper. Each
+		// entry must still carry a cast (stale = red).
+		const GUARDED_ELSEWHERE: Record<string, string> = {
+			'src/core/db/db_assets.ts':
+				'the relation-index BACKFILL: the cast is a projection whose WHERE carries RELATION_INDEX_ADDRESS_PREDICATE (only passing rows are projected) — it must stay the byte twin of the trigger body.',
+		};
+		const offenders: string[] = [];
+		for (const rel of ENGINE_FILES) {
+			if (rel === 'src/core/concepts/section_id.ts') continue;
+			const count = locatorIdCasts(code(rel));
+			if (count === 0) continue;
+			if (GUARDED_ELSEWHERE[rel] === undefined) offenders.push(`${rel} (${count})`);
+		}
+		for (const [rel, reason] of Object.entries(GUARDED_ELSEWHERE)) {
+			expect(reason.length).toBeGreaterThan(40);
+			expect(locatorIdCasts(code(rel)), `${rel}: stale exemption`).toBeGreaterThan(0);
+			expect(code(rel)).toContain('RELATION_INDEX_ADDRESS_PREDICATE');
+		}
+		expect(offenders, 'cast a locator id through sectionIdAddressSqlValue').toEqual([]);
+		// the hop join (filter, deep forward shape, order) names the value form
+		expect(code('src/core/search/conform.ts')).toContain('sectionIdAddressSqlValue(');
+		// the value form IS the predicate guarding an int4 cast — one law
+		expect(sectionIdAddressSqlValue('v')).toBe(
+			`(CASE WHEN ${sectionIdAddressSqlPredicate('v')} THEN (v)::int END)`,
+		);
+	});
+
+	test('the MANUAL (docs/) shows no locator-id cast outside the address law (planted fossil detected, wrapped law admitted)', () => {
+		// docs/ is the current-engine manual: SQL it shows as engine output is
+		// copied by integrators. The fossil `NULLIF((…->>'section_id'), '')::bigint`
+		// 22Ps on an opaque id and joins record N on a zero-padded one (T1-36
+		// review) — docs_current_engine_tripwire does not read SQL, this does.
+		// The shared prose corpus, its docs/ half: engineering/'s wire-contract
+		// entries QUOTE the fossil as history (what was fixed), which is no
+		// instruction to copy.
+		const docsRoot = join(ROOT, 'docs');
+		const files = proseMarkdownFiles().filter((file) => file.startsWith(`${docsRoot}/`));
+		expect(files.length).toBeGreaterThan(50);
+		const offenders: string[] = [];
+		for (const file of files) {
+			const left = docCastsOutsideLaw(readFileSync(file, 'utf8'));
+			if (left > 0) offenders.push(`${file.slice(ROOT.length + 1)} (${left})`);
+		}
+		// planted: the fossil is an offender; the law (wrapped over lines, as a
+		// manual prints it) is not; a law guarding ANOTHER expression is not cover
+		expect(
+			docCastsOutsideLaw("ON j.section_id = NULLIF((rel_j1->>'section_id'), '')::bigint"),
+		).toBe(1);
+		expect(
+			docCastsOutsideLaw(
+				`ON j.section_id = ${sectionIdAddressSqlValue("rel_j1->>'section_id'").replaceAll(' AND ', '\n   AND ')}`,
+			),
+		).toBe(0);
+		expect(
+			docCastsOutsideLaw(
+				`${sectionIdAddressSqlPredicate("a->>'section_id'")} THEN (b->>'section_id')::int`,
+			),
+		).toBeGreaterThan(0);
+		expect(offenders, 'show the hop join as sectionIdAddressSqlValue prints it').toEqual([]);
 	});
 
 	test('the POSIX pattern is the JS rule (hermetic twin over a corpus; int4 bound is SQL-only and declared)', () => {

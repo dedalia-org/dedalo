@@ -41,6 +41,7 @@
  * measured fallback is the honest version of the same intent.
  */
 
+import { open } from 'node:fs/promises';
 import { DedaloError } from '../errors/index.ts';
 
 /** The encodings this door can answer with. */
@@ -154,8 +155,67 @@ export function decodeIngestBytes(bytes: Uint8Array, label: string): DecodedInge
 	};
 }
 
-/** decodeIngestBytes over a staged upload on disk. */
-export async function readIngestTextFile(path: string, label: string): Promise<DecodedIngestText> {
-	const bytes = new Uint8Array(await Bun.file(path).arrayBuffer());
-	return decodeIngestBytes(bytes, label);
+/**
+ * The operator sentence for a file over its door's byte ceiling — exported so a
+ * door that refuses BEFORE reading (the CSV tool's process_uploaded_file) says
+ * exactly what the read door says.
+ */
+export function oversizedIngestSentence(label: string, size: number, maxBytes: number): string {
+	const limit =
+		maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / 1024 / 1024)} MB` : `${maxBytes} bytes`;
+	return `${label}: the file is too large to import (${size} bytes; the limit is ${limit}). Split it into smaller files and upload the parts.`;
+}
+
+function oversized(label: string, size: number, maxBytes: number): DedaloError {
+	const sentence = oversizedIngestSentence(label, size, maxBytes);
+	// Public: the operator's own file, its size and the limit — no path.
+	return new DedaloError('media.too_large', { message: sentence, publicMessage: sentence });
+}
+
+/**
+ * Read at most `maxBytes` BYTES of `path`, refusing a larger file BEFORE a byte
+ * of it is buffered (T1-S18). The bound counts bytes on disk, never decoded code
+ * units (a UTF-16 file decodes to half as many units as it has bytes), and is a
+ * REQUIRED argument: a door cannot read unbounded by omission.
+ *
+ * One file descriptor: the size is taken from the OPEN file (fstat) and the read
+ * asks for one byte more than that size, so a file that grows between the stat
+ * and the read is seen growing — and refused if it crossed the bound, or when it
+ * changed under us at all (a copy still being written is not the file to import).
+ */
+async function readBoundedBytes(
+	path: string,
+	label: string,
+	maxBytes: number,
+): Promise<Uint8Array> {
+	const handle = await open(path, 'r');
+	try {
+		const { size } = await handle.stat();
+		if (size > maxBytes) throw oversized(label, size, maxBytes);
+		const buffer = new Uint8Array(size + 1);
+		let read = 0;
+		while (read < buffer.length) {
+			const { bytesRead } = await handle.read(buffer, read, buffer.length - read, read);
+			if (bytesRead === 0) break;
+			read += bytesRead;
+		}
+		if (read > size) {
+			const now = (await handle.stat()).size;
+			if (now > maxBytes) throw oversized(label, now, maxBytes);
+			const sentence = `${label}: the file changed while it was being read. Wait until it is completely copied and try again.`;
+			throw new DedaloError('request.invalid_data', { message: sentence, publicMessage: sentence });
+		}
+		return buffer.subarray(0, read);
+	} finally {
+		await handle.close();
+	}
+}
+
+/** decodeIngestBytes over a staged upload on disk, bounded to `maxBytes` bytes. */
+export async function readIngestTextFile(
+	path: string,
+	label: string,
+	maxBytes: number,
+): Promise<DecodedIngestText> {
+	return decodeIngestBytes(await readBoundedBytes(path, label, maxBytes), label);
 }

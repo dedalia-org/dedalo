@@ -138,6 +138,11 @@ export const OUTCOME_DETAILS = [
 	'locked',
 	'interrupted',
 	'malformed_request',
+	// the stack file pins a data-format service (postgres, mariadb, pgvector) at another
+	// MAJOR than the running one — a migration, never an image update (owner C25, 2026-11-13)
+	'service_major_mismatch',
+	// a queued third-party service pin could not be pulled or its service recreated (C25)
+	'service_pin_failed',
 ] as const;
 
 /** One update's result (deploy/dedalo-image-update.sh --outcome-file). */

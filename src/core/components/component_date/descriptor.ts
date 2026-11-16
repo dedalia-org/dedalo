@@ -14,4 +14,5 @@ export const component_date: ComponentModel = {
 	importAppend: 'items',
 	searchBuilder: 'date',
 	importConform: 'date',
+	calculationData: 'date', // PHP get_calculation_data (components/calculation_data.ts)
 };

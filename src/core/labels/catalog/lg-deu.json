@@ -835,6 +835,7 @@
 	"reset_to_seed": "Auf Ausgangsstand zurücksetzen",
 	"reset_warning": "Dies LÖSCHT und importiert erneut vom Ausgangsstand, wobei lokale Änderungen verworfen werden",
 	"resize": "Grösse ändern",
+	"restricted": "(eingeschränkt)",
 	"reuse_tag": "Label wiederverwenden",
 	"reverse_relations": "Umgekehrte Beziehungen",
 	"rotate": "Drehen",

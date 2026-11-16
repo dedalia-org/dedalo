@@ -72,7 +72,11 @@ On a section read the info **emit hook**
 `component_info` instance. The value is **always** the **live compute** through
 `computeInfoWidgets()` (`widgets/registry.ts`), which reads the node's
 `properties.widgets` and, for each non-async widget, looks its `widget_name` up
-in the registry and runs the descriptor's `computeData()`. A stored `misc`
+in the registry and runs the descriptor's `computeData()`. An async widget is
+skipped on the section read (the client fetches it on demand) but **is**
+computed by the export and the publication, which set `includeAsync` on the
+widget context — a published or exported information column carries what the
+record shows. A stored `misc`
 value is never served (see [The derived-value rule](#the-derived-value-rule)).
 The entries pass through `normalizeWidgetEntryKeys` (the WC-026 dual-key fix — see
 [The wire contract](#the-wire-contract)). The client (`component_info.js`) then
@@ -84,8 +88,10 @@ render module.
     `src/core/components/component_info/widgets/` — `widget_common.ts` (the
     `InfoWidgetDescriptor` contract + shared IPO helpers), `registry.ts` (the
     ONE dispatch home: `INFO_WIDGETS` map + `computeInfoWidgets`), one module
-    per widget under `<tld>/<name>.ts`, `calculation/functions.ts` (the static
-    process-fn registry) and `grid.ts` (dd_grid builders). The TS server
+    per widget under `<tld>/<name>.ts`, `calculation/functions.ts` (the generic
+    process-fn table; an ontology's own formulas live in its TLD package
+    `src/tld/<tld>/calculation.ts`, selected by the block's `process.file`
+    through `src/tld/registry.ts`) and `grid.ts` (dd_grid builders). The TS server
     dispatches by **name** through a static registry and never loads code from
     an ontology-authored path — the dynamic-include threat class does not exist
     here by construction. The developer checklist lives in
@@ -277,7 +283,7 @@ byte-identical client (`client/dedalo/core/widgets/<tld>/<name>/js/`).
 
 | widget | TLD | descriptor `path` | purpose | facets |
 |---|---|---|---|---|
-| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run a static process fn (`summarize` / `to_euros` / `calculate_period`), emit `output` items. | emits `id` (not `widget_id`) |
+| `calculation` | — | `/calculation` | Generic IPO calculator: read `current`-scope components, run the static process fn the block's `process` names (`file` + `fn`, `engine: "ts"`): generic `/calculation/formulas.ts` → `summarize`; the mdcat package `/mdcat/calculation/mdcat.ts` → `calculate_period`, `to_euros`, `range_to_days`, `days_correction_manually`, `calculate_import_major` / `_minor`, `subtract`, `final_total`. Emit `output` items; a formula may emit none (a grant amount over zero days). | emits `id` (not `widget_id`) |
 | `state` | — | `/state` | Per-record completion **state** %: follow each IPO path to a select/check_box pointing at the `dd174`/`dd501` vocabulary, emit per-column `detail` + `total` items. | **`computeDataList`** (edit datalist) |
 | `user_activity` | `dd` | `/dd/user_activity` | The user's WHOLE activity history: their saved stats span, plus the raw log for the tail after the last saved day. | **`isAsync`** — delivered only via `get_widget_data` |
 | `get_archive_states` | `dmm` | `/dmm/get_archive_states` | Aggregate radio_button state values (`answer`/`closed`, affirmative/negative counts + %) over linked records; 14 keyed outputs. | shape-gated (no instance declares it) |
@@ -411,24 +417,43 @@ widget → the widget's own `wrapper_widget` node. `content_data` uses
 handling — there is nothing to import; the value is recomputed each load. See
 [importing data](../../using/importing_data.md).
 
-**Export / grid.** The intended contract is **one atom per widget IPO `output`
-entry**, built by walking each output `id`. The current grid/export consumer
-for widgets is partial — the shared dd_grid cell tree is built by
-`widgets/grid.ts` (`buildPortalGridValue`, consumed by `descriptors`), and
-`sum_dates` ships a `computeDataParsed` humanizer as its grid/export face; the
-full one-column-per-`output` consumer is not universally wired. Check the code
-before relying on an exact column layout. See [exporting data](../../using/exporting_data.md).
+**Export.** `component_info` declares the `info` flat-value family: every
+export format computes the widgets **live** (the same rule as the read — a
+stored `misc` array is never exported). The walk visits every widget, every
+`ipo` block and every declared `output` in declaration order, and takes the
+widget's grid/export face (`computeDataParsed` when the widget has one —
+`sum_dates` humanizes its intervals there — else `computeData`). An output
+collects the widget's own items whose `id` or `widget_id` equals the output
+`id` (and whose `key`, when present, is that `ipo` block):
+
+- **value** — one column (the component's label); the cell joins every
+  output's values;
+- **grid value** — one column per declared output, keyed by the output `id`
+  (`<section>_<info>.<section>_<info>#<output id>`, label
+  `<component label> | <output id>`); an output with no value keeps its
+  column with an empty cell;
+- **Dédalo raw** — `{"dedalo_data": [...]}` holding the live computed items;
+- the relation_list panel shows every output's values.
+
+Async widgets (`user_activity`) are skipped exactly as in the read, so their
+outputs export empty. See [exporting data](../../using/exporting_data.md).
+
+**Publication.** A diffusion field that reads a `component_info` publishes the
+live compute too: one language-neutral item per computed entry, the whole
+`{widget, key, id, widget_id, value}` object, which `parser_info::widget`
+selects from (see [diffusion parsers](../../diffusion/parsers.md)). The compute
+runs once per record per publication run, as the user who started it.
+Ledgered in `WC-2026-11-12-info-live-publication-export`.
 
 ## Honest notes on known limitations
 
 These notes document known limitations and historical context behind some of
 the engine's deliberate divergences:
 
-- **`calculation` `summarize` does not sum non-empty input yet** — it emits
-  `[]` when any input is non-empty (a known limitation, not a real sum yet);
-  with all inputs empty it emits `total 0`. Pinned in
-  `test/parity/info_widget_differential.test.ts` and the code comment in
-  `widgets/calculation/functions.ts`.
+- **Two `calculation` grant-amount cases refuse until an owner decision** —
+  `calculate_import_major` / `_minor` over zero days, and `final_total`'s
+  major-grant branch for the one section the earlier engine hard-coded, answer
+  `engine.uncovered_scope` instead of a guessed amount.
 - **`user_activity` reports the WHOLE history, not a fixed window.** Earlier
   tooling never fully exercised the saved-stats read, its `who` dimension never
   worked, and the window was hardcoded to the last 365 days — on a decade-old

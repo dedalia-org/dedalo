@@ -53,6 +53,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BUILD_CONTEXT } from '../../src/core/install/host/stack/image.ts';
+import { dataFormatMajorOf } from '../../src/core/install/host/stack/images.ts';
 import { BUILD_INFO_PATH, readReleaseIdentityOf } from '../../src/core/update/build_stamp.ts';
 import { loadImageRegistries } from '../../src/core/update/image_registries.ts';
 import {
@@ -163,6 +164,9 @@ if [ "$1" = compose ]; then
 			echo "dedalo-db-backup: verified ${BACKUP} (4242 bytes)"
 			;;
 		up)
+			# a SERVICE recreation (C25: up -d --no-build --no-deps SVC) is not an
+			# engine recreation: it does not move the health probe index
+			case " $* " in *" --no-deps "*) [ -e "$S/service_up_fail" ] && exit 1; exit 0 ;; esac
 			n=$(( $(cat "$S/up_count" 2>/dev/null || echo 0) + 1 ))
 			echo "$n" > "$S/up_count"
 			# signal_on_up_<n>: a signal name sent to the update script (the lock holder)
@@ -200,6 +204,10 @@ case "$1" in
 		;;
 	inspect)
 		case "$3" in
+			*Config.Image*)
+				# the image the RUNNING container of a service was created from
+				# ($STUB_STATE/image_<svc>, the container id being cid-<svc>)
+				cat "$S/image_\${4#cid-}" 2>/dev/null || true ;;
 			*Health*)
 				# health_<n>: the states of the n-th recreation, one per probe, the last
 				# repeating; restarts_<n>: its RestartCount (default 0).
@@ -211,7 +219,11 @@ case "$1" in
 			*Image*) echo "${IMAGE_ID}" ;;
 		esac
 		;;
-	pull) [ -e "$S/pull_fail" ] && exit 1 ;;
+	pull)
+		[ -e "$S/pull_fail" ] && exit 1
+		# a third-party service pin (C25) that the registry does not have
+		case "$2" in postgres:* | nginx:* | mariadb:* | pgvector/* | certbot/*) [ -e "$S/service_pull_fail" ] && exit 1 ;; esac
+		;;
 	build)
 		# the context the build READ, kept for the assertions (the builder removes its own)
 		ctx="$(last_arg "$@")"
@@ -330,6 +342,8 @@ interface Situation {
 	noGit?: boolean;
 	/** The REAL engine that answers check-target: a release identity, or 'old' (see the header). */
 	engine?: string;
+	/** The stack file's text (default: no services — the pre-C25 cases name none). */
+	stackFile?: string;
 }
 
 interface Stack {
@@ -361,7 +375,7 @@ function makeStack(situation: Situation = {}): Stack {
 	]) {
 		copyFileSync(join(REPO_ROOT, 'deploy', file), join(dir, 'deploy', file));
 	}
-	writeFileSync(join(dir, 'docker-compose.simple.yml'), 'services: {}\n');
+	writeFileSync(join(dir, 'docker-compose.simple.yml'), situation.stackFile ?? 'services: {}\n');
 	if (situation.noGit !== true) mkdirSync(join(dir, '.git'));
 	mkdirSync(join(state, 'commit'));
 	writeFileSync(join(state, 'commit', 'committed.txt'), 'in the last commit\n');
@@ -561,14 +575,31 @@ function outcomeViolations(outcome: Record<string, unknown> | null): string[] {
 	return problems;
 }
 
-/** Postgres and nginx are never named by any compose call; every call carries the env file. */
-function expectStackHygiene(stack: Stack, result: Result): void {
+/**
+ * A third-party service is named by a compose call ONLY as the C25 reconciliation
+ * of a pin the case declared drifted (`up -d --no-build --no-deps <svc>`, once each,
+ * in the stack file's order); every call carries the env file.
+ */
+function expectStackHygiene(
+	stack: Stack,
+	result: Result,
+	reconciled: readonly string[] = [],
+): void {
 	const compose = result.calls.filter((line) => line.startsWith('compose['));
+	const serviceCalls: string[] = [];
 	for (const line of compose) {
-		expect(line, 'a compose call named postgres or nginx').not.toMatch(/\b(postgres|nginx)\b/);
 		expect(line).toContain(`[env=${stack.envFile}]`);
 		expect(line).toContain('docker-compose.simple.yml');
+		const named = /\b(postgres|nginx|certbot|mariadb|pgvector)\b/.exec(line);
+		if (named === null) continue;
+		// the read-only question "is it running?" (ps -q) is how the pins are judged
+		if (new RegExp(`\\] ps -q ${named[1]}$`).test(line)) continue;
+		expect(line, 'a third-party service named outside its pin reconciliation').toMatch(
+			new RegExp(`\\] up -d --no-build --no-deps ${named[1]}$`),
+		);
+		serviceCalls.push(named[1] as string);
 	}
+	expect(serviceCalls).toEqual([...reconciled]);
 	expect(outcomeViolations(result.outcome)).toEqual([]);
 	// …and the ENGINE's validator (the channel's `outcome` verb) takes it as written.
 	expect(validOutcome(result.outcome), 'the channel would reject this outcome').toBe(true);
@@ -1468,6 +1499,225 @@ describe('interrupted after the re-pin (U-20)', () => {
 			detail: 'interrupted',
 		});
 		expect(validOutcome(recorded)).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// C25 — the stack file's third-party service pins (owner ruling 2026-11-13).
+// ---------------------------------------------------------------------------
+
+const D = (letter: string) => `sha256:${letter.repeat(64)}`;
+const PG_PIN = `postgres:18.6@${D('1')}`;
+const NGINX_PIN = `nginx:1.31.8-alpine@${D('2')}`;
+const MARIADB_PIN = `mariadb:11.8.9@${D('3')}`;
+const PGVECTOR_PIN = `pgvector/pgvector:0.8.7-pg18@${D('4')}`;
+
+/** A stack file in the operator stacks' own shape: comments, nested keys, profiles, the product image. */
+function pinnedStackFile(pins: Record<string, string> = {}): string {
+	const postgres = pins.postgres ?? PG_PIN;
+	const nginx = pins.nginx ?? NGINX_PIN;
+	const mariadb = pins.mariadb ?? MARIADB_PIN;
+	const pgvector = pins.pgvector ?? PGVECTOR_PIN;
+	return [
+		'# the stack',
+		'name: dedalo',
+		'',
+		'services:',
+		'  # --- PostgreSQL ---',
+		'  postgres:',
+		`    image: ${postgres}`,
+		'    restart: unless-stopped',
+		'    environment:',
+		'      POSTGRES_DB: ${POSTGRES_DB:-dedalo}',
+		'  dedalo:',
+		'    image: ${DEDALO_IMAGE:-localhost/dedalo}:${DEDALO_VERSION:-local}',
+		'    environment:',
+		'      image: not-a-service-image',
+		'  nginx:',
+		`    image: ${nginx}`,
+		'  mariadb:',
+		`    image: ${mariadb}`,
+		'    profiles: ["diffusion"]',
+		'  pgvector:',
+		`    image: ${pgvector}`,
+		'    profiles: ["rag"]',
+		'  unpinned:',
+		'    image: certbot/certbot',
+		'  backup:',
+		'    image: ${DEDALO_IMAGE:-localhost/dedalo}:${DEDALO_VERSION:-local}',
+		'',
+		'volumes:',
+		'  pgdata:',
+		'',
+	].join('\n');
+}
+
+/** The running services and their images: `running_<svc>` + `image_<svc>` stub flags. */
+function running(images: Record<string, string>): Record<string, string> {
+	const flags: Record<string, string> = {};
+	for (const [svc, image] of Object.entries(images)) {
+		flags[`running_${svc}`] = '';
+		flags[`image_${svc}`] = `${image}\n`;
+	}
+	return flags;
+}
+
+/** The script's bash `service_major_of`, run on its own (the function sourced out of the program). */
+function bashMajorOf(ref: string): string {
+	const script = readFileSync(join(REPO_ROOT, 'deploy', 'dedalo-image-update.sh'), 'utf8');
+	const fn = /^service_major_of\(\) \{\n[\s\S]*?\n\}\n/m.exec(script)?.[0];
+	if (fn === undefined) throw new Error('service_major_of not found in the script');
+	const run = Bun.spawnSync(['bash', '-c', `${fn}\nservice_major_of "$1"`, '_', ref], {
+		env: { PATH: '/usr/bin:/bin' },
+	});
+	return new TextDecoder().decode(run.stdout);
+}
+
+describe("the stack file's third-party service pins (C25)", () => {
+	test('a service whose running image is not the pin: pulled and recreated alone, AFTER the dump and the engine pull, BEFORE the re-pin; the engine recreation follows', () => {
+		const stack = makeStack({
+			stackFile: pinnedStackFile(),
+			state: running({
+				postgres: `postgres:18.5@${D('9')}`,
+				nginx: 'nginx:alpine',
+				// mariadb runs AT its pin: nothing to do; pgvector is not running (profile off)
+				mariadb: MARIADB_PIN,
+			}),
+		});
+		const result = runUpdate(stack, ['--version', '7.0.1']);
+		expect(result.code, result.stderr).toBe(0);
+		expect(result.outcome).toMatchObject({ status: 'green', detail: 'healthy' });
+		expect(result.env).toBe(repinned(stack, '7.0.1'));
+		const order = [
+			at(result.calls, /exec -T backup .*dedalo-db-backup\.sh --label pre-image-update/),
+			at(result.calls, /^docker pull ghcr\.io\/dedalia-org\/dedalo:7\.0\.1$/),
+			at(result.calls, new RegExp(`^docker pull ${escapeRegExp(PG_PIN)}$`)),
+			at(result.calls, /\[DEDALO_VERSION=7\.0\.0\] up -d --no-build --no-deps postgres$/),
+			at(result.calls, new RegExp(`^docker pull ${escapeRegExp(NGINX_PIN)}$`)),
+			at(result.calls, /\[DEDALO_VERSION=7\.0\.0\] up -d --no-build --no-deps nginx$/),
+			at(result.calls, /\[DEDALO_VERSION=7\.0\.1\] up -d dedalo backup$/),
+		];
+		expect(
+			order.every((index) => index >= 0),
+			result.calls.join('\n'),
+		).toBe(true);
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+		// mariadb (at its pin) and pgvector (not running) are never pulled or recreated
+		expect(
+			result.calls.filter((line) => /(docker pull|--no-deps).*(mariadb|pgvector)/.test(line)),
+		).toEqual([]);
+		expect(result.stderr).toContain(
+			`reconciling the postgres pin: postgres:18.5@${D('9')} -> ${PG_PIN}`,
+		);
+		expect(result.stderr).toContain(`reconciling the nginx pin: nginx:alpine -> ${NGINX_PIN}`);
+		expectStackHygiene(stack, result, ['postgres', 'nginx']);
+	});
+
+	test('every running service at its pin: no service is pulled or recreated (the pre-C25 shape)', () => {
+		const stack = makeStack({
+			stackFile: pinnedStackFile(),
+			state: running({ postgres: PG_PIN, nginx: NGINX_PIN, mariadb: MARIADB_PIN }),
+		});
+		const result = runUpdate(stack, ['--version', '7.0.1']);
+		expect(result.code, result.stderr).toBe(0);
+		expect(result.calls.filter((line) => /--no-deps/.test(line))).toEqual([]);
+		expect(
+			result.calls.filter((line) => /^docker pull (postgres|nginx|mariadb)/.test(line)),
+		).toEqual([]);
+		expectStackHygiene(stack, result);
+	});
+
+	for (const [svc, pin, runningImage] of [
+		['postgres', `postgres:19.1@${D('5')}`, `postgres:18.6@${D('1')}`],
+		['mariadb', `mariadb:12.0.1@${D('6')}`, MARIADB_PIN],
+		['pgvector', `pgvector/pgvector:0.8.7-pg19@${D('7')}`, PGVECTOR_PIN],
+		// a pre-pin container whose tag spells the same major is reconcilable; one whose tag spells NO major is not
+		['postgres', PG_PIN, 'postgres'],
+	] as const) {
+		test(`${svc} pinned at another MAJOR than the running one (${runningImage} → ${pin}): refused / service_major_mismatch BEFORE the backup — nothing pulled, tagged or re-pinned`, () => {
+			const stack = makeStack({
+				stackFile: pinnedStackFile({ [svc]: pin }),
+				state: running({
+					postgres: PG_PIN,
+					nginx: NGINX_PIN,
+					mariadb: MARIADB_PIN,
+					pgvector: PGVECTOR_PIN,
+					[svc]: runningImage,
+				}),
+			});
+			const result = runUpdate(stack, ['--version', '7.0.1']);
+			expect(result.code).toBe(1);
+			expect(result.outcome).toMatchObject({ status: 'refused', detail: 'service_major_mismatch' });
+			expect(result.env).toBe(stack.envBefore);
+			expect(
+				result.calls.some((line) =>
+					/dedalo-db-backup|docker tag|docker pull|--no-deps| up -d dedalo/.test(line),
+				),
+			).toBe(false);
+			expect(result.stderr).toContain(svc);
+			expect(result.stderr).toMatch(
+				/A new PostgreSQL, pgvector or MariaDB major|spells no readable major/,
+			);
+			expectStackHygiene(stack, result);
+			// the dry run judges it the same way
+			const dry = runUpdate(stack, ['--version', '7.0.1', '--check']);
+			expect(dry.code).toBe(1);
+			expect(dry.stdout).not.toContain('check: would update');
+			expect(dry.stderr).toContain('service_major_mismatch');
+		});
+	}
+
+	test('a pre-pin container (postgres:18) under a pin of the same major is reconciled; the dry run says so and moves nothing', () => {
+		const stack = makeStack({
+			stackFile: pinnedStackFile(),
+			state: running({ postgres: 'postgres:18', nginx: NGINX_PIN }),
+		});
+		const dry = runUpdate(stack, ['--version', '7.0.1', '--check']);
+		expect(dry.code, dry.stderr).toBe(0);
+		expect(dry.stdout).toContain('check: would update 7.0.0 -> 7.0.1');
+		expect(dry.stderr).toContain(`check: would also reconcile postgres: postgres:18 -> ${PG_PIN}`);
+		expect(dry.calls.some((line) => /--no-deps|docker pull/.test(line))).toBe(false);
+		expect(dry.env).toBe(stack.envBefore);
+		const result = runUpdate(stack, ['--version', '7.0.1']);
+		expect(result.code, result.stderr).toBe(0);
+		expectStackHygiene(stack, result, ['postgres']);
+	});
+
+	test('a service pin that cannot be pulled, or a service that cannot be recreated: failed / service_pin_failed — nothing re-pinned, the engine untouched', () => {
+		for (const flag of ['service_pull_fail', 'service_up_fail']) {
+			const stack = makeStack({
+				stackFile: pinnedStackFile(),
+				state: { ...running({ postgres: 'postgres:18', nginx: NGINX_PIN }), [flag]: '' },
+			});
+			const result = runUpdate(stack, ['--version', '7.0.1']);
+			expect(result.code).toBe(1);
+			expect(result.outcome).toMatchObject({ status: 'failed', detail: 'service_pin_failed' });
+			expect(result.env).toBe(stack.envBefore);
+			expect(result.calls.some((line) => / up -d dedalo backup$/.test(line))).toBe(false);
+			expect(existsSync(join(stack.dir, '.dedalo-image-update.pin'))).toBe(false);
+			expectStackHygiene(stack, result, flag === 'service_up_fail' ? ['postgres'] : []);
+		}
+	});
+
+	test("the bash data-format major equals the installer's (images.ts dataFormatMajorOf), ref by ref", () => {
+		const refs = [
+			PG_PIN,
+			'postgres:18',
+			'postgres:19.1-alpine',
+			'postgres',
+			MARIADB_PIN,
+			'mariadb:11',
+			PGVECTOR_PIN,
+			'pgvector/pgvector:pg18',
+			'pgvector/pgvector:0.8.7',
+			NGINX_PIN,
+			'certbot/certbot:v5.10.0',
+			`localhost:5000/postgres:18.6@${D('8')}`,
+		];
+		for (const ref of refs) expect(bashMajorOf(ref), ref).toBe(dataFormatMajorOf(ref) ?? '');
+		expect(bashMajorOf(PG_PIN)).toBe('18');
+		expect(bashMajorOf(PGVECTOR_PIN)).toBe('pg18');
+		expect(bashMajorOf(MARIADB_PIN)).toBe('11');
 	});
 });
 

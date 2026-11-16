@@ -835,6 +835,7 @@
 	"reset_to_seed": "初期状態にリセット",
 	"reset_warning": "これは初期状態から削除して再インポートし、ローカルの編集をすべて破棄します",
 	"resize": "サイズ変更",
+	"restricted": "（制限あり）",
 	"reuse_tag": "タグを再利用",
 	"reverse_relations": "逆関係",
 	"rotate": "回転",

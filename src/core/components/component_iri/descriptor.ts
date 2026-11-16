@@ -18,8 +18,13 @@ export const component_iri: ComponentModel = {
 	render: 'url',
 	importAppend: 'items',
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'iri',
 	ontologyTranslatable: false,
 	searchBuilder: 'iri',
+	// No `.value` scalar to sort on (items are {iri, title} frames): PHP offered
+	// the column sortable and sorted it by NULL, a silent no-op. Owner C39
+	// 2026-11-13 (WC-2026-11-13-sort-non-scalar-refused): not offered, refused.
+	sortable: false,
 	// PHP component_iri_json ALWAYS pairs with its dd560 label dataframe
 	// (hardcoded DEDALO_COMPONENT_IRI_LABEL_DATAFRAME).
 	fixedDataframeTipos: ['dd560'],

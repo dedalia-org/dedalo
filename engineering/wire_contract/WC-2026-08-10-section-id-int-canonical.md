@@ -337,3 +337,15 @@ cases each. `section_id_concept` and `section_id_intify_apply` stay green
   `section_id` to an int, so no mirror WRITE carries a string — the wire law is unchanged.
 - **Ceilings:** `external_laws/types.ts` 2, `external_laws/inverse_search.ts` 1 (net +1 across
   the move, the read-side decl above). Gate: `section_id_int_tripwire` DECL_CEILINGS.
+
+## Addendum 2026-11-13 — global table `ref_section_id` is a pinned published edge
+
+- **Surface:** `src/diffusion/project/global_table.ts` `provenanceValues` (T1-3,
+  WC-2026-11-12-global-table-maps): the global table's provenance column
+  `ref_section_id` is written as the record id's STRING (`String(row.sectionId)`),
+  like every other projected MariaDB cell value of that row (`Record<string, string | null>`).
+  A MariaDB published-shape edge — the same class as `rewriters.ts` / `resolver.ts`
+  above — never a matrix write: no stored `section_id` carries it.
+- **Ceiling:** `src/diffusion/project/global_table.ts` 1 (`MariaDB published shape`).
+  Gate: `section_id_int_tripwire` WRITER_EXEMPTIONS; value pinned by
+  `diffusion_global_table_native` (`ref_section_id: '7'`).

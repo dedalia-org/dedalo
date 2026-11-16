@@ -73,6 +73,9 @@ const WRITER_EXEMPTIONS = new Map<string, { max: number; law: string }>([
 		{ max: 4, law: 'MariaDB published shape + dual-probe variant' },
 	],
 	['src/diffusion/writers/markdown.ts', { max: 1, law: 'frontmatter published shape' }],
+	// Global table provenance cell `ref_section_id` (T1-3, addendum 2026-11-13):
+	// a projected MariaDB cell value, never a matrix write.
+	['src/diffusion/project/global_table.ts', { max: 1, law: 'MariaDB published shape' }],
 	// dedalo_ts_component_locks text-column KEY normalization (D14, tables only).
 	['src/core/section/locks.ts', { max: 1, law: 'locks text-table key' }],
 	// In-text person tag MARKER serialization (D18 — publication v1 consumes
@@ -109,7 +112,10 @@ const DECL_CEILINGS = new Map<string, number>([
 	['src/core/relations/parent.ts', 4],
 	['src/core/relations/related.ts', 5],
 	['src/core/relations/relation_core.ts', 1],
-	['src/core/relations/request_config/filters.ts', 3],
+	// filters.ts 3→1 (T1-1, 2026-11-12): the ddo_map walk moved to
+	// relations/component_data_walk.ts, which keeps ONE (its WalkAddress cursor).
+	['src/core/relations/component_data_walk.ts', 1],
+	['src/core/relations/request_config/filters.ts', 1],
 	['src/core/relations/save.ts', 2],
 	['src/core/resolve/component_data.ts', 1],
 	['src/core/resolve/dd_info.ts', 4],

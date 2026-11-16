@@ -375,12 +375,14 @@ describe('resolveCellValue — per-family dispatch', () => {
 			throw new Error('fixture missing: test3/1 does not exist — gate cannot assert');
 		}
 		const unresolved: string[] = [];
-		// test18 is a component_json — outside the value scope.
-		expect(await resolveCellValue(SECTION, 1, 'test18', 'lg-eng', unresolved)).toBeNull();
-		expect(unresolved).toEqual(['component_json']);
+		// test152 is a component_password — never a value (a secret; the
+		// descriptor tripwire's NO_FLAT_VALUE_LEAF_EXEMPT). component_json was
+		// the probe until T1-39 gave it the 'json' family.
+		expect(await resolveCellValue(SECTION, 1, 'test152', 'lg-eng', unresolved)).toBeNull();
+		expect(unresolved).toEqual(['component_password']);
 		// Second call on the same array must not duplicate the ledger entry.
-		expect(await resolveCellValue(SECTION, 1, 'test18', 'lg-eng', unresolved)).toBeNull();
-		expect(unresolved).toEqual(['component_json']);
+		expect(await resolveCellValue(SECTION, 1, 'test152', 'lg-eng', unresolved)).toBeNull();
+		expect(unresolved).toEqual(['component_password']);
 	});
 
 	test("family 'datalist' joins the target parts in STORED order", async () => {

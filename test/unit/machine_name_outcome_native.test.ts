@@ -181,7 +181,16 @@ const SITUATION = situation({
 			parent: 'zzmn0',
 			model: 'diffusion_element',
 			term: { 'lg-spa': 'zzmn rdf element' },
-			properties: { diffusion: { type: 'rdf', service_name: RDF_SERVICE } },
+			// a COMPILABLE rdf element (T1-4): its prefix declared, a service type,
+			// a class subject — the graph contract an rdf element compiles under
+			properties: {
+				diffusion: {
+					type: 'rdf',
+					service_name: RDF_SERVICE,
+					service_type: 1,
+					xmlns: { zzmn: 'http://example.test/zzmn#' },
+				},
+			},
 		},
 		{
 			tipo: 'zzmn14',
@@ -189,6 +198,12 @@ const SITUATION = situation({
 			model: 'owl:Class',
 			...named(RDF_CLASS_NAME, decoys('published')),
 			relations: [{ tipo: 'zzmn5' }],
+			properties: {
+				process: {
+					type: 'entity_publication_uri',
+					base_uri_entity: { section_tipo: 'dd1010', component_tipo: 'dd1014', title: 'self' },
+				},
+			},
 		},
 		// a name node with NO label at all: the label chain ends in its name
 		{ tipo: 'zzmn7', parent: 'test1', model: 'table', ...named(UNLABELLED_NAME, {}) },

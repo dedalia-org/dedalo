@@ -8,6 +8,7 @@
  * publication_unix_timestamp is a compile-time system source step).
  */
 
+import { ddDateToUnixSeconds } from '../../core/concepts/dd_date_time.ts';
 import type { ItemParserFn, ParserItem } from './types.ts';
 
 /** One date component bag as stored inside a dd_date value. */
@@ -376,17 +377,12 @@ export function formatDdDate(datePart: DdDatePart, pattern: string): string {
 }
 
 /**
- * dd_date part → Unix epoch seconds (UTC). Uses Date.UTC like the oracle —
- * including its two-digit-year quirk (years 0-99 map to 1900+year), kept
- * deliberately: parity beats correcting timestamps for ancient dates.
+ * dd_date part → Unix epoch seconds (UTC). The ONE home is
+ * core/concepts/dd_date_time.ts ddDateToUnixSeconds (the calculation widget's
+ * date facet reads the same instant). Years 0-99 are real years — the oracle's
+ * Date.UTC two-digit-year quirk (year 50 → 1950) is NOT kept
+ * (WC-2026-11-12-calculation-widget-port).
  */
 export function ddDateToUnix(datePart: DdDatePart): number {
-	const year = datePart.year ?? 1970;
-	const month = (datePart.month ?? 1) - 1; // JS months are 0-indexed
-	const day = datePart.day ?? 1;
-	const hour = datePart.hour ?? 0;
-	const minute = datePart.minute ?? 0;
-	const second = datePart.second ?? 0;
-
-	return Math.floor(Date.UTC(year, month, day, hour, minute, second) / 1000);
+	return ddDateToUnixSeconds(datePart);
 }

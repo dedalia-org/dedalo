@@ -56,3 +56,8 @@
   half shares the same throw out of the transaction; no `ok:false` refusal can be produced
   per lang group (each of them refuses the whole component alike), so R1 drives the thrown
   half. TS-only tool response: no oracle fixture replays it; no re-harvest.
+
+## Addendum 2026-11-12 — external portals leave the re-save branch (T1-38)
+
+- A component whose data tipo declares `source.mode === 'external'` is no longer re-saved:
+  it is recomputed by its law — WC-2026-11-12-update-cache-external-mirror-refresh.

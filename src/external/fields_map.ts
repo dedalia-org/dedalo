@@ -30,7 +30,7 @@
  * engineering/wire_contract/ entry the day this is wired into section reads.
  */
 
-import { htmlTags } from '../core/resolve/html_text.ts';
+import { htmlTags, stripTags } from '../core/resolve/html_text.ts';
 import type { ExternalEntriesResult, ExternalRowView } from './api/types.ts';
 import type {
 	ExternalFormat,
@@ -401,9 +401,27 @@ function coerceUnformatted(raw: unknown, into: FormattedValue[]): number {
 }
 
 /**
+ * Does a rendered entry show anything? An entry whose VISIBLE text is empty is
+ * not an entry (T1-P06, WC-2026-11-13-external-empty-entry-dropped): a `''`
+ * reached the client as a blank span the list view framed with separators
+ * (`| |`) and an export cell `""` claiming "the service holds an empty value".
+ * Markup is judged on its text: the sanitiser has already reduced it to BARE
+ * allowlisted tags with every literal `<` escaped, so stripTags here is
+ * exact and linear. Non-empty text is never trimmed — only measured.
+ */
+function hasVisibleText(rendered: string, kind: FormattedValue['kind']): boolean {
+	const visible = kind === 'markup' ? stripTags(rendered) : rendered;
+	return visible.trim() !== '';
+}
+
+/**
  * Apply the two emission ceilings. Length is a REFUSAL, not a trim (the
  * catalog doc is explicit: a silently shortened title is a wrong title that
  * looks like a real one); count is a cut, and both are reported.
+ *
+ * An EMPTY entry is dropped first, uncounted and undegrading: an empty remote
+ * value is a MISSING value, exactly like an absent remote field — and it never
+ * consumes a count slot.
  */
 export function normalizeEntries(values: readonly FormattedValue[]): {
 	entries: string[];
@@ -420,6 +438,7 @@ export function normalizeEntries(values: readonly FormattedValue[]): {
 	let droppedOverLength = 0;
 	for (const value of values) {
 		const text = value.kind === 'markup' ? sanitizeMarkup(value.text) : value.text;
+		if (!hasVisibleText(text, value.kind)) continue;
 		if (text.length > maxChars) {
 			droppedOverLength++;
 			continue;
@@ -478,13 +497,12 @@ export function mapRowToEntries(
 			});
 		}
 		// A FORMAT MAY REFUSE TOO. Its refusals join the unformatted path's counter
-		// rather than inventing a second convention; a value whose every item was
-		// refused contributes NOTHING (an empty entry would read as "the service
-		// holds an empty value", which is a different, false statement).
+		// rather than inventing a second convention. A formatted value with no
+		// visible text — every item refused, or nothing there — contributes NOTHING:
+		// normalizeEntries drops it (an empty entry would read as "the service holds
+		// an empty value", which is a different, false statement).
 		const formatted = format(raw);
-		const formatRefused = formatted.refused ?? 0;
-		droppedUnrenderable += formatRefused;
-		if (formatRefused > 0 && formatted.text === '') continue;
+		droppedUnrenderable += formatted.refused ?? 0;
 		values.push(formatted);
 	}
 	const { entries, kinds, droppedOverLength, droppedOverCount } = normalizeEntries(values);

@@ -71,6 +71,21 @@ function catalogEntry(ontology: ManifestOntology, origin: OntologyOrigin): Ontol
 		dependencies: ontology.dependencies,
 		origin,
 		file: fileOf(ontology.url, origin),
+		...(ontology.sha256 === undefined ? {} : { sha256: ontology.sha256 }),
+	};
+}
+
+/** The source's matrix_dd file (+ its published digest), when it ships one. */
+function catalogMatrixDd(
+	manifest: Extract<ManifestResult, { ok: true }>,
+	origin: 'local' | 'server',
+): OntologyCatalog['matrixDd'] {
+	if (manifest.matrixDdUrl === null) return null;
+	const sha256 = manifest.matrixDdSha256;
+	return {
+		origin,
+		file: fileOf(manifest.matrixDdUrl, origin),
+		...(sha256 === undefined ? {} : { sha256 }),
 	};
 }
 
@@ -80,7 +95,6 @@ export function manifestCatalog(
 	source: OntologySource,
 	origin: 'local' | 'server',
 ): OntologyCatalog {
-	const matrixDdUrl = manifest.matrixDdUrl;
 	// An installation receives no test fixture: a source that exports the suite's
 	// `test` TLD (a master with it registered) has it dropped here — WITHOUT a
 	// warning (campaign C4 S4: the Review told every operator about a TLD that
@@ -92,7 +106,7 @@ export function manifestCatalog(
 	return {
 		source,
 		entries: offered.map((ontology) => catalogEntry(ontology, origin)),
-		matrixDd: matrixDdUrl === null ? null : { origin, file: fileOf(matrixDdUrl, origin) },
+		matrixDd: catalogMatrixDd(manifest, origin),
 		warnings: manifest.warnings,
 	};
 }

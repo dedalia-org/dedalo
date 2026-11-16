@@ -68,8 +68,12 @@
  *   (request isolation, no module state).
  */
 
+import {
+	computeInfoOutputs,
+	infoOutputValueString,
+} from '../../core/components/component_info/widgets/registry.ts';
 import { resolveInverseEntries } from '../../core/components/component_inverse/emit.ts';
-import { getFlatValueFamily } from '../../core/components/registry.ts';
+import { getFlatValueFamily, storesRelationLocators } from '../../core/components/registry.ts';
 import { isMediaModel } from '../../core/concepts/media.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import { dataframeEntryMatches } from '../../core/concepts/subdatum.ts';
@@ -100,6 +104,7 @@ import {
 } from '../../core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../core/resolve/request_lang.ts';
 import type { RawConfigDdo } from '../../core/section/list_definitions/section_list.ts';
+import { currentPrincipal } from '../../core/security/request_context.ts';
 import { getTermByLocator } from '../../core/ts_object/term_resolver.ts';
 import type { FieldPlan } from '../plan/types.ts';
 import type { ExportAtomRun, ExportCrossingReach } from '../resolve/resolver.ts';
@@ -250,6 +255,10 @@ export function createExportRun(
 		cellOpts: {
 			loadRecord: (tableName, sectionTipo, sectionId) =>
 				loadExportRecordFromTable(atoms, tableName, sectionTipo, sectionId),
+			// every cell of this run is CLEANED by the tabulator (clean_text.ts):
+			// json items are encoded in bytes the cleanup cannot rewrite, at any
+			// depth (T1-39 review; WC-2026-11-12-export-json-geolocation-cells)
+			jsonCleanupInert: true,
 			// THE FRONTIER OF EVERY NESTED CELL READ (T0-1). Inert until the door
 			// sets `atoms.frontier` (grid.ts, non-admins): both functions read the
 			// run's scope at CALL time, and with none they cross everything —
@@ -330,7 +339,11 @@ async function resolveParentsChain(
 		// project-gated table is not.
 		// STRICT (D4): the parents chain is beyond any column's display.
 		await exportCrossRecord(run.atoms, ancestor.section_tipo, ancestor.section_id, 'strict');
-		const term = await getTermByLocator(ancestor, lang, true);
+		// …and a TERM that crosses into other records (a relation term part,
+		// T1-32) reads them under the SAME strict frontier (T1-32 review).
+		const term = await getTermByLocator(ancestor, lang, true, 'thesaurus', {
+			frontier: strictCellOpts(run).frontier,
+		});
 		if (term !== null && term !== '') parts.push(term);
 	}
 	const chain = parts.length > 0 ? parts.join(PARENTS_SEPARATOR) : null;
@@ -368,14 +381,14 @@ export async function fieldHasValueReferences(field: FieldPlan): Promise<boolean
 /**
  * Does this export field grow a WC-049 parents column in the VALUE format?
  * The per-ddo flag is set AND the declared leaf is a stored relation (the only
- * leaves whose targets carry an ancestor chain — the same `isStoredRelationModel`
+ * leaves whose targets carry an ancestor chain — the same `storesRelationLocators`
  * test the grid_value walk applies before it emits a '#parents' atom). A
  * declared dataframe step yields no cell at all (resolveValueCell refuses it).
  */
 export function fieldHasValueParents(field: FieldPlan, leafModel: string): boolean {
 	return (
 		field.exportColumn?.valueWithParents === true &&
-		isStoredRelationModel(leafModel) &&
+		storesRelationLocators(leafModel) &&
 		!hasDeclaredDataframeStep(field)
 	);
 }
@@ -436,7 +449,17 @@ export interface GridAtom {
 	media?: MediaReadAddress[];
 }
 
-/** PHP export atom cell_type by leaf model (export_atom defaults). */
+/**
+ * The export atom `cell_type` by leaf model — the TS mapping, NOT PHP's
+ * (WC-2026-11-13-export-media-cell-type, owner C45 2026-11-13). PHP gave EVERY
+ * media model `'img'` (component_media_common :369, component_av :279,
+ * component_3d :226 — so its HTML download drew `<img>` for a video, a PDF and
+ * a 3D model alike); here only an image is `'img'`, av / 3d are `'av'` (the
+ * writers' media branch: a URL cell, cells.ts isMediaCell) and pdf / svg are
+ * plain `'text'` (a URL the reader opens, never an `<img>` src). `iri` and
+ * `section_id` are the two typed scalars the client renders specially
+ * (flat_table.js cell_type switch); everything else is text.
+ */
 export function cellTypeOfModel(model: string | null): string {
 	switch (model) {
 		case 'component_image':
@@ -724,21 +747,30 @@ async function resolveValueCellInScope(
 
 /** Is this atom a D4 calculated-relations atom (under a '#references' segment)? */
 function isReferencesAtom(atom: GridAtom): boolean {
-	return atom.segments.some((segment) => segment.sub_id === REFERENCES_SUB_ID);
+	return atom.segments.some(
+		(segment, index) => segment.sub_id === REFERENCES_SUB_ID && !isInfoOutputSegment(atom, index),
+	);
 }
 
 /** A '#references' atom shaped as the main cell's (its references segment
- * dropped): the value fold then joins it with the main cell's own separators. */
-function stripReferencesSegment(atom: GridAtom): GridAtom {
+ * dropped): the value fold then joins it with the main cell's own separators.
+ * A component_info OUTPUT whose id is 'references' is NOT that segment — it
+ * stays, or a multi-valued output would fold as the info segment's leaf and the
+ * `#references` text would differ from the same record's main cell. Exported
+ * for its outcome gate (tool_export_info_native: references fold == main fold). */
+export function stripReferencesSegment(atom: GridAtom): GridAtom {
 	return {
 		...atom,
-		segments: atom.segments.filter((segment) => segment.sub_id !== REFERENCES_SUB_ID),
+		segments: atom.segments.filter(
+			(segment, index) => segment.sub_id !== REFERENCES_SUB_ID || isInfoOutputSegment(atom, index),
+		),
 	};
 }
 
 /** Is this atom a WC-049 parents atom (its last segment the '#parents' sub-column)? */
 function isParentsAtom(atom: GridAtom): boolean {
-	return atom.segments[atom.segments.length - 1]?.sub_id === PARENTS_SUB_ID;
+	const last = atom.segments.length - 1;
+	return atom.segments[last]?.sub_id === PARENTS_SUB_ID && !isInfoOutputSegment(atom, last);
 }
 
 /** The ONE segment a WC-008 compact column's atoms carry (its label chain). */
@@ -891,7 +923,7 @@ async function walkFieldAtoms(
 			});
 		}
 
-		if (event.locators !== undefined && isStoredRelationModel(event.step.model)) {
+		if (event.locators !== undefined && storesRelationLocators(event.step.model)) {
 			const locators: FanOutLocator[] = event.locators;
 			if (compact) {
 				await emitCompactCells(
@@ -1073,6 +1105,10 @@ async function emitPlainAtom(
 		await emitInverseAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
 		return;
 	}
+	if (family === 'info') {
+		await emitInfoAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
+		return;
+	}
 	if (family !== undefined && LITERAL_ITEM_FAMILIES.has(family)) {
 		await emitLiteralItemAtoms(ctx, sectionTipo, sectionId, componentTipo, model, segments);
 		return;
@@ -1180,6 +1216,77 @@ async function emitInverseAtoms(
 }
 
 /**
+ * component_info (DERIVED widget outputs —
+ * WC-2026-11-12-info-live-publication-export): ONE atom per value of every DECLARED widget output, in
+ * declaration order, under a sub-segment `{section_tipo: host, component_tipo:
+ * info, sub_id: <output id>}` (PHP component_info::get_export_value :778-823),
+ * so grid_value gives each output its own column and the value format joins
+ * them. The values are the LIVE parsed compute (get_data_parsed), never the
+ * stored `misc` slot (WC-2026-09-03). An output with no value keeps ONE ''
+ * slot atom (PHP's null atom: the column set does not depend on the record).
+ * Every matching item is kept (PHP's array_find kept the first) and an
+ * output only matches its own widget's items.
+ *
+ * Identity: the run's frontier principal (explicit — an export job may run
+ * detached from the request ALS), else the ambient one; mode 'edit' (PHP
+ * tool_export instances its columns in edit mode).
+ */
+async function emitInfoAtoms(
+	ctx: WalkContext,
+	sectionTipo: string,
+	sectionId: number | string,
+	componentTipo: string,
+	model: string,
+	segments: ExportSegment[],
+): Promise<void> {
+	const address = canonicalizeStoredSectionId(sectionId);
+	if (!isSectionId(address)) return;
+	const principal = ctx.run.atoms.frontier?.principal ?? currentPrincipal();
+	const outputs = await computeInfoOutputs(componentTipo, {
+		sectionTipo,
+		sectionId: address,
+		mode: 'edit',
+		lang: ctx.lang,
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+		// the export computes the async widgets too (owner C9 2026-11-13 —
+		// WC-2026-11-13-info-derived-async-published); the read path skips them
+		includeAsync: true,
+	});
+	for (const output of outputs ?? []) {
+		const outputSegments: ExportSegment[] = [
+			...segments,
+			{
+				section_tipo: sectionTipo,
+				component_tipo: componentTipo,
+				model: null,
+				item_index: null,
+				section_id: null,
+				sub_id: output.outputId,
+			},
+		];
+		const values = output.values.length > 0 ? output.values : [null];
+		for (const value of values) {
+			ctx.atoms.push({
+				value: infoOutputValueString(value),
+				cellType: cellTypeOfModel(model),
+				model,
+				segments: outputSegments,
+			});
+		}
+	}
+}
+
+/**
+ * Is segment `index` of `atom` a component_info OUTPUT sub-segment? Its
+ * `sub_id` is an ontology output id, so it may spell a reserved sub-column
+ * ('parents', 'references') without being one.
+ */
+function isInfoOutputSegment(atom: GridAtom, index: number): boolean {
+	return index === atom.segments.length - 1 && getFlatValueFamily(atom.model) === 'info';
+}
+
+/**
  * THE RE-CHECK RECORD of an inverse disclosure (component_inverse export —
  * atoms above, dedalo_raw in grid.ts computedRawSlice). The build admitted each
  * caller on LEG 1 of scopeInverseReferenceHits — the SECTION read grant
@@ -1217,10 +1324,19 @@ export function recordInverseCallerGrants(
  * The literal flat families whose items become ONE ATOM EACH (PHP
  * component_common::get_export_value :1901-1928 and every literal override —
  * input_text :58, text_area :195, date :266, iri :350, section_id :162 — add
- * one atom per data item). Media keeps its single URL atom (PHP
+ * one atom per data item; the 'json' family is the base itself, :1913-1928).
+ * Media keeps its single URL atom (PHP
  * component_media_common :340 export_value::from_scalar), relations fan out.
  */
-const LITERAL_ITEM_FAMILIES: ReadonlySet<string> = new Set(['string', 'date', 'iri', 'section_id']);
+const LITERAL_ITEM_FAMILIES: ReadonlySet<string> = new Set([
+	'string',
+	'date',
+	'iri',
+	'section_id',
+	// component_json / component_geolocation: PHP's BASE get_export_value — one
+	// json_encode atom per item (WC-2026-11-12-export-json-geolocation-cells)
+	'json',
+]);
 
 /**
  * Models whose LEAF segment glues its items with the RECORDS separator (PHP
@@ -1376,18 +1492,6 @@ async function emitCompactCells(
 			}
 		}
 	}
-}
-
-/**
- * Whether a model's value is a STORED locator bag the walk can fan out through.
- * component_external sits on the relation column for column-map parity only
- * (its descriptor calls the column INERT): its value is DERIVED from the remote
- * record, so it is a plain leaf — fanning it out read a bag no record holds and
- * emitted nothing, which blanked every grid_value Zenon column (rsc368 → zenon*).
- */
-function isStoredRelationModel(model: string | null | undefined): boolean {
-	if (typeof model !== 'string' || model === '') return false;
-	return getColumnNameByModel(model) === 'relation' && getFlatValueFamily(model) !== 'external';
 }
 
 /** One fan-out locator: target identity + raw slot position + (for dataframe
@@ -1599,7 +1703,7 @@ async function fanOutRelation(
 			// Relation-model child: recurse into ITS locators. The bag is RAW
 			// jsonb, so section_id stays union-typed (unswept string form /
 			// external remote id) — WC-2026-08-10-section-id-int-canonical.
-			if (isStoredRelationModel(childModel)) {
+			if (storesRelationLocators(childModel)) {
 				const childTrail = trailKey(locator.sectionTipo, locator.sectionId, child.tipo);
 				if (ctx.trail.has(childTrail)) {
 					noteUnresolved(ctx.unresolved, `relation_cycle:${child.tipo}`);
@@ -1809,7 +1913,7 @@ export async function exportPathMayReachMedia(
 	if (typeof leaf !== 'string' || leaf === '') return false;
 	const model = await getModelByTipo(leaf);
 	if (model === null) return false;
-	if (isStoredRelationModel(model))
+	if (storesRelationLocators(model))
 		return relationReachesMedia(leaf, undefined, undefined, new Set());
 	// a non-fan-out datalist leaf resolves its flat value through its config
 	return getFlatValueFamily(model) === 'datalist'
@@ -1845,7 +1949,7 @@ async function relationReachesMedia(
 		const childModel = (await getModelByTipo(child.tipo)) ?? String(child.model ?? '');
 		if (childModel === '') continue;
 		if (isMediaModel(childModel)) return true;
-		if (childModel === 'component_dataframe' || isStoredRelationModel(childModel)) {
+		if (childModel === 'component_dataframe' || storesRelationLocators(childModel)) {
 			if (await relationReachesMedia(child.tipo, map, mapOwner, seen)) return true;
 		}
 	}

@@ -28,7 +28,8 @@
  *     unpublishable, or whose section the ontology no longer knows;
  *   - MISSING: the matrix flags a record publishable and a target of its
  *     section lacks it (REPORTED ONLY — publishing is a job with a principal
- *     and a plan, never a reconcile side effect);
+ *     and a plan, never a reconcile side effect). For a GLOBAL table only
+ *     where the compiled plan writes it (globalWrittenProbe);
  *   - the dd1758 debt is reported beside them: rows still pending, and rows
  *     TERMINAL (PUB-02: a csv/json export still carrying a deleted record can
  *     only be settled by a re-publish — the operator must know).
@@ -55,7 +56,13 @@ import {
 	diffusionActionContains,
 	RETRY_STAMP_KEY,
 } from '../../../core/diffusion_bridge/diffusion_delete.ts';
+import type { DiffusionSqlTarget } from '../../../core/diffusion_bridge/diffusion_map.ts';
 import { getAllSectionDiffusionTargets } from '../../../core/diffusion_bridge/diffusion_map.ts';
+import {
+	globalRowKey,
+	globalRowKeyLikePattern,
+	parseGlobalRowKey,
+} from '../../../core/diffusion_bridge/global_tables.ts';
 import {
 	diffusionFilesRoot,
 	PER_RECORD_FILE_FORMATS,
@@ -74,7 +81,9 @@ import {
 	getNode,
 } from '../../../core/ontology/resolver.ts';
 import type { ReconcileReport } from '../../../core/reconcile/registry.ts';
+import { getCompiledPlan } from '../../plan/cache.ts';
 import { escapeSqlIdentifier } from '../../plan/identifier.ts';
+import type { PublicationPlan } from '../../plan/types.ts';
 import { applyTableState, markerStoreBase } from '../mediastore/media_index.ts';
 import { getTargetPool, isMissingDatabaseError, isMissingTableError } from './db.ts';
 import { executeSqlDeleteTargets } from './delete_record.ts';
@@ -97,6 +106,11 @@ export interface PublicTierGhost {
 	reason: 'record_absent' | 'unpublishable' | 'unknown_section';
 	/** The marker or file path (apply unlinks exactly this). */
 	path?: string;
+	/**
+	 * A row of a GLOBAL table (`target` = `db|<global table>`), keyed there by
+	 * `<section_tipo>_<section_id>` (core/diffusion_bridge/global_tables.ts).
+	 */
+	global?: true;
 }
 
 export interface PublicTierMissing {
@@ -190,8 +204,16 @@ async function readdirQuiet(dir: string): Promise<string[]> {
 	}
 }
 
-/** `SELECT DISTINCT section_id` of one target table, or null when the target does not answer. */
-async function tierRowIds(database: string, table: string): Promise<number[] | null> {
+/**
+ * `SELECT DISTINCT section_id` of one target table, or null when the target
+ * does not answer. With `globalOf`, the table is a GLOBAL table: only the keys
+ * of that section are read and parsed back to its section ids.
+ */
+async function tierRowIds(
+	database: string,
+	table: string,
+	globalOf?: string,
+): Promise<number[] | null> {
 	const pool = getTargetPool(database);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
@@ -202,10 +224,19 @@ async function tierRowIds(database: string, table: string): Promise<number[] | n
 		);
 	});
 	try {
-		const rows = (await Promise.race([
-			pool.unsafe(`SELECT DISTINCT section_id FROM ${escapeSqlIdentifier(table)}`, []),
-			timeout,
-		])) as { section_id: unknown }[];
+		const query =
+			globalOf === undefined
+				? pool.unsafe(`SELECT DISTINCT section_id FROM ${escapeSqlIdentifier(table)}`, [])
+				: pool.unsafe(
+						`SELECT DISTINCT section_id FROM ${escapeSqlIdentifier(table)} WHERE section_id LIKE ?`,
+						[globalRowKeyLikePattern(globalOf)],
+					);
+		const rows = (await Promise.race([query, timeout])) as { section_id: unknown }[];
+		if (globalOf !== undefined) {
+			return rows
+				.map((row) => parseGlobalRowKey(String(row.section_id), globalOf))
+				.filter((id): id is number => id !== null);
+		}
 		return rows.map((row) => Number(row.section_id)).filter((id) => Number.isSafeInteger(id));
 	} catch (error) {
 		// Missing table/database = nothing published there (the delete executor's
@@ -345,6 +376,7 @@ export async function scanPublicTier(scope?: readonly string[]): Promise<PublicT
 	}
 	const probedDatabases = new Map<string, boolean>();
 	const scannedFileDirs = new Set<string>();
+	const planOf = elementPlanLookup();
 	for (const [sectionTipo, targets] of targetsBySection) {
 		if (inScope !== null && !inScope.has(sectionTipo)) continue;
 		let publishable: number[] | null = null;
@@ -356,34 +388,18 @@ export async function scanPublicTier(scope?: readonly string[]): Promise<PublicT
 			scan.examined.targets++;
 			if (target.type === 'sql' || target.type === 'socrata') {
 				if (target.database_name === '' || target.table_name === '') continue; // terminal, on the ledger
-				const key = `${target.database_name}|${target.table_name}`;
-				const ids = await tierRowIds(target.database_name, target.table_name);
-				if (ids === null) {
-					if (probedDatabases.get(target.database_name) !== false) {
-						probedDatabases.set(target.database_name, false);
-						scan.unreachable.push(target.database_name);
-					}
-					continue;
-				}
-				probedDatabases.set(target.database_name, true);
-				scan.examined.mariadb_rows += ids.length;
-				const verdicts = await verdictOf(sectionTipo, ids);
-				const held = new Set<number>();
-				for (const id of ids) {
-					held.add(id);
-					const reason = ghostReason(verdicts.get(id));
-					if (reason === null) continue;
-					scan.ghosts.push({
-						store: 'mariadb',
-						target: key,
-						section_tipo: sectionTipo,
-						section_id: id,
-						reason,
+				const written = globalWrittenProbe(planOf, target, sectionTipo);
+				for (const table of sqlTablesOf(target)) {
+					await scanSqlTable(scan, {
+						database: target.database_name,
+						table: table.name,
+						sectionTipo,
+						global: table.global,
+						reportMissing: !table.global || (await written(table.name)),
+						probedDatabases,
+						verdictOf,
+						publishableOf,
 					});
-				}
-				for (const id of await publishableOf()) {
-					if (!held.has(id))
-						scan.missing.push({ target: key, section_tipo: sectionTipo, section_id: id });
 				}
 				continue;
 			}
@@ -449,6 +465,114 @@ export async function scanPublicTier(scope?: readonly string[]): Promise<PublicT
 			a.section_id - b.section_id,
 	);
 	return scan;
+}
+
+/** A sql target's tables to compare: its own, then every global table it writes. */
+function sqlTablesOf(target: DiffusionSqlTarget): { name: string; global: boolean }[] {
+	return [
+		{ name: target.table_name, global: false },
+		...(target.global_tables ?? []).map((name) => ({ name, global: true })),
+	];
+}
+
+/** The compiled plan of an element (null = it does not compile), once per scan. */
+type ElementPlanLookup = (elementTipo: string) => Promise<PublicationPlan | null>;
+
+function elementPlanLookup(): ElementPlanLookup {
+	const plans = new Map<string, Promise<PublicationPlan | null>>();
+	return (elementTipo) => {
+		let pending = plans.get(elementTipo);
+		if (pending === undefined) {
+			pending = getCompiledPlan(elementTipo).catch(() => null);
+			plans.set(elementTipo, pending);
+		}
+		return pending;
+	};
+}
+
+/**
+ * Whether PUBLISH writes `<section>`'s rows into a global table of a target —
+ * the MISSING side of a global table is judged by the compiled plan, the
+ * publish path's own truth (plan/global_tables.ts), never by the raw maps the
+ * target carries. The two differ by design: the target's `global_tables` is
+ * the WITHDRAW set (diffusion_graph.ts globalTablesOfNode — every table a map
+ * names, so a row an earlier engine wrote is still withdrawn and still a
+ * ghost), while a table only a map the compiler does not write names (since
+ * owner C11, 2026-11-13, such a map refuses its ELEMENT — the plan cannot be
+ * judged, see below) can never hold a row publish owes — a `missing` there
+ * is drift no republish clears. A plan that cannot be judged (the element does
+ * not compile, or its plan holds no such section table) reports as before.
+ */
+function globalWrittenProbe(
+	planOf: ElementPlanLookup,
+	target: DiffusionSqlTarget,
+	sectionTipo: string,
+): (globalTable: string) => Promise<boolean> {
+	return async (globalTable) => {
+		const plan = await planOf(target.element_tipo);
+		const tableName = target.table_name.toLowerCase();
+		const sections = (plan?.sections ?? []).filter(
+			(section) =>
+				section.sectionTipo === sectionTipo && section.tableName.toLowerCase() === tableName,
+		);
+		if (sections.length === 0) return true;
+		const wanted = globalTable.toLowerCase();
+		return sections.some((section) =>
+			(section.globalTables ?? []).some(
+				(global) => global.schema.tableName.toLowerCase() === wanted,
+			),
+		);
+	};
+}
+
+/** One MariaDB table of a section compared against the matrix (ghosts + missing). */
+async function scanSqlTable(
+	scan: PublicTierScan,
+	input: {
+		database: string;
+		table: string;
+		sectionTipo: string;
+		global: boolean;
+		/** false: publish never writes this table for the section — ghosts only (globalWrittenProbe). */
+		reportMissing: boolean;
+		probedDatabases: Map<string, boolean>;
+		verdictOf: (sectionTipo: string, ids: number[]) => Promise<Map<number, MatrixVerdict>>;
+		publishableOf: () => Promise<number[]>;
+	},
+): Promise<void> {
+	const { database, table, sectionTipo } = input;
+	const key = `${database}|${table}`;
+	const ids = await tierRowIds(database, table, input.global ? sectionTipo : undefined);
+	if (ids === null) {
+		if (input.probedDatabases.get(database) !== false) {
+			input.probedDatabases.set(database, false);
+			scan.unreachable.push(database);
+		}
+		return;
+	}
+	input.probedDatabases.set(database, true);
+	scan.examined.mariadb_rows += ids.length;
+	const verdicts = await input.verdictOf(sectionTipo, ids);
+	const held = new Set<number>();
+	for (const id of ids) {
+		held.add(id);
+		const reason = ghostReason(verdicts.get(id));
+		if (reason === null) continue;
+		const ghost: PublicTierGhost = {
+			store: 'mariadb',
+			target: key,
+			section_tipo: sectionTipo,
+			section_id: id,
+			reason,
+		};
+		if (input.global) ghost.global = true;
+		scan.ghosts.push(ghost);
+	}
+	if (!input.reportMissing) return;
+	for (const id of await input.publishableOf()) {
+		if (!held.has(id))
+			scan.missing.push({ target: key, section_tipo: sectionTipo, section_id: id });
+	}
 }
 
 function compareGhosts(a: PublicTierGhost, b: PublicTierGhost): number {
@@ -532,15 +656,23 @@ async function unpublishTargetGhosts(
 	const rowsByTarget = new Map<string, { target: PublicTierGhost; ids: number[] }>();
 	for (const ghost of ghosts) {
 		if (ghost.store !== 'mariadb') continue;
-		const key = `${ghost.target}#${ghost.section_tipo}`;
+		const key = `${ghost.target}#${ghost.section_tipo}#${ghost.global === true ? 'g' : 's'}`;
 		const entry = rowsByTarget.get(key) ?? { target: ghost, ids: [] };
 		entry.ids.push(ghost.section_id);
 		rowsByTarget.set(key, entry);
 	}
 	for (const { target, ids } of rowsByTarget.values()) {
 		const [database_name, table_name] = target.target.split('|') as [string, string];
+		// A global row is keyed `<section_tipo>_<section_id>` and carries no
+		// media markers (its source table holds them).
 		const result = await executeSqlDeleteTargets([
-			{ database_name, table_name, section_ids: ids, section_tipo: target.section_tipo },
+			target.global === true
+				? {
+						database_name,
+						table_name,
+						section_ids: ids.map((id) => globalRowKey(target.section_tipo, id)),
+					}
+				: { database_name, table_name, section_ids: ids, section_tipo: target.section_tipo },
 		]);
 		if (result.deleted.includes(target.target)) outcome.removed += ids.length;
 		else outcome.failed.push(...result.errors);

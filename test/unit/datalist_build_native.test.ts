@@ -20,18 +20,18 @@
  *  - the dd1067 security-tools enrichment (tool_name / always_active /
  *    tool_description), absent
  *    on every other component;
- *  - the CACHE: key `${componentTipo}_${ownerSectionTipo}_${lang}` (the owner
- *    section joined the key on 2026-08-14 — a component's target sections can
- *    resolve FROM THE CALLER, so one node serves different option lists to
- *    different owners; see datalist_cache_key_native.test.ts), eviction through the
- *    section-data listener, and the agreement between a cold
- *    `probeDatalistSize` and the built list.
+ *  - the CACHE: key `${componentTipo}_${ownerSectionTipo}_${lang}_<labels>|<hides>|
+ *    <enumeration fingerprints>` (the owner section joined the key on
+ *    2026-08-14 — a component's target sections can resolve FROM THE CALLER, so
+ *    one node serves different option lists to different owners; see
+ *    datalist_cache_key_native.test.ts; the enumeration statement on
+ *    2026-11-12 — the record-resolved filter and the caller's record ACL, see
+ *    datalist_record_filter_native / datalist_projects_scope_native),
+ *    eviction through the section-data listener, and the agreement between a
+ *    cold `probeDatalistSize` and the built list.
  *
- * CACHE DISCIPLINE IS PART OF THE CONTRACT UNDER TEST. The cache key ignores
- * `componentProperties`, which is exactly what every case here varies. So each
- * variant uses its OWN componentTipo *and* clears the cache — without that,
- * "the filtered list equals the unfiltered one" would be asserting that the
- * cache returned the cached thing, which no regression can falsify.
+ * CACHE DISCIPLINE. Each variant still uses its OWN componentTipo and clears the
+ * cache, so a case never depends on what an earlier one cached.
  *
  * SCRATCH SURFACE: test3 (matrix_test) records 929001-929999 ONLY — seeded by
  * this file, swept in afterAll (rows + their TM tail, fail-loud). The canonical
@@ -201,7 +201,12 @@ describe('getDatalist — label projection and ordering', () => {
 	test('default order is strnatcmp on the label, not lexicographic', async () => {
 		await seedOptions();
 		clearDatalistCache();
-		const list = await getDatalist('zzdlorder1', properties({}), SECTION, LANG);
+		const list = await getDatalist(
+			'zzdlorder1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		// Natural: 1 < 2 < 10 < 20. Byte order would give 1, 10, 2, 20.
 		expect(seededOnly(list)).toEqual([929001, 929002, 929010, 929020]);
 		const labels = list
@@ -216,7 +221,7 @@ describe('getDatalist — label projection and ordering', () => {
 		const list = await getDatalist(
 			'zzdljoin1',
 			properties({ labelDdos: [LABEL_DDO, SECOND_DDO] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		const seeded = list.filter((item) => SEEDED_IDS.includes(item.section_id));
@@ -239,7 +244,7 @@ describe('getDatalist — label projection and ordering', () => {
 		const list = await getDatalist(
 			'zzdlmodel1',
 			properties({ labelDdos: [NOT_A_COMPONENT_DDO] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		const seeded = list.filter((item) => SEEDED_IDS.includes(item.section_id));
@@ -250,7 +255,7 @@ describe('getDatalist — label projection and ordering', () => {
 		const mixed = await getDatalist(
 			'zzdlmodel2',
 			properties({ labelDdos: [NOT_A_COMPONENT_DDO, LABEL_DDO] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		// WC-2026-08-10-section-id-int-canonical: int record address.
@@ -262,7 +267,12 @@ describe('getDatalist — label projection and ordering', () => {
 	test('each option carries its locator, an int section_id and a hide array', async () => {
 		await seedOptions();
 		clearDatalistCache();
-		const list = await getDatalist('zzdlshape1', properties({}), SECTION, LANG);
+		const list = await getDatalist(
+			'zzdlshape1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		// WC-2026-08-10-section-id-int-canonical: the datalist emits the record
 		// address as an INT (both the option's own section_id and the locator
 		// under `value`); the repealed law stringified the raw row value.
@@ -283,7 +293,7 @@ describe('getDatalist — label projection and ordering', () => {
 		const list = await getDatalist(
 			'zzdlnotable1',
 			properties({ targets: [LABEL_DDO, SECTION] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(seededOnly(list)).toEqual([929001, 929002, 929010, 929020]);
@@ -298,7 +308,7 @@ describe('getDatalist — fixed_filter narrowing', () => {
 		const filtered = await getDatalist(
 			'zzdlfilter1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(filtered.map((item) => item.section_id)).toEqual([929001, 929002]);
@@ -306,7 +316,12 @@ describe('getDatalist — fixed_filter narrowing', () => {
 		// The CONTRAST, rebuilt from scratch (own tipo + cleared cache): without
 		// the filter the very same options list carries the dropped ids too.
 		clearDatalistCache();
-		const unfiltered = await getDatalist('zzdlfilter2', properties({}), SECTION, LANG);
+		const unfiltered = await getDatalist(
+			'zzdlfilter2',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		expect(seededOnly(unfiltered)).toEqual([929001, 929002, 929010, 929020]);
 	});
 
@@ -331,7 +346,7 @@ describe('getDatalist — fixed_filter narrowing', () => {
 					},
 				],
 			}),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(seededOnly(unnarrowed)).toEqual([929001, 929002, 929010, 929020]);
@@ -350,7 +365,12 @@ describe('getDatalist — fixed_filter narrowing', () => {
 		// behaviour — if the parser ever starts passing raw descriptors
 		// through, this expectation must become the console.error assertion.
 		await expect(
-			getDatalist('zzdlfilter4', properties({ fixedFilter: ['nonsense'] }), SECTION, LANG),
+			getDatalist(
+				'zzdlfilter4',
+				properties({ fixedFilter: ['nonsense'] }),
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+			),
 		).rejects.toThrow(/unknown fixed_filter source/);
 	});
 });
@@ -365,7 +385,7 @@ describe('getDatalist — properties.sort_by', () => {
 				fixedFilter: markerFilter('KEEPTHIS'),
 				sortBy: [{ path: 'section_id', direction: 'DESC' }],
 			}),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(descending.map((item) => item.section_id)).toEqual([929002, 929001]);
@@ -374,7 +394,7 @@ describe('getDatalist — properties.sort_by', () => {
 		const ascending = await getDatalist(
 			'zzdlsort2',
 			properties({ fixedFilter: markerFilter('KEEPTHIS'), sortBy: [{ path: 'section_id' }] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(ascending.map((item) => item.section_id)).toEqual([929001, 929002]);
@@ -386,7 +406,7 @@ describe('getDatalist — properties.sort_by', () => {
 		const list = await getDatalist(
 			'zzdlsort3',
 			properties({ sortBy: [{ path: 'label', direction: 'DESC' }] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		// Natural order reversed: 20, 10, 2, 1 (byte-reversed would be 20,2,10,1).
@@ -399,7 +419,7 @@ describe('getDatalist — properties.sort_by', () => {
 		const list = await getDatalist(
 			'zzdlsort4',
 			properties({ fixedFilter: markerFilter('KEEPTHIS'), sortBy: [{ path: 'nope' }] }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		// Both sides resolve `undefined ?? 0` → 0 → numeric diff 0: no throw and
@@ -419,7 +439,7 @@ describe('getDatalist — properties.sort_by', () => {
 					{ path: 'section_id', direction: 'ASC' },
 				],
 			}),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(list.map((item) => item.section_id)).toEqual([929002, 929001]);
@@ -430,7 +450,12 @@ describe('getDatalist — the dd1067 security-tools enrichment', () => {
 	test('the profile-tools component stamps tool_name / always_active / tool_description on every option', async () => {
 		await seedOptions();
 		clearDatalistCache();
-		const list = await getDatalist(PROFILE_TOOLS_COMPONENT, properties({}), SECTION, LANG);
+		const list = await getDatalist(
+			PROFILE_TOOLS_COMPONENT,
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		const seeded = list.filter((item) => SEEDED_IDS.includes(item.section_id));
 		expect(seeded.length).toBe(OPTIONS.length);
 		for (const item of seeded) {
@@ -441,7 +466,12 @@ describe('getDatalist — the dd1067 security-tools enrichment', () => {
 		}
 		clearDatalistCache();
 		// Same properties, ANY other component tipo: the keys must not appear.
-		const plain = await getDatalist('zzdltools1', properties({}), SECTION, LANG);
+		const plain = await getDatalist(
+			'zzdltools1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		for (const item of plain) {
 			expect('tool_name' in item).toBe(false);
 			expect('always_active' in item).toBe(false);
@@ -468,40 +498,52 @@ describe('getDatalist — the dd1067 security-tools enrichment', () => {
 });
 
 describe('getDatalist — the cache', () => {
-	test('the cache key IGNORES componentProperties (tipo + owner section + lang only)', async () => {
+	test('the cache key carries the filter: same tipo, different filter → its own list', async () => {
 		await seedOptions();
 		clearDatalistCache();
-		const first = await getDatalist('zzdlcache1', properties({}), SECTION, LANG);
-		// Same tipo + lang, DIFFERENT properties (a filter that would drop half
-		// the options): the cached list comes back untouched, same reference.
+		const first = await getDatalist(
+			'zzdlcache1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
+		expect(seededOnly(first)).toEqual([929001, 929002, 929010, 929020]);
+		// Same tipo + lang, DIFFERENT filter (a record-resolved component_data
+		// filter differs exactly like this between two records): its own list.
+		// Until 2026-11-12 the key ignored the filter and served `first` here.
 		const second = await getDatalist(
 			'zzdlcache1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
-		expect(second).toBe(first);
-		expect(seededOnly(second)).toEqual([929001, 929002, 929010, 929020]);
-		// Pinned, not endorsed: this is why every case in this file clears the
-		// cache. In production the properties for a tipo come from that tipo's
-		// ontology node, so the key holds — a caller that passes synthetic
-		// properties (or a per-record preset) would be served the wrong list.
-		clearDatalistCache();
-		const rebuilt = await getDatalist(
+		expect(second).not.toBe(first);
+		expect(second.map((item) => item.section_id)).toEqual([929001, 929002]);
+		// And the SAME filter again is a cache hit (same reference).
+		const again = await getDatalist(
 			'zzdlcache1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
-		expect(rebuilt).not.toBe(first);
-		expect(rebuilt.map((item) => item.section_id)).toEqual([929001, 929002]);
+		expect(again).toBe(second);
 	});
 
 	test('the lang is part of the key: a second lang builds its own list', async () => {
 		await seedOptions();
 		clearDatalistCache();
-		const english = await getDatalist('zzdlcache2', properties({}), SECTION, LANG);
-		const spanish = await getDatalist('zzdlcache2', properties({}), SECTION, 'lg-spa');
+		const english = await getDatalist(
+			'zzdlcache2',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
+		const spanish = await getDatalist(
+			'zzdlcache2',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			'lg-spa',
+		);
 		expect(spanish).not.toBe(english);
 		expect(seededOnly(spanish)).toEqual(seededOnly(english));
 	});
@@ -513,18 +555,33 @@ describe('getDatalist — the cache', () => {
 			LATE_ID,
 		]);
 		clearDatalistCache();
-		const before = await getDatalist('zzdlevict1', properties({}), SECTION, LANG);
+		const before = await getDatalist(
+			'zzdlevict1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		// WC-2026-08-10-section-id-int-canonical: int record address.
 		expect(before.some((item) => item.section_id === LATE_ID)).toBe(false);
 
 		await writeOption(LATE_ID, 'Item 30', 'note thirty', 'DROPTHIS');
 		// Still cached — the row alone does not stale it (this half is what
 		// proves the next half is not a no-op).
-		const stale = await getDatalist('zzdlevict1', properties({}), SECTION, LANG);
+		const stale = await getDatalist(
+			'zzdlevict1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		expect(stale).toBe(before);
 
 		await fireSaveEvent(SECTION); // the durable S1-11 eviction channel
-		const after = await getDatalist('zzdlevict1', properties({}), SECTION, LANG);
+		const after = await getDatalist(
+			'zzdlevict1',
+			properties({}),
+			{ section_tipo: SECTION, section_id: null },
+			LANG,
+		);
 		expect(after).not.toBe(before);
 		expect(after.some((item) => item.section_id === LATE_ID)).toBe(true);
 
@@ -545,7 +602,7 @@ describe('probeDatalistSize agrees with the built list', () => {
 		const probedWide = await probeDatalistSize(
 			'zzdlprobe1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 			5,
 		);
@@ -553,7 +610,7 @@ describe('probeDatalistSize agrees with the built list', () => {
 		const probedTight = await probeDatalistSize(
 			'zzdlprobe1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 			1,
 		);
@@ -561,7 +618,7 @@ describe('probeDatalistSize agrees with the built list', () => {
 		const list = await getDatalist(
 			'zzdlprobe1',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(list.length).toBe(2);
@@ -574,7 +631,7 @@ describe('probeDatalistSize agrees with the built list', () => {
 			await probeDatalistSize(
 				'zzdlprobe1',
 				properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-				SECTION,
+				{ section_tipo: SECTION, section_id: null },
 				LANG,
 				5,
 			),
@@ -587,11 +644,35 @@ describe('probeDatalistSize agrees with the built list', () => {
 		// No fixed_filter → the plain `LIMIT n` row probe. The section holds the
 		// four seeded options plus the canonical playground records, so a
 		// 3-limit probe saturates.
-		expect(await probeDatalistSize('zzdlprobe2', properties({}), SECTION, LANG, 3)).toBe(3);
+		expect(
+			await probeDatalistSize(
+				'zzdlprobe2',
+				properties({}),
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+				3,
+			),
+		).toBe(3);
 		clearDatalistCache();
-		expect(await probeDatalistSize('zzdlprobe2', properties({}), SECTION, LANG, 0)).toBe(0);
+		expect(
+			await probeDatalistSize(
+				'zzdlprobe2',
+				properties({}),
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+				0,
+			),
+		).toBe(0);
 		clearDatalistCache();
-		expect(await probeDatalistSize('zzdlprobe2', properties({}), SECTION, LANG, -1)).toBe(0);
+		expect(
+			await probeDatalistSize(
+				'zzdlprobe2',
+				properties({}),
+				{ section_tipo: SECTION, section_id: null },
+				LANG,
+				-1,
+			),
+		).toBe(0);
 	});
 
 	test('a cached list answers the probe without touching the DB', async () => {
@@ -600,13 +681,34 @@ describe('probeDatalistSize agrees with the built list', () => {
 		const list = await getDatalist(
 			'zzdlprobe3',
 			properties({ fixedFilter: markerFilter('KEEPTHIS') }),
-			SECTION,
+			{ section_tipo: SECTION, section_id: null },
 			LANG,
 		);
 		expect(list.length).toBe(2);
-		// Same tipo + lang: the cached branch, so the (ignored) properties can
-		// even be a filter-less config and the answer is still the cached 2.
-		expect(await probeDatalistSize('zzdlprobe3', properties({}), SECTION, LANG, 10)).toBe(2);
-		expect(await probeDatalistSize('zzdlprobe3', properties({}), SECTION, LANG, 1)).toBe(1);
+		// A third matching row lands WITHOUT a save event: the DB now holds 3
+		// matches, the cached list 2 — so a probe answering 2 answered from the
+		// cache (same key as the build), not from SQL.
+		await writeOption(LATE_ID, 'Item 30', 'note thirty', 'KEEPTHIS');
+		try {
+			const probe = (limit: number) =>
+				probeDatalistSize(
+					'zzdlprobe3',
+					properties({ fixedFilter: markerFilter('KEEPTHIS') }),
+					{ section_tipo: SECTION, section_id: null },
+					LANG,
+					limit,
+				);
+			expect(await probe(10)).toBe(2);
+			expect(await probe(1)).toBe(1);
+			// The contrast: cold, the same probe sees the third row.
+			clearDatalistCache();
+			expect(await probe(10)).toBe(3);
+		} finally {
+			await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
+				SECTION,
+				LATE_ID,
+			]);
+			await fireSaveEvent(SECTION);
+		}
 	});
 });

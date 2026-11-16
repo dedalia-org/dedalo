@@ -92,6 +92,20 @@
  *      persistRecordColumns, the birth) are never refused — the restored state
  *      passes through the conversion kernel (ontology/machine_name_rules.ts).
  *      Armed only on an ontology that defines ontology43 + ontology44.
+ *   3h. THE LOCATOR-TARGET LAW (T1-19 / D01 —
+ *      WC-2026-11-12-locator-target-deleted-refused; locator_targets.ts): a key
+ *      write that ADDS a locator takes `FOR KEY SHARE` on the target row (held
+ *      to COMMIT — the record delete's `FOR UPDATE` on its target conflicts) and
+ *      is REFUSED (`relation.target_deleted`, 409, nothing written) when the
+ *      target is a deleted record. Declared per ENTRY (KeyWriteMode.targets):
+ *      `verify` — persistRecordKeys, persistObserverResaveKeys and the atomic
+ *      append; `exempt` (with its reason) — the removal law, the observer
+ *      mirror and the component restore. Only ADDED targets are locked (against an
+ *      unlocked read, BEFORE the owner row when nothing holds it — the save
+ *      door's pre-lock order); a KEPT target never is (locking it after an
+ *      ambient owner lock deadlocks against its delete). The lock-mode law beside it: every writer's row lock is
+ *      `FOR NO KEY UPDATE` (never conflicts with KEY SHARE); `FOR UPDATE` only
+ *      where the row is deleted.
  *   4. THE COMPONENT_IMAGE SVG ENVELOPE — a `media`-column write persists any
  *      `svg_file_data` its items carry to the .svg overlay file BEFORE the row
  *      write (PHP component_image::save → create_svg_file, which likewise
@@ -125,6 +139,12 @@ import { machineNameScope } from '../ontology/machine_name_rules.ts';
 import { componentDeclaresOrder, sortByDeclaredOrder } from '../relations/order_locators.ts';
 import type { RelationSearchLaw } from '../relations/save.ts';
 import { auditDateItem, auditUserLocator } from '../section/record/create_record.ts';
+import {
+	assertAddedLocatorTargetsLive,
+	locatorTargetsOf,
+	lockAddedLocatorTargets,
+	lockLocatorTargets,
+} from './locator_targets.ts';
 import {
 	assertMachineNameAppend,
 	assertMachineNameWrite,
@@ -229,6 +249,7 @@ export async function persistRecordKeys(
 		law: 'save',
 		ledger: true,
 		coveredSlots: 'change',
+		targets: 'verify',
 	});
 }
 
@@ -258,6 +279,11 @@ export async function persistRestoredKeys(
 		law: 'save',
 		ledger: true,
 		coveredSlots: 'recompute',
+		targets: {
+			exempt:
+				'a restore writes a PAST value verbatim (Time Machine); a locator to a since-deleted ' +
+				'record is history, its repair is the D01 repair step, not a refusal of the restore',
+		},
 	});
 }
 
@@ -280,6 +306,7 @@ export async function persistRelationRemovalKeys(
 		law: 'removal',
 		ledger: true,
 		coveredSlots: 'change',
+		targets: { exempt: 'the removal doors only remove locators: nothing is added' },
 	});
 }
 
@@ -302,6 +329,11 @@ export async function persistObserverMirrorKeys(
 		law: 'save',
 		ledger: false,
 		coveredSlots: 'change',
+		targets: {
+			exempt:
+				'a mirror is DERIVED from truth: a referencer deleted meanwhile triggers its own ' +
+				"death recompute after the delete's COMMIT, under the mirror host's lock (self-healing)",
+		},
 	});
 }
 
@@ -315,8 +347,12 @@ export async function persistObserverMirrorKeys(
  * The save law applies like any key write (the rules run again inside
  * writeKeys: idempotent over a value they produced); NO ledger entry: the
  * relay's own emitCascadeHop re-enters propagation for the observer, and a
- * ledger entry would dispatch it a second time. Only the re-save may take it
- * (write_obligations_tripwire leg B4 — the twin of the mirror row above).
+ * ledger entry would dispatch it a second time. Its SECOND caller (2026-11-13,
+ * WC-2026-11-13-observer-refresh-data) is the `refresh_data` perform's clear
+ * (observers.ts applyRefreshDataClear): the same shape — an observer
+ * re-written by its OWN edge, the dispatch hopping it itself. Only those two
+ * may take it (write_obligations_tripwire leg B4 — the twin of the mirror row
+ * above).
  */
 export async function persistObserverResaveKeys(
 	target: RecordWriteTarget,
@@ -329,6 +365,7 @@ export async function persistObserverResaveKeys(
 		law: 'save',
 		ledger: false,
 		coveredSlots: 'change',
+		targets: 'verify',
 	});
 }
 
@@ -344,6 +381,11 @@ interface KeyWriteMode {
 	 * derivation: never propagated, recomputed after COMMIT (persistRestoredKeys).
 	 */
 	coveredSlots: 'change' | 'recompute';
+	/**
+	 * §3h — whether an ADDED locator's target is locked and judged (`verify`), or
+	 * the entry is exempt, with the reason stated where the census reads it.
+	 */
+	targets: 'verify' | { exempt: string };
 }
 
 /** The COVERED OBSERVER slots among a savePath's relation keys (a restored past derivation). */
@@ -371,12 +413,121 @@ function asItems(value: unknown): unknown[] {
 async function planKeyObligations(
 	savePath: readonly SavePathItem[],
 	mode: KeyWriteMode,
-): Promise<{ observed: SavePathItem[]; indexed: SavePathItem[]; recomputed: string[] }> {
+): Promise<{
+	observed: SavePathItem[];
+	indexed: SavePathItem[];
+	recomputed: string[];
+	targeted: SavePathItem[];
+}> {
 	// A restored covered slot is RECOMPUTED, never declared as a change (see mode.coveredSlots).
 	const recomputed =
 		mode.ledger && mode.coveredSlots === 'recompute' ? await coveredSlotKeys(savePath) : [];
 	const observed = mode.ledger ? await observedItems(savePath, recomputed) : [];
-	return { observed, indexed: await indexedRelationItems(savePath, mode.law), recomputed };
+	return {
+		observed,
+		indexed: await indexedRelationItems(savePath, mode.law),
+		recomputed,
+		targeted: targetedItems(savePath, mode),
+	};
+}
+
+/**
+ * §3h — the relation items whose value points at ≥1 record address, for a
+ * `verify` entry (empty for an exempt one). Pure: no ontology read, so a write
+ * with no locator in it keeps the transaction-less fast path.
+ */
+function targetedItems(savePath: readonly SavePathItem[], mode: KeyWriteMode): SavePathItem[] {
+	if (mode.targets !== 'verify') return [];
+	return savePath.filter(
+		(item) => item.column === 'relation' && locatorTargetsOf(asItems(item.value)).length > 0,
+	);
+}
+
+/**
+ * §3h — the chokepoint's PRE-LOCK: `FOR KEY SHARE` on the targets each targeted
+ * key ADDS over the key as STORED NOW (one unlocked record read — the owner row
+ * is not locked yet when the chokepoint owns the transaction; the check re-judges
+ * under the owner's lock, so a value that moved in between is still judged). A
+ * KEPT target is never locked: after an ambient owner lock that is the inverted
+ * order a concurrent delete of it deadlocks against (T1-19 review, gates R5/R6).
+ */
+async function lockAddedTargetsAhead(
+	target: RecordWriteTarget,
+	targeted: readonly SavePathItem[],
+): Promise<void> {
+	if (targeted.length === 0) return;
+	const stored = await readMatrixRecord(target.table, target.sectionTipo, target.sectionId);
+	const bag = plainBag(stored?.columns.relation);
+	await lockAddedLocatorTargets(
+		targeted.map((item) => ({ before: asItems(bag[item.key]), after: asItems(item.value) })),
+	);
+}
+
+/** A stored jsonb column as a key bag ({} when absent or not an object). */
+function plainBag(column: unknown): Record<string, unknown> {
+	if (column === null || typeof column !== 'object' || Array.isArray(column)) return {};
+	return column as Record<string, unknown>;
+}
+
+/** One before-image slot per (column, key). */
+function keySlot(column: string, key: string): string {
+	return `${column}\u0000${key}`;
+}
+
+/**
+ * The BEFORE-IMAGE of every observed key, under the row lock (joining the
+ * caller's lock when it already holds one): what an observer needs to learn
+ * which records this write DROPPED. A vanished row is the S2-02 conflict,
+ * before anything is written. The images are also kept by slot for §3h.
+ */
+async function observedChanges(
+	target: RecordWriteTarget,
+	observed: readonly SavePathItem[],
+	door: string,
+	befores: Map<string, unknown[]>,
+): Promise<KeyChange[]> {
+	const changes: KeyChange[] = [];
+	for (const item of observed) {
+		const before = await lockedKeyImage(target, item, door);
+		befores.set(keySlot(item.column, item.key), before);
+		changes.push({ column: item.column, tipo: item.key, before, after: asItems(item.value) });
+	}
+	return changes;
+}
+
+/** One key of the target row under the writer's row lock; a vanished row refuses (S2-02). */
+async function lockedKeyImage(
+	target: RecordWriteTarget,
+	item: SavePathItem,
+	door: string,
+): Promise<unknown[]> {
+	const before = await readMatrixKeyForUpdate(
+		target.table,
+		target.sectionTipo,
+		target.sectionId,
+		item.column,
+		item.key,
+	);
+	if (before === null) assertRecordStillExists(0, target, door);
+	return before ?? [];
+}
+
+/**
+ * §3h — every targeted key's ADDED targets locked `FOR KEY SHARE` and judged
+ * against its before-image (the observed read's when there was one), inside the
+ * write's transaction, before its UPDATE. A deleted target THROWS.
+ */
+async function assertTargetedKeys(
+	target: RecordWriteTarget,
+	targeted: readonly SavePathItem[],
+	door: string,
+	befores: ReadonlyMap<string, unknown[]>,
+): Promise<void> {
+	for (const item of targeted) {
+		const before =
+			befores.get(keySlot(item.column, item.key)) ?? (await lockedKeyImage(target, item, door));
+		await assertAddedLocatorTargetsLive(target, item.key, door, before, asItems(item.value));
+	}
 }
 
 /** The savePath items an observer watches, minus the recomputed covered slots. */
@@ -615,6 +766,8 @@ async function writeKeyEntry(
 	//    the record the UPDATE replaces and a refusal rolls everything back.
 	if (await machineNameRulesApply(target, ruledPath)) {
 		await withTransaction(async () => {
+			// §3h — the ADDED targets' locks before the verdict's row lock (the one order).
+			await lockAddedTargetsAhead(target, targetedItems(ruledPath, mode));
 			const savePath = await machineNameRuledPath(target, ruledPath, mode.door);
 			await writeKeys(target, savePath, audit, derived, mode);
 		});
@@ -648,6 +801,84 @@ async function machineNameRuledPath(
 	return savePath;
 }
 
+/**
+ * Whether a key write takes the TRANSACTION path (writeKeys): anything derived
+ * or judged is owed — an observed before-image, a relation index, a locator
+ * target to lock, a parent link's cycle check, an image_id stem to judge.
+ */
+function needsTransactionPath(
+	plan: { observed: readonly unknown[]; indexed: readonly unknown[]; targeted: readonly unknown[] },
+	parentLink: boolean,
+	stemRuled: boolean,
+): boolean {
+	return (
+		plan.observed.length > 0 ||
+		plan.indexed.length > 0 ||
+		plan.targeted.length > 0 ||
+		parentLink ||
+		stemRuled
+	);
+}
+
+/** §3i — the stem rules over the ruled keys, inside the write's transaction (a no-op when none). */
+async function assertStemRuledKeys(
+	target: RecordWriteTarget,
+	stemRuled: readonly import('../media/stem_rules.ts').StemRuledKey[],
+	door: string,
+): Promise<void> {
+	if (stemRuled.length === 0) return;
+	const { assertImageIdStemRules } = await import('../media/stem_rules.ts');
+	await assertImageIdStemRules(target, stemRuled, door);
+}
+
+/**
+ * §3i — the savePath items that write an image_id SIBLING of the target's
+ * section (media/stem_rules.ts normalizeStemRuledItems), with the value as it
+ * will be stored — a sibling's string items TRIMMED (the stem IS the stored
+ * value, so the uniqueness probe reads what the resolver reads) — and the
+ * savePath with those items in their stored form (every other item as given).
+ * Dynamic import: the media subsystem reads this module's birth law.
+ */
+async function stemRuledPath(
+	target: RecordWriteTarget,
+	savePath: readonly SavePathItem[],
+): Promise<{
+	ruled: import('../media/stem_rules.ts').StemRuledKey[];
+	savePath: readonly SavePathItem[];
+}> {
+	// The relation and media columns never hold a sibling (a literal component).
+	if (!savePath.some((item) => item.column !== 'relation' && item.column !== 'media')) {
+		return { ruled: [], savePath };
+	}
+	const { normalizeStemRuledItems } = await import('../media/stem_rules.ts');
+	const { items, ruled } = await normalizeStemRuledItems(target.sectionTipo, savePath);
+	return { ruled, savePath: ruled.length === 0 ? savePath : items };
+}
+
+/**
+ * §3h for the two INSERT doors that bypass the chokepoint by design
+ * (create_record.ts create-with-values, duplicate_record.ts — owner ruling
+ * 2026-11-13 C28 a: births are judged under the same law as every save): every
+ * relation key the born row carries is a key that ADDS every one of its
+ * locators (nothing was stored before), so each target is locked `FOR KEY
+ * SHARE` to COMMIT and a DELETED one refuses the birth
+ * (`relation.target_deleted` — the insert rolls back with the counter, as a
+ * `tree.cycle` refusal does). MUST run inside the insert's transaction. The
+ * chokepoint's own birth entry (persistRecordBirth — an undelete, history
+ * verbatim) stays exempt as persistRestoredKeys is.
+ */
+export async function assertBirthLocatorTargetsLive(
+	target: RecordWriteTarget,
+	values: MatrixWriteValues,
+	door: string,
+): Promise<void> {
+	const bag = relationBagOf(values);
+	if (bag === null) return;
+	for (const [key, value] of Object.entries(bag)) {
+		await assertAddedLocatorTargetsLive(target, key, door, [], asItems(value));
+	}
+}
+
 /** The key write proper, after the key save rules (§3f) and the machine-name rules (§3g). */
 async function writeKeys(
 	target: RecordWriteTarget,
@@ -675,13 +906,19 @@ async function writeKeys(
 	// A parent key is never written transaction-less: its cycle check needs the
 	// row lock held to COMMIT (ONT-5), so it takes the transaction path below.
 	const parentLink = await writesParentLink(savePath);
+	// §3i — THE IMAGE_ID STEM RULES (media/stem_rules.ts): a key that is the
+	//    sibling a component_image names its FILES by takes the transaction path
+	//    too — its stored value is read under the row lock and judged (unique in
+	//    the section; locked while files exist under it) before the UPDATE. One
+	//    cached Map lookup per key for every other write.
+	const { ruled: stemRuled, savePath: storedPath } = await stemRuledPath(target, savePath);
 
-	if (plan.observed.length === 0 && plan.indexed.length === 0 && !parentLink) {
+	if (!needsTransactionPath(plan, parentLink, stemRuled.length > 0)) {
 		const affected = await updateMatrixKeysData(
 			target.table,
 			target.sectionTipo,
 			target.sectionId,
-			[...savePath, ...auditWrites],
+			[...storedPath, ...auditWrites],
 		);
 		assertRecordStillExists(affected, target, mode.door);
 		await afterRecordWrite(target, {
@@ -694,39 +931,26 @@ async function writeKeys(
 			receipt: derived.receipt,
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
-		derived.onWritten?.(savePath);
+		derived.onWritten?.(storedPath);
 		return;
 	}
 
 	await withTransaction(async () => {
-		// The BEFORE-IMAGE, under the row lock (joining the caller's lock when it
-		// already holds one): what an observer needs to learn which records this
-		// write DROPPED. A vanished row is the S2-02 conflict, before anything is
-		// written.
-		const changes: KeyChange[] = [];
-		for (const item of plan.observed) {
-			const before = await readMatrixKeyForUpdate(
-				target.table,
-				target.sectionTipo,
-				target.sectionId,
-				item.column,
-				item.key,
-			);
-			if (before === null) assertRecordStillExists(0, target, mode.door);
-			changes.push({
-				column: item.column,
-				tipo: item.key,
-				before: before ?? [],
-				after: asItems(item.value),
-			});
-		}
+		// §3h — the ADDED targets' KEY SHARE locks FIRST (before the owner row's
+		// lock, the save door's order; re-entered when the door already took them).
+		// KEPT targets are never locked (locator_targets.ts, WHAT IS LOCKED).
+		await lockAddedTargetsAhead(target, plan.targeted);
+		const befores = new Map<string, unknown[]>();
+		const changes = await observedChanges(target, plan.observed, mode.door, befores);
+		await assertTargetedKeys(target, plan.targeted, mode.door, befores);
 		if (parentLink) await assertParentLinkKeys(target, savePath, 'replace');
+		await assertStemRuledKeys(target, stemRuled, mode.door);
 		const indexWrites = await relationSearchWrites(plan.indexed, mode.law);
 		const affected = await updateMatrixKeysData(
 			target.table,
 			target.sectionTipo,
 			target.sectionId,
-			[...savePath, ...indexWrites, ...auditWrites],
+			[...storedPath, ...indexWrites, ...auditWrites],
 		);
 		assertRecordStillExists(affected, target, mode.door);
 		await afterRecordWrite(target, {
@@ -740,7 +964,7 @@ async function writeKeys(
 		});
 		await requestRestoredSlotRecompute(target, plan.recomputed, audit, derived);
 	});
-	derived.onWritten?.(savePath);
+	derived.onWritten?.(storedPath);
 }
 
 /**
@@ -782,6 +1006,8 @@ export async function persistAppendedKeyItems(
 ): Promise<void> {
 	await assertAppendableKey(target, column, key);
 	await withTransaction(async () => {
+		// §3h — the inserts' targets locked FIRST, before anything locks the row.
+		const targeted = await lockAppendTargets(column, inserts);
 		// §3g — the machine-name rules over the stored value plus the inserts.
 		await assertMachineNameAppend(target, column, key, inserts);
 		await assertParentLinkKeys(target, [{ column, key, value: inserts }], 'append');
@@ -794,38 +1020,13 @@ export async function persistAppendedKeyItems(
 			inserts,
 		);
 		assertRecordStillExists(appended, target, 'persistAppendedKeyItems');
-		const item: SavePathItem = { column, key, value: null };
-		const plan = await planKeyObligations([item], {
-			door: 'persistAppendedKeyItems',
-			law: 'save',
-			ledger: true,
-			coveredSlots: 'change',
-		});
-		const changes: KeyChange[] = [];
-		let indexWrites: SavePathItem[] = [];
-		if (plan.observed.length > 0 || plan.indexed.length > 0) {
-			// The append's UPDATE holds the row lock: this read sees the key as stored.
-			const stored =
-				(await readMatrixKeyForUpdate(
-					target.table,
-					target.sectionTipo,
-					target.sectionId,
-					column,
-					key,
-				)) ?? [];
-			if (plan.observed.length > 0) {
-				changes.push({
-					column,
-					tipo: key,
-					before: withoutAppended(stored, inserts),
-					after: stored,
-				});
-			}
-			indexWrites = await relationSearchWrites(
-				plan.indexed.map((indexed) => ({ ...indexed, value: stored })),
-				'save',
-			);
-		}
+		const { changes, indexWrites } = await appendDerivations(
+			target,
+			column,
+			key,
+			inserts,
+			targeted,
+		);
 		const auditWrites = buildModifiedAuditWrites(target.sectionTipo, audit);
 		const writes = [...indexWrites, ...auditWrites];
 		if (writes.length > 0) {
@@ -847,6 +1048,57 @@ export async function persistAppendedKeyItems(
 	});
 }
 
+/** §3h — the append's targets locked before the row (true when the inserts carry any). */
+async function lockAppendTargets(
+	column: MatrixJsonbColumn,
+	inserts: readonly unknown[],
+): Promise<boolean> {
+	if (column !== 'relation' || locatorTargetsOf(inserts).length === 0) return false;
+	await lockLocatorTargets([inserts]);
+	return true;
+}
+
+/**
+ * The append's derived obligations over the key AS STORED (read back under the
+ * row lock the append's UPDATE took): §3h — the added targets judged; the
+ * observer change (before = stored minus the appended items); the
+ * `relation_search` index. Nothing owed ⇒ no read.
+ */
+async function appendDerivations(
+	target: RecordWriteTarget,
+	column: MatrixJsonbColumn,
+	key: string,
+	inserts: readonly unknown[],
+	targeted: boolean,
+): Promise<{ changes: KeyChange[]; indexWrites: SavePathItem[] }> {
+	const plan = await planKeyObligations([{ column, key, value: null }], {
+		door: 'persistAppendedKeyItems',
+		law: 'save',
+		ledger: true,
+		coveredSlots: 'change',
+		targets: 'verify',
+	});
+	if (plan.observed.length === 0 && plan.indexed.length === 0 && !targeted) {
+		return { changes: [], indexWrites: [] };
+	}
+	const stored = await lockedKeyImage(
+		target,
+		{ column, key, value: null },
+		'persistAppendedKeyItems',
+	);
+	const before = withoutAppended(stored, inserts);
+	if (targeted) {
+		await assertAddedLocatorTargetsLive(target, key, 'persistAppendedKeyItems', before, stored);
+	}
+	const changes: KeyChange[] =
+		plan.observed.length > 0 ? [{ column, tipo: key, before, after: stored }] : [];
+	const indexWrites = await relationSearchWrites(
+		plan.indexed.map((indexed) => ({ ...indexed, value: stored })),
+		'save',
+	);
+	return { changes, indexWrites };
+}
+
 /**
  * §3f — the atomic append REFUSES a key the save rules would rewrite: a
  * concatenation inside the UPDATE cannot sort, and an append that skipped the
@@ -859,16 +1111,34 @@ async function assertAppendableKey(
 	column: MatrixJsonbColumn,
 	key: string,
 ): Promise<void> {
-	if (column !== 'relation') return;
-	if (!(await componentDeclaresOrder(key, target.sectionTipo))) return;
+	if (column === 'relation') {
+		if (!(await componentDeclaresOrder(key, target.sectionTipo))) return;
+		throw new DedaloError('internal.invariant', {
+			message: `persistAppendedKeyItems: '${key}' declares an order — a declared-order key is never appended atomically (route it to persistRecordKeys)`,
+			coordinates: {
+				table: target.table,
+				section_tipo: target.sectionTipo,
+				section_id: target.sectionId,
+				tipo: key,
+				reason: 'declared_order',
+			},
+		});
+	}
+	// §3i — an image_id SIBLING is judged against its stored value (the stem
+	// rules read it under the row lock and compare); an append cannot, so the
+	// save door routes it to the full-array persist (save_component.ts
+	// stemRuledInserts) and reaching here is the same programming error.
+	if (column === 'media') return;
+	const { isImageIdSibling } = await import('../media/stem_rules.ts');
+	if (!(await isImageIdSibling(target.sectionTipo, key))) return;
 	throw new DedaloError('internal.invariant', {
-		message: `persistAppendedKeyItems: '${key}' declares an order — a declared-order key is never appended atomically (route it to persistRecordKeys)`,
+		message: `persistAppendedKeyItems: '${key}' is an image_id sibling — a stem-ruled key is never appended atomically (route it to persistRecordKeys)`,
 		coordinates: {
 			table: target.table,
 			section_tipo: target.sectionTipo,
 			section_id: target.sectionId,
 			tipo: key,
-			reason: 'declared_order',
+			reason: 'image_id_sibling',
 		},
 	});
 }
@@ -940,7 +1210,12 @@ export async function afterRecordWrite(
 			sectionId: target.sectionId,
 		});
 	}
-	await enqueueObservedChange(target, obligations.observed, obligations.receipt);
+	await enqueueObservedChange(
+		target,
+		obligations.observed,
+		obligations.receipt,
+		obligations.touchedKeys,
+	);
 }
 
 /**
@@ -1495,9 +1770,10 @@ export async function prepareBirthColumns(
 }
 
 /**
- * Every COVERED OBSERVER slot a section DECLARES (the one section census the
- * wipe shares — section/record/declared_components.ts: own ∪ real subtree,
- * crossing nested sections), whatever a given row stores. A record that
+ * Every COVERED OBSERVER slot a section DECLARES (the one section census —
+ * section/record/declared_components.ts: own ∪ real subtree, crossing nested
+ * sections; the wipe's scope is filtered from it, so wipe ⊆ recompute), whatever
+ * a given row stores. A record that
  * CONTINUES at its address after a gap (an undelete, a wiped record restored)
  * may have referencers that re-appeared while it was gone — a referencer
  * undeleted first carries its locator onto the missing record — so its mirrors

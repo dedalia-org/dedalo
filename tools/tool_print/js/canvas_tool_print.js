@@ -1177,8 +1177,8 @@ export const decorate_editor = function(self) {
 	self.print_root.classList.add('editor')
 	wire_flow_keys(self)
 
-	const mk = (cls, html, title, parent, onclick) => {
-		const b = ui.create_dom_element({ element_type:'span', class_name:'rc_btn no_print ' + cls, inner_html:html, parent })
+	const mk = (cls, text, title, parent, onclick) => {
+		const b = ui.create_dom_element({ element_type:'span', class_name:'rc_btn no_print ' + cls, text_content:text, parent })
 		if (title) b.title = title
 		if (onclick) b.addEventListener('click', (e) => { e.stopPropagation(); onclick(e) })
 		return b

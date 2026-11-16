@@ -16,14 +16,17 @@
  * this file. `readTimeMachineHistory` is `withTmHistory`-narrowed, and that is
  * pinned by an OUTCOME in test/unit/record_generation_native.test.ts
  * ("readTimeMachineHistory serves only the living generation"), because
- * `time_machine.ts` is exempt from this census.
+ * `time_machine.ts` is exempt from this census (a MIXED exemption: its
+ * narrowed readers' count is pinned on the entry, and the write-gate probe has
+ * its own outcome gates — record_generation_native + tm_save_before_native D2).
  *
  * The census measures CODE: comments are stripped by the shared scanner
  * (test/helpers/strip_comments.ts), so prose naming the table or a helper is
  * neither a statement nor a narrowing.
  *
  * THE TWO DIRECTIONS BOTH MATTER. A leaking reader shows a dead record's
- * history; a leaking WRITE-GATE probe (delete_record, observers) sees the dead
+ * history; a leaking WRITE-GATE probe (time_machine.ts hasVisibleLaneHistory,
+ * the one backfill probe of every door) sees the dead
  * generation's rows, concludes the record already has history, and SUPPRESSES
  * the reborn record's own backfill.
  *
@@ -64,7 +67,9 @@ const TM_NARROWING = /tmEpochPredicate\(|withTmEpoch\(|withTmHistory\(/g;
  * Files that read `matrix_time_machine` WITHOUT the epoch narrowing, each with
  * the reason it is not a leak. SHRINK-ONLY.
  */
-const EXEMPT_TM_READERS: Readonly<Record<string, { reads: number; reason: string }>> = {
+const EXEMPT_TM_READERS: Readonly<
+	Record<string, { reads: number; narrowSites?: number; reason: string }>
+> = {
 	'src/core/db/matrix_write.ts': {
 		reads: 2,
 		reason:
@@ -84,9 +89,15 @@ const EXEMPT_TM_READERS: Readonly<Record<string, { reads: number; reason: string
 			'The epoch MINT itself: it reads the address’s existing rows to place the boundary. It is what the other readers are narrowed BY.',
 	},
 	'src/core/db/time_machine.ts': {
-		reads: 7,
+		reads: 8,
+		// A MIXED file: exempt for its two deliberately un-narrowed statements, but
+		// its six withTmHistory readers are pinned too — hasVisibleLaneHistory, the
+		// backfill write-gate probe of every door, among them (T1-21 review). A
+		// swap of one of them to tmVisiblePredicate() alone (visibility, no epoch
+		// fence) keeps `reads` at 8 and moves only this count.
+		narrowSites: 6,
 		reason:
-			'readTimeMachineRow is a PK read whose CALLERS carry the identity check (tool_time_machine apply_value, section/read.ts preview — both narrowed); it is VISIBILITY-narrowed (tmVisiblePredicate) but deliberately not epoch-narrowed, so a dead-generation id answers the specific "does not belong" refusal. readTimeMachineHistory, readOtherLangItemIds (the frame pairing law\'s input) and newestRowAt (the two-lane as-of reader: readFrameStateRowAt / readLaneRowAt), nextVisibleRow (the TM preview bound: nextVisibleRowAfter, and the record-lifecycle probe nextVisibleRecordRowAfter) and readKeyLanesAt (the per-lane as-of reader of frame targets) are narrowed with withTmHistory (epoch AND visible). addressHasTimeMachineHistory (WC-2026-11-10-save-never-creates) is an EXISTS over EVERY generation, deliberately: it answers "did a record ever live at this address" for the save door\'s absent-row refusal sentence, never a history view — a dead generation is exactly what it looks for.',
+			"readTimeMachineRow is a PK read whose CALLERS carry the identity check (tool_time_machine apply_value, section/read.ts preview — both narrowed); it is VISIBILITY-narrowed (tmVisiblePredicate) but deliberately not epoch-narrowed, so a dead-generation id answers the specific \"does not belong\" refusal. readTimeMachineHistory, readOtherLangItemIds (the frame pairing law's input) and newestRowAt (the two-lane as-of reader: readFrameStateRowAt / readLaneRowAt), nextVisibleRow (the TM preview bound: nextVisibleRowAfter, and the record-lifecycle probe nextVisibleRecordRowAfter) and readKeyLanesAt (the per-lane as-of reader of frame targets) are narrowed with withTmHistory (epoch AND visible), as is hasVisibleLaneHistory — THE backfill write-gate probe of every door (the history writer's save-before, the delete and observer backfills; T1-21), so a dead generation's rows never suppress the reborn record's backfill. addressHasTimeMachineHistory (WC-2026-11-10-save-never-creates) is an EXISTS over EVERY generation, deliberately: it answers \"did a record ever live at this address\" for the save door's absent-row refusal sentence, never a history view — a dead generation is exactly what it looks for.",
 	},
 	'src/core/update/transform/locators.ts': {
 		reads: 2,
@@ -173,8 +184,6 @@ const NARROWED_READERS: Readonly<Record<string, { reads: number; narrowSites: nu
 	// withTmEpoch-narrowed), the barrier inner, the late-lookup inner, and the
 	// plain page.
 	'src/core/resolve/read_tm.ts': { reads: 7, narrowSites: 5 },
-	'src/core/section/record/delete_record.ts': { reads: 1, narrowSites: 1 },
-	'src/core/section/record/observers.ts': { reads: 1, narrowSites: 1 },
 	// The undo-log rewrite (2026-09-27): the orchestrator's one read is the run
 	// loader (every role, epoch-narrowed); the legacy inference's three are the
 	// per-language pre-run row, its wipe-sibling subquery and the record's
@@ -191,7 +200,7 @@ describe('time-machine epoch tripwire', () => {
 		const files = new Set(readers.map((r) => r.file));
 		for (const door of [
 			'src/core/resolve/read_tm.ts',
-			'src/core/section/record/delete_record.ts',
+			'src/core/db/time_machine.ts',
 			'tools/tool_time_machine/server/bulk_revert.ts',
 			'src/core/db/matrix_write.ts',
 		]) {
@@ -251,6 +260,25 @@ describe('time-machine epoch tripwire', () => {
 			.filter((row) => row.actual !== row.allowed)
 			.map((row) => `${row.file}: exempts ${row.allowed}, found ${row.actual}`);
 		expect(drifted).toEqual([]);
+	});
+
+	test('a MIXED exempt file keeps every narrowing it pins', () => {
+		// An exemption names the un-narrowed statements; a file that ALSO hosts
+		// narrowed readers pins their count, or dropping one's epoch fence (the
+		// write-gate probe's above all: a dead generation's rows then suppress the
+		// reborn record's backfill) would hide behind the exemption.
+		const drifted = Object.entries(EXEMPT_TM_READERS)
+			.filter(([, entry]) => entry.narrowSites !== undefined)
+			.map(([file, entry]) => ({
+				file,
+				want: entry.narrowSites,
+				got: readers.find((r) => r.file === file)?.narrowSites ?? 0,
+			}))
+			.filter((row) => row.want !== row.got)
+			.map((row) => `${row.file}: pins ${row.want} narrowings, found ${row.got}`);
+		expect(drifted).toEqual([]);
+		// Anti-vacuity: the probe's host is one of the pinned files.
+		expect(EXEMPT_TM_READERS['src/core/db/time_machine.ts']?.narrowSites).toBeGreaterThan(0);
 	});
 
 	test('each narrowed file narrows EVERY statement it holds, not merely one', () => {

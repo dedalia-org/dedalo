@@ -299,8 +299,12 @@ installer's own affordances.
    reading permission bits — a network mount can lie about the bits.
 11. **`stage_ontologies`** — fetches (update server) or copies (built-in `oh`,
    `--ontology-source`) every chosen domain ontology file, dependencies first,
-   into the staging directory, and verifies each one (decompression and row
-   format) **before the database is touched**. Apart from the developer
+   into the staging directory, and verifies each one **before the database is
+   touched**: first against the sha256 its source publishes (the server's
+   manifest, the package's or the release's `ontology.json`), then decompression
+   and row format. A file that does not match its digest stops the install; a
+   source that publishes no digests is installed with a warning naming every
+   unverified file. Apart from the developer
    route's development dependencies, this is the install's only network phase: an unreachable server or a damaged file stops the install
    here, with the database still empty.
 12. **`install_db_from_default_file`** — restores the database from the core-only
@@ -649,7 +653,8 @@ changed, and names the directory or file in the way.
 
 The ontology files are fetched and verified by `stage_ontologies`, **before the
 seed is restored**: a source that is unreachable, refuses the access code or
-serves a damaged file stops the install with the database untouched. The
+serves a damaged file, or a file whose bytes are not the ones its source's
+digest names (`sha256 mismatch`), stops the install with the database untouched. The
 staged files wait in `../private/install/ontology_staging/` (with a
 `staged.json` recording each file's checksum) and are deleted after a successful
 import; after a failure they stay there for diagnosis, and the next run starts
@@ -719,8 +724,14 @@ What the screens do for you:
   private directory, Docker, Compose and the disk — the full list is in
   [Troubleshooting › The System check screen](troubleshooting.md#the-system-check-screen).
   A failure no fix on this machine can change (an unsupported system) offers only
-  quit, or back to another route. The database must exist, be
-  reachable and be empty: retry, or go back and edit. The media directory
+  quit, or back to another route. An installation already here fails the System
+  check, with the sentence the run would refuse it with: on developer a finished
+  install record or a sealed state file in the private directory; on docker and
+  trial the instance's volume, an earlier `.dedalo.env` or
+  `compose.override.yaml`, or the stack's install record; on production an
+  install record of the instance name (its **Instance** row). The database must
+  exist, be reachable, be empty and be owned by the install role (the run's own
+  check, its words): retry, or go back and edit. The media directory
   (production) must be creatable by you. The MariaDB and SMTP connections must
   pass, or you type `yes` to keep them untested — the Review says which. The
   mail check can also send a real test message to an address you give (it is
@@ -1437,8 +1448,9 @@ sh install.sh [--release <file|https-url> --release-sha256 <sha256>] \
 aarch64) for every route, or a Mac (Apple silicon or Intel) for the docker and
 trial routes with Docker Desktop — its Bun checked against the release's
 `.bun-sha256-darwin`, the same signed payload's macOS rows; the release — the checkout it sits in, or `--release`, an archive whose
-sha256 must equal `--release-sha256` (there is no "confirm on the terminal"
-instead); Bun at the release's pin, its zip checked against the release's
+sha256 must equal `--release-sha256` — the 64 hexadecimal digits, never the
+address of the `.sha256` file (see [Get Dédalo](index.md#get-dedalo); there is
+no "confirm on the terminal" instead); Bun at the release's pin, its zip checked against the release's
 committed `.bun-sha256` and Bun's own `SHASUMS256.txt` (both must agree), cached
 and re-hashed on every reuse; the installer's dependencies; then
 `exec bun scripts/install.ts <your arguments>` — your arguments and your

@@ -302,7 +302,7 @@ const get_value_element = (i, data, values_container, self) => {
 		const sum_intervals_node = ui.create_dom_element({
 			element_type: 'div',
 			class_name	: 'sum_intervals',
-			inner_html	: ar_sum_intervals.join(' '),
+			text_content	: ar_sum_intervals.join(' '),
 			parent 		: li
 		})
 
@@ -332,7 +332,7 @@ const get_value_element = (i, data, values_container, self) => {
 			const sum_estitmated_time_add_node = ui.create_dom_element({
 				element_type: 'span',
 				class_name	: 'sum_dates_period_notes',
-				inner_html	: ar_indeterminate.join(' '),
+				text_content	: ar_indeterminate.join(' '),
 				parent 		: li
 			})
 

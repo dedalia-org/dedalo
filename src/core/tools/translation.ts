@@ -135,10 +135,7 @@ export async function translateItems(
 ): Promise<{ items: TranslatedItem[]; error: string | null; emptyResult?: true }> {
 	const out: TranslatedItem[] = [];
 	for (const item of sourceItems) {
-		const text =
-			item !== null && typeof item === 'object'
-				? String((item as { value?: unknown }).value ?? '')
-				: String(item ?? '');
+		const text = sourceText(item);
 		const res = await provider({
 			uri: cfg.uri,
 			key: cfg.key,
@@ -163,6 +160,45 @@ export async function translateItems(
 		out.push(targetItem(item, res.text, cfg.targetLang));
 	}
 	return { items: out, error: null };
+}
+
+/** The text a source item hands the provider: its `value`, or the bare scalar. */
+function sourceText(item: unknown): string {
+	return item !== null && typeof item === 'object'
+		? String((item as { value?: unknown }).value ?? '')
+		: String(item ?? '');
+}
+
+/**
+ * The translated items AS THEY WILL BE STORED (T1-14 / OX7): through the write
+ * engine's value gates, exactly like a save (`write_value_gates.ts` — the
+ * rich-text sanitizer + WC-042 media-src relativize for an `html` model; PHP
+ * `component_text_area::save` → `clean_text`). Babel's own post-processing is
+ * a `strip_tags` allowlist that KEEPS attributes, and its entity decode turns
+ * literal text into live markup, so the provider result is never trusted as
+ * stored form.
+ *
+ * The visible-text check runs again on the GATED value: a result whose only
+ * content was hostile markup sanitizes to nothing, and writing that would blank
+ * the target language (WC-2026-11-10) — it is refused as an empty result.
+ */
+async function gateTranslatedItems(
+	model: string,
+	sourceSlice: readonly unknown[],
+	targetItems: readonly TranslatedItem[],
+	direction: { sourceLang: string; targetLang: string; componentTipo: string },
+): Promise<{ items: unknown[]; emptyMsg: string | null }> {
+	const { gateComponentItems } = await import('../section/record/write_value_gates.ts');
+	const items = await gateComponentItems(model, direction.componentTipo, targetItems);
+	const emptied = items.some((item, index) =>
+		isEmptyTranslation(sourceText(sourceSlice[index]), sourceText(item)),
+	);
+	return {
+		items,
+		emptyMsg: emptied
+			? `empty translation for ${direction.sourceLang} → ${direction.targetLang} after sanitizing`
+			: null,
+	};
 }
 
 /** Visible text: markup removed, whitespace trimmed. */
@@ -274,6 +310,48 @@ export function resolveTranslationProvider(engine: string): {
 	}
 }
 
+/** translateAndWrite's internal outcome — its caller maps a refusal to a typed throw. */
+interface TranslationOutcome {
+	ok: boolean;
+	msg: string;
+	count: number;
+	providerError?: boolean;
+	emptyResult?: true;
+}
+
+/**
+ * The provider's answer, GATED, or the ONE refusal shape for both pre-lock
+ * refusals. Stored form = gated form (see gateTranslatedItems), computed
+ * OUTSIDE the row lock: pure CPU, it must not widen the lock window; only an
+ * answer the provider actually gave is gated. `providerError` is what lets
+ * the caller route the provider's sentence into the declared
+ * `provider_message` detail instead of onto the wire (WC-2026-08-09). An
+ * empty result — the service's, or one the write gates emptied — is an
+ * answer, not a failure: its own code (emptyResult).
+ */
+async function gateOrRefuse(
+	model: string,
+	sourceSlice: readonly unknown[],
+	translated: { items: TranslatedItem[]; error: string | null; emptyResult?: true },
+	direction: { sourceLang: string; targetLang: string; componentTipo: string },
+): Promise<
+	{ gated: { items: unknown[] }; refusal: null } | { gated: null; refusal: TranslationOutcome }
+> {
+	const refuse = (msg: string, empty: boolean): { gated: null; refusal: TranslationOutcome } => ({
+		gated: null,
+		refusal: {
+			ok: false,
+			msg,
+			count: 0,
+			...(empty ? { emptyResult: true as const } : { providerError: true as const }),
+		},
+	});
+	if (translated.error !== null) return refuse(translated.error, translated.emptyResult === true);
+	const gated = await gateTranslatedItems(model, sourceSlice, translated.items, direction);
+	if (gated.emptyMsg !== null) return refuse(gated.emptyMsg, true);
+	return { gated, refusal: null };
+}
+
 /**
  * Read a component's source-lang items, translate them, and write the target-lang
  * slot (PHP automatic_translation save path). Empty source → nothing saved. Uses
@@ -281,6 +359,11 @@ export function resolveTranslationProvider(engine: string): {
  * (dataframe_slots.ts, two lanes), stamping the record's modified metadata like
  * PHP's component->save()). Shared by tool_lang (one target) and tool_lang_multi
  * (looped targets).
+ *
+ * GATED LIKE A SAVE (T1-14 / OX7): `persistRecordKeys` is model-agnostic, so the
+ * write engine's value gates run HERE, on the target-language items only
+ * (gateTranslatedItems — PHP `component_text_area::save` `clean_text`). Other
+ * languages are stored values with their own TM lanes and are never rewritten.
  *
  * OBSERVERS (TOOLS-1, the observer half closed by CLOSURE_PLAN Step 2): the
  * write goes through persistRecordKeys, whose post-write hook declares the
@@ -315,13 +398,7 @@ export async function translateAndWrite(
 		uri: string;
 		key: string;
 	},
-): Promise<{
-	ok: boolean;
-	msg: string;
-	count: number;
-	providerError?: boolean;
-	emptyResult?: true;
-}> {
+): Promise<TranslationOutcome> {
 	// THE EFFECT IS BUILT FROM THE GRANT (closure Step 3 req 10): the record, the
 	// component and the audit actor are the write door's authorized coordinates —
 	// a branded RecordGrant only security/write_door.ts mints — never raw request
@@ -343,10 +420,9 @@ export async function translateAndWrite(
 	const { readMatrixRecord } = await import('../db/matrix.ts');
 	const { readComponentItems, filterItemsByLang } = await import('../resolve/component_data.ts');
 	const { persistRecordKeys } = await import('../section_record/index.ts');
-	const { mainIdentity, readMainSlots, recordMainHistory } = await import(
+	const { historyStamp, mainIdentity, readMainSlots, recordMainHistory } = await import(
 		'../relations/dataframe_slots.ts'
 	);
-	const { dbTimestamp } = await import('../db/db_timestamp.ts');
 	const { withTransaction } = await import('../db/postgres.ts');
 	const { readMatrixKeyForUpdate } = await import('../db/matrix_write.ts');
 
@@ -365,26 +441,15 @@ export async function translateAndWrite(
 	// The external call happens OUTSIDE the transaction — a translator server can
 	// take minutes, and holding a FOR UPDATE row lock across it would block every
 	// other writer of the record.
-	const {
-		items: targetItems,
-		error,
-		emptyResult,
-	} = await translateItems(sourceSlice, input.provider, {
+	const translated = await translateItems(sourceSlice, input.provider, {
 		uri: input.uri,
 		key: input.key,
 		sourceLang: input.sourceLang,
 		targetLang: input.targetLang,
 	});
-	// `providerError` is what lets the caller route this sentence into the
-	// declared `provider_message` detail instead of onto the wire (WC-2026-08-09).
-	// An empty result is the service's answer, not its failure: its own code.
-	if (error !== null)
-		return {
-			ok: false,
-			msg: error,
-			count: 0,
-			...(emptyResult === true ? { emptyResult } : { providerError: true }),
-		};
+	const gate = await gateOrRefuse(input.model, sourceSlice, translated, input);
+	if (gate.refusal !== null) return gate.refusal;
+	const gated = gate.gated;
 
 	return await withTransaction(async () => {
 		// TAKE THE ROW LOCK. The merge base must be the row as it stands NOW, not
@@ -425,7 +490,7 @@ export async function translateAndWrite(
 			// Impossible under the row lock we hold — report it rather than
 			// inventing an empty merge base out of it.
 			throw new DedaloError('internal.invariant', {
-				message: `translateAndWrite: ${table}/${input.sectionTipo}/${input.sectionId} vanished between FOR UPDATE and the locked re-read`,
+				message: `translateAndWrite: ${table}/${input.sectionTipo}/${input.sectionId} vanished between the row lock and the locked re-read`,
 				coordinates: { section_tipo: input.sectionTipo, section_id: input.sectionId },
 			});
 		}
@@ -440,7 +505,7 @@ export async function translateAndWrite(
 						(item as { lang?: string }).lang === input.targetLang
 					),
 			),
-			...targetItems,
+			...gated.items,
 		];
 		// Chokepoint write: translated value + modified stamps in one update (PHP
 		// tool_lang saves via component->save(), which stamps).
@@ -466,9 +531,9 @@ export async function translateAndWrite(
 			target,
 			identity,
 			{ before: { value: currentItems, slots }, after: { value: merged, slots } },
-			{ userId: input.userId, timestamp: dbTimestamp(), bulkId: null },
+			historyStamp(input.userId, null),
 		);
-		return { ok: true, msg: 'OK. Request done', count: targetItems.length };
+		return { ok: true, msg: 'OK. Request done', count: gated.items.length };
 	});
 }
 

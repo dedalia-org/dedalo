@@ -70,6 +70,24 @@ export function trackedComposeFiles(): string[] {
 		.sort();
 }
 
+/**
+ * Every file in the git index, repo-relative, sorted — for gates that classify
+ * operator artifacts by NAME wherever they live (every compose stack variant,
+ * every Dockerfile / Containerfile spelling: operator_image_pin_tripwire).
+ */
+export function trackedRepoFiles(): string[] {
+	const listed = Bun.spawnSync(['git', 'ls-files'], { cwd: REPO_ROOT });
+	if (listed.exitCode !== 0) {
+		throw new Error(`git ls-files failed: ${new TextDecoder().decode(listed.stderr)}`);
+	}
+	return new TextDecoder()
+		.decode(listed.stdout)
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+		.sort();
+}
+
 // ---------------------------------------------------------------------------
 // Compose files READ AS COMPOSE READS THEM (installer unification D2).
 //

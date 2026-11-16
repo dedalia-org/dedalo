@@ -3,7 +3,7 @@
  * remote linked-data answer through an external ontology (the owl:Class /
  * owl:ObjectProperty map under the import node). Additive next to rdf_xml.ts:
  * it reuses that module's XML reader (`parseXml`) and leaves `parseRdfXml` /
- * `applyRdfMap` (tool_import_zotero's subject list) untouched.
+ * `applyRdfMap` (tool_import_rdf's subject list) untouched.
  *
  * What it reads (the RDF 1.1 XML syntax, minus reification):
  *  - namespaces SCOPED per element (`xmlns:p`, the default `xmlns`), `xml:base`

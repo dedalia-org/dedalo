@@ -105,8 +105,12 @@ export interface RunJournal {
 	note: string | null;
 	/** Maintenance mode as the operator had it before the run (restored at the end). */
 	maintenance_before?: boolean;
-	/** The post-verify verdicts (verify.ts), once the run reached them. */
-	verify?: { id: string; ok: boolean; detail: string }[];
+	/**
+	 * The post-verify verdicts (verify.ts), once the run reached them. `offer`: a
+	 * ROOT command the run names but never runs (C33: the host's systemd templates
+	 * re-rendered from the install's plan) — an ok verdict with something to do.
+	 */
+	verify?: { id: string; ok: boolean; detail: string; offer?: string }[];
 	/** NEEDS_DB_RESTORE: what the human is told (rollback.ts dbRestoreReport). */
 	restore?: DbRestoreReport;
 	/**

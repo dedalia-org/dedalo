@@ -60,6 +60,7 @@ export const tool_import_dedalo_csv = function () {
 	// Tool-specific fields.
 	this.csv_files_list		= null // {Array} fetched by load_csv_files_list; each entry is a file descriptor object
 	this.csv_files_notices	= null // {Array<string>} what the server DID to a staged file to read it (an encoding conversion); rendered by render()
+	this.csv_files_errors	= null // {Array<string>} the staged files the server could NOT read (too large, NUL bytes, damaged text); rendered by render()
 	this.section_tipo_corrections = {} // {Object} {file_name: section_tipo} the user typed by hand; browser-local (see load_section_tipo_corrections)
 }//end tool_import_dedalo_csv
 
@@ -225,6 +226,11 @@ tool_import_dedalo_csv.prototype.build = async function(autoload=false) {
 * of the tool body, the same shape (and the same classes) the report panel gives
 * a notice — never the red error container, which is the error channel's.
 *
+* The READ ERRORS (T1-S18) ride the same place in the error channel's own shape:
+* a staged file the server refused to read (too large, not text, damaged) is
+* absent from the file list, so without this line it simply vanished from the
+* panel and the operator could not tell why their upload "disappeared".
+*
 * @param {Object} [options={}] - Render options forwarded to tool_common.prototype.render
 * @returns {Promise<HTMLElement>} The node the shared render returned, unchanged
 */
@@ -241,10 +247,51 @@ tool_import_dedalo_csv.prototype.render = async function(options={}) {
 			return result
 		}
 
-	// clean previous notices (a content-level refresh re-enters with the same node)
-		const previous = container.querySelectorAll(':scope > .notice_msg')
+	// notices + read errors (exported below so the DOM outcome is testable)
+		render_csv_files_messages(self, container)
+
+
+	return result
+}//end render
+
+
+
+/**
+* RENDER_CSV_FILES_MESSAGES
+* Paints get_csv_files' two per-file channels at the top of `container`, notices
+* first: `self.csv_files_notices` (what the engine DID to a file to read it — the
+* notice shape, never red) and `self.csv_files_errors` (the files it could NOT
+* read — the error channel's shape, the one the report panel uses). Idempotent: a
+* content-level refresh re-enters with the same node, so the previous lines are
+* removed first.
+*
+* @param {Object} self - The tool instance (reads csv_files_notices / csv_files_errors)
+* @param {HTMLElement} container - The tool body
+* @returns {void}
+*/
+export const render_csv_files_messages = function(self, container) {
+
+	// clean previous lines
+		const previous = container.querySelectorAll(':scope > .notice_msg, :scope > .csv_files_errors')
 		for (let i = previous.length - 1; i >= 0; i--) {
 			previous[i].remove()
+		}
+
+	// errors. One line per staged file the server refused to read. Inserted first
+	// so the notices, inserted after it at the top, read above it.
+		const errors = self.csv_files_errors
+		if (Array.isArray(errors) && errors.length>0) {
+			const errors_container = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dedalo_last_error_container csv_files_errors'
+			})
+			ui.create_dom_element({
+				element_type	: 'pre',
+				class_name		: 'error_pre',
+				text_content	: errors.join('\n'),
+				parent			: errors_container
+			})
+			container.insertBefore(errors_container, container.firstChild)
 		}
 
 	// notices. One line per staged file the engine had to convert, at the TOP of
@@ -267,10 +314,7 @@ tool_import_dedalo_csv.prototype.render = async function(options={}) {
 			}
 			container.insertBefore(notices_container, container.firstChild)
 		}
-
-
-	return result
-}//end render
+}//end render_csv_files_messages
 
 
 
@@ -329,10 +373,12 @@ tool_import_dedalo_csv.prototype.load_csv_files_list = async function() {
 				// The caller wants the LIST — an unreadable CSV is reported per file
 				// and must not hide the ones that did parse.
 				const files_data	= response_data(response)
+				// ERRORS — kept for render() to show the operator (T1-S18). A file the
+				// server could not read (too large, not text, damaged) is NOT in
+				// `files`, so a console line was its only trace: it vanished from the
+				// panel with no reason given.
 				const file_errors	= files_data?.errors
-				if (Array.isArray(file_errors) && file_errors.length>0) {
-					console.error('load_csv_files_list file errors:', file_errors)
-				}
+				self.csv_files_errors = Array.isArray(file_errors) ? file_errors : []
 
 				// NOTICES — kept for render() to show the operator. This is the
 				// MAPPER PREVIEW's own channel: the columns and sample values below

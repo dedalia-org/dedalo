@@ -23,10 +23,16 @@
  *                                                                        use_self_section, which no live or
  *                                                                        fixture edge declares)
  *
- * Dispatch requires `perform.function === 'set_dato_external'`. The one other
- * server perform in any ontology, `refresh_data` (rsc1214), is a NAMED
- * exemption (SERVER_SHAPE_EXEMPTIONS) — refused and counted, never guessed. An
- * SQO `filter` next to a resolver that would ADD to its result (self,
+ * The table reads `server.config` alone; `perform.function` says WHAT runs on
+ * each target, and that set is CLOSED too: `set_dato_external` (the external
+ * mirror recompute by the observer's law) and `refresh_data` (the one other
+ * server perform any ontology ships — rsc1214 ← rsc1156: clear the observer
+ * on the host when the observed value changes; the closed action grammar is
+ * ../refresh_data.ts, WC-2026-11-13-observer-refresh-data, owner ruling
+ * 2026-11-13 A4). Any other function is refused and counted, never called
+ * because the ontology names it. SERVER_SHAPE_EXEMPTIONS — the named-skip
+ * mechanism — is kept and EMPTY since refresh_data was ported. An SQO
+ * `filter` next to a resolver that would ADD to its result (self,
  * self_and_observable) is refused too: TS does not run those filters, and a
  * silent drop of the filter's half would narrow the targets. No live edge has
  * that shape (census 2026-10-30).
@@ -114,22 +120,35 @@ export interface ServerShapeRefusal {
 	readonly exemption?: string;
 }
 
-export type ServerShapeClass = { readonly resolver: ObserverTargetResolver } | ServerShapeRefusal;
+/** The CLOSED set of server performs the dispatch runs (see the header). */
+export type ObserverServerPerform = 'set_dato_external' | 'refresh_data';
+
+/** A dispatchable server shape: its target resolver and the perform run on each target. */
+export interface ResolvedServerShape {
+	readonly resolver: ObserverTargetResolver;
+	readonly perform: ObserverServerPerform;
+}
+
+export type ServerShapeClass = ResolvedServerShape | ServerShapeRefusal;
 
 /**
- * NAMED EXEMPTIONS — server performs that are not external-value laws and
- * stay out of scope, each with its reason (never a bare skip).
+ * NAMED EXEMPTIONS — server performs that are not run, each with its reason
+ * (never a bare skip). EMPTY since 2026-11-13: `refresh_data` (its one entry)
+ * is ported (../refresh_data.ts). The mechanism stays: a perform an ontology
+ * ships that the engine deliberately does not run is named HERE with its
+ * reason, and external_law_registry_tripwire holds the two lists in lockstep.
  */
-export const SERVER_SHAPE_EXEMPTIONS: Readonly<Record<string, string>> = Object.freeze({
-	refresh_data:
-		'rsc1214 (component_relation_index externals): a refresh of data computed at read time, not a stored mirror — tracked separately (owner ruling 2026-10-30)',
-});
+export const SERVER_SHAPE_EXEMPTIONS: Readonly<Record<string, string>> = Object.freeze({});
+
+function performOf(fn: unknown): ObserverServerPerform | null {
+	return fn === 'set_dato_external' || fn === 'refresh_data' ? fn : null;
+}
 
 function isSqoObjectFilter(filter: unknown): boolean {
 	return typeof filter === 'object' && filter !== null;
 }
 
-/** The refusal of a perform that is not set_dato_external (named exemption first). */
+/** The refusal of a perform outside the closed set (named exemption first). */
 function refusedPerform(fn: unknown): ServerShapeRefusal {
 	if (typeof fn === 'string' && Object.hasOwn(SERVER_SHAPE_EXEMPTIONS, fn)) {
 		return {
@@ -142,7 +161,7 @@ function refusedPerform(fn: unknown): ServerShapeRefusal {
 	return {
 		refused: true,
 		reason: 'perform_not_covered',
-		detail: `server perform '${String(fn)}' is not set_dato_external`,
+		detail: `server perform '${String(fn)}' is not in the closed set (set_dato_external, refresh_data)`,
 	};
 }
 
@@ -175,9 +194,10 @@ function filterRefusal(
 /** Classify one server block against the table (pure; see the header). */
 export function classifyObserverServerShape(server: ObserveServerBlock): ServerShapeClass {
 	const fn = server.perform?.function;
-	if (fn !== 'set_dato_external') return refusedPerform(fn);
+	const perform = performOf(fn);
+	if (perform === null) return refusedPerform(fn);
 	const resolver = resolverOfConfig(server.config ?? undefined);
-	return filterRefusal(resolver, server.filter) ?? { resolver };
+	return filterRefusal(resolver, server.filter) ?? { resolver, perform };
 }
 
 /** Log + count one refused server shape (the dispatch's former bare console.error). */
@@ -238,8 +258,13 @@ export interface ResolveObserverTargetsInput {
 	observedTipo: string;
 	/** The edge's server block (entryServerBlock — a well-formed object). */
 	server: ObserveServerBlock;
-	/** The observer's classified, stored law. */
-	law: StoredExternalLaw;
+	/**
+	 * The observer's classified, stored law — a set_dato_external edge's. The
+	 * resolvers read it for the inverse lookup's pointer and law (c)'s
+	 * equivalence-class expansion; a `refresh_data` edge (not a mirror, no law)
+	 * passes none: an unfiltered inverse lookup, no expansion.
+	 */
+	law?: StoredExternalLaw;
 	/** The record whose component saved. */
 	saved: RecordAddress;
 	/** The saved value's target locators (the observable data). */
@@ -324,7 +349,8 @@ export async function inverseHostTargets(
  * unfiltered.
  */
 async function inverseTargets(input: ResolveObserverTargetsInput): Promise<ObservableTarget[]> {
-	return inverseHostTargets(input.observerTipo, input.saved, externalLawPointer(input.law));
+	const pointer = input.law === undefined ? undefined : externalLawPointer(input.law);
+	return inverseHostTargets(input.observerTipo, input.saved, pointer);
 }
 
 /**
@@ -364,7 +390,7 @@ async function observableOutcome(
 ): Promise<ResolveObserverTargetsOutcome> {
 	const targets: ObservableTarget[] = [...input.observableSaved, ...input.observableRemoved];
 	if (shape.resolver === 'self_and_observable') targets.push(self);
-	if (input.law.kind === 'inverse_search') {
+	if (input.law?.kind === 'inverse_search') {
 		await expandEquivalenceTargets(
 			input.law,
 			input.observedTipo,

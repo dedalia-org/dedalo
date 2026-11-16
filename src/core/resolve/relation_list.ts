@@ -31,6 +31,10 @@ import {
 	resolvePeriodLabels,
 } from '../components/component_date/date_value.ts';
 import type { ExternalSourceStatus } from '../components/component_external/value.ts';
+import {
+	computeInfoOutputs,
+	infoOutputValueString,
+} from '../components/component_info/widgets/registry.ts';
 import { resolveInverseEntries } from '../components/component_inverse/emit.ts';
 import { type IriLabelFrame, resolveIriTitles } from '../components/component_iri/resolve_title.ts';
 import { getFlatValueFamily } from '../components/registry.ts';
@@ -40,6 +44,7 @@ import { dataframeEntryMatches } from '../concepts/subdatum.ts';
 import { type MatrixRecord, readMatrixRecordBatch } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
+import { servedGeoEntry } from '../geo/entry_siblings.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { termByTipo } from '../ontology/labels.ts';
@@ -64,7 +69,8 @@ import { filterAuthorizedRelated } from '../relations/request_config/implicit.ts
 import { findInverseReferences } from '../search/search_related.ts';
 import { sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
-import { type EmissionContext, resolveComponentValue } from './component_data.ts';
+import { currentPrincipal } from '../security/request_context.ts';
+import { type EmissionContext, resolveComponentValue, shownItems } from './component_data.ts';
 import { currentDataLang } from './request_lang.ts';
 
 /** PHP export_value records_separator (join_atoms depth-0 default). */
@@ -208,6 +214,19 @@ export interface CellValueResolveOptions {
 	 * atom). Absent (every interactive reader) = empties dropped.
 	 */
 	keepEmptyItems?: boolean;
+	/**
+	 * The EXPORT TABULATOR's json-cell bytes (T1-39 review). The tabulator
+	 * cleans every value / grid_value cell AFTER the join
+	 * (diffusion/export/clean_text.ts: `</p><p>` → a newline, the legacy entity
+	 * map decoded) — run over a JSON item holding markup or an entity, that
+	 * cleanup wrote a raw newline / an unescaped `"` INTO a JSON string and the
+	 * cell no longer parsed. Set (only by the export run, atoms.ts
+	 * createExportRun, threaded down every nested read), the json family
+	 * encodes each item with {@link cleanupInertJson}: the same JSON data, in
+	 * bytes the cleanup provably cannot rewrite. Absent (every interactive
+	 * reader — none of them cleans) = plain `JSON.stringify`.
+	 */
+	jsonCleanupInert?: boolean;
 	/**
 	 * INTERNAL — the cycle guard's PATH (see {@link withCycleGuard}): the
 	 * (record × component) expansions open above this call. Minted by the first
@@ -689,9 +708,16 @@ async function expandRelationTargets(
 			) {
 				continue;
 			}
-			const labels = await resolveLocatorLabels(componentTipo, properties, sectionTipo, lang, [
-				locator,
-			]);
+			// The label may be the target's TERM, which may cross further (T1-32):
+			// the caller's frontier rides along (T1-32 review).
+			const labels = await resolveLocatorLabels(
+				componentTipo,
+				properties,
+				sectionTipo,
+				lang,
+				[locator],
+				{ frontier: opts?.frontier },
+			);
 			targets.push({
 				index,
 				sectionTipo: typeof locator?.section_tipo === 'string' ? locator.section_tipo : null,
@@ -985,6 +1011,15 @@ export async function resolveCellItems(
 		return parts.length > 0 ? parts : null;
 	}
 
+	// INFO (component_info + aliases): DERIVED — the LIVE widget outputs, never
+	// the `misc` slot (WC-2026-09-03), so no record load. One item per output
+	// value, in declaration order (PHP get_export_value), under the ALS
+	// principal (this is the request-path flat reader; media_icons is
+	// user-scoped) in 'list' mode (PHP relation_list instances its columns so).
+	if (getFlatValueFamily(model) === 'info') {
+		return resolveInfoCellItems(sectionTipo, address, componentTipo, lang, opts);
+	}
+
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) return null;
 	// The loader seam consults AFTER the null-table early-return (parity
@@ -1004,15 +1039,8 @@ export async function resolveCellItems(
 	}
 
 	if (family === 'string') {
-		const { value, fallbackValue } = await resolveComponentValue(
-			record,
-			componentTipo,
-			model,
-			lang,
-		);
-		const items = (value && value.length > 0 ? value : (fallbackValue ?? [])) as {
-			value?: unknown;
-		}[];
+		const items = (shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ??
+			[]) as { value?: unknown }[];
 		const parts = items.map((item) =>
 			item?.value === undefined || item.value === null ? '' : String(item.value),
 		);
@@ -1097,8 +1125,76 @@ export async function resolveCellItems(
 		return parts.length > 0 ? parts : null;
 	}
 
+	if (family === 'json') {
+		return jsonCellItems(record, componentTipo, model, lang, opts);
+	}
+
 	if (!unresolved.includes(model)) unresolved.push(model);
 	return null;
+}
+
+/**
+ * {@link resolveCellItems}' json branch (component_json, component_geolocation):
+ * each stored item encoded as JSON — PHP component_common::get_export_value
+ * base, `json_encode($item)` per item (neither model overrides it). Read through
+ * THE value door (alias-aware; a non-translatable model's items verbatim). A
+ * geolocation entry is encoded as a LIST ROW serves it: the map definition
+ * (`sources` / `legend`, TS-only, up to a quarter-megabyte of legend icons) has
+ * no consumer in a flat cell — dedalo_raw stays the lossless form
+ * (WC-2026-11-12-export-json-geolocation-cells).
+ */
+async function jsonCellItems(
+	record: MatrixRecord,
+	componentTipo: string,
+	model: string,
+	lang: string,
+	opts: CellValueResolveOptions | undefined,
+): Promise<string[] | null> {
+	const items = shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ?? [];
+	const encode = opts?.jsonCleanupInert === true ? cleanupInertJson : JSON.stringify;
+	const parts = items.map((item) =>
+		item === null || item === undefined
+			? ''
+			: encode(model === 'component_geolocation' ? servedGeoEntry(item, 'list') : item),
+	);
+	return keptItems(parts, opts);
+}
+
+/**
+ * JSON that the export text cleanup (diffusion/export/clean_text.ts
+ * cleanTextValue) cannot rewrite (T1-39 review): `JSON.stringify`, then every
+ * `/` written `\/` (PHP json_encode's own default) and every `&` written
+ * `\u0026`. Both characters occur in JSON text only inside a string, where
+ * both escapes are valid — so the value parses to the SAME data — and with no
+ * `</` (every `/` now follows a `\`) and no `&` left the cleanup's every rule
+ * is a no-op on it: no `</p><p>` / trailing `</p>`, no entity, no leading
+ * `<p>` (JSON never starts with `<`). Its bytes therefore survive the
+ * join + cleanup verbatim, beside text atoms that ARE cleaned.
+ */
+export function cleanupInertJson(value: unknown): string {
+	return JSON.stringify(value).replaceAll('/', '\\/').replaceAll('&', '\\u0026');
+}
+
+/** {@link resolveCellItems}' info branch: every declared output's live values. */
+async function resolveInfoCellItems(
+	sectionTipo: string,
+	sectionId: number,
+	componentTipo: string,
+	lang: string,
+	opts?: CellValueResolveOptions,
+): Promise<string[] | null> {
+	const principal = currentPrincipal();
+	const outputs = await computeInfoOutputs(componentTipo, {
+		sectionTipo,
+		sectionId,
+		mode: 'list',
+		lang,
+		userId: principal?.userId,
+		isAdmin: principal?.isGlobalAdmin,
+	});
+	if (outputs === null) return null;
+	const parts = outputs.flatMap((output) => output.values.map(infoOutputValueString));
+	return keptItems(parts, opts);
 }
 
 /**

@@ -835,6 +835,7 @@
 	"reset_to_seed": "Repor para o estado inicial",
 	"reset_warning": "Isto APAGA e reimporta a partir do estado inicial, descartando quaisquer edições locais",
 	"resize": "Redimensionar",
+	"restricted": "(restrito)",
 	"reuse_tag": "Reutilizar etiqueta",
 	"reverse_relations": "Relações inversas",
 	"rotate": "Girar",

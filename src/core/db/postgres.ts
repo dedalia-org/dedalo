@@ -58,8 +58,9 @@ import {
 /**
  * Operations posture (audit S2-32/S2-37, PERF-11; config catalog `config.ops` —
  * see engineering/PRODUCTION.md §4). `0` disables each bound; the defaults are
- * the catalog's (src/config/catalog/db.ts — the flip to on-by-default is gated
- * on every legitimately long statement being in the unbounded scope first).
+ * the catalog's (src/config/catalog/db.ts — the statement ceiling is ON by
+ * default since every legitimately long statement entered the unbounded scope
+ * or was batched, T1-24).
  *  - DB_POOL_MAX: request-pool connections per process (default 10);
  *  - DB_POOL_ACQUIRE_TIMEOUT_MS: max ms a caller may QUEUE for a connection of
  *    either pool before failing with the typed 503 `db.pool_exhausted`;
@@ -480,8 +481,8 @@ function currentPoolLane(): PoolLane {
  * - Inside any other transaction → refused, WHATEVER `DB_STATEMENT_TIMEOUT_MS`
  *   is: a request-pool transaction carries the configured ceiling, and a scope
  *   cannot move it. Keyed on the transaction's LANE, not its ceiling's current
- *   value — under a configured 0 (the suite, and every install until the C4
- *   default flip) a ceiling-keyed check was a silent no-op there, so a caller
+ *   value — under a configured 0 (the suite, and every install before the C4
+ *   default flip, T1-24) a ceiling-keyed check was a silent no-op there, so a caller
  *   entering the scope inside a request transaction passed every test and threw
  *   only in production. Enter the scope BEFORE opening the transaction.
  */
@@ -1948,6 +1949,34 @@ export async function acquireNodeLock(
 	}
 	const lockKey = `${sectionTipo}_${sectionId}`;
 	await sql.unsafe('SELECT pg_advisory_xact_lock(hashtext($1))', [lockKey]);
+}
+
+/**
+ * Acquire the transaction-scoped advisory lock of ONE CLAIMED VALUE — "no other
+ * record of `sectionTipo` holds `value` on `componentTipo`" (media/stem_rules.ts
+ * C20 c, the image_id stem). The uniqueness probe is a READ COMMITTED SELECT over
+ * the OTHER rows: two transactions claiming the same new value on two records lock
+ * disjoint owner rows, neither sees the other's uncommitted UPDATE, and both
+ * commit (the TOCTOU). Serialising the probe-and-write on the claimed value — one
+ * key per (section, component, value) — closes it: the second claimant waits for
+ * the first's COMMIT and then sees the holder. Releases at COMMIT/ROLLBACK;
+ * callable only inside a transaction.
+ */
+export async function acquireValueClaimLock(
+	sectionTipo: string,
+	componentTipo: string,
+	value: string,
+): Promise<void> {
+	if (!isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'acquireValueClaimLock: called outside a transaction; the lock would be ineffective (call inside withTransaction)',
+			coordinates: { section_tipo: sectionTipo, tipo: componentTipo },
+		});
+	}
+	await sql.unsafe('SELECT pg_advisory_xact_lock(hashtext($1))', [
+		`claim:${sectionTipo}:${componentTipo}:${value}`,
+	]);
 }
 
 /**

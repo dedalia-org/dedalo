@@ -97,3 +97,7 @@
   its own record), `test/unit/write_obligations_tripwire.test.ts`
   (leg B4: `writeItems` is reached only through the transform),
   `test/unit/media_ingest_properties_native.test.ts` (the section-scoped ledger shrank).
+
+**Amended 2026-11-12 (T1-22):** "never names the source" now covers `svg_file_data` too
+(dropped at the insert, the clone's own envelope written back by the transform), and the
+verdict gains the `envelope` stage (`WC-2026-11-12-duplicate-image-svg-envelope`).

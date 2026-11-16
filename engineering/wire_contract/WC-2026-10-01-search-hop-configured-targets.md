@@ -66,3 +66,11 @@ not match what the display does not show.
 No parity fixture carries a principal-scoped multi-hop search; the per-name
 unit sweep (search / principal / order / deep / frontier / export / diffusion
 files) shows no new failure beyond the reconciled census case.
+
+## Addendum 2026-11-12 — the admitted sections also key a relation leaf's from_component_tipo
+
+`buildJoinChain` now hands the LAST hop's admitted sections back to the leaf, and a multi-hop
+relation leaf asks its `from_component_tipo` key of each of them (bound on `r.section_tipo` when
+they disagree), never of the declared step section (T1-16 / S04). The rule of this entry — the
+read is governed by the section actually read, not the one declared — thus reaches the one key it
+did not. See the 2026-11-12 addendum of `WC-2026-09-30-search-root-step-acl`; gates there.

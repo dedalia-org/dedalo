@@ -55,7 +55,7 @@
  */
 
 import { afterAll, describe, expect, spyOn, test } from 'bun:test';
-import { X509Certificate } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import {
 	chmodSync,
 	existsSync,
@@ -93,7 +93,10 @@ import {
 	REFUSED_BOOT_EXIT,
 	unitEverRan,
 } from '../../src/core/install/host/production/first_boot.ts';
+import { recordedPlanContext } from '../../src/core/install/host/production/instance_record.ts';
 import { host_packages } from '../../src/core/install/host/production/packages.ts';
+import { dropinWrites, siblingTreeVerdict } from '../../src/core/install/host/production/units.ts';
+import { refreshInstanceUnits } from '../../src/core/install/host/production/units_refresh.ts';
 import { certificatePaths, siteText } from '../../src/core/install/host/production/web.ts';
 import {
 	EXISTS_NOT_CREATED,
@@ -107,7 +110,19 @@ import {
 	scratchRunner,
 } from '../../src/core/install/host/runner.ts';
 import { stackFileOf } from '../../src/core/install/host/stack/layout.ts';
-import { renderTemplate, UNIT_TEMPLATES } from '../../src/core/install/host/systemd/render.ts';
+import {
+	dropinPath,
+	renderTemplate,
+	UNIT_TEMPLATES,
+	UNITS_REFRESH_SCRIPT,
+	WRITABLE_ROOTS_MANIFEST,
+	writableRootsManifestPath,
+} from '../../src/core/install/host/systemd/render.ts';
+import {
+	parseShippedDigests,
+	SHIPPED_DIGESTS_FILE,
+	type ShippedDigests,
+} from '../../src/core/install/host/systemd/shipped_digests.ts';
 import { chainTrustVerdict } from '../../src/core/install/host/tls_trust.ts';
 import {
 	ANSWERS_FILE_SCHEMA,
@@ -120,13 +135,16 @@ import { MEDIA_DIR_MODE } from '../../src/core/install/media_tree.ts';
 import { resolveOntologyCatalog } from '../../src/core/install/ontology_catalog.ts';
 import type { RunEnding } from '../../src/core/install/run_events.ts';
 import {
+	PLAN_FILE,
 	readPlanFile,
 	readStateFile,
 	runConfirmed,
+	STATE_FILE,
 	writeStateFile,
 } from '../../src/core/install/run_files_core.ts';
 import { ALREADY_COMPLETE_LINE } from '../../src/core/install/step_loop.ts';
 import { doneSummary } from '../../src/core/install/ui/screens/done.ts';
+import { BUILD_INFO_PATH } from '../../src/core/update/release_identity.ts';
 import {
 	asService,
 	asServiceHomeDying,
@@ -1775,6 +1793,372 @@ describe('an abort undoes only what it measured as created (review)', () => {
 		expect(abort.outcome.result).toBe('aborted');
 		for (const path of templates.keys())
 			expect(() => statSync(join(host.root, path)), path).toThrow();
+	});
+
+	/** An older render of a template, and the scratch SOURCE's ledger extended to say a release shipped it (C33). */
+	function plantEarlierShipped(host: ScratchHost, name: (typeof UNIT_TEMPLATES)[number]) {
+		const older = `# an earlier release's render of ${name}\n[Unit]\nDescription=older ${name}\n[Service]\nExecStart=/bin/false\n`;
+		const ledgerPath = join(host.source, SHIPPED_DIGESTS_FILE);
+		const ledger = parseShippedDigests(readFileSync(ledgerPath, 'utf8')) as ShippedDigests;
+		ledger.templates[name] = [
+			createHash('sha256').update(older).digest('hex'),
+			...(ledger.templates[name] ?? []),
+		];
+		writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, '\t')}\n`);
+		writeFileSync(join(host.root, `/etc/systemd/system/${name}`), older);
+		return older;
+	}
+
+	test("an EARLIER RELEASE's template (its digest in the shipped ledger, owner C33): UPGRADED in place, never refused; the hand-edited copy beside it is still refused", async () => {
+		const row = osRowById(UBUNTU_NGINX_LE.os);
+		// the host already holds every template of an earlier release's render...
+		const host = scratchHost(UBUNTU_NGINX_LE, {
+			files: new Map(
+				UNIT_TEMPLATES.map((name) => [
+					`/etc/systemd/system/${name}`,
+					renderTemplate(name, row, REPO_ROOT),
+				]),
+			),
+		});
+		// ...and dedalo-ts@.service is an OLDER shipped render
+		const older = plantEarlierShipped(host, 'dedalo-ts@.service');
+		const { plan, planFile } = productionPlan(UBUNTU_NGINX_LE);
+		const run = await runHost(host, freshRequest(planFile));
+		expect(run.outcome.result).toBe('complete');
+		// upgraded: the current render is on disk, said in the step's line, not counted as created
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host.source),
+		);
+		expect(run.transcript.lines.join('\n')).toContain(
+			'1 template(s) of an earlier release upgraded to this one (dedalo-ts@.service',
+		);
+		expect(readStateFile(join(host.root, RUN_DIR))?.created.host?.units).toEqual([]);
+		// the abort removes the templates by the registry's refcount (an upgraded one is a shipped one)
+		const abort = await runHost(host, laterRequest('abort', plan));
+		expect(abort.outcome.result).toBe('aborted');
+		expect(() => statSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'))).toThrow();
+		// CONTROL: the same older bytes WITHOUT the ledger line are foreign — refused, kept
+		const foreignHost = scratchHost(UBUNTU_NGINX_LE, {
+			files: new Map([['/etc/systemd/system/dedalo-ts@.service', older]]),
+		});
+		const refused = await runHost(
+			foreignHost,
+			freshRequest(productionPlan(UBUNTU_NGINX_LE).planFile),
+		);
+		expect(refused.outcome.failedStep).toBe('host_units');
+		expect(refused.outcome.message).toContain('other content than any release shipped');
+		expect(
+			readFileSync(join(foreignHost.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8'),
+		).toBe(older);
+	});
+
+	test('the root re-render command (units_refresh, owner C32/C33): renders from the recorded plan — a shipped template upgraded, the current ones kept, the drop-ins and the manifest rewritten, daemon-reload; a foreign template refuses the whole refresh with nothing written', async () => {
+		const row = osRowById(UBUNTU_NGINX_LE.os);
+		const host = scratchHost(UBUNTU_NGINX_LE);
+		const { planFile } = productionPlan(UBUNTU_NGINX_LE);
+		expect((await runHost(host, freshRequest(planFile))).outcome.result).toBe('complete');
+		const dir = join(host.root, RUN_DIR);
+		const fs = hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json'));
+		const systemctlCalls: string[][] = [];
+		const deps = {
+			fs,
+			readRecord: (name: string) => {
+				const plan = name === INSTANCE ? readPlanFile(dir) : null;
+				return plan === null ? null : { plan, state: readStateFile(dir) };
+			},
+			systemctl: (args: readonly string[]) => void systemctlCalls.push([...args]),
+			source: host.source,
+		};
+		// the host drifted: an earlier release's server template, a hand-trimmed server drop-in
+		plantEarlierShipped(host, 'dedalo-ts@.service');
+		const serverDropin = join(host.root, dropinPath('dedalo-ts@.service', INSTANCE));
+		const rendered = readFileSync(serverDropin, 'utf8');
+		writeFileSync(serverDropin, rendered.replace(/^ReadWritePaths=.*\n/gm, ''));
+		const manifestPath = join(host.root, writableRootsManifestPath(INSTANCE));
+		const manifest = readFileSync(manifestPath, 'utf8');
+		writeFileSync(manifestPath, '{}');
+		const report = refreshInstanceUnits(INSTANCE, deps);
+		expect(report.upgraded).toEqual(['/etc/systemd/system/dedalo-ts@.service']);
+		expect(report.written).toEqual([]);
+		expect(report.kept.length).toBe(UNIT_TEMPLATES.length - 1);
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-ts@.service'), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host.source),
+		);
+		// the instance files are the plan's render again
+		expect(readFileSync(serverDropin, 'utf8')).toBe(rendered);
+		expect(readFileSync(manifestPath, 'utf8')).toBe(manifest);
+		expect(report.dropins).toContain(dropinPath('dedalo-ts@.service', INSTANCE));
+		expect(report.dropins).toContain(writableRootsManifestPath(INSTANCE));
+		expect(systemctlCalls).toEqual([['daemon-reload']]);
+		expect(report.next).toContain(`systemctl restart dedalo-ts@${INSTANCE}.service`);
+		// a second refresh changes nothing: everything current
+		const again = refreshInstanceUnits(INSTANCE, deps);
+		expect(again.upgraded).toEqual([]);
+		expect(again.kept.length).toBe(UNIT_TEMPLATES.length);
+		// a FOREIGN template refuses the whole refresh: nothing written, no reload
+		const foreign = '[Service]\nExecStart=/usr/local/bin/someone-else\n';
+		writeFileSync(join(host.root, '/etc/systemd/system/dedalo-backup@.timer'), foreign);
+		writeFileSync(manifestPath, '{}');
+		systemctlCalls.length = 0;
+		expect(() => refreshInstanceUnits(INSTANCE, deps)).toThrow(
+			/dedalo-backup@\.timer already exist\(s\) with other content than any release shipped.*nothing re-rendered/,
+		);
+		expect(readFileSync(join(host.root, '/etc/systemd/system/dedalo-backup@.timer'), 'utf8')).toBe(
+			foreign,
+		);
+		expect(readFileSync(manifestPath, 'utf8')).toBe('{}');
+		expect(systemctlCalls).toEqual([]);
+		// an unknown instance / a name that is not one: refused before any read
+		expect(() => refreshInstanceUnits('no_such', deps)).toThrow(/no production install record/);
+		expect(() => refreshInstanceUnits('Bad Name', deps)).toThrow(/is not an instance name/);
+	});
+
+	/** A record reader over the scratch root for ANY instance (the refresh's seam, the sibling check's too). */
+	function readRecordOver(host: ScratchHost) {
+		return (name: string) => {
+			const dir = join(host.root, `/var/lib/dedalo-install/${name}`);
+			const plan = readPlanFile(dir);
+			return plan === null ? null : { plan, state: readStateFile(dir) };
+		};
+	}
+
+	/** The refresh's seams over a scratch host; `calls` collects every systemctl argv. */
+	function refreshDeps(host: ScratchHost, calls: string[][]) {
+		return {
+			fs: hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json')),
+			readRecord: readRecordOver(host),
+			systemctl: (args: readonly string[]) => void calls.push([...args]),
+			source: host.source,
+		};
+	}
+
+	/**
+	 * A SECOND instance on the host, planted from a completed demo record: its
+	 * registry entry (templates: true), its install record (demo's plan and state
+	 * with the name swapped) and — LEGACY — its drop-ins as a release before C32
+	 * rendered them: the server's WITHOUT ReadWritePaths= / the manifest line, and
+	 * no writable-roots manifest. Answers the drop-in paths it planted.
+	 */
+	function plantLegacySibling(host: ScratchHost, recordDir: string, name: string): string[] {
+		const swap = (text: string) => text.replaceAll(INSTANCE, name);
+		const dir = join(host.root, `/var/lib/dedalo-install/${name}`);
+		mkdirSync(dir, { recursive: true });
+		for (const file of [PLAN_FILE, STATE_FILE]) {
+			writeFileSync(join(dir, file), swap(readFileSync(join(recordDir, file), 'utf8')));
+		}
+		const registry = join(host.root, `/var/lib/dedalo-install/instances/${name}.json`);
+		mkdirSync(dirname(registry), { recursive: true });
+		const entry = {
+			instance: name,
+			bun_pin: BUN_PIN,
+			templates: true,
+			selinux_module: false,
+			nginx_map_owner: false,
+			catch_all: false,
+			media: `/srv/dedalo/${name}/dedalo/media`,
+			user: `ded_${name}`,
+			group: `ded_${name}`,
+			install_dir: `/home/ded_${name}`,
+			backup_dir: `/home/ded_${name}/backups`,
+		};
+		writeFileSync(registry, `${JSON.stringify(entry, null, '\t')}\n`);
+		const sibling = recordedPlanContext(name, {
+			fs: hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json')),
+			readRecord: readRecordOver(host),
+			source: host.source,
+		});
+		const planted: string[] = [];
+		for (const write of dropinWrites(sibling)) {
+			if (write.path.endsWith(WRITABLE_ROOTS_MANIFEST)) continue;
+			const real = join(host.root, write.path);
+			mkdirSync(dirname(real), { recursive: true });
+			writeFileSync(
+				real,
+				write.content
+					.replace(/^ReadWritePaths=.*\n/gm, '')
+					.replace(/^Environment="?DEDALO_WRITABLE_ROOTS_MANIFEST=.*\n/gm, ''),
+			);
+			planted.push(write.path);
+		}
+		return planted;
+	}
+
+	test("THE SIBLING LAW (C32/C33 review gap): a shipped template is upgraded only once every OTHER instance runs this release's drop-ins — two instances, one legacy: the refresh and host_units KEEP the earlier template and name the legacy instance with its own command; re-rendering the legacy instance upgrades it; an unreadable sibling record blocks too", async () => {
+		const row = osRowById(UBUNTU_NGINX_LE.os);
+		const SERVER_TEMPLATE = '/etc/systemd/system/dedalo-ts@.service';
+		// ── A. the refresh path: demo installed, `other` a legacy instance, the server
+		//       template an earlier shipped render (the state the host is in after a
+		//       release that changed the template was installed — or synced — on it).
+		const host = scratchHost(UBUNTU_NGINX_LE);
+		expect(
+			(await runHost(host, freshRequest(productionPlan(UBUNTU_NGINX_LE).planFile))).outcome.result,
+		).toBe('complete');
+		const recordDir = join(host.root, RUN_DIR);
+		const legacyDropins = plantLegacySibling(host, recordDir, 'other');
+		expect(legacyDropins.length).toBeGreaterThan(0);
+		const older = plantEarlierShipped(host, 'dedalo-ts@.service');
+		const calls: string[][] = [];
+		const deps = refreshDeps(host, calls);
+		const deferred = refreshInstanceUnits(INSTANCE, deps);
+		// RED before: `upgraded` was [SERVER_TEMPLATE] — `other` would run read-only at its next restart.
+		expect(deferred.upgraded).toEqual([]);
+		expect(deferred.deferred).toEqual([SERVER_TEMPLATE]);
+		expect(deferred.kept.length).toBe(UNIT_TEMPLATES.length - 1);
+		expect(deferred.blockers.map((b) => b.instance)).toEqual(['other']);
+		expect(deferred.blockers[0]?.refresh).toContain('host_units_refresh.ts --instance other');
+		expect(deferred.blockers[0]?.reason).toContain(
+			`dedalo-ts@other.service.d/10-dedalo-install.conf`,
+		);
+		expect(deferred.blockers[0]?.reason).toContain(WRITABLE_ROOTS_MANIFEST);
+		expect(readFileSync(join(host.root, SERVER_TEMPLATE), 'utf8')).toBe(older);
+		expect(deferred.next).toContain('KEPT (dedalo-ts@.service)');
+		expect(deferred.next).toContain('--instance other');
+		expect(deferred.next).toContain(`--instance ${INSTANCE}`);
+		// demo's own files are still re-rendered, one reload; the sibling's files are never written here
+		expect(deferred.dropins).toContain(dropinPath('dedalo-ts@.service', INSTANCE));
+		expect(calls).toEqual([['daemon-reload']]);
+		for (const path of legacyDropins) {
+			expect(readFileSync(join(host.root, path), 'utf8')).not.toContain('ReadWritePaths=');
+		}
+		expect(existsSync(join(host.root, writableRootsManifestPath('other')))).toBe(false);
+		// THE REMEDY is judged on the sibling's TREE. `other` has no tree here (as
+		// every instance installed from a release before the re-render command
+		// existed: the named script is a MISSING FILE there, and an earlier release's
+		// own refresh renders ITS drop-ins, never this release's) — so the remedy
+		// says to update that instance first, THEN run its command. RED before: the
+		// sentence named the command alone.
+		const otherTree = recordedPlanContext('other', {
+			fs: hostFs(host.root, join(host.root, SCRATCH_DIR, 'owners.json')),
+			readRecord: readRecordOver(host),
+			source: host.source,
+		}).paths.tree;
+		expect(deferred.blockers[0]?.remedy).toContain('update that instance to this release first');
+		expect(deferred.blockers[0]?.remedy).toContain(`no ${UNITS_REFRESH_SCRIPT} in it`);
+		expect(deferred.blockers[0]?.remedy).toContain(deferred.blockers[0]?.refresh ?? 'absent');
+		expect(deferred.next).toContain('update that instance to this release first');
+		// Its tree IS this release (the re-render command there, the same build
+		// stamp as this source tree): the remedy is its command alone.
+		const stamp = (sha: string) => `${sha} 2026-11-14T00:00:00+00:00 v7.0.0-beta.9\n`;
+		const plantTree = (buildInfo: string) => {
+			for (const [relative, content] of [
+				[UNITS_REFRESH_SCRIPT, '// the re-render command\n'],
+				[BUILD_INFO_PATH, buildInfo],
+			]) {
+				const real = join(host.root, otherTree, relative as string);
+				mkdirSync(dirname(real), { recursive: true });
+				writeFileSync(real, content as string);
+			}
+		};
+		mkdirSync(dirname(join(host.source, BUILD_INFO_PATH)), { recursive: true });
+		writeFileSync(join(host.source, BUILD_INFO_PATH), stamp('a'.repeat(40)));
+		plantTree(stamp('a'.repeat(40)));
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('same_release');
+		const sameRelease = refreshInstanceUnits(INSTANCE, deps);
+		expect(sameRelease.blockers[0]?.remedy).toBe(
+			`re-render it as root: ${sameRelease.blockers[0]?.refresh}`,
+		);
+		expect(sameRelease.next).not.toContain('update that instance');
+		// Another release's build: update first. A checkout's placeholder (or no
+		// stamp) on either side: the trees cannot be compared — said, the command named.
+		plantTree(stamp('b'.repeat(40)));
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('other_release');
+		expect(refreshInstanceUnits(INSTANCE, deps).blockers[0]?.remedy).toContain(
+			"another release's build (an earlier release renders its own drop-ins, never this release's) — update that instance to this release first",
+		);
+		plantTree('$Format:%H %cI %(describe:match=v[0-9]*,abbrev=40)$\n');
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('unknown');
+		expect(refreshInstanceUnits(INSTANCE, deps).blockers[0]?.remedy).toContain(
+			'cannot be compared',
+		);
+		rmSync(join(host.root, otherTree), { recursive: true, force: true });
+		expect(siblingTreeVerdict(deps.fs, otherTree, host.source)).toBe('no_command');
+		// every refresh above reloaded once and wrote nothing of the sibling's
+		expect(calls.every((argv) => argv.join(' ') === 'daemon-reload')).toBe(true);
+		for (const path of legacyDropins) {
+			expect(readFileSync(join(host.root, path), 'utf8')).not.toContain('ReadWritePaths=');
+		}
+		// Re-render the LEGACY instance: demo already runs this release's drop-ins, so
+		// nothing blocks — the template is upgraded by the LAST instance brought up.
+		const upgraded = refreshInstanceUnits('other', deps);
+		expect(upgraded.upgraded).toEqual([SERVER_TEMPLATE]);
+		expect(upgraded.deferred).toEqual([]);
+		expect(upgraded.blockers).toEqual([]);
+		expect(readFileSync(join(host.root, SERVER_TEMPLATE), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host.source),
+		);
+		expect(existsSync(join(host.root, writableRootsManifestPath('other')))).toBe(true);
+		expect(
+			readFileSync(join(host.root, dropinPath('dedalo-ts@.service', 'other')), 'utf8'),
+		).toContain('ReadWritePaths=');
+		// Everything current now: a demo refresh upgrades nothing and defers nothing.
+		const settled = refreshInstanceUnits(INSTANCE, deps);
+		expect(settled.upgraded).toEqual([]);
+		expect(settled.deferred).toEqual([]);
+		expect(settled.kept.length).toBe(UNIT_TEMPLATES.length);
+		// A sibling whose record cannot be read blocks too (fail closed), named, no command.
+		rmSync(join(host.root, `/var/lib/dedalo-install/other/${PLAN_FILE}`));
+		plantEarlierShipped(host, 'dedalo-backup@.timer');
+		const unreadable = refreshInstanceUnits(INSTANCE, deps);
+		expect(unreadable.deferred).toEqual(['/etc/systemd/system/dedalo-backup@.timer']);
+		expect(unreadable.blockers.map((b) => b.instance)).toEqual(['other']);
+		expect(unreadable.blockers[0]?.reason).toContain('cannot be read');
+		expect(unreadable.blockers[0]?.refresh).toBeUndefined();
+		// A sibling whose record file is CORRUPT (truncated by a full disk) or of
+		// another schema: the CLI's reader THROWS install.state_conflict on it
+		// (host_executor readHostRecord → run_files_core readJson), and so does the
+		// gate's readRecordOver. The law says: a blocker, fail closed, this module's
+		// own sentence — and the refreshing instance's OWN files are still rendered.
+		// RED before: the throw escaped refreshInstanceUnits; demo's drop-ins were
+		// never re-rendered (an instance refusing boot stayed unbootable until an
+		// unrelated instance's record was repaired).
+		const otherPlan = join(host.root, `/var/lib/dedalo-install/other/${PLAN_FILE}`);
+		const demoDropin = join(host.root, dropinPath('dedalo-ts@.service', INSTANCE));
+		for (const [corrupt, thrown] of [
+			['{"schema":', /not readable JSON/],
+			[JSON.stringify({ schema: 'dedalo-install-plan/0', answers: {} }), /schema is not/],
+		] as const) {
+			writeFileSync(otherPlan, corrupt);
+			expect(() => readRecordOver(host)('other')).toThrow(thrown);
+			rmSync(demoDropin);
+			const blocked = refreshInstanceUnits(INSTANCE, deps);
+			expect(blocked.blockers.map((b) => b.instance)).toEqual(['other']);
+			expect(blocked.blockers[0]?.reason).toContain('cannot be read');
+			expect(blocked.blockers[0]?.reason).not.toContain('JSON');
+			expect(blocked.blockers[0]?.refresh).toBeUndefined();
+			expect(blocked.deferred).toEqual(['/etc/systemd/system/dedalo-backup@.timer']);
+			expect(existsSync(demoDropin)).toBe(true);
+		}
+
+		// ── B. the host_units STEP: a fresh install beside a legacy instance, the
+		//       server template an earlier shipped render — the step completes, keeps
+		//       the template, verifies, and says what blocks the upgrade.
+		const host2 = scratchHost(UBUNTU_NGINX_LE, {
+			files: new Map(
+				UNIT_TEMPLATES.map((name) => [
+					`/etc/systemd/system/${name}`,
+					renderTemplate(name, row, REPO_ROOT),
+				]),
+			),
+		});
+		plantLegacySibling(host2, recordDir, 'other');
+		const older2 = plantEarlierShipped(host2, 'dedalo-ts@.service');
+		const run = await runHost(host2, freshRequest(productionPlan(UBUNTU_NGINX_LE).planFile));
+		expect(run.outcome.result).toBe('complete');
+		// RED before: the template was upgraded ('upgraded to this one' in the transcript).
+		expect(readFileSync(join(host2.root, SERVER_TEMPLATE), 'utf8')).toBe(older2);
+		const transcript = run.transcript.lines.join('\n');
+		expect(transcript).toContain('KEPT (dedalo-ts@.service)');
+		expect(transcript).toContain('host_units_refresh.ts --instance other');
+		expect(transcript).not.toContain('upgraded to this one');
+		expect(readStateFile(join(host2.root, RUN_DIR))?.created.host?.units).toEqual([]);
+		// the Review's command list is unchanged (the deferral is the run's, said in its line)
+		// and the legacy instance's re-render upgrades the template on this host too
+		const calls2: string[][] = [];
+		const after = refreshInstanceUnits('other', refreshDeps(host2, calls2));
+		expect(after.upgraded).toEqual([SERVER_TEMPLATE]);
+		expect(readFileSync(join(host2.root, SERVER_TEMPLATE), 'utf8')).toBe(
+			renderTemplate('dedalo-ts@.service', row, host2.source),
+		);
 	});
 });
 

@@ -128,6 +128,8 @@ const NON_PRIMITIVE_EXPORTS: Record<string, string> = {
 		'writes NOTHING itself: it queues a recompute of the record’s covered observer slots on the obligation ledger; the recompute writes the mirror through persistObserverMirrorKeys, a chokepoint primitive below. A mirror slot is derived state, never a credential.',
 	hiIndexDisagrees:
 		'a PURE comparison of a stored `_hi` ancestor index against the save law’s derivation; reads the thesaurus chain, writes nothing.',
+	assertBirthLocatorTargetsLive:
+		'§3h for the INSERT doors (owner C28, 2026-11-13): locks every relation target of a BORN row `FOR KEY SHARE` and refuses a deleted one (relation.target_deleted) inside the insert’s transaction. A lock and a refusal — it writes no column, no key, no row; the create/duplicate primitives that call it are the writers, and they are censused.',
 	bornInCurrentTransaction:
 		'a READ-ONLY xmin predicate (2026-10-01): one SELECT comparing a row’s xmin with the ambient transaction’s xid, answering whether the record was written by that transaction (the conflict-tolerant create’s birth law, shared with the CSV importer); refuses outside a transaction and writes nothing.',
 	afterRecordWrite:
@@ -286,6 +288,11 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'thesaurus tree add_child / delete: its gate is getPermissions(sectionTipo, sectionTipo) and its writes are whole records — no component pair exists to downgrade.',
 	},
+	'src/core/tools/import_link.ts': {
+		verdict: 'section-level',
+		reason:
+			'the mapped importer’s LINK create (createNamedRecord, called only from import_execute.ts writeMappedRecord): it writes a NEW record — born in the run, named in the same transaction — never an existing one, so no account (the own-record rule’s subject) is reachable through it. The create is still asked of the write door as the importing principal (authorizeSectionTarget: the section, then the name component pair) before createSectionRecord; a refusal creates nothing. Gate: import_create_door_native (TEXT_ONLY refused, no named record; CONTROL created).',
+	},
 	'src/core/section/record/temporal.ts': {
 		verdict: 'section-level',
 		reason:
@@ -382,6 +389,7 @@ const CENSUS: Record<string, CensusRow> = {
 		reason:
 			'importMappedRecords takes the importing PRINCIPAL and asks the write door per field: a matched record through authorizeRecordAccess (write, level 2, section floor 1, dd128-aware pair, write scope), a new record and its fields through authorizeSectionTarget before the create; a refused field is reported IGNORED and never written (req 10). Matrix engine:import_execute.importMappedRecords DD1725 leg (matched record); the create door: import_create_door_native (LEVEL_1 refused, zero rows; CONTROL created).',
 	},
+
 	'src/core/tools/import_csv_execute.ts': {
 		verdict: 'delegates',
 		reason:

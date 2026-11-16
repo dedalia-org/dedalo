@@ -41,7 +41,6 @@
  */
 
 import { canonicalJson } from '../../../src/core/concepts/canonical_json.ts';
-import { dbTimestamp } from '../../../src/core/db/db_timestamp.ts';
 import { type MatrixJsonbColumn, readMatrixRecord } from '../../../src/core/db/matrix.ts';
 import {
 	absorbComponentItemIds,
@@ -56,6 +55,7 @@ import {
 	getTranslatableByTipo,
 } from '../../../src/core/ontology/resolver.ts';
 import {
+	historyStamp,
 	type MainState,
 	readMainSlots,
 	readMainState,
@@ -451,7 +451,7 @@ async function recordRevertHistory(
 		target,
 		await laneIdentityOf(key),
 		{ before: images.before, after },
-		{ userId: context.userId, timestamp: dbTimestamp(), bulkId: context.newBulkId },
+		historyStamp(context.userId, context.newBulkId),
 	);
 }
 

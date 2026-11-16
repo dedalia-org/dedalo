@@ -10,6 +10,7 @@
 	import {keyboard_codes} from '../../../core/common/js/utils/keyboard.js'
 	import {prepend_bubble, render_node_info} from '../../../core/common/js/utils/notifications.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
+	import {render_value} from '../../../core/common/js/utils/render_escape.js'
 
 
 
@@ -615,7 +616,7 @@ const render_subtitles = async function(self) {
 					element_type	: 'div',
 					contenteditable : true,
 					class_name		: current_value.type,
-					inner_html		: current_value.value,
+					text_content		: current_value.value,
 					parent			: fragment
 				})
 
@@ -639,11 +640,19 @@ const render_subtitles = async function(self) {
 						parent			: text_container
 					})
 
-				// value_container
+				// value_container. CKEditor (InlineEditor.create on this node, no
+				// initialData) takes the node's content as the editor's initial
+				// data, so this IS the sink. The value is rendered by the SERVER's
+				// class of the transcription the subtitles are cut from
+				// (component_text_area: 'html', sanitized on save) — the ONE escaper
+				// (render_escape_tripwire). (!) A subtitle block edited here is
+				// stored back in the subtitles JSON component, which the write
+				// engine does not sanitize: that save door is an open owner question
+				// (T1 C26 report), not a renderer's decision.
 					const value_container = ui.create_dom_element({
 						element_type	: 'div',
 						class_name		: 'value_container ' +current_value.type,
-						inner_html		: value,
+						inner_html		: render_value(value, self.transcription_component?.context?.render_class),
 						parent			: text_container
 					})
 

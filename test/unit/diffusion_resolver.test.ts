@@ -173,10 +173,10 @@ describe('end-to-end resolution of one real record', () => {
 	});
 
 	test('field errors are COLLECTED, never silent wrong values', () => {
-		// Any remaining unported ddo fn (e.g. get_geolocation_data, the v6
-		// non-geojson variant) must surface as a named per-field error, and
-		// the affected column stays empty. (get_geojson_data, parse_tag_to_html
-		// and get_diffusion_iconography are PORTED — they no longer ledger.)
+		// Any remaining unported ddo fn must surface as a named per-field
+		// error, and the affected column stays empty. (get_geojson_data,
+		// get_geolocation_data, map_target_section_tipo, parse_tag_to_html and
+		// get_diffusion_iconography are PORTED — they no longer ledger.)
 		// This shape loop is vacuous when the live plan carries no unported fn
 		// (batch.errors is empty) — the NON-vacuous fail-loud coverage is the
 		// unknown-fn injection test below.

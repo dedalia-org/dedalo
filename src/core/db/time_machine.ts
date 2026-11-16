@@ -54,6 +54,7 @@
 
 import { canonicalJson } from '../concepts/canonical_json.ts';
 import { keyImage } from '../concepts/lang_region.ts';
+import { TIME_MACHINE_SECTION_TIPO, TM_EXCLUDED_SECTIONS } from '../concepts/section.ts';
 import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
 import { dbTimestamp } from './db_timestamp.ts';
 import { encodeForJsonb } from './json_codec.ts';
@@ -65,8 +66,12 @@ import {
 	withTmHistory,
 } from './record_generation.ts';
 
-/** The dd15 virtual section tipo (PHP DEDALO_TIME_MACHINE_SECTION_TIPO). */
-export const TIME_MACHINE_SECTION_TIPO = 'dd15';
+/**
+ * The dd15 virtual section tipo (PHP DEDALO_TIME_MACHINE_SECTION_TIPO) and the
+ * never-versioned sections — both OWNED by the leaf concepts/section.ts,
+ * re-exported here for the existing importers.
+ */
+export { TIME_MACHINE_SECTION_TIPO, TM_EXCLUDED_SECTIONS };
 
 /** One matrix_time_machine row (flat audit contract). */
 export interface TimeMachineRow {
@@ -164,12 +169,6 @@ export interface TimeMachineEntry {
 export type TimeMachineWriteHook = (entry: TimeMachineEntry) => Promise<void>;
 
 /**
- * Sections excluded from Time Machine (PHP tm_record::$excluded_section_tipos —
- * volatile/utility sections). dd15 itself is also refused.
- */
-export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([TIME_MACHINE_SECTION_TIPO]);
-
-/**
  * Append one audit row for a component data change (PHP tm_record::create →
  * tm_db_manager::create). Stores the NEW component data snapshot with the
  * source coordinates, a DB timestamp, and the acting user. Skipped for
@@ -185,7 +184,7 @@ export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([TIME_MACHINE_S
  */
 export async function recordTimeMachine(entry: TimeMachineEntry, timestamp: string): Promise<void> {
 	assertNotReadOnlyRequest('recordTimeMachine');
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return;
 	await sql.unsafe(
 		`INSERT INTO matrix_time_machine
 		   (section_id, section_tipo, tipo, lang, timestamp, user_id, data)
@@ -252,6 +251,38 @@ export async function addressHasTimeMachineHistory(
 		[sectionTipo, sectionId],
 	)) as { present: boolean }[];
 	return rows[0]?.present === true;
+}
+
+/**
+ * THE BACKFILL PROBE (PHP tm_record::create's `search({section_id,
+ * section_tipo, tipo, lang}, 1)`): whether the record living at the address
+ * already has a VISIBLE history row of `tipo` in `lane`. Every backfill door
+ * asks it here, one spelling (the save-before of the history writer, the
+ * delete / observer backfills):
+ *   - epoch-narrowed (P0-14): a DEAD generation's rows at the same address do
+ *     not answer for the reborn record — else its own backfill is suppressed;
+ *   - visibility-narrowed: a bulk run's hidden undo-log row (a BEFORE image, a
+ *     birth marker) is not history dd15 shows, so it answers no.
+ * `anyTag`: an UNSLICED main's one lane is every row of it whatever its tag (a
+ * PHP save of a relation flagged translatable was tagged with the data lang
+ * and held the whole value) — dataframe_slots.ts LaneHistoryProbe. One
+ * indexed EXISTS (matrix_time_machine_search_default_idx).
+ */
+export async function hasVisibleLaneHistory(
+	coords: TmCoords,
+	lane: string,
+	anyTag: boolean,
+): Promise<boolean> {
+	await ensureTmHistoryReady();
+	const params: unknown[] = [coords.sectionTipo, coords.sectionId, coords.componentTipo];
+	if (!anyTag) params.push(lane);
+	const rows = (await sql.unsafe(
+		`SELECT 1 FROM matrix_time_machine
+		 WHERE ${withTmHistory(`section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}`)}
+		 LIMIT 1`,
+		params,
+	)) as unknown[];
+	return rows.length > 0;
 }
 
 /** One other-language main item a visible history row recorded. */
@@ -654,7 +685,7 @@ export interface BulkPairIds {
  */
 export async function recordBulkPair(entry: BulkPairEntry): Promise<BulkPairIds | null> {
 	const { coords } = entry;
-	if (!isAuditedAddress(coords.sectionTipo, coords.sectionId)) return null;
+	if (!isTmAuditedAddress(coords.sectionTipo, coords.sectionId)) return null;
 	const before = keyImage(entry.before);
 	const after = keyImage(entry.after);
 	if (canonicalJson(before) === canonicalJson(after)) return null;
@@ -709,7 +740,7 @@ export interface BulkBirthEntry extends BulkRecordEntry {
  * Returns the row id, or null for an unaudited address.
  */
 export async function recordBulkBirth(entry: BulkBirthEntry): Promise<number | null> {
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
 	return insertUndoRow({
 		sectionTipo: entry.sectionTipo,
 		sectionId: entry.sectionId,
@@ -740,7 +771,7 @@ export interface BulkCascadeDeleteEntry extends BulkRecordEntry {
 export async function recordBulkCascadeDelete(
 	entry: BulkCascadeDeleteEntry,
 ): Promise<number | null> {
-	if (!isAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
+	if (!isTmAuditedAddress(entry.sectionTipo, entry.sectionId)) return null;
 	return insertUndoRow({
 		sectionTipo: entry.sectionTipo,
 		sectionId: entry.sectionId,
@@ -755,7 +786,7 @@ export async function recordBulkCascadeDelete(
 }
 
 /** Whether the time machine audits this address at all (the plain door's skips). */
-function isAuditedAddress(sectionTipo: string, sectionId: number): boolean {
+export function isTmAuditedAddress(sectionTipo: string, sectionId: number): boolean {
 	return sectionId > 0 && !TM_EXCLUDED_SECTIONS.has(sectionTipo);
 }
 

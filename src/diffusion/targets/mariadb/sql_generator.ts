@@ -38,6 +38,12 @@ export interface SqlStatement {
 	params: (string | number | null)[];
 }
 
+/**
+ * The `section_id` column type of a source-section table. A GLOBAL table
+ * (plan GlobalTablePlan) passes its VARCHAR composite-key type instead.
+ */
+export const SECTION_ID_TYPE = 'INT(12)';
+
 /** Default cap for rows per multi-row upsert statement (plan D1 default). */
 export const DEFAULT_UPSERT_BATCH_ROWS = 200;
 /**
@@ -153,14 +159,17 @@ export interface ColumnRowWidth {
  * the NULL bitmap — one bit per PLAN column only: `lang` is declared
  * DEFAULT NULL but sits in the PRIMARY KEY, which MariaDB forces NOT NULL.
  */
-export function tableRowBytes(section: SectionPlan): { total: number; columns: ColumnRowWidth[] } {
+export function tableRowBytes(
+	section: SectionPlan,
+	sectionIdType: string = SECTION_ID_TYPE,
+): { total: number; columns: ColumnRowWidth[] } {
 	const columns = tableColumnFields(section).map((field) => {
 		const sqlType = sqlTypeFor(field.column, field.outputFormat);
 		return { columnName: field.columnName, sqlType, bytes: columnRowBytes(sqlType) };
 	});
 	const nullableCount = columns.length;
 	const total =
-		columnRowBytes('INT(12)') +
+		columnRowBytes(sectionIdType) +
 		columnRowBytes('VARCHAR(16)') +
 		columns.reduce((sum, column) => sum + column.bytes, 0) +
 		Math.ceil(nullableCount / 8);
@@ -173,8 +182,11 @@ export function tableRowBytes(section: SectionPlan): { total: number; columns: C
  * widest columns: shrinking a `varchar` or moving a field to field_text is
  * the fix, and it is an ONTOLOGY decision — the engine never retypes.
  */
-export function tableRowSizeViolation(section: SectionPlan): string | null {
-	const { total, columns } = tableRowBytes(section);
+export function tableRowSizeViolation(
+	section: SectionPlan,
+	sectionIdType: string = SECTION_ID_TYPE,
+): string | null {
+	const { total, columns } = tableRowBytes(section, sectionIdType);
 	if (total <= MARIADB_MAX_ROW_BYTES) return null;
 	const widest = columns
 		.filter((column) => column.sqlType.startsWith('VARCHAR('))
@@ -288,16 +300,20 @@ function indexedColumnNames(section: SectionPlan): Set<string> {
 
 /**
  * CREATE TABLE IF NOT EXISTS for a section plan — the oracle's exact table
- * anatomy: section_id INT(12) + lang VARCHAR(16), composite PK, per-column
+ * anatomy: section_id INT(12) (a global table: its VARCHAR composite key) +
+ * lang VARCHAR(16), composite PK, per-column
  * COMMENT provenance, model-default/overridden indexes, InnoDB/utf8mb4.
  */
-export function generateCreateTable(section: SectionPlan): string {
+export function generateCreateTable(
+	section: SectionPlan,
+	options: { sectionIdType?: string } = {},
+): string {
 	const safeTable = escapeSqlIdentifier(section.tableName);
 	const fields = tableColumnFields(section);
 	const indexed = indexedColumnNames(section);
 
 	const definitionClauses = [
-		'`section_id` INT(12) NOT NULL',
+		`\`section_id\` ${options.sectionIdType ?? SECTION_ID_TYPE} NOT NULL`,
 		'`lang` VARCHAR(16) DEFAULT NULL',
 		...fields.map(columnDefinition),
 		'PRIMARY KEY (section_id, lang)',

@@ -127,11 +127,38 @@ export const render_join = (values, separator, render_class) => {
 }; //end render_join
 
 /**
+ * Editor ghost markup a rich-text value leaves behind when cleared — mirror of
+ * the server rule (src/core/resolve/data_item_emptiness.ts RICH_TEXT_GHOSTS).
+ */
+const RICH_TEXT_GHOSTS = new Set(['<p></p>', '<p> </p>', '<br data-mce-bogus="1">']);
+
+/**
+ * IS_EMPTY_ENTRY
+ * Whether a current-lang entry carries no text: missing, or its value is
+ * null / undefined / false / '' / [] / whitespace / rich-text ghost markup.
+ * '0' and 0 are values. A cleared translation is persisted as an ITEM
+ * ({id, lang, value:''}) — judging the item's truthiness hid the fallback
+ * (T1-34 / O14). The server sends fallback_value only for a slice it judged
+ * empty by the model's rule, so this lenient check only decides which face a
+ * position shows; it never invents a fallback.
+ * @param {Object|null|undefined} entry - {value, ...}
+ * @return {boolean}
+ */
+export const is_empty_entry = (entry) => {
+	if (!entry || typeof entry !== 'object') return true;
+	const value = typeof entry.value === 'string' ? entry.value.trim() : entry.value;
+	if (value === undefined || value === null || value === '' || value === false) return true;
+	if (Array.isArray(value)) return value.length === 0;
+	return typeof value === 'string' && RICH_TEXT_GHOSTS.has(value);
+}; //end is_empty_entry
+
+/**
  * RENDER_FALLBACK_VALUE
  * The multi-language fallback merge for a DOM sink: for each position, the
- * entry's value when present, else the fallback-language value wrapped in
- * <mark>. Both are rendered through render_value BEFORE the wrap, so the mark
- * is markup and the value is not.
+ * entry's value when it carries text, else the fallback-language value wrapped
+ * in <mark> (when the server sent one; else the entry's own blank value).
+ * Both are rendered through render_value BEFORE the wrap, so the mark is
+ * markup and the value is not.
  * @param {Array} entries - the current-lang values [{value}, ...] (holes allowed)
  * @param {Array|null} fallback_value - the fallback-lang values [{value}, ...]
  * @param {string} render_class - the component's render class
@@ -142,10 +169,10 @@ export const render_fallback_value = (entries, fallback_value, render_class) => 
 	const value_length = entries.length > 0 ? entries.length : (fallback_value?.length ?? 0);
 
 	for (let i = 0; i < value_length; i++) {
-		if (entries[i]) {
+		const fv = fallback_value?.[i];
+		if (entries[i] && !(is_empty_entry(entries[i]) && fv?.value)) {
 			fallback_result.push(render_value(entries[i].value, render_class));
 		} else {
-			const fv = fallback_value?.[i];
 			const marked_value = fv?.value ? `<mark>${render_value(fv.value, render_class)}</mark>` : '';
 
 			fallback_result.push(marked_value);

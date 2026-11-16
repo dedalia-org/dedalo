@@ -494,6 +494,17 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 		pattern: literal('report.errors'),
 		reason: `${PAYLOAD_REASON} — the per-record propagation failures`,
 	},
+	{
+		file: 'tools/tool_import_zotero/js/render_tool_import_zotero.js',
+		pattern: literal('data.errors'),
+		reason: `${PAYLOAD_REASON} — the import report's unreadable-file lines (tools/tool_import_zotero/server/index.ts reportPayload \`errors: batch.errors\`)`,
+	},
+	{
+		file: 'tools/tool_import_zotero/js/render_tool_import_zotero.js',
+		pattern: literal('item.msg'),
+		reason:
+			"one entry of the import report's `failed[]` — a ConformFailure {section_id, component_tipo, msg} (src/core/tools/import_data.ts), a payload row, not an envelope",
+	},
 	// ── named FAILURE extension keys (ERRORS_SPEC §3.0) ───────────────────────
 	{
 		file: 'tools/tool_hierarchy/js/render_tool_hierarchy.js',
@@ -506,6 +517,19 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 		pattern: literal('api_response.errors'),
 		reason:
 			'NAMED failure extension key (tools/tool_ontology_parser/server/tool_ontology_parser.ts batchFailed `extend:{errors, ar_msg}`) — the per-TLD detail',
+	},
+	// ── client-side driver results (no server body involved) ──────────────────
+	{
+		file: 'tools/tool_lang/js/render_tool_lang.js',
+		pattern: literal('response?.result'),
+		reason:
+			"the CLIENT-SIDE browser-translation driver's own resolve value {result, msg} (tools/tool_lang/js/browser_translation.js translate_component_browser — result:true = stored, false = cancelled), never an API body",
+	},
+	{
+		file: 'tools/tool_lang_multi/js/tool_lang_multi.js',
+		pattern: literal('response?.result'),
+		reason:
+			'the same client-side browser-translation driver resolve value as render_tool_lang.js (via run_browser_translation), never an API body',
 	},
 ];
 

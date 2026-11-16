@@ -100,6 +100,10 @@ const GUARDED: Readonly<Record<string, { doors: Readonly<Record<string, Door>> }
 				'src/core/api/handlers/dd_utils_api.ts':
 					'INSPECTION: the admin SQL console shows the text it runs through runSearch',
 			},
+			searchStatementFingerprint: {
+				'src/core/relations/datalist.ts':
+					'a DIGEST, not the text: the option-list cache keys on what the option search selects',
+			},
 			searchCursorSource: {
 				'src/diffusion/export/selection_cursor.ts':
 					'the export selection cursor declares the selection and arms the budget',

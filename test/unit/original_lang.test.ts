@@ -234,6 +234,10 @@ describe('tag rendering survives the forcing (the lost-tags regression)', () => 
 	const TAGGED = '<p>[TC_00:00:01.000_TC]Text en català</p>';
 	let vlcaCatId = 0; // test89=vlca, transcript typed under lg-cat (equivalence sibling)
 	let fraCatId = 0; // test89=fra (no equivalence), transcript under lg-cat → fallback path
+	// test89=vlca whose vlca slice holds only the editor's ghost `<p></p>`, the
+	// transcript under lg-cat: the ghost is NO text (T1-34 / O14, PHP
+	// component_text_area::is_empty), so the forcing must pick the cat sibling.
+	let ghostVlcaCatId = 0;
 
 	beforeAll(async () => {
 		const vlca = (await getLangSectionIdByCode('lg-vlca')) ?? 0;
@@ -274,11 +278,31 @@ describe('tag rendering survives the forcing (the lost-tags regression)', () => 
 			},
 			string: { [TEXT_AREA]: [{ id: 1, value: TAGGED, lang: 'lg-cat' }] },
 		});
+		ghostVlcaCatId = await insertMatrixRecordWithCounter(TABLE, SECTION, {
+			relation: {
+				[SELECT_LANG]: [
+					{
+						id: 1,
+						type: 'dd151',
+						section_tipo: 'lg1',
+						section_id: String(vlca),
+						from_component_tipo: SELECT_LANG,
+					},
+				],
+			},
+			string: {
+				[TEXT_AREA]: [
+					{ id: 1, value: '<p></p>', lang: 'lg-vlca' },
+					{ id: 1, value: TAGGED, lang: 'lg-cat' },
+				],
+			},
+		});
 	});
 
 	afterAll(async () => {
 		if (vlcaCatId > 0) await deleteMatrixRecord(TABLE, SECTION, vlcaCatId);
 		if (fraCatId > 0) await deleteMatrixRecord(TABLE, SECTION, fraCatId);
+		if (ghostVlcaCatId > 0) await deleteMatrixRecord(TABLE, SECTION, ghostVlcaCatId);
 	});
 
 	async function listItem(sectionId: number) {
@@ -312,6 +336,13 @@ describe('tag rendering survives the forcing (the lost-tags regression)', () => 
 		const value = String(item?.entries?.find((entry) => entry?.value)?.value ?? '');
 		expect(value).toContain('<img');
 		expect(value).not.toContain('[TC_00:00:01.000_TC]Text'); // rendered, not raw
+	});
+
+	test('an original slice holding only editor ghost markup is NOT text — the sibling is forced (T1-34)', async () => {
+		const item = await listItem(ghostVlcaCatId);
+		expect(item?.lang).toBe('lg-cat');
+		const value = String(item?.entries?.find((entry) => entry?.value)?.value ?? '');
+		expect(value).toContain('<img');
 	});
 
 	test('a genuine cross-lang FALLBACK is tag-rendered too', async () => {

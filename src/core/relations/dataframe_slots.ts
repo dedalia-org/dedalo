@@ -40,9 +40,16 @@
 import { getComponentModel, isLangSlicedModel } from '../components/registry.ts';
 import { canonicalJson } from '../concepts/canonical_json.ts';
 import { DATAFRAME_RELATION_TYPE } from '../concepts/subdatum.ts';
+import { backfillTimestamp, dbTimestamp } from '../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
-import { readFrameStateRowAt, recordBulkPair, recordTimeMachine } from '../db/time_machine.ts';
+import {
+	hasVisibleLaneHistory,
+	isTmAuditedAddress,
+	readFrameStateRowAt,
+	recordBulkPair,
+	recordTimeMachine,
+} from '../db/time_machine.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import {
 	effectiveSaveLang,
@@ -718,9 +725,20 @@ export interface HistoryStamp {
 	timestamp: string;
 }
 
-/** A stamp, and the run the write belongs to (null outside a bulk run). */
+/**
+ * A change's stamp: who and when, the stamp of its SAVE-BEFORE backfill
+ * (recordMainHistory — REQUIRED, so `tsc` refuses a door that forgot it; one
+ * instant for both: historyStamp), and the run the write belongs to (null
+ * outside a bulk run).
+ */
 export interface RunStamp extends HistoryStamp {
+	backfillTimestamp: string;
 	bulkId: number | null;
+}
+
+/** THE stamp of a change made at `now`: its own timestamp and its backfill's, from one instant. */
+export function historyStamp(userId: number, bulkId: number | null, now = new Date()): RunStamp {
+	return { userId, timestamp: dbTimestamp(now), backfillTimestamp: backfillTimestamp(now), bulkId };
 }
 
 /** The FRAME lane image of a state: its lg-nolan value (`region` cut by the caller) followed by every slot's frames. */
@@ -944,6 +962,8 @@ async function recordMainPairs(
  * the component save, a slot save, apply_value, a bulk revert, a delete's
  * strip or wipe, a portal locator removal, an observer recompute, a
  * translation, a duplicate — records its change HERE, under the MAIN's tipo:
+ *   - FIRST the SAVE-BEFORE (recordChangeBackfill): a changed lane with no
+ *     history yet is recorded as it stood, one minute earlier;
  *   - outside a run (`bulkId` null): the visible rows (recordMainRows);
  *   - under a run: the undo-log pairs (recordMainPairs), whose after-rows are
  *     the visible rows (decision D1).
@@ -959,11 +979,45 @@ export async function recordMainHistory(
 ): Promise<void> {
 	const { bulkId } = stamp;
 	const door = unslicedDoorIdentity(identity);
+	await recordChangeBackfill(target, door, change, stamp);
 	if (bulkId !== null) {
 		await recordMainPairs(target, door, change, { ...stamp, bulkId });
 		return;
 	}
 	await recordMainRows(target, door, change, stamp, options.forceDoorLane ?? true);
+}
+
+/**
+ * THE SAVE-BEFORE (PHP tm_record::create `$previous_data`, class.tm_record.php;
+ * v6 JSON_RecordObj_matrix): when a change rewrites a lane — a language lane,
+ * or the frame lane — whose BEFORE image holds something, whose image actually
+ * changed, and which has NO visible history for this record generation, that
+ * BEFORE image is recorded first as a visible row stamped `backfillTimestamp`,
+ * no bulk id, no role (PHP: `bulk_process_id = null`, "to prevent revert it").
+ * Only the CHANGED lanes are eligible (PHP `same_data` + its per-lang probe):
+ * a save of lg-spa never backfills lg-eng; an unchanged save backfills
+ * nothing. An address the time machine does not audit is not probed. Under a
+ * run too: the backfill is ordinary history, the pairs follow it.
+ * WC-2026-09-27-bulk-revert-undo-log, addendum 2026-11-12 (T1-21).
+ */
+async function recordChangeBackfill(
+	target: SlotTarget,
+	door: LaneIdentity,
+	change: { before: MainState; after: MainState },
+	stamp: RunStamp,
+): Promise<void> {
+	if (!isTmAuditedAddress(target.sectionTipo, target.sectionId)) return;
+	const lanes = new Set(changedValueLanes(change.before, change.after, door));
+	if (frameLaneChanged(change.before, change.after, door)) lanes.add(NOLAN);
+	if (lanes.size === 0) return;
+	await recordMainBackfill(
+		target,
+		door,
+		change.before,
+		{ userId: stamp.userId, timestamp: stamp.backfillTimestamp },
+		visibleHistoryProbe(target, door.tipo),
+		{ lanes },
+	);
 }
 
 /**
@@ -1001,11 +1055,26 @@ export function mainStateChanged(
  */
 export type LaneHistoryProbe = (lane: string, anyTag: boolean) => Promise<boolean>;
 
+/** THE backfill probe of a main at a record (time_machine.ts hasVisibleLaneHistory — one law, every door). */
+export function visibleHistoryProbe(target: SlotTarget, tipo: string): LaneHistoryProbe {
+	const coords = {
+		sectionTipo: target.sectionTipo,
+		sectionId: target.sectionId,
+		componentTipo: tipo,
+	};
+	return (lane, anyTag) => hasVisibleLaneHistory(coords, lane, anyTag);
+}
+
 /**
- * THE BACKFILL of a main (the delete / duplicate doors): the state as it
+ * THE BACKFILL of a main (the delete / duplicate / observer doors, and the
+ * save-before of every change — recordChangeBackfill): the state as it
  * stood, one visible row per lane that holds something — each language lane
  * with its value, the frame lane when it holds a value or a frame — skipping
- * a lane `hasHistory` already answers for. FRAME LANE FIRST (recordMainRows):
+ * a lane `hasHistory` already answers for. `lanes`: only these lanes are
+ * eligible (the save-before's changed lanes; NOLAN = the frame lane), each
+ * judged by its own data (changedLaneKeeps) — an ineligible or empty lane is
+ * neither probed nor written; omitted, every lane is, by its visible image
+ * (the record-lifecycle doors' wide law). FRAME LANE FIRST (recordMainRows):
  * a backfilled language row's frames are the newest frame-state row at or
  * below it, so the frame lane answers for `state` BEFORE any language row —
  * its own backfill row when the lane has no history and holds something, else
@@ -1018,23 +1087,53 @@ export async function recordMainBackfill(
 	state: MainState,
 	stamp: HistoryStamp,
 	probe: LaneHistoryProbe = async () => false,
-	options: { emptyDoorLane?: boolean } = {},
+	options: { emptyDoorLane?: boolean; lanes?: ReadonlySet<string> } = {},
 ): Promise<void> {
 	const identity = unslicedDoorIdentity(doorIdentity);
 	const hasHistory = (lane: string) => probe(lane, !identity.sliced);
 	// `emptyDoorLane`: the door's own lane is backfilled even EMPTY (the observer
 	// mirror's PHP baseline: "it held nothing before this write").
-	const keeps = (lane: string, image: unknown) =>
-		!isEmptyImage(image) || (options.emptyDoorLane === true && lane === identity.lang);
+	const keeps =
+		options.lanes === undefined
+			? (lane: string, image: unknown) =>
+					!isEmptyImage(image) || (options.emptyDoorLane === true && lane === identity.lang)
+			: changedLaneKeeps(options.lanes, identity);
 	const lanes = await backfillLanes(identity, state, keeps, hasHistory);
+	const frameKeeps = keeps(
+		NOLAN,
+		frameLaneImage(visibleOf(state.value, NOLAN, identity), state.slots),
+	);
 	await backfillFrameLane(target, identity, state, stamp, {
-		keeps: keeps(NOLAN, frameLaneImage(visibleOf(state.value, NOLAN, identity), state.slots)),
-		hasHistory: await hasHistory(NOLAN),
+		keeps: frameKeeps,
+		// An ineligible / empty frame lane is not probed under a lane filter (its answer is unused).
+		hasHistory: options.lanes !== undefined && !frameKeeps ? true : await hasHistory(NOLAN),
 		languageRows: lanes.length > 0,
 	});
 	for (const { lane, value } of lanes) {
 		await writeLaneRow(target, identity.tipo, lane, value, stamp);
 	}
+}
+
+/**
+ * The save-before's "holds something" (PHP `!empty($previous_data)`, the
+ * component's data IN THAT LANG): an eligible language lane holds an item
+ * TAGGED with it — a lang-less PHP orphan riding the door's lane is not that
+ * lane's data —, the frame lane holds THIS main's frame state (its lg-nolan
+ * value and its OWN frames — frameStateKey; another main's frame sharing the
+ * slot is not this main's data).
+ */
+function changedLaneKeeps(
+	lanes: ReadonlySet<string>,
+	identity: LaneIdentity,
+): (lane: string, image: unknown) => boolean {
+	const emptyFrameState = frameStateKey([], identity);
+	return (lane, image) => {
+		if (!lanes.has(lane)) return false;
+		if (lane === NOLAN) return frameStateKey(image, identity) !== emptyFrameState;
+		return (
+			Array.isArray(image) && image.some((item) => (item as { lang?: unknown })?.lang === lane)
+		);
+	};
 }
 
 /** The language lanes a backfill writes: each that holds something (`keeps`) and has no history yet. */
@@ -1102,7 +1201,7 @@ export async function recordKeyChangeRows(
 	target: SlotTarget,
 	tipo: string,
 	change: { before: unknown; after: unknown; requestLang: string; slotsBefore?: SlotImages },
-	stamp: HistoryStamp,
+	stamp: Omit<RunStamp, 'bulkId'>,
 ): Promise<void> {
 	// A strip door: an orphan frame change is removed without history (attributeSlotMains).
 	const mains = await historyMainsOf(tipo, { ...change, callerMain: null, orphan: 'skip' });

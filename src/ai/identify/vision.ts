@@ -1119,21 +1119,18 @@ export const defaultVocabularyResolver: VocabularyResolver = async ({ criterion,
 			return [];
 		}
 		const properties = await getPropertiesByTipo(leaf.component_tipo);
+		// No owner RECORD: the vocabulary of a criterion path, for any record.
+		const owner = { section_tipo: leaf.section_tipo, section_id: null };
 		const size = await probeDatalistSize(
 			leaf.component_tipo,
 			properties ?? null,
-			leaf.section_tipo,
+			owner,
 			lang,
 			limit,
 		);
 		// `limit` is the cap PLUS ONE, so reaching it IS the overflow.
 		if (size >= limit) return { tooLarge: true, atLeast: size };
-		const items = await getDatalist(
-			leaf.component_tipo,
-			properties ?? null,
-			leaf.section_tipo,
-			lang,
-		);
+		const items = await getDatalist(leaf.component_tipo, properties ?? null, owner, lang);
 		const entries: VocabularyEntry[] = [];
 		for (const item of items) {
 			const label = item.label.trim();

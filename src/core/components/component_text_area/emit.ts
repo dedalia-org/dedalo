@@ -7,23 +7,24 @@
  * - the item ALWAYS carries the fallback_value key (PHP
  *   component_text_area_json attaches it unconditionally — explicit null when
  *   the value is present or no cross-lang fallback exists; other literals
- *   attach it only when a fallback resolved);
+ *   attach it only when a fallback resolved). In LIST mode too the trigger is
+ *   the slice's EMPTINESS (owner C40 2026-11-13; PHP's list counted items);
  * - LIST values follow the record's ORIGINAL language (the related
  *   component_select_lang, e.g. rsc263), equivalence-aware.
  */
 
 import { appServedMediaSrc } from '../../media/web_base_src.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
-import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
-import { equivalentLangsOf } from '../../resolve/lang_alias.ts';
+import { readComponentItems } from '../../resolve/component_data.ts';
 import { truncateHtml } from '../../resolve/truncate_html.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
-import { getOriginalLang } from './original_lang.ts';
+import { getOriginalLang, resolveRecordTextLang } from './original_lang.ts';
 import {
 	createSvgTagPathMemo,
 	renderTagsWithResolvedSvg,
 	type SvgTagPathMemo,
 } from './tag_html.ts';
+import { repairBrokenTags } from './tag_integrity.ts';
 
 /** text_area list values are HTML-truncated (PHP get_list_value max_chars=130). */
 const TEXT_AREA_LIST_MAX_CHARS = 130;
@@ -84,17 +85,6 @@ async function renderListEntries(entries: unknown[], context: EmitHookContext): 
 	return rendered;
 }
 
-/** True when a lang slice holds at least one item with real text. */
-function sliceHasText(items: unknown[], lang: string): boolean {
-	return filterItemsByLang(items, lang).some(
-		(item) =>
-			item !== null &&
-			typeof item === 'object' &&
-			typeof (item as { value?: unknown }).value === 'string' &&
-			(item as { value: string }).value !== '',
-	);
-}
-
 /**
  * One stored item as served: its media src rebased and, in list mode, rendered
  * to the list string. Returns the SAME item reference when nothing changed, so
@@ -109,6 +99,119 @@ async function serveTextItem(item: unknown, context: EmitHookContext): Promise<u
 	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
 	if (next === text) return item;
 	return { ...(item as object), value: next };
+}
+
+/** The text_area `properties` the EDIT decoration reads. */
+interface TextAreaEditProperties {
+	tags_index?: { tipo?: unknown } | null;
+	tags_draw?: { tipo?: unknown } | null;
+	tags_persons?: Record<string, import('./tags_persons.ts').TagsPersonsConfigEntry[]> | null;
+}
+
+/** The tag ids of the locators a `tags_<type>` pointer names, on the host record. */
+async function locatorTagIds(
+	pointer: { tipo?: unknown } | null | undefined,
+	context: EmitHookContext,
+): Promise<string[]> {
+	const tipo = pointer?.tipo;
+	if (typeof tipo !== 'string' || tipo === '') return [];
+	const { readTagLocatorsOnRecord } = await import('./tag_locators.ts');
+	const locators = await readTagLocatorsOnRecord(context.record, tipo);
+	return locators.flatMap((locator) => (locator.tag_id === undefined ? [] : [locator.tag_id]));
+}
+
+/**
+ * TAG INTEGRITY on EDIT (PHP component_text_area_json → fix_broken_index_tags;
+ * WC-2026-11-13-text-area-broken-tag-repair): a text_area declaring
+ * `tags_index` and/or `tags_draw` serves each stored text with its unpaired
+ * index marks completed and its orphan index/draw locators prepended, all in
+ * state `d` (blue) — see tag_integrity.ts. Both doors: the save echo REPLACES
+ * the client's data, and PHP's echo ran the same controller. Nothing is saved.
+ * A repaired text is never empty, so — as PHP computed the fallback AFTER the
+ * repair — it carries no cross-lang fallback.
+ */
+async function repairTagIntegrity(
+	item: DataItem,
+	props: TextAreaEditProperties | null,
+	context: EmitHookContext,
+): Promise<void> {
+	if (!hasTagPointers(props) || !Array.isArray(item.entries)) return;
+	const indexIds = await locatorTagIds(props?.tags_index, context);
+	const drawIds = await locatorTagIds(props?.tags_draw, context);
+	let changed = false;
+	const repaired = item.entries.map((entry) => {
+		const text = itemText(entry);
+		if (text === null) return entry;
+		const repair = repairBrokenTags(text, indexIds, drawIds);
+		if (repair.text === text) return entry;
+		changed = true;
+		return { ...(entry as object), value: repair.text };
+	});
+	if (!changed) return;
+	item.entries = repaired;
+	item.fallback_value = null;
+}
+
+/** PHP `isset($properties->tags_index) || isset($properties->tags_draw)`. */
+function hasTagPointers(props: TextAreaEditProperties | null): boolean {
+	return (
+		(props?.tags_index !== undefined && props.tags_index !== null) ||
+		(props?.tags_draw !== undefined && props.tags_draw !== null)
+	);
+}
+
+/**
+ * EDIT items of a text_area whose ontology declares `properties.tags_persons`
+ * carry the transcription person helpers (PHP component_text_area_json.php:
+ * 130-189): `tags_persons` (the per-person insert buttons / Ctrl+<n> feed) and
+ * `related_sections` (the persons modal's record grouping + the print header).
+ */
+async function attachTagsPersons(
+	item: DataItem,
+	props: TextAreaEditProperties | null,
+	context: EmitHookContext,
+): Promise<void> {
+	if (props?.tags_persons === undefined || props.tags_persons === null) return;
+	const { buildRelatedSections } = await import('../../resolve/related_sections.ts');
+	// NOTE the emit path carries no principal (EmitHookContext has none), so
+	// this embedded related_sections is unscoped — ledgered in
+	// rewrite/LEDGER.md; the dispatch route (read_facade related_search) IS
+	// principal-scoped.
+	const related = await buildRelatedSections(
+		[{ section_tipo: context.row.section_tipo, section_id: context.row.section_id }],
+		{
+			callerTipo: context.row.section_tipo,
+			lang: context.defaultLang,
+			sectionTipos: 'all',
+			limit: false,
+		},
+	);
+	const sectionsEntry = related.data.find(
+		(entry) => (entry as { typo?: string }).typo === 'sections',
+	) as
+		| {
+				value?: {
+					section_tipo: string;
+					// Canonical ids (WC-2026-08-10-section-id-int-canonical); the
+					// persons feed re-canonicalizes anyway, so pre-sweep strings
+					// arriving here are harmless.
+					section_id: import('../../concepts/locator.ts').StoredSectionId;
+				}[];
+		  }
+		| undefined;
+
+	const { buildTagsPersons } = await import('./tags_persons.ts');
+	item.related_sections = related;
+	item.tags_persons = await buildTagsPersons(
+		props.tags_persons,
+		context.row,
+		context.record,
+		sectionsEntry?.value ?? [],
+		// Internal read, unchanged: EmitHookContext carries no principal (same
+		// ledgered gap as the unscoped related_sections above) — the gated
+		// persons feed is dd_component_text_area_api.get_tags_info.
+		undefined,
+	);
 }
 
 export const textAreaEmitHook: ComponentEmitHook = {
@@ -131,20 +234,14 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	 */
 	async resolveEmitLang(context: EmitHookContext): Promise<string | null> {
 		if (context.ddoMode !== 'list') return null;
-		const originalLang = await getOriginalLang(
+		return resolveRecordTextLang(
 			context.ddo.tipo,
 			context.row.section_tipo,
 			context.row.section_id,
 			context.record,
+			readComponentItems(context.record, context.ddo.tipo, context.model),
+			context.model,
 		);
-		if (originalLang === null) return null;
-
-		const items = readComponentItems(context.record, context.ddo.tipo, context.model);
-		if (items === null || sliceHasText(items, originalLang)) return originalLang;
-		for (const sibling of equivalentLangsOf(originalLang)) {
-			if (sliceHasText(items, sibling)) return sibling;
-		}
-		return originalLang;
 	},
 
 	/**
@@ -180,9 +277,11 @@ export const textAreaEmitHook: ComponentEmitHook = {
 	},
 
 	async decorateItem(item: DataItem, context: EmitHookContext): Promise<void> {
-		if (!('fallback_value' in item)) {
-			item.fallback_value = null;
-		}
+		// ALWAYS keyed (explicit null when absent). The LIST face judges EMPTINESS
+		// like edit and every chain rung (owner C40, 2026-11-13 — PHP's list
+		// triggered by item COUNT, so a cleared transcript stayed blank in lists;
+		// WC-2026-11-12-lang-fallback-judges-emptiness addendum).
+		item.fallback_value = (item.fallback_value as unknown[] | null | undefined) ?? null;
 		// LIST fallbacks get the SAME rendering as list values (tags → <img>,
 		// then truncate). transformValue only sees `value`, so a transcript that
 		// surfaces through the cross-lang fallback used to reach the client with
@@ -191,60 +290,15 @@ export const textAreaEmitHook: ComponentEmitHook = {
 			item.fallback_value = await renderListEntries(item.fallback_value, context);
 		}
 
-		// EDIT items of a text_area whose ontology declares
-		// `properties.tags_persons` carry the transcription person helpers (PHP
-		// component_text_area_json.php:130-189): `tags_persons` (the per-person
-		// insert buttons / Ctrl+<n> feed) and `related_sections` (the persons
-		// modal's record grouping + the print header). Property-gated: the
-		// common case costs one cached ontology lookup and returns here.
+		if (context.ddoMode !== 'edit') return;
+		// Property-gated: the common case costs one cached ontology lookup.
 		// Dynamic imports keep the cold path lazy and add no static edge into
 		// the emit_hooks registry SCC.
-		if (context.ddoMode !== 'edit') return;
 		const { getEffectivePropertiesByTipo } = await import('../../ontology/alias.ts');
-		const props = (await getEffectivePropertiesByTipo(context.ddo.tipo)) as {
-			tags_persons?: Record<string, import('./tags_persons.ts').TagsPersonsConfigEntry[]>;
-		} | null;
-		if (props?.tags_persons === undefined || props.tags_persons === null) return;
-
-		const { buildRelatedSections } = await import('../../resolve/related_sections.ts');
-		// NOTE the emit path carries no principal (EmitHookContext has none), so
-		// this embedded related_sections is unscoped — ledgered in
-		// rewrite/LEDGER.md; the dispatch route (read_facade related_search) IS
-		// principal-scoped.
-		const related = await buildRelatedSections(
-			[{ section_tipo: context.row.section_tipo, section_id: context.row.section_id }],
-			{
-				callerTipo: context.row.section_tipo,
-				lang: context.defaultLang,
-				sectionTipos: 'all',
-				limit: false,
-			},
-		);
-		const sectionsEntry = related.data.find(
-			(entry) => (entry as { typo?: string }).typo === 'sections',
-		) as
-			| {
-					value?: {
-						section_tipo: string;
-						// Canonical ids (WC-2026-08-10-section-id-int-canonical); the
-						// persons feed re-canonicalizes anyway, so pre-sweep strings
-						// arriving here are harmless.
-						section_id: import('../../concepts/locator.ts').StoredSectionId;
-					}[];
-			  }
-			| undefined;
-
-		const { buildTagsPersons } = await import('./tags_persons.ts');
-		item.related_sections = related;
-		item.tags_persons = await buildTagsPersons(
-			props.tags_persons,
-			context.row,
-			context.record,
-			sectionsEntry?.value ?? [],
-			// Internal read, unchanged: EmitHookContext carries no principal (same
-			// ledgered gap as the unscoped related_sections above) — the gated
-			// persons feed is dd_component_text_area_api.get_tags_info.
-			undefined,
-		);
+		const props = (await getEffectivePropertiesByTipo(
+			context.ddo.tipo,
+		)) as TextAreaEditProperties | null;
+		await repairTagIntegrity(item, props, context);
+		await attachTagsPersons(item, props, context);
 	},
 };

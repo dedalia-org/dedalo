@@ -7,7 +7,7 @@
 // imports
 	import {ui} from '../../common/js/ui.js'
 	import {event_manager} from '../../common/js/event_manager.js'
-	import {get_fallback_value} from '../../common/js/common.js'
+	import {render_fallback_value} from '../../common/js/utils/render_escape.js'
 	import {change_handler, remove_handler, check_duplicates} from './render_edit_component_input_text.js'
 	import {attach_item_dataframe} from '../../component_common/js/component_common.js'
 	import {stop_page_shortcuts} from '../../common/js/utils/keyboard.js'
@@ -370,19 +370,11 @@ const get_content_value = (i, current_value, self) => {
 * Build a read-only entry node for a user with permissions === 1 (view only).
 *
 * Rather than an <input>, a plain <div> is rendered.  The displayed text is
-* resolved through get_fallback_value: when the entry's own value is present it
-* is used directly; when it is null/empty the corresponding server-supplied
-* fallback (e.g. the default-language value) is used and wrapped in <mark> tags
-* so the UI can style it distinctively.
-*
-* get_fallback_value is called with a single-element array wrapping current_value
-* because it expects an array of entry objects parallel to fallback_value.
-*
-* Note: The returned text_content is the joined result array from
-* get_fallback_value, which may contain HTML markup (<mark>…</mark>) from the
-* fallback path.  Currently text_content (not inner_html) is used, meaning the
-* <mark> tags appear as literal text in read-only mode.  This appears to be the
-* intended behaviour for this view (the list view uses a separate renderer).
+* resolved through render_fallback_value: when the entry carries text it is
+* used directly; when it is missing or empty (a cleared translation is an item
+* with value '') the paired server-supplied fallback (fallback_value[i]) is
+* shown wrapped in <mark> so the UI can style it distinctively. The value is
+* escaped before the wrap (inner_html sink: the mark is markup, the value text).
 *
 * @param {number} i - Zero-based index of this entry, used to locate the
 *   corresponding fallback entry in data.fallback_value.
@@ -394,13 +386,16 @@ const get_content_value_read = (i, current_value, self) => {
 
 	const data				= self.data || {}
 	const fallback_value	= data.fallback_value || []
-	const final_value		= get_fallback_value([current_value], fallback_value)
+	// position i of the fallback pairs with entry i; a cleared entry ({value:''})
+	// shows it marked (T1-34). render_fallback_value escapes before the <mark>
+	// wrap, so the mark is markup and the value is text.
+	const final_value		= render_fallback_value([current_value], [fallback_value[i]], self.context.render_class)
 
 	// content_value node
 		const content_value = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'content_value read_only',
-			text_content	: final_value
+			inner_html		: final_value[0] ?? ''
 		})
 
 

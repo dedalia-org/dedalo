@@ -29,6 +29,14 @@
 # Optional subsystems are behind profiles:
 #   docker compose --env-file .dedalo.env --profile diffusion up -d   # MariaDB publication target
 #   docker compose --env-file .dedalo.env --profile rag up -d         # pgvector store
+# (`certbot`, profile letsencrypt, is switched on by the installer's compose.override.yaml.)
+
+# THIRD-PARTY IMAGES ARE PINNED `name:<version>@sha256:<index digest>` (T1-17):
+# the readable version plus the exact multi-arch bytes, so two installs of one
+# release run the same images and a repointed upstream tag changes nothing
+# here. Dependabot (.github/dependabot.yml, docker-compose `/`) proposes the
+# bumps; the installer reads these lines (src/core/install/host/stack/images.ts)
+# instead of copying them. Gate: test/unit/operator_image_pin_tripwire.test.ts.
 
 name: dedalo
 
@@ -39,7 +47,7 @@ services:
   # a non-empty one, and never creates one itself). The role owns the database,
   # so it may CREATE EXTENSION, which the seed needs.
   postgres:
-    image: postgres:18
+    image: postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-dedalo_main}
@@ -208,7 +216,7 @@ services:
   # start until the engine has written those files (restart: unless-stopped makes
   # it retry).
   nginx:
-    image: nginx:alpine
+    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
     restart: unless-stopped
     depends_on:
       - dedalo
@@ -247,11 +255,26 @@ services:
       # trial, drop a self-signed fullchain.pem + privkey.pem in deploy/certs/.
       - ./deploy/certs:${DEDALO_CERT_MOUNT:-/etc/letsencrypt/live/dedalo.example.org}:ro
 
+  # --- Let's Encrypt renewal (profile `letsencrypt`) -------------------------
+  # The installer obtains the FIRST certificate with a one-off standalone run of
+  # this same image, then enables this service from compose.override.yaml
+  # (`profiles: !reset []`); it only RENEWS, over the webroot the generated
+  # nginx site exposes at /.well-known/acme-challenge/. Off without the override.
+  certbot:
+    image: certbot/certbot:v5.10.0@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
+    profiles: ["letsencrypt"]
+    restart: unless-stopped
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
   # --- Optional: MariaDB diffusion (publication) target ----------------------
   # The engine NEVER creates the target database — a missing one is a loud
   # configuration error. MARIADB_DATABASE creates it here.
   mariadb:
-    image: mariadb:11
+    image: mariadb:11.8.9@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
     profiles: ["diffusion"]
     restart: unless-stopped
     environment:
@@ -266,7 +289,7 @@ services:
   # NOTE: creating the database is NOT enough. No code creates the RAG schema —
   # apply the DDL from docs/core/ai/rag_cookbook.md by hand, once.
   pgvector:
-    image: pgvector/pgvector:pg18
+    image: pgvector/pgvector:0.8.7-pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
     profiles: ["rag"]
     restart: unless-stopped
     environment:
@@ -398,3 +421,5 @@ volumes:
   client:       # DERIVED — the engine republishes it on every start; never back it up
   mariadata:
   ragdata:
+  letsencrypt:  # issued certificates + the ACME account key (profile letsencrypt)
+  certbot_www:  # the challenge webroot, shared with nginx (profile letsencrypt)

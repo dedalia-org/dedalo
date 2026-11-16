@@ -57,6 +57,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { sectionIdAddressSqlValue } from '../../src/core/concepts/section_id.ts';
 import { sanitizeClientSqo } from '../../src/core/concepts/sqo.ts';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { deleteMatrixRecord } from '../../src/core/db/matrix_write.ts';
@@ -804,23 +805,42 @@ describe.if(DB_READY)('SEC-02 — the ACL holds at EVERY hop of a search path', 
 	});
 
 	test('NOT OVER-EAGER: an internal search (no principal) emits the bare join', async () => {
-		const built = await buildSearchSql(twoHopSqo('zzhop02*'), {});
-		const aliases = joinAliases(built.sql);
-		expect(aliases.length).toBe(1);
-		for (const alias of aliases) {
-			const on = onClauseOf(built.sql, alias);
-			expect(on).not.toContain('@>');
-			if (built.sql.includes(`FROM matrix_relation_index AS ri_${alias}`)) {
-				// Reversed (deep_path.ts): the leaf's WHERE opens straight on its
-				// predicate — no ACL conjunct in front of it.
-				expect(on.startsWith(`(${alias}.`) || on.startsWith(`((${alias}.`)).toBe(true);
-				expect(on).not.toContain(`${alias}.section_id > 0`);
-			} else {
-				expect(on).toBe(
-					`${alias}.section_id = NULLIF((rel_${alias}->>'section_id'), '')::bigint AND ${alias}.section_tipo = (rel_${alias}->>'section_tipo')::text`,
-				);
+		// BOTH shapes, every run: the positive probe takes the REVERSED shape
+		// wherever the relation index covers the source table (the suite DB), and
+		// a NEGATED probe always takes the FORWARD one (deep_path.ts semijoin —
+		// negation is never reversed). Probing only the positive left the forward
+		// assertion dead on the suite and stale wherever it did run (T1-36 review).
+		const shapes = { forward: 0, reversed: 0 };
+		for (const probe of ['zzhop02*', '-zzhop02']) {
+			const built = await buildSearchSql(twoHopSqo(probe), {});
+			const aliases = joinAliases(built.sql);
+			expect(aliases.length, `probe ${probe}`).toBe(1);
+			for (const alias of aliases) {
+				const on = onClauseOf(built.sql, alias);
+				expect(on).not.toContain('@>');
+				if (built.sql.includes(`FROM matrix_relation_index AS ri_${alias}`)) {
+					shapes.reversed++;
+					// Reversed (deep_path.ts): the leaf's WHERE opens straight on its
+					// predicate — no ACL conjunct in front of it.
+					expect(on.startsWith(`(${alias}.`) || on.startsWith(`((${alias}.`)).toBe(true);
+					expect(on).not.toContain(`${alias}.section_id > 0`);
+				} else {
+					shapes.forward++;
+					// The locator id is read through the ONE record-address law
+					// (DATA-26, T1-36) — never the PHP-era `NULLIF(…)::bigint` fossil.
+					expect(on).toBe(
+						`${alias}.section_id = ${sectionIdAddressSqlValue(`rel_${alias}->>'section_id'`)} AND ${alias}.section_tipo = (rel_${alias}->>'section_tipo')::text`,
+					);
+				}
 			}
 		}
+		// Non-vacuity: the forward ON clause was really inspected.
+		expect(shapes.forward).toBeGreaterThan(0);
+		// …and the forward join it inspected still reaches the linked records: the
+		// negated probe excludes every main whose hop holds a zzhop02 value.
+		const negated = await idsOf(await buildSearchSql(twoHopSqo('-zzhop02'), {}));
+		expect(negated).not.toContain(MAIN_TO_HIDDEN_ID);
+		expect(negated).not.toContain(MAIN_TO_VISIBLE_ID);
 		// It still finds the hidden record — an internal resolution is not scoped.
 		expect(await idsOf(await buildSearchSql(twoHopSqo('zzhop02 hidden*'), {}))).toContain(
 			MAIN_TO_HIDDEN_ID,

@@ -230,10 +230,30 @@ Study these in the reference trees, then re-express their *semantics*:
   section, an sql element without a database) are TERMINAL — ledgered with a
   reason, excluded from the queue, reported by the `public_tier` reconcile
   (PUB-02). Gate: `test/unit/unpublish_debt_native.test.ts`.
-- **v6-parity side-channels** — `global_table_maps`, `merge_columns`,
-  `preserve_order`, `empty_value`, `empty_to_string`, `default_value`,
-  `add_parents`: today smuggled through the wire context; in the new engine
-  these become **compile-time plan concepts** (§5).
+- **v6-parity side-channels** — `merge_columns`, `preserve_order`,
+  `empty_value`, `empty_to_string`, `default_value`, `add_parents`: the old
+  engine smuggled them through the wire context; in the new engine they are
+  **compile-time plan concepts** (§5).
+- **Global (aggregate) tables** — v6 `global_table_maps` on a table node
+  (`save_global_table_data`): compiled to `SectionPlan.globalTables`
+  (`plan/global_tables.ts`; the global node's own fields are its anatomy, key
+  `<section_tipo>_<section_id>` VARCHAR, grammar in
+  `core/diffusion_bridge/global_tables.ts`), written by the sql writer
+  delete-then-insert in the source rows' transaction, withdrawn by
+  `removeRecords`, the record-delete door (a target confirms only when its
+  global rows are gone) and the `public_tier` reconcile. A map's columns are
+  judged against the global node AND every CARRIER (the real table + each
+  `table_alias` sharing the maps): a column on no carrier REFUSES the element
+  (owner C11, 2026-11-13); a source only an alias carries is written by the
+  alias's rows and NULL for the real table's (`GlobalColumnMap.sourceCarriers`).
+  WC: `engineering/wire_contract/WC-2026-11-12-global-table-maps.md`.
+  Gate: `test/unit/diffusion_global_table_native.test.ts`.
+- **component_external in a chain** (T1-42, 2026-11-12) — a TERMINAL, never a hop
+  (`registry.ts storesRelationLocators`, PHP get_components_with_relations): the remote values
+  are derived per record (`resolve/external_value.ts`), a remote-only target is walked on the
+  identity-only placeholder, a missing value is a run error line. Law:
+  `engineering/EXTERNAL_SPEC.md` §3 addendum 2026-11-12;
+  WC: `engineering/wire_contract/WC-2026-11-12-diffusion-external-chain.md`.
 
 Key oracle files: PHP `diffusion/class.diffusion_utils.php`,
 `class.diffusion_chain_processor.php`,
@@ -637,10 +657,20 @@ one registered writer.
   runner owns write pools; main server keeps a tiny pool for deletes/admin.
   Socrata = dormant registry alias of this writer (confirm with the user
   whether Socrata is still live before investing more).
-- **rdf / xml**: consume RecordIR; one deterministic file per record (path
-  logic exists in `diffusion_delete.ts`); rendering absorbs the old PHP
-  `diffusion/parser/*` set (killing the second parser language); `close()` does
-  type-aware merge + ZIP, all temp+rename.
+- **rdf / xml**: one deterministic file per record (path logic exists in
+  `diffusion_delete.ts`); rendering absorbs the old PHP `diffusion/parser/*`
+  set (killing the second parser language); `close()` does type-aware merge +
+  ZIP, all temp+rename. **xml** consumes RecordIR rows. **rdf** consumes a
+  record GRAPH (T1-4, 2026-11-12): each owl:Class compiles to
+  `SectionPlan.rdfClass` (`plan/rdf_compile.ts` — its data-reading properties
+  are FieldPlans compiled by the same chain compiler and read by the ONE
+  walker), `resolve/rdf_graph.ts` builds the graph (dd1010 base IRIs, typed
+  literals, nested portal nodes, linked class subjects in the same document —
+  each linked record behind the §8 item 8 frontier; a record whose subject IRI
+  cannot be built is withdrawn, `unpublish`, never left stale),
+  and `writers/rdf_xml_serialiser.ts` serialises it byte-equal to EasyRdf 1.19;
+  `writeRows` refuses, `writeGraphs` writes. The merged document declares the
+  union of the parts' xmlns. Divergences: `WC-2026-11-12-rdf-graph-interpretation`.
 - **markdown**: rides the tabular semantics (as today), per-record .md, ZIP
   only.
 - **csv / json**: new first-class; one streamed file per table target, ZIP on
@@ -757,8 +787,8 @@ compile time:
 
 1. **Compile-time rewriters** (never run at runtime): locator re-synthesis dies
    (IR keeps typed chains); `parser_locator::parents/filter_*/truncate_*/slice`
-   → chain-transform options on `ResolveStep`; `global_table_maps` → plan
-   lookup tables; `parser_global::merge_columns` → synthetic merged fields;
+   → chain-transform options on `ResolveStep`; `parser_global::merge_columns`
+   → synthetic merged fields;
    `publication_unix_timestamp` → a `{kind:'system'}` source step; the context
    flags → `FieldPolicy`.
 2. **Runtime parsers** (~12 survivors, pure
@@ -801,6 +831,7 @@ gates. The standing rule: no third resolution walker may ever be written.
 | Half-resolved datum wire + `diffusion_datum`/`diffusion_data_object` + `fields:'delete'` sentinel | typed RecordIR + `status:'unpublish'` + writer `remove()` |
 | Context side-channel flags | compile-time `FieldPolicy`/plan concepts, applied once in Projection |
 | Second (PHP) parser set for RDF/XML | rdf/xml writer rendering helpers; one registry, one language |
+| Column-shaped rdf (urn subjects, one plain literal per column) | the record graph: `rdfClass` plan + graph builder + EasyRdf serialiser port (T1-4) |
 | chunk_size=1, per-record INSERT loops | keyset batches + multi-row upserts |
 | In-memory progress store (lost on restart), split retry state | durable Postgres job queue + checkpointed resume |
 | Public engine socket + `X-Diffusion-Internal-Token` | main-API dispatch + CLI entrypoints with a system principal (removal is a cutover step) |
@@ -859,7 +890,10 @@ gates. The standing rule: no third resolution walker may ever be written.
    could read it set it. `diffuse` therefore stays enqueueable by non-admins:
    with DIFF-B stripping `skip_publication_state_check` and clamping `levels`,
    a scoped caller can only move records inside their own scope, under the
-   per-record publication gate (item 5). Gate:
+   per-record publication gate (item 5). An rdf run queues no frontier, but
+   a record its `rdf` link nodes INLINE into the public document passes the
+   same two keys (door `diffusion.frontier`) and is dropped the same way
+   (T1-4 review; gate `diffusion_rdf_graph_native`). Gate:
    `test/unit/diffusion_frontier_scope_native.test.ts` (the flag ↔ frontier
    census and the drop-and-ledger law); class gate `frontier_class_native`.
 

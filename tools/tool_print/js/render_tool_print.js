@@ -392,7 +392,7 @@ const render_palette_breadcrumb = function(self) {
 	* @param {number} depth - stack depth this crumb represents (0 = root)
 	*/
 	const make_crumb = (label, depth) => {
-		const c = ui.create_dom_element({ element_type:'span', class_name:'crumb', inner_html:(label || '…'), parent:trail })
+		const c = ui.create_dom_element({ element_type:'span', class_name:'crumb', text_content:(label || '…'), parent:trail })
 		if (depth < stack.length) {
 			c.classList.add('clickable')
 			c.addEventListener('click', () => { self.palette_stack.length = depth; render_palette(self) })
@@ -433,7 +433,7 @@ const render_toolbar = async function(self, container) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'toolbar_group_label',
-			inner_html		: text,
+			text_content		: text,
 			parent			: parent
 		})
 	}
@@ -533,7 +533,7 @@ const render_toolbar = async function(self, container) {
 			parent			: view_group
 		})
 		;[['0.5','50%'],['0.75','75%'],['1','100%'],['1.25','125%'],['1.5','150%']].forEach(([v,label]) => {
-			ui.create_dom_element({ element_type:'option', value:v, inner_html:label, parent:zoom_select })
+			ui.create_dom_element({ element_type:'option', value:v, text_content:label, parent:zoom_select })
 		})
 		zoom_select.value = '' + (self.zoom || 1)
 		zoom_select.addEventListener('change', () => set_zoom(self, parseFloat(zoom_select.value)))
@@ -565,7 +565,7 @@ const make_button = function(parent, label, extra_class, on_click) {
 	const btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'tool_button ' + (extra_class || ''),
-		inner_html		: label,
+		text_content		: label,
 		parent			: parent
 	})
 	btn.addEventListener('click', (e) => { e.preventDefault(); on_click() })
@@ -758,7 +758,7 @@ const render_inspector = function(self, container) {
 			parent			: style_section
 		})
 		const align_sel = ui.create_dom_element({ element_type:'select', parent:align_row })
-		;['left','center','right','justify'].forEach(v => ui.create_dom_element({ element_type:'option', value:v, inner_html:v, parent:align_sel }))
+		;['left','center','right','justify'].forEach(v => ui.create_dom_element({ element_type:'option', value:v, text_content:v, parent:align_sel }))
 		align_sel.addEventListener('change', () => on_inspector_change(self))
 		self.inspector_inputs.align = align_sel
 
@@ -771,7 +771,7 @@ const render_inspector = function(self, container) {
 		})
 		const ff_sel = ui.create_dom_element({ element_type:'select', parent:ff_row })
 		;[['sans','Sans-serif'],['serif','Serif'],['mono','Monospace']].forEach(([v,t]) =>
-			ui.create_dom_element({ element_type:'option', value:v, inner_html:t, parent:ff_sel }))
+			ui.create_dom_element({ element_type:'option', value:v, text_content:t, parent:ff_sel }))
 		ff_sel.addEventListener('change', () => on_inspector_change(self))
 		self.inspector_inputs.font_family = ff_sel
 
@@ -875,7 +875,7 @@ const render_inspector = function(self, container) {
 			parent			: page_settings
 		})
 		const fmt_sel = ui.create_dom_element({ element_type:'select', parent:fmt_row })
-		Object.keys(PAGE_FORMATS).forEach(k => ui.create_dom_element({ element_type:'option', value:k, inner_html:k, parent:fmt_sel }))
+		Object.keys(PAGE_FORMATS).forEach(k => ui.create_dom_element({ element_type:'option', value:k, text_content:k, parent:fmt_sel }))
 		fmt_sel.value = self.layout.page_defaults.size
 		fmt_sel.addEventListener('change', () => {
 			self.layout.page_defaults.size = fmt_sel.value
@@ -892,7 +892,7 @@ const render_inspector = function(self, container) {
 			parent			: page_settings
 		})
 		const or_sel = ui.create_dom_element({ element_type:'select', parent:or_row })
-		;['portrait','landscape'].forEach(v => ui.create_dom_element({ element_type:'option', value:v, inner_html:v, parent:or_sel }))
+		;['portrait','landscape'].forEach(v => ui.create_dom_element({ element_type:'option', value:v, text_content:v, parent:or_sel }))
 		or_sel.value = self.layout.page_defaults.orientation
 		or_sel.addEventListener('change', () => {
 			self.layout.page_defaults.orientation = or_sel.value
@@ -1177,7 +1177,7 @@ const render_table_columns_ui = function(self, box) {
 		// align (blank = inherit)
 		const al = ui.create_dom_element({ element_type:'select', class_name:'column_align', parent:style_row })
 		al.title = 'Text align'
-		;[['','—'],['left','L'],['center','C'],['right','R']].forEach(([v,t]) => ui.create_dom_element({ element_type:'option', value:v, inner_html:t, parent:al }))
+		;[['','—'],['left','L'],['center','C'],['right','R']].forEach(([v,t]) => ui.create_dom_element({ element_type:'option', value:v, text_content:t, parent:al }))
 		al.value = current[i].align || ''
 		al.addEventListener('change', () => set_column_style(self, box, key, { align: al.value }))
 		// text colour
@@ -1574,7 +1574,7 @@ const refresh_template_picker = async function(self) {
 		ui.create_dom_element({
 			element_type	: 'option',
 			value			: '' + list[i].section_id,
-			inner_html		: list[i].name,
+			text_content		: list[i].name,
 			parent			: picker
 		})
 	}

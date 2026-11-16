@@ -163,6 +163,8 @@ All properties are optional and live in the ontology node `properties` JSON. `co
 
 - **Values:** an object with `request_config` (an array of RQO blocks). The RQO declares `sqo.section_tipo` (the target section list) and `show.ddo_map` (which target component resolves each option label and how — `value_with_parents`, `fields_separator`, etc.).
 - **Effect:** this is what makes the dropdown work. `getDatalist()` (`src/core/relations/datalist.ts`) runs the RQO against the target section(s) to build `data.datalist` (the `<option>` set); `target_sections` is derived from `sqo.section_tipo`. A select with no resolvable `request_config` logs an error and produces an empty option list. See the *dedalo-datalist-resolution* and *dedalo-request-config* skills.
+- **Who sees which options:** the option list is a real search run for the person asking. A user who is not a global administrator is offered only the target records of their own projects, and a per-user record allow-list (`component_filter_records`) narrows it further for everyone. A stored value outside that scope (or outside the record's `fixed_filter`) is not hidden: the edit form keeps it as an opaque option labelled *(restricted)* and the list shows *(restricted)* in its place, so the selection survives the next save. A stored value whose target record no longer exists shows nothing.
+- **Options per record:** a `sqo.fixed_filter` of source `component_data` narrows the options by a value read from the record being edited (for example, only the milestones of the person the record names), so two records can offer different lists. With no record (the search panel) the list is not narrowed.
 
 ### config_relation
 
@@ -174,10 +176,10 @@ All properties are optional and live in the ontology node `properties` JSON. `co
 - **Values:** an object keyed by CSS selector (e.g. `.wrapper_component`), each a map of declarations.
 - **Effect:** style stamped on the rendered wrapper. Commonly used to set the grid span of the field.
 
-### has_dataframe
+### Dataframe (a slot in `show.ddo_map`)
 
-- **Values:** `true` | `false` (default `false`).
-- **Effect:** marks the component as paired with a [component_dataframe](component_dataframe.md). When the RQO `show.ddo_map` contains a `component_dataframe` entry, the server builds the dataframe subdatum and the `default` edit view attaches a dataframe control to the selected value (pairing key is the value item `id`, never the target `section_id`). Changing the select value fires an explicit `delete_dataframe` unlink before the new value is saved. See the *dedalo-dataframe* skill.
+- **Values:** a `component_dataframe` ddo in the `show.ddo_map` of `source.request_config`, naming the host section as its `section_tipo` — for example `numisdata291` (discovery method, in the coins section `numisdata4`) declares `{"tipo":"numisdata872","view":"default","section_tipo":"numisdata4"}`, the uncertainty rating of the chosen method.
+- **Effect:** pairs each selected value with a [component_dataframe](component_dataframe.md) frame. In edit (any mode but `list` and `search`) and when the select holds a value, the server sends, after the select's own item, one frame item per selected value (paired by the value item `id`, never the target `section_id`), the frame's own fields and their context; the `default` edit view then attaches the dataframe control to the selected value. An empty select sends no frame; the first pick's save response carries an empty one, so the control appears at once. Changing the select value fires an explicit `delete_dataframe` unlink before the new value is saved. `has_dataframe` is **not** needed here: that flag is a switch for literal mains only.
 
 !!! note "Standard context properties"
     Like every component, `component_select` also honours the generic ontology context blocks carried into the datum `context`: `properties`, `request_config` (RQO) and `view` (the render view to use). Observer/observable wiring, when needed, is configured in `properties` like any other component (see the index page *Observers and observables* section). Any other custom key seen in production should be verified in the ontology.

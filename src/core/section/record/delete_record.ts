@@ -41,15 +41,10 @@
 
 import { compareLocators } from '../../concepts/locator.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
-import { dbTimestamp } from '../../db/db_timestamp.ts';
+import { backfillTimestamp, dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { allocateComponentItemId, deleteMatrixRecord } from '../../db/matrix_write.ts';
 import { sql, withTransaction } from '../../db/postgres.ts';
-import {
-	ensureTmHistoryReady,
-	tmEpochPredicate,
-	tmVisiblePredicate,
-} from '../../db/record_generation.ts';
 import { recordBulkCascadeDelete, recordTimeMachine } from '../../db/time_machine.ts';
 import type { UnpublishIntent } from '../../diffusion_bridge/diffusion_delete.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
@@ -58,9 +53,11 @@ import { applyOwnFramePolicies } from '../../relations/dataframe.ts';
 import {
 	attributeSlotMains,
 	historyMainsOf,
+	isFrameEntry,
 	type MainIdentity,
 	type MainState,
 	mainIdentity,
+	type RunStamp,
 	readKeyImage,
 	recordMainBackfill,
 	recordMainHistory,
@@ -69,6 +66,7 @@ import {
 	type SlotImages,
 	type SlotTarget,
 	slotsFromBag,
+	visibleHistoryProbe,
 } from '../../relations/dataframe_slots.ts';
 import { NOLAN } from '../../relations/main_lanes.ts';
 import { enqueueObservedChange } from '../../section_record/obligation_ledger.ts';
@@ -195,6 +193,12 @@ export interface DeleteRecordResult {
  * `SELECT … FOR UPDATE` of every jsonb column of one record — the delete's
  * whole-record snapshot (SQL NULL columns as `null`) — or null when the row
  * does not exist.
+ *
+ * `FOR UPDATE`, never weaker: it is the CONFLICTING HALF of the locator-target
+ * protocol (T1-19 / D01, section_record/locator_targets.ts) — it waits for every
+ * in-flight save holding `FOR KEY SHARE` on this record (a link being added) to
+ * COMMIT, so step 3's inverse search sees that link; and a save arriving after
+ * it waits for this transaction and is refused once the row is gone.
  */
 async function lockRecordSnapshot(
 	table: string,
@@ -458,31 +462,14 @@ interface DoorAudit {
 	nowStamp: string;
 }
 
-/**
- * Whether this record already has a VISIBLE history row for (tipo, lang) — the
- * backfill probe of the delete doors: without one, the door first records the
- * value as it stood (stamped 60 s earlier), so the change has a "before" in dd15.
- * P0-14: epoch-narrowed — a DEAD generation's rows at the same address must not
- * answer for the reborn record (its own history would never be written).
- * Visibility: a hidden undo-log row (tm_role) is not history either.
- */
-async function hasVisibleHistory(
-	target: SlotTarget,
-	tipo: string,
-	lang: string,
-	anyTag: boolean,
-): Promise<boolean> {
-	await ensureTmHistoryReady();
-	// `anyTag`: an unsliced main's one lane is every row whatever its tag (LaneHistoryProbe).
-	const params: unknown[] = [target.sectionTipo, target.sectionId, tipo];
-	if (!anyTag) params.push(lang);
-	const history = (await sql.unsafe(
-		`SELECT 1 FROM matrix_time_machine
-		 WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3${anyTag ? '' : ' AND lang = $4'}
-		   AND ${tmEpochPredicate()} AND ${tmVisiblePredicate()} LIMIT 1`,
-		params,
-	)) as unknown[];
-	return history.length > 0;
+/** The history writer's stamp of a delete door's change (its save-before backfill shares the door's backfill stamp). */
+function doorStamp(audit: DoorAudit, bulkId: number | null): RunStamp {
+	return {
+		userId: audit.userId,
+		timestamp: audit.nowStamp,
+		backfillTimestamp: audit.backfillStamp,
+		bulkId,
+	};
 }
 
 /** A main's raw value on both sides of an owner rewrite, and its slots on both sides. */
@@ -536,15 +523,11 @@ async function recordOwnerMain(
 		identity,
 		before,
 		{ userId: audit.userId, timestamp: audit.backfillStamp },
-		(lane, anyTag) => hasVisibleHistory(target, identity.tipo, lane, anyTag),
+		visibleHistoryProbe(target, identity.tipo),
 	);
-	await recordMainHistory(
-		target,
-		identity,
-		{ before, after },
-		{ userId: audit.userId, timestamp: audit.nowStamp, bulkId: audit.bulkId },
-		{ forceDoorLane: false },
-	);
+	await recordMainHistory(target, identity, { before, after }, doorStamp(audit, audit.bulkId), {
+		forceDoorLane: false,
+	});
 }
 
 /**
@@ -641,7 +624,7 @@ async function removeAllInverseReferences(
 	}
 
 	const bulkId = bulkIdOf(bulkProcessId);
-	const backfillStamp = stamp(new Date(now.getTime() - 60_000));
+	const backfillStamp = backfillTimestamp(now);
 	const nowStamp = stamp(now);
 	const touchedOwners = new Set<string>();
 	let rewrites = 0;
@@ -890,6 +873,19 @@ async function wipeDeclaredSlotsOfMains(
 	return [...written.values()];
 }
 
+/**
+ * A dataframe slot's stored entries include a frame whose main the virtual
+ * section EXCLUDES (an explicit `main_component_tipo` in `excluded`) — the wipe
+ * keeps those frames (an excluded main is never torn from them).
+ */
+function holdsExcludedMainFrames(stored: unknown, excluded: ReadonlySet<string>): boolean {
+	if (excluded.size === 0 || !Array.isArray(stored)) return false;
+	return stored.some((entry) => {
+		const main = isFrameEntry(entry) ? entry.main_component_tipo : undefined;
+		return typeof main === 'string' && excluded.has(main);
+	});
+}
+
 /** The running state of wipeDeclaredSlotsOfMains: the in-memory relation bag and what it wrote. */
 interface SlotStrip {
 	bag: Record<string, unknown>;
@@ -983,21 +979,19 @@ async function recordWipeHistory(
 			identity,
 			before,
 			{ userId: audit.userId, timestamp: audit.backfillStamp },
-			(lane, anyTag) => hasVisibleHistory(ctx.target, main.tipo, lane, anyTag),
+			visibleHistoryProbe(ctx.target, main.tipo),
 		);
-		await recordMainHistory(
-			ctx.target,
-			identity,
-			{ before, after },
-			{ userId: audit.userId, timestamp: audit.nowStamp, bulkId: null },
-			{ forceDoorLane: false },
-		);
+		await recordMainHistory(ctx.target, identity, { before, after }, doorStamp(audit, null), {
+			forceDoorLane: false,
+		});
 	}
 }
 
 /**
  * delete_data mode (PHP section_record::delete_data): keep the row, EMPTY
- * every component child of the section that has stored data —
+ * every component of the section's WIPE SCOPE that has stored data (a virtual
+ * section's FIRST exclude_elements subtrees are left untouched, with an
+ * excluded main's frames wherever they are stored — wipeScopeComponents) —
  *   - per component: a Time Machine pair (backfill row with the OLD full
  *     value at NOW-60s when the tipo+lang has no TM history yet, then the
  *     save row with the new value), and the column KEY REMOVED
@@ -1042,15 +1036,17 @@ export async function deleteSectionData(
 		});
 	}
 	const { getModelByTipo, getColumnNameByModel } = await import('../../ontology/resolver.ts');
-	const { declaredSectionComponents } = await import('./declared_components.ts');
+	const { wipeScopeComponents } = await import('./declared_components.ts');
 	const { persistRelationRemovalKeys, persistModifiedStamp } = await import(
 		'../../section_record/index.ts'
 	);
 	const { dbTimestamp: stamp } = await import('./create_record.ts');
 
-	// The components the wipe may empty: THE ONE section census
-	// (declared_components.ts — own ∪ real subtree, crossing nested sections),
-	// shared with the covered-slot restore so a slot the wipe empties is one the
+	// The components the wipe may empty: THE WIPE SCOPE (declared_components.ts
+	// wipeScopeComponents — the one section census, own ∪ real subtree crossing
+	// nested sections, MINUS a virtual section's exclude_elements subtrees: PHP
+	// delete_data never empties what the section hides). Filtered from the census
+	// the covered-slot restore recomputes, so a slot the wipe empties is one the
 	// restore recomputes. A virtual section that declares a component of its own
 	// still stores its real section's.
 	/**
@@ -1073,9 +1069,9 @@ export async function deleteSectionData(
 			{ actor: userId, now },
 		);
 
-	const components = await declaredSectionComponents(sectionTipo);
+	const { components, excluded } = await wipeScopeComponents(sectionTipo);
 
-	const backfillStamp = stamp(new Date(now.getTime() - 60_000));
+	const backfillStamp = backfillTimestamp(now);
 	const nowStamp = stamp(now);
 
 	// ATOMIC DB PHASE (2026-09-21, the same shape as the record delete): the
@@ -1097,7 +1093,7 @@ export async function deleteSectionData(
 		} | null> => {
 			const columnList = MATRIX_JSONB_COLUMNS.map((column) => `"${column}"`).join(', ');
 			const rows = (await sql.unsafe(
-				`SELECT ${columnList} FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+				`SELECT ${columnList} FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 				[sectionTipo, sectionId],
 			)) as Record<MatrixJsonbColumn, unknown>[];
 			const record = rows[0];
@@ -1143,6 +1139,9 @@ export async function deleteSectionData(
 				) {
 					continue;
 				}
+				// A slot in scope that also holds an EXCLUDED main's frames is not emptied
+				// wholesale: wipeDeclaredSlotsOfMains strips only each wiped main's own.
+				if (model === 'component_dataframe' && holdsExcludedMainFrames(stored, excluded)) continue;
 
 				// component_filter takes the WIPER's default projects (PHP
 				// get_default_data_for_user, a fresh counter id) instead of emptying.

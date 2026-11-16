@@ -22,3 +22,12 @@
   counterfactual: a real body is written), `test/unit/tool_lossless_writeback_tripwire.test.ts`
   (both `automatic_translation` cells `refuses`, PENDING 3 → 1), `error_registry_native`,
   `labels_tripwire`.
+
+## Addendum 2026-11-12 (T1-14) — judged on the STORED value
+
+The visible-text test is applied twice: to the provider result (`translateItems`, as above)
+and again to the value AS IT WILL BE STORED, after the write value gates
+(`WC-2026-11-12-translation-write-value-gates`). A result such as `<script>alert(1)</script>`
+has visible text before sanitizing and none after; it is refused with the same code
+(`translation.empty_result`, message suffix `after sanitizing`), never written blank. Gate:
+`test/unit/translation_write_gates_native.test.ts` (A3).

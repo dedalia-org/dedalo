@@ -503,7 +503,12 @@ describe('additional_path: the INGEST writes into the named bucket', () => {
 
 describe('additional_path: the section-scoped call sites are a NAMED, shrink-only list', () => {
 	test('every two-argument resolveMediaPathOptions call site is declared with a reason', async () => {
-		const files = tsFilesUnder('src').filter((file) => file !== 'src/core/media/ontology_path.ts');
+		// src/ AND tools/: a tool's server is as much a media path producer as core
+		// (tool_posterframe and tool_export's media zip were two-argument callers the
+		// src-only scan never saw — T1-10).
+		const files = [...tsFilesUnder('src'), ...tsFilesUnder('tools')].filter(
+			(file) => file !== 'src/core/media/ontology_path.ts',
+		);
 		const sectionScoped: string[] = [];
 		for (const file of files) {
 			const source = await Bun.file(file).text();

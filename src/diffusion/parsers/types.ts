@@ -54,6 +54,12 @@ export interface ValueMeta {
 	 * must produce the group twice, which is what get_diffusion_dato does.
 	 */
 	chainGroup?: number;
+	/**
+	 * rdf get_data_number only (FieldPlan.leafNumberTypes): the PHP type
+	 * json_decode gives the STORED number token — 'double' when it carries '.',
+	 * 'e' or 'E', else 'integer'. Read from the record's raw jsonb text.
+	 */
+	phpNumberType?: 'integer' | 'double';
 }
 
 /** A ValueIR atom possibly carrying parser provenance. */

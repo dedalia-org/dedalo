@@ -1,6 +1,6 @@
 /**
- * Shared import executor — turn mapped records (from any format: CSV, MARC21,
- * RDF/Zotero) into section records. For each mapped record: create a new record
+ * Shared import executor — turn mapped records (from any format: MARC21,
+ * Zotero CSL-JSON, RDF) into section records. For each mapped record: create a new record
  * (or reuse a matched section_id), conform each field's value(s) through the
  * import engine, and save via the standard component save path (TM-audited).
  *
@@ -78,17 +78,52 @@ import {
 	preallocateLabelledIds,
 	resolveIriLabels,
 } from './import_iri_label.ts';
+import { lockLinkNames, resolveLinkFields } from './import_link.ts';
 
 export interface MappedField {
 	component_tipo: string;
 	/** One or more flat values (multi-occurrence) to conform into this component. */
 	values: string[];
+	/**
+	 * The values are TEXT taken from a source format that has no cell grammar
+	 * (MARC21): conform reads them as text, never as a JSON/CSV cell — a MARC
+	 * '[1987]' is a bracketed inferred date, not the number 1987. Absent = a cell.
+	 */
+	literal?: boolean;
+	/**
+	 * The mapper already refused the value (a MARC transform that produced
+	 * nothing storable): reported as IGNORED, never written. Absent = none.
+	 */
+	refusal?: string;
+}
+
+/**
+ * A LINK: the record of `target.sectionTipo` whose name component
+ * (`target.componentTipo`) holds exactly `text` — found, else CREATED with that
+ * name — stored as a locator in `component_tipo` (Zotero container-title →
+ * Series). Resolved INSIDE the record's transaction (import_link.ts): a created
+ * name record carries the run's birth marker and rolls back with its record.
+ */
+export interface LinkField {
+	component_tipo: string;
+	target: { sectionTipo: string; componentTipo: string };
+	text: string;
 }
 
 export interface MappedRecord {
 	/** Existing section_id to update, or null to create a new record. */
 	sectionId: number | null;
 	fields: MappedField[];
+	/** Links resolved in the record's transaction (absent = none). */
+	links?: LinkField[];
+}
+
+/** What happened to one input record, in input order. */
+export interface RecordResult {
+	/** The record's index in the `records` the run was given. */
+	index: number;
+	/** The committed record id, or null when its transaction rolled back. */
+	sectionId: number | null;
 }
 
 export interface ImportReport {
@@ -97,6 +132,11 @@ export interface ImportReport {
 	failed: ConformFailure[];
 	/** The section_ids of records CREATED by this run (for cleanup / reporting). */
 	createdIds: number[];
+	/**
+	 * Every input record's outcome, in input order — what a door that acts on a
+	 * record AFTER it committed (Zotero's PDF attachments) needs to address it.
+	 */
+	records: RecordResult[];
 	/**
 	 * The dd800 bulk-process record this run is attributed to. Every TM row the
 	 * run wrote carries it, so `bulk_revert_process` can undo the whole import as
@@ -230,7 +270,22 @@ async function recordIdFor(
 	});
 }
 
-/** True (and the refusal reported) when the write door refuses this field. */
+/** True (and the refusal reported) when the MAPPER refused this field's value. */
+function mapperRefused(field: MappedField, sectionId: number, failed: ConformFailure[]): boolean {
+	if (field.refusal === undefined) return false;
+	failed.push({
+		section_id: sectionId,
+		data: field.values,
+		component_tipo: field.component_tipo,
+		msg: `IGNORED: ${field.refusal} — the field was NOT written`,
+	});
+	return true;
+}
+
+/**
+ * True (and the refusal reported) when this field is not written: the MAPPER
+ * already refused its value, or the write door refuses the field.
+ */
 async function refusedField(
 	principal: Principal,
 	sectionTipo: string,
@@ -239,6 +294,7 @@ async function refusedField(
 	sectionId: number,
 	failed: ConformFailure[],
 ): Promise<boolean> {
+	if (mapperRefused(field, sectionId, failed)) return true;
 	const refusal = await fieldRefusal(principal, sectionTipo, field.component_tipo, matchedId);
 	if (refusal === null) return false;
 	failed.push({
@@ -265,12 +321,23 @@ async function writeMappedRecord(
 ): Promise<RecordOutcome> {
 	const wasCreated = record.sectionId === null;
 	// FIRST, before the create and every field write: the record's iri label
-	// locks, once each, in sorted fold order (T0-12 — no crossed-order deadlock).
+	// locks, once each, in sorted fold order (T0-12 — no crossed-order deadlock),
+	// THEN its link-name locks, sorted too. One global order (labels, then
+	// links, then records) leaves no cycle between two records of two runs.
 	const locks = await lockRecordLabels(record, sectionTipo, dataLang);
+	await lockRecordLinks(record);
 	const sectionId = await recordIdFor(record, sectionTipo, principal, bulkProcessId);
 	const userId = principal.userId;
+	const linkFields = await recordLinkFields(record, {
+		principal,
+		sectionTipo,
+		sectionId,
+		bulkProcessId,
+		dataLang,
+		failed,
+	});
 
-	for (const field of record.fields) {
+	for (const field of [...record.fields, ...linkFields]) {
 		if (await refusedField(principal, sectionTipo, field, record.sectionId, sectionId, failed)) {
 			continue;
 		}
@@ -312,6 +379,7 @@ async function writeMappedRecord(
 				sectionId,
 				componentTipo: field.component_tipo,
 				lang: componentLang,
+				literal: field.literal,
 			});
 			if (conform.errors.length > 0) {
 				failed.push(...conform.errors);
@@ -379,6 +447,40 @@ async function writeMappedRecord(
 		});
 	}
 	return { sectionId, wasCreated, failed };
+}
+
+/** The record's link-name locks (import_link.ts), after its label locks. */
+async function lockRecordLinks(record: MappedRecord): Promise<void> {
+	await lockLinkNames(record.links ?? []);
+}
+
+/**
+ * The record's LINKS as mapped fields (import_link.ts): each link's component
+ * asked of the write door first, then its record found or created inside this
+ * transaction. A refused link is reported on the record and writes nothing.
+ */
+async function recordLinkFields(
+	record: MappedRecord,
+	target: {
+		principal: Principal;
+		sectionTipo: string;
+		sectionId: number;
+		bulkProcessId: number;
+		dataLang: string;
+		failed: ConformFailure[];
+	},
+): Promise<MappedField[]> {
+	const { principal, sectionTipo, sectionId } = target;
+	const scope = {
+		principal,
+		bulkProcessId: target.bulkProcessId,
+		dataLang: target.dataLang,
+		fieldRefusal: (componentTipo: string) =>
+			fieldRefusal(principal, sectionTipo, componentTipo, record.sectionId),
+	};
+	return resolveLinkFields(record.links ?? [], scope, (line) =>
+		target.failed.push({ ...line, section_id: sectionId }),
+	);
 }
 
 /**
@@ -458,6 +560,7 @@ async function lockRecordLabels(
 				sectionId: record.sectionId ?? 0,
 				componentTipo: field.component_tipo,
 				lang: dataLang,
+				literal: field.literal,
 			});
 			if (conform.errors.length > 0) continue; // the main pass refuses the field
 			labelled.push(...labelledItemsOf(conform.result, conform.derivedFrames));
@@ -672,8 +775,9 @@ export async function importMappedRecords(
 	// column — and each of them already reports its own parse errors. Minting a
 	// dd800 for that files an event that never happened in the operator's
 	// Processes list, and it is the one dd800 no revert can ever be about.
+	const results: RecordResult[] = [];
 	if (records.length === 0) {
-		return { created, updated, failed, createdIds, bulkProcessId: null };
+		return { created, updated, failed, createdIds, records: results, bulkProcessId: null };
 	}
 
 	// DERIVED FIELDS ARE REFUSED, THE RUN BEFORE ANY WRITE (the CSV door's
@@ -692,16 +796,18 @@ export async function importMappedRecords(
 	// The run is held in the active-run registry while it writes: a revert of it
 	// is refused until it ends (decision D5).
 	await withLiveBulkRun(bulkProcessId, async () => {
-		for (const record of records) {
+		for (const [index, record] of records.entries()) {
 			// The record's issues, kept OUTSIDE its transaction: a rolled-back record
 			// still reports them next to the rollback line.
 			const recordFailed: ConformFailure[] = [];
+			results.push({ index, sectionId: null });
 			try {
 				// ONE TRANSACTION PER RECORD (the CSV door's posture): a failure part-way
 				// through a record leaves NO half-written record behind.
 				const outcome = await withTransaction(() =>
 					writeMappedRecord(record, sectionTipo, principal, bulkProcessId, dataLang, recordFailed),
 				);
+				(results[index] as RecordResult).sectionId = outcome.sectionId;
 				if (outcome.wasCreated) {
 					created += 1;
 					createdIds.push(outcome.sectionId);
@@ -714,5 +820,5 @@ export async function importMappedRecords(
 			}
 		}
 	});
-	return { created, updated, failed, createdIds, bulkProcessId };
+	return { created, updated, failed, createdIds, records: results, bulkProcessId };
 }

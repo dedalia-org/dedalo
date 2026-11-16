@@ -17,6 +17,10 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
+    - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
+    - Publication fills the global search and map tables again
+    - RDF publication produces real Linked Data (Nomisma).
     - SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.
     - The "+" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.
     - A publication host in copy mode no longer answers "not found" for every published file.
@@ -24,6 +28,53 @@ Merged since the last release; these ship with the next one.
 ### For users
 
 #### Security
+
+- **Record text shown by widgets and tools is always displayed as text; markup stored in a record no longer runs there.**
+
+    Every place outside the record editor that shows a value typed into a record now shows it as text: the state, archive-states, archive-weights, sum-dates, media-icons, tags and user-activity widgets; the typology names in the thesaurus, graph and search panels; and the tools that print or edit record text — transcription print, subtitles, print layouts (including the free text of a layout, which is now kept as plain text), propagate component data, indexation, translation (the live preview of the Local AI translator) and the CSV import mapper.
+
+    Before, a value containing `<…>` or `&` could be interpreted as markup in those places. Rich text (transcriptions, text areas) keeps its formatting: it is displayed exactly as the record editor does, by the kind of field it belongs to. A free-text box in a print layout saved before this change is read back as the text it showed.
+
+- **Selects, radio buttons and check boxes offer only the options you may see, and the ones that fit the record.**
+
+    The option list of a select, radio button or check box used to hold every record of its target section, whoever asked. Now it is the same search a list of that section runs for you: a user who is not a global administrator is offered only records of their own projects, and a per-user record allow-list narrows it for everyone. A stored value outside your scope shows no label.
+
+    A field configured to depend on the record (a `fixed_filter` reading the record's own data — for example, the milestones of the person the record names) now offers only the matching options, and a field configured with `filtered_by_search` is narrowed by that filter, as the ontology intended. See [component_select](./core/components/component_select.md).
+
+    Wire contract: `WC-2026-11-12-datalist-principal-record-scope`.
+
+- **A search through a linked record no longer matches links held in fields you cannot see in that record's section.**
+
+    A search that filters by "linked to this record" through another field (for example, hosts whose
+    portal reaches a record that itself links to a given term) checked your permission on the
+    linking field only in the section the search named. When the portal reaches two sections that
+    share a table — a section and its virtual twin — links stored in the twin were matched even if
+    your profile hides that field there.
+
+    Now the field is checked in every section the search actually reaches: links in a section where
+    the field is hidden from you are not matched, and the answer carries the usual "out of your
+    scope" notice. Administrators and searches that see every field answer as before.
+
+    Wire contract: `WC-2026-09-30-search-root-step-acl`, `WC-2026-10-01-search-hop-configured-targets`.
+
+- **Automatic translation cleans rich text exactly like a normal save**
+
+    The automatic translation of the language tools (`tool_lang`, `tool_lang_multi`) stored the
+    translation service's answer without the cleaning a normal save applies to formatted text.
+    Scripts or event handlers — produced by the service, or by text that was typed literally in
+    the source language and decoded by the service — could reach the translated language and run
+    for anyone who opened the record. A translated text area is now cleaned exactly as if it had
+    been typed and saved, and image links are stored in the same portable form. A translation that
+    is empty once cleaned is refused instead of blanking the language. Other languages of the
+    field are not touched; values written by earlier translations are not rewritten.
+
+    Wire contract: `WC-2026-11-12-translation-write-value-gates`.
+
+- **Thesaurus and ontology tree terms are always shown as text; markup typed into a term no longer runs.**
+
+    A term in the thesaurus or ontology tree that contains characters such as `<`, `>` or `&` used to be interpreted as HTML by every user who opened the tree, so a term edited to hold markup could run code in their session. The term now displays exactly the characters that were typed. Untranslated terms are still highlighted as before. Values computed by calculation widgets are likewise shown as plain text.
+
+    Wire contract: `WC-2026-11-12-tree-term-escaped`.
 
 - **The References panel and related-record lists show only the columns the user may read.**
 
@@ -125,6 +176,106 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-export-frontier-fanout`, `WC-2026-11-09-implicit-children-frontier-predicate`.
 
 #### Changed
+
+- **Exported text cells no longer carry the editor's tag marks.**
+
+    A text with indexation, time-code, person or note tags exported its raw tag marks inside the
+    cell (`[index-n-58-…]`, `[TC_00:01:02_TC]`, …). Those marks are now removed: the cell holds the
+    plain text, and the tagged items themselves are exported through their own components as before.
+    Previous exports that need the clean text should be run again.
+
+    Media columns keep the engine's cell types: an image cell is drawn as an image in the HTML
+    download, an audiovisual or 3D cell and a PDF or SVG cell hold the file's URL as text.
+
+    Wire contract: `WC-2026-11-13-export-tag-marks-plain-text`, `WC-2026-11-13-export-media-cell-type`.
+
+- **Zenon search results show author names without the role labels.**
+
+    When you search a Zenon-backed field, the list of results showed the authors as the catalogue
+    API labels them — `primary: Ripollès Alegre, P. P. (Pere Pau) | corporate: DAI` — role keys
+    that are not translated and mean nothing to a reader choosing a reference.
+
+    The result list now shows the names only, in order: `Ripollès Alegre, P. P. (Pere Pau) - DAI`.
+    The record itself still shows the authors with their roles, as before.
+
+    Wire contract: `WC-2026-08-06-external-search-request`.
+
+- **An image's file name (the `image_id` field) must be unique in its section and cannot be changed while the image's files exist; a duplicate gets its own file name.**
+
+    Some image fields name their files by another field of the record (the ontology's
+    `image_id`, e.g. **Filename** on Images). Before, two records could hold the same file name
+    and then address the SAME files: an upload to one replaced the other's image, deleting one
+    moved the other's files away, and every duplicate of such a record shared its original's files.
+    Changing the file name after an upload left the files behind under the old name — and so did
+    setting a file name for the first time on a record whose image had been uploaded without one.
+
+    Now saving a file name another record of the same section already uses is refused and the
+    message names that record; an upload under a file name another record holds is refused before
+    anything is written. A record whose image files exist cannot change (or clear) its file name,
+    nor set a first one while files uploaded under the record's identifier exist: the message lists
+    the files and the remedy — delete the image's files first, then rename (or set the name and upload
+    again). A file name is saved without surrounding spaces, so two spellings that differ only by a
+    space cannot name the same files. A duplicated record is created WITHOUT the original's file name, so its copied files are named by
+    its own identifier; give it a new file name of its own before uploading if you want one.
+
+    **Action needed:** none. Records that already share a file name (written before this release)
+    keep working for reading; the first upload to one of them is refused until one of the two gets
+    its own file name.
+
+    Wire contract: `WC-2026-11-12-image-id-media-file-stem`.
+
+- **A selected value you may not see, or that no longer fits the record, now shows as *(restricted)* instead of vanishing.**
+
+    Since the option lists of selects, radio buttons and check boxes became the search you are allowed to run (and, where configured, the options that fit the record), a value stored on the record but outside your list simply disappeared: no label in the list view, no option in the edit form — and a save of that field would have dropped it without anyone noticing.
+
+    Now such a value stays visible as an opaque *(restricted)* entry: the edit form keeps it selected under that label and the list view shows *(restricted)* in its place, so you know something is there without being told what. Its real label is never shown. A stored value whose target record has been deleted still shows nothing, as before. Temporary forms (a search form, a tool's own fields) never show the marker: nothing is stored there, and the values are your own picks. See [component_select](./core/components/component_select.md).
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
+
+- **An open-ended Id range means what it says — `5...` is every id from 5 up, `...5` every id up to 5, and `...` alone is an empty input.**
+
+    The meaning of the missing side of an Id range is settled. `100...` finds every
+    record with id 100 or more and `...200` every record with id 200 or less (negative
+    ids included); `...` with no number adds no condition, like an empty field. Earlier
+    versions read `5...` as "exactly 5" — a saved search using that form now returns the
+    whole open range.
+
+    Wire contract: `WC-2026-11-12-section-id-open-between`.
+
+- **Translate all languages no longer offers the Local AI translator; Translation keeps it.**
+
+    In **Translate all languages**, the engine list no longer includes **Local AI translator** (the in-browser model): one run there writes every language of a field at once, and the browser model's revision is not yet pinned. The engines configured for the **Translation** tool are still shared with **Translate all languages**, as before; **Translation** itself still offers the Local AI translator, one language at a time.
+
+    The Local AI translator returns to **Translate all languages** once its model revision is pinned.
+
+- **"Zotero import: the call number identifies the record instead of numbering it, and an export over 64 MB is refused."**
+
+    The Zotero **call number** (the `field_to_section_id` variable of the tool's configuration)
+    was a record number in earlier versions — a typo overwrote an unrelated record — and since the
+    import was restored it was neither stored nor applied, with a notice per reference.
+
+    Now it is an identifier, when the configuration names one: it is stored in the field the
+    configuration binds it to, and a re-import first looks for the record that already holds it. Found → that record is updated
+    (and now also carries the Zotero key); not found → the Zotero key decides, or a new record is
+    created holding both. A call number held by two records, repeated on two references of one
+    export, or pointing at a different record than the reference's key refuses **that reference
+    only**, listed under the file errors; the rest of the export is imported.
+
+    An export larger than 64 MB — the same limit as a CSV import — is refused when the import
+    runs, with a line naming the file, its size and the limit, and is left where it was staged.
+    Export the library in parts.
+
+    The configuration shipped with Dédalo now names **no** such identifier: the Publications
+    section has no call-number field to hold one (the earlier default pointed the call number at a
+    node that is not a field, so every reference carrying one was refused), and the Zotero key alone
+    identifies a reference. A call number in the export is listed once under notices.
+
+    **Action needed:** none for the shipped configuration. A Tools configuration whose
+    `field_to_section_id` names a Zotero field the map does not bind, or binds to a field that holds
+    no text, now stops the import (or refuses that reference) with a message naming it — bind the
+    field to a text or URL field of the section.
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`, `WC-2026-11-13-csv-ingest-size-ceiling`.
 
 - **Media versions: the thumb opens in the tool's preview, like the other qualities.**
 
@@ -250,9 +401,99 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Local AI translation no longer reports success when the translation could not be saved**
+
+    With the **Local AI translator** engine (in *Translation* and *Translate all languages*), a translation whose save failed — an expired session, a concurrent edit, a server error — still showed *Translation completed* and was counted as done in the *Translate all* summary, although the text never reached the database.
+
+    Now the result is reported only once the save confirms it: a failed save names the reason, the unsaved text stays marked as unsaved on the component, and *Translate all* lists that language as failed. A cancelled run is no longer counted as translated either.
+
+- **A CSV too large to import is refused when it is uploaded, and the import panel shows why a staged file cannot be read**
+
+    The CSV import tool's 64 MB limit was checked only when the file list was shown. Checking or
+    running the import read a larger file in full, which could exhaust the server's memory for
+    every user.
+
+    Now the same limit applies at every step: an oversized CSV is refused when it is uploaded, and
+    one already in the import folder is refused before it is read, with a sentence naming the
+    file, its size and the limit. Split the file and upload the parts.
+
+    A staged file the tool cannot read (too large, not a text file, or already damaged) used to
+    disappear from the list without explanation. The panel now shows why, in red, above the file
+    list.
+
+    Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
+
+- **A CSV the import tool cannot read now shows as a card you can delete.**
+
+    In **Import CSV**, a staged file the server cannot read — larger than the 64 MB limit, not a text file, damaged — was reported only as a red line above the file list: you could see why it was refused, but there was no card for it and no way to remove it from the panel.
+
+    Now the file is listed with its name, the reason it cannot be read and a **delete** button. It has no checkbox, no section and no column mapper, because there is nothing to import from it; deleting it works as for any other staged file.
+
+    Wire contract: `WC-2026-11-13-csv-staged-file-read-error-card`.
+
+- **Escape now leaves a text area or JSON field, as it does every other field.**
+
+    Pressing **Escape** inside a rich-text field or a JSON field did nothing, so the field stayed active and its pending changes waited for a click elsewhere. Escape now saves and leaves the field, like in any other field. In a transcription with its player open, Escape still plays and pauses the media and the text stays in edit. Inside the JSON editor, an Escape the editor uses itself (collapsing a selection, closing its search box) is still the editor's: the next press leaves the field.
+
+- **An empty Zenon field no longer shows a blank column.**
+
+    When a Zenon record has nothing in a field (for example no publication date, or no
+    authors), the search results, the record and the list columns showed an empty column
+    framed by its separators (`| |`). The empty field is now simply left out, as in v6, and
+    an export leaves the cell empty (null) instead of writing an empty text.
+
+    An authors value Zenon sends in an unexpected shape is no longer shown blank or as
+    numbers: it is left out and the field is marked as partially unavailable.
+
+    Wire contract: `WC-2026-11-13-external-empty-entry-dropped`.
+
 - **Long words in narrow list columns no longer spill over the next column.**
 
     In list views, a word longer than its column was wide (e.g. "Recuperar componente" in the Activity list's narrow "What" column) was painted over the neighbouring column. It now wraps inside its own cell; column widths are unchanged.
+
+- **Regenerating a media file now restores its original file name the same way from both tools.**
+
+    When a media record had lost its original file name, **Regenerate files** in Media versions did not restore it from the record's "Original file name" field, while **Update cache** did, but on the wrong language's file for translatable media and with the extension in upper case. Both tools now restore it the same way: on the file of the language you are working in, with the stored normalized name in lower case, and only when the name is missing — a name already recorded is never replaced.
+
+    Wire contract: `WC-2026-11-12-media-provenance-repair-one-kernel`.
+
+- **Creating or duplicating a record that would link to a deleted record is refused.**
+
+    A save that links to a record someone else deletes at the same moment is already refused
+    instead of leaving a broken link. The same protection now covers the two ways a record is BORN
+    with links: duplicating a record (every link it copies) and creating one whose section gives
+    new records a default link or a project. If a linked record is deleted meanwhile — or the
+    original already carried a link to a long-deleted record — the duplicate or creation is refused
+    with "The linked record was deleted: remove the link (or restore the record from Time Machine)
+    and save again", and no record is created.
+
+    Wire contract: `WC-2026-11-12-locator-target-deleted-refused`.
+
+- **Sorting a list by a number column orders the values numerically (2, 9, 10), not as text (10, 2, 9).**
+
+    Before, a list sorted by a number field (a diameter, a weight, a year) compared the
+    values as text, so 10 came before 2 and 100 before 20. Now the column sorts by the
+    number itself, ascending or descending. A value stored as text by an older version
+    sorts last instead of breaking the page.
+
+    Wire contract: `WC-2026-11-13-number-sort-numeric`.
+
+- **Changing or clearing the person of a biographical milestone clears the milestone again.**
+
+    In a person's biography the *Biographical milestone* field offers only the milestones of
+    the person chosen next to it. Since the move to this engine, picking a different person — or
+    removing the person — left the previously chosen milestone in place: a value the field would
+    no longer offer, still stored, published and searchable. Now, as before the move, changing
+    the person clears the milestone (one Time Machine entry, by the user who saved); saving the
+    same person again leaves it alone, and an already-empty milestone is not touched. Only a save
+    of the person field does this: duplicating a record, undeleting one or restoring a past
+    version from the Time Machine keeps the milestone it carries, and a CSV import row that sets
+    the person and the milestone together keeps its milestone whatever the column order. For
+    administrators: the observer rule behind this (`refresh_data`, condition `on_empty`) accepts
+    exactly that one action; anything else is refused, counted and logged — see
+    [observers](./core/system/observers.md#clearing-a-dependent-value-refresh_data).
+
+    Wire contract: `WC-2026-11-13-observer-refresh-data`.
 
 - **Searching the ontology or a thesaurus no longer stops working until the page is reloaded.**
 
@@ -261,6 +502,327 @@ Merged since the last release; these ship with the next one.
 - **Long values in search-form autocomplete fields are readable again.**
 
     In the search form, a long value without spaces (e.g. the ontology model "component_relation_children") ran past the right edge of the autocomplete result list, and once chosen it broke mid-word with its remove button pushed onto a line of its own. The result list now widens to fit its rows, and the chosen value wraps only after an underscore, with the remove button beside it.
+
+- **Select options with a dataframe no longer end in a stray separator.**
+
+    A select whose configuration declares a dataframe slot (such as the uncertainty of a coin's discovery method) listed its options as "Metal detector | " — the slot was counted as a label part and contributed an empty value. The separator is gone; options read "Metal detector" in the edit form and in the list view. The dataframe itself is unaffected.
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
+
+- **Transcription tag statistics count the interview's own-language text**
+
+    The transcription statistics (time codes, index tags, notes, characters) of an audiovisual
+    record were taken from whichever language copy of the transcription happened to be stored
+    first, so a translation could replace the original's numbers.
+
+    Now, as in Dédalo v6, they are counted on the transcription in the interview's original
+    language ("Original language" field; a Valencian interview typed as Catalan counts the
+    Catalan text), or, when no original language is set, on the current data language.
+    Translations no longer skew them. Values already published must be republished to change.
+
+    Wire contract: `WC-2026-11-13-tags-widget-original-lang`.
+
+- **Transcriptions show again, in blue, the tags whose pair or indexation is broken.**
+
+    Before, a transcription opened in the editor exactly as stored: an index tag whose opening or
+    closing half had been lost, or an indexation (or a drawing) whose tag had disappeared from the
+    text, was invisible, so you could neither put it back in place nor remove it.
+
+    Now, as in earlier versions of Dédalo, the editor completes a half-lost index tag with a blue
+    partner right next to it, and places a blue tag at the start of the text for every indexation
+    or drawing that has no tag in the text. Move each blue tag to where it belongs, or delete it,
+    and save. Nothing changes in the stored text until you save it.
+
+    Wire contract: `WC-2026-11-13-text-area-broken-tag-repair`.
+
+- **A text area whose translation was emptied shows the other-language text in lists too.**
+
+    Before, a transcript or description emptied in one language showed its
+    other-language text (marked) in the edit form but stayed blank in list views. Now
+    the list cell shows the same marked fallback text as the form.
+
+    Wire contract: `WC-2026-11-12-lang-fallback-judges-emptiness`.
+
+- **The thesaurus and ontology search panels list each field once, and offer every field any of your hierarchies lets you read.**
+
+    Before, the fields panel of the thesaurus and ontology search repeated the whole
+    field list once per active hierarchy, with a section bar for each. Now the panel
+    shows one block per real section. When your hierarchies grant you different fields,
+    the block offers every field at least one of them grants, at the highest level you
+    hold on it — whatever order the hierarchies are listed in. The panel is a picker:
+    what you can read in a record is still decided record by record.
+
+    Wire contract: `WC-2026-11-13-use-real-sections-highest-grant`.
+
+- **Calculated fields (totals, periods, amounts, date sums) compute again**
+
+    Fields computed by a `calculation` widget showed nothing as soon as the fields they add up held a value: totals of numbers, periods in years, months and days, grant amounts, euro conversions and dates plus a period. They now compute every formula the ontology declares, including sums over the records of a portal and chains of calculated fields. A calculation whose definition the engine cannot run (an unknown formula, a field that cannot be summed, a calculation that depends on itself) now reports an error instead of showing an empty field. (The two grant-amount cases that reported an error pending a decision — an amount whose day field holds no value, and the major-grant amount of the section the earlier engine treated specially — are decided in the 2026-11-13 entry on calculation formula files.)
+
+    Wire contract: `WC-2026-11-12-calculation-widget-port`.
+
+- **An emptied translation shows the other-language text again**
+
+    When you emptied a field's text in one language (for example deleted the English title of a
+    record that also has a Spanish one), Dédalo kept the empty English entry and treated it as
+    "there is a value": the field showed blank instead of the text in another language. The
+    same happened when the empty entry was in the main language — the other languages were
+    never tried.
+
+    Now an entry that is empty, holds only spaces, or (in a rich-text field) only an empty
+    paragraph left by the editor counts as no text. The edit field shows the other-language
+    text as its grey hint again (a view-only field shows it highlighted), and lists, selector labels, project and user names, related
+    lists, exports and AI search use the other-language text. A value of `0` still counts as a
+    value.
+
+    Rich-text fields in a section **list** still show a blank cell when their text in the
+    current language was emptied; whether they should show the other-language text there too
+    is still open.
+
+    Wire contract: `WC-2026-11-12-lang-fallback-judges-emptiness`.
+
+- **Searching or sorting through a link to external records no longer fails or matches the wrong record.**
+
+    A portal can link records of an external service whose identifiers are kept exactly as the
+    service writes them — a zero-padded catalogue number such as `001338683`, or an identifier
+    with letters such as `Q42`. A search through such a field ("does not contain", "is empty", or
+    any search over the linked record's fields) and a sort by a linked field used to fail with an
+    error when an identifier contained letters, and to read an unrelated local record when it was
+    zero-padded. Now such a link reaches no local record: "does not contain" and "is empty" count
+    the record as having nothing linked there, and a sort places it with the empty values.
+
+    Wire contract: `WC-2026-11-12-search-hop-join-record-address`.
+
+- **Deleting a record's data no longer empties fields its section hides.**
+
+    On sections built on another one (image, audiovisual or document resources, thesaurus instances…), "delete data" also emptied the fields the section does not show, and moved their files aside. Those fields now stay as they are; only the fields the section shows are emptied. Fields already emptied this way by an earlier delete can be restored one by one from the Time Machine, which kept their previous value.
+
+    Wire contract: `WC-2026-11-12-wipe-respects-virtual-exclusion`.
+
+- **A duplicated record's image opens in the edit view again, with its drawing layers.**
+
+    Before, duplicating a record copied its image files but the copy's image field showed only the
+    empty placeholder in the edit view, and a later save of the copy's drawing could show the
+    original record's picture. The copy's drawing editor also loaded the original record's
+    picture as its background.
+
+    Now the copy gets its own image wrapper: every drawing layer of the original is kept, and it
+    points at the copy's own picture, in the image field and in the drawing editor. If the original's drawing cannot be copied (it is not a
+    valid drawing), the duplicate still succeeds and the problem is logged.
+
+    **Action needed:** records duplicated before this fix: run **Update cache** (regenerate) on
+    them to get the image back in the edit view.
+
+    Wire contract: `WC-2026-11-12-duplicate-image-svg-envelope`.
+
+- **JSON and geolocation columns are no longer blank in exports.**
+
+    A JSON field or a geolocation field added to an export came out as an empty column, in every
+    format. The same fields were also blank in the relation list panel and the references list, and in
+    any label built from them: a thesaurus or section term, or a linked record's label, that names such a
+    field now shows its JSON instead of leaving that part out.
+
+    The cell now holds the field's value as JSON, one entry per stored value, separated by commas.
+    Each entry is valid JSON that reads back to the stored value: a `/` is written `\/` and an `&` is
+    written `\u0026`, so the cleanup that turns rich text into plain text in the same export leaves
+    it untouched. A geolocation cell holds the map view (latitude, longitude, zoom) and the drawn features. It does not
+    include the map's tile sources or its legend; the raw export format still carries those. Earlier
+    exports with these columns were incomplete: export again to get the values.
+
+    Wire contract: `WC-2026-11-12-export-json-geolocation-cells`.
+
+- **Exported text cells read as plain text — paragraphs become line breaks, HTML entities are decoded.**
+
+    A rich-text field (a description, a transcription) reached the export files, the preview and the
+    NDJSON download with its paragraph markup and escaped characters: `<p>Coins &amp; medals</p>`.
+
+    Every exported cell is now cleaned as the earlier versions of Dédalo did: each paragraph starts a
+    new line inside the cell, the outer paragraph marks are removed, and the common HTML entities
+    (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;` and their numeric forms) become the characters
+    they stand for. Other markup, such as tags, is left as it is. The raw export format is not cleaned:
+    it stays an exact copy of the stored value for re-import.
+
+    Wire contract: `WC-2026-11-12-export-text-cell-clean`.
+
+- **Images named by their "Filename" field open, upload and regenerate under that name again.**
+
+    An image component can take its file name from another field of the record (in the core
+    Images section, the **Filename** field). Before, only the indexation grid used that name:
+    the edit view showed a placeholder instead of the image's drawing layer, a new upload or a
+    regeneration wrote a second set of files under the standard name, rebuilding the files index
+    found nothing, and deleting the record left the named files in place.
+
+    Now every part of Dédalo uses the name in the **Filename** field: upload, regeneration, the
+    media tools, rebuilding the files index, the edit view, record delete and restore.
+
+    **Action needed:** none. A **Filename** value that is not a plain file name (it contains
+    `/`, `\`, `"`, `<`, `>`, or is `.`/`..`) or that is another record's standard file name is
+    now refused, and the upload stops before anything is written; in the indexation grid only
+    that record's image is left empty. Camera and inventory names such as `IMG_20230512_142233`
+    are ordinary file names and are accepted.
+
+    **Caution:** two records with the same **Filename** share the same files, as in earlier
+    Dédalo versions. Duplicating a record whose images are named this way does not copy those
+    images — the duplicate points to the same files and reports them as not copied. Uploading
+    to either record replaces the shared file, and deleting either record (the duplicate
+    included) moves the shared files to the `deleted` folder, so the other record loses its
+    image until the files are brought back from that folder. Give the duplicate its own **Filename** before uploading to it
+    or deleting it.
+
+    Wire contract: `WC-2026-11-12-image-id-media-file-stem`.
+
+- **Relation fields without their own configuration show their linked records in the view the ontology asks for (e.g. mini, text).**
+
+    A relation field that declares no request configuration of its own can still ask, in its
+    ontology properties, for its linked records to be shown in a particular view
+    (`children_view`, for example `mini` for coin types or `text` for legend symbols). That
+    request was ignored: the linked records rendered in their default view. They now render
+    in the requested view, in edit and list alike, and a child's own `view` is honoured when
+    the field asks for none.
+
+- **Linking to a record that was just deleted is now refused instead of leaving a broken link.**
+
+    When one person linked a record (in a portal, an autocomplete, a dataframe…) at the same
+    moment another person deleted that record, the save answered OK and the link stayed behind
+    pointing at nothing — and nobody was told. The two operations now wait for each other:
+    if the link was saved first, the delete removes it like every other link to the deleted
+    record; if the delete came first, the save is refused with the message "The linked record
+    … was deleted — remove the link (or restore the record from Time Machine) and save again",
+    and nothing is written. Links that a record already carried are not affected, so a record
+    with an older broken link stays editable.
+
+    Wire contract: `WC-2026-11-12-locator-target-deleted-refused`.
+
+- **Archive weight statistics and coins-by-period counts are correct again**
+
+    The weight and diameter statistics of a numismatic archive counted coins marked as not used or
+    as duplicated. They now leave those coins out, as intended.
+
+    The coins-by-period summary of a hoard or find put every coin under **?**. It now groups the
+    coins by their period again, and the "group by parent" variant adds them up under the era the
+    thesaurus model marks.
+
+    Nothing in the database needs repairing: these values are computed when the record is shown.
+    Published values are refreshed by the republish described in the entry on information fields.
+
+    Wire contract: `WC-2026-11-12-numisdata-widgets-locator-law`.
+
+- **The posterframe tool offers identifying images for records of virtual sections, and creates them through portals whose target is set only in their configuration.**
+
+    When a video was referenced by a record of a virtual section (Objects, Inventory, Photography, Documents, People…), the posterframe tool's identifying-image selector silently left that record out. It is offered again, using the portal of the real section the virtual one is built on, minus the elements the virtual section excludes. Creating an identifying image through a portal whose target section is set only in its configuration (Archives) failed with "The tool cannot operate on this target"; it now creates the image in the configured section.
+
+    Wire contract: `WC-2026-11-12-posterframe-identifying-image-scope`.
+
+- **The thesaurus “Parent” field no longer offers a “new record” button.**
+
+    The parent field of thesaurus, hierarchy and ontology terms showed a "+" button
+    that created a new, empty record in the target section and linked it as the
+    term's parent. That is the reverse of how a hierarchy is built: a parent is
+    attached from the children side or by moving the term in the tree. The field
+    now offers only linking an existing record, as the related-records field
+    already did.
+
+- **Sorting a list by a number or JSON column orders by its value again.**
+
+    Clicking the header of a number column (a weight, a diameter, a year) or of a JSON column in a
+    list, or any search ordered by such a field, came back in record-id order instead of by the
+    field's value — also when the field was reached through a portal. These fields now sort by
+    their value again, with empty values last. As in earlier versions of Dédalo, the values are
+    compared as text, not as numbers: 9, 10 and 2 sort as 10, 2, 9. Text columns are unchanged.
+
+- **Layout-only panels (`section_group_div`) render again without a header.**
+
+    An edit form group whose ontology model is `section_group_div` is meant to be a
+    plain layout block. It was shown as a labelled, collapsible panel with a header,
+    like any other group. It now renders as an unlabelled block again, and its
+    contents are always shown, even if the panel had been collapsed before this
+    update. See [section_group](./core/sections/section_group.md).
+
+- **An open-ended Id range (5... or ...5) in search no longer returns every record.**
+
+    Searching the Id field with only one side of a range (`5...` or `...5`) ignored the
+    range and returned the whole section, and inside a combined search the condition
+    disappeared. The bound you type is now enforced: `5...` no longer returns ids below 5, and `...5`
+    none above 5. See [component_section_id](./core/components/component_section_id.md).
+
+    Wire contract: `WC-2026-11-12-section-id-open-between`.
+
+- **A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again.**
+
+    A select field whose configuration declares a dataframe slot showed no frame widget in the edit form, so its
+    qualifier (for example the uncertainty rating of a coin's discovery method) could be neither seen nor set. The
+    server now sends the frame of every selected value with the field, as it did before, on the record form, on a
+    field refresh and right after a new pick. Frames already stored were never lost; they appear again.
+
+    Wire contract: `WC-2026-11-12-select-dataframe-subdatum`.
+
+- **Thesaurus labels drawn from a linked term, a list value or the record id are no longer blank or truncated.**
+
+    A section's display term can be built from a field that links to another record (for
+    example a catalogue entry labelled by its linked type), from a list value, or from the
+    record's own id. Those parts used to come out empty: such a record showed a blank label
+    wherever it was referenced — portal and autocomplete chips, the thesaurus tree, the graph
+    view, export parent chains, person and info tags — and a term combining several fields
+    lost the linked part. They now show the linked record's term, the list value or the id,
+    exactly as the field itself shows them, and a renamed linked record is reflected at once.
+
+    Wire contract: `WC-2026-11-10-section-terms-read-door`.
+
+- **Time Machine keeps the previous value on the first edit of imported data.**
+
+    Editing a value that had no history yet — imported from a file, migrated from Dédalo
+    v6, or written by a process that keeps no history — left only the new value in the Time
+    Machine: what the edit replaced was gone, and there was nothing to restore. Now the first
+    edit of such a value records the previous value first, stamped one minute before the
+    edit, as Dédalo v6 did. This covers every way of editing: the edit form, translation,
+    restoring from the Time Machine, removing a linked record, and bulk changes. Only the
+    language that was edited gets the extra entry. Values overwritten by earlier v7 betas
+    before this fix cannot be recovered from the Time Machine; a backup taken before the edit
+    is the only source for them.
+
+    Wire contract: `WC-2026-09-27-bulk-revert-undo-log`.
+
+- **Search filters and user-activity statistics no longer fill the Time Machine**
+
+    Every change to the search panel's current filter was saved with a new Time Machine entry,
+    and so was every edit or deletion of a daily user-activity statistics record. Over time this
+    filled the Time Machine with history nobody restores.
+
+    Now the search panel's current filter and the daily
+    user-activity statistics are not versioned: saving them works as before, but no Time Machine
+    history is kept, and a deleted one cannot be recovered from the Time Machine (statistics can
+    always be rebuilt from the activity log). History already recorded for them is left as it is.
+
+- **The thesaurus tree shows the equivalence (EQ) icon on both terms of an equivalence, not only on the one where it was entered.**
+
+    Before, only the term that stored a related link showed its icon (for example `EQ`); the term it pointed at, in the same thesaurus, showed nothing. Now the target term shows the icon too, for bidirectional and multidirectional relations. Unidirectional relations (`TR`) are unchanged: they show only on the term that stores them.
+
+- **Search, export and cache-update field lists no longer offer obsolete field types.**
+
+    Ontologies carried over from older versions still hold field types this version does not implement (for example the old security-areas field of the Profiles section). They were offered in the search panel's field list, in the export field picker and in the cache-update tool, where choosing one did nothing or broke the panel. They are no longer listed, and neither is anything nested inside them. Edit forms already left them out; they now apply the same rule, which also covers two never-implemented field types it used to miss.
+
+    Wire contract: `WC-2026-11-12-unimplemented-component-models`.
+
+- **Zotero import works again — CSL JSON exports, PDFs and cover images are imported.**
+
+    Before, the Zotero import refused every file with "Missing Zotero field-map", and it expected
+    a Zotero RDF export instead of the CSL JSON export the tool is documented for.
+
+    Now export your Zotero collection as **CSL JSON**, drop the `.json` file together with its
+    PDFs, and import. Each reference is matched by its Zotero key: a re-import updates the
+    records it created. Titles, authors and every other person field, dates, item type, journal
+    or series (linked to the Series list, created the first time it appears), ISBN/ISSN and DOI
+    are written; the PDF goes into the record's PDF field and its first page becomes the
+    identifying image. The **Values** form is applied to every imported record. When the run
+    ends, the tool lists what it created and updated, every field it refused, and every Zotero
+    field it did not import. Reverting the import in **Processes** also removes the Series
+    records it created.
+
+    **Action needed:** none for the shipped field map. A date written only as text ("circa 1900")
+    or an item type the configuration does not list is now refused for that record and listed,
+    instead of emptying the stored value. A numeric call number is no longer used as the record
+    number — that rule is under review; each reference that carries one says so in the report.
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
 
 - **Exports now include the records that point at each record (the Relations field), instead of an empty column.**
 
@@ -629,6 +1191,68 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **The server unit runs on a read-only file system; the installer upgrades its own earlier templates and the update names the re-render command.**
+
+    On a production host the engine's systemd unit now runs with `ProtectSystem=strict`: the whole
+    file system is read-only to it except the roots the instance's drop-in opens (`ReadWritePaths=`,
+    derived from the install answers — the install folder, the backup directory, the web root with the
+    media and the published client, the socket directories, the temp directories). The installer writes
+    the same list as a small manifest beside the drop-in, and at every start the engine checks each
+    path it is configured to write against it: a path moved in `.env` outside the roots refuses the
+    start (exit `78`), naming the path and the root command that re-renders the units —
+    `sudo <bun> run <tree>/scripts/ops/host_units_refresh.ts --instance <i>`. Hosts installed before
+    this release keep their units until that command runs once (as root): the installer and the
+    command now recognise every template an earlier release shipped (`deploy/systemd/shipped_digests.json`)
+    and upgrade it in place, while a template no release shipped is still refused. On a host with
+    several instances the shared template is upgraded only once every instance runs this release's
+    drop-ins: until then it is kept, and the installer and the command name each instance still to
+    re-render, with what brings it there — its own command when its code is this release, an update
+    of that instance first when it still runs an earlier release (whose code has no re-render command)
+    — the last one upgrades the template, so no instance is ever left running a read-only unit it did
+    not ask for. An instance whose install record cannot be read, a corrupt file included, blocks the
+    upgrade by name and never stops the re-render of the instance you ran it for. A code update
+    never rewrites `/etc/systemd`; after a verified update its `host_units` check records that command
+    in the run's journal, in `bun run update status` and in the server log when the host's templates
+    are not this release's. See [Re-rendering the units](./install/multi_instance.md#re-rendering-the-units).
+
+    Wire contract: `WC-2026-10-30-update-run`.
+
+- **The installer verifies every ontology file against its source's digest; long boots are no longer restarted by the watchdog; the server unit runs sandboxed.**
+
+    - **Ontology files at install time.** The installer now checks every ontology file it stages — downloaded from an ontology server, copied from a local package, or taken from the release itself — against the sha256 its source publishes, before anything is unpacked. A file that does not match stops the installation with nothing installed. A source that publishes no digests (an older ontology server, a hand-built package) still installs, with one warning naming every unverified file. The update panel already worked this way.
+    - **Long first boots.** While the server runs its boot migrations it now writes a `booting` marker beside its socket, and the health watchdog waits for it instead of restarting a server that is still migrating. No configuration is needed.
+    - **Sandboxed server unit.** The shipped systemd units (`dedalo-ts.service` and the per-instance `dedalo-ts@.service`) now run the server with a sandbox baseline: no privilege escalation, no capabilities, and the kernel, its devices and other users' processes out of reach. **Upgrade note:** an update never rewrites files under `/etc/systemd`. A host installed before this release keeps its old unit until you replace it with the release's copy (`systemctl daemon-reload` and restart the instance after). Until then, installing a second instance on that host is refused because the template on disk differs from the release's.
+
+    Wire contract: `WC-2026-10-30-ontology-file-digests`.
+
+- **The Docker stacks now pin PostgreSQL, nginx, certbot, MariaDB and pgvector to an exact version and digest.**
+
+    Before, the Docker stacks pulled `postgres:18`, `nginx:alpine`, `mariadb:11`,
+    `pgvector/pgvector:pg18` and `certbot/certbot` (no version at all). These tags move
+    upstream, so two installs of the same Dédalo release could run different images, and
+    an image changed upstream would be pulled on the next start. The installer also
+    requested Let's Encrypt certificates with an unpinned `certbot/certbot`.
+
+    Now every image that is not Dédalo's own is written in the stack file as
+    `name:<version>@sha256:<digest>`: a version you can read, plus the exact bytes. The
+    installer reads the images from the stack file, so the certificate request, the
+    renewal service and the image list an abort prints all use the same pinned images.
+    The full stack's Let's Encrypt renewal is now a `certbot` service in
+    `docker-compose.yml` (profile `letsencrypt`), turned on by the installer's
+    `compose.override.yaml`. New versions arrive with Dédalo releases; they reach a stack
+    when its checkout is updated and the stack is started again with `ddc up -d`.
+
+    A Let's Encrypt install made before this change must edit its `compose.override.yaml`
+    once: its old `certbot` service keeps the unpinned image and is no longer started, so
+    certificate renewal would stop. The image updater refuses such a stack and prints the
+    two-line replacement; the Docker install guide has the steps.
+
+    Because a pinned image has no plain tag on the machine, the `docker image rm` commands
+    in the Docker and Trial removal steps now read the images from the stack file.
+
+    The weekly secret scan of the repository history now also covers the shipped `vendor/`
+    directory; before, a broad exception excluded all of it.
+
 - **The Hierarchy tool's "Force to create" only rebuilds a hierarchy's own ontology, and deleting a hierarchy record no longer uninstalls an ontology it does not own.**
 
     Before, "Force to create" deleted every ontology definition of whatever TLD the hierarchy
@@ -653,6 +1277,14 @@ Merged since the last release; these ship with the next one.
 
 #### Removed
 
+- **The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.** *(action needed)*
+
+    The v5-era `filtered_by_search_dynamic` property, which narrowed a select's options by a value of the record being edited, is superseded by a `fixed_filter` of source `component_data` on the field's request configuration — the form every shipped ontology already uses. The engine does not read the old key.
+
+    **Action needed:** a field whose live definition still carries `filtered_by_search_dynamic` with neither a `fixed_filter` nor a `filtered_by_search` is now refused when its option list is built (the error names the field and the fix), rather than silently offering every record. Declare the `fixed_filter` translation, then remove the key. A field that carries both is served by the `fixed_filter`; the old key is ignored. No vendored ontology ships the old key on a live definition.
+
+    Wire contract: `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`.
+
 - **The "recovery mode" switch is gone; a damaged ontology is now repaired from the command line.**
 
     The **Recovery mode** button in *Maintenance → Check config* promised to run Dédalo on a
@@ -669,7 +1301,176 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-12-recovery-mode-retired`.
 
+#### Changed
+
+- **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
+
+    A `calculation` widget's `process` block now selects its formula by **file and
+    name**: `{ "fn": "…", "file": "/calculation/formulas.ts", "engine": "ts" }` for
+    the generic formulas, `"file": "/<tld>/calculation/<module>.ts"` for the
+    formulas that belong to one ontology (the mdcat grant chain: periods, grant
+    amounts, euro conversion, final totals). The file is a lookup key — the engine
+    never loads code from it. A definition in the earlier engine's shape (a formula
+    file that is not a `.ts` name, an engine other than `"ts"`, or no engine) is
+    **refused**: the field reports an
+    error naming the block instead of computing, and nothing is substituted. The
+    vendored ontology packages still carry the earlier shape, so an installation
+    that uses calculated fields needs the updated master ontology (an ontology
+    update, no data change). The two grant-amount cases that reported an error
+    pending a decision are decided: a grant amount with **no days** (no day value,
+    or days adding up to zero) shows **no value**, not a minimum; the **major-grant
+    amount** applies to the grant section the earlier engine treated specially,
+    and to no other.
+
+    Wire contract: `WC-2026-11-13-calculation-tld-packages`.
+
+- **A publication aggregate table whose column mapping names a column that exists nowhere is refused at validation instead of being silently left out; a column only a table alias carries is filled by the alias.**
+
+    An aggregate (global) table mapping (`global_table_maps`) that names a target column the
+    aggregate table does not declare, or a source column that none of the publishing tables carries,
+    now stops the element at validation with a message naming the column, the aggregate table's
+    columns and each publishing table with its columns. Before, the mapping was quietly not written
+    and only a warning said so, leaving the public search and map layers short of the rows the
+    ontology meant to publish. A source column that only a table alias carries is legal: the alias's
+    rows fill it, the real table's rows leave it empty.
+
+    **Action needed:** an installation whose ontology still maps `filter_date` onto `mdcat4500`
+    without declaring that column (mdcat260, mdcat1133, mdcat1332) needs the master ontology update
+    of 2026-11-13 before those elements publish again; the validation report names the column.
+
+    Wire contract: `WC-2026-11-12-global-table-maps`.
+
+- **The image updater brings the stack's PostgreSQL, nginx, certbot, MariaDB and pgvector up to the release's pins — and refuses a new database major, which is a migration.**
+
+    Before, `deploy/dedalo-image-update.sh` replaced the engine image only: the third-party images the stack file pins (`postgres`, `nginx`, `certbot`, `mariadb`, `pgvector`) reached an installation only when you updated the checkout and ran `ddc up -d` yourself, so an install could run a release's engine beside the previous release's PostgreSQL or nginx for months.
+
+    Now the updater reads the stack file's pins first and, after the database dump and before the engine moves, pulls each pin whose running container differs from it and recreates **that service alone**; a service that is not running (an optional profile) is left alone, and `--check` lists what a run would reconcile. A PostgreSQL minor or digest refresh therefore recreates the database container during the update, a few seconds in which the old engine reconnects.
+
+    A **new major** of PostgreSQL, MariaDB or pgvector is never applied this way: it is the format of the data on disk, so the run is refused before anything changes (*service_major_mismatch*) and the dependency updater no longer proposes such majors. Moving to a new major is a migration you run on purpose — the procedure is in the Docker install page, *A new PostgreSQL, pgvector or MariaDB major*. A service pin that cannot be pulled or recreated ends the run as *service_pin_failed* with nothing re-pinned and the engine untouched.
+
+    Wire contract: `WC-2026-10-09-update-code-image-channel`.
+
+- **Information fields export every widget, the user-activity widget included; they are computed-only fields the cache and the CSV import leave alone.**
+
+    An information field whose widget is loaded on demand in the record page (the user-activity
+    widget) exported an empty cell and published an empty column. The export now computes it like
+    any other widget — the cell holds the activity totals — and the publication follows in the same
+    release. The record page is unchanged: the widget still loads on demand there.
+
+    Information fields are now declared as **computed-only**. Two consequences: the cache
+    regeneration tool skips them (there is nothing stored to regenerate — the tool says so in its
+    summary), and a CSV import that maps a column onto one is refused with a message naming the
+    column, instead of writing a value nobody ever reads.
+
+    A calculation field (a sum, a mean, a total over the linked records) totals **every** record its
+    definition reaches, whatever the reader's project scope admits: the mean over a type is the mean
+    over all its items, the same number for every user who may see the field. Who may see the field is
+    decided at the field, as before. This was already so; it is now stated as the rule.
+
+    Wire contract: `WC-2026-11-13-info-derived-async-published`, `WC-2026-11-13-calculation-total-records-no-frontier`.
+
+- **Published information fields carry the readable value the record page shows (a duration as text, not its internal object); on-demand widgets are published too.**
+
+    A published column mapped onto an information field's widget (`parser_info::widget`) now
+    carries the widget's **readable** value — the one the record page and the export show. The sum of
+    dates widget publishes `2 months 15 days` (in the publication's main language) where it used to
+    publish the internal interval object as JSON. Widgets whose readable face is their computed value
+    (state, calculation, media icons…) publish unchanged. The user-activity widget, loaded on demand in
+    the record page, is now computed and published as well, as it was before the engine change.
+
+    Republish the elements carrying such columns to refresh the public tables; the mapping of the
+    mdcat duration column is set on the master ontology once this release is installed.
+
+    Wire contract: `WC-2026-11-13-info-parsed-face-published`.
+
+- **"MARC21 import: a conditional rule with no matching copy writes nothing, and a rule can join every repetition of one field (`occurrences: \"all\"`)."**
+
+    A conditional rule (`marc21_conditional`, e.g. the 945 holdings of the copy whose `$j` is your
+    library's code) used to fall back to the record's **first** 945 when none of its copies
+    matched — so a record held only by other libraries was imported with another library's shelf
+    mark, volume and barcode. Now such a rule writes nothing for that record.
+
+    A rule reading one repeated field (a 700 added entry, say) still takes the first repetition
+    by default. Add `"occurrences": "all"` to the rule to join every repetition into one value,
+    separated by the rule's `row_separator` (default `". "`), without listing several tags under
+    `field_multiple`. Any other value of `occurrences`, or combining it with a conditional rule,
+    stops the import with a message naming the rule.
+
+    **Action needed:** none for the shipped map. Review a Tools configuration that relied on the
+    old fallback.
+
+    Wire contract: `WC-2026-11-12-marc21-config-map-and-transforms`.
+
+- **Database statements slower than five seconds are now logged by default.**
+
+    `DEDALO_SLOW_QUERY_MS` now defaults to `5000` (it was `0`, off). A statement taking longer
+    than 5 seconds — on any connection, the write path included — writes one warning line to
+    the server log naming the statement and the lane it ran on. Nothing is interrupted and
+    nothing changes for users: it is the measure to read before sizing the request statement
+    ceiling (`DB_STATEMENT_TIMEOUT_MS`).
+
+    **Action needed:** none. If the lines are noise on a slow machine, raise the value in
+    `../private/.env`; `DEDALO_SLOW_QUERY_MS=0` restores the previous silence.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
+- **A section whose term names a component the engine cannot render as text now fails loudly instead of showing blank labels.**
+
+    A section's `section_map` names the components that build its label (the "term").
+    Before, naming a component whose type has no text value (a password field, for
+    instance) made every label drawn from that section blank or truncated, in the tree,
+    in autocomplete chips and in exports, with nothing in any log. Now reading such a
+    label fails with `engine.uncovered_scope` naming the section, the component and its
+    type, so the configuration can be fixed. No shipped ontology is affected; only a
+    local configuration can name such a component.
+
+    Wire contract: `WC-2026-11-13-section-map-term-uncovered-throws`.
+
+- **A request now waits at most 30 seconds for a free database connection by default.**
+
+    `DB_POOL_ACQUIRE_TIMEOUT_MS` now defaults to `30000` (it was `0`, wait forever). When every
+    database connection of the server is busy, a request used to wait silently and indefinitely;
+    it now answers "the server is busy, try again in a moment" (`db.pool_exhausted`) after 30
+    seconds, which makes an exhausted pool visible instead of a frozen page.
+
+    **Action needed:** none for most installations. If you see that answer under normal load,
+    raise `DB_POOL_MAX` (within your PostgreSQL `max_connections` budget) or the timeout in
+    `../private/.env`; `DB_POOL_ACQUIRE_TIMEOUT_MS=0` restores the previous behaviour.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
+- **A database statement of ordinary request traffic is now stopped after one minute by default.**
+
+    `DB_STATEMENT_TIMEOUT_MS` now defaults to `60000` (it was `0`, no limit). A single runaway
+    query — for example a search on a deliberately unindexed field of a very large table — can no
+    longer hold a database connection for minutes while other users wait; it answers "the server
+    is busy" (`db.statement_timeout`) instead.
+
+    Long maintenance work is not affected: the maintenance-area actions, the data update, the
+    search-store builds a start-up runs when it finds one missing or damaged, and the observer
+    mirror reconcile (`scripts/observer_reconcile.ts`) and the read-only scans
+    `scripts/census_section_id.ts` and `scripts/detect_csv_import_damage.ts` run on the separate maintenance connections,
+    which have no limit. The retention prunes run in short batches.
+
+    **Action needed:** if searches or exports on very large sections are part of daily work on your
+    installation, measure them first (`DEDALO_SLOW_QUERY_MS`). An export whose record selection
+    takes longer than the limit is refused before its first line. Raise the value in
+    `../private/.env`, or set `DB_STATEMENT_TIMEOUT_MS=0` to restore the previous unbounded
+    behaviour.
+
+    Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
+
 #### Added
+
+- **Permission matrices and record filters can be exported.**
+
+    The permission matrix of a profile and the record filter of a user exported an empty cell. They
+    now export like any other component: each stored item as JSON in the value and grid value
+    formats, under the same permission as every other column — a user without read access to the
+    component is refused the column. This is how a profile's permissions travel between two
+    installations through an export.
+
+    Wire contract: `WC-2026-11-13-export-acl-components-exportable`.
 
 - **The ontology status panel names URL components that are wrongly marked as translatable**
 
@@ -694,6 +1495,289 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **Published bibliography columns that read from Zenon now carry their values.**
+
+    A publication column whose source reaches a Zenon field (for example the bibliography
+    columns of a publication: authors, title, date) was published **empty** on every record —
+    the values shown on screen never reached the public database or files. They are now
+    published, in the language set for the publication (its main language, else the
+    installation's default data language), whoever starts the run.
+
+    When Zenon cannot be read during a run (the service is down, blocked or not configured),
+    the record is still published with its other values, and the run report lists one line
+    per missing value naming the field and the Zenon record.
+
+    **Action needed:** republish the sections whose publication includes Zenon fields, so the
+    public tables receive the values. Nothing in the catalogue itself needs repairing.
+
+    Wire contract: `WC-2026-11-12-diffusion-external-chain`.
+
+- **A publication run no longer empties a record's remote (Zenon) values when the remote service is down: the record is held back, reported, and retried by the next run.**
+
+    When a published column reads a remote record (a Zenon bibliography entry) and the remote service
+    cannot be reached during the run — down, timing out, or temporarily closed after repeated
+    failures — the record's row is now **held back**: nothing is written for it and nothing is
+    removed, so the public table keeps the row of the previous run. The run finishes as a partial
+    success with one line per held record ("row SKIPPED, previous publication kept, retried by the
+    next run"), and the next run of the element publishes it as usual. For the RDF, XML and Markdown
+    publications the held record also stays in the merged document and the download archive the run
+    rebuilds, so a service outage never removes it from what the public downloads. Before, the row was written
+    with the remote values empty — the public site lost them until a later run succeeded.
+
+    Unchanged: a remote record the service reports as gone publishes an empty value (that is the
+    service's answer), and a disabled or misconfigured service publishes an empty value with its
+    message, since retrying cannot change either.
+
+    Wire contract: `WC-2026-11-13-external-outage-keeps-previous-row`.
+
+- **A published geolocation column places an area or a route at one representative point instead of publishing the whole outline under the longitude.**
+
+    The flat geolocation column of a text field's geo tag (`get_geolocation_data`) publishes one
+    `{type, lon, lat}` per drawn feature. For a point that was right; for a polygon or a line the
+    engine copied the outline's first ring under `lon` and nothing under `lat`, so the public map
+    could not place the record. A polygon now publishes the centre of its outer ring (a multipolygon
+    its largest ring), a line the midpoint along its path, and anything else the centre of its
+    bounding box; the geometry type is kept. Points are unchanged.
+
+    Republish the elements carrying such a column to refresh the public tables.
+
+    Wire contract: `WC-2026-11-13-geolocation-representative-point`.
+
+- **The release-archive install has a worked example, and `install.sh` says what `--release-sha256` takes.**
+
+    *Get Dédalo* in the installation guide now names the three archive kinds (stable, prerelease,
+    developer), their address (`/dedalo/install/code/<X.Y.Z>/<archive>`), the format of the
+    `.sha256` file beside each, and a complete example for the 7.0.0 developer archive.
+
+    `install.sh --release … --release-sha256 <url>` used to answer "--release needs
+    --release-sha256" although the flag was given. It now says that `--release-sha256` takes the
+    64 hexadecimal digits of the digest, not the address of the `.sha256` file, and how to read
+    them.
+
+- **The installer says a checkout, instance or database is already installed on the System check or the Database screen, not after the Review.**
+
+    Running the interactive installer over an existing installation used to walk every screen and
+    be refused only after the Review and the typed `yes`. Now the **System check** — the second
+    screen — fails with the same sentence the run would refuse with:
+
+    - **Developer**: an **Installation** row fails on a finished install record or a sealed state
+      file in the private directory. An unfinished install is still offered resume or abort first.
+    - **Docker** and **Trial**: the **Installation** row fails on the instance's volume, an earlier
+      `.dedalo.env` or `compose.override.yaml` in the checkout, or the stack's install record.
+    - **Production**: the **Instance** row also fails on an install record under
+      `/var/lib/dedalo-install/<instance>/`.
+
+    The **Database** screen now also refuses a database that is not empty or not owned by the
+    install user, as the documentation already said. Quitting the installer over a finished
+    install no longer says "the unfinished install is kept".
+
+- **Published RDF writes dates, years, integers and booleans in the standard XSD form, so the documents validate (a year -25 is written -0025).**
+
+    A typed value in a published RDF document (an `xsd:gYear` start date, an `xsd:date`, an
+    `xsd:integer`, an `xsd:boolean`) was written as the stored value's bare text: a year `-25` as
+    `-25`, which an RDF validator rejects (a year needs four digits). These values are now written in
+    the standard XSD form — `-0025`, `0010`, `2020-03-06`, `true` — so the documents validate and
+    linked-data consumers read the dates. Decimal weights were already correct. A value that cannot be
+    written in the standard form is reported in the run's errors, as a malformed decimal already was.
+
+    Republish the RDF elements to refresh the documents.
+
+    Wire contract: `WC-2026-11-13-rdf-canonical-xsd-lexical`.
+
+- **An RDF property over a relation list may narrow the referencing records by section and by linking field (its `config`); such elements compile again.**
+
+    An RDF property whose source is a relation list ("who points at this record") may carry a
+    `config` with `section_filter` (the sections whose records count) and `component_filter` (the
+    fields through which they must point). Such a property made the whole RDF element fail to
+    compile ("not ported"); it now publishes one value per referencing record that passes both
+    filters. A `config` on any other kind of source, or with other keys, is still refused with a
+    message naming the field, so nothing is published partially.
+
+    Wire contract: `WC-2026-11-13-rdf-relation-list-config`.
+
+- **A Tools configuration record that points a picker tool at another section lets that section's records be linked.**
+
+    A Tools configuration record (or a register default) can redefine a tool's components
+    for one field. When it points the indexation or cataloguing tool at a section the
+    ontology does not name, the picker offered that section's records but saving the
+    link was refused ("off target"). Now the saved link is accepted exactly where the
+    picker offers it; a section named by neither the ontology nor a configuration record
+    is still refused. Editing the configuration record takes effect on the next save. The
+    per-entry precedence (configuration record, then register default, then ontology) is
+    confirmed.
+
+    Wire contract: `WC-2026-11-12-tool-configuration-override`.
+
+- **Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns.**
+
+    Two publication functions were not implemented, so every published record raised an error
+    ("Partial success") and the column stayed empty. Publishing the `hierarchy` table now
+    writes each thesaurus's target table name (for example `ts_onomastic`), and the flat
+    geolocation column of text-area fields (`get_geolocation_data`) publishes its layers as
+    `{type, lon, lat}` points. Republish the `hierarchy` table and the tables holding those
+    geolocation fields to fill the columns written empty before. See
+    [the diffusion engine](./diffusion/native_engine.md).
+
+    Wire contract: `WC-2026-11-12-diffusion-map-target-section-tipo`.
+
+- **Publication fills the global search and map tables again** *(action needed)*
+
+    Tables declared with `global_table_maps` (for example the global search table of a memorial
+    portal or the `map_global` layer of a numismatic site) gather every published record of
+    several sections in one table. Since the switch to the new publication engine they were no
+    longer updated: new records were missing, edited ones kept their old values, and unpublished
+    or deleted records stayed public.
+
+    Publishing now writes them again, one row per record and language, refreshed on every
+    publication and removed when the record is unpublished or deleted. The public-tier reconcile
+    also reports and removes their stale rows.
+
+    **After updating:** republish the elements that declare global tables, then run the
+    `public_tier` reconcile with apply to withdraw the rows of records deleted in the meantime.
+    A map that names a column existing in neither table is not written yet; `validate` lists it
+    as a `global_table_maps_unruled:` warning; the reconcile does not count its records as missing,
+    but still removes rows an earlier version left in that table.
+
+    Wire contract: `WC-2026-11-12-global-table-maps`.
+
+- **Information fields (calculated widgets) are published and exported with their current value.**
+
+    Publication columns that read an information field — for example the weight and diameter
+    totals of numismatic coin types — were published empty on every record. They now publish what
+    the field shows in the record today.
+
+    **Export** now includes information fields too. In **value** format the column holds every
+    result of the field. In **grid value** format each result the field declares gets its own
+    column, named after it. In **Dédalo raw** format the cell holds the values computed now; an old
+    stored copy is never exported.
+
+    **Action needed:** publish again the tables that carry information-field columns. Nothing in
+    the database needs repairing.
+
+    Wire contract: `WC-2026-11-12-info-live-publication-export`.
+
+- **A new installation's first update no longer rebuilds every search index.**
+
+    The installer builds the search indexes (the text search store and the relation index) and now
+    also records how it built them. Before, the first code update of every new installation found
+    them unrecorded and rebuilt them in full, which on a large installation took a long time inside
+    the maintenance window. The installer also checks the record when it verifies or resumes an
+    installation. Installations made before this update rebuild their indexes once, at their next
+    update, and are then recorded.
+
+- **MARC21 import reads its field map from the Tools configuration and applies every mapping rule and the Values form.**
+
+    Before, the MARC21 import refused on every installation with "Missing marc21_map", because it
+    looked for the field map in what the browser sent. Where it did run, it imported every
+    repetition of a field as a separate value, kept the catalogue's trailing punctuation
+    ("Barcelona :"), stored a bracketed date "[1987]" as a number, skipped the multi-field
+    "Indexations" rule, never set the publication date, language or material type, and threw
+    away the values typed in the tool's **Values** form.
+
+    Now the import reads its map from the **Tools configuration** of `tool_import_marc21` (or,
+    when that has none, the tool's shipped default), and applies every rule of it: the first
+    repetition of a field unless the rule joins them all (`field_multiple`), the conditional
+    rules for copies, the trailing-punctuation clean-up, years (`date_format`), coded values such
+    as languages and material types (`dd_data_map`) and the companion fields (`dd_action`). The
+    values of the **Values** form are written into every imported record.
+
+    **Action needed:** none for the shipped map. A Tools configuration whose map carries a key the
+    import does not know, or a malformed rule, now stops the import with a message naming the
+    entry and the key — fix the entry. A year or code that cannot be mapped is listed per record
+    and that field is not written.
+
+    Wire contract: `WC-2026-11-12-marc21-config-map-and-transforms`.
+
+- **Number fields are now stored with the type and decimals their definition declares, whichever way the value arrives.**
+
+    A number field defined as an integer (`type: int`) or with a fixed number of decimals
+    (`type: float`, `precision`) was only formatted while typing in the edit form. A value that
+    arrived any other way — a CSV or RDF import, the AI assistant, Propagate, an API call — was
+    stored exactly as sent: `3.14159` in a 2-decimal field, `3.7` in an integer field.
+
+    Now the server formats every value before storing it: an integer field drops the decimals
+    (`3.7` → `3`), a decimal field rounds half away from zero (`85.3568` → `85.36`,
+    `1.005` → `1.01`). The import preview shows the value that will be stored. A field with no
+    `type` is stored as given, as before. `0` is kept as `0` in the thesaurus order.
+
+    A field whose definition has a `precision` that is not a whole number (for example `"2"` in
+    quotes) is now reported as an ontology error when a number has to be formatted with it:
+    saving a number to it is refused, an import marks the cell as failed, and a thesaurus whose
+    order field has such a definition fails to load a level where a term carries an order
+    value. Clearing the field still saves, and a level with no order values still loads.
+
+    Values already stored are shown as they were stored: values imported or written by the
+    assistant before this release may hold extra decimals, and changing a field's `precision`
+    does not change existing values. **Update cache → regenerate** on a section re-stores its
+    number values formatted.
+
+    Wire contract: `WC-2026-11-12-number-type-precision-on-save`.
+
+- **RDF publication produces real Linked Data (Nomisma).** *(action needed)*
+
+    RDF publication (Nomisma and other Linked-Data services) now publishes each
+    record's real graph: subject IRIs from the publication services, typed dates and
+    numbers, nested nodes, links between published classes, one literal per published
+    language. Before, the files carried placeholder `urn:dedalo:record:` subjects and
+    one plain text value per column, which Linked-Data aggregators cannot use.
+
+    **Action needed:** an RDF element now compiles only when its definition is
+    complete — `service_type` and `xmlns` under `properties.diffusion`, and every
+    class with an `entity_publication_uri` process. An incomplete element is refused
+    before anything is written, and the publication report names every cause; a
+    record whose base IRI is missing from the publication services is not written, its
+    previous file is removed, and it is named in the report. Linked records are
+    included only when the user who publishes may read them. See [the diffusion data flow](./diffusion/diffusion_data_flow.md).
+
+    Wire contract: `WC-2026-11-12-rdf-graph-interpretation`.
+
+- **The activity-log and publication-ledger retention prunes now run in small committed batches.**
+
+    With `DEDALO_ACTIVITY_RETENTION_DAYS` or `DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS` set, the
+    daily prune used to remove every expired row in one database statement. On a very large log
+    (tens of millions of rows) that statement ran for minutes, and under a statement time limit it
+    was cancelled and undone — every day, so the log never shrank.
+
+    The prune now removes the expired rows 10 000 at a time, each batch saved on its own. A very
+    large first prune makes steady progress, a batch that is interrupted loses nothing that came
+    before it, and stopping the server ends the prune between two batches. Rows still owing an
+    unpublish to a public site are still never removed.
+
+- **A tool configuration record can again redefine which components a tool uses on one field or button.**
+
+    A *Tools configuration* record (or a tool's registered default configuration) may list, under `properties.tool_config`, the components a tool works with on one specific field or section button. Since the move to v7 those entries were ignored and the tool always used the components the ontology declares. They now apply again: the configuration record wins, then the registered default, then the ontology. Installations upgraded from v6 that carry such entries will see the configured components appear in those tools after updating. Section toolbars now also send each tool's configured components, as the field toolbars always did. See [Server contract](./development/tools/server_contract.md).
+
+    Wire contract: `WC-2026-11-12-tool-configuration-override`.
+
+- **Update cache now recomputes external portals instead of reporting a false success.**
+
+    A portal or autocomplete whose data is computed from other records (an "external" portal —
+    for example the coins of a type, or a catalog's copy of a type's coins) was "regenerated" by
+    saving back the value it already held. A stale list stayed stale, an empty one stayed empty,
+    and the run still said every component was regenerated.
+
+    Now update cache recomputes such a portal from the records it mirrors, exactly like its
+    **update** button does, on every matched record. A record the portal does not belong to, or a
+    portal whose definition cannot be computed, is listed in the run's errors and counted apart —
+    nothing is written to it. A recomputed portal is not undone by reverting the run: it is
+    derived from other records, and reverting would only bring back the stale list.
+
+    Wire contract: `WC-2026-11-12-update-cache-external-mirror-refresh`.
+
+- **A failed code-only or same-version update now puts the previous code back by itself.**
+
+    A code update to a release that does not change the data model (a patch with no `compat`), or
+    to another build of the release you already run (a prerelease to its next prerelease or to its
+    stable, a nightly reinstall), that failed after the code swap used to stop in
+    `NEEDS_DB_RESTORE` and ask for a database restore. The previous code now goes back on its own
+    (`ROLLED_BACK_CODE`), as for a `compatible` release. After `7.0.0` a code-only patch cannot change
+    the data model; another build of the same release can (`7.0.0-beta.8` added an `incompatible`
+    migration over `7.0.0-beta.7`), so keep the run's backup at hand after updating a prerelease. A
+    run that already ended in `NEEDS_DB_RESTORE` is not changed by this update. See
+    [When a phase fails](./administration/updates/index.md#when-a-phase-fails).
+
+    Wire contract: `WC-2026-10-30-update-run`.
 
 - **The **Latest changes** list in a profile's permissions shows the ontology updates again.**
 
@@ -767,7 +1851,22 @@ Merged since the last release; these ship with the next one.
 
     When a maintenance action was refused — for example *Build developer release* on a code server whose `master` is the tagged commit of a beta — the panel showed only "The update was refused in the current state", and the reason that says what to do was visible only in the browser console. The panel now shows the reason under that sentence ("'master' is the tagged commit v7.0.0-beta.8 … build an untagged commit").
 
-??? note "Wire contract — 33 entries"
+### For developers
+
+#### Changed
+
+- **A field with no sortable value (links, IRIs, media, access rules, passwords) can no longer be used to sort a list.**
+
+    Before, a search request ordering the results by such a field was accepted and the
+    order silently fell back to the record id — and ordering by a password field exposed
+    the relative order of the stored hashes. Now the request is refused with
+    `search.invalid_sqo` naming the field, and the list header no longer offers a sort
+    arrow on an IRI column (clicking it never sorted anything). Every field that could be
+    sorted before still can.
+
+    Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
+
+??? note "Wire contract — 84 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -801,7 +1900,58 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-11-relation-list-column-grants`
     - `WC-2026-11-11-section-elements-target-groups`
     - `WC-2026-11-11-svg-tag-url-full-media-path`
+    - `WC-2026-11-12-calculation-widget-port`
+    - `WC-2026-11-12-datalist-principal-record-scope`
+    - `WC-2026-11-12-db-bounds-on-by-default`
+    - `WC-2026-11-12-diffusion-external-chain`
+    - `WC-2026-11-12-diffusion-map-target-section-tipo`
+    - `WC-2026-11-12-duplicate-image-svg-envelope`
+    - `WC-2026-11-12-export-json-geolocation-cells`
+    - `WC-2026-11-12-export-text-cell-clean`
+    - `WC-2026-11-12-global-table-maps`
+    - `WC-2026-11-12-image-id-media-file-stem`
+    - `WC-2026-11-12-info-live-publication-export`
+    - `WC-2026-11-12-lang-fallback-judges-emptiness`
+    - `WC-2026-11-12-locator-target-deleted-refused`
+    - `WC-2026-11-12-marc21-config-map-and-transforms`
+    - `WC-2026-11-12-media-provenance-repair-one-kernel`
+    - `WC-2026-11-12-number-type-precision-on-save`
+    - `WC-2026-11-12-numisdata-widgets-locator-law`
+    - `WC-2026-11-12-posterframe-identifying-image-scope`
+    - `WC-2026-11-12-rdf-graph-interpretation`
     - `WC-2026-11-12-recovery-mode-retired`
+    - `WC-2026-11-12-search-hop-join-record-address`
+    - `WC-2026-11-12-section-id-open-between`
+    - `WC-2026-11-12-select-dataframe-subdatum`
+    - `WC-2026-11-12-tool-configuration-override`
+    - `WC-2026-11-12-translation-write-value-gates`
+    - `WC-2026-11-12-tree-term-escaped`
+    - `WC-2026-11-12-unimplemented-component-models`
+    - `WC-2026-11-12-update-cache-external-mirror-refresh`
+    - `WC-2026-11-12-wipe-respects-virtual-exclusion`
+    - `WC-2026-11-12-zotero-csl-json-import`
+    - `WC-2026-11-13-calculation-tld-packages`
+    - `WC-2026-11-13-calculation-total-records-no-frontier`
+    - `WC-2026-11-13-csv-ingest-size-ceiling`
+    - `WC-2026-11-13-csv-staged-file-read-error-card`
+    - `WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter`
+    - `WC-2026-11-13-export-acl-components-exportable`
+    - `WC-2026-11-13-export-media-cell-type`
+    - `WC-2026-11-13-export-tag-marks-plain-text`
+    - `WC-2026-11-13-external-empty-entry-dropped`
+    - `WC-2026-11-13-external-outage-keeps-previous-row`
+    - `WC-2026-11-13-geolocation-representative-point`
+    - `WC-2026-11-13-info-derived-async-published`
+    - `WC-2026-11-13-info-parsed-face-published`
+    - `WC-2026-11-13-number-sort-numeric`
+    - `WC-2026-11-13-observer-refresh-data`
+    - `WC-2026-11-13-rdf-canonical-xsd-lexical`
+    - `WC-2026-11-13-rdf-relation-list-config`
+    - `WC-2026-11-13-section-map-term-uncovered-throws`
+    - `WC-2026-11-13-sort-non-scalar-refused`
+    - `WC-2026-11-13-tags-widget-original-lang`
+    - `WC-2026-11-13-text-area-broken-tag-repair`
+    - `WC-2026-11-13-use-real-sections-highest-grant`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -212,6 +212,12 @@ export interface FieldPlan {
 	excludeColumn?: boolean;
 	/** Export front-end only (P6): projection metadata, see ExportColumnMeta. */
 	exportColumn?: ExportColumnMeta;
+	/**
+	 * rdf get_data_number only: number leaves carry the PHP type json_decode
+	 * gave the STORED token (ValueMeta.phpNumberType) — `1.0` is a double,
+	 * `1` an integer, which JS numbers cannot tell apart.
+	 */
+	leafNumberTypes?: true;
 }
 
 /** All fields of one publishable section (a 'table' node). */
@@ -222,6 +228,162 @@ export interface SectionPlan {
 	/** The table/diffusion-section node tipo this plan came from. */
 	tableTipo: string;
 	fields: FieldPlan[];
+	/**
+	 * Secondary aggregate tables this section's rows ALSO land in — the v6
+	 * `global_table_maps` (diffusion_sql::save_global_table_data), compiled
+	 * (plan/global_tables.ts). Absent = none. Only on sql elements.
+	 */
+	globalTables?: GlobalTablePlan[];
+	/**
+	 * rdf elements only: the owl:Class GRAPH this section publishes
+	 * (plan/rdf_compile.ts). Its data-reading properties are ALSO compiled as
+	 * `fields` (id = the property node tipo) so the ONE chain walker resolves
+	 * them; this describes how their values become triples.
+	 */
+	rdfClass?: RdfClassPlan;
+}
+
+/**
+ * A subject IRI recipe (PHP resolve_base_uri + resolve_var_uri): the base IRI
+ * is the dd1010 publication-service entry of the element's entity whose
+ * `title` equals `baseTitle`; the record part is the var_uri components'
+ * values (or the section_id when none), then the `#` fragment.
+ */
+export interface RdfUriSpec {
+	/** base_uri_entity.title ('self' already resolved to the node name). */
+	baseTitle: string;
+	/** base_uri_entity.component_tipo — the dd1010 component_iri holding the bases. */
+	baseComponentTipo: string;
+	/** var_uri component parts (absent ⇒ the record's section_id). */
+	varUri?: { componentTipo: string; model: string }[];
+	/** var_uri `#` literal, appended LAST (a fragment ends an IRI). */
+	fragment?: string;
+}
+
+/** The base IRI alone (get_data_uri / get_resource_link reference one). */
+export interface RdfBaseRef {
+	baseTitle: string;
+	baseComponentTipo: string;
+}
+
+interface RdfPropertyCommon {
+	/** The owl:ObjectProperty / rdf node tipo. */
+	nodeTipo: string;
+	/** The predicate IRI (the node name expanded through the plan's table). */
+	predicate: string;
+}
+
+/** A property whose values come from a compiled field chain (`fields[].id === nodeTipo`). */
+interface RdfChainProperty extends RdfPropertyCommon {
+	fieldId: string;
+}
+
+/** One property of an rdf class, by `properties.process.type`. */
+export type RdfPropertyPlan =
+	| (RdfChainProperty & {
+			/** default: literals per published lang (text_format / php_formula / ', ' join). */
+			kind: 'literal';
+			/** The ddo_map END ddos (no child) — the per-lang fallback slots. */
+			endDdos: { tipo: string; id: string | null }[];
+			textFormat?: string;
+			/** php_formula {type:'empty', sentence:'${a} ? ${b} : ${c}'} pre-split. */
+			emptyFormula?: { condition: string; whenEmpty: string; otherwise: string };
+	  })
+	| (RdfChainProperty & { kind: 'data_uri'; base: RdfBaseRef })
+	| (RdfChainProperty & {
+			kind: 'data_date';
+			getDate: string;
+			/** date key (year, month…) → datatype IRI. */
+			format: Record<string, string>;
+	  })
+	| (RdfChainProperty & {
+			kind: 'data_number';
+			/** PHP gettype ('integer' | 'double' | 'string') → datatype IRI. */
+			format: Record<string, string>;
+	  })
+	| (RdfChainProperty & { kind: 'section_id' })
+	| (RdfChainProperty & { kind: 'resource_link'; base: RdfBaseRef | null })
+	| (RdfPropertyCommon & {
+			/** get_portal: a sub-resource, linked only when a child produced a triple. */
+			kind: 'portal';
+			subject: RdfUriSpec;
+			children: RdfPropertyPlan[];
+	  })
+	| (RdfPropertyCommon & {
+			/** ObjectProperty entity_publication_uri: a standalone resource typed `predicate`. */
+			kind: 'typed_resource';
+			subject: RdfUriSpec;
+	  })
+	| {
+			/** model `rdf`: build the linked records' class into the same document (no triple of its own). */
+			kind: 'link';
+			nodeTipo: string;
+			componentTipo: string;
+			componentModel: string;
+			/** The owl:Class whose SectionPlan builds each linked record. */
+			classTipo: string;
+	  };
+
+/** The owl:Class graph of one section. */
+export interface RdfClassPlan {
+	classTipo: string;
+	/** rdf:type IRI (the class node name expanded). */
+	typeUri: string;
+	subject: RdfUriSpec;
+	properties: RdfPropertyPlan[];
+}
+
+/** rdf elements only: the document-level contract. */
+export interface RdfElementPlan {
+	/** properties.diffusion.xmlns, in declaration order (RdfNamespace::set). */
+	namespaces: [string, string][];
+	/** properties.diffusion.service_type — the dd1020 service the entity lookup keys on. */
+	serviceType: string;
+}
+
+/** One `columns_map` item of a global table map (v6 save_global_table_data). */
+export interface GlobalColumnMap {
+	/** A column the global table node declares (validated at compile). */
+	targetColumn: string;
+	/** Source-table column names in order, or the automatic `section_id` / `lang`. */
+	sourceColumns: string[];
+	/** `'string'`: join the source values with `separator` (v6 default ' | '). */
+	format?: 'string';
+	separator?: string;
+	/**
+	 * Owner C11 (2026-11-13): the CARRIERS (the real table node and every
+	 * `table_alias` sharing its maps) on which EVERY source of this item
+	 * exists, by virtual tipo — set only when some carrier lacks one (a source
+	 * that is an alias's own column). A carrier absent from the list writes
+	 * NULL under `targetColumn` for its rows (project/global_table.ts); the
+	 * carrier that has the column fills it. Absent = every carrier has them.
+	 */
+	sourceCarriers?: string[];
+}
+
+/** Provenance columns v6 writes on every global row (each only when the node declares it). */
+export type GlobalProvenanceColumn = 'ref_section_id' | 'ref_section_tipo' | 'ref_table' | 'link';
+
+/**
+ * A global (aggregate) table: one row per (source record, lang), keyed by the
+ * composite `<section_tipo>_<section_id>` (project/global_table.ts globalRowKey),
+ * written delete-then-insert by the sql writer in the source rows' transaction
+ * and withdrawn by every door that withdraws the source row.
+ */
+export interface GlobalTablePlan {
+	/** The global table node (`global_table_maps[].table_tipo`, model `table`). */
+	tableTipo: string;
+	/**
+	 * DDL anatomy: the node's OWN direct field children as column-only fields
+	 * (empty sourceChain/transform). `tableName` = the validated global table
+	 * name; `sectionTipo` is '' (a global table belongs to no section).
+	 */
+	schema: SectionPlan;
+	/** VARCHAR length of the composite key (the node's own `section_id` field `varchar`, default 255). */
+	keyLength: number;
+	/** The provenance columns the node declares — only those are written. */
+	provenance: GlobalProvenanceColumn[];
+	columnsMap: GlobalColumnMap[];
 }
 
 export interface RecursionPolicy {
@@ -295,6 +457,8 @@ export interface PublicationPlan {
 	sections: SectionPlan[];
 	recursion: RecursionPolicy;
 	langPolicy: PlanLangPolicy;
+	/** rdf elements only: namespaces + service type (plan/rdf_compile.ts). */
+	rdf?: RdfElementPlan;
 	/** Compile diagnostics surfaced by the `validate` action (never silent). */
 	warnings: string[];
 	/**
@@ -304,4 +468,12 @@ export interface PublicationPlan {
 	 * `plan.degradations ?? []`.
 	 */
 	degradations?: PlanDegradation[];
+	/**
+	 * The compiled argument of the `map_target_section_tipo` ddo fn: section
+	 * tipo → the table name this element publishes it under
+	 * (virtual_tree.ts getTargetSectionTableNames). Set ONLY when a field step
+	 * uses that fn, so the resolver never walks dd_ontology and every other
+	 * plan stays byte-equal.
+	 */
+	targetSectionTables?: Record<string, string>;
 }

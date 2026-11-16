@@ -85,6 +85,7 @@ import {
 } from '../../../src/core/ontology/resolver.ts';
 import {
 	heldItemIds,
+	historyStamp,
 	mainIdentity,
 	mainStateChanged,
 	readMainState,
@@ -749,7 +750,7 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 			writeTarget,
 			laneIdentity,
 			{ before, after },
-			{ userId, timestamp: dbTimestamp(), bulkId: null },
+			historyStamp(userId, null),
 		);
 		return { rolledBack: false, changed: true };
 	}).catch((error) => {

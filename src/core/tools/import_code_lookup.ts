@@ -1,7 +1,7 @@
 /**
- * CODE → RECORD ADDRESS, for the mapped-import doors (MARC21; tool_import_rdf's
- * linked terms, matched by their IRI in a component_iri; the Zotero door is the
- * next caller the day its parser is re-ported — see the per-door notes below).
+ * CODE → RECORD ADDRESS, for the mapped-import doors (MARC21 and Zotero, through
+ * `resolveMappedCodes`; tool_import_rdf's linked terms, matched by their IRI in a
+ * component_iri; the Zotero Series links, import_link.ts).
  *
  * WHY THIS MODULE EXISTS (audit DATA-08, closed 2026-08-30). An import file
  * carries a FOREIGN identifier: a library control number, a Zotero key, an
@@ -49,6 +49,7 @@
 import { DedaloError } from '../errors/index.ts';
 import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import type { Principal } from '../security/permissions.ts';
+import type { LinkField, MappedField, MappedRecord } from './import_execute.ts';
 
 /** The component an identifier is matched against: the section's CODE component. */
 export interface ImportCodeTarget {
@@ -452,4 +453,150 @@ function lookupConflict(target: ImportCodeTarget, sentence: string): DedaloError
 			component_tipo: target.componentTipo,
 		},
 	});
+}
+
+/** A mapped record before its identifier became an address. */
+export interface CodedRecord {
+	/** The identifier the file carries (null = none: the record is created). */
+	code: string | null;
+	/**
+	 * Other spellings of the SAME identifier a stored code may hold (Zotero: the
+	 * item's full URI beside its key). Matched exactly too; two spellings that
+	 * name two different records name neither.
+	 */
+	altCodes?: readonly string[];
+	/**
+	 * The record the DOOR already resolved this item to through ANOTHER
+	 * identifier's code lookup — Zotero's `field_to_section_id` value
+	 * (`call-number`, owner C18), searched by `findSectionIdByCode` in the
+	 * component the map binds it to. NEVER a value read from the file: the only
+	 * producers are this module's lookups. The code is still checked for batch
+	 * duplicates, and must name this record or none (two records → refusal).
+	 */
+	resolvedSectionId?: number;
+	fields: MappedField[];
+	links?: LinkField[];
+}
+
+/** The refusal of a batch whose identifiers cannot each name one record. */
+function batchRefusal(sentence: string): DedaloError {
+	return new DedaloError('request.invalid_data', { message: sentence, publicMessage: sentence });
+}
+
+/**
+ * The ONE record `codes` (one identifier's spellings) name — each matched
+ * EXACTLY in `target` — or null for none. Two spellings held by two different
+ * records refuse (`request.invalid_data`): they name none of them. Two holders
+ * of one spelling refuse from the lookup itself (`resource.conflict`).
+ */
+export async function findSectionIdByCodes(
+	codes: readonly string[],
+	target: ImportCodeTarget,
+	principal: Principal,
+): Promise<number | null> {
+	const found = new Set<number>();
+	for (const code of codes) {
+		const id = await findSectionIdByCode(target, code, principal);
+		if (id !== null) found.add(id);
+	}
+	if (found.size > 1) {
+		throw batchRefusal(
+			`The identifier '${codes[0]}' and its other spelling '${codes.slice(1).join("', '")}' are held by ` +
+				`different records of section ${target.sectionTipo} (${[...found].join(', ')}), so they name none of them. ` +
+				`Nothing was imported — resolve the duplicate codes in ${target.componentTipo} first.`,
+		);
+	}
+	return found.size === 1 ? ([...found][0] as number) : null;
+}
+
+/**
+ * Turn the identifiers a mapped-import batch carries into record ADDRESSES
+ * (PHP resolve_target_section / get_section_id_from_code, restored — audit
+ * DATA-08), for the WHOLE batch BEFORE its first write. Shared by the MARC21
+ * and Zotero doors.
+ *
+ * Per record: no identifier ⇒ `sectionId: null` (the executor creates). An
+ * identifier ⇒ the record whose code component (`idTarget`, searched in the
+ * section being WRITTEN) holds EXACTLY it — or one of its `altCodes` — else
+ * `null` again. The value is never cast to an id.
+ *
+ * TWO IDENTICAL IDENTIFIERS IN ONE BATCH REFUSE THE RUN (nothing written): the
+ * second would resolve to `null` too and mint a duplicate, or overwrite what
+ * the first just wrote. So does an identifier held by two records
+ * (`resource.conflict`, from the lookup). `label` names the door's identifier
+ * in the sentence ("identifier", "Zotero key").
+ */
+export async function resolveMappedCodes(
+	mapped: readonly CodedRecord[],
+	sectionTipo: string,
+	idTarget: ImportCodeTarget | undefined,
+	principal: Principal,
+	label = 'identifier',
+): Promise<MappedRecord[]> {
+	const records: MappedRecord[] = [];
+	const seen = new Set<string>();
+	for (const record of mapped) {
+		const sectionId =
+			idTarget === undefined
+				? null
+				: await addressForRecord(
+						record,
+						seen,
+						{ sectionTipo, componentTipo: idTarget.componentTipo },
+						principal,
+						label,
+					);
+		records.push({
+			sectionId,
+			fields: record.fields,
+			...(record.links === undefined ? {} : { links: record.links }),
+		});
+	}
+	return records;
+}
+
+/** One record's address (null = create), refusing a code the batch already carried. */
+async function addressForRecord(
+	record: CodedRecord,
+	seen: Set<string>,
+	target: ImportCodeTarget,
+	principal: Principal,
+	label: string,
+): Promise<number | null> {
+	if (record.code === null) return record.resolvedSectionId ?? null;
+	if (seen.has(record.code)) {
+		throw batchRefusal(
+			`The ${label} '${record.code}' is carried by more than one record of this import, ` +
+				`so it does not identify one record. Nothing was imported — fix the file.`,
+		);
+	}
+	seen.add(record.code);
+	const byCode = await findSectionIdByCodes(
+		[record.code, ...(record.altCodes ?? [])],
+		target,
+		principal,
+	);
+	if (record.resolvedSectionId === undefined) return byCode;
+	assertKeyAgreesWithIdentifier(record.code, byCode, record.resolvedSectionId, target, label);
+	return record.resolvedSectionId;
+}
+
+/**
+ * The batch invariant when a record carries BOTH a key and an identifier
+ * (C18): the key's record, when there is one, is the identifier's record —
+ * two different records cannot be told apart, so the whole batch is refused.
+ */
+function assertKeyAgreesWithIdentifier(
+	code: string,
+	byCode: number | null,
+	resolvedSectionId: number | null,
+	target: ImportCodeTarget,
+	label: string,
+): void {
+	if (byCode === null || byCode === resolvedSectionId) return;
+	throw batchRefusal(
+		`The ${label} '${code}' is held by record ${byCode} of section ${target.sectionTipo}, ` +
+			`while the record's other identifier names record ${resolvedSectionId}, so the import cannot tell which one it means. ` +
+			`Nothing was imported — resolve the two records first.`,
+	);
 }

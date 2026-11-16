@@ -98,3 +98,39 @@ function isDate(value: DdDate | null | undefined): value is DdDate {
 function stampTime(date: DdDate): void {
 	date.time = ddDateToSeconds(date);
 }
+
+/**
+ * dd_date → Unix epoch seconds, UTC (PHP dd_date::get_unix_timestamp, and the
+ * diffusion `parser_date::unix_timestamp` — ONE home for both). Absent fields
+ * fall back to the epoch's own (month/day 1, time 0); absent year is 1970.
+ *
+ * Years 0–99 are REAL years (`setUTCFullYear`), never 1900+year: `Date.UTC`
+ * maps a two-digit year into the 20th century, which turned year 50 into 1950
+ * (WC-2026-11-12-calculation-widget-port).
+ */
+export function ddDateToUnixSeconds(date: DdDate): number {
+	const { year = 1970, month = 1, day = 1, hour = 0, minute = 0, second = 0 } = date;
+	const moment = new Date(0);
+	moment.setUTCFullYear(year, month - 1, day);
+	moment.setUTCHours(hour, minute, second, 0);
+	return Math.floor(moment.getTime() / 1000);
+}
+
+/**
+ * Unix epoch seconds → a FULL dd_date (year…second), UTC (PHP
+ * dd_date::get_dd_date_from_unix_timestamp, which read the server time zone —
+ * here the instant is the same everywhere).
+ */
+export function ddDateFromUnixSeconds(
+	seconds: number,
+): Required<Pick<DdDate, 'year' | 'month' | 'day' | 'hour' | 'minute' | 'second'>> {
+	const moment = new Date(seconds * 1000);
+	return {
+		year: moment.getUTCFullYear(),
+		month: moment.getUTCMonth() + 1,
+		day: moment.getUTCDate(),
+		hour: moment.getUTCHours(),
+		minute: moment.getUTCMinutes(),
+		second: moment.getUTCSeconds(),
+	};
+}

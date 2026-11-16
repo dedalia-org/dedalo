@@ -63,6 +63,7 @@ import type { WriterSession } from '../../src/diffusion/writers/types.ts';
 import { writeMergedXml, xmlWriter } from '../../src/diffusion/writers/xml.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { startPowerLossModel } from '../helpers/power_loss_model.ts';
+import { TEST_RDF_ELEMENT, testRdfDocument } from '../helpers/rdf_test_documents.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = scratchDir('ts_diffusion_file_writers');
@@ -113,6 +114,7 @@ function plan(format: string, sections: SectionPlan[], serviceName = 'testsvc'):
 		recursion: { maxLevels: 2 },
 		langPolicy: { langs: ['lg-eng', 'lg-spa'], mainLang: 'lg-eng' },
 		warnings: [],
+		...(format === 'rdf' ? { rdf: TEST_RDF_ELEMENT } : {}),
 	};
 }
 
@@ -1259,6 +1261,26 @@ describe('what survives a power cut: checkpoint() and close() are durability bar
 	];
 	const titleRow = (sectionPlan: SectionPlan, id: number): ProjectedRow =>
 		row(id, 'lg-eng', { [sectionPlan.fields[0]?.columnName as string]: `title ${id}` });
+	/** One batch of title records — rdf publishes GRAPHS (T1-4), the others rows. */
+	const writeTitles = async (
+		format: string,
+		session: WriterSession,
+		sectionPlan: SectionPlan,
+		ids: number[],
+	): Promise<void> => {
+		if (format === 'rdf') {
+			expect(session.writeGraphs).toBeDefined();
+			await session.writeGraphs?.(
+				sectionPlan,
+				ids.map((id) => testRdfDocument(id, [[`title ${id}`, 'en']])),
+			);
+			return;
+		}
+		await session.writeRows(
+			sectionPlan,
+			ids.map((id) => titleRow(sectionPlan, id)),
+		);
+	};
 
 	for (const { format, writer, section: sectionPlan, fileOf } of PER_RECORD) {
 		test(`${format}: every record a checkpoint hands the run ledger as written or removed survives a power cut`, async () => {
@@ -1284,11 +1306,11 @@ describe('what survives a power cut: checkpoint() and close() are durability bar
 					resume: null,
 				});
 				await session.ensureSchema();
-				await session.writeRows(sectionPlan, [titleRow(sectionPlan, 1), titleRow(sectionPlan, 2)]);
+				await writeTitles(format, session, sectionPlan, [1, 2]);
 				first = session.takeArtifacts();
 				await session.checkpoint();
 				expectBatchDurable(first);
-				await session.writeRows(sectionPlan, [titleRow(sectionPlan, 3)]);
+				await writeTitles(format, session, sectionPlan, [3]);
 				second = session.takeArtifacts();
 				await session.checkpoint();
 				expectBatchDurable(second);
@@ -1321,7 +1343,7 @@ describe('what survives a power cut: checkpoint() and close() are durability bar
 			try {
 				const session = await writer.open(plan(format, [sectionPlan], service));
 				await session.ensureSchema();
-				await session.writeRows(sectionPlan, [titleRow(sectionPlan, 1), titleRow(sectionPlan, 2)]);
+				await writeTitles(format, session, sectionPlan, [1, 2]);
 				await session.close();
 			} finally {
 				model.restore();

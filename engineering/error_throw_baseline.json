@@ -62,12 +62,11 @@
 		"src/diffusion/writers/json.ts": 1,
 		"src/diffusion/writers/mariadb_sql.ts": 1,
 		"src/diffusion/writers/markdown.ts": 1,
-		"src/diffusion/writers/rdf.ts": 2,
 		"src/diffusion/writers/xml.ts": 1,
 		"src/server.ts": 1
 	},
 	"summary": {
-		"files": 63,
-		"total": 120
+		"files": 62,
+		"total": 118
 	}
 }

@@ -101,9 +101,9 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 				'Prose in media-folder `reason`/`consumer` strings and one warning: they name the tool that writes into the folder the installer provisions. Descriptive only; no branch.',
 		},
 		'src/core/media/ontology_path.ts': {
-			names: { tool_upload: 1, tool_import_files: 1 },
+			names: { tool_export: 1 },
 			reason:
-				'Prose in a migration-ledger `reason` string naming the ingest callers; no behaviour keys on it.',
+				'A migration-ledger `file` path naming a remaining caller (tools/tool_export/server/writers/media_zip.ts); data in a ledger, no behaviour keys on it.',
 		},
 		'src/core/ontology/property_census.ts': {
 			names: { tool_numisdata_order_coins: 1 },
@@ -121,9 +121,9 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 				'The picker-wiring table keys two tools’ source/linker roles by name. A real name-keyed coupling. Clears when a ToolServerModule declares its own picker wiring.',
 		},
 		'src/core/tools/registry.ts': {
-			names: { tool_diffusion: 1 },
+			names: { tool_diffusion: 1, tool_lang_multi: 1 },
 			reason:
-				'Availability special case: tool_diffusion is offered only when a diffusion domain resolves (`if (name === …)`). A real name branch. Clears when availability moves to the tool module’s `isAvailable`.',
+				"Availability special case: tool_diffusion is offered only when a diffusion domain resolves (`if (name === …)`). A real name branch. Clears when availability moves to the tool module’s `isAvailable`. tool_lang_multi (owner C54, T1-P01 16b, 2026-11-13): the served client context of tool_lang_multi is tool_lang’s config MINUS the type:'browser' translator engines, keyed by name in toolClientConfig — the one place the context is served. Clears when the translategemma revision is pinned (16b lifted) or the filter moves to the tool module.",
 		},
 		'src/core/tools/transcription_asr.ts': {
 			names: { tool_transcription: 3 },
@@ -286,7 +286,10 @@ describe('tool names in src/ code are ledgered and shrink-only', () => {
 	});
 
 	test('the scan finds a ledgered name branch (anti-vacuity)', () => {
-		expect(census.get('src/core/tools/registry.ts')).toEqual({ tool_diffusion: 1 });
+		expect(census.get('src/core/tools/registry.ts')).toEqual({
+			tool_diffusion: 1,
+			tool_lang_multi: 1,
+		});
 	});
 
 	test('every tool name in src/ code matches the ledger exactly', () => {

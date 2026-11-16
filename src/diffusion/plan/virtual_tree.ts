@@ -650,6 +650,52 @@ export function getSectionNodeForElement(
 }
 
 /**
+ * The compiled argument of the `map_target_section_tipo` ddo fn (PHP
+ * diffusion_fn::map_target_section_tipo :75-150): section tipo → the name of
+ * the table node the element publishes it under.
+ *
+ * Candidates = the nodes the element OWNS (nearest element in the parents
+ * path, the getSectionNodeForElement rule) keyed by their FIRST related
+ * section; an `*_alias` model beats a non-alias (PHP's uasort), otherwise the
+ * first in walk order wins (stable sort + array_key_first).
+ *
+ * Deliberate departures (WC-2026-11-12-diffusion-map-target-section-tipo):
+ * the name is the virtual-tree LABEL (the machine name every table plan uses
+ * — frozen v7's get_term returns null on today's ontology, whose oh table
+ * nodes carry no term), and the candidate set is the element's VIRTUAL tree,
+ * so a real table suppressed by an in-element alias is never named and an
+ * alias without its own section relation inherits the real node's.
+ */
+export function getTargetSectionTableNames(
+	tree: VirtualDiffusionTree,
+	elementTipo: string,
+): Record<string, string> {
+	const winners = new Map<string, VirtualTreeNode>();
+	for (const node of tree.nodes) {
+		const sectionTipo = node.relatedSections[0];
+		if (sectionTipo === undefined || node.label === null) continue;
+		if (!isOwnedByElement(node, elementTipo)) continue;
+		const current = winners.get(sectionTipo);
+		if (current === undefined || (isAliasModel(node) && !isAliasModel(current))) {
+			winners.set(sectionTipo, node);
+		}
+	}
+	return Object.fromEntries(
+		[...winners].map(([sectionTipo, node]) => [sectionTipo, node.label as string]),
+	);
+}
+
+/** The NEAREST element in the node's parents path is `elementTipo`. */
+function isOwnedByElement(node: VirtualTreeNode, elementTipo: string): boolean {
+	const nearest = node.parents.find((item) => DIFFUSION_ELEMENT_MODELS.has(item.model));
+	return nearest !== undefined && elementPathMatches(nearest, elementTipo);
+}
+
+function isAliasModel(node: VirtualTreeNode): boolean {
+	return node.model.includes('_alias');
+}
+
+/**
  * PHP get_database_name_for_element (:1205): label of the first
  * database/database_alias node whose parents path contains the element
  * (alias label wins — e.g. 'web_numisdata_mib' over 'web_numisdata_default').

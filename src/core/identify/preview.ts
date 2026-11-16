@@ -66,8 +66,16 @@ export interface PreviewSourcePort {
 	getModel(componentTipo: string): Promise<string | null>;
 	/** Whether the media component stores one file per language. */
 	getTranslatable(componentTipo: string): Promise<boolean>;
-	/** The ontology-driven path options for this component in this section. */
-	getPathOptions(componentTipo: string, sectionTipo: string): Promise<MediaPathOptions>;
+	/**
+	 * The path options for this component on THIS record — record-scoped, because
+	 * an `additional_path` bucket and an image's `image_id` file stem are a
+	 * sibling's value on the record (T1-10).
+	 */
+	getPathOptions(
+		componentTipo: string,
+		sectionTipo: string,
+		sectionId: number,
+	): Promise<MediaPathOptions>;
 	/** Whether a derivative is actually on disk (rule 2). */
 	fileExists(absolutePath: string): boolean;
 }
@@ -76,7 +84,8 @@ export function defaultPreviewSourcePort(): PreviewSourcePort {
 	return {
 		getModel: getModelByTipo,
 		getTranslatable: getTranslatableByTipo,
-		getPathOptions: resolveMediaPathOptions,
+		getPathOptions: (componentTipo, sectionTipo, sectionId) =>
+			resolveMediaPathOptions(componentTipo, sectionTipo, sectionId),
 		fileExists: existsSync,
 	};
 }
@@ -122,16 +131,15 @@ export async function resolvePreviewThumbs(
 	// apply (media/tool_support.ts). Non-translatable components take null.
 	const lang = (await port.getTranslatable(previewComponent)) ? currentDataLang() : null;
 
-	/** section_tipo → its path options. Resolved once per section, not per record. */
-	const optionsBySection = new Map<string, MediaPathOptions>();
-
 	for (const record of records) {
 		try {
-			let options = optionsBySection.get(record.sectionTipo);
-			if (options === undefined) {
-				options = await port.getPathOptions(previewComponent, record.sectionTipo);
-				optionsBySection.set(record.sectionTipo, options);
-			}
+			// PER RECORD, not per section: the options carry this record's own
+			// bucket and file stem. The ontology half is cached by the resolver.
+			const options = await port.getPathOptions(
+				previewComponent,
+				record.sectionTipo,
+				record.sectionId,
+			);
 			const identity: MediaIdentity = {
 				componentTipo: previewComponent,
 				sectionTipo: record.sectionTipo,

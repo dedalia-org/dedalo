@@ -757,7 +757,10 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 			let ok = true
 			try {
 				if (is_browser) {
-					await self.run_browser_translation({
+					// done only when the driver says the value is stored: it resolves
+					// {result:false} on a cancelled run (nothing saved) and rejects on
+					// a refused run or a save that did not land
+					const response = await self.run_browser_translation({
 						source_component	: source_component,
 						target_component	: target_component,
 						source_lang			: source_lang,
@@ -765,6 +768,7 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 						device				: device,
 						container			: container
 					})
+					ok = response?.result===true
 				}else{
 					// a refusal (e.g. translation.empty_result: the engine does not
 					// support this lang) resolves, it does not throw: count it here

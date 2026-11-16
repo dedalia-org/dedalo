@@ -326,7 +326,7 @@ const get_content_data_edit = async function(self) {
 				ui.create_dom_element({
 					element_type	: 'span',
 					class_name		: 'top_label',
-					inner_html		: self.transcription_component.label || '',
+					text_content		: self.transcription_component.label || '',
 					parent			: top_right
 				})
 
@@ -630,7 +630,7 @@ const get_tag_info = function(self) {
 		const fragment_id_tag_id = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'fragment_id_tag_id',
-			inner_html		: tag_id,
+			text_content		: tag_id,
 			parent			: fragment_id_info
 		})
 
@@ -654,7 +654,7 @@ const get_tag_info = function(self) {
 			for (let k = 0; k < self.label_states.length; k++) {
 				ui.create_dom_element({
 					element_type	: 'option',
-					inner_html		: self.label_states[k].label,
+					text_content		: self.label_states[k].label,
 					value			: self.label_states[k].value,
 					parent			: tag_state_selector
 				})
@@ -832,7 +832,7 @@ const render_related_list = function(self){
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'top_label',
-			inner_html		: (self.get_tool_label('approach') || 'Approach'),
+			text_content		: (self.get_tool_label('approach') || 'Approach'),
 			parent			: related_list_container
 		})
 
@@ -1073,7 +1073,7 @@ const render_viewer_selector = function(self, left_container){
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'top_label',
-			inner_html		: (self.get_tool_label('viewer') || 'Show'),
+			text_content		: (self.get_tool_label('viewer') || 'Show'),
 			title			: description,
 			parent			: viewer_selector_container
 		})

@@ -691,12 +691,19 @@ dedalo_image_build() {
 # The env file is MANDATORY and must exist: it carries the TLS decision and the
 # image pin, and a compose command without it resolves the built-in defaults.
 # The installer's override joins only when it exists (an install made by hand has none).
+#
+# Status 3 (and the repair on stderr, printed before any argv): the installer's
+# override is STALE — see dedalo_install_override_stale.
 dedalo_compose_args() {
 	local env_file="${1-}" variant="${2-plain}" stack=''
 	[ -n "$env_file" ] && [ -f "$env_file" ] || return 1
 	case "$env_file" in *$'\n'*) return 1 ;; esac
 	stack="$(dedalo_env_get "$env_file" DEDALO_COMPOSE_FILE)"
 	[[ "$stack" =~ $DEDALO_COMPOSE_FILE_RE ]] && [ -f "$stack" ] || return 1
+	if [ -f "$DEDALO_INSTALL_OVERRIDE" ] && dedalo_install_override_stale "$DEDALO_INSTALL_OVERRIDE"; then
+		dedalo_install_override_repair_note >&2
+		return 3
+	fi
 	printf '%s\n' -f "$stack"
 	case "$variant" in
 		plain) : ;;
@@ -707,12 +714,47 @@ dedalo_compose_args() {
 	printf '%s\n' --env-file "$env_file"
 }
 
+# dedalo_install_override_stale FILE — status 0 when the installer's override
+# declares a `certbot` service that is NOT the switch src/core/install/host/stack/
+# files.ts letsEncryptOverride writes since T1-17 (2026-11-12): `profiles: !reset []`
+# and no `image:`. An override written before then carries the whole renewal
+# service — `image: certbot/certbot` (unpinned, and it WINS the merge over the
+# stack file's pin) and no `profiles` key, so the stack file's
+# `profiles: ["letsencrypt"]` survives the merge and certbot is never started
+# again once its container is removed: renewal stops without an error, and the
+# certificate expires about 90 days later. Status 1: no certbot service, or the
+# current switch. Plain awk over the generated shape (two-space indents).
+dedalo_install_override_stale() {
+	[ -f "${1-}" ] || return 1
+	awk '
+		/^[^[:space:]#]/ { services = ($0 ~ /^services:[[:space:]]*$/); certbot = 0; next }
+		services && /^  [^[:space:]#]/ { certbot = ($0 ~ /^  certbot:[[:space:]]*$/); if (certbot) found = 1; next }
+		certbot && /^    profiles:[[:space:]]*!reset[[:space:]]*\[[[:space:]]*\][[:space:]]*$/ { enabled = 1 }
+		certbot && /^    image:/ { image = 1 }
+		END { exit !(found && (!enabled || image)) }
+	' "$1"
+}
+
+# dedalo_install_override_repair_note — what to do about a stale override.
+dedalo_install_override_repair_note() {
+	cat <<-EOF
+		$DEDALO_INSTALL_OVERRIDE predates the pinned certbot (T1-17): its certbot service spells
+		its own unpinned image and does not switch on the stack file's letsencrypt profile, so
+		compose would no longer start the certificate renewal. In $DEDALO_INSTALL_OVERRIDE,
+		replace every line from '  certbot:' down to (not including) the top-level 'volumes:'
+		line with these two lines, then run your compose 'up -d':
+		  certbot:
+		    profiles: !reset []
+	EOF
+}
+
 # dedalo_compose ENVFILE plain|build ARGS… — `docker compose` with those argv.
 dedalo_compose() {
-	local env_file="${1-}" variant="${2-}" listed='' line=''
+	local env_file="${1-}" variant="${2-}" listed='' line='' status=0
 	local compose_argv=()
 	shift 2 || return 2
-	listed="$(dedalo_compose_args "$env_file" "$variant")" || return 1
+	listed="$(dedalo_compose_args "$env_file" "$variant")" || status=$?
+	if [ "$status" -eq 3 ]; then return 3; elif [ "$status" -ne 0 ]; then return 1; fi
 	while IFS= read -r line; do compose_argv+=("$line"); done <<<"$listed"
 	docker compose "${compose_argv[@]}" "$@"
 }

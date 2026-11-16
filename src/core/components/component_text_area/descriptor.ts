@@ -12,6 +12,7 @@ export const component_text_area: ComponentModel = {
 	importAppend: 'text_paragraphs',
 	monovalue: true,
 	classSupportsTranslation: true,
+	dataItemEmptiness: 'rich_text',
 	searchBuilder: 'string',
 	flatValue: 'string',
 	importValueProperty: true,

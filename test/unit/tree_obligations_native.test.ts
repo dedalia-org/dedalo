@@ -143,10 +143,14 @@ describe('Step 5: a tree door writes what every record write writes', () => {
 
 		// The parent key: exactly one row, holding the links as stored (the move as
 		// ONE change — a parentless intermediate row would restore an orphan).
+		// Re-pinned 2026-11-12 (T1-21): the links were seeded RAW (no history), so
+		// the writer first records them as they stood (the save-before: under pA —
+		// a parented state, never an orphan), then the move's ONE row.
 		const linkRows = await historyRows(ORDERED, x, ORDERED.parent, since);
-		expect(linkRows.length, 'the move must leave exactly one parent-key history row').toBe(1);
-		expect(linkRows[0]?.data).toEqual(await storedLinks(ORDERED, x));
-		expect(Number(linkRows[0]?.user_id)).toBe(ROOT_USER_ID);
+		expect(linkRows.length, 'the move must leave exactly one parent-key history row').toBe(2);
+		expect(JSON.stringify(linkRows[0]?.data)).toContain(`"section_id":${pA}`);
+		expect(linkRows[1]?.data).toEqual(await storedLinks(ORDERED, x));
+		expect(Number(linkRows[1]?.user_id)).toBe(ROOT_USER_ID);
 		// The order key: historied, ending on the stored state.
 		const orderRows = await historyRows(ORDERED, x, ORDER_TIPO, since);
 		expect(orderRows.length).toBeGreaterThan(0);
@@ -157,9 +161,10 @@ describe('Step 5: a tree door writes what every record write writes', () => {
 
 		// The old sibling renumbered 2 → 1: historied and stamped.
 		expect(await orderUnder(ORDERED, s, pA)).toBe(1);
+		// + the save-before row of its RAW-seeded order (re-pinned 2026-11-12, T1-21).
 		const siblingRows = await historyRows(ORDERED, s, ORDER_TIPO, since);
-		expect(siblingRows.length).toBe(1);
-		expect(siblingRows[0]?.data).toEqual(await storedOrder(ORDERED, s));
+		expect(siblingRows.length).toBe(2);
+		expect(siblingRows[1]?.data).toEqual(await storedOrder(ORDERED, s));
 		expect(await stamps(ORDERED, s)).toEqual({ user: ROOT_USER_ID, date: true });
 	}, 60_000);
 
@@ -211,9 +216,10 @@ describe('Step 5: a tree door writes what every record write writes', () => {
 			[a, 2],
 		] as const) {
 			expect(await orderUnder(ORDERED, id, p)).toBe(order);
+			// + the save-before row of the RAW-seeded order (re-pinned 2026-11-12, T1-21).
 			const rows = await historyRows(ORDERED, id, ORDER_TIPO, since);
-			expect(rows.length, `sibling ${id} has no order history row`).toBe(1);
-			expect(rows[0]?.data).toEqual(await storedOrder(ORDERED, id));
+			expect(rows.length, `sibling ${id} has no order history row`).toBe(2);
+			expect(rows[1]?.data).toEqual(await storedOrder(ORDERED, id));
 			expect(await stamps(ORDERED, id)).toEqual({ user: ROOT_USER_ID, date: true });
 		}
 		expect(await historyRows(ORDERED, c, ORDER_TIPO, since)).toEqual([]);
@@ -314,9 +320,12 @@ describe('Step 5: the tree writer cuts its history from the stored before-image'
 		// The unchanged English lane has NO row: a writer that forgot the stored
 		// value (an empty before-image) would record it as a change.
 		expect(langs, JSON.stringify(rows)).not.toContain('lg-eng');
+		// The RAW-seeded spa lane is backfilled first ('alfa', the save-before,
+		// re-pinned 2026-11-12 — T1-21), then the change ('beta').
 		const spanish = rows.filter((row) => row.lang === 'lg-spa');
-		expect(spanish.length).toBe(1);
-		expect(JSON.stringify(spanish[0]?.data)).toContain('beta');
+		expect(spanish.length).toBe(2);
+		expect(JSON.stringify(spanish[0]?.data)).toContain('alfa');
+		expect(JSON.stringify(spanish[1]?.data)).toContain('beta');
 		expect(rows.every((row) => Number(row.user_id) === ROOT_USER_ID)).toBe(true);
 	}, 60_000);
 });

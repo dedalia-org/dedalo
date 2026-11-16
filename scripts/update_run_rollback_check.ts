@@ -9,7 +9,7 @@
  * rollback.ts canAutoRollback — the same answer the engine gives, so a shell
  * script never re-derives D-2 in bash. One JSON line on stdout, and:
  *
- *   exit 0  allowed     — the previous code still fits the database
+ *   exit 0  allowed     — no walked incompatible release crossed: the previous code is put back
  *   exit 1  REFUSED     — a database phase crossed the data model: NEEDS_DB_RESTORE,
  *                         a human restores (the line carries the report)
  *   exit 3  no run      — no non-terminal run journal: the caller's own (sentinel)

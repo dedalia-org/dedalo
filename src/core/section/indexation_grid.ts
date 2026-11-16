@@ -47,6 +47,7 @@ import { MATRIX_JSONB_COLUMNS, type MatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { logError } from '../errors/log.ts';
 import { getLabels } from '../labels/catalog.ts';
 import { additionalPath as mediaBucketPath } from '../media/path.ts';
 import { versionedMediaUrl } from '../media/url_version.ts';
@@ -548,12 +549,23 @@ async function mediaCellUrl(
 		if (stem !== '') id = stem;
 	}
 	if (id === null && model === 'component_image') {
-		const properties = ((await getNode(ddo.tipo))?.properties ?? {}) as { image_id?: unknown };
-		if (typeof properties.image_id === 'string' && properties.image_id !== '') {
-			const value = (
-				await flatSiblingValue(ctx, properties.image_id, sectionTipo, sectionId)
-			).trim();
-			if (value !== '') id = value;
+		// properties.image_id — through the WRITER's own resolver (T1-10), so the URL
+		// this cell hands out and the file the ingest wrote can never name two
+		// different stems, and a refused stem (another record's file name) is
+		// refused here too rather than linked.
+		const { resolveFileIdOverride } = await import('../media/ontology_path.ts');
+		try {
+			id = await resolveFileIdOverride(ddo.tipo, sectionTipo, Number(sectionId));
+		} catch (error) {
+			// ONE row's refused stem (a PHP-era value with '/' or '"', or another
+			// record's file name) is that CELL's fault, not the grid's: PHP's get_id
+			// never threw here and the grid always answered. The cell gets no URL ('',
+			// the no-media shape) — never the identifier's, which would link a file
+			// the ingest did not write — and the refusal is logged typed. The edit
+			// view degrades the same way per item (component_emit base_svg_url null).
+			if (!(error instanceof DedaloError) || error.code !== 'media.invalid_identifier') throw error;
+			logError(error, { subsystem: 'indexation_grid' });
+			return '';
 		}
 	}
 	if (id === null) {
@@ -606,7 +618,7 @@ async function mediaCellUrl(
 
 /**
  * One registered tool's simple context for an element, with the element's
- * properties.tool_config[toolName] enriched in (PHP get_structure_context →
+ * properties.tool_config[toolName] (override ddo_map applied) enriched in (PHP get_structure_context →
  * common::get_tools + the tool_config enrichment, the exact objects the av
  * text_area columns embed). `{}` when the tool does not apply to the element
  * (PHP array_find(...) ?? new stdClass()). Memoized per element+tool.
@@ -653,15 +665,17 @@ async function elementToolContext(
 				show_in_inspector: tool.show_in_inspector,
 				show_in_component: tool.show_in_component,
 			};
-			const rawToolConfig = toolConfigBag[toolName];
-			if (rawToolConfig !== undefined && rawToolConfig !== null) {
-				const { enrichToolConfig } = await import('../tools/section_tool_context.ts');
-				context.tool_config = await enrichToolConfig(
-					rawToolConfig,
-					elementTipo,
-					elementSectionTipo,
-				);
-			}
+			// The one element stamp: ontology tool_config with the Tools-
+			// configuration / register override ddo_map (T1-43,
+			// WC-2026-11-12-tool-configuration-override).
+			const { resolveElementToolConfig } = await import('../tools/section_tool_context.ts');
+			const { enriched } = await resolveElementToolConfig(
+				toolName,
+				toolConfigBag[toolName],
+				elementTipo,
+				elementSectionTipo,
+			);
+			if (enriched !== null) context.tool_config = enriched;
 		}
 	} catch (error) {
 		// PHP tolerates a tool context that cannot build (logs, renders {}).

@@ -44,7 +44,6 @@ import {
 	isDataframeEntry,
 	normalizeDataframeEntry,
 } from '../concepts/subdatum.ts';
-import { dbTimestamp } from '../db/db_timestamp.ts';
 import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
@@ -57,6 +56,7 @@ import {
 	dataframeTargetsOf,
 } from './dataframe.ts';
 import {
+	historyStamp,
 	readMainSlots,
 	recordKeyChangeRows,
 	resolveDataframeSlotTipos,
@@ -1820,7 +1820,7 @@ async function removePortalLocatorUnderGrant(
 		// record that does not exist under the lock has no locators to remove —
 		// byte-identical empty-data response.
 		const lockedRows = (await sql.unsafe(
-			`SELECT id FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+			`SELECT id FROM "${table}" WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 			[sectionTipo, sectionId],
 		)) as { id: number }[];
 		if (lockedRows.length === 0) {
@@ -1934,7 +1934,7 @@ async function removePortalLocatorUnderGrant(
 				{ table, sectionTipo, sectionId: sectionId },
 				tipo,
 				{ before: items, after: kept, requestLang: 'lg-nolan', slotsBefore },
-				{ userId: grant.userId, timestamp: dbTimestamp() },
+				historyStamp(grant.userId, null),
 			);
 		}
 		return {

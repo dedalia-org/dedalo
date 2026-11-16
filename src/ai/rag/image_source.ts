@@ -262,7 +262,9 @@ export async function extractImageForEmbedding(input: {
 			translatable: await getTranslatableByTipo(componentTipo),
 		});
 		if (identity === null) return null;
-		const pathOptions = await resolveMediaPathOptions(componentTipo, sectionTipo);
+		// Record-scoped: the thumb of an image naming its files by properties.image_id
+		// is `<stem>.jpg`, not the identifier (T1-10).
+		const pathOptions = await resolveMediaPathOptions(componentTipo, sectionTipo, sectionId);
 		const source = resolveExistingSource(spec, identity, quality, pathOptions);
 		if (source === null) return null;
 

@@ -446,6 +446,17 @@ describe('the bootstrap refuses, exit 3, nothing exec’d (b)', () => {
 			sentence: '--release needs --release-sha256',
 		},
 		{
+			name: '--release-sha256 given a URL, not the digest (TODO-051)',
+			args: () => [
+				'--release',
+				set.archive,
+				'--release-sha256',
+				'https://example.org/dedalo/install/code/7.0.0/7.0.0-dev.zip.sha256',
+			],
+			sentence:
+				"--release-sha256 takes the 64 hex digits of the release's sha256, not 'https://example.org/dedalo/install/code/7.0.0/7.0.0-dev.zip.sha256'",
+		},
+		{
 			name: '--release with a wrong sha256',
 			args: () => ['--release', set.archive, '--release-sha256', 'a'.repeat(64)],
 			sentence: 'refused (nothing was extracted)',

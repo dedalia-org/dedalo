@@ -22,6 +22,7 @@
 
 import { readString } from '../../config/readers.ts';
 import { getSearchBuilderFamily } from '../components/registry.ts';
+import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { isReferencedByLeaf, type SqoFilterLeaf, type SqoFilterNode } from '../concepts/sqo.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
@@ -242,10 +243,13 @@ export type { SqlFrontierScope } from '../security/frontier_scope.ts';
  * and `noteFrontierRefusal` has already written the operator log line and the
  * request's notice.
  *
- * The step's DECLARED section is authoritative for both keys, exactly as it
- * already is for the table, the component model and the data column: a stored
- * locator naming another section in the same table is being interpreted with
- * this section's ontology either way.
+ * The step's DECLARED section decides the table and the step's own component
+ * pre-check above. The RECORD key and the per-section component key are asked
+ * per section the hop ADMITS (hop_scope.ts: the hop component's configured
+ * targets in the step table where the caller holds the step component), bound
+ * on the joined row's own `section_tipo` — and `admitted` hands the LAST hop's
+ * set to a leaf whose own key reads that row (T1-16: the relation leaf's
+ * from_component_tipo, relationKeySections).
  */
 export async function buildJoinChain(
 	path: { section_tipo?: string; component_tipo?: string }[],
@@ -280,6 +284,12 @@ export async function buildJoinChain(
 	/** False when the principal holds no read grant on some step's component. */
 	authorized: boolean;
 	hops: JoinHop[];
+	/**
+	 * The sections the LAST hop admits (the only sections the last alias's rows
+	 * can belong to); undefined when no frontier scope was given. [] for an
+	 * internal (principal-less) scope, which keys nothing.
+	 */
+	admitted: readonly string[] | undefined;
 }> {
 	const { getMatrixTableFromTipo } = await import('../ontology/resolver.ts');
 	const joins: JoinFragment[] = [];
@@ -334,8 +344,14 @@ export async function buildJoinChain(
 		// single projected column in the collapsed 'order' one.
 		const locatorRef = purpose === 'order' ? `${relationAlias}.value` : relationAlias;
 		// ON-clause conjuncts: the locator identity, then the caller's record ACL.
+		// The id is read through the ONE address law (DATA-26, T1-36): a stored
+		// locator id that is not a record address (zero-padded external id,
+		// opaque 'Q42') reaches NO record — never the record of its numeric value,
+		// never a 22P02 aborting the whole search. Same answer as the relation
+		// index (the reverse shape) and identify's JS twin. The fossil here was
+		// PHP trait.where.php's `NULLIF((…->>'section_id'), '')::bigint`.
 		const onParts = [
-			`${joinAlias}.section_id = NULLIF((${locatorRef}->>'section_id'), '')::bigint`,
+			`${joinAlias}.section_id = ${sectionIdAddressSqlValue(`${locatorRef}->>'section_id'`)}`,
 			`${joinAlias}.section_tipo = (${locatorRef}->>'section_tipo')::text`,
 		];
 		let acl = '';
@@ -396,7 +412,7 @@ export async function buildJoinChain(
 		previousAlias = joinAlias;
 		lastTable = stepTable;
 	}
-	return { joins, lastAlias: previousAlias, lastTable, authorized, hops };
+	return { joins, lastAlias: previousAlias, lastTable, authorized, hops, admitted };
 }
 
 const BOOLEAN_OPERATORS: ReadonlySet<string> = new Set(['$and', '$or', '$not', '$nand', '$nor']);
@@ -548,7 +564,11 @@ interface LeafPlacement {
 	plan: DeepChainPlan | null;
 	/** The SEC-1 frontier scope (undefined = internal search, no key). */
 	scope?: SqlFrontierScope;
-	/** The sections the relation leaf's from_component_tipo key is asked of (relationKeySections). */
+	/**
+	 * The sections the relation leaf's from_component_tipo key is asked of
+	 * (relationKeySections): the mains on a single-step path, the last hop's
+	 * ADMITTED sections on a multi-hop one; undefined = no key (internal).
+	 */
 	keyedSections?: readonly string[];
 }
 
@@ -812,13 +832,13 @@ export interface RelationLeafSink {
  *    sections (`keyedSections` = the mains). Several mains that disagree are
  *    told apart ON THE ROW: `(r.section_tipo = <S> AND <S's condition>)` per
  *    section, OR-ed.
- *  - MULTI-HOP path: the leaf alias is the last join's row, and the key is asked
- *    of the last step's section — the SAME declaration the hop's own component
- *    key and record predicate read (buildJoinChain). That the hop join binds
- *    the step's TABLE and not its section is the hop class's property (PHP
- *    build_sql_join parity: the target_section_tipo binding is commented out
- *    there), ledgered in the WC entry as the open half — a relation leaf alone
- *    cannot close it while a string leaf on the same alias stays open.
+ *  - MULTI-HOP path: the leaf alias is the last join's row, which the hop's ON
+ *    clause binds to the sections that hop ADMITS (hop_scope.ts,
+ *    WC-2026-10-01-search-hop-configured-targets) — so `keyedSections` = those
+ *    admitted sections, told apart on the row exactly like several mains
+ *    (T1-16). Never the client's declared step section: a declaration is not
+ *    an authorization input (a twin the declaration does not name, or a
+ *    spoofed non-target, would be keyed by a section no row there belongs to).
  *
  * Per section: an EXPLICIT hidden from_component_tipo refuses; an ABSENT one
  * keeps its meaning ("any component") minus the hidden ones —
@@ -962,16 +982,31 @@ function componentInList(components: readonly string[], sink: RelationLeafSink):
 /**
  * The sections a relation leaf's from_component_tipo key is asked of (see
  * {@link relationLeafComponentKey}): the mains for a single-step path, the last
- * step's section for a multi-hop one; undefined = no key (internal search).
+ * hop's ADMITTED sections for a multi-hop one (buildJoinChain → hop_scope.ts;
+ * [] when the hop admitted none — the key then matches nothing, as the hop
+ * does); undefined = no key (internal search).
  */
 function relationKeySections(
 	scope: SqlFrontierScope | undefined,
 	path: readonly PathStep[],
+	admitted: readonly string[] | undefined,
 ): readonly string[] | undefined {
 	const mains = keyedMains(scope);
 	if (mains === undefined) return undefined;
 	if (path.length === 1) return mains;
-	return [path[path.length - 1]?.section_tipo ?? ''];
+	return admitted ?? noAdmittedSections(scope as SqlFrontierScope);
+}
+
+/**
+ * A principal-bearing multi-hop chain always runs the hop scope, so it always
+ * hands back its admitted sections. Falling back to the declared step section
+ * IS the T1-16 defect — refuse loudly instead.
+ */
+function noAdmittedSections(scope: SqlFrontierScope): never {
+	throw new DedaloError('internal.invariant', {
+		message: `${scope.door}: a multi-hop relation leaf has no admitted sections to key its from_component_tipo on`,
+		coordinates: { door: scope.door, surface: scope.surface },
+	});
 }
 
 /**
@@ -1161,6 +1196,8 @@ async function conformLeafBody(
 	let leafAlias = alias;
 	let leafTable = table;
 	let plan: DeepChainPlan | null = null;
+	// The last hop's admitted sections: they key a relation leaf's from_component_tipo.
+	let admitted: readonly string[] | undefined;
 	if (path.length > 1) {
 		const chain = await buildJoinChain(
 			path as { section_tipo?: string; component_tipo?: string }[],
@@ -1192,6 +1229,7 @@ async function conformLeafBody(
 			return { kind: 'leaf', fragment: fragmentResult('1=0') };
 		}
 		plan = { mainAlias: alias, hops: chain.hops };
+		admitted = chain.admitted;
 		leafAlias = chain.lastAlias;
 		leafTable = chain.lastTable;
 	}
@@ -1231,7 +1269,7 @@ async function conformLeafBody(
 			field: componentTipo,
 			plan,
 			scope,
-			keyedSections: relationKeySections(scope, path),
+			keyedSections: relationKeySections(scope, path, admitted),
 		});
 	}
 

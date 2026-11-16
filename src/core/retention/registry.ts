@@ -51,6 +51,15 @@ export interface RetentionRunOptions {
 	apply: boolean;
 	/** Test seam: the instant the window is measured from. */
 	now?: Date;
+	/**
+	 * Rows per prune step for the BATCHED stores (matrix_activity, the dd1758
+	 * ledger — core/db/batched_prune.ts); default RETENTION_PRUNE_BATCH_ROWS.
+	 * Stores bounded otherwise (error_reports' row ceiling, the jobs table, the
+	 * sqlite session store) ignore it.
+	 */
+	batchRows?: number;
+	/** Stop a batched prune BETWEEN steps (the scheduler's SIGTERM drain). */
+	signal?: AbortSignal;
 }
 
 /** A store kept for a configured number of days, with an executable prune. */

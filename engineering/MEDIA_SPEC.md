@@ -488,7 +488,11 @@ item's own existing-file count, a SHRINK item kept as stored unless
 `allowShrink`, re-judged under the lock — plus the **`FOREIGN`** kind: an item
 whose entries carry the CLONE SIGNATURE (`<component>_<section>_<N>` with N ≠
 this record's id, what a failed duplicate could leave) is always rewritten; any
-other name the scan does not build (an `image_id` rename) is a held SHRINK. The
+other name the scan does not build is a held SHRINK. An image's `properties.image_id`
+stem IS built (`fileIdOverride`, resolved per record — T1-10,
+`WC-2026-11-12-image-id-media-file-stem`), so a PHP-era stem-named record GROWS;
+only a stem the record no longer resolves (the value changed or emptied after
+upload) is a held SHRINK. The
 duplicate inserts its clone with `files_info: []`, copies through the
 record-scoped walk and re-scans at the clone's identity; an incomplete copy is a
 verdict (`duplicate_media_incomplete`, `media.operation_failed`,
@@ -501,6 +505,19 @@ Two entry points for the rescan transform, deliberately named apart:
   component has no item and the scan found files. PHP
   `update_component_data_files_info :3748` did this unconditionally on save; here
   it is reachable ONLY from the operator's explicit `sync_files`.
+
+The PROVENANCE repair is a separate step, shared by both regenerate doors
+(`update_cache`, `sync_files`): `src/core/media/provenance_repair.ts` (T1-P04,
+PHP `regenerate_component` step 1). `resolveProvenanceRepair` reads the
+component's `properties.target_filename` sibling (lg-nolan slice, first
+non-empty value) before the lock; `applyProvenanceRepair` runs under it, on the
+item of the request data lang (first item when non-translatable), BEFORE the
+rescan, and fills only ABSENT keys: `original_file_name` and
+`original_normalized_name` = `mediaFileId(...)` + `.` + lowercase extension. The
+mint itself still writes files_info alone; `sync_files` passes the repair to
+`repairStoredFilesInfo`, which applies it after the mint or merge. Not ported
+(owner decisions): normalized names guessed from files on disk, and
+`*_upload_date`. Wire: WC-2026-11-12-media-provenance-repair-one-kernel.
 
 The result carries `action` (`refreshed` / `created` / `noop` / `missing`) and
 the affected row count. `missing` — no matrix table, or the record was deleted

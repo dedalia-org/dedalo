@@ -1317,7 +1317,7 @@ const render_sections_selector = (self) => {
 				ui.create_dom_element({
 					element_type	: 'option',
 					value			: typologies[i].section_id,
-					inner_html		: typologies[i].label,
+					text_content		: typologies[i].label,
 					parent			: typology_selector
 				})
 			}
@@ -1484,7 +1484,7 @@ const build_sections_check_boxes = (self, typology_id, parent) => {
 				const label = ui.create_dom_element({
 					element_type	: 'label',
 					parent			: li,
-					inner_html		: item.target_section_name
+					text_content		: item.target_section_name
 				})
 
 			// checkbox

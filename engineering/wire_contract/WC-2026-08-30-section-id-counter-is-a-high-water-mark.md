@@ -269,3 +269,19 @@ rename leaves `null` where the counter must stand.
 
 No parity fixture is affected and **no re-harvest is needed**: the frozen oracle
 store holds READ responses, and no harvested gate drives `modify_counter`.
+
+## Addendum 2026-11-12 — TM_EXCLUDED_SECTIONS is now {dd15, dd655, dd1521} (T1-20 / O16)
+
+- **What changed:** the premise text above ("`recordTimeMachine` skips only
+  TM_EXCLUDED_SECTIONS (dd15)", "`TM_EXCLUDED_SECTIONS` skips dd15") now reads
+  (dd15, dd655, dd1521): the TS port restored the PHP v7 list
+  (`class.tm_record.php` `$excluded_section_tipos`). The set lives in
+  `src/core/concepts/section.ts`; every TM writer funnels through
+  `time_machine.ts` `isAuditedAddress`.
+- **Floor reasoning unchanged:** excluded sections are exactly where TM
+  witnesses nothing new, which is the case the honest limit already covers —
+  GREATEST can only widen, and the counter is never lowered. dd655 / dd1521 rows
+  written before the change still witness their ids.
+- **Wire:** no envelope changes; a save/delete on these sections succeeds as
+  before and simply leaves no history (PHP parity, not a new divergence).
+- **Gate:** `test/unit/tm_excluded_sections_native.test.ts`.

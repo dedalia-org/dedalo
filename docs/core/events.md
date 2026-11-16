@@ -502,6 +502,8 @@ event_manager.publish('key_up_esc' +'_'+ self.id_base, features.av_player.av_rew
 
 - view_default_edit_text_area.js
 
+The text area publishes this event, and keeps the Escape key for it, only while an observer is subscribed (`owns_escape()`). With no observer, Escape deactivates the component like any other field.
+
 ### key_up_f2
 
 ```js

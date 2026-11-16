@@ -46,7 +46,12 @@ const COMPONENT_PROPERTIES = {
 };
 
 function warmDatalist(): ReturnType<typeof getDatalist> {
-	return getDatalist(COMPONENT_TIPO, COMPONENT_PROPERTIES, TARGET_SECTION, 'lg-eng');
+	return getDatalist(
+		COMPONENT_TIPO,
+		COMPONENT_PROPERTIES,
+		{ section_tipo: TARGET_SECTION, section_id: null },
+		'lg-eng',
+	);
 }
 
 function cleanup(): Promise<void> {

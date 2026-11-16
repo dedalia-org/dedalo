@@ -48,6 +48,11 @@
  *     produces the same shape. Every hit is a CANDIDATE for a human to judge.
  *   - Anything outside the standard matrix record tables (MATRIX_TABLE_ALLOWLIST).
  *
+ * UNBOUNDED: the scan is long work by design, so it runs in
+ * `withUnboundedStatements` (the maintenance lane, no statement ceiling) — no
+ * `DB_STATEMENT_TIMEOUT_MS=0` needed. Gate:
+ * test/unit/statement_ceiling_operator_scans_native.test.ts.
+ *
  * READ-ONLY, AND IT PROVES IT. The scan runs inside one `BEGIN READ ONLY`
  * transaction, and before scanning it VERIFIES the barrier twice: Postgres must
  * report `transaction_read_only = on`, and an attempted write must be REFUSED by
@@ -65,7 +70,7 @@
 // requires (standalone scripts must do what the server entrypoint does).
 import '../src/core/components/registry.ts';
 import { MATRIX_JSONB_COLUMNS, MATRIX_TABLE_ALLOWLIST } from '../src/core/db/matrix.ts';
-import { closeDatabasePool, sql } from '../src/core/db/postgres.ts';
+import { closeDatabasePool, sql, withUnboundedStatements } from '../src/core/db/postgres.ts';
 import { tmEpochPredicate, tmVisiblePredicate } from '../src/core/db/record_generation.ts';
 
 /** A reserved connection with the raw `unsafe` runner the proof needs. */
@@ -297,13 +302,29 @@ function toFindings(signature: Finding['signature'], table: string, rows: GroupR
 	}));
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
 	const samples = Number(argValue('--samples') ?? SAMPLE_DEFAULT);
 	const printQueries = process.argv.includes('--queries');
 
-	const reserved = (await sql.reserve()) as unknown as Reserved;
 	const findings: Finding[] = [];
 	const ranQueries: string[] = [];
+	// Whole-table scans (`jsonb_each` over every record table, a `lag()` window
+	// over all of matrix_time_machine): long work, so the scan declares the
+	// unbounded scope at its source — the reserved connection then comes from the
+	// maintenance pool, born without the request statement ceiling
+	// (DB_STATEMENT_TIMEOUT_MS, 60 s by default), which would otherwise cancel
+	// the first scan of a production-size table (T1-24 review; PRODUCTION.md §4).
+	await withUnboundedStatements(() => scan(printQueries, findings, ranQueries));
+	report(samples, findings, ranQueries);
+}
+
+/** The read-only scan proper, on one reserved connection inside BEGIN READ ONLY. */
+async function scan(
+	printQueries: boolean,
+	findings: Finding[],
+	ranQueries: string[],
+): Promise<void> {
+	const reserved = (await sql.reserve()) as unknown as Reserved;
 	try {
 		await proveReadOnly(reserved);
 		console.log(
@@ -349,8 +370,10 @@ async function main(): Promise<void> {
 	} finally {
 		reserved.release();
 	}
+}
 
-	// ---- report -----------------------------------------------------------
+/** Print the findings summary (no database access). */
+function report(samples: number, findings: Finding[], ranQueries: string[]): void {
 	const order: Finding['signature'][] = [
 		'A-replacement-char',
 		'B-absorbed-tail',
@@ -400,8 +423,9 @@ async function main(): Promise<void> {
 			'Signature A is PROOF of a bad decode. B and C are candidates and leads. D is a hint.',
 		].join('\n'),
 	);
-
-	await closeDatabasePool();
 }
 
-await main();
+if (import.meta.main) {
+	await main();
+	await closeDatabasePool();
+}

@@ -16,12 +16,24 @@
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { migrationSha256 } from '../../install/db/migration_ledger.ts';
+import { OS_ROWS } from '../../src/core/install/host/os_support.ts';
+import {
+	renderTemplate,
+	SYSTEMD_DIR,
+	UNIT_TEMPLATES,
+} from '../../src/core/install/host/systemd/render.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import type { ReleasePlan, ReleaseStep } from '../../src/core/update/catalog_file.ts';
+import {
+	type HostUnitsState,
+	isReleaseRender,
+	readHostUnitsState,
+	shippedTemplateNames,
+} from '../../src/core/update/run/host_units.ts';
 import {
 	blockingRun,
 	createRunJournal,
@@ -41,10 +53,15 @@ import {
 import { planRun } from '../../src/core/update/run/plan.ts';
 import { canAutoRollback } from '../../src/core/update/run/rollback.ts';
 import { canTransition, happyPath, isTerminal } from '../../src/core/update/run/states.ts';
-import { type VerifyReads, verifyRun } from '../../src/core/update/run/verify.ts';
+import {
+	type PredicateVerdict,
+	type VerifyReads,
+	verifyRun,
+} from '../../src/core/update/run/verify.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../../src/core/update/version.ts';
 import { dataModelOf } from '../../src/core/update/version_contract.ts';
 
+const REPO_ROOT = resolve(import.meta.dir, '../..');
 const roots: string[] = [];
 const scratchRoot = () => {
 	const root = mkdtempSync(join(tmpdir(), 'dedalo_update_runs_'));
@@ -413,6 +430,7 @@ describe('post-verify', () => {
 		recordedHashes: async () => [{ version: '0001_a.sql', sha256: migrationSha256('A') }],
 		ledger: async () => ledger,
 		installedDataVersion: async () => [7, 1, 0],
+		hostUnits: async () => ({ kind: 'not_systemd' as const }),
 		...overrides,
 	});
 	const journal = { ...journalOf([]), to: { release: '7.1.0', data: '7.1.0', model: '7.1.0' } };
@@ -438,8 +456,170 @@ describe('post-verify', () => {
 			['schema_clean', true],
 			['data_version', true],
 			['data_model', true],
+			['host_units', true],
 		]);
 		expect(result.verified).toBe(true);
+	});
+
+	test("host_units (C33): the host's templates vs this release's render — ALWAYS ok; a difference is an OFFER (the root re-render command), never a failure", async () => {
+		const refresh =
+			'sudo /opt/dedalo/bun/1.4.4/bun run /home/ded_zzhu/dedalo/scripts/ops/host_units_refresh.ts --instance zzhu';
+		const of = async (state: HostUnitsState) =>
+			(await verifyRun(journal, reads({ hostUnits: async () => state }))).verdicts.find(
+				(v) => v.id === 'host_units',
+			) as PredicateVerdict;
+		// not a systemd instance: ok, said, no offer
+		const none = await of({ kind: 'not_systemd' });
+		expect(none).toMatchObject({ ok: true });
+		expect(none.offer).toBeUndefined();
+		expect(none.detail).toContain('not a production systemd instance');
+		// current: ok, no offer
+		const current = await of({ kind: 'current', refresh });
+		expect(current.ok).toBe(true);
+		expect(current.offer).toBeUndefined();
+		// legacy (pre-C32 instance, templates current or not): ok, the offer IS the derived command
+		const legacy = await of({ kind: 'legacy', refresh, templates: [] });
+		expect(legacy.ok).toBe(true);
+		expect(legacy.offer).toBe(refresh);
+		expect(legacy.detail).toContain('before the writable-roots release');
+		// the sibling law, said where the offer is made: on a multi-instance host the
+		// command keeps a shared template until every instance runs this release, and
+		// names the ones to bring there first — so the offer standing after an update
+		// is the law at work, not a failed re-render
+		expect(legacy.detail).toContain('several instances');
+		expect(legacy.detail).toContain('this offer stands until the last one is re-rendered');
+		// differs: STILL ok (the run never writes /etc/systemd), the offer IS the manifest's command
+		const differs = await of({
+			kind: 'differs',
+			refresh,
+			templates: ['dedalo-ts@.service', 'dedalo-backup@.timer'],
+		});
+		expect(differs.ok).toBe(true);
+		expect(differs.offer).toBe(refresh);
+		expect(differs.detail).toContain('dedalo-ts@.service, dedalo-backup@.timer');
+		expect(differs.detail).toContain('ran as the service user');
+		expect(differs.detail).toContain(refresh);
+		expect(differs.detail).toContain('several instances');
+		expect(differs.detail).toContain('update it, then its own re-render');
+		// the manifest named but unreadable: ok, no command to offer (the engine names the script)
+		const unreadable = await of({
+			kind: 'manifest_unreadable',
+			path: '/etc/systemd/system/dedalo-ts@zzhu.service.d/dedalo-writable-roots.json',
+			reason: 'not JSON',
+		});
+		expect(unreadable.ok).toBe(true);
+		expect(unreadable.offer).toBeUndefined();
+		expect(unreadable.detail).toContain('not JSON');
+		expect(unreadable.detail).toContain('host_units_refresh.ts');
+		// a differing host never un-verifies the run: the other predicates decide
+		const run = await verifyRun(
+			journal,
+			reads({
+				hostUnits: async () => ({ kind: 'differs', refresh, templates: ['dedalo-ts@.service'] }),
+				installedDataVersion: async () => [7, 1, 0],
+			}),
+		);
+		expect(run.verdicts.find((v) => v.id === 'host_units')?.ok).toBe(true);
+		expect(run.verdicts.filter((v) => !v.ok).map((v) => v.id)).toEqual(['data_model']);
+	});
+
+	test("readHostUnitsState (C33): no manifest named → not_systemd; the manifest's refresh is the offer; a template absent or of other bytes differs, this release's render (any OS row) is current", async () => {
+		const host = scratchRoot();
+		const manifest = join(host, 'dedalo-writable-roots.json');
+		const refresh =
+			'sudo /opt/dedalo/bun/1.4.4/bun run /home/ded_zzhu/dedalo/scripts/ops/host_units_refresh.ts --instance zzhu';
+		writeFileSync(
+			manifest,
+			JSON.stringify({
+				format: 1,
+				instance: 'zzhu',
+				stamp: 'x',
+				read_write_paths: ['/home/ded_zzhu'],
+				refresh,
+			}),
+		);
+		// the "host": every template at its /etc/systemd/system path, in a map the read consults
+		const files = new Map<string, string>();
+		const readText = async (path: string) => files.get(path) ?? null;
+		const source = REPO_ROOT;
+		expect(await readHostUnitsState({ manifestPath: undefined, readText, source })).toEqual({
+			kind: 'not_systemd',
+		});
+		expect(await readHostUnitsState({ manifestPath: '', readText, source })).toEqual({
+			kind: 'not_systemd',
+		});
+		// NO manifest but the installer's templates ON the host: an instance installed
+		// before C32 — `legacy`, the offer derived from the tree (the instance = the
+		// directory the tree lives in), whatever the templates' state (RED before: not_systemd)
+		files.set(join(SYSTEMD_DIR, 'dedalo-ts@.service'), 'an earlier release render');
+		const legacy = await readHostUnitsState({ manifestPath: undefined, readText, source });
+		expect(legacy).toMatchObject({ kind: 'legacy', templates: [...UNIT_TEMPLATES].sort() });
+		expect((legacy as { refresh: string }).refresh).toContain(
+			`${join(source, 'scripts/ops/host_units_refresh.ts')} --instance ${basename(dirname(source))}`,
+		);
+		files.delete(join(SYSTEMD_DIR, 'dedalo-ts@.service'));
+		// the manifest itself is read through the seam: absent → unreadable, said
+		expect(await readHostUnitsState({ manifestPath: manifest, readText, source })).toEqual({
+			kind: 'manifest_unreadable',
+			path: manifest,
+			reason: 'cannot be read',
+		});
+		files.set(manifest, '{ not json');
+		expect(await readHostUnitsState({ manifestPath: manifest, readText, source })).toMatchObject({
+			kind: 'manifest_unreadable',
+			reason: 'not JSON',
+		});
+		files.set(manifest, readFileSync(manifest, 'utf8'));
+		// no template on the host: every one differs (absent counts)
+		const empty = await readHostUnitsState({ manifestPath: manifest, readText, source });
+		expect(empty).toEqual({ kind: 'differs', refresh, templates: [...UNIT_TEMPLATES].sort() });
+		// the names this read judges are the installer's templates (the server closure stays off host/)
+		expect(await shippedTemplateNames(source)).toEqual([...UNIT_TEMPLATES].sort());
+		// every template this release's render, each on a DIFFERENT OS row (the read needs no host facts)
+		UNIT_TEMPLATES.forEach((name, i) => {
+			const row = OS_ROWS[i % OS_ROWS.length] as (typeof OS_ROWS)[number];
+			files.set(join(SYSTEMD_DIR, name), renderTemplate(name, row, source));
+		});
+		expect(await readHostUnitsState({ manifestPath: manifest, readText, source })).toEqual({
+			kind: 'current',
+			refresh,
+		});
+		// the placeholder law: a render for ANY PostgreSQL unit name is this release's; another
+		// unit name, or one extra byte, is not (no host fact decides)
+		const serverSource = readFileSync(join(source, 'deploy/systemd/dedalo-ts@.service'), 'utf8');
+		expect(serverSource).toContain('@@PG_SERVICE@@');
+		for (const row of OS_ROWS) {
+			expect(isReleaseRender(serverSource, renderTemplate('dedalo-ts@.service', row, source))).toBe(
+				true,
+			);
+		}
+		expect(
+			isReleaseRender(
+				serverSource,
+				serverSource.replace(/@@PG_SERVICE@@/g, 'postgresql-19.service'),
+			),
+		).toBe(true);
+		expect(
+			isReleaseRender(serverSource, serverSource.replace(/@@PG_SERVICE@@/g, 'mariadb.service')),
+		).toBe(false);
+		expect(
+			isReleaseRender(
+				serverSource,
+				`${renderTemplate('dedalo-ts@.service', OS_ROWS[0] as (typeof OS_ROWS)[number], source)}\n`,
+			),
+		).toBe(false);
+		expect(isReleaseRender(serverSource, serverSource)).toBe(false);
+		// a template with no placeholder: byte equality
+		const timer = readFileSync(join(source, 'deploy/systemd/dedalo-backup@.timer'), 'utf8');
+		expect(isReleaseRender(timer, timer)).toBe(true);
+		expect(isReleaseRender(timer, `${timer} `)).toBe(false);
+		// one template of other bytes (an earlier release's, a hand edit): named
+		files.set(join(SYSTEMD_DIR, 'dedalo-ts@.service'), '[Unit]\nDescription=older\n');
+		expect(await readHostUnitsState({ manifestPath: manifest, readText, source })).toEqual({
+			kind: 'differs',
+			refresh,
+			templates: ['dedalo-ts@.service'],
+		});
 	});
 
 	test('a target model the shipped catalog does not know → data_model red, not VERIFIED', async () => {
@@ -449,6 +629,7 @@ describe('post-verify', () => {
 			'schema_clean',
 			'data_version',
 			'data_model',
+			'host_units',
 		]);
 		expect(result.verdicts.find((v) => v.id === 'schema_clean')?.ok).toBe(true);
 		expect(result.verdicts.find((v) => v.id === 'data_version')?.ok).toBe(true);

@@ -220,6 +220,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/orphaned_unsaved_writers_tripwire.test.ts
 	test/unit/security_audit_2026_07_23_tripwire.test.ts
 	test/unit/external_law_registry_tripwire.test.ts
+	test/unit/calculation_fn_registry_tripwire.test.ts
 	test/unit/no_remote_code_tripwire.test.ts
 	test/unit/agent_egress_tripwire.test.ts
 	test/unit/human_write_scope_tripwire.test.ts
@@ -303,6 +304,9 @@ HERMETIC_TRIPWIRES=(
 	#     scan + one runtime refusal that throws before any resolver/DB import.
 	#     Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 9 pass / 0 fail).
 	test/unit/iri_label_unscoped_lookup_tripwire.test.ts
+	# --- 2026-11-12: T1-14, the component value-gate census -- fs + the import-resolved
+	#     call graph only. Verified DB-less (DB_HOST=127.0.0.1 DB_PORT=59999: 4 pass / 0 fail).
+	test/unit/component_value_gate_census_tripwire.test.ts
 	test/unit/sw_tombstone_tripwire.test.ts
 	test/unit/date_flat_value_single_source_tripwire.test.ts
 	test/unit/error_throw_ratchet.test.ts
@@ -585,6 +589,15 @@ HERMETIC_TRIPWIRES=(
 	#     component client trees + src/; imports no src/ module (verified with
 	#     DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/media_url_version_tripwire.test.ts
+	# --- 2026-11-12 (T1-17, operator image pins). DB-free: git ls-files + the stack files,
+	#     Dockerfiles and dependabot.yml parsed, the installer's pure plan renders (verified
+	#     with DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/operator_image_pin_tripwire.test.ts
+	# --- 2026-11-12 (T1-26, installer ontology digests). DB-free: stage_ontologies into
+	#     mkdtemp dirs from fixture packages (a loopback stand-in or a local dir) and the
+	#     vendored release; never touches the database (verified with DB_HOST=127.0.0.1
+	#     DB_PORT=59999: 8 pass / 0 fail).
+	test/unit/install_ontology_digest_native.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

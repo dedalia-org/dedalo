@@ -63,6 +63,9 @@ the first TS port; all are now aligned:
   (`bulk_process_id`) and in the deleted-files path.
 - **`original_file_name` restoration** from the media component's
   `properties.target_filename` sibling (v6 :2670) when the stored item lost it.
+  *(2026-11-12: now ONE kernel shared with tool_media_versions `sync_files` —
+  data-lang item, PHP get_id stem, lowercase extension, applied before the
+  rescan; see WC-2026-11-12-media-provenance-repair-one-kernel.)*
 
 Ledgered gap: v6 also conditionally builds ALTERNATE-extension versions; the TS
 processing layer has no alternate-extension builder yet.

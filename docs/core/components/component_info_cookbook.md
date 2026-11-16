@@ -215,30 +215,46 @@ bun test test/unit/info_widget_registry_tripwire.test.ts
 ## R3 — Add a `calculation` process function
 
 The generic `calculation` widget runs an ontology-named formula. TS resolves it
-from a **static registry** (`widgets/calculation/functions.ts`) — never a
-dynamic include (the SEC-052 threat class does not exist here). To add a formula,
-add an entry to `CALCULATION_FUNCTIONS`:
+from **static tables** — never a dynamic include (the SEC-052 threat class does
+not exist here). The block's `process.file` chooses the table: a GENERIC
+formula (`"file": "/calculation/formulas.ts"`) is an entry of
+`CALCULATION_FUNCTIONS` in `widgets/calculation/functions.ts`; a formula that
+belongs to one ontology (`"file": "/<tld>/calculation/<module>.ts"`) is an
+entry of that TLD's package, `src/tld/<tld>/calculation.ts`, registered once in
+`src/tld/registry.ts` — a package may name its own ontology's tipos and no
+other's, and may not reuse a generic formula name. To add a generic formula:
 
 ```ts
 // src/core/components/component_info/widgets/calculation/functions.ts
 export const CALCULATION_FUNCTIONS: Readonly<Record<string, CalculationFn>> = {
   summarize({ dataMap, options }) { /* … */ },
-  to_euros({ dataMap }) { /* … */ },
-  calculate_period() { /* … */ },
   // add yours:
   multiply({ dataMap }) {
-    const nums = Object.values(dataMap)
-      .filter((v): v is string => v !== null)
-      .map(Number)
-      .filter((n) => Number.isFinite(n));
-    if (nums.length === 0) return [{ id: 'total', value: 0 }];
-    return [{ id: 'total', value: nums.reduce((a, b) => a * b, 1) }];
+    const numbers = Object.values(dataMap)
+      .flatMap((value) => (Array.isArray(value) ? value : []))
+      .filter((value): value is number => typeof value === 'number');
+    if (numbers.length === 0) return [{ id: 'total', value: 0 }];
+    return [{ id: 'total', value: numbers.reduce((a, b) => a * b, 1) }];
   },
 };
 ```
 
-A `CalculationFn` receives `{dataMap, options}` where `dataMap` maps each input
-`var_name` to its flat value string (or `null`), and returns `{id, value}[]`.
+A `CalculationFn` (`widgets/calculation/fn_kit.ts`) receives
+`{dataMap, options, callerSectionTipo}` and returns `{id, value}[]`. An empty
+result is the formula's deliberate "no value computed" — the field renders
+empty, nothing is faked; a definition or input problem THROWS instead (the
+grant amount over zero days is the shipped example). `dataMap` maps each input
+`var_name` to what that input's
+model feeds a calculation (the descriptor facet `calculationData`,
+`src/core/components/calculation_data.ts`):
+
+| Input model | What the formula receives |
+|---|---|
+| `component_number` | the stored values as a list of numbers (`[]` when empty) |
+| `component_date` | the input `options.select` part (default `start`): with `options.format: "dd_date"` the first item's date object tagged `format` `date` / `period`, otherwise the sum of the parts as Unix seconds; `false` when an item lacks the part |
+| `component_info` (and its `component_calculation` alias) | the live compute's `options.select` values (default `value`) |
+| relation models (`component_portal`, …) | each locator walks the input's `options.ddo_map` from its `self` ddo: a ddo with `fn: "get_calculation_data"` feeds its own calculation data, a plain leaf its item values; `null` when there are no locators |
+
 `computeCalculation` (`calculation/calculation.ts`) then emits one item per
 `output.id` the formula produced. The ontology block wires it:
 
@@ -252,23 +268,36 @@ A `CalculationFn` receives `{dataMap, options}` where `dataMap` maps each input
         "section_id": "current",
         "components": [ { "tipo": "numisdata133", "var_name": "numero" }, { "tipo": "numisdata135", "var_name": "numero2" } ]
       },
-      "process": { "fn": "multiply", "options": { "type": "float", "precision": 2 } },
+      "process": {
+        "fn": "multiply",
+        "file": "/calculation/formulas.ts",
+        "engine": "ts",
+        "options": { "type": "float", "precision": 2 }
+      },
       "output": [ { "id": "total", "value": "float" } ]
     }
   ]
 }
 ```
 
-!!! note "`process.file` / `engine` are legacy — ignored"
-    TS dispatches only on `process.fn` through the static registry. Older
-    ontology records may still carry `file` / `engine` keys from before the
-    cutover; they are read but never used to load code. An unknown `fn` resolves
-    to no output — a deliberate, honest refusal rather than a silent no-op.
+!!! note "`process.file` / `engine` are the dispatch key — not a path, not optional"
+    The engine matches `{fn, file, engine}` against its frozen tables and never
+    loads code from `file`. `engine` must be `"ts"` and `file` a `.ts` name:
+    `/calculation/formulas.ts` (generic) or `/<tld>/calculation/<module>.ts`
+    (a TLD package). A definition in the earlier engine's shape (a file that is
+    not a `.ts` name, an engine other than `"ts"`, or no engine), an unknown
+    package, module or `fn`, or a
+    generic file naming a package formula (and the reverse) is refused with
+    `ontology.invalid_node` — the read reports the broken definition instead of
+    showing an empty field, and no alias is applied. Update the ontology.
 
-!!! warning "`summarize` / `to_euros` currently emit no output for non-empty input"
-    These process functions emit `[]` when any input is non-empty (see the pins
-    in `functions.ts`); with all inputs empty both emit `total 0`. Implementing
-    the real sum is open work — reconcile the gate in `functions.ts` when it lands.
+!!! warning "What a calculation refuses"
+    `ontology.invalid_node`: a block without `process.fn`, an input without
+    `tipo` / `var_name`, a relation input without a `self`-anchored
+    `ddo_map`, a calculation that depends on itself (directly or through other
+    calculations), a chain deeper than 16. `engine.uncovered_scope`: the
+    `section_id` scopes `all` / `search_session`, `filter: true`, and an input
+    whose model has no `calculationData` facet.
 
 ---
 

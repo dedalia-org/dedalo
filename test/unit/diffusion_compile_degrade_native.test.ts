@@ -88,7 +88,12 @@ import type {
 } from '../../src/diffusion/plan/virtual_tree.ts';
 import { createSvgTagPathMemo } from '../../src/diffusion/resolve/ddo_fns.ts';
 import { defaultPublicationValue } from '../../src/diffusion/resolve/default_value.ts';
-import { leafMergeColumns, resolveComponentFnAtoms } from '../../src/diffusion/resolve/resolver.ts';
+import type { RunContext } from '../../src/diffusion/resolve/resolver.ts';
+import {
+	componentFnEnvOf,
+	leafMergeColumns,
+	resolveComponentFnAtoms,
+} from '../../src/diffusion/resolve/resolver.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
@@ -202,6 +207,10 @@ const MODELS: Record<string, string> = {
 	// Real model of the live mht ontology (dd_ontology of dedalo7_mht), so the
 	// mht2 topology case reproduces a true chain.
 	zzc140: 'component_input_text',
+	// the info family: component_info and its two legacy aliases
+	zzcinfo: 'component_info',
+	zzcstate: 'component_state',
+	zzccalc: 'component_calculation',
 };
 
 const compileOptions = (fields: FieldSpec[]): CompileOptions => ({
@@ -509,6 +518,7 @@ const fnEnv = {
 	langs: ['lg-spa', 'lg-eng'],
 	pairedGeolocationTipo: async () => null,
 	svgTagPathMemo: createSvgTagPathMemo(),
+	targetSectionTableOf: () => null,
 };
 
 const componentStep = (
@@ -547,14 +557,190 @@ describe('a ddo fn either resolves or fails LOUDLY (never a silent empty publish
 	});
 
 	test('an UNPORTED fn throws even when the component slice is EMPTY', async () => {
-		// hierarchy83's map_target_section_tipo: latent today because the slice is
-		// usually empty — which is exactly how it stayed invisible.
+		// An empty slice is exactly how an unported fn stays invisible (the
+		// historical example, map_target_section_tipo, is ported since T1-5).
 		const promise = resolveComponentFnAtoms(
 			fnEnv,
 			recordOf(1),
-			componentStep('hierarchy53', 'component_input_text', 'map_target_section_tipo'),
+			componentStep('zzc140', 'component_input_text', 'zz_no_such_fn'),
 		);
-		await expect(promise).rejects.toThrow(/map_target_section_tipo/);
+		await expect(promise).rejects.toThrow(/zz_no_such_fn/);
+	});
+
+	// get_geolocation_data = build_geolocation_data(false) on the PAIRED geolocation.
+	const geoRecord = () =>
+		recordOf(1, {
+			geo: {
+				zzc90: [
+					{
+						id: 1,
+						lib_data: [
+							{
+								layer_id: 1,
+								layer_data: {
+									features: [{ geometry: { type: 'Point', coordinates: [3.5, 42.25] } }],
+								},
+							},
+						],
+					},
+				],
+			},
+		} as MatrixRecord['columns']);
+
+	test('get_geolocation_data publishes the paired layers as ONE lang-neutral json atom', async () => {
+		const atoms = await resolveComponentFnAtoms(
+			{ ...fnEnv, pairedGeolocationTipo: async () => 'zzc90' },
+			geoRecord(),
+			componentStep('zzc36', 'component_text_area', 'get_geolocation_data'),
+		);
+		expect(atoms).toEqual([
+			{
+				kind: 'json',
+				value: [{ layer_id: 1, text: '', layer_data: [{ type: 'Point', lon: 3.5, lat: 42.25 }] }],
+				lang: null,
+				meta: { tipo: 'zzc36' },
+			},
+		]);
+	});
+
+	test('get_geolocation_data with no paired geolocation publishes nothing', async () => {
+		const atoms = await resolveComponentFnAtoms(
+			fnEnv,
+			geoRecord(),
+			componentStep('zzc36', 'component_text_area', 'get_geolocation_data'),
+		);
+		expect(atoms).toEqual([]);
+	});
+
+	// map_target_section_tipo: the stored section tipo → the element's table name.
+	const tables: Record<string, string> = { test3: 'test_table_alias' };
+	const targetEnv = {
+		...fnEnv,
+		targetSectionTableOf: (sectionTipo: string) =>
+			Object.hasOwn(tables, sectionTipo) ? (tables[sectionTipo] ?? null) : null,
+	};
+	const hierarchyRecord = (value: string | null) =>
+		recordOf(
+			1,
+			value === null
+				? {}
+				: ({ string: { zzc140: [{ id: 1, lang: 'lg-nolan', value }] } } as MatrixRecord['columns']),
+		);
+	const targetStep = componentStep('zzc140', 'component_input_text', 'map_target_section_tipo');
+
+	test('map_target_section_tipo publishes the table name of the stored section', async () => {
+		const atoms = await resolveComponentFnAtoms(targetEnv, hierarchyRecord('test3'), targetStep);
+		expect(atoms).toEqual([
+			{ kind: 'scalar', value: 'test_table_alias', lang: null, meta: { tipo: 'zzc140' } },
+		]);
+	});
+
+	test('map_target_section_tipo: an unpublished section or an empty value publishes nothing', async () => {
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord('test99'), targetStep)).toEqual(
+			[],
+		);
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord(''), targetStep)).toEqual([]);
+		expect(await resolveComponentFnAtoms(targetEnv, hierarchyRecord(null), targetStep)).toEqual([]);
+	});
+});
+
+describe('map_target_section_tipo is compiled into the plan (resolver stays ontology-free)', () => {
+	test('a plan using the fn carries the element table map', async () => {
+		const options = compileOptions([
+			{
+				tipo: 'f_target',
+				label: 'target_table',
+				process: { ddo_map: [ddo('zzc140', { fn: 'map_target_section_tipo' })] },
+			},
+		]);
+		const plan = await compileElementPlan(ELEMENT_TIPO, options);
+		expect(plan.targetSectionTables).toEqual({ test6813: 'interview' });
+	});
+
+	/**
+	 * The PRODUCTION door end to end: compiled plan → componentFnEnvOf (the
+	 * run's wiring) → targetSectionTableOf (the own-key lookup) → atoms. The fn
+	 * tests above pass a test-written lookup; this one does not, so a wiring that
+	 * reads another field (every hierarchy record → empty column) or a lookup
+	 * that drops the own-key guard (a stored 'constructor' → a Function in the
+	 * scalar atom) goes RED here.
+	 */
+	test('the run wiring resolves the stored section through the COMPILED map, own keys only', async () => {
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([
+				{
+					tipo: 'f_target',
+					label: 'target_table',
+					process: { ddo_map: [ddo('zzc140', { fn: 'map_target_section_tipo' })] },
+				},
+			]),
+		);
+		const ctx = {
+			plan,
+			svgTagPathMemo: createSvgTagPathMemo(),
+			geoPairCache: new Map(),
+		} as unknown as RunContext;
+		const env = componentFnEnvOf(ctx);
+		const step = componentStep('zzc140', 'component_input_text', 'map_target_section_tipo');
+		const stored = (value: string) =>
+			recordOf(1, {
+				string: { zzc140: [{ id: 1, lang: 'lg-nolan', value }] },
+			} as MatrixRecord['columns']);
+		expect(env.langs).toEqual(plan.langPolicy.langs);
+		expect(await resolveComponentFnAtoms(env, stored('test6813'), step)).toEqual([
+			{ kind: 'scalar', value: 'interview', lang: null, meta: { tipo: 'zzc140' } },
+		]);
+		for (const inherited of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+			expect(env.targetSectionTableOf(inherited)).toBeNull();
+			expect(await resolveComponentFnAtoms(env, stored(inherited), step)).toEqual([]);
+		}
+		expect(await resolveComponentFnAtoms(env, stored('test99'), step)).toEqual([]);
+	});
+
+	test('a plan WITHOUT the fn carries no map (existing plans stay byte-equal)', async () => {
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([{ tipo: 'f_title', label: 'title', process: { ddo_map: [ddo('zzc140')] } }]),
+		);
+		expect('targetSectionTables' in plan).toBe(false);
+	});
+});
+
+/**
+ * PHP component_info::get_diffusion_data OVERRIDES the common one, so a ddo fn
+ * on an info-family component never ran: the live widget compute IS the value
+ * (resolve/info_value.ts). The compiler keeps the fn OFF the step — and says
+ * so (`info-fn-ignored:<fn>@<field>`), or the narrowing would be silent.
+ */
+describe('a ddo fn on an info-family component is dropped LOUDLY', () => {
+	const FN = 'map_section_id_to_subtitles_url';
+	const stepOf = (plan: Awaited<ReturnType<typeof compileElementPlan>>, fieldId: string) =>
+		plan.sections[0]?.fields.find((field) => field.id === fieldId)?.sourceChain[0];
+
+	test('info / state / calculation: no step.fn, one warning per field', async () => {
+		const infoTipos = ['zzcinfo', 'zzcstate', 'zzccalc'];
+		const plan = await compileElementPlan(
+			ELEMENT_TIPO,
+			compileOptions([
+				...infoTipos.map((tipo) => ({
+					tipo: `f_${tipo}`,
+					label: `col_${tipo}`,
+					process: { ddo_map: [ddo(tipo, { fn: FN })] },
+				})),
+				// control: the SAME fn on a non-info component is kept
+				{ tipo: 'f_text', label: 'col_text', process: { ddo_map: [ddo('zzc175', { fn: FN })] } },
+			]),
+		);
+		for (const tipo of infoTipos) {
+			const step = stepOf(plan, `f_${tipo}`);
+			expect(step?.kind).toBe('component');
+			expect(step !== undefined && 'fn' in step).toBe(false);
+			expect(plan.warnings).toContain(`info-fn-ignored:${FN}@f_${tipo}`);
+		}
+		const control = stepOf(plan, 'f_text') as { fn?: string } | undefined;
+		expect(control?.fn).toBe(FN);
+		expect(plan.warnings.filter((w) => w.startsWith('info-fn-ignored:'))).toHaveLength(3);
 	});
 });
 

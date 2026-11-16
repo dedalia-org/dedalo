@@ -256,11 +256,26 @@ export interface CsvAnalysis {
 }
 
 /**
+ * The CSV ingest ceiling, in BYTES on disk (T1-S18; value from DOS-04, 2026-07-28).
+ * ONE law for every CSV door — process_uploaded_file refuses a staged file over
+ * it, and get_csv_files / validate_import / import_files read through
+ * `readIngestTextFile(path, label, CSV_INGEST_MAX_BYTES)`, which refuses before
+ * buffering — so a file that previews will import and one refused at import is
+ * refused at preview. Measured on Bun 1.4 (parseCsvDetailed): ~35.5× the source
+ * bytes in RSS (64 MB → +2.27 GB, 1.1 s), plus ~650 ms to structured-clone the
+ * full row set back to the main thread at the import door. The durable answer to
+ * that profile is a streaming parse, not this number.
+ */
+export const CSV_INGEST_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
  * Compute the get_csv_files summary from CSV text — pure and CPU-bound, so it runs
  * OFF the serving event loop in csv_worker.ts (audit S3-42). Returns only the header
  * + counts + a bounded preview + the malformed-JSON-cell rows, NOT the full row set,
- * so the worker→main structured clone stays tiny even for a 200MB file. Returns null
- * for an empty/headerless file (caller ledgers the read error).
+ * so the worker→main structured clone stays tiny. Returns null for an
+ * empty/headerless file (caller ledgers the read error). The text is already
+ * bounded: the read door refused anything over CSV_INGEST_MAX_BYTES before a byte
+ * was buffered (decoded code units never exceed the bytes they came from).
  *
  * `sample_data` and `sample_data_errors` cover DATA rows only — never the header
  * (row 0, which travels as `header`). The mapper's "Sample data" cell shows the
@@ -270,19 +285,6 @@ export interface CsvAnalysis {
  * JSON-checked either.
  */
 export function analyzeCsv(text: string, delimiter?: string): CsvAnalysis | null {
-	// DOS-04 (2026-07-28 audit): parseCsv materializes every cell as a separate
-	// JS string (~39× the source bytes), so an oversized upload OOMs the analysis
-	// worker. Reject beyond a hard ceiling — a real ontology import is far under
-	// it, and a 200 MB+ file is either a mistake or an availability attack.
-	const MAX_CSV_BYTES = 64 * 1024 * 1024;
-	if (text.length > MAX_CSV_BYTES) {
-		const sentence = `CSV exceeds the ${Math.round(MAX_CSV_BYTES / 1024 / 1024)} MB import-analysis limit`;
-		// Public: the sentence is the ceiling itself — no caller data, no path.
-		throw new DedaloError('request.invalid_options', {
-			message: sentence,
-			publicMessage: sentence,
-		});
-	}
 	const rows = parseCsv(text, delimiter);
 	const header = rows[0];
 	if (header === undefined || header.length === 0) return null;

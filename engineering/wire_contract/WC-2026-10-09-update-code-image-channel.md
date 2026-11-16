@@ -48,7 +48,7 @@
       image: string, status: 'green'|'rolled_back'|'rollback_failed'|'refused'|'failed',
       detail: 'healthy'|'health_timeout'|'unhealthy'|'pull_failed'|'verify_failed'|'build_failed'|
               'backup_failed'|'version_refused'|'downgrade_refused'|'same_version'|'not_running'|'env_incomplete'|
-              'locked'|'interrupted'|'malformed_request',
+              'locked'|'interrupted'|'malformed_request'|'service_major_mismatch'|'service_pin_failed',
       backup: string|null, digest: 'sha256:<64hex>'|null,
       started_at: ISO|null, finished_at: ISO|null, recorded_at: ISO
     } | null
@@ -118,3 +118,25 @@ Before this the panel's whole answer was a refusal.
   `--recover` reconciles it (rollback when the pin still names the marker's source or target;
   refused, marker kept, when it was changed by hand). The host updater runs `--recover` first on
   each pass (`reconcile_pin`). Gates: `image_update_script_native`, `image_update_claim_native`.
+
+## Addendum 2026-11-13 (owner rulings C24 / C25, T1-17 D2 / D3)
+
+- **The updater reconciles the stack file's third-party service pins**
+  (`deploy/dedalo-image-update.sh` steps 4b / 7b): every service whose `image:` is
+  pinned `name:tag@sha256:…` (never the product image) and whose RUNNING container
+  carries another image is pulled and recreated ALONE (`up -d --no-build --no-deps
+  <svc>`) after the database dump and before the engine's re-pin; a service that is
+  not running (an opt-in profile) is left alone. `--check` lists what a run would
+  reconcile.
+- `last_outcome.detail` gains two values (closed enum
+  `src/core/update/image_update_channel.ts OUTCOME_DETAILS`):
+  `service_major_mismatch` — `status: refused`, nothing changed: a DATA-FORMAT
+  service (postgres, mariadb, pgvector — `DATA_FORMAT_IMAGES`, C24) is pinned at
+  another MAJOR than the running one, or the running tag spells no major (fail
+  closed); a major moves by the documented migration, never by an image update.
+  `service_pin_failed` — `status: failed`: a queued pin could not be pulled or its
+  service recreated; nothing re-pinned, the engine untouched (a service already
+  recreated keeps the checkout's pin — the rollback moves the engine only).
+- The bash major grammar (`service_major_of`) is held equal to the installer's
+  `dataFormatMajorOf` by `image_update_script_native`. Gates:
+  `image_update_script_native` (C25 block), `operator_image_pin_tripwire` (4).

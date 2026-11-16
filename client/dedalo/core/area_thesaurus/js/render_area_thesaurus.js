@@ -260,11 +260,11 @@ render_area_thesaurus.prototype.list = async function(options) {
 							const item = id_infos[i]
 
 							if (id_info_mode==='tld') {
-								item.innerHTML	= item.dataset.section
+								item.textContent	= item.dataset.section
 								item.title		= item.dataset.term_id
 								item.classList.add('show_section')
 							}else{
-								item.innerHTML	= item.dataset.term_id
+								item.textContent	= item.dataset.term_id
 								item.title		= item.dataset.section
 								item.classList.remove('show_section')
 							}
@@ -376,7 +376,7 @@ const render_content_data = function(self) {
 					dataset			: {
 						section_id	: typology_item.section_id
 					},
-					inner_html		: typology_item.label,
+					text_content		: typology_item.label,
 					parent			: li
 				})
 
@@ -698,7 +698,7 @@ const get_buttons = function(self) {
 				const button_node	= ui.create_dom_element({
 					element_type	: 'button',
 					class_name		: class_name,
-					inner_html		: current_button.label,
+					text_content		: current_button.label,
 					parent			: other_buttons_block
 				})
 				const click_handler = (e) => {

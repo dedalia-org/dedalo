@@ -77,7 +77,7 @@ The tool is **component-level**: it renders as an **Import RDF** button inline o
 
 ## Related
 
-- **[Zotero import](using_import_zotero.md)** — shares this tool's RDF/XML parser, for Zotero exports.
+- **[Zotero import](using_import_zotero.md)** — imports a Zotero CSL JSON export file into Publications.
 - **[CSV import](using_import_dedalo_csv.md)** — CSV import, including Dédalo's own `dedalo_raw` exports.
 - **[MARC21 import](using_import_marc21.md)** — MARC21 library-catalogue import.
 - **[Media file import](using_import_files.md)** — media ingest.

@@ -40,6 +40,7 @@ import type { ApiNotice } from '../../errors/schema.ts';
 import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import { buildRequestConfigForElement, findSectionListChild } from './build.ts';
 import type { ParsedRequestConfigItem } from './explicit.ts';
+import { childrenViewOf } from './implicit.ts';
 
 /** What the one resolver needs to know about the element. */
 export interface OwnConfigRequest {
@@ -120,17 +121,21 @@ export async function resolveOwnRequestConfig(
 	request: OwnConfigRequest,
 ): Promise<ParsedRequestConfigItem[]> {
 	const model = request.model ?? (await getModelByTipo(request.tipo)) ?? '';
+	const baseProperties = await basePropertiesOf(request);
 	const sourceProperties = await resolveSourceProperties(
 		request.tipo,
 		request.mode,
 		model,
-		await basePropertiesOf(request),
+		baseProperties,
 	);
 	return buildRequestConfigForElement(sourceProperties, {
 		ownerTipo: request.tipo,
 		ownerSectionTipo: request.sectionTipo,
 		mode: request.mode,
 		ownerIsSection: model === 'section',
+		// The owner's OWN children_view, read BEFORE the section_list swap (PHP
+		// reads $this->properties, which Site B never replaces).
+		ownerChildrenView: childrenViewOf(baseProperties),
 		...(request.sectionId !== undefined ? { ownerSectionId: request.sectionId } : {}),
 		...(request.lang !== undefined ? { lang: request.lang } : {}),
 		...(request.notices !== undefined ? { notices: request.notices } : {}),

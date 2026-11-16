@@ -54,16 +54,10 @@
 
 import type { Locator, StoredSectionId } from '../../concepts/locator.ts';
 import { compareLocators } from '../../concepts/locator.ts';
-import { canonicalizeStoredSectionId } from '../../concepts/section_id.ts';
 import type { MatrixRecord } from '../../db/matrix.ts';
 import { readMatrixRecord } from '../../db/matrix.ts';
 import { getEffectivePropertiesByTipo } from '../../ontology/alias.ts';
-import {
-	getMatrixTableFromTipo,
-	getModelByTipo,
-	getTranslatableByTipo,
-} from '../../ontology/resolver.ts';
-import { filterItemsByLang, readComponentItems } from '../../resolve/component_data.ts';
+import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
 import { currentDataLang } from '../../resolve/request_lang.ts';
 import { NOTE_PATTERN } from '../../resolve/tr_marks.ts';
 import { noteFrontierRefusal } from '../../security/frontier_scope.ts';
@@ -71,10 +65,14 @@ import type { Principal } from '../../security/permissions.ts';
 import { doorComponentAllowed, type ReadDoorScope } from '../../security/read_door.ts';
 import { principalCanAccessRecord } from '../../security/record_scope.ts';
 import { getTermByLocator } from '../../ts_object/term_resolver.ts';
+import {
+	normalizeTagLocator,
+	readComponentItemsForLang,
+	readTagLocatorsOnRecord,
+	type TagLocator,
+} from './tag_locators.ts';
 import type { PersonTagElement } from './tags_persons.ts';
 
-/** PHP DEDALO_DATA_NOLAN — the lang of a non-translatable component. */
-const NOLAN = 'lg-nolan';
 /** component_publication 'yes' term (dd64/1) — a `type:'bool'` note ddo is true. */
 const PUBLICATION_YES_ID = '1';
 
@@ -101,16 +99,8 @@ interface TextAreaTagProperties {
 	tags_persons?: Record<string, import('./tags_persons.ts').TagsPersonsConfigEntry[]>;
 }
 
-/** A stored tag locator, normalized to canonical ids (see the module wire law). */
-export interface TagLocator {
-	section_tipo: string;
-	/** Canonical int for a matrix address; verbatim string for a remote id. */
-	section_id: StoredSectionId;
-	component_tipo?: string;
-	tag_id?: string;
-	type?: string;
-	[key: string]: unknown;
-}
+/** A stored tag locator (tag_locators.ts), re-exported for this feed's importers. */
+export type { TagLocator };
 
 /** One resolved index/reference tag: the stored locator + its term label. */
 export interface TagTermElement {
@@ -216,48 +206,9 @@ async function readRecord(sectionTipo: string, sectionId: StoredSectionId) {
 }
 
 /**
- * One component's stored items for a lang (PHP component get_dato: the lang
- * slice for a translatable component, the full array otherwise). NO fallback
- * chain — PHP's get_dato has none either, and a note resolved from another
- * lang's text would be a silent lie about what the transcription says.
- */
-async function readItems(
-	record: MatrixRecord,
-	componentTipo: string,
-	lang: string,
-): Promise<unknown[]> {
-	const model = await getModelByTipo(componentTipo);
-	if (model === null) return [];
-	const items = readComponentItems(record, componentTipo, model) ?? [];
-	if (!(await getTranslatableByTipo(componentTipo))) return items;
-	return filterItemsByLang(items, lang);
-}
-
-/** Normalize a stored locator to the canonical wire shape. */
-function normalizeLocator(stored: Record<string, unknown>): TagLocator | null {
-	const sectionTipo = stored.section_tipo;
-	if (typeof sectionTipo !== 'string' || stored.section_id === undefined) return null;
-	const locator: TagLocator = {
-		...stored,
-		section_tipo: sectionTipo,
-		// Stored data is still mixed (pre-sweep '12' next to post-sweep 12), so
-		// canonicalize on the way out instead of echoing whichever form the row
-		// happens to hold — a padded/opaque remote id stays untouched.
-		section_id: canonicalizeStoredSectionId(stored.section_id) as StoredSectionId,
-	};
-	// tag_id is a TEXT token, not an address: it is matched with strict `===`
-	// against a regex capture from the transcription text. Keep it a string.
-	if (stored.tag_id !== undefined && stored.tag_id !== null) {
-		locator.tag_id = String(stored.tag_id);
-	}
-	return locator;
-}
-
-/**
  * The raw tag locators of one tag type (PHP get_component_tags_data): the data
  * of the component named by `properties.tags_<type>.tipo`, read on the HOST
- * record. The config's own `section_tipo`/`section_id` are ignored — they are
- * the literal string 'self' on the shipped ontology, and PHP ignored them too.
+ * record (tag_locators.ts — shared with the edit-read tag-integrity repair).
  */
 async function readTagLocators(
 	config: TagsPointerConfig | undefined,
@@ -267,15 +218,7 @@ async function readTagLocators(
 	const componentTipo = config?.tipo;
 	if (typeof componentTipo !== 'string' || componentTipo === '') return [];
 	if (hostRecord === null) return [];
-	// The tag portal is structural, never translated (PHP reads it in NOLAN).
-	const items = await readItems(hostRecord, componentTipo, NOLAN);
-	const locators: TagLocator[] = [];
-	for (const item of items) {
-		if (item === null || typeof item !== 'object') continue;
-		const locator = normalizeLocator(item as Record<string, unknown>);
-		if (locator !== null) locators.push(locator);
-	}
-	return locators;
+	return readTagLocatorsOnRecord(hostRecord, componentTipo);
 }
 
 /**
@@ -345,7 +288,7 @@ async function buildAnnotations(
 			} catch {
 				continue; // malformed mark payload — not a reason to fail the view
 			}
-			const locator = normalizeLocator(stored);
+			const locator = normalizeTagLocator(stored);
 			if (locator === null) continue;
 
 			const ddoMap = config[locator.section_tipo];
@@ -411,7 +354,7 @@ async function resolveNote(
 		note[ddo.id] =
 			noteRecord === null
 				? emptyNoteValue(ddo)
-				: noteValue(ddo, await readItems(noteRecord, ddo.component_tipo, lang));
+				: noteValue(ddo, await readComponentItemsForLang(noteRecord, ddo.component_tipo, lang));
 	}
 	return note;
 }
@@ -501,7 +444,7 @@ export async function buildTagsInfo(
 					const rawValues =
 						hostRecord === null
 							? []
-							: (await readItems(hostRecord, host.tipo, lang)).map((item) => {
+							: (await readComponentItemsForLang(hostRecord, host.tipo, lang)).map((item) => {
 									if (item !== null && typeof item === 'object') {
 										const value = (item as { value?: unknown }).value;
 										return typeof value === 'string' ? value : '';

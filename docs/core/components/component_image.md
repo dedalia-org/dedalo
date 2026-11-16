@@ -193,13 +193,16 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 ### image_id
 
-- **Values:** a component `tipo` (string), e.g. `{"image_id": "dd851"}`.
-- **Effect:** intended to override the deterministic filename `id` — instead of `{component_tipo}_{section_tipo}_{section_id}`, use the (trimmed, non-empty) value of the referenced component as the media filename base. **Not yet implemented**: `buildMediaIdentifier()` (`src/core/media/path.ts`) always computes the standard `{component_tipo}_{section_tipo}_{section_id}` form; there is no override hook for a catalogued-code filename yet. Ledgered gap.
+- **Values:** a component `tipo` (string) naming a sibling component of the same section, e.g. `{"image_id": "rsc34"}` (the core Images component `rsc29` names its files by `rsc34` "Filename").
+- **Effect:** the trimmed, non-empty value of the referenced component on the record becomes the **file name** of every file of this component — the quality files, the thumb and the SVG envelope: `photo_2.jpg` instead of `rsc29_rsc170_7.jpg`. An empty value falls back to the standard `{component_tipo}_{section_tipo}_{section_id}` name. The name carries no language suffix, so every language of a translatable image shares it. Resolved per record by `resolveMediaPathOptions()` (`src/core/media/ontology_path.ts`, field `fileIdOverride`) and applied by `buildMediaLocation()` (`src/core/media/path.ts`), so upload, regeneration, the media tools, rescans, the edit view, record delete/restore and the indexation grid all use the same name. Only `component_image` reads the property; on any other model it has no effect.
+- **Refused values:** a value that is not a plain file name (empty after trimming is the fallback, but `.`/`..`, `/`, `\\`, `"`, `<`, `>` or a control character are refused), and a value that names **another record's** files under the media-protection file-name grammar (for example `rsc29_rsc170_5` on record 7). A refused value stops the upload or the tool before anything is written, with the error `media.invalid_identifier`.
+- **Shared names:** two records with the same value address the same files. Duplicating such a record copies nothing for this component and reports it as incomplete (the copy would overwrite the source). Changing the value after files exist does not rename them.
+- **Publication:** files named this way do not follow the media-protection file-name grammar, so anonymous visitors never see them, published or not (see [media protection](../system/media_protection.md)).
 
 ### target_filename
 
-- **Values:** a component `tipo` (string), e.g. `"test100"`.
-- **Effect:** intended so that on upload the user's original upload filename is written into the named [component_input_text](component_input_text.md) of the same record (and saved). **Not yet wired in the TS ingest path**: `processUploadedFile()` (`src/core/media/ingest/process_uploaded_file.ts`) stores the original filename on the media item itself but does not write it back to a sibling component; `target_filename` is honoured today only by the bulk `tool_import_files` matcher (`src/core/tools/import_files_match.ts`). Ledgered gap for the interactive-upload path.
+- **Values:** a component `tipo` (string), e.g. `"rsc398"`.
+- **Effect:** on upload the user's original file name is written into the named [component_input_text](component_input_text.md) of the same record. Done by the ingest itself for every upload door (`src/core/media/ingest/companion_writes.ts`, called from `processUploadedFile()`).
 
 ### initial_media_path
 
@@ -208,8 +211,8 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 ### additional_path
 
-- **Values:** a component `tipo` (string).
-- **Effect:** intended to append a path segment **after** the quality folder, read from the value of the referenced component (slashes normalised), taking precedence over the `max_items_folder` fallback. `buildMediaLocation()` already accepts a pre-resolved `additionalPathOverride`, but `resolveMediaPathOptions()` does **not yet** read a sibling component's value into it — today the TS path builder only honours `max_items_folder`. A component configured with `additional_path` will resolve to the wrong bucket until this ontology lookup is wired. Ledgered gap.
+- **Values:** a component `tipo` (string), e.g. `"rsc33"`.
+- **Effect:** appends a path segment **after** the quality folder, read from the value of the referenced component on the record (trimmed, leading slash added, trailing slash removed), taking precedence over the `max_items_folder` bucket. An empty value falls back to that bucket. Resolved per record by `resolveMediaPathOptions()` (`src/core/media/ontology_path.ts`, field `additionalPathOverride`). A value with a `.`/`..` segment, a NUL or one of `"`, `<`, `>` is refused.
 
 ### max_items_folder
 

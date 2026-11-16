@@ -29,11 +29,13 @@
  *      law kind; the release directory exists and is the one the seed
  *      compiles (install/import/ontology/<major.minor>).
  *   B. SHAPES: every `observe[].server` entry that names a `perform` maps to a
- *      resolver (self_and_observable / observable / inverse / self) — the
- *      relay family (no perform) is the dispatch's own branch and out of
- *      scope. A refused shape is red unless it is a named exemption of the
- *      engine (SERVER_SHAPE_EXEMPTIONS) AND named here, node by node, with its
- *      reason (rsc1214 `refresh_data`). The two lists move in lockstep.
+ *      resolver (self_and_observable / observable / inverse / self) and a
+ *      perform of the closed set (set_dato_external / refresh_data — the
+ *      latter rsc1214 ← rsc1156, ported 2026-11-13) — the relay family (no
+ *      perform) is the dispatch's own branch and out of scope. A refused
+ *      shape is red unless it is a named exemption of the engine
+ *      (SERVER_SHAPE_EXEMPTIONS) AND named here, node by node, with its
+ *      reason. The two lists move in lockstep (both EMPTY today).
  *   C. LAWS: every node carrying a set_dato_external server entry classifies
  *      as a STORED law, and is then COVERED (isCoveredExternalObserverNode —
  *      the predicate the wipe, the duplicate and the restore read). A
@@ -59,14 +61,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
-import { decodeCopyField } from '../../src/core/db/copy_text.ts';
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
-import {
-	ONTOLOGY_CSS,
-	ONTOLOGY_PROPERTIES,
-	ONTOLOGY_SOURCE,
-} from '../../src/core/ontology/ontology_tipos.ts';
 import { resolveExternalLaw } from '../../src/core/section/record/external_laws/classify.ts';
 import {
 	classifyObserverServerShape,
@@ -78,10 +73,7 @@ import {
 	entryServerBlock,
 	type ObserveEntry,
 } from '../../src/core/section/record/observer_subscriptions.ts';
-import {
-	type VendoredOntologyPackage,
-	vendoredOntologyPackages,
-} from '../helpers/vendored_ontology_corpus.ts';
+import { vendoredOntologyNodes } from '../helpers/vendored_ontology_corpus.ts';
 import registryJson from './fixtures/external_law_registry/registry.json';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -104,29 +96,6 @@ interface CorpusNode {
 // The corpora
 // ---------------------------------------------------------------------------
 
-/**
- * The release the seed compiles from: install/import/ontology/<major.minor> —
- * exactly ONE release directory is shipped (the shared lister walks them all);
- * test A asserts the count. NO expect() at module scope: a load-time
- * expect() belongs to no test case, so the per-file assertion floor
- * (engineering/unit_baseline.json) counted it or not depending on the run's
- * file order — the loaders RECORD, the tests assert.
- */
-function shippedReleasePackages(): { packages: VendoredOntologyPackage[]; releases: string[] } {
-	const packages = vendoredOntologyPackages();
-	return { packages, releases: [...new Set(packages.map((entry) => entry.release))] };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** The first item's value of one misc component (parser readPropertySet's `firstValue`). */
-function firstValue(misc: Record<string, unknown>, tipo: string): unknown {
-	const items = misc[tipo];
-	return Array.isArray(items) ? (items[0] as { value?: unknown } | undefined)?.value : undefined;
-}
-
 function loadTestTldCorpus(): CorpusNode[] {
 	const doc = JSON.parse(
 		readFileSync(join(REPO_ROOT, 'src/core/test_data/test_tld_ontology.json'), 'utf8'),
@@ -138,36 +107,24 @@ function loadTestTldCorpus(): CorpusNode[] {
 	}));
 }
 
-/** The COPY columns the loader reads (test A asserts their positions). */
+/** The COPY columns the shared loader reads (test A asserts their positions). */
 const ID_COLUMN = MATRIX_COPY_COLUMNS.indexOf('section_id');
 const MISC_COLUMN = MATRIX_COPY_COLUMNS.indexOf('misc');
 
+/**
+ * The shipped packages through the ONE package-row loader
+ * (test/helpers/vendored_ontology_corpus.ts vendoredOntologyNodes). NO
+ * expect() at module scope: a load-time expect() belongs to no test case, so
+ * the per-file assertion floor (engineering/unit_baseline.json) counted it or
+ * not depending on the run's file order — the loader RECORDS, the tests assert.
+ */
 function loadPackageCorpus(): { nodes: CorpusNode[]; files: number; releases: string[] } {
-	const idColumn = ID_COLUMN;
-	const miscColumn = MISC_COLUMN;
-	const { packages: files, releases } = shippedReleasePackages();
-	const nodes: CorpusNode[] = [];
-	for (const { tld, path } of files) {
-		const name = `${tld}.copy.gz`;
-		for (const line of gunzipSync(readFileSync(path)).toString('utf8').split('\n')) {
-			if (line === '') continue;
-			const fields = line.split('\t');
-			const sectionId = decodeCopyField(fields[idColumn] ?? '\\N');
-			const raw = decodeCopyField(fields[miscColumn] ?? '\\N');
-			if (sectionId === null || raw === null) continue;
-			const misc = JSON.parse(raw) as unknown;
-			if (!isPlainObject(misc)) continue;
-			// parser.ts resolveProperties, canonical half (see the header).
-			const keys = firstValue(misc, ONTOLOGY_PROPERTIES);
-			const properties: Record<string, unknown> = isPlainObject(keys) ? { ...keys } : {};
-			const css = firstValue(misc, ONTOLOGY_CSS);
-			const source = firstValue(misc, ONTOLOGY_SOURCE);
-			if (css !== undefined) properties.css = css;
-			if (source !== undefined) properties.source = source;
-			nodes.push({ tipo: `${tld}${sectionId}`, properties, corpus: name });
-		}
-	}
-	return { nodes, files: files.length, releases };
+	const { nodes, files, releases } = vendoredOntologyNodes();
+	return {
+		nodes: nodes.map(({ tipo, properties, corpus }) => ({ tipo, properties, corpus })),
+		files,
+		releases,
+	};
 }
 
 const TEST_TLD = loadTestTldCorpus();

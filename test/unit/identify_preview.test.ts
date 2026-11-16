@@ -68,8 +68,8 @@ function fakePort(
 			return overrides.model === undefined ? 'component_image' : overrides.model;
 		},
 		getTranslatable: async () => overrides.translatable === true,
-		getPathOptions: async (_componentTipo, sectionTipo) => {
-			calls.pathOptions.push(sectionTipo);
+		getPathOptions: async (_componentTipo, sectionTipo, sectionId) => {
+			calls.pathOptions.push(`${sectionTipo}/${sectionId}`);
 			return PATH_OPTIONS;
 		},
 		// The real filesystem, under the scratch root — the existence check is the
@@ -159,10 +159,10 @@ describe('resolvePreviewThumbs — the present case', () => {
 		expect([...thumbs.keys()]).toEqual(['test3_8']);
 	});
 
-	test('path options are resolved once per SECTION, not once per record', async () => {
+	test('path options are resolved PER RECORD (its own bucket and image_id stem — T1-10)', async () => {
 		const port = fakePort();
 		await resolvePreviewThumbs(PREVIEW, [record(10), record(11), record(12)], port);
-		expect(port.calls.pathOptions).toEqual([SECTION]);
+		expect(port.calls.pathOptions).toEqual([`${SECTION}/10`, `${SECTION}/11`, `${SECTION}/12`]);
 	});
 
 	test('a translatable preview component reads the request data lang', async () => {

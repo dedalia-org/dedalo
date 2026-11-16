@@ -703,8 +703,13 @@ const build_automatic_translation = (self, translator_engine, source_select_lang
 					device			: device,
 					status_container: status_container
 				})
-				.then(()=>{
+				.then((response)=>{
 					components_container.classList.remove('loading')
+					// only a stored translation is 'completed': a cancelled run resolves
+					// result:false and keeps the driver's own status text
+					if (response?.result!==true) {
+						return
+					}
 					const msg = self.get_tool_label('translation_completed') || 'Translation completed.'
 					status_container.classList.remove('loading_status')
 					// build the node, set the message as TEXT (never an HTML sink, DS-1)

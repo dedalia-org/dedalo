@@ -16,10 +16,11 @@
  *   link_children (children resolution + descriptor/ND classification),
  *   portal/autocomplete_hi (locators → term strings, cached), the 'M' icon's
  *   model_value badge (get_value via the component's request_config ddo_map).
- *   DEFERRED (ledgered): component_relation_related inverse-reference merge (tree
- *   term rarely a related component) and the legacy component_relation_struct
- *   skip (PHP drops a relation_index tagged legacy component_relation_struct;
- *   TS emits it, so a v6-legacy install renders one extra count badge).
+ *   component_relation_related inverse-reference merge (one hop, same section,
+ *   every type_rel but dd620 — PHP :1451; the EQ icon on the TARGET term).
+ *   DEFERRED (ledgered): the legacy component_relation_struct skip (PHP drops a
+ *   relation_index tagged legacy component_relation_struct; TS emits it, so a
+ *   v6-legacy install renders one extra count badge).
  *   CLOSED SINCE: component_svg URL/file-exists resolution (2026-09-01,
  *   WC-2026-09-01-ts-object-svg-url) and get_indexation_grid, which is served
  *   by src/core/section/indexation_grid.ts and differential-gated — the line
@@ -33,6 +34,7 @@
 
 import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
+import type { RenderClass } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
@@ -65,9 +67,16 @@ import {
 	getChildrenRecursive,
 	getComponentOrderTipo,
 } from '../relations/children.ts';
+import {
+	getReferences,
+	getRelationTypeRel,
+	RELATED_UNIDIRECTIONAL,
+	type RelatedReference,
+} from '../relations/related.ts';
 import { stripTags } from '../resolve/html_text.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { countInverseReferences } from '../search/search_related.ts';
+import { escapeHtml } from '../security/html_escape.ts';
 import type { Principal } from '../security/permissions.ts';
 import { getPermissions } from '../security/permissions.ts';
 import { batchDescriptorFlags, fetchNodeInfo, type NodeLocator } from './node_repository.ts';
@@ -114,6 +123,12 @@ export interface TsElement {
 	model_value?: string;
 	show_data?: string;
 	count_result?: unknown;
+	/**
+	 * 'term' only: 'html' — the value is server-built markup (escaped record
+	 * text + the optional `<mark>` untranslated wrap); the client renders it
+	 * through render_value (WC-2026-11-12-tree-term-escaped).
+	 */
+	render_class?: RenderClass;
 }
 
 /**
@@ -387,7 +402,8 @@ function readItemsFromRecord(
  * The component_data for one element tipo (PHP get_data_lang + format_component_data).
  * relation_children → child locators; relation_index → [] (counted separately);
  * section_id → the record's own id (virtual component, no jsonb column);
- * portal/autocomplete_hi → locators resolved to term strings; translatable string
+ * portal/autocomplete_hi → locators resolved to term strings; relation_related →
+ * stored links + one-hop inverse references; translatable string
  * families → lang-filtered items; everything else → raw items.
  */
 async function getComponentDataLang(
@@ -427,6 +443,13 @@ async function getComponentDataLang(
 		items = items.filter((item) => (item.lang ?? 'lg-nolan') === elementLang);
 	}
 
+	// format_component_data: component_relation_related → stored links + the
+	// one-hop inverse references (PHP :1451). Without them the TARGET of an
+	// equivalence holds an empty bag and its EQ icon is suppressed as empty.
+	if (model === 'component_relation_related') {
+		return [...items, ...(await relatedInverseReferences(tipo, sectionTipo, sectionId))];
+	}
+
 	// format_component_data: component_svg → the URL of the file ON DISK, as a
 	// STRING, replacing the stored media-item array outright (PHP :1349). The
 	// client renders the tree's `img` element straight from this value
@@ -448,6 +471,24 @@ async function getComponentDataLang(
 		return values;
 	}
 	return items;
+}
+
+/**
+ * PHP format_component_data, component_relation_related case (:1451): the
+ * component's same-section inverse references ("who points at me"), unless the
+ * relation is UNIDIRECTIONAL (dd620) — PHP merges for every other type_rel,
+ * unknown ones included. ONE hop, as PHP (get_references, not the recursive
+ * closure): for icon presence it is equivalent — a node sits in a non-trivial
+ * equivalence class iff its stored bag or its one-hop inverse is non-empty.
+ */
+async function relatedInverseReferences(
+	tipo: string,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<RelatedReference[]> {
+	const node = await getNode(tipo);
+	if (getRelationTypeRel(node?.properties ?? null) === RELATED_UNIDIRECTIONAL) return [];
+	return getReferences(tipo, sectionTipo, sectionId);
 }
 
 /**
@@ -1053,23 +1094,32 @@ async function resolveElementValue(
 ): Promise<boolean> {
 	switch (elementObj.type) {
 		case 'term': {
-			let elementValue: unknown;
+			// The term is server-built MARKUP (render_class 'html'): each record
+			// piece is escaped HERE, before the untranslated `<mark>` wrap and
+			// before the composite join — a term may not carry markup (owner
+			// ruling 2026-11-11, WC-2026-11-12-tree-term-escaped). Caches above
+			// hold raw text; the accumulated elementObj.value is already escaped.
+			let elementValue: string;
 			if (componentData.length === 0) {
 				// lang fallback: main-lang → nolan → any, decorated as untranslated.
 				const rawItems = readItemsFromRecord(record, elementTipo, model);
-				const fallback = componentDataFallbackValue(rawItems);
-				elementValue = fallback === '' ? '' : `<mark>${toStr(fallback)}</mark>`;
+				const fallback = escapeHtml(toStr(componentDataFallbackValue(rawItems)));
+				elementValue = fallback === '' ? '' : `<mark>${fallback}</mark>`;
 			} else {
 				const first = componentData[0] as { value?: unknown } | string | undefined;
-				elementValue =
-					first !== null && typeof first === 'object'
-						? ((first as { value?: unknown }).value ?? '')
-						: (first ?? '');
+				elementValue = escapeHtml(
+					toStr(
+						first !== null && typeof first === 'object'
+							? ((first as { value?: unknown }).value ?? '')
+							: (first ?? ''),
+					),
+				);
 			}
 			elementObj.value =
 				elementObj.value !== undefined
-					? `${toStr(elementObj.value)} ${toStr(elementValue)}`
-					: toStr(elementValue);
+					? `${toStr(elementObj.value)} ${elementValue}`
+					: elementValue;
+			elementObj.render_class = 'html';
 			return true;
 		}
 		case 'icon': {

@@ -39,7 +39,8 @@
  *         kernel, the ledger's enqueue, the derivation's birth law, the
  *         removal-law, mirror and covered-slot entries, the per-key kernel
  *         (its flag-value hatches: only the four named entries reach it), the
- *         explicit mirror refresh (only the read door reaches it) and
+ *         explicit mirror refresh (only the read door and update_cache's
+ *         per-row grant reach it) and
  *         the files_info writer are the enumerated ones, and each enumerated caller PROVABLY
  *         still calls it — a door that remembers an obligation itself is red;
  *         and every afterRecordWrite caller outside the chokepoint is pinned to
@@ -134,9 +135,12 @@ const U = {
 	recomputeMirrorAndHop: `${OBSERVERS}#recomputeMirrorAndHop`,
 	resaveObserverThroughSaveRules: `${OBSERVERS}#resaveObserverThroughSaveRules`,
 	resaveIsolated: `${OBSERVERS}#resaveIsolated`,
+	applyRefreshDataClear: `${OBSERVERS}#applyRefreshDataClear`,
+	dispatchRefreshData: `${OBSERVERS}#dispatchRefreshData`,
 	refreshExternalMirror: `${OBSERVERS}#refreshExternalMirror`,
 	maybeRefreshExternal: `${EXTERNAL_REFRESH}#maybeRefreshExternal`,
-	runRefresh: `${EXTERNAL_REFRESH}#runRefresh`,
+	runExternalRefresh: `${EXTERNAL_REFRESH}#runExternalRefresh`,
+	refreshExternalForRow: 'tools/tool_update_cache/server/index.ts#refreshExternalForRow',
 	runObserverCascadeHop: `${OBSERVERS}#runObserverCascadeHop`,
 	recomputeExternalRelation: `${OBSERVERS}#recomputeExternalRelation`,
 	requestCoveredSlotRecompute: `${RECORD_WRITE}#requestCoveredSlotRecompute`,
@@ -586,8 +590,18 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 	},
 	{
 		target: U.persistObserverResaveKeys,
-		allowed: [U.resaveObserverThroughSaveRules],
-		why: 'the SECOND cascade-owned entry (portal order model — WC-2026-08-02-observer-relay-writes-nothing addendum): the default branch re-writes an observer its own save rules change, WITHOUT a ledger entry (the relay hops it itself); only the re-save may skip the ledger this way.',
+		allowed: [U.resaveObserverThroughSaveRules, U.applyRefreshDataClear],
+		why: 'the SECOND cascade-owned entry (portal order model — WC-2026-08-02-observer-relay-writes-nothing addendum): an observer re-written by its OWN edge, WITHOUT a ledger entry (the dispatch hops it itself) — the default branch re-saving an observer its own save rules change, and the refresh_data perform clearing the observer on its host (WC-2026-11-13-observer-refresh-data); only those two may skip the ledger this way.',
+	},
+	{
+		target: U.applyRefreshDataClear,
+		allowed: [U.dispatchRefreshData],
+		why: "the refresh_data clear is the dispatch loop's refresh_data branch, per resolved target, behind the closed grammar and the change trigger (dispatchRefreshData) — a door clearing an observer itself would write cascade-owned (ledger-less) outside the guard's dedup, the host precondition and the bounded cascade.",
+	},
+	{
+		target: U.dispatchRefreshData,
+		allowed: [U.propagateToObservers],
+		why: 'the refresh_data branch is the dispatch loop’s alone (grammar → trigger → targets → clear → hop) — any other caller is a second door into the ledger-less clear.',
 	},
 	{
 		target: U.resaveObserverThroughSaveRules,
@@ -611,13 +625,13 @@ const EXCLUSIVE: readonly { target: string; allowed: readonly string[]; why: str
 	},
 	{
 		target: U.refreshExternalMirror,
-		allowed: [U.runRefresh],
-		why: 'the explicit refresh is the ONE read door’s (dd_core_api read → read_facade → maybeRefreshExternal → runRefresh), behind its read-level authorizeRecordAccess (door dd_core_api.read.refresh_external) and its preconditions (a record get_data of an external portal, never a TM read) — a second caller would recompute a mirror past that gate.',
+		allowed: [U.runExternalRefresh],
+		why: 'the explicit refresh is the ONE runner’s (runExternalRefresh), which checks the law and the host itself — a second caller would recompute a mirror past those preconditions and past the grant its callers hold.',
 	},
 	{
-		target: U.runRefresh,
-		allowed: [U.maybeRefreshExternal],
-		why: 'the refresh runner is reached only AFTER the door’s grant: maybeRefreshExternal asks authorizeRecordAccess (read level 1) and the law/host preconditions first, then hands runRefresh the grant whose userId is the Time Machine actor.',
+		target: U.runExternalRefresh,
+		allowed: [U.maybeRefreshExternal, U.refreshExternalForRow],
+		why: 'the refresh runner is reached only AFTER a grant: the read door (dd_core_api read → read_facade → maybeRefreshExternal, authorizeRecordAccess read level 1, door dd_core_api.read.refresh_external, a record get_data of an external portal, never a TM read) or tool_update_cache’s per-row WRITE grant (refreshExternalForRow, level 2, door tool_update_cache.update_cache — PHP regenerate_component’s external branch, T1-38); each hands it the grant’s userId as the Time Machine actor.',
 	},
 	{
 		target: U.enqueueObservedChange,

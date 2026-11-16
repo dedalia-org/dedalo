@@ -26,6 +26,7 @@ import { AREA_ONTOLOGY_TIPO } from '../concepts/area.ts';
 import {
 	AUDIT_TIPOS,
 	isConsultationOnlySection,
+	TEMP_PRESET_SECTION_TIPO,
 	TIME_MACHINE_SECTION_TIPO,
 	TM_NOTES_CODE_TIPO,
 	TM_NOTES_SECTION_TIPO,
@@ -99,7 +100,7 @@ const TOOLS_REGISTER_SECTION = 'dd1324';
  * three users were each readable and writable by any of them by id.
  * Gate: test/unit/preset_ownership_native.test.ts.
  */
-export const TEMP_PRESET_SECTION = 'dd655';
+export const TEMP_PRESET_SECTION = TEMP_PRESET_SECTION_TIPO; // dd655
 /** dd654 — the owner locator (→ dd128) on a dd655/dd623 preset record. */
 export const PRESET_OWNER_COMPONENT = 'dd654';
 const INVERSE_RELATIONS_COMPONENT = 'dd1596';

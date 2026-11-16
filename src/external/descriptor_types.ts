@@ -216,6 +216,17 @@ export interface ExternalServiceModel {
 
 	/** Named formatters a fields_map entry may reference by `format`. */
 	readonly formats?: Readonly<Record<string, ExternalFormat>>;
+	/**
+	 * A format whose SEARCH rendering differs from its record rendering: record
+	 * `format` name → the name of the format a search cell (the autocomplete
+	 * dropdown, `formatExternalSearchData`) applies INSTEAD. Both names must be
+	 * in `formats` (external_registry_totality_tripwire). The one case today:
+	 * zenon `zenon_authors` → `zenon_author_names` (owner C55 — a dropdown shows
+	 * who wrote it, not the API's role keys; the record keeps the roles).
+	 * Chosen in engine code, never in the ontology: a cataloguer declares ONE
+	 * format and gets both renderings.
+	 */
+	readonly searchFormats?: Readonly<Record<string, string>>;
 
 	/**
 	 * The config KEY NAME holding this service's credential — never a value, and

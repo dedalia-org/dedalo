@@ -106,7 +106,7 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 	},
 	filtered_by: {
 		reason:
-			'v6 datalist narrowing (11 nodes), sibling of the unported filtered_by_search branch ledgered in relations/datalist.ts.',
+			'v6 datalist narrowing (11 nodes), read by neither engine; the datalist narrows by fixed_filter or properties.filtered_by_search (relations/datalist.ts).',
 		replacement: null,
 	},
 	show_in_modes: {
@@ -134,11 +134,6 @@ export const RETIRED_PROPERTY_KEYS: Readonly<Record<string, RetiredPropertyKey>>
 	},
 	show_parent_name: {
 		reason: 'v6 label composition hint (3 nodes); no reader in either engine.',
-		replacement: null,
-	},
-	filtered_by_search: {
-		reason:
-			'The unported PHP datalist narrowing branch (3 nodes) — ledgered where the port stops, src/core/relations/datalist.ts.',
 		replacement: null,
 	},
 	valor_arguments: {
@@ -265,6 +260,7 @@ export const HONOURED_PROPERTY_KEYS: readonly string[] = [
 	'external_source',
 	'fields_map',
 	'fields_separator',
+	'filtered_by_search',
 	'global_table_maps',
 	'head',
 	'host',

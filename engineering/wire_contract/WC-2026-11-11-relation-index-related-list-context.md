@@ -110,3 +110,13 @@ Gates: `test/unit/tool_export_value_relation_native.test.ts` *D6* block (the ful
 system and a scoped persona; the interactive reader's name + id; the edit form agrees — same
 pointers, same columns withheld); `test/unit/relation_index_context_native.test.ts` *translatable
 related_list columns resolve in the DATA lang (never the nolan slice)*.
+
+## Addendum 2026-11-12 — column grant on every door, gated (T1-15 / O12; no wire change)
+
+A related_list column the viewer holds no grant on, in a pointing section it CAN read, is dropped by
+the edit form's STEP 5 filter on all four doors (get_data, section read, flat reader, export walk):
+the per-locator children are tagged implicit (`config_children.ts relationIndexLocatorChildren`) —
+an untagged child would be read at the subdatum floor (0 raised to 1). Gates added for the two doors
+that had none: `relation_index_context_native.test.ts` *per viewer, flat-reader door*;
+`tool_export_value_relation_native.test.ts` *D6 — config-less: a 0-grant related_list column of a
+readable pointing section* (export value/grid_value + interactive reader).

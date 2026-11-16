@@ -71,32 +71,32 @@
       {
         "id": 1,
         "lang": "lg-cat",
-        "value": "<p>Exporti el format JSON de Zotero per a importar. Si vol contolar l'id, pongalo en Zotero en el camp 'call-number'. Si vol importar fitxers PDF, utilitze el camp 'archive' de Zotero  amb el nom del PDF, i adjunti els fitxers PDF al mateix temps que el fitxer de Zotero.</p>"
+        "value": "<p>Exporti el format JSON de Zotero per a importar. Cada referència s'identifica per la seua clau de Zotero (desada al camp Codi); per a identificar els registres amb un altre camp de Zotero, vincule'l a la configuració de l'eina ('field_to_section_id' i la seua entrada del mapa). Si vol importar fitxers PDF, utilitze el camp 'archive' de Zotero amb el nom del PDF, i adjunti els fitxers PDF al mateix temps que el fitxer de Zotero.</p>"
       },
       {
         "id": 1,
         "lang": "lg-deu",
-        "value": "<p>Exportieren Sie das JSON-Format aus Zotero zum Importieren. Wenn Sie die ID steuern möchten, legen Sie sie im Zotero-Rufnummernfeld fest. Wenn Sie PDF-Dateien importieren möchten, verwenden Sie das Feld „Zotero-Archiv“, um den Namen der PDF-Datei einzugeben, und laden Sie die PDF-Dateien gleichzeitig mit der Zotero-Datei hoch.</p>"
+        "value": "<p>Exportieren Sie das JSON-Format aus Zotero zum Importieren. Jede Referenz wird über ihren Zotero-Schlüssel identifiziert (im Feld Code gespeichert); um Datensätze über ein anderes Zotero-Feld zu identifizieren, binden Sie dieses Feld in der Konfiguration des Werkzeugs ('field_to_section_id' und sein Map-Eintrag). Wenn Sie PDF-Dateien importieren möchten, verwenden Sie das Feld „Zotero-Archiv“, um den Namen der PDF-Datei einzugeben, und laden Sie die PDF-Dateien gleichzeitig mit der Zotero-Datei hoch.</p>"
       },
       {
         "id": 1,
         "lang": "lg-ell",
-        "value": "<p>Εξαγωγή μορφής JSON από το Zotero για εισαγωγή. Εάν θέλετε να ελέγξετε το αναγνωριστικό, ορίστε το στο πεδίο αριθμού κλήσης Zotero. Εάν θέλετε να εισαγάγετε αρχεία PDF, χρησιμοποιήστε το πεδίο Zotero Archive για να εισαγάγετε το όνομα του PDF και μεταφορτώστε τα αρχεία PDF ταυτόχρονα με το αρχείο Zotero.</p>"
+        "value": "<p>Εξαγωγή μορφής JSON από το Zotero για εισαγωγή. Κάθε αναφορά αναγνωρίζεται από το κλειδί Zotero της (αποθηκεύεται στο πεδίο Κώδικας)· για να αναγνωρίζονται οι εγγραφές από άλλο πεδίο Zotero, συνδέστε το στη διαμόρφωση του εργαλείου ('field_to_section_id' και η καταχώρισή του στον χάρτη). Εάν θέλετε να εισαγάγετε αρχεία PDF, χρησιμοποιήστε το πεδίο Zotero Archive για να εισαγάγετε το όνομα του PDF και μεταφορτώστε τα αρχεία PDF ταυτόχρονα με το αρχείο Zotero.</p>"
       },
       {
         "id": 1,
         "lang": "lg-eng",
-        "value": "<p>Export JSON format from Zotero to import. If you want control the id, set it in Zotero call-number field. If you want to import PDF files, use the Zotero Archive field to introduce the name of the PDF, and upload the PDF files at the same time than Zotero file.</p>"
+        "value": "<p>Export JSON format from Zotero to import. Each reference is identified by its Zotero key (stored in the Code field); to identify records by another Zotero field, bind that field in the tool's configuration ('field_to_section_id' and its map entry). If you want to import PDF files, use the Zotero Archive field to introduce the name of the PDF, and upload the PDF files at the same time than Zotero file.</p>"
       },
       {
         "id": 1,
         "lang": "lg-nep",
-        "value": "<p>आयात गर्न Zotero बाट JSON ढाँचा निर्यात गर्नुहोस्। यदि तपाइँ आईडी नियन्त्रण गर्न चाहनुहुन्छ भने, यसलाई Zotero कल-नम्बर फिल्डमा सेट गर्नुहोस्। यदि तपाइँ PDF फाइलहरू आयात गर्न चाहनुहुन्छ भने, Zotero Archive फिल्ड प्रयोग गर्नुहोस् PDF को नाम परिचय गर्न, र Zotero फाइल भन्दा एकै समयमा PDF फाइलहरू अपलोड गर्नुहोस्।</p>"
+        "value": "<p>आयात गर्न Zotero बाट JSON ढाँचा निर्यात गर्नुहोस्। प्रत्येक सन्दर्भ यसको Zotero कुञ्जीले पहिचान हुन्छ (कोड फिल्डमा भण्डारण गरिएको); अर्को Zotero फिल्डले रेकर्ड पहिचान गर्न, त्यो फिल्ड उपकरणको कन्फिगरेसनमा बाँध्नुहोस् ('field_to_section_id' र यसको म्याप प्रविष्टि)। यदि तपाइँ PDF फाइलहरू आयात गर्न चाहनुहुन्छ भने, Zotero Archive फिल्ड प्रयोग गर्नुहोस् PDF को नाम परिचय गर्न, र Zotero फाइल भन्दा एकै समयमा PDF फाइलहरू अपलोड गर्नुहोस्।</p>"
       },
       {
         "id": 1,
         "lang": "lg-spa",
-        "value": "<p>Exporte el formato JSON de Zotero para importar. Si quiere contolar el id, pongalo en Zotero en el campo 'call-number'. Si quiere importar ficheros PDF, use el campo 'archive' de Zotero  con el nombre del PDF, y adjunte los ficheros PDF al mismo tiempo que el fichero de Zotero.</p>"
+        "value": "<p>Exporte el formato JSON de Zotero para importar. Cada referencia se identifica por su clave de Zotero (guardada en el campo Código); para identificar los registros por otro campo de Zotero, vincúlelo en la configuración de la herramienta ('field_to_section_id' y su entrada del mapa). Si quiere importar ficheros PDF, use el campo 'archive' de Zotero con el nombre del PDF, y adjunte los ficheros PDF al mismo tiempo que el fichero de Zotero.</p>"
       }
     ],
     "dd799": [
@@ -176,7 +176,7 @@
       {
         "id": 1,
         "lang": "lg-nolan",
-        "value": "<p>Use the JSON version exported by Zotero to import into Publications section: rsc205</p><p>The config of the tool defines the map between Zotero and Dédalo.</p><p> </p><p>Control of section_id with a Zotero field:</p><p> </p><p>By default, use the tool use  the Zotero field 'call-number' to define the section_id of the record, if is set call-number Dédalo will create or update this section_id. It's possible to set other field to control the section_id in with Zotero file. To do that, create a specific config in \"Development->tools->Tool configuration\" section</p><p>and changing \"field_to_section_id\" with the name of the Zotero field with section_id. you can see the field default config in the register tool or you can see the 'sample_config.json'. Specific configuration need to be a full configuration, not only the property changed.</p><p> </p><p>Upload PDF files:</p><p> </p><p>It is possible to upload PDF files with the Zotero records. By default the tool uses Zotero 'archive' field set with the full name of the PDF file.</p><p> </p><p>\"archive\" : \"my_pdf_file.pdf\"</p><p> </p><p>Add the PDF files with the Zotero json file in the tool, upload all and import.</p>"
+        "value": "<p>Use the JSON version exported by Zotero to import into Publications section: rsc205</p><p>The config of the tool defines the map between Zotero and Dédalo.</p><p> </p><p>Identity of the records:</p><p> </p><p>Each reference is identified by its Zotero key (the last part of its Zotero URI), stored in the component the map's 'id' entry names (Code, rsc137): a re-import updates the record that holds the key, a new key creates a record. A second identifier is optional: name a Zotero field in \"field_to_section_id\" and bind that field, in the map, to a code component of the section (a text or IRI component, never a record number); the import then first looks for the record holding that value. The shipped configuration names none: the Publications section ships no call-number component. To change the configuration, create a specific config in \"Development->tools->Tool configuration\" section; you can see the default config in the register tool or in 'sample_config.json'. Specific configuration need to be a full configuration, not only the property changed.</p><p> </p><p>Upload PDF files:</p><p> </p><p>It is possible to upload PDF files with the Zotero records. By default the tool uses Zotero 'archive' field set with the full name of the PDF file.</p><p> </p><p>\"archive\" : \"my_pdf_file.pdf\"</p><p> </p><p>Add the PDF files with the Zotero json file in the tool, upload all and import.</p>"
       }
     ],
     "dd1644": [
@@ -635,15 +635,6 @@
               ]
             },
             {
-              "name": "call-number",
-              "ddo_map": [
-                {
-                  "tipo": "dd176",
-                  "section_tipo": "rsc205"
-                }
-              ]
-            },
-            {
               "name": "publisher-place",
               "ddo_map": [
                 {
@@ -730,10 +721,6 @@
             {
               "name": "field_standard_number",
               "tipo": "rsc249"
-            },
-            {
-              "name": "field_to_section_id",
-              "value": "call-number"
             }
           ],
           "client": false,

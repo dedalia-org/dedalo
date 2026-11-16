@@ -185,6 +185,40 @@ describe('zenon payload → rows → values', () => {
 		expect(value).toEqual({ text: 'primary: Doe, J. - Roe, R. | corporate: DAI', kind: 'text' });
 	});
 
+	test('zenon_author_names (the SEARCH rendering, owner C55): names of every non-empty role joined " - ", no role labels', () => {
+		const format = zenon.formats?.zenon_author_names;
+		expect(format).toBeDefined();
+		const names = format as NonNullable<typeof format>;
+		// v6 browser look: 'Doe, J. - Roe, R. - DAI'; the record path keeps the roles.
+		expect(
+			names({ primary: { 'Doe, J.': [], 'Roe, R.': [] }, secondary: [], corporate: { DAI: [] } }),
+		).toEqual({ text: 'Doe, J. - Roe, R. - DAI', kind: 'text' });
+		// The same empty / refusal rules as zenon_authors: nothing is guessed.
+		for (const raw of [[], '', false, 0, {}, { primary: [], secondary: [], corporate: [] }]) {
+			expect(names(raw)).toEqual({ text: '', kind: 'text' });
+		}
+		for (const raw of ['Doe', 7, true, ['Doe']]) {
+			expect(names(raw)).toEqual({ text: '', kind: 'text', refused: 1 });
+		}
+		expect(names({ primary: 'Doe', corporate: { DAI: [] } })).toEqual({
+			text: 'DAI',
+			kind: 'text',
+			refused: 1,
+		});
+		// Declared as the search twin of zenon_authors, and ONLY of it.
+		expect(zenon.searchFormats).toEqual({ zenon_authors: 'zenon_author_names' });
+	});
+
+	test('the record path keeps zenon_authors with its role labels (C55 touches the search path only)', () => {
+		const rows = defaultUnwrapRows(zenonData, RESPONSE_MAP);
+		const fieldsMap = parseFieldsMap(
+			[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+			{ tipo: 'test7346' },
+		);
+		const result = mapRowToEntries(zenon, rowView(rows[0] as Record<string, unknown>), fieldsMap);
+		expect(result.entries).toEqual(['primary: Ripollès Alegre, P. P. (Pere Pau)']);
+	});
+
 	test('array_values is implode(" | ")', () => {
 		const rows = defaultUnwrapRows(zenonData, RESPONSE_MAP);
 		const fieldsMap = parseFieldsMap(
@@ -234,6 +268,90 @@ describe('zenon payload → rows → values', () => {
 		// lost by dropping it. Pinned so the divergence stays deliberate.
 		const format = zenon.formats?.array_values as NonNullable<typeof zenon.formats>['array_values'];
 		expect(format(['213 p.', '', null, 'ill.'])).toEqual({ text: '213 p. | ill.', kind: 'text' });
+	});
+
+	test('an all-empty authors object or an empty date list is NO entry (T1-P06)', () => {
+		// v6 PHP implode()d an all-empty authors object into "" and pushed it: a
+		// blank entry the list view framed as "| |". Empty is MISSING, not degraded.
+		const fieldsMap = parseFieldsMap(
+			[
+				{ local: 'dato', remote: 'authors', format: 'zenon_authors' },
+				{ local: 'dato', remote: 'publicationDates', format: 'array_values' },
+			],
+			{ tipo: 'test7346' },
+		);
+		// Positive control: the same map emits both values when they are there.
+		expect(
+			mapRowToEntries(
+				zenon,
+				rowView({
+					id: SAMPLE_ID,
+					authors: { primary: { 'Doe, J.': [] } },
+					publicationDates: ['2010'],
+				}),
+				fieldsMap,
+			).entries,
+		).toHaveLength(2);
+		for (const dates of [[], ['', null]]) {
+			const result = mapRowToEntries(
+				zenon,
+				rowView({
+					id: SAMPLE_ID,
+					authors: { primary: [], secondary: [], corporate: [] },
+					publicationDates: dates,
+				}),
+				fieldsMap,
+			);
+			expect(result.entries).toEqual([]);
+			expect(result.source_status).toBeUndefined();
+		}
+	});
+
+	test('zenon_authors REFUSES a non-object value — a lost value is reported, never blank (T1-P06)', () => {
+		const format = zenon.formats?.zenon_authors as NonNullable<
+			typeof zenon.formats
+		>['zenon_authors'];
+		for (const raw of ['Doe', 7, true, ['Doe']]) {
+			expect(format(raw)).toEqual({ text: '', kind: 'text', refused: 1 });
+		}
+		const fieldsMap = parseFieldsMap(
+			[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+			{ tipo: 'test7346' },
+		);
+		const result = mapRowToEntries(zenon, rowView({ id: SAMPLE_ID, authors: 'Doe' }), fieldsMap);
+		expect(result.entries).toEqual([]);
+		expect(result.source_status?.dropped_unrenderable).toBe(1);
+	});
+
+	test('zenon_authors: an EMPTY authors value is missing, never refused (T1-P06 review)', () => {
+		// VuFind (PHP) json_encode writes an empty assoc array as `[]`: a record
+		// with no authors arrives as `authors: []`. Empty = missing, not lost.
+		const format = zenon.formats?.zenon_authors as NonNullable<
+			typeof zenon.formats
+		>['zenon_authors'];
+		const fieldsMap = parseFieldsMap(
+			[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+			{ tipo: 'test7346' },
+		);
+		for (const raw of [[], '', false, 0, {}]) {
+			expect(format(raw)).toEqual({ text: '', kind: 'text' });
+			const result = mapRowToEntries(zenon, rowView({ id: SAMPLE_ID, authors: raw }), fieldsMap);
+			expect(result.entries).toEqual([]);
+			expect(result.source_status).toBeUndefined();
+		}
+	});
+
+	test('zenon_authors REFUSES a scalar role, the other roles still render (T1-P06)', () => {
+		// HEAD rendered Object.keys('Doe') → "primary: 0 - 1 - 2": a wrong value
+		// wearing a correct value's clothes.
+		const format = zenon.formats?.zenon_authors as NonNullable<
+			typeof zenon.formats
+		>['zenon_authors'];
+		expect(format({ primary: 'Doe', corporate: { DAI: [] } })).toEqual({
+			text: 'corporate: DAI',
+			kind: 'text',
+			refused: 1,
+		});
 	});
 
 	test('a fields_map naming an unimplemented format THROWS (v6 shipped the raw value)', () => {

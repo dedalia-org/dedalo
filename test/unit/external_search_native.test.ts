@@ -648,7 +648,7 @@ describe('the emitted shape is the one the client already speaks', () => {
 		expect(second.entries).toEqual(['Las acuñaciones provinciales romanas de Hispania ']);
 	});
 
-	test('values come from the ONE emission function — a declared format applies', async () => {
+	test('values come from the ONE emission function — a declared format applies, authors as NAMES ONLY in a search cell (owner C55)', async () => {
 		const { formatExternalSearchData } = await import(
 			'../../src/core/api/handlers/dd_external_api.ts'
 		);
@@ -681,10 +681,64 @@ describe('the emitted shape is the one the client already speaks', () => {
 				],
 			},
 		);
-		// The engine's zenon_authors formatter, not the browser's ad-hoc one.
+		// The engine's formatter, not the browser's ad-hoc one — and the SEARCH
+		// rendering of zenon_authors (`searchFormats` → zenon_author_names): the
+		// names, no role labels (v6 look; WC-2026-08-06 item 4, addendum 2026-11-13).
+		// The record path keeps `primary: …` (external_zenon_native).
 		expect((data[1] as Record<string, unknown>).entries).toEqual([
-			'primary: Ripollès Alegre, P. P. (Pere Pau)',
+			'Ripollès Alegre, P. P. (Pere Pau)',
 		]);
+	});
+
+	test('an empty remote value is NO entry in a search cell — no blank "| |" column (T1-P06)', async () => {
+		const { formatExternalSearchData } = await import(
+			'../../src/core/api/handlers/dd_external_api.ts'
+		);
+		const { parseFieldsMap } = await import('../../src/external/api/index.ts');
+		const row = {
+			id: '000848571',
+			authors: { primary: [], secondary: [], corporate: [] },
+			publicationDates: [],
+		};
+		const data = await formatExternalSearchData(
+			{
+				service: 'zenon',
+				sectionTipo: 'test7342',
+				hits: [{ sectionTipo: 'test7342', remoteId: '000848571', row }],
+				total: null,
+				limit: 20,
+				offset: 0,
+				dropped: 0,
+			},
+			{
+				targetSectionTipo: 'test7342',
+				callerTipo: 'test61',
+				model: zenon,
+				remoteFields: ['authors', 'publicationDates'],
+				context: [],
+				ddos: [
+					{
+						tipo: 'test7346',
+						fieldsMap: parseFieldsMap(
+							[{ local: 'dato', remote: 'authors', format: 'zenon_authors' }],
+							{ tipo: 'test7346' },
+						),
+					},
+					{
+						tipo: 'test7347',
+						fieldsMap: parseFieldsMap(
+							[{ local: 'dato', remote: 'publicationDates', format: 'array_values' }],
+							{ tipo: 'test7347' },
+						),
+					},
+				],
+			},
+		);
+		expect(data).toHaveLength(3);
+		for (const cell of data.slice(1) as Record<string, unknown>[]) {
+			expect(cell.entries).toEqual([]);
+			expect(cell.source_status).toBeUndefined();
+		}
 	});
 });
 
@@ -929,7 +983,8 @@ describe('one refused remote field name does not blank the search', () => {
 		const byTipo = (tipo: string) =>
 			data.filter((row) => (row as { tipo?: string }).tipo === tipo) as Record<string, unknown>[];
 		expect(byTipo(PARTIAL.id).map((row) => row.entries)).toEqual([['000848571'], ['001338683']]);
-		expect(byTipo(PARTIAL.authors)[1]?.entries).toEqual(['primary: Burnett, Andrew']);
+		// A search cell shows author NAMES only (owner C55).
+		expect(byTipo(PARTIAL.authors)[1]?.entries).toEqual(['Burnett, Andrew']);
 		for (const row of byTipo(PARTIAL.bad)) {
 			expect(row.entries).toEqual([]);
 			expect((row.source_status as { state?: string } | undefined)?.state).toBe('misconfigured');

@@ -128,11 +128,21 @@ export async function deleteMachineNameScratch(
 	await clearOntologyDerivedCaches();
 }
 
-/** Every record of `<tld>0`, its projection and its Time Machine rows (an armed apply's saves) gone. */
+/**
+ * Every record of `<tld>0`, its projection, its Time Machine rows (an armed apply's
+ * saves), and what a rebuild or the test-TLD materializer leaves beside them: the
+ * tld's `matrix_ontology_main` registry row and the `<tld>0` counter an explicit-id
+ * insert raised — gone.
+ */
 export async function sweepMachineNameScratch(tld: string): Promise<void> {
 	await assertTestDatabase('sweepMachineNameScratch');
 	await sql.unsafe('DELETE FROM matrix_ontology WHERE section_tipo = $1', [`${tld}0`]);
 	await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [`${tld}0`]);
+	await sql.unsafe('DELETE FROM matrix_counter WHERE tipo = $1', [`${tld}0`]);
+	await sql.unsafe(
+		`DELETE FROM matrix_ontology_main WHERE section_tipo = 'ontology35' AND string @> $1::text::jsonb`,
+		[JSON.stringify({ hierarchy6: [{ value: tld }] })],
+	);
 	await deleteTldNodes(tld);
 	await clearOntologyDerivedCaches();
 }

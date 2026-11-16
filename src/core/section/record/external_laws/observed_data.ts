@@ -173,7 +173,7 @@ async function readObservedDataRow(
 	const params = [targetSection, targetId, law.observerTipo];
 	if (readsSource) params.push(law.ddoTipo);
 	const rows = (await sql.unsafe(
-		`SELECT relation->$3 AS bag, relation_search->$3 AS idx, ${sourceSelect} AS src FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR UPDATE' : ''}`,
+		`SELECT relation->$3 AS bag, relation_search->$3 AS idx, ${sourceSelect} AS src FROM "${table}" WHERE section_tipo = $1 AND section_id = $2${lock ? ' FOR NO KEY UPDATE' : ''}`,
 		params,
 	)) as ObservedDataRow[];
 	return rows[0];

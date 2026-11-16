@@ -9,7 +9,6 @@
 			{ "name": "transcription_review", "tipo": "rsc260" },
 			{ "name": "pdf", "tipo": "rsc209" },
 			{ "name": "identifying_image", "tipo": "rsc228" },
-			{ "name": "field_to_section_id", "value": "call-number" },
 			{ "name": "field_standard_number", "tipo": "rsc249" }
 		],
 		"map": [
@@ -34,7 +33,6 @@
 			{ "name": "page", "ddo_map": [{ "tipo": "rsc223", "section_tipo": "rsc205" }] },
 			{ "name": "issue", "ddo_map": [{ "tipo": "rsc222", "section_tipo": "rsc205" }] },
 			{ "name": "shortTitle", "ddo_map": [{ "tipo": "rsc225", "section_tipo": "rsc205" }] },
-			{ "name": "call-number", "ddo_map": [{ "tipo": "dd176", "section_tipo": "rsc205" }] },
 			{ "name": "publisher-place", "ddo_map": [{ "tipo": "rsc144", "section_tipo": "rsc205" }] },
 			{ "name": "ISBN", "ddo_map": [{ "tipo": "rsc147", "section_tipo": "rsc205" }] },
 			{ "name": "ISSN", "ddo_map": [{ "tipo": "rsc147", "section_tipo": "rsc205" }] },

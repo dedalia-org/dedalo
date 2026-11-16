@@ -38,3 +38,20 @@ export function dbTimestamp(now: Date = new Date()): string {
 	}
 	return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
+
+/**
+ * How far BEFORE its change a backfill row is stamped (PHP tm_record::create
+ * previous_data: `now − PT1M`). One constant for every backfill door — the
+ * save-before of the history writer, the delete / observer / duplicate
+ * backfills — so the history keeps one timeline convention.
+ */
+export const BACKFILL_LEAD_MS = 60_000;
+
+/**
+ * The stamp of a backfill row for a change made at `now`. Derived from the
+ * SAME instant as the change's own stamp (`dbTimestamp(now)`): a wall-clock
+ * string cannot be shifted back safely across a DST change, an instant can.
+ */
+export function backfillTimestamp(now: Date): string {
+	return dbTimestamp(new Date(now.getTime() - BACKFILL_LEAD_MS));
+}

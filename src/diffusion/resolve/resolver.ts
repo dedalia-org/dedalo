@@ -39,8 +39,9 @@
  * (REWRITE_SPEC §4 / DIFFUSION_SPEC §2.7).
  */
 
+import { config } from '../../config/config.ts';
 import { resolveIriTitles } from '../../core/components/component_iri/resolve_title.ts';
-import { isDerivedModel } from '../../core/components/registry.ts';
+import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import type { Sqo } from '../../core/concepts/sqo.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
@@ -72,7 +73,12 @@ import {
 	relationIndexQuestion,
 } from '../../core/relations/locator_source.ts';
 import { getParents, getParentsRecursive } from '../../core/relations/parent.ts';
-import { readComponentItems, readStoredComponentItems } from '../../core/resolve/component_data.ts';
+import { externalTargetRecord } from '../../core/relations/relation_core.ts';
+import {
+	EmissionContext,
+	readComponentItems,
+	readStoredComponentItems,
+} from '../../core/resolve/component_data.ts';
 import {
 	findInverseReferenceLocators,
 	findInverseReferences,
@@ -110,18 +116,31 @@ import { NOLAN_KEY, projectRecordRows } from '../project/lang_ladder.ts';
 import type { IconographyOptions, SvgTagPathMemo } from './ddo_fns.ts';
 import {
 	buildGeojsonLayers,
+	buildGeolocationLayers,
 	createSvgTagPathMemo,
 	iconographyOptionsOf,
 	joinIconographyScenes,
 	parseTagValueToHtml,
 } from './ddo_fns.ts';
-import { defaultPublicationValue } from './default_value.ts';
+import { defaultPublicationValue, PHP_NUMBER_TYPES_OPTION } from './default_value.ts';
+import {
+	type ExternalPublicationDegradation,
+	type ExternalPublicationEnv,
+	externalPlaceholderApplies,
+	externalPublicationAtoms,
+	isExternalOutage,
+	isExternalTerminal,
+	prefetchHopExternalRows,
+} from './external_value.ts';
 import {
 	frontierKey,
 	type ResumeState,
 	type RunLedgerEvent,
 	recordKey,
 } from './frontier_ledger.ts';
+import { type InfoPublicationEnv, infoPublicationAtoms } from './info_value.ts';
+import { buildRdfRecordGraph, type RdfGraphEnv, rdfReportSentence } from './rdf_graph.ts';
+import type { RdfGraph, RdfRecordDocument } from './rdf_graph_ir.ts';
 import type { FieldIR, RecordIR, ResolvedLink } from './record_ir.ts';
 import type { RewriterEnv } from './rewriters.ts';
 import { buildRewriterFns } from './rewriters.ts';
@@ -142,6 +161,21 @@ export interface FieldResolutionError {
 	message: string;
 }
 
+/**
+ * A publishable record whose row this run did NOT produce (owner C49,
+ * 2026-11-13, WC-2026-11-13-external-outage-keeps-previous-row): one of its
+ * component_external sources reported an OUTAGE (unavailable / timeout /
+ * circuit_open), so writing the row would replace published remote values
+ * with empty ones. The runner writes nothing and removes nothing for it (the
+ * previous publication stays), logs no dd1758 'published' row, and the run
+ * report carries its line; the next run retries it like any other record.
+ */
+export interface SkippedRecord {
+	sectionId: number | string;
+	/** Why — the outage states and components, authored for the report line. */
+	reason: string;
+}
+
 /** One yielded unit of work — writers consume rows/records sequentially. */
 export interface ResolvedBatch {
 	section: SectionPlan;
@@ -157,8 +191,19 @@ export interface ResolvedBatch {
 	primary: boolean;
 	records: RecordIR[];
 	rows: ProjectedRow[];
+	/**
+	 * rdf plans only (SectionPlan.rdfClass): one graph per PUBLISHED record —
+	 * the document the rdf writer serialises (resolve/rdf_graph.ts). Absent
+	 * for every other format.
+	 */
+	graphs?: RdfRecordDocument[];
 	/** Records whose gate said 'unpublish' — writers remove their artifacts. */
 	unpublishIds: (number | string)[];
+	/**
+	 * Publishable records held back this run (an external OUTAGE): no row, no
+	 * graph, no unpublish — the previous publication stays (SkippedRecord).
+	 */
+	skipped: SkippedRecord[];
 	/**
 	 * The PRIMARY keyset position: the highest primary section_id fully
 	 * processed (frontier batches repeat the final primary cursor). It is only
@@ -304,6 +349,22 @@ export interface RunContext {
 	/** svg tag locator → media-root-relative path (parse_tag_to_html, T0-10).
 	 * RUN-SCOPED: the path reads the ontology and an `additional_path` value. */
 	svgTagPathMemo: SvgTagPathMemo;
+	/** `${section_tipo}|${section_id}|${tipo}` → the LIVE component_info items
+	 * (info_value.ts — bounded; every field over one info component computes
+	 * its widgets once per record per run). */
+	infoItemsCache: Map<string, unknown[] | null>;
+	/** rdf: dd1010 entity record + base IRIs resolved this run (rdf_graph.ts). */
+	rdfBaseMemo: Map<string, string | null>;
+	/** component_external terminal (external_value.ts): the run's emission —
+	 * the remote rows each hop prefetches are parked here (one hop at a time). */
+	externalEmission: EmissionContext;
+	/** Missing component_external values of the record being processed, with
+	 * the field they belong to — drained into its run error lines
+	 * (drainExternalDegradations). Records are processed one at a time. */
+	externalDegradations: (ExternalPublicationDegradation & {
+		fieldId: string;
+		columnName: string;
+	})[];
 	/** PHP is_used bitmask twin: records already emitted top-level this run. */
 	usedRecords: Set<string>;
 	/** PHP $datum_unresolved: `${level}:${section_tipo}` → queued ids (FIFO). */
@@ -364,6 +425,69 @@ export function getBoundedRunMemo<K, V>(map: Map<K, V>, key: K): V | undefined {
 }
 
 const RECORD_KEY = recordKey;
+
+/** The run's component_info env (info_value.ts): main lang, run principal, run memo. */
+function infoEnvOf(ctx: RunContext): InfoPublicationEnv {
+	return {
+		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
+		principal: ctx.options.principal,
+		readMemo: (key) => getBoundedRunMemo(ctx.infoItemsCache, key),
+		writeMemo: (key, items) =>
+			setBoundedRunMemo(ctx.infoItemsCache, key, items, RECORD_CACHE_LIMIT),
+	};
+}
+
+/**
+ * The run's component_external env (external_value.ts) for one field: the
+ * fetch lang is the plan's main lang (the info law above — never the trigger's
+ * ambient lang), a missing value is recorded against the field.
+ */
+function externalEnvOf(ctx: RunContext, prepared: PreparedField): ExternalPublicationEnv {
+	return {
+		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
+		emission: ctx.externalEmission,
+		report: (degradation) => {
+			ctx.externalDegradations.push({
+				...degradation,
+				fieldId: prepared.field.id,
+				columnName: prepared.field.columnName,
+			});
+		},
+	};
+}
+
+/** The report suffix of an outage line (the runner prints the line verbatim). */
+const OUTAGE_SKIP_SUFFIX = ' — row SKIPPED (previous publication kept; retried by the next run)';
+
+/**
+ * Move the missing component_external values recorded while processing
+ * `record` into its run error lines — the loud per-field channel the runner
+ * reports (T1-42). A configuration state (disabled / misconfigured) publishes
+ * the value empty for that locator, the field's other atoms kept. An OUTAGE
+ * state (owner C49) returns the SkippedRecord the caller must honour: the
+ * record's row is NOT produced this run (the previous publication stays), its
+ * line says so, and the next run retries it.
+ */
+function drainExternalDegradations(
+	ctx: RunContext,
+	record: MatrixRecord,
+	errors: FieldResolutionError[],
+): SkippedRecord | null {
+	const outages: string[] = [];
+	for (const degradation of ctx.externalDegradations.splice(0)) {
+		const outage = isExternalOutage(degradation.state);
+		const what = `external_source:${degradation.state} ${degradation.tipo} ${degradation.sectionTipo}/${degradation.remoteId}`;
+		if (outage) outages.push(what);
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: degradation.fieldId,
+			columnName: degradation.columnName,
+			message: outage ? `${what}${OUTAGE_SKIP_SUFFIX}` : what,
+		});
+	}
+	return outages.length === 0 ? null : { sectionId: record.section_id, reason: outages.join('; ') };
+}
 
 /**
  * THE run-state mutators (DIFF-1): every change to the frontier and the used
@@ -815,6 +939,12 @@ export interface ComponentFnEnv {
 	pairedGeolocationTipo: (textAreaTipo: string) => Promise<string | null>;
 	/** The run's svg tag path memo (parse_tag_to_html — RunContext.svgTagPathMemo). */
 	svgTagPathMemo: SvgTagPathMemo;
+	/**
+	 * map_target_section_tipo: section tipo → the table name the element
+	 * publishes it under (PublicationPlan.targetSectionTables, compiled), null
+	 * when the element publishes no table for it.
+	 */
+	targetSectionTableOf: (sectionTipo: string) => string | null;
 }
 
 /**
@@ -845,6 +975,52 @@ export function subtitlesUrlAtoms(
 		lang,
 		meta,
 	}));
+}
+
+/**
+ * diffusion_fn::map_target_section_tipo (PHP :75-150): the component's value
+ * names a section (hierarchy53 'on1'); the published value is the table name
+ * the element publishes that section under ('ts_onomastic'), looked up in the
+ * COMPILED map (the resolver never walks dd_ontology). The first non-empty
+ * stored string is the value (the component is single-valued); empty value or
+ * no table = PHP's null value = no atoms. Lang-neutral.
+ * WC: engineering/wire_contract/WC-2026-11-12-diffusion-map-target-section-tipo.md
+ */
+function targetSectionTableAtoms(
+	env: ComponentFnEnv,
+	record: MatrixRecord,
+	step: Extract<ResolveStep, { kind: 'component' }>,
+	meta: ValueMeta,
+): MetaValueIR[] {
+	const stored = (readComponentItems(record, step.tipo, step.model) ?? []) as { value?: unknown }[];
+	const sectionTipo = stored
+		.map((item) => item?.value)
+		.find((value): value is string => typeof value === 'string' && value !== '');
+	if (sectionTipo === undefined) return [];
+	const tableName = env.targetSectionTableOf(sectionTipo);
+	return tableName === null ? [] : [{ kind: 'scalar', value: tableName, lang: null, meta }];
+}
+
+/** Own-key lookup in the compiled map (a stored value is record data: never reach the prototype). */
+function targetSectionTableOf(plan: PublicationPlan, sectionTipo: string): string | null {
+	const tables = plan.targetSectionTables;
+	return tables !== undefined && Object.hasOwn(tables, sectionTipo)
+		? (tables[sectionTipo] ?? null)
+		: null;
+}
+
+/**
+ * The run's ComponentFnEnv — the ONE place the run state is wired into the fn
+ * dispatch (exported so the wiring is gated against a compiled plan, not a
+ * test-written stub: diffusion_compile_degrade_native).
+ */
+export function componentFnEnvOf(ctx: RunContext): ComponentFnEnv {
+	return {
+		langs: ctx.plan.langPolicy.langs,
+		pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
+		svgTagPathMemo: ctx.svgTagPathMemo,
+		targetSectionTableOf: (sectionTipo) => targetSectionTableOf(ctx.plan, sectionTipo),
+	};
 }
 
 /**
@@ -917,6 +1093,22 @@ export async function resolveComponentFnAtoms(
 			);
 			return layers.length > 0 ? [{ kind: 'json', value: layers, lang: null, meta }] : [];
 		}
+
+		case 'get_geolocation_data': {
+			// component_text_area::get_geolocation_data (:1670-1673) =
+			// build_geolocation_data(false): the SAME paired geolocation, its
+			// layers' features flattened to {type, lon, lat}; NO point fallback.
+			// Lang-neutral json atom; no pair / no layers = no atoms.
+			const geoTipo = await env.pairedGeolocationTipo(step.tipo);
+			if (geoTipo === null) return [];
+			const layers = buildGeolocationLayers(
+				readComponentItems(record, geoTipo, 'component_geolocation'),
+			);
+			return layers.length > 0 ? [{ kind: 'json', value: layers, lang: null, meta }] : [];
+		}
+
+		case 'map_target_section_tipo':
+			return targetSectionTableAtoms(env, record, step, meta);
 
 		case 'map_section_id_to_subtitles_url':
 			return subtitlesUrlAtoms(record.section_id, env.langs, meta);
@@ -1752,20 +1944,35 @@ async function walkChainLevel(
 		if (step.sectionTipo !== '' && step.sectionTipo !== record.section_tipo) continue;
 
 		if (step.kind === 'component') {
+			// component_info: the LIVE widget compute, PARSED face, async included
+			// (PHP component_info::get_diffusion_data overrides the common door —
+			// no fn, no stored slice). WC-2026-11-12-info-live-publication-export +
+			// WC-2026-11-13-info-parsed-face-published (owner D1/C9).
+			if (getFlatValueFamily(step.model) === 'info') {
+				atoms.push(
+					...(await infoPublicationAtoms(infoEnvOf(ctx), record, step.tipo, {
+						sourceId: step.ddoId,
+						tipo: step.tipo,
+					})),
+				);
+				continue;
+			}
+			// component_external: the value is DERIVED from the remote record
+			// (PHP component_external::get_data → load_data_from_remote), never a
+			// stored slot — external_value.ts (T1-42).
+			if (isExternalTerminal(step)) {
+				atoms.push(
+					...(await externalPublicationAtoms(externalEnvOf(ctx, prepared), record, step.tipo, {
+						sourceId: step.ddoId,
+						tipo: step.tipo,
+					})),
+				);
+				continue;
+			}
 			// Custom ddo fn dispatch (component_common :3274-3326). ONE door, and
 			// it either resolves or throws — see resolveComponentFnAtoms.
 			if (step.fn !== undefined) {
-				atoms.push(
-					...(await resolveComponentFnAtoms(
-						{
-							langs: ctx.plan.langPolicy.langs,
-							pairedGeolocationTipo: (textAreaTipo) => pairedGeolocationTipoOf(ctx, textAreaTipo),
-							svgTagPathMemo: ctx.svgTagPathMemo,
-						},
-						record,
-						step,
-					)),
-				);
+				atoms.push(...(await resolveComponentFnAtoms(componentFnEnvOf(ctx), record, step)));
 				continue;
 			}
 			// Terminal atoms carry NO section identity — the first-ddo relation
@@ -1789,6 +1996,11 @@ async function walkChainLevel(
 				parentStep !== undefined &&
 				parentStep.kind === 'relation-hop' &&
 				(parentStep.labelExpansion === true || parentStep.model === 'component_select');
+			let stepOptions = viaLabel ? { ...(step.options ?? {}), __via_label: true } : step.options;
+			// rdf get_data_number: the stored token's PHP type rides the atom.
+			if (prepared.field.leafNumberTypes === true) {
+				stepOptions = { ...(stepOptions ?? {}), [PHP_NUMBER_TYPES_OPTION]: true };
+			}
 			let stepAtoms = defaultPublicationValue(
 				record,
 				step.tipo,
@@ -1797,7 +2009,7 @@ async function walkChainLevel(
 					sourceId: step.ddoId,
 					tipo: step.tipo,
 				},
-				viaLabel ? { ...(step.options ?? {}), __via_label: true } : step.options,
+				stepOptions,
 			);
 			// ONLY on the diffusion-VALUE path. v6 resolves the label inside
 			// component_iri::get_diffusion_value; a field asking for the raw stored
@@ -1915,6 +2127,9 @@ async function resolveHop(
 	}
 
 	const children = prepared.childrenByParent.get(hop.tipo) ?? [];
+	// External children: the hop's remote rows in ONE bounded fan-out (no-op
+	// without a component_external child; never throws).
+	await prefetchHopExternalRows(externalEnvOf(ctx, prepared), children, rawLocators);
 	// Child section whitelist (chain_processor :237-243).
 	const whitelist = new Set<string>();
 	for (const child of children) {
@@ -2027,13 +2242,24 @@ async function resolveHop(
 			);
 			if (applicable) {
 				recursed = true;
+				// No matrix row: an EXTERNAL record (a Zenon id has none by
+				// construction) is walked on an identity-only placeholder when an
+				// owned component_external child derives its value remotely (the
+				// read path's law, relation_core resolvePortalTarget — T1-42);
+				// otherwise the record is gone: PHP reads empty components (no
+				// fallback).
+				const walked =
+					target ??
+					((await externalPlaceholderApplies(children, sectionTipo))
+						? externalTargetRecord(sectionTipo, sectionId)
+						: null);
 				childAtoms =
-					target === null
-						? [] // record gone: PHP reads empty components (no fallback)
+					walked === null
+						? []
 						: await walkChainLevel(
 								ctx,
 								prepared,
-								target,
+								walked,
 								level - 1,
 								currentPublishable,
 								hop.tipo,
@@ -2199,6 +2425,8 @@ interface ProcessedRecord {
 	record: RecordIR;
 	rows: ProjectedRow[];
 	errors: FieldResolutionError[];
+	/** Set when an external OUTAGE held the row back (rows is then []). */
+	skipped?: SkippedRecord;
 }
 
 async function processRecord(
@@ -2317,6 +2545,10 @@ async function processRecord(
 		if (field.excludeColumn !== true) columnValues.set(field.columnName, langValues);
 	}
 
+	const skipped = drainExternalDegradations(ctx, record, errors);
+	// Owner C49: an outage holds the row back — nothing written, nothing
+	// removed, the previous publication stays until a run can read the source.
+	if (skipped !== null) return { record: recordIr, rows: [], errors, skipped };
 	const rows = projectRecordRows(
 		record.section_id,
 		columnValues,
@@ -2324,6 +2556,151 @@ async function processRecord(
 		fieldPolicies,
 	);
 	return { record: recordIr, rows, errors };
+}
+
+// ---------------------------------------------------------------------------
+// rdf — the record GRAPH instead of rows (T1-4, resolve/rdf_graph.ts)
+// ---------------------------------------------------------------------------
+
+/** Field id of the record-level rdf failure (its subject IRI could not be built). */
+const RDF_SUBJECT_ERROR_FIELD = '(rdf subject)';
+
+/**
+ * DIFF-C for an rdf-INLINED record (T1-4 review). An rdf run queues no
+ * frontier, but a record an `rdf` link inlines lands in the PUBLIC document
+ * exactly like a frontier row lands in the public table — so it passes the
+ * SAME two keys processBatch applies to the frontier (section grant, then
+ * record scope; door 'diffusion.frontier') for a principal that is not a
+ * global admin. Refused ⇒ dropped with the `[frontier] REFUSED` ledger line,
+ * never read, never unpublished (DIFFUSION_SPEC §8 item 8).
+ */
+async function rdfLinkFrontierAllowed(
+	ctx: RunContext,
+	sectionTipo: string,
+	sectionId: number | string,
+): Promise<boolean> {
+	const runPrincipal = ctx.options.principal;
+	if (runPrincipal === undefined || runPrincipal.isGlobalAdmin) return true;
+	const scope: FrontierScope = {
+		principal: runPrincipal,
+		surface: 'diffusion',
+		door: 'diffusion.frontier',
+	};
+	const table = await matrixTableOf(ctx, sectionTipo);
+	const sectionReadable =
+		table !== null &&
+		(await frontierComponentAllowed(scope, { sectionTipo, componentTipo: sectionTipo, table }));
+	if (sectionReadable && (await frontierRecordAllowed(scope, sectionTipo, sectionId))) return true;
+	noteFrontierRefusal(scope, {
+		surface: 'diffusion',
+		door: 'diffusion.frontier',
+		sectionTipo,
+		sectionId,
+		key: sectionReadable ? 'record' : 'component',
+	});
+	return false;
+}
+
+/**
+ * The builder's view of this run: the ONE walker at level 0 (an rdf run
+ * queues no frontier — PHP diffuse_rdf publishes the selection and inlines
+ * linked records through `rdf` link nodes), the run's record cache, the
+ * publication gate and the DIFF-C frontier a linked record must pass.
+ */
+function rdfGraphEnvOf(ctx: RunContext): RdfGraphEnv {
+	return {
+		plan: ctx.plan,
+		sectionPlanOfClass: (classTipo) =>
+			ctx.plan.sections.find((section) => section.rdfClass?.classTipo === classTipo),
+		resolveField: async (section, fieldId, record) => {
+			const prepared = ctx.preparedFields.get(preparedFieldKey(section.sectionTipo, fieldId));
+			if (prepared === undefined) {
+				throw new DedaloError('internal.invariant', {
+					message: `rdf graph: field '${fieldId}' of '${section.sectionTipo}' was not prepared`,
+				});
+			}
+			return resolveFieldAtoms(ctx, prepared, record, 0, true);
+		},
+		loadRecord: async (sectionTipo, sectionId) =>
+			(await loadRecords(ctx, sectionTipo, [sectionId])).get(RECORD_KEY(sectionTipo, sectionId)) ??
+			null,
+		isPublishable: async (record) => {
+			const override = ctx.sectionPublishableOverride.get(record.section_tipo);
+			if (override !== null && override !== undefined) return override;
+			return isRecordPublishable(ctx, record);
+		},
+		linkAllowed: (sectionTipo, sectionId) => rdfLinkFrontierAllowed(ctx, sectionTipo, sectionId),
+		iriTitles: (record, iriTipo) => iriTitlesByItemId(ctx, record, iriTipo),
+		baseMemo: ctx.rdfBaseMemo,
+		maxLinkItems: ctx.maxLevels,
+	};
+}
+
+/** One rdf record: gate, then its graph (or the reason it has none). */
+async function processRdfRecord(
+	ctx: RunContext,
+	sectionPlan: SectionPlan,
+	record: MatrixRecord,
+): Promise<{
+	record: RecordIR;
+	graph: RdfGraph | null;
+	errors: FieldResolutionError[];
+	skipped?: SkippedRecord;
+}> {
+	const errors: FieldResolutionError[] = [];
+	const gate = await resolveGate(ctx, record);
+	if (gate.failure !== undefined) {
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: PUBLICATION_GATE_ERROR_FIELD,
+			columnName: PUBLICATION_GATE_ERROR_FIELD,
+			message: `publication gate unresolved, failing closed (record REMOVED from the public site): ${gate.failure}`,
+		});
+	}
+	const recordIr: RecordIR = {
+		sectionTipo: record.section_tipo,
+		sectionId: record.section_id,
+		status: gate.status,
+		fields: new Map<string, FieldIR>(),
+	};
+	if (gate.status === 'unpublish') return { record: recordIr, graph: null, errors };
+	const columnOf = (fieldId: string): string =>
+		sectionPlan.fields.find((field) => field.id === fieldId)?.columnName ?? fieldId;
+	try {
+		const built = await buildRdfRecordGraph(rdfGraphEnvOf(ctx), sectionPlan, record);
+		const skipped = drainExternalDegradations(ctx, record, errors);
+		for (const failure of built.errors) {
+			errors.push({
+				sectionTipo: record.section_tipo,
+				sectionId: record.section_id,
+				fieldId: failure.fieldId,
+				columnName: columnOf(failure.fieldId),
+				message: failure.message,
+			});
+		}
+		// Owner C49: an outage holds the document back (the previous one stays).
+		if (skipped !== null) return { record: recordIr, graph: null, errors, skipped };
+		return { record: recordIr, graph: built.graph, errors };
+	} catch (error) {
+		// No subject IRI: the record is NOT written (a document without a valid
+		// identity is worse than none) — named in the run report — and FAILS
+		// CLOSED like the gate failure above (T1-4 review): status 'unpublish',
+		// so the runner WITHDRAWS its previous public document (removeRecords)
+		// and writes no dd1758 'published' row for a record it did not publish.
+		// Keeping the old file would serve content the record may no longer
+		// carry, at a deterministic URL, outside the run's own manifest.
+		drainExternalDegradations(ctx, record, errors);
+		errors.push({
+			sectionTipo: record.section_tipo,
+			sectionId: record.section_id,
+			fieldId: RDF_SUBJECT_ERROR_FIELD,
+			columnName: RDF_SUBJECT_ERROR_FIELD,
+			message: `record NOT written (REMOVED from the public site): ${rdfReportSentence(error, `rdf subject of ${record.section_tipo}/${record.section_id}`)}`,
+		});
+		recordIr.status = 'unpublish';
+		return { record: recordIr, graph: null, errors };
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -2425,12 +2802,25 @@ async function processBatch(
 
 	const outRecords: RecordIR[] = [];
 	const outRows: ProjectedRow[] = [];
+	const outGraphs: RdfRecordDocument[] = [];
 	const unpublishIds: (number | string)[] = [];
+	const skipped: SkippedRecord[] = [];
 	const errors: FieldResolutionError[] = [];
 
 	for (const sectionId of visibleIds) {
 		const record = byId.get(String(sectionId));
 		markUsed(ctx, sectionPlan.sectionTipo, sectionId);
+		if (record !== undefined && sectionPlan.rdfClass !== undefined) {
+			const processed = await processRdfRecord(ctx, sectionPlan, record);
+			outRecords.push(processed.record);
+			if (processed.record.status === 'unpublish') unpublishIds.push(record.section_id);
+			if (processed.graph !== null) {
+				outGraphs.push({ sectionId: record.section_id, graph: processed.graph });
+			}
+			if (processed.skipped !== undefined) skipped.push(processed.skipped);
+			errors.push(...processed.errors);
+			continue;
+		}
 		if (record === undefined) {
 			// Selected/queued but no longer present → unpublish (fail-closed).
 			unpublishIds.push(sectionId);
@@ -2445,6 +2835,7 @@ async function processBatch(
 		const processed = await processRecord(ctx, sectionPlan, record, level);
 		outRecords.push(processed.record);
 		if (processed.record.status === 'unpublish') unpublishIds.push(record.section_id);
+		if (processed.skipped !== undefined) skipped.push(processed.skipped);
 		outRows.push(...processed.rows);
 		errors.push(...processed.errors);
 	}
@@ -2455,7 +2846,9 @@ async function processBatch(
 		primary: !viaFrontier,
 		records: outRecords,
 		rows: outRows,
+		...(sectionPlan.rdfClass !== undefined ? { graphs: outGraphs } : {}),
 		unpublishIds,
+		skipped,
 		cursor,
 		errors,
 		ledger: takeLedger(ctx),
@@ -2557,6 +2950,10 @@ export async function* resolvePublication(
 		sectionLabelCache: new Map(),
 		geoPairCache: new Map(),
 		svgTagPathMemo: createSvgTagPathMemo(),
+		infoItemsCache: new Map(),
+		rdfBaseMemo: new Map(),
+		externalEmission: new EmissionContext(),
+		externalDegradations: [],
 		// A resumed run starts from the replayed ledger state (copies — the
 		// caller's ResumeState is never mutated).
 		usedRecords: new Set(options.resume?.used ?? []),
@@ -2933,8 +3330,11 @@ async function holdsNoData(
 	if (model === null || getColumnNameByModel(model) === null) return false;
 	if (readsComputedLocators(model)) return false;
 	// A DERIVED model (component_inverse's backlinks, …) stores nothing under
-	// its tipo: its value is computed, so an empty slot proves nothing.
-	if (isDerivedModel(model)) return false;
+	// its tipo: its value is computed, so an empty slot proves nothing. Nor
+	// does component_info's `misc` slot (its value is the live widget compute,
+	// WC-2026-09-03 — keyed on the family: its derived facet is owner decision
+	// T1-2 D3).
+	if (isDerivedModel(model) || getFlatValueFamily(model) === 'info') return false;
 	const record = await loadExportRecord(run, sectionTipo, sectionId);
 	if (record === null) return false;
 	// the value read's OWN door (alias data key included) — never a second

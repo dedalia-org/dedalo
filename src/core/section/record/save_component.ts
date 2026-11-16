@@ -46,7 +46,6 @@ import { INSTALLED_DATA_LANGS } from '../../../config/config.ts';
 import {
 	getComponentModel,
 	getImportAppendPolicy,
-	getRenderClass,
 	isLangSlicedModel,
 	isMonovalueModel,
 } from '../../components/registry.ts';
@@ -55,7 +54,6 @@ import { isOtherLangItem } from '../../concepts/lang_region.ts';
 import { dataframePairingOf } from '../../concepts/rqo.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
 import type { DataframePairing } from '../../concepts/subdatum.ts';
-import { dbTimestamp } from '../../db/db_timestamp.ts';
 import { MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from '../../db/matrix.ts';
 import { absorbComponentItemIds, allocateComponentItemId } from '../../db/matrix_write.ts';
 import { deferPostTransaction, sql, withTransaction } from '../../db/postgres.ts';
@@ -91,6 +89,7 @@ import {
 	validateRelationInsert,
 } from '../../relations/save.ts';
 import {
+	lockLocatorTargets,
 	persistAppendedKeyItems,
 	persistRecordKeys,
 	removedLocators,
@@ -103,6 +102,7 @@ import { beginSaveHistory, finishSaveHistory } from './bulk_capture.ts';
 import { iriLabelIdRefusal } from './iri_label_guard.ts';
 import { applyItemGate } from './item_gates.ts';
 import { valueShapeRefusal } from './value_shape.ts';
+import { applyWriteValueGates } from './write_value_gates.ts';
 
 /** One change from the client (PHP changed_data item). */
 export interface ChangedDataItem {
@@ -1513,48 +1513,12 @@ async function attachAppendOutcome(
 	result.appendSkipped = outcome.skipped.filter((skip) => skip.reason === 'duplicate').length;
 }
 
-/** The transactional body of saveComponentData (see the wrapper above). */
-/**
- * The write engine's two VALUE gates, each keyed on what the model itself
- * declares — extracted from `applySaveComponentData` so the save path does not
- * carry their branches (the complexity ratchet is the reason, and the shape is
- * better: both read the changed data and nothing else of the request).
- *
- * SEC — component_password is an ordinary string component to the write engine,
- * so an unhashed value would be stored VERBATIM: the client's plaintext password
- * straight into matrix_users.string.dd133 (and it would then fail every login,
- * since auth.ts accepts only Argon2id). PHP hashed on the way in
- * (component_password::Save → hash_password); this is that gate.
- *
- * XSS-01 (2026-07-28 audit) / P2-6 (2026-08-26) — a value whose descriptor
- * declares the `html` render class is the ONE class the client passes through
- * unescaped, so it is the ONE class sanitized here (strip script/style/on*=/js:
- * URLs, keep formatting). Keyed on the descriptor facet, never on the model
- * string: a model that declares 'html' opts into this sanitizer in that line.
- * A model WITHOUT a descriptor (component_ip, component_layout, …) is not asked
- * for a class — it has no matrix column either, so the graceful `no matrix
- * column` refusal downstream stays the answer, as it was before.
- *
- * Both sit at the write engine precisely so EVERY door funnels through them —
- * the client API, the MCP tools, the agent change-plan and import alike.
+/*
+ * The VALUE gates (password hash, rich-text sanitize + media-src relativize)
+ * live in ./write_value_gates.ts — shared with the whole-value writers that
+ * bypass this door (translateAndWrite), censused by
+ * component_value_gate_census_tripwire.
  */
-async function applyWriteValueGates(
-	model: string,
-	changedData: SaveRequest['changedData'],
-): Promise<SaveRequest['changedData']> {
-	if (model === 'component_password') {
-		return await (await import('../../security/password_hash.ts')).hashPasswordChanges(changedData);
-	}
-	if (getComponentModel(model) !== undefined && getRenderClass(model) === 'html') {
-		const { mapRichTextChanges, sanitizeRichText } = await import(
-			'../../security/html_sanitize.ts'
-		);
-		// TODO-067: a media src on an absolute webBase is persisted relative (WC-042).
-		const { relativizeMediaSrc } = await import('../../media/web_base_src.ts');
-		return mapRichTextChanges(changedData, (value) => relativizeMediaSrc(sanitizeRichText(value)));
-	}
-	return changedData;
-}
 
 /** One component key read under the save's row lock (see applySaveComponentData). */
 interface LockedComponentKey {
@@ -1578,7 +1542,7 @@ async function lockComponentKey(
 ): Promise<LockedComponentKey | null> {
 	const rows = (await sql.unsafe(
 		`SELECT ("${column}" ? $3) AS present, "${column}"->$3 AS items FROM "${table}"
-		 WHERE section_tipo = $1 AND section_id = $2 FOR UPDATE`,
+		 WHERE section_tipo = $1 AND section_id = $2 FOR NO KEY UPDATE`,
 		[sectionTipo, sectionId, componentTipo],
 	)) as { present: boolean | null; items: unknown }[];
 	const row = rows[0];
@@ -1623,8 +1587,26 @@ async function declaredOrderInserts(
 	componentTipo: string,
 	sectionTipo: string,
 ): Promise<boolean> {
-	if (atomicInserts.length === 0 || column !== 'relation') return false;
-	return componentDeclaresOrder(componentTipo, sectionTipo);
+	if (atomicInserts.length === 0) return false;
+	if (column === 'relation') return componentDeclaresOrder(componentTipo, sectionTipo);
+	return stemRuledInserts(column, componentTipo, sectionTipo);
+}
+
+/**
+ * An image_id SIBLING (the component a component_image names its files by —
+ * media/stem_rules.ts) never takes the atomic append either: the stem rules
+ * (record_write.ts §3i) judge the value AGAINST THE STORED ONE under the row
+ * lock, which a concatenation cannot show, and the append entry refuses it.
+ * Its inserts persist as the full array, which the chokepoint judges.
+ */
+async function stemRuledInserts(
+	column: string,
+	componentTipo: string,
+	sectionTipo: string,
+): Promise<boolean> {
+	if (column === 'media') return false;
+	const { isImageIdSibling } = await import('../../media/stem_rules.ts');
+	return isImageIdSibling(sectionTipo, componentTipo);
 }
 
 /**
@@ -1703,6 +1685,16 @@ async function refuseAbsentRecord(sectionTipo: string, sectionId: number): Promi
 	});
 }
 
+/** T1-19 — the save door's pre-lock of its relation values' targets (see the call site). */
+async function preLockLinkTargets(
+	column: MatrixJsonbColumn,
+	changedData: readonly { value?: unknown }[],
+): Promise<void> {
+	if (column !== 'relation') return;
+	await lockLocatorTargets(changedData.map((change) => change.value));
+}
+
+/** The transactional body of saveComponentData (see the wrapper above). */
 async function applySaveComponentData(
 	request: SaveRequest,
 	receipt: WriteReceipt,
@@ -1728,7 +1720,7 @@ async function applySaveComponentData(
 	// behind the enforcing CSP; sits here at the write engine so EVERY door
 	// (client API, MCP, change-plan, import) funnels through it, exactly like the
 	// password hash gate below.
-	const changedData = await applyWriteValueGates(model, request.changedData);
+	const changedData = await applyWriteValueGates(model, componentTipo, request.changedData);
 	const mappedColumn = getColumnNameByModel(model);
 	if (mappedColumn === null || !MATRIX_JSONB_COLUMNS.includes(mappedColumn as MatrixJsonbColumn)) {
 		return { ok: false, message: `no matrix column for model '${model}'` };
@@ -1755,6 +1747,15 @@ async function applySaveComponentData(
 	// saves on the same record queue instead of clobbering each other's items,
 	// and the data write + Time Machine audit row land atomically. No wire
 	// change; nothing in the response shape depends on this.
+	// The lock is `FOR NO KEY UPDATE` (the lock-mode law, T1-19): it excludes
+	// every other writer and never waits on the target locks below.
+	// T1-19 / D01 — THE PRE-LOCK: `FOR KEY SHARE` on every record the change
+	// values point at, BEFORE the owner row (section_record/locator_targets.ts):
+	// a concurrent delete of a target then either finished first (the
+	// chokepoint refuses, relation.target_deleted) or waits for this COMMIT
+	// (its inverse search sees the new locator). Taken after the owner it could
+	// deadlock against a delete that already holds the target and wants the owner.
+	await preLockLinkTargets(column, changedData);
 	const locked = await lockExistingComponentKey(
 		table,
 		column,
@@ -2343,7 +2344,7 @@ async function applySaveComponentData(
 	// relation_search write, so the images are the save's final state.
 	await finishSaveHistory(history, {
 		saveTm: request.saveTm !== false,
-		timestamp: dbTimestamp(),
+		now: new Date(),
 	});
 
 	// RAG re-index event (S2-13): PHP save() enqueues the record for re-indexing

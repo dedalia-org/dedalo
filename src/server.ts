@@ -42,6 +42,7 @@ import { refuseBootWhenNotInstalled } from './boot_refusal.ts';
 import { isOntologyIoFileName, recordOntologyDataIoDefault } from './config/catalog/maintenance.ts';
 import { config } from './config/config.ts';
 import { projectRoot, readEnv } from './config/env.ts';
+import { refuseBootOutsideWritableRoots } from './config/writable_roots.ts';
 import { AI_MODEL_URL_PREFIX, serveModelRequest } from './core/ai/model_store.ts';
 import { handleCountersRequest } from './core/api/counters.ts';
 import { type ApiRequestContext, dispatchRqo } from './core/api/dispatch.ts';
@@ -110,6 +111,7 @@ import {
 import { startToolBootHooks, toolHttpRouteFor } from './core/tools/loader.ts';
 import { safeRealpath } from './core/tools/paths.ts';
 import { serveToolsRequest } from './core/tools/serving.ts';
+import { writeBootMarker } from './core/update/boot_marker.ts';
 import {
 	bootSchemaMoved,
 	bootSchemaStateName,
@@ -1809,6 +1811,15 @@ export async function startServer() {
 	// module-level writer ran; this repeats it for a programmatic caller.)
 	refuseBootWhenNotInstalled();
 
+	// THE WRITABLE ROOTS (owner ruling C32, 2026-11-13 — src/config/writable_roots.ts):
+	// a production instance's unit runs ProtectSystem=strict, and its drop-in names
+	// the manifest of the roots it opened (DEDALO_WRITABLE_ROOTS_MANIFEST). Every
+	// path this engine is configured to write must lie under one of them, or the
+	// boot is REFUSED here (exit 78, never restarted) naming the root re-render
+	// command — a path moved in .env outside the roots fails at boot, not at its
+	// first write. Unset manifest (docker, trial, developer): no check.
+	refuseBootOutsideWritableRoots();
+
 	// The dev listener's configuration is checked here, before this function's boot writers
 	// and any listener: a refused TLS pair leaves nothing half-started.
 	const dev = await resolveDevListenerOrRefuse();
@@ -1829,6 +1840,17 @@ export async function startServer() {
 				'============================================',
 		);
 	}
+
+	// THE BOOT MARKER (T1-26 / S15, core/update/boot_marker.ts): everything from here
+	// to the socket bind (module warm-up, boot migrations, the search-store backfill)
+	// can outlast the watchdog's fixed grace; `<socket dir>/booting` holding our pid
+	// extends it while we live. Removed once the socket listens, and on any exit
+	// (a refused boot included); a smoke boot never writes it (it is not the unit's
+	// process). Written only under a supervisor, in a non-world-writable dir.
+	const socketPath = config.server.unixSocketPath;
+	const bootMarker = smokeBoot ? null : await writeBootMarker(socketPath);
+	const clearBootMarker = bootMarker?.outcome === 'written' ? bootMarker.clear : () => undefined;
+	process.on('exit', clearBootMarker);
 
 	// Freeze ONTOLOGY_DATA_IO_DIR's legacy-vs-modern decision in ts_state.json — at
 	// BOOT, its sticky home, and not at config import, where an installer's machine
@@ -2386,7 +2408,6 @@ export async function startServer() {
 	// serves; a no-op outside containers (key unset) and in a smoke boot. Never fatal: it logs and the API still serves.
 	await publishClientAtBoot({ smokeBoot });
 
-	const socketPath = config.server.unixSocketPath;
 	// A previous unclean shutdown leaves the socket file behind; Bun cannot
 	// bind over it. Removing a STALE socket at boot is the standard fix — but
 	// first PROBE it (S2-17b): if something answers, another instance is live
@@ -2462,6 +2483,8 @@ export async function startServer() {
 	}
 
 	console.log(`Dédalo TS server listening on unix socket ${socketPath} (entity: ${config.entity})`);
+	// The pre-bind work is over: the watchdog's probe answers from here on.
+	clearBootMarker();
 
 	// ONLINE MIGRATIONS (migrate.ts runOnlineMigrations): the CONCURRENTLY index
 	// builds that must never hold the listener — a full-heap build pre-listen

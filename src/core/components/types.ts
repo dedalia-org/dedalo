@@ -150,6 +150,14 @@ export interface ComponentSearch {
 export type SearchBuilderFamily = 'string' | 'number' | 'date' | 'iri' | 'section_id' | 'json';
 
 /**
+ * The value a component feeds into a `calculation` widget formula (PHP per-model
+ * get_calculation_data), named as DATA — implemented by
+ * components/calculation_data.ts CALCULATION_DATA. `relation` is never declared:
+ * every relation-column model derives it (registry getCalculationDataId).
+ */
+export type CalculationDataId = 'number' | 'date' | 'info' | 'relation';
+
+/**
  * Flat display-value family (S2-26): how a component renders as a plain
  * string cell (relation_list grid values, export atoms).
  * - 'string': lang-sliced literal values joined ' | ';
@@ -174,6 +182,19 @@ export type SearchBuilderFamily = 'string' | 'number' | 'date' | 'iri' | 'sectio
  *   (WC-2026-11-11-export-inverse-callers); a flat cell is the ids joined. Its
  *   own family for the same reason
  *   as 'external': there is no stored value to slice.
+ * - 'info': DERIVED widget outputs (component_info and its state/calculation
+ *   aliases) — the LIVE widget compute (WC-2026-09-03: the stored `misc` slot
+ *   is never the value). The export walk emits one atom per declared widget
+ *   output under a `sub_id: <output id>` sub-segment (PHP get_export_value);
+ *   a flat cell is every output's values joined
+ *   (WC-2026-11-12-info-live-publication-export). Its own family for the same
+ *   reason as 'external'/'inverse'.
+ * - 'json': each stored item encoded as JSON, one per item (PHP
+ *   component_common::get_export_value base — json_encode($item); component_json
+ *   and component_geolocation have no override). A geolocation entry is encoded
+ *   as a LIST ROW serves it (geo/entry_siblings.ts servedGeoEntry 'list': no
+ *   `sources` / `legend`); `JSON.stringify` bytes, not PHP's escapes
+ *   (WC-2026-11-12-export-json-geolocation-cells).
  * Models with no family declared are LEDGERED unresolved by the consumers
  * (value null + a note, never a guessed string).
  */
@@ -185,7 +206,9 @@ export type FlatValueFamily =
 	| 'iri'
 	| 'media'
 	| 'external'
-	| 'inverse';
+	| 'inverse'
+	| 'info'
+	| 'json';
 
 /**
  * RENDER CLASS (audit P2-6 / CARRY-01 — XSS-03): what the client may DO with
@@ -212,6 +235,12 @@ export type FlatValueFamily =
  * the client half by render_escape_tripwire.
  */
 export type RenderClass = 'text' | 'html' | 'url' | 'number';
+
+/**
+ * A data item's emptiness rule (descriptor `dataItemEmptiness`; semantics and
+ * the PHP is_empty each one mirrors: resolve/data_item_emptiness.ts).
+ */
+export type DataItemEmptinessRule = 'common' | 'string' | 'rich_text' | 'iri';
 
 /**
  * What a CSV import column in APPEND mode (tool_import_dedalo_csv
@@ -283,6 +312,14 @@ export interface ComponentModel {
 	 */
 	readonly classSupportsTranslation?: boolean;
 	/**
+	 * When a stored data item carries NO value (PHP is_empty per class): the rule
+	 * the language fallback judges a lang slice by — a slice of cleared items is
+	 * empty, whatever its item count (T1-34 / O14). Read only through
+	 * resolve/data_item_emptiness.ts. Every classSupportsTranslation model MUST
+	 * declare it (descriptor_completeness_tripwire).
+	 */
+	readonly dataItemEmptiness?: DataItemEmptinessRule;
+	/**
 	 * MODEL RULE on the ontology NODE flag (`dd_ontology.is_translatable`, source
 	 * ontology8): the value every node of this model MUST declare. Only `false` exists —
 	 * "this model is never translatable" — and today only component_iri states it (an IRI
@@ -333,6 +370,13 @@ export interface ComponentModel {
 	 * Omitted = the consumers ledger the model as unresolved (null value).
 	 */
 	readonly flatValue?: FlatValueFamily;
+	/**
+	 * What this model feeds a `calculation` widget input (PHP get_calculation_data).
+	 * Omitted = the model cannot feed a calculation — an input naming it refuses
+	 * loudly (engine.uncovered_scope). Never declared on a relation-column model:
+	 * those derive `relation` (descriptor_completeness_tripwire).
+	 */
+	readonly calculationData?: CalculationDataId;
 	/**
 	 * PHP component_common::$components_using_value_property: on CSV import a
 	 * bare scalar cell wraps into {value: …} for this model (tools/
@@ -454,6 +498,18 @@ export interface ComponentModel {
 	 */
 	readonly itemGate?: ItemGateId;
 	/**
+	 * The model's element context ALWAYS carries
+	 * `properties.show_interface.button_add = false`, whatever the ontology node,
+	 * a ddo or an RQO properties override says (PHP json controllers
+	 * component_relation_related_json.php:77 / component_relation_parent_json.php:77:
+	 * a parent is attached from the children side, a related link is picked —
+	 * neither creates a new target record inline). Consumer: registry.ts
+	 * getForbidsAddButton → resolve/structure_context.ts. Relation-only; declared
+	 * `true` only. Set pinned against the PHP oracle in
+	 * test/unit/descriptor_completeness_tripwire.test.ts.
+	 */
+	readonly forbidsAddButton?: true;
+	/**
 	 * DERIVED: the component OWNS NO STORED VALUE — what a read serves is
 	 * computed (an inverse question: who declares me as parent / who points at
 	 * me; a remote service), never read back from its own matrix key. Whatever
@@ -467,8 +523,13 @@ export interface ComponentModel {
 	 *   - the CSV import REFUSES a column mapped to it in any mode (its
 	 *     `importAppend` refusal names what to import instead).
 	 * A derived model must refuse append. Declared `true` only; omitted = the
-	 * component stores what it serves. component_info is audited OUT: its
-	 * widget values are stored mirrors the read and search consult. Pinned by
+	 * component stores what it serves. component_info IS derived (owner C10
+	 * 2026-11-13, WC-2026-11-13-info-derived-async-published): its `misc` slot
+	 * is never served (WC-2026-09-03), tool_update_cache skips it and the CSV
+	 * import refuses a column mapped to it; the consumers whose computed value
+	 * is the WIDGET aggregate (export dedalo_raw, the D4 holdsNoData probe,
+	 * diffusion) still key on its `info` flatValue family, because that names
+	 * WHAT is computed, not merely that something is. Pinned by
 	 * descriptor_completeness_tripwire (the set of record, the append law).
 	 */
 	readonly derived?: true;

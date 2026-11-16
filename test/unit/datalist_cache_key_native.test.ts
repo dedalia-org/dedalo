@@ -240,13 +240,13 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		const spanish = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			ES_OWNER,
+			{ section_tipo: ES_OWNER, section_id: null },
 			LANG,
 		);
 		const french = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			FR_OWNER,
+			{ section_tipo: FR_OWNER, section_id: null },
 			LANG,
 		);
 
@@ -281,22 +281,27 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		const french = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			FR_OWNER,
+			{ section_tipo: FR_OWNER, section_id: null },
 			LANG,
 		);
 		const spanish = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			ES_OWNER,
+			{ section_tipo: ES_OWNER, section_id: null },
 			LANG,
 		);
 		expect(seededIds(french)).toEqual(FR_IDS);
 		expect(seededIds(spanish)).toEqual(ES_IDS);
 		// …and the second call did not overwrite the first owner's entry either:
 		// asking again returns the SAME cached array, not a rebuild of the other.
-		expect(await getDatalist(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, FR_OWNER, LANG)).toBe(
-			french,
-		);
+		expect(
+			await getDatalist(
+				RELATION_MODEL_TIPO,
+				RELATION_MODEL_PROPERTIES,
+				{ section_tipo: FR_OWNER, section_id: null },
+				LANG,
+			),
+		).toBe(french);
 	});
 
 	test('the same bleed is gated for a plain {source:"self"} sqo', async () => {
@@ -305,8 +310,18 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		// live). Owners here are the model sections themselves, each its own
 		// target — one synthetic component tipo, two owners, two lists.
 		await seedOptions();
-		const spanish = await getDatalist('zzdlkeyself1', SELF_SOURCE_PROPERTIES, ES_TARGET, LANG);
-		const french = await getDatalist('zzdlkeyself1', SELF_SOURCE_PROPERTIES, FR_TARGET, LANG);
+		const spanish = await getDatalist(
+			'zzdlkeyself1',
+			SELF_SOURCE_PROPERTIES,
+			{ section_tipo: ES_TARGET, section_id: null },
+			LANG,
+		);
+		const french = await getDatalist(
+			'zzdlkeyself1',
+			SELF_SOURCE_PROPERTIES,
+			{ section_tipo: FR_TARGET, section_id: null },
+			LANG,
+		);
 		expect(seededIds(spanish)).toEqual(ES_IDS);
 		expect(seededIds(french)).toEqual(FR_IDS);
 		for (const option of french) expect(option.value.section_tipo).toBe(FR_TARGET);
@@ -317,13 +332,13 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		const spanish = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			ES_OWNER,
+			{ section_tipo: ES_OWNER, section_id: null },
 			LANG,
 		);
 		const french = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			FR_OWNER,
+			{ section_tipo: FR_OWNER, section_id: null },
 			LANG,
 		);
 		// Two owners = two entries. Stated before the counts so a shared entry
@@ -338,18 +353,41 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		// The CACHED branch of the probe (both lists are cached right now): each
 		// owner must be counted against its own entry.
 		expect(
-			await probeDatalistSize(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, ES_OWNER, LANG, 50),
+			await probeDatalistSize(
+				RELATION_MODEL_TIPO,
+				RELATION_MODEL_PROPERTIES,
+				{ section_tipo: ES_OWNER, section_id: null },
+				LANG,
+				50,
+			),
 		).toBe(spanish.length);
 		expect(
-			await probeDatalistSize(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, FR_OWNER, LANG, 50),
+			await probeDatalistSize(
+				RELATION_MODEL_TIPO,
+				RELATION_MODEL_PROPERTIES,
+				{ section_tipo: FR_OWNER, section_id: null },
+				LANG,
+				50,
+			),
 		).toBe(french.length);
 
 		// The COLD (SQL) branch, with only the OTHER owner's list cached: the
 		// probe must miss that entry and count its own target section.
 		clearDatalistCache();
-		await getDatalist(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, ES_OWNER, LANG);
+		await getDatalist(
+			RELATION_MODEL_TIPO,
+			RELATION_MODEL_PROPERTIES,
+			{ section_tipo: ES_OWNER, section_id: null },
+			LANG,
+		);
 		expect(
-			await probeDatalistSize(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, FR_OWNER, LANG, 50),
+			await probeDatalistSize(
+				RELATION_MODEL_TIPO,
+				RELATION_MODEL_PROPERTIES,
+				{ section_tipo: FR_OWNER, section_id: null },
+				LANG,
+				50,
+			),
 			`the ${FR_OWNER} probe was answered from the ${ES_OWNER} list`,
 		).toBe(french.length);
 	});
@@ -367,13 +405,13 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		const spanishBefore = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			ES_OWNER,
+			{ section_tipo: ES_OWNER, section_id: null },
 			LANG,
 		);
 		const frenchBefore = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			FR_OWNER,
+			{ section_tipo: FR_OWNER, section_id: null },
 			LANG,
 		);
 		expect(frenchBefore.some((item) => item.section_id === LATE_FR_ID)).toBe(false);
@@ -384,7 +422,7 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		const frenchAfter = await getDatalist(
 			RELATION_MODEL_TIPO,
 			RELATION_MODEL_PROPERTIES,
-			FR_OWNER,
+			{ section_tipo: FR_OWNER, section_id: null },
 			LANG,
 		);
 		expect(frenchAfter).not.toBe(frenchBefore);
@@ -392,9 +430,14 @@ describe('the option list is identified by (component, OWNER SECTION, lang)', ()
 		// The ES owner's list was built from a DIFFERENT target section: same
 		// component tipo, same lang, untouched entry (this half is what proves the
 		// eviction is keyed by target section and not a blanket wipe).
-		expect(await getDatalist(RELATION_MODEL_TIPO, RELATION_MODEL_PROPERTIES, ES_OWNER, LANG)).toBe(
-			spanishBefore,
-		);
+		expect(
+			await getDatalist(
+				RELATION_MODEL_TIPO,
+				RELATION_MODEL_PROPERTIES,
+				{ section_tipo: ES_OWNER, section_id: null },
+				LANG,
+			),
+		).toBe(spanishBefore);
 
 		await sql.unsafe(`DELETE FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`, [
 			FR_TARGET,

@@ -835,6 +835,7 @@
 	"reset_to_seed": "Réinitialiser à l'état initial",
 	"reset_warning": "Ceci SUPPRIME et réimporte depuis l'état initial, en abandonnant toute modification locale",
 	"resize": "Redimensionner",
+	"restricted": "(restreint)",
 	"reuse_tag": "Réutiliser le libellé",
 	"reverse_relations": "Relations inverses",
 	"rotate": "Rotation",

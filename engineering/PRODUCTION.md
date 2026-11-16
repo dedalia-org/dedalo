@@ -90,6 +90,87 @@ Reference units in `deploy/`:
   watchdog when a pending update never confirms). Publishing a release:
   `engineering/RELEASE.md`.
 
+**The boot marker (T1-26 / S15).** Boot migrations and the search-store backfill
+run before the socket binds. Under a declared supervisor, `startServer` writes
+`<socket dir>/booting` = its pid before that work (`src/core/update/boot_marker.ts`)
+and removes it once the socket listens or the process exits; the watchdog's
+`--service/--grace` skip extends while that pid lives (bounded by four graces). It
+is written only in a socket directory that is not world-writable (the unit's
+`RuntimeDirectory`, never a shared `/tmp`), never over a live foreign marker, and
+never by a smoke boot. Gate: `boot_marker_native`.
+
+**The sandbox baseline (T1-26 / S15).** Both engine units
+(`deploy/dedalo-ts.service`, `deploy/systemd/dedalo-ts@.service`) carry a
+path-independent systemd sandbox: `NoNewPrivileges`, an empty
+`CapabilityBoundingSet`, `RestrictSUIDSGID`, `LockPersonality`,
+`RestrictRealtime`, `RestrictNamespaces`, `ProtectKernel{Tunables,Modules,Logs}`,
+`ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `PrivateDevices`,
+`ProtectProc=invisible`, `SystemCallArchitectures=native`,
+`RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`. Deliberately absent
+(the unit's comment says why): `MemoryDenyWriteExecute` (JSC JIT), `ProcSubset`
+(`/proc/cpuinfo`), `PrivateTmp` (runners outlive a restart in the temp dir),
+`ProtectHome` (an instance may live under `/home`), `SystemCallFilter` (needs a
+measured syscall set). Gate: `install_host_render_tripwire` (h).
+
+**The file system is read-only — `ProtectSystem=strict` (owner ruling C32,
+2026-11-13).** Both engine units carry it; what stays writable is OPENED by
+`ReadWritePaths=`: the instance drop-in lists the roots DERIVED from the install
+answers (`host/systemd/render.ts writableRoots` — the install folder, the backup
+dir, the web root under `/srv/dedalo/<i>` with the media and the published client,
+the socket dir, the PostgreSQL socket dir, `/tmp`, `/var/tmp`; a root under another
+is dropped), one quoted assignment per root (L8); the single-instance
+`deploy/dedalo-ts.service` carries the same list with its placeholders. The installer
+writes the SAME list as a JSON manifest beside the drop-in
+(`dedalo-writable-roots.json`: instance, stamp, `read_write_paths`, `refresh` = the
+root re-render command) and names it in the drop-in's
+`DEDALO_WRITABLE_ROOTS_MANIFEST`; at boot, before any listener, the engine
+(`src/config/writable_roots.ts`, `startServer`) checks every path it is configured
+to write — the private dir, `MEDIA_PATH`, `DEDALO_BACKUP_DIR`, the export / ontology
+IO / transform / geoip dirs, the client publish dir, the socket dir, the instance
+dir the swap renames in, the temp dir — against the roots and REFUSES (exit 78,
+never restarted) naming the path and the command when one lies outside; a named
+manifest that is missing or malformed refuses too (fail closed). Unset manifest
+(docker, trial, developer): no check. So a `.env` path moved outside the roots is a
+refusal at boot with the fix in the line, never an `EROFS` in the middle of an upload.
+**The re-render command** —
+`sudo /opt/dedalo/bun/<pin>/bun run <tree>/scripts/ops/host_units_refresh.ts --instance <i>`
+(`host/production/units_refresh.ts`) — renders this release's templates and the
+instance's drop-ins + manifest from the frozen plan (`/var/lib/dedalo-install/<i>/`)
+exactly as `host_units` does, writes absent templates, UPGRADES one an earlier release
+shipped, refuses a foreign one, rewrites the instance files, `daemon-reload`s and leaves
+the restart to the operator. **The shipped-digest ledger (owner ruling C33, 2026-11-13)**
+— `deploy/systemd/shipped_digests.json` (`host/systemd/shipped_digests.ts`): for every
+template, the sha256 of every render a release ever shipped (one per OS row), append-only.
+`host_units` and the refresh judge an existing template by it: byte-equal → current, a
+shipped digest → the installer's own, upgraded in place, anything else → foreign, refused,
+nothing written. **THE SIBLING LAW (C32/C33 review gap, 2026-11-14;
+`host/production/units.ts siblingUnitsBlockers` / `templateUpgradeDecision`)**: a
+template's render is PAIRED with each instance's drop-ins (`ProtectSystem=strict` relies on
+the drop-in's `ReadWritePaths=`), so a shipped template is upgraded ONLY once every OTHER
+registered instance that uses the templates runs this release's drop-ins and manifest —
+rendered from its own frozen record (`host/production/instance_record.ts`, the one
+derivation the refresh uses too) and byte-equal on disk. Otherwise the upgrade is DEFERRED:
+the earlier template is kept, the step's line / the refresh's report name each blocking
+instance with its REMEDY (`UnitsRefreshReport.deferred` + `blockers[].remedy`, judged on the
+sibling's TREE by `siblingTreeVerdict`: its own re-render command when the tree holds the
+script and the same `build_info.txt` sha as this source; "update that instance to this release
+first, then …" when the script is absent or the stamps differ — a sibling on an earlier release
+has no re-render command in its tree and its own refresh renders its release's drop-ins), and
+the LAST instance brought to this release upgrades the template; a sibling whose record cannot
+be read — absent, corrupt or of another schema; a throwing reader is caught in `siblingBlocker`
+— blocks too (fail closed), and never stops the refreshing instance's own files being
+rewritten. `host_units`' verify accepts a deferred template as what the run
+meant; the Review still lists every template write (the deferral is the run's). Gate:
+`install_host_steps_native` "THE SIBLING LAW" (two instances, one legacy — refresh and step). **The update
+run OFFERS, never runs**: it runs as the service user and gains no privilege; its
+post-verify `host_units` predicate (`update/run/host_units.ts`) compares the host's
+templates with this release's render (any OS row) and, when they differ, carries the
+manifest's `refresh` command as the verdict's `offer` — always `ok` — into the journal,
+`bun run update status` (the *to do (as root)* line) and the server log. Gates:
+`install_host_render_tripwire` (i, j), `install_state_boot` (writable roots),
+`install_host_steps_native` (shipped upgrade, refresh, the sibling law), `update_run_state_machine_native`
+(host_units), `update_cli_native` (status).
+
 **Supervision is DECLARED, never inferred (2026-10-08).** A code update exits the
 process after the swap and needs something to start it again, so it refuses
 unless the process says a supervisor exists: `DEDALO_SUPERVISED=true`, read from
@@ -195,7 +276,7 @@ stamped `# dedalo-install <i> <answers digest>`):
   only after the first boot recorded every migration (a watchdog armed with the
   service killed a first boot mid-migration — campaign 2 L7). The watchdog
   script also skips while the unit is activating or younger than its grace, and
-  while the engine's boot marker names a live pid; its timer waits
+  while the engine's boot marker (§2) names a live pid; its timer waits
   `OnActiveSec=60` before the first check.
 - `dedalo-backup@<i>.service`: the drop-in lists the store lines and declares
   `DEDALO_BACKUP_EXPECTED_STORES` DERIVED from them, every `Environment=` value
@@ -412,15 +493,17 @@ read into `config.ops` in `src/config/config.ts`). `0` disables each bound:
 |---|---|---|---|
 | `DB_POOL_MAX` | 10 | 10 | Request-pool connections per PROCESS. |
 | `DB_MAINTENANCE_POOL_MAX` | 2 | 2 | The separate MAINTENANCE pool per process (startup `statement_timeout` 0, `application_name` `dedalo_maintenance:<pid>:<boot nonce>`, built on first use, idle connections close after 30 s). |
-| `DB_POOL_ACQUIRE_TIMEOUT_MS` | 0 | 30000 | How long a caller may QUEUE for a connection of either pool. Exhaustion answers the typed 503 `db.pool_exhausted` (retryable) instead of an indefinite hang. |
-| `DB_STATEMENT_TIMEOUT_MS` | 0 | 60000 | The request pool's startup `statement_timeout` (WC-055). It is the ONLY bound on a search that cannot abort early — a deliberately-unindexed match (dd551 Data, `f_unaccent(…) ~* …`) reads the whole table, ~175 s on a 33 M-row activity log, and a client disconnecting does **not** cancel it. A fired ceiling answers the typed 503 `db.statement_timeout`. Maintenance does not run under it (below). |
-| `DEDALO_SLOW_QUERY_MS` | 0 | 5000 | Warn-log statements slower than this — on EVERY lane: pooled, inside a transaction (the write path) and on a reserved connection. The line names the lane (OPS-13). |
+| `DB_POOL_ACQUIRE_TIMEOUT_MS` | 30000 | 30000 | How long a caller may QUEUE for a connection of either pool. Exhaustion answers the typed 503 `db.pool_exhausted` (retryable) instead of an indefinite hang. |
+| `DB_STATEMENT_TIMEOUT_MS` | 60000 | 60000 | The request pool's startup `statement_timeout` (WC-055). It is the ONLY bound on a search that cannot abort early — a deliberately-unindexed match (dd551 Data, `f_unaccent(…) ~* …`) reads the whole table, ~175 s on a 33 M-row activity log, and a client disconnecting does **not** cancel it. A fired ceiling answers the typed 503 `db.statement_timeout`. Maintenance does not run under it (below). |
+| `DEDALO_SLOW_QUERY_MS` | 5000 | 5000 | Warn-log statements slower than this — on EVERY lane: pooled, inside a transaction (the write path) and on a reserved connection. The line names the lane (OPS-13). |
 
-**The on-by-default flip is pending** (PERF-11 C4): the three bounds ship at
-`0` until every row of the census below marked PENDING enters the unbounded
-scope — a ceiling that ships on while a boot store build or the retention
-prune still runs under it would fail those every day on a large install. The
-flip, its config-census leg and those wraps land in ONE commit.
+**The statement ceiling is on by default** (PERF-11 C4, T1-24): it shipped
+together with the census below — every legitimately long statement enters the
+unbounded scope at its source or runs in committed batches — and its
+config-census leg (`config_census_tripwire`). The acquire timeout and the
+slow-query log flipped SEPARATELY (owner ruling 2026-11-11), each with its own
+census leg; all three are on by default since 2026-11-13 (slow-query value: owner
+ruling 2026-11-13 A3).
 
 **Connection budget.** Count PHYSICAL backends, not gate slots: the acquire
 gates bound connections IN USE, and a Bun pool keeps an idle connection open
@@ -570,8 +653,11 @@ Census of the legitimately long statements (who is unbounded, and how):
 | `runWithoutStatementTimeout` (REINDEX/VACUUM/DROP INDEX CONCURRENTLY) | By lock class: the WEAK forms (CONCURRENTLY, plain VACUUM / ANALYZE) on the non-transactional maintenance lane (same gate, no lock bound, never cancelled by shutdown — see above); every other statement (`REINDEX TABLE`, `VACUUM FULL`) on the maintenance pool under `MAINTENANCE_LOCK_TIMEOUT`, retried, typed `db.lock_timeout` on escape. Refused inside a transaction. |
 | Data-update engine (`src/core/update/engine.ts`) | Its own atomic unit: `withMaintenanceTransaction` (one transaction, `SET LOCAL lock_timeout` + `SET LOCAL statement_timeout = 0`, whole-unit retry on 55P03 — each discarded attempt logged to update.log — abort cancels the running statement). The background job has NO deadline (`deadlineMs: 0`, overriding the maintenance lane's 6 h): a clock that fired mid-run would roll the whole unit back, every time. The verdict of record is the `matrix_updates` version row (it commits with the steps); update.log is advisory: a `BEGIN atomic run … [xact <xid>]` line per attempt that won the single-flight claim (a refused one writes only `REFUSED [xact <xid>] (…)`) and an fsynced `COMMITTED <version> [xact <xid>]` line after the COMMIT succeeded, but a failed log write (full or read-only private dir) only reaches the server log and never changes the verdict — and a crash between COMMIT and that line leaves a committed run without it, so read `matrix_updates` when in doubt. A statement cancelled from outside (a shutdown, an operator) is reported as an interruption, never as the step's SQL failing. A failure the engine did not raise itself (a connection lost during COMMIT) is classified by `pg_xact_status` of the run's own transaction (read on a dedicated connection, ≤ 2 s per read) — committed, rolled back, or "outcome unknown" — never by re-reading the version. Once a run is aborted, no further statement of it is sent. No step can end the unit: transaction control is refused before it is sent; should the between-steps checkpoint ever see the transaction id change anyway, the run is reported `PARTIAL` (what ran before persisted, the version is not stamped) — never "rolled back". Known limit: `lock_timeout` bounds EVERY lock wait, row locks too — a long migration that meets a row lock held > 5 s is retried whole (maintenance mode excludes ordinary editors; a background import or runner started before it does not). |
 | Boot migrations (`install/db/migrate.ts`) | Already `SET LOCAL statement_timeout = 0` per file (the recorder sees it); the ONLINE lane uses a reserved connection with a session 0 it RESETs. |
-| `db_assets` store builds at boot (`ensureSearchStores` → one whole-table `INSERT … SELECT` backfill per matrix table; `rebuildIndexes` & co.) / `test:db:setup` / `migrate_section_id_locators`; `observer_reconcile` CLI | To enter the scope at the source (the `db_assets` builders, `reconcileObserverMirrors`). PENDING — until then they run under the ceiling, so the default flip ships together with those wraps. |
-| Retention scheduler (`src/core/retention/scheduler.ts`, after boot then daily, from a bare timer): `pruneMatrixEventRowsByAge` on `matrix_activity` (an unbatched `count(*)` + one `DELETE … RETURNING`) and the dd1758 ledger prune | PENDING — enter the scope at the retention pass entry, or batch the prune (`DELETE … WHERE id IN (SELECT … LIMIT n)`, each batch well under the ceiling). Under a ceiling an all-or-nothing DELETE over a 33 M-row log rolls back every day and never makes progress. |
+| `db_assets` store builds (`ensureSearchStores` — boot, `completeFreshInstall` (installer, `install.sh`, `test:db:setup`), the seed verify, the data-update ancillary; `backfillSearchStores` — the widget, `migrate_section_id_locators`) | The scope at the SOURCE: both functions run their body inside `withUnboundedStatements` (nested inside a live scope = no-op; entered inside a request-lane transaction = the loud `internal.invariant` refusal). On the maintenance lane the DDL waits under `MAINTENANCE_LOCK_TIMEOUT`; a boot that meets a lock held longer logs the error and serves (the S1-15 posture). Gate: `statement_ceiling_long_work_native`. |
+| Observer mirror reconcile (`reconcileObserverMirrors` — the CLI `scripts/observer_reconcile.ts`, the reconcile registry run, the post-restore plan, the update engine) | The scope at the SOURCE, same as above. Per-record recomputes then wait for a row lock under `MAINTENANCE_LOCK_TIMEOUT` (a sweep that meets a longer lock aborts; it is re-runnable). Gate: `statement_ceiling_long_work_native`. |
+| `scripts/migrate_section_id_locators.ts` | Its discovery keyset read and its post-verify `jsonb_path_query` census run in the scope; the per-row repair stays on the request lane on purpose (it waits for an editor's row lock instead of failing at the maintenance lock bound). |
+| Read-only operator scans: `scripts/census_section_id.ts` (the int-unification measurement pass — `jsonb_path_query` `$.**` over every matrix table × JSONB column and the Time Machine) and `scripts/detect_csv_import_damage.ts` (the DATA-04/DATA-09 damage scan — `jsonb_each` over every record table, a `lag()` window over all of `matrix_time_machine`) | The scope at the SOURCE: `main` runs its scan inside `withUnboundedStatements` (the damage scan's reserved `BEGIN READ ONLY` connection comes from the maintenance pool), so neither needs `DB_STATEMENT_TIMEOUT_MS=0`. Gate: `statement_ceiling_operator_scans_native`. |
+| Retention scheduler (`src/core/retention/scheduler.ts`, after boot then daily, from a bare timer): `pruneMatrixEventRowsByAge` on `matrix_activity` and the dd1758 ledger prune `pruneSettledLedgerRows` | BATCHED, not unbounded (owner ruling 2026-11-11): keyset steps of `RETENTION_PRUNE_BATCH_ROWS` (10 000; ~48 ms per apply step measured on a 500 000-row ledger) in `("timestamp", id)` order, each ONE autocommit statement — dry and apply share the predicate, progress persists across a timeout, lock conflict or restart. Refused inside a transaction. SIGTERM aborts the pass BETWEEN steps (`stopRetentionScheduler`). Gate: `retention_prune_batched_native`. |
 | Diffusion runners | Stay bounded (their containers already run at 60 s); measured separately. |
 | `psql` / `pg_restore` / `pg_dump` children | Never receive the startup GUC. The hierarchy import/reset unit (`src/core/install/hierarchy_import.ts`) bounds itself: after `BEGIN`, `SET LOCAL lock_timeout` = `HIERARCHY_UNIT_LOCK_TIMEOUT` (pinned equal to `MAINTENANCE_LOCK_TIMEOUT` by `hierarchy_import_lock_bound_native`) + `SET LOCAL statement_timeout = 0`; a 55P03 rolls the unit back and it is retried WHOLE (1/2/4/8 s, abortable); an `installHierarchies` `signal` kills it at once and its outcome is READ by `pg_xact_status` (committed / rolled back / unknown), never assumed. No caller passes a signal yet (add_hierarchy is not a stoppable job). |
 | Request traffic, and requests waiting behind a maintenance lock | Bounded — a typed 503 by design. Two request paths carry their OWN budget under the pool ceiling, so they stay bounded even at its default 0: the `relation_targets` census (one 30 s whole-census deadline) and every search statement a `referenced_by` leaf rendered into (30 s per statement, wherever it runs — all search statements go through the ONE executor `src/core/search/search_statement.ts`, inside a caller's transaction too; the export selection cursor arms it as its `transaction_timeout`) — see WC-2026-10-30-search-referenced-by-leaf. |
@@ -656,7 +742,17 @@ install (a large export) exceeds it; measure first with `DEDALO_SLOW_QUERY_MS`.
   target — isolated per target, so the hop, the other targets and the save's
   later subscriptions still run; the log line names the observer and the
   record, and the order left stale is drift the `portal_declared_order`
-  reconcile lists. It should stay at zero. `observers_index_repaired` ticks when the
+  reconcile lists. It should stay at zero. `observers_refresh_data_refused` counts a
+  `refresh_data` observer edge whose `perform.params` are outside the closed grammar
+  (`on_empty → empty_data` only — `WC-2026-11-13-observer-refresh-data`): the edge is
+  skipped loudly and nothing is written; it is configuration, should stay at zero, the log
+  line names the edge and the reason. `observers_refresh_data_unchanged` is informational:
+  a `refresh_data` edge reached by an UNCHANGED re-save of the observed value, which
+  clears nothing. `observers_refresh_data_skipped` is informational too: the edge reached
+  by a WHOLE-RECORD write (a duplicate, an undelete, a Time Machine whole-record restore —
+  not a door the clear fires from) or aimed at a slot the SAME operation wrote (a CSV
+  import row saving the person and the milestone in one transaction); nothing cleared,
+  the written value stands. `observers_index_repaired` ticks when the
   observer RECONCILE finds an `_hi` mirror whose value is already right but
   whose ancestor index (`relation_search`) disagreed, and rewrites it
   unstamped — legacy rows written before the recompute indexed its mirror;
@@ -1266,7 +1362,16 @@ quoting of list keys and the mangled value then outranks the file).
   changed or a file disagrees with the ledger; rows recorded before the hash
   column are backfilled once. A `compatible` class must be lexer-proven additive;
   an `incompatible` migration ships only in an `incompatible` (minor) release
-  (`migration_content_hash_tripwire`). A boot file never builds an index on a
+  (`migration_content_hash_tripwire`). **The seal** (owner ruling C31,
+  2026-11-13): the release cut (`bun run changelog release <v>`) freezes, at a
+  triple's FIRST build (its first prerelease, or the release), the set of
+  `incompatible` migrations the ledger assigns to `X.Y.Z` into
+  `install/db/migrations.sealed.json` (`install/db/migration_seal.ts`); from
+  then on an `incompatible` file added to that triple is red and must move to
+  the next minor — so the same-triple ruling of §12 (a run inside one triple
+  crosses no migration) is a checked property, not a convention. 7.0.0 was
+  sealed retroactively at beta.8, with `0015` (which had crossed beta.7 → beta.8
+  before the seal existed). A boot file never builds an index on a
   shared table — that is the ONLINE lane (`migration_shared_row_tripwire`).
   Subsystem lazy `CREATE TABLE IF NOT EXISTS` bootstraps remain as fallback.
   Every file's lock WAIT is bounded (`SET LOCAL lock_timeout`, default 5s) and
@@ -1519,15 +1624,22 @@ NEEDS_DB_RESTORE) → the run's
 backup (newest PROVEN dump inside `DEDALO_BACKUP_TIME_RANGE`, or a journaled
 waiver) → the release's `steps` from `install/update/catalog.json` (default
 `code → ontology → schema → ancillary`; ontology preconditions before the
-swap) → post-verify (`schema_clean`, `data_version`, `data_model`) →
+swap) → post-verify (`schema_clean`, `data_version`, `data_model`, `host_units`) →
 VERIFIED → confirm → CONFIRMED. After the swap the new tree's boot RESUMES the
 run (`run/boot.ts`): a run whose code phase started owns the boot, so the boot
 runner does not apply migrations — the run's `schema` phase does. Failure
 exits (`run/rollback.ts`, the ONE predicate `canAutoRollback`): before the swap
-FAILED_PRE_SWAP; after it ROLLED_BACK_CODE only while no database phase
-(`ontology`/`schema`/`data`) of a release whose `compat` is not `compatible`
-started, else NEEDS_DB_RESTORE (sentinel `needs_restore`, a human restores the
-run's backup with the previous code — D-2). CLI: `bun run update
+FAILED_PRE_SWAP; after it ROLLED_BACK_CODE unless a database phase
+(`ontology`/`schema`/`data`) of a WALKED `incompatible` release (or a walked
+release with no plan) started, then NEEDS_DB_RESTORE (sentinel `needs_restore`,
+a human restores the run's backup with the previous code — D-2). A code-only
+release and a same-triple run are not counted as crossings (owner ruling
+2026-11-11, T1-25). Since 2026-11-13 (C31) the same-triple half is a CHECKED
+property: the release cut SEALS a triple's `incompatible` set at its first build
+(`install/db/migrations.sealed.json`, §7), so two builds of one sealed triple
+cannot differ by an `incompatible` migration; the one historical exception,
+`0015` between 7.0.0-beta.7 and -beta.8, predates the seal (VERSIONING_SPEC
+§4 rule 8). CLI: `bun run update
 status|check|plan <release>|abort [note]` (`scripts/update.ts`). Door
 precondition classes: `src/core/update/door_class.ts` (WC-2026-10-30-maintenance-door-classes).
 Operator manual: `docs/administration/updates/index.md`, held to the code by
@@ -1777,7 +1889,14 @@ target REFUSED in every mode (`version_refused`: Docker has no nightly images �
 VERSIONING_SPEC S3) → release-order downgrade floor (`dedalo_version_cmp`: a
 prerelease before its release) → the RUNNING engine's walk verdict
 (`scripts/ops/image_update_channel.ts check-target`: exit 0 ok, 3 refused + reason
-id, anything else = unavailable, refused unless `--skip-version-check`) → a
+id, anything else = unavailable, refused unless `--skip-version-check`) → the
+stack file's THIRD-PARTY SERVICE PINS read (C25, owner 2026-11-13: every pinned
+`image:` but the product's; each running service compared with its pin, a
+not-running one left alone; a DATA-FORMAT service — postgres, mariadb, pgvector
+(C24) — whose pinned MAJOR differs from the running one, or whose running tag
+spells no major, REFUSES the run, `service_major_mismatch`, before anything
+changes: a major is the documented dump/restore or pg_upgrade migration, never an
+image update) → a
 verified `pg_dump` through the `backup` service (`--label pre-image-update`;
 `--no-backup` is the operator's typed waiver) → the running image anchored as
 `<DEDALO_IMAGE>:rollback-<UTC stamp>` → pull (+ when `DEDALO_IMAGE_VERIFY=cosign`:
@@ -1790,8 +1909,13 @@ or build (not a git checkout → refused; checkout `v<tag>` — `v7.0.0-beta.7` 
 `--ref` for a prerelease built under another name, build mode only; the checked-out commit's RELEASE
 IDENTITY (`dedalo_release_identity`) must build the target — a release or prerelease only from its exact
 annotated tag; then `dedalo_image_build` of that HEAD — the installer's builder, sourced before
-the checkout, which itself refuses a `-dev` tag, status 3) → re-pin → `up -d
-dedalo backup` (never postgres or nginx) → the compose healthcheck: green on the
+the checkout, which itself refuses a `-dev` tag, status 3) → the queued SERVICE
+PINS RECONCILED (`docker pull <pin>` + `up -d --no-build --no-deps <svc>`, that
+service alone, after the dump and before anything of the engine moves — a failed
+pull or recreation is `failed`/`service_pin_failed`, nothing re-pinned, the
+engine untouched; a service already recreated keeps the checkout's pin, the
+rollback below moves the ENGINE only) → re-pin → `up -d
+dedalo backup` (the third-party services are touched only by the reconcile) → the compose healthcheck: green on the
 first `healthy`; `starting` AND `unhealthy` wait up to `--health-timeout`, default
 900 s (boot migrations run BEFORE the socket binds, so `/health` is red through
 them and Docker reports `unhealthy` ≈2 min in — start_period 30 s + 3 × 30 s —

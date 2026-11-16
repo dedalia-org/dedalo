@@ -21,6 +21,10 @@ import {
 } from '../../../src/core/media/files_info.ts';
 import { transcribeStoredPdf } from '../../../src/core/media/ingest/pdf_transcription.ts';
 import { buildMediaIdentifier, type MediaIdentity } from '../../../src/core/media/path.ts';
+import {
+	applyProvenanceRepair,
+	resolveProvenanceRepair,
+} from '../../../src/core/media/provenance_repair.ts';
 import { regenerateMissingDerivatives } from '../../../src/core/media/repair.ts';
 import {
 	type MediaToolContext,
@@ -288,7 +292,38 @@ export async function syncFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 		rebuildErrors = [(error as Error).message];
 	}
 
-	const freshFilesInfo = getFilesInfoCore(spec, identity, pathOpts, scanContext(mediaContext));
+	// THE PROVENANCE REPAIR (T1-P04) — the one kernel update_cache runs too
+	// (provenance_repair.ts): a lost original_file_name is recovered from the
+	// record's target_filename sibling. Resolved here, before the lock; the scan
+	// reads the REPAIRED cue (PHP's Save re-scan), and the repair itself is
+	// applied again under the row lock, filling only what is still absent.
+	const provenance = {
+		repair: await resolveProvenanceRepair({
+			componentTipo: identity.componentTipo,
+			sectionTipo: identity.sectionTipo,
+			sectionId: identity.sectionId,
+		}),
+		target: {
+			lang: identity.lang,
+			identityBase: {
+				componentTipo: identity.componentTipo,
+				sectionTipo: identity.sectionTipo,
+				sectionId: identity.sectionId,
+			},
+			pathOpts,
+		},
+	};
+	const repairedSnapshot = applyProvenanceRepair(
+		mediaContext.items,
+		provenance.repair,
+		provenance.target,
+	).items;
+	const freshFilesInfo = getFilesInfoCore(
+		spec,
+		identity,
+		pathOpts,
+		scanContext({ ...mediaContext, items: repairedSnapshot }),
+	);
 
 	// repairStoredFilesInfo: this is the ONE path that may MINT a stored item —
 	// a separately-named entry point, not a flag, so no other caller can reach
@@ -312,13 +347,16 @@ export async function syncFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	// state is 'missing', NOT 'noop': a guard on the affected count alone could
 	// never see it, because "nothing needed doing" also writes no row.
 	const outcome = assertRecordPresent(
-		await repairStoredFilesInfo({
-			sectionTipo: identity.sectionTipo,
-			sectionId: identity.sectionId,
-			componentTipo: identity.componentTipo,
-			lang: identity.lang,
-			freshFilesInfo,
-		}),
+		await repairStoredFilesInfo(
+			{
+				sectionTipo: identity.sectionTipo,
+				sectionId: identity.sectionId,
+				componentTipo: identity.componentTipo,
+				lang: identity.lang,
+				freshFilesInfo,
+			},
+			provenance,
+		),
 		identity,
 	);
 	// THE PDF TRANSCRIPTION (T0-11, decision D2 = b): AFTER the file pass and the

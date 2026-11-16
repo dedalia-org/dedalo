@@ -49,13 +49,17 @@ import {
 	listDeletedVersions,
 	removeSectionMediaFiles,
 	restoreDeletedSectionMediaFiles,
-	snapshotFlatValue,
 } from '../../src/core/media/file_ops.ts';
-import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
+import {
+	resolveMediaPathOptions,
+	flatItemsValue as snapshotFlatValue,
+} from '../../src/core/media/ontology_path.ts';
 import { buildMediaLocation, posterframeLocation } from '../../src/core/media/path.ts';
 import {
 	baseSvgUrl,
 	createDefaultSvgFile,
+	repointEnvelopeHref,
+	repointEnvelopeRaster,
 	svgOverlayLocation,
 	writeSvgEnvelope,
 } from '../../src/core/media/svg_overlay.ts';
@@ -456,8 +460,8 @@ describe('section media delete/restore round trip', () => {
 	test('a snapshot flat value reads PHP get_value(): nolan first, joined with " | "', () => {
 		// The `additional_path` bucket is a SIBLING COMPONENT'S VALUE, and both delete
 		// doors read it from a snapshot because the row is gone (or about to be
-		// emptied). The rule must match ontology_path.ts's DB-side twin or the sweep
-		// looks in a different folder than the ingest wrote to.
+		// emptied). Since T1-10 the snapshot is read through the SAME resolver as a
+		// live row (ontology_path.ts flatItemsValue) — one rule, no twin to drift.
 		expect(snapshotFlatValue([{ lang: 'lg-nolan', value: 'cession' }])).toBe('cession');
 		expect(snapshotFlatValue([{ value: 'a' }, { value: 'b' }])).toBe('a | b');
 		// A translated component with no nolan item falls back to every item…
@@ -677,6 +681,25 @@ function annotatedEnvelope(rasterUrl: string, width = 100, height = 50): string 
 }
 
 describe('component_image SVG envelope', () => {
+	test('repointEnvelopeHref re-points ONLY the first <image> href (xlink:href and href); every layer byte kept', () => {
+		const stale = '/old/host/test99_test3_1.jpg';
+		const fresh = '/dedalo/media/image/1.5MB/0/test99_test3_2.jpg';
+		const layered = annotatedEnvelope(stale).replace(
+			'</svg>',
+			`<g id="layer_2"><image xlink:href="${stale}"/></g></svg>`,
+		);
+		const out = repointEnvelopeHref(layered, fresh);
+		expect(out).toBe(layered.replace(`xlink:href="${stale}"`, `xlink:href="${fresh}"`));
+		// …the second <image> (a layer's own) is untouched: only the raster group moves.
+		expect(out).toContain(`<g id="layer_2"><image xlink:href="${stale}"/></g>`);
+		const plainHref = `<svg><image href="${stale}"/></svg>`;
+		expect(repointEnvelopeHref(plainHref, fresh)).toBe(`<svg><image href="${fresh}"/></svg>`);
+		// the size-aware form is the href pass plus the size edits — unchanged output
+		expect(repointEnvelopeRaster(annotatedEnvelope(stale), 100, 50, fresh)).toBe(
+			annotatedEnvelope(fresh),
+		);
+	});
+
 	test('writeSvgEnvelope persists the client layers at the envelope path', async () => {
 		if (image === null) throw new Error('image spec unavailable');
 		resetMediaRoot(ROOT);

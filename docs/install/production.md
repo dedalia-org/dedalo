@@ -267,7 +267,7 @@ The answers and the secrets travel as one JSON object on its standard input — 
 
 By hand: [Install by hand › `host_units`](manual_install.md#manual-host_units).
 
-Writes the shared template units from `deploy/systemd/` into `/etc/systemd/system/` (one copy per host), and this instance's drop-ins (`/etc/systemd/system/<unit>@<i>.service.d/10-dedalo-install.conf`: the service user and group, the working directory and `HOME` in the install folder, the `.env`, the pinned runtime, the client publish directory, the backup store lines, and the rollback and watchdog paths). The templates name no user and no path of an instance: a template without its drop-in runs `/bin/false`, never anything as root. Then `systemctl daemon-reload` and `systemctl enable dedalo-ts@<i>` — **not** started, and with **no** watchdog or backup timer yet. A template that already exists with other contents is refused, never overwritten.
+Writes the shared template units from `deploy/systemd/` into `/etc/systemd/system/` (one copy per host), and this instance's drop-ins (`/etc/systemd/system/<unit>@<i>.service.d/10-dedalo-install.conf`: the service user and group, the working directory and `HOME` in the install folder, the `.env`, the pinned runtime, the client publish directory, the backup store lines, and the rollback and watchdog paths). The templates name no user and no path of an instance: a template without its drop-in runs `/bin/false`, never anything as root. Then `systemctl daemon-reload` and `systemctl enable dedalo-ts@<i>` — **not** started, and with **no** watchdog or backup timer yet. A template that already exists is judged against the release's ledger of every template it ever shipped (`deploy/systemd/shipped_digests.json`): an earlier release's template is **upgraded in place** — but only once every other instance on the host runs this release's drop-ins (a template goes with its drop-in: `ProtectSystem=strict` reads the roots the drop-in opens); until then it is kept and the step's line names each instance to re-render first, with its command — while a template no release shipped (another installer's, an edited copy) is refused, never overwritten. The server template runs the engine under `ProtectSystem=strict`, and the server drop-in lists the paths the engine may write (`ReadWritePaths=`) beside a small JSON manifest of the same list; see [Several instances › Re-rendering the units](multi_instance.md#re-rendering-the-units).
 
 | Unit | What it does |
 | --- | --- |
@@ -441,7 +441,7 @@ TRUSTED_PROXY_HOPS=1             # count of proxies that append X-Forwarded-For
 
 # --- Database pool (per process) ---
 DB_POOL_MAX=10                   # budget the SUM across processes against max_connections
-DB_STATEMENT_TIMEOUT_MS=60000    # 0 (off) by default — caps one runaway query
+DB_STATEMENT_TIMEOUT_MS=60000    # the default — caps one runaway query (0 = off)
 
 # --- Observability ---
 DEDALO_ACCESS_LOG=true

@@ -45,7 +45,10 @@
 */
 
 // imports
-	import {clone, get_json_langs} from '../../../core/common/js/utils/index.js'
+	import {clone, get_json_langs, is_equal} from '../../../core/common/js/utils/index.js'
+	import {request_failed} from '../../../core/common/js/api_error.js'
+	import {error_text} from '../../../core/common/js/render_api_error.js'
+	import {render_value} from '../../../core/common/js/utils/render_escape.js'
 	import {tr} from '../../../core/common/js/tr.js'
 	import {html_to_markdown, markdown_to_html, group_markdown_into_chunks} from './markdown_utils.js'
 
@@ -75,7 +78,8 @@ const error_node = function(message) {
 * Builds a multi-line status node: one child div per line, each line set as a
 * TEXT node. Lines carry worker text (per-block exception messages, timeout
 * text) and must NEVER be parsed as HTML (DS-1, error_report_xss_tripwire).
-* @param {string} class_name - 'error' for a refused run, 'warning' while running.
+* @param {string} class_name - 'error' for a refused run, 'warning' while running,
+*   'success_text' for a saved one.
 * @param {Array<string>} lines
 * @return HTMLElement
 */
@@ -359,6 +363,38 @@ const get_source_text = function(source_component) {
 
 
 /**
+* SAVE_LANDED
+* Whether a component_common save() answer means the translated entry IS STORED.
+* save() never rejects, so its answer is the only evidence:
+*  - an envelope: stored unless request_failed (the server refused or the
+*    transport failed — both resolve a failure envelope);
+*  - `false`: save() sent nothing. That is a success only when the value was
+*    ALREADY stored — the no-change exit, decided by the same comparison save()
+*    makes (the entry against db_data's entry of the same id). Every other
+*    `false` (page identity revoked, already saving, superseded) wrote nothing.
+* Measures the outcome, never which internal exit save() took.
+* @param {Object} target_component - the instance that was saved
+* @param {Object|boolean} save_response - what save() resolved
+* @param {Object} entry - the entry that was sent ({id?, value})
+* @return {boolean}
+*/
+const save_landed = function(target_component, save_response, entry) {
+
+	if (save_response===false || save_response===undefined || save_response===null) {
+		const entry_id = entry?.id
+		if (entry_id===undefined || entry_id===null) {
+			return false
+		}
+		const stored = target_component.db_data?.entries?.find(item => item?.id===entry_id)
+		return stored!==undefined && is_equal(entry, stored)
+	}
+
+	return !request_failed(save_response)
+}//end save_landed
+
+
+
+/**
 * TRANSLATE_COMPONENT_BROWSER
 * Translate one source component into one target component fully client-side,
 * streaming partial results into the target component's DOM and persisting the
@@ -414,9 +450,11 @@ const get_source_text = function(source_component) {
 * @param {Function}      [options.get_label]                - Tool label resolver: (key) => string.
 *                                                             Defaults to identity (key => key).
 * @returns {Promise<{result: boolean, msg: string}>}
-*   Resolves on a COMPLETE translation (saved) or on user cancellation (nothing
-*   saved); rejects on fatal worker errors, empty source text, and on an
-*   incomplete run — see "Refusal" above. Rejection (not a resolve carrying
+*   Resolves {result:true} only on a COMPLETE translation whose save ANSWERED
+*   that the value is stored (save_landed), and {result:false} on user
+*   cancellation (nothing saved — callers must treat any result other than true
+*   as not done); rejects on fatal worker errors, empty source text, an
+*   incomplete run — see "Refusal" above — and a save that did not land. Rejection (not a resolve carrying
 *   result:false) is load-bearing: tool_lang's click handler paints its own
 *   'Translation completed' banner in .then(), and tool_lang_multi's
 *   automatic_translation_all counts every resolved promise as ok in its
@@ -587,6 +625,26 @@ export const translate_component_browser = async function(options) {
 			reject(new Error(lines.join(' ')))
 		}//end refuse_run
 
+		/**
+		* FAIL_SAVE
+		* The translation was complete but its save did not land. Unlike refuse_run,
+		* the target data is NOT put back: component_common's save() registered the
+		* edit as unsaved (marks + failed_changed_data), and its retry/unsaved-data
+		* guard owns it from here. Names the failure (TEXT only, DS-1) and rejects —
+		* a resolve would be counted as ok by both callers.
+		* @param {Array<string>} lines - operator-facing message, one line each.
+		* @return void
+		*/
+		const fail_save = function(lines) {
+
+			if (status_container) {
+				status_container.classList.remove('loading_status')
+				status_container.replaceChildren(status_lines_node('error', lines))
+			}
+
+			reject(new Error(lines.join(' ')))
+		}//end fail_save
+
 		// handle messages sent back from the worker
 		translate_worker.onmessage = function(e) {
 
@@ -651,7 +709,10 @@ export const translate_component_browser = async function(options) {
 					if (streaming_overlay_content) {
 						// Mirror the partial result into the streaming overlay so the
 						// user sees live output even before the component re-renders.
-						streaming_overlay_content.innerHTML = html_accumulated
+						// Machine translation of record text: rendered by the TARGET
+						// component's server class (text_area 'html' passes, anything
+						// else is escaped) — the ONE escaper, render_escape_tripwire.
+						streaming_overlay_content.innerHTML = render_value(html_accumulated, target_component.context?.render_class)
 					}
 					break;
 				}
@@ -717,13 +778,11 @@ export const translate_component_browser = async function(options) {
 						break;
 					}
 
-					// complete run: every block translated and the result is not empty
+					// complete run: every block translated and the result is not empty.
+					// (!) NOT 'completed' yet: that is only true once the save has
+					// answered that the value is stored (see save_landed below).
 					if (streaming_overlay) {
 						streaming_overlay.classList.add('hide')
-					}
-					if (status_container) {
-						status_container.classList.remove('loading_status')
-						status_container.innerHTML = get_label('translation_completed') || 'Translation completed'
 					}
 
 					// shared cross-language id from source entry
@@ -776,18 +835,57 @@ export const translate_component_browser = async function(options) {
 						id		: entry_id,
 						value	: entry
 					}
-					target_component.save([save_item])
+					// THE OUTCOME IS WHAT THE SAVE ANSWERED (T1-P01). component_common's
+					// save() never rejects: a failed save RESOLVES its failure envelope and
+					// every pre-wire refusal (page identity revoked, already saving,
+					// superseded) resolves `false`. Waiting for the call to return reported
+					// a translation that was never stored as completed, and tool_lang_multi
+					// counted it ok. The failed edit is NOT restored here: save() already
+					// registered it as unsaved data (register_failed_save + the
+					// 'modified'/'error' marks), and that registration is what a retry or
+					// the unsaved-data guard works from.
+					Promise.resolve()
 					.then(function(){
-						return target_component.refresh({
-							build_autoload : false
+						return target_component.save([save_item])
+					})
+					.then(function(save_response){
+						if (!save_landed(target_component, save_response, entry)) {
+							const lines = [
+								get_label('translation_save_failed') || 'Translation not saved: the save failed'
+							]
+							if (request_failed(save_response)) {
+								lines.push(error_text(save_response.error))
+							}
+							lines.push(get_label('translation_retry') || 'Run the translation again to retry.')
+							fail_save(lines)
+							return
+						}
+						if (status_container) {
+							status_container.classList.remove('loading_status')
+							status_container.replaceChildren(status_lines_node('success_text', [
+								get_label('translation_completed') || 'Translation completed'
+							]))
+						}
+						resolve({result: true, msg: 'OK. Translation completed'})
+						// the value is stored: a failed repaint does not change that outcome
+						Promise.resolve()
+						.then(function(){
+							return target_component.refresh({
+								build_autoload : false
+							})
+						})
+						.catch(function(refresh_error){
+							console.error('Refresh failed after a saved translation:', refresh_error)
 						})
 					})
-					.then(function(){
-						resolve({result: true, msg: 'OK. Translation completed'})
-					})
 					.catch(function(save_error){
+						// a throwing save door (not component_common's): nothing is known stored
 						console.error('Save failed after translation:', save_error)
-						reject(save_error)
+						fail_save([
+							get_label('translation_save_failed') || 'Translation not saved: the save failed',
+							String(save_error?.message || save_error || ''),
+							get_label('translation_retry') || 'Run the translation again to retry.'
+						].filter(Boolean))
 					})
 					break;
 				}
@@ -813,7 +911,7 @@ export const translate_component_browser = async function(options) {
 						]))
 					}
 					if (data.accumulated_text && streaming_overlay_content) {
-						streaming_overlay_content.innerHTML = markdown_to_html(data.accumulated_text)
+						streaming_overlay_content.innerHTML = render_value(markdown_to_html(data.accumulated_text), target_component.context?.render_class)
 					}
 					break;
 				}
@@ -829,7 +927,7 @@ export const translate_component_browser = async function(options) {
 					restore_target_data()
 					if (status_container) {
 						status_container.classList.remove('loading_status')
-						status_container.innerHTML = get_label('translation_cancelled') || 'Translation cancelled'
+						status_container.textContent = get_label('translation_cancelled') || 'Translation cancelled'
 					}
 					resolve({result: false, msg: 'Translation cancelled'})
 					break;

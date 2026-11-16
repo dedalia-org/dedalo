@@ -33,7 +33,7 @@ The filename can name the target section: a file called `types_clean-numisdata3.
 ## Using it, step by step
 
 1. **Prepare the CSV.** The first row is a header of component `tipo`s, and one column must be `section_id` (by convention the first). Every following row is a record. Save the file as UTF-8 without a BOM. See [Importing data](../importing_data.md) for the exact cell formats.
-2. **Open the tool** on the target section and **drop or select** the CSV file. Dédalo stages it and shows a file card.
+2. **Open the tool** on the target section and **drop or select** the CSV file. Dédalo stages it and shows a file card. A file larger than 64 MB is refused at this step. A staged file the tool cannot read (too large, not a text file, or already damaged) gets no card: a red line above the file list names it and says why.
 3. **Confirm the target section.** The card shows the auto-detected `section tipo` and the resolved section name. Correct it if the detection is wrong.
 4. **Check the column mapping.** The columns mapper lists every CSV column with its detected model and label, a *Selected* checkbox, a *Mapped to* component selector, and a sample value. A column whose header matches a component `tipo` is ticked and mapped automatically; adjust any that did not match.
 5. **Set number decimals if needed.** When a column maps to a `component_number`, a decimal selector appears — choose `.` or `,` to match your spreadsheet.
@@ -107,6 +107,9 @@ Record 1 gains links to records 4 and 6 (unless it already had them), a new Poin
 
 !!! warning "Headers must match exactly"
     Each CSV header must match its mapped column name exactly, including suffixes like `tch56_dmy` (date format) or `tch191_rsc723` (relation target). A column whose header does not match is **silently skipped** — no data is imported and no error is raised. Review the mapping before launching.
+
+!!! warning "64 MB per file"
+    A CSV larger than 64 MB is refused at every step (upload, file list, check and import), with a sentence naming the file, its size and the limit. Split it into several files and upload the parts. Reading a CSV takes many times its own size in server memory, so the limit protects every user of the server.
 
 !!! tip "Read the report before moving on"
     The report separates **failed** cells (rejected, the record kept its previous value) from **warnings** (written, but worth a look — for example a language code that is valid but not in the project's configured languages). The *created* and *updated* lists are the actual `section_id`s, and you can copy them straight into a search to inspect what changed.

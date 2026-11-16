@@ -502,6 +502,38 @@ component_text_area.prototype.destroy = async function(delete_self=true, delete_
 
 
 /**
+* AV_PLAY_PAUSE_BOUND
+* LIVE check: is something subscribed to this component's play/pause event
+* ('key_up_esc_' + id_base) right now? The subscribers are the ontology
+* `observe` declarations of a media component (e.g. component_av →
+* play_pause), wired by init_events_subscription in edit mode and removed when
+* that instance is destroyed — so the answer is read at key time, never cached.
+* @returns {boolean}
+*/
+component_text_area.prototype.av_play_pause_bound = function() {
+
+	return event_manager.get_event_count(`key_up_esc_${this.id_base}`) > 0
+}//end av_play_pause_bound
+
+
+
+/**
+* OWNS_ESCAPE
+* Step 3 of the application Escape ladder (run_escape_ladder,
+* component_common.js): the text area owns the Escape key only while Escape IS
+* its AV play/pause key AND an observer is bound. Otherwise Escape deactivates
+* the component like any other field.
+* @returns {boolean}
+*/
+component_text_area.prototype.owns_escape = function() {
+
+	return this.context?.features?.av_player?.av_play_pause_code==='Escape'
+		&& this.av_play_pause_bound()
+}//end owns_escape
+
+
+
+/**
 * TAGS_TO_HTML
 * Parses Dédalo server side tags to html tags
 * e.g. '[TC_00:15:12:01.000]' => '<img id="[TC_00:00:25.684_TC]" class="tc" src="" ... />'

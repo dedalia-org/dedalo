@@ -161,8 +161,9 @@ async function reconcileMirrors({
  * reconcile is not a reconciled store.
  */
 async function reconcileSearchStores(context: AncillaryContext): Promise<Record<string, unknown>> {
-	// A first stamp re-derives every populated store (DELETE + INSERT…SELECT per
-	// table): bulk maintenance work, so it runs on the maintenance pool without the
+	// A re-derive (an install that predates T1-25 — the install now stamps what it
+	// filled — or a store whose derivation moved) refills a populated store
+	// (DELETE + INSERT…SELECT per table): bulk maintenance work, so it runs on the maintenance pool without the
 	// request ceiling — under the 60 s production statement timeout a large install
 	// would fail the phase on every attempt (and roll back an update that is fine).
 	return withUnboundedStatements(() => reconcileSearchStoresUnbounded(context));

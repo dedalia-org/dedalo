@@ -4,11 +4,16 @@
  * Grouped coin count per chronological period. The thesaurus target_sections
  * load whole; roots come from the hierarchy1 registry records pointing at
  * them; terms flatten depth-first with parent locator stamps; each qualifying
- * coin routes its period locator to the matching term (strict === on both
- * section_tipo and section_id, so a string/number type mismatch lands in the
- * '?' catch-all — PHP behavior). use_parent rolls counts up to the ancestor
- * whose hierarchy27 model is a NON-ARRAY object with the target section_id
- * (array-stored models never match — faithful to PHP is_object()).
+ * coin routes its period locator to the matching term. EVERY locator match
+ * (coin period → term, tree child → row, parent stamp → term) is the locator
+ * law — compareLocators on section_tipo (strict) + section_id (loose: int 187
+ * == "187"), so INT-canonical locators (WC-2026-08-10) and surviving legacy
+ * string ones both match; the "duplicated" flag is isFlagSet. use_parent rolls
+ * counts up to the ancestor whose model — the FIRST hierarchy27 locator, v6
+ * semantics (resolveModelSectionId) — is the target section_id. PHP's strict
+ * === over string rows and frozen v7's is_object() model check (never true
+ * for the array relation bag) made the widget route everything to '?':
+ * WC-2026-11-12-numisdata-widgets-locator-law.
  *
  * PHP array_filter KEY-PRESERVATION quirk: the emitted 'period' value is a
  * JSON OBJECT keyed by original index when the surviving terms are not a
@@ -22,11 +27,13 @@
  * traversal-global de-duplicator.
  */
 
+import { compareLocators, type Locator } from '../../../../concepts/locator.ts';
 import { sql } from '../../../../db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../../../ontology/resolver.ts';
 import {
 	findTyped,
 	type InfoWidgetDescriptor,
+	isFlagSet,
 	readWidgetComponentData,
 	type TypedInput,
 	type WidgetContext,
@@ -84,11 +91,10 @@ async function computeGetCoinsByPeriod(
 		for (const tsSection of targetSections) {
 			const table = await getMatrixTableFromTipo(tsSection);
 			if (table === null) continue;
-			// (!) section_id::text — PHP's pg driver returns row values as STRINGS,
-			// and the locator matching below is STRICT ===; the stored locators
-			// carry string section_ids, so the rows must too.
+			// section_id is the INT record address (emitted as such, WC-2026-08-10);
+			// the matching below is the locator law, so string locators still match.
 			const rows = (await sql.unsafe(
-				`SELECT section_id::text AS section_id, section_tipo, relation FROM "${table}" WHERE section_tipo = $1 ORDER BY section_id`,
+				`SELECT section_id, section_tipo, relation FROM "${table}" WHERE section_tipo = $1 ORDER BY section_id`,
 				[tsSection],
 			)) as {
 				section_id: unknown;
@@ -119,17 +125,13 @@ async function computeGetCoinsByPeriod(
 		void buildDdInfoChain; // (term resolution below is section_map-free: thesaurus term slice)
 		const arHierarchies: HierarchyEntry[] = [];
 		for (const section of orderedHierarchy) {
-			const model = section.relation?.[TS_MODEL];
-			const isObjectModel = model !== null && typeof model === 'object' && !Array.isArray(model);
 			arHierarchies.push({
 				section_id: section.section_id,
 				section_tipo: section.section_tipo,
 				parent: section.parent ?? null,
 				label: await resolveThesaurusTerm(section.section_tipo, section.section_id, context.lang),
 				count: null,
-				model_section_id: isObjectModel
-					? (model as { section_id?: unknown }).section_id
-					: Number(targetModelSectionId) + 1,
+				model_section_id: resolveModelSectionId(section.relation, targetModelSectionId),
 			});
 		}
 
@@ -195,6 +197,35 @@ export interface CoinRow {
 	relation: Record<string, unknown[]> | null;
 }
 
+/** Locator-law match on the address pair (section_tipo strict, section_id loose). */
+function sameAddress(
+	a: { section_tipo?: unknown; section_id?: unknown },
+	b: { section_tipo?: unknown; section_id?: unknown },
+): boolean {
+	return compareLocators(a as Locator, b as Locator, ['section_tipo', 'section_id']);
+}
+
+/**
+ * The use_parent MODEL of a thesaurus term: the section_id of its FIRST
+ * hierarchy27 locator (v6 get_coins_by_period: array_find over the relations
+ * by from_component_tipo hierarchy27 → that locator). The v7 relation bag
+ * stores hierarchy27 as an ARRAY; frozen PHP v7 checked is_object() on it and
+ * so never found a model — a regression, not a contract. A legacy non-array
+ * object is still read. No model → target + 1, a value that can never match
+ * (the PHP sentinel), so the term is skipped by the roll-up walk.
+ */
+export function resolveModelSectionId(
+	relation: Record<string, unknown> | null | undefined,
+	targetModelSectionId: number | string,
+): unknown {
+	const model = relation?.[TS_MODEL];
+	const first: unknown = Array.isArray(model) ? model[0] : model;
+	if (first !== null && typeof first === 'object' && 'section_id' in first) {
+		return (first as { section_id?: unknown }).section_id;
+	}
+	return Number(targetModelSectionId) + 1;
+}
+
 /** Path key for the cycle guards — the row's OWN fields, so a locator whose
  * section_id is typed differently than the row never aliases another node. */
 function pathKey(sectionTipo: unknown, sectionId: unknown): string {
@@ -207,8 +238,9 @@ function pathKey(sectionTipo: unknown, sectionId: unknown): string {
  * through — the sentinel is only emitted when this is non-null).
  *
  * Catch-all feeders: a coin with no period locators at all, a locator with no
- * STRICTLY (===) matching term, and — under use_parent — a term with no
- * matching-model ancestor.
+ * matching term (locator law), and — under use_parent — a term with no
+ * matching-model ancestor. A coin whose "duplicated" flag is set is skipped
+ * entirely (it feeds nothing).
  */
 export function routeCoinsToPeriods(
 	arHierarchies: HierarchyEntry[],
@@ -220,18 +252,7 @@ export function routeCoinsToPeriods(
 ): number | null {
 	let emptyPeriodCount: number | null = null;
 	for (const row of coinRows) {
-		const duplicatedData = (row.relation?.[duplicatedTipo] ?? []) as {
-			section_id?: unknown;
-		}[];
-		const duplicatedFirst = duplicatedData[0];
-		// PHP LOOSE == '2' here (unlike get_archive_weights' strict ===)
-		if (
-			duplicatedFirst !== undefined &&
-			duplicatedFirst !== null &&
-			String(duplicatedFirst.section_id) === '2'
-		) {
-			continue;
-		}
+		if (isFlagSet(row.relation?.[duplicatedTipo] ?? [])) continue;
 
 		const periodData = (row.relation?.[periodTipo] ?? []) as {
 			section_tipo?: unknown;
@@ -242,12 +263,7 @@ export function routeCoinsToPeriods(
 			continue;
 		}
 		for (const currentPeriod of periodData) {
-			// strict === on BOTH fields (type-mismatched ids fall to catch-all)
-			const tsTerm = arHierarchies.find(
-				(el) =>
-					el.section_tipo === currentPeriod.section_tipo &&
-					el.section_id === currentPeriod.section_id,
-			);
+			const tsTerm = arHierarchies.find((el) => sameAddress(el, currentPeriod));
 			if (tsTerm === undefined) {
 				emptyPeriodCount = (emptyPeriodCount ?? 0) + 1;
 				continue;
@@ -324,9 +340,7 @@ export function expandHierarchyChildren(
 	out: ThesaurusRow[],
 	seen: Set<string> = new Set<string>(),
 ): void {
-	const row = tsRows.find(
-		(el) => el.section_tipo === locator.section_tipo && el.section_id === locator.section_id,
-	);
+	const row = tsRows.find((el) => sameAddress(el, locator));
 	if (row === undefined) return;
 	const key = pathKey(row.section_tipo, row.section_id);
 	if (seen.has(key)) return; // already on THIS path → the edge closes a cycle
@@ -358,15 +372,15 @@ export function findParentWithModel(
 	targetModelSectionId: number | string,
 	seen: Set<string> = new Set<string>(),
 ): HierarchyEntry | null {
-	if (Number(term.model_section_id) === Number(targetModelSectionId)) return term;
+	// a model id (vocabulary record), not a locator: plain numeric identity
+	const termModel = Number(term.model_section_id);
+	if (termModel === Number(targetModelSectionId)) return term;
 	const key = pathKey(term.section_tipo, term.section_id);
 	if (seen.has(key)) return null; // parent loop → no ancestor answer exists
 	seen.add(key);
 	const parent = term.parent;
 	if (parent === null || parent === undefined) return null;
-	const parentTerm = arHierarchies.find(
-		(el) => el.section_tipo === parent.section_tipo && el.section_id === parent.section_id,
-	);
+	const parentTerm = arHierarchies.find((el) => sameAddress(el, parent));
 	if (parentTerm === undefined) return null;
 	return findParentWithModel(arHierarchies, parentTerm, targetModelSectionId, seen);
 }

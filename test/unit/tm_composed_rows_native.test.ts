@@ -452,8 +452,14 @@ describe('a NORMAL save (outside a run) of a dataframe main', () => {
 		const rows = await tmRows(SECTION, id, mark);
 		const main = await stored(id, 'relation', MAIN);
 		expect(targetsOf(main)).toEqual([t1, t2].sort());
-		expect(rows.map((row) => [row.tipo, row.tm_role, row.bulk])).toEqual([[MAIN, null, null]]);
-		expect(rows[0]?.data).toEqual([...(main as unknown[]), ...slot]);
+		// Re-pinned 2026-11-12 (T1-21): the keys are seeded RAW (no history), so the
+		// writer's save-before first records the composed BEFORE row, then the change.
+		expect(rows.map((row) => [row.tipo, row.tm_role, row.bulk])).toEqual([
+			[MAIN, null, null],
+			[MAIN, null, null],
+		]);
+		expect(rows[0]?.data).toEqual([locator(1, t1), ...slot]);
+		expect(rows[1]?.data).toEqual([...(main as unknown[]), ...slot]);
 	});
 
 	test('a main with NO slot writes the plain row: its items only', async () => {
@@ -518,8 +524,14 @@ describe('a NORMAL save of a SLOT', () => {
 		const slot = await stored(id, 'relation', SLOT);
 		expect(framePairs(slot)).toEqual([`${MAIN}#1->${r1}`]);
 		expect(rows.filter((row) => row.tipo === SLOT)).toEqual([]);
-		expect(rows.map((row) => [row.tipo, row.tm_role])).toEqual([[MAIN, null]]);
-		expect(rows[0]?.data).toEqual([locator(1, t1), ...(slot as unknown[])]);
+		// Re-pinned 2026-11-12 (T1-21): the keys are seeded RAW (no history), so the
+		// writer's save-before first records the composed BEFORE row, then the change.
+		expect(rows.map((row) => [row.tipo, row.tm_role])).toEqual([
+			[MAIN, null],
+			[MAIN, null],
+		]);
+		expect(rows[0]?.data).toEqual([locator(1, t1)]);
+		expect(rows[1]?.data).toEqual([locator(1, t1), ...(slot as unknown[])]);
 	});
 
 	test('a frame of MAIN2 into the SHARED slot is recorded under MAIN2 only — MAIN gets no row', async () => {
@@ -531,10 +543,13 @@ describe('a NORMAL save of a SLOT', () => {
 		const mark = await watermark();
 		await insertFrame(id, SLOT, MAIN2, 1, r2);
 		const rows = await tmRows(SECTION, id, mark);
-		expect(rows.map((row) => [row.tipo])).toEqual([[MAIN2]]);
+		// Re-pinned 2026-11-12 (T1-21): the keys are seeded RAW (no history), so the
+		// writer's save-before first records the composed BEFORE row, then the change.
+		expect(rows.map((row) => [row.tipo])).toEqual([[MAIN2], [MAIN2]]);
 		const slot = await stored(id, 'relation', SLOT);
+		expect(rows[0]?.data).toEqual([locator(1, t1, MAIN2), frame(1, 1, r1)]);
 		// MAIN2's items, then the FULL slot (MAIN's frame included — PHP's shape)
-		expect(rows[0]?.data).toEqual([locator(1, t1, MAIN2), ...(slot as unknown[])]);
+		expect(rows[1]?.data).toEqual([locator(1, t1, MAIN2), ...(slot as unknown[])]);
 		expect(framePairs(slot)).toEqual([`${MAIN2}#1->${r2}`, `${MAIN}#1->${r1}`].sort());
 	});
 });

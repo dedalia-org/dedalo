@@ -106,3 +106,23 @@
   under `$and` beside a granted leaf matching alpha answers EMPTY (`1=0`, never a dropped
   leaf that widens the `$and`); the scope-without-mains leg — `internal.invariant` from
   both the ORDER key and the filter conform).
+
+## Addendum 2026-11-12 — multi-hop relation leaf keyed per ADMITTED section; the "Open, ledgered" hop paragraph is CLOSED
+
+The "Open, ledgered" paragraph above is CLOSED by `WC-2026-10-01-search-hop-configured-targets`:
+every hop's ON clause binds the joined row to the sections the hop ADMITS (the hop component's
+configured targets in the step table where the caller holds the step component), each under its
+own record predicate (`search/hop_scope.ts`). The relation-leaf rule above ("on a multi-hop path
+of the last step's section") is superseded (T1-16 / S04): a multi-hop relation leaf's
+`from_component_tipo` key is asked of EVERY section the LAST hop admits — told apart ON THE ROW
+exactly like several mains — never of the client's declared step section. So a twin the
+declaration does not name (granted the step component, hiding the leaf's `from_component_tipo`)
+answers `1=0` for that locator (explicit) or `r.from_component_tipo IN (granted)` (absent), loudly
+(`perm.out_of_scope`); a SPOOFED declaration (a non-target granting everything) keys nothing the
+hop reaches. A hop that admits nothing keys nothing (matches nothing, as the hop). Internal
+searches are unchanged. No fixture change (the store runs as the superuser). Gates:
+`test/unit/search_hop_targets_native.test.ts` ("relation leaf from_component_tipo keyed per
+ADMITTED section (T1-16)": explicit hidden + the loud refusal, absent, `$not` hit = miss, spoofed
+declaration, the all-granted control, the internal search) and
+`test/unit/search_hop_targets_real_user_native.test.ts` (the T1-16 leg: a real restricted profile
+through `buildSearchSql`, root as control).

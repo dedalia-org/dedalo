@@ -188,6 +188,21 @@
 					}
 				}//end >.file_line
 
+				// an unreadable staged file (read_error): name + sentence + delete only
+				&.unreadable {
+					>.file_line {
+						>.file_name {
+							margin-right: 2rem;
+						}
+					}
+					>.read_error {
+						color: @color_danger;
+						font-size: 0.9rem;
+						white-space: pre-wrap;
+						word-break: break-word;
+					}
+				}
+
 				.warning {
 					// THE BRAND ORANGE IS A FILL, AND ITS INK IS --fg_on_brand.
 					// `@color_white` here was #ffffff on #f78a1c = 2.44:1 in the

@@ -146,7 +146,7 @@ const get_content_data_edit = async function(self) {
 			const button_automatic_translation = ui.create_dom_element({
 				element_type	: 'button',
 				class_name		: 'warning button_automatic_translation',
-				inner_html		: self.get_tool_label('automatic_translation') || 'Automatic translation',
+				text_content		: self.get_tool_label('automatic_translation') || 'Automatic translation',
 				parent			: top_container
 			})
 			button_automatic_translation.addEventListener('click', function(e){
@@ -235,7 +235,7 @@ export const create_target_component = (lang, self) => {
 		const target_component_title = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'target_component_title',
-			inner_html		: lang.label,
+			text_content		: lang.label,
 			parent			: target_component_container
 		})
 

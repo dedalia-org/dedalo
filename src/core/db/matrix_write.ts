@@ -30,6 +30,15 @@
 
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { assertNotReadOnlyRequest } from '../security/read_only_scope.ts';
+import {
+	type PruneBatchOptions,
+	type PruneBatchOutcome,
+	type PruneCursor,
+	type PruneStepResult,
+	type PruneStepRow,
+	pruneInBatches,
+	pruneStepResult,
+} from './batched_prune.ts';
 import { asRawJsonText, encodeForJsonb, type RawJsonText } from './json_codec.ts';
 import { assertMatrixTable, MATRIX_JSONB_COLUMNS, type MatrixJsonbColumn } from './matrix.ts';
 import { isInTransaction, sql } from './postgres.ts';
@@ -298,8 +307,15 @@ export async function updateMatrixKeysData(
 }
 
 /**
- * Read ONE jsonb key of a matrix row under a `FOR UPDATE` row lock (T2 — matrix
- * SQL lives in this module).
+ * Read ONE jsonb key of a matrix row under a `FOR NO KEY UPDATE` row lock (T2 —
+ * matrix SQL lives in this module). The name keeps "ForUpdate" (it is the
+ * writer's lock); the strength is the LOCK-MODE LAW (T1-19 / D01,
+ * WC-2026-11-12-locator-target-deleted-refused): a door that does not DELETE the
+ * row takes `FOR NO KEY UPDATE` — the same mutual exclusion among writers
+ * (FNKU⊥FNKU, FNKU⊥FOR SHARE, FNKU⊥DELETE) — and never conflicts with the
+ * `FOR KEY SHARE` a save takes on the records its locators point at
+ * (lockMatrixRowsForKeyShare). `FOR UPDATE` is kept for the doors that DELETE
+ * the row they lock (gate: delete_inverse_lost_update_native G5, the census).
  *
  * A read-modify-write of a component key is only safe if the read holds the row
  * lock to COMMIT: `updateMatrixKeysData` replaces the WHOLE key value, so an
@@ -352,7 +368,7 @@ type KeyLockStrength = 'UPDATE' | 'SHARE';
 
 /** Per strength: the door name its refusals carry and its lock clause. */
 const KEY_LOCK: Readonly<Record<KeyLockStrength, { door: string; clause: string }>> = {
-	UPDATE: { door: 'readMatrixKeyForUpdate', clause: 'FOR UPDATE' },
+	UPDATE: { door: 'readMatrixKeyForUpdate', clause: 'FOR NO KEY UPDATE' },
 	SHARE: { door: 'readMatrixKeyForShare', clause: 'FOR SHARE' },
 };
 
@@ -419,7 +435,8 @@ export interface MatrixRowRef {
 }
 
 /**
- * Take `FOR UPDATE` row locks on a SET of matrix rows in ONE global order — the
+ * Take `FOR NO KEY UPDATE` row locks (the writer's lock — see the lock-mode law
+ * on readMatrixKeyForUpdate) on a SET of matrix rows in ONE global order — the
  * tree's sibling rewrites (relations/parent.ts recalculateSiblingOrders /
  * sortChildren) lock every row they may rewrite through this, BEFORE the
  * first read, so two rewrites over overlapping siblings can never lock in
@@ -440,7 +457,7 @@ export async function lockMatrixRowsForUpdate(rows: readonly MatrixRowRef[]): Pr
 	if (!isInTransaction()) {
 		throw new DedaloError('internal.invariant', {
 			message:
-				'lockMatrixRowsForUpdate: FOR UPDATE outside a transaction holds no lock past the ' +
+				'lockMatrixRowsForUpdate: FOR NO KEY UPDATE outside a transaction holds no lock past the ' +
 				'statement — wrap the rewrite in withTransaction',
 			coordinates: { rows: rows.length },
 		});
@@ -449,10 +466,55 @@ export async function lockMatrixRowsForUpdate(rows: readonly MatrixRowRef[]): Pr
 		await sql.unsafe(
 			`SELECT section_id FROM "${group.table}"
 			 WHERE section_tipo = $1 AND section_id = ANY($2::int[])
-			 ORDER BY section_id FOR UPDATE`,
+			 ORDER BY section_id FOR NO KEY UPDATE`,
 			[group.sectionTipo, `{${group.ids.join(',')}}`],
 		);
 	}
+}
+
+/**
+ * Take `FOR KEY SHARE` row locks on a SET of matrix rows — the records a save's
+ * locators point at (T1-19 / D01, section_record/locator_targets.ts) — in the
+ * same ONE global order as lockMatrixRowsForUpdate, and answer the rows that
+ * EXIST (a missing row locks nothing).
+ *
+ * `FOR KEY SHARE` is the weakest lock that CONFLICTS with a DELETE (and with
+ * `FOR UPDATE`, which the record delete takes on its target first —
+ * delete_record.ts lockRecordSnapshot) and with NOTHING a writer takes
+ * (`FOR NO KEY UPDATE`, a plain UPDATE): a save holding it keeps the target
+ * alive until its COMMIT, so the delete's inverse search (a later statement)
+ * sees the new locator; a save that waited on a delete that COMMITTED gets the
+ * row back as absent (READ COMMITTED re-check) and refuses. MUST run inside
+ * withTransaction (same refusal as the writer's lock), even for an empty set.
+ */
+export async function lockMatrixRowsForKeyShare(
+	rows: readonly MatrixRowRef[],
+): Promise<MatrixRowRef[]> {
+	if (!isInTransaction()) {
+		throw new DedaloError('internal.invariant', {
+			message:
+				'lockMatrixRowsForKeyShare: FOR KEY SHARE outside a transaction holds no lock past the ' +
+				'statement — wrap the write in withTransaction',
+			coordinates: { rows: rows.length },
+		});
+	}
+	const present: MatrixRowRef[] = [];
+	for (const group of groupRowsForLocking(rows)) {
+		const found = (await sql.unsafe(
+			`SELECT section_id FROM "${group.table}"
+			 WHERE section_tipo = $1 AND section_id = ANY($2::int[])
+			 ORDER BY section_id FOR KEY SHARE`,
+			[group.sectionTipo, `{${group.ids.join(',')}}`],
+		)) as { section_id: number }[];
+		for (const row of found) {
+			present.push({
+				table: group.table,
+				sectionTipo: group.sectionTipo,
+				sectionId: Number(row.section_id),
+			});
+		}
+	}
+	return present;
 }
 
 /** Group, validate and order the rows of one lock batch (see lockMatrixRowsForUpdate). */
@@ -465,7 +527,7 @@ function groupRowsForLocking(
 		const id = Math.trunc(Number(row.sectionId));
 		if (!Number.isSafeInteger(id)) {
 			throw new DedaloError('internal.invariant', {
-				message: `lockMatrixRowsForUpdate: section_id '${String(row.sectionId)}' is not an integer`,
+				message: `matrix row lock: section_id '${String(row.sectionId)}' is not an integer`,
 				coordinates: { table: row.table, section_tipo: row.sectionTipo },
 			});
 		}
@@ -640,7 +702,7 @@ export function counterTableFor(tableName: string | null): string {
  *
  * HONEST LIMIT: this WIDENS the floor, it does not guarantee it. TM is
  * conditionally written (a create appends no row, `saveTm:false` suppresses
- * them for bulk imports, TM_EXCLUDED_SECTIONS skips dd15) and is append-only by
+ * them for bulk imports, TM_EXCLUDED_SECTIONS skips dd15/dd655/dd1521) and is append-only by
  * convention, not by constraint. It is damage limitation for counters already
  * lost; the guarantee is that no writer LOWERS the counter
  * (`test/unit/matrix_counter_monotonic_tripwire.test.ts`).
@@ -648,7 +710,7 @@ export function counterTableFor(tableName: string | null): string {
  * BOTH counter tables get the witness. An earlier draft excluded
  * `matrix_counter_dd` "because TM does not track the ontology tables" — an
  * assumption nothing enforces: `recordTimeMachine` skips only
- * TM_EXCLUDED_SECTIONS (dd15) and non-positive ids, so a save on a `_dd`-backed
+ * TM_EXCLUDED_SECTIONS (dd15, dd655, dd1521) and non-positive ids, so a save on a `_dd`-backed
  * section writes a TM row like any other. TM rows are keyed by `section_tipo`,
  * which is correct whichever matrix table the section lives on, and GREATEST
  * can only WIDEN the floor — where TM holds nothing the subquery yields 0 and
@@ -1063,18 +1125,22 @@ export async function appendMatrixUpdateRow(data: Record<string, unknown>): Prom
 export const AGE_PRUNABLE_MATRIX_TABLES: readonly string[] = ['matrix_activity'];
 
 /**
- * Count (dry) or remove (apply) the event rows older than `cutoffIso`.
+ * Count (dry) or remove (apply) the event rows older than `cutoffIso`, in
+ * KEYSET BATCHES (T1-24 / S17): each step is ONE short autocommit statement
+ * over at most `batchRows` rows in `("timestamp", id)` order, so a 33 M-row log
+ * never meets the statement ceiling as one statement, and the rows a step
+ * removed stay removed whatever happens to the next (batched_prune.ts).
  *
  * The SAME predicate answers both, so what an operator is shown before they
- * commit is exactly what the commit removes. Lives here because this file is the
- * matrix DML writer home (sql_confinement T2): the retention registry decides
- * WHETHER and WHEN, the writer owns the statement.
+ * commit is exactly what the commit removes — per step. Lives here because this
+ * file is the matrix DML writer home (sql_confinement T2): the retention
+ * registry decides WHETHER and WHEN, the writer owns the statement.
  */
 export async function pruneMatrixEventRowsByAge(
 	tableName: string,
 	cutoffIso: string,
-	options: { apply: boolean },
-): Promise<{ candidates: number; deleted: number }> {
+	options: PruneBatchOptions,
+): Promise<PruneBatchOutcome> {
 	assertNotReadOnlyRequest('pruneMatrixEventRowsByAge');
 	assertMatrixTable(tableName);
 	if (!AGE_PRUNABLE_MATRIX_TABLES.includes(tableName)) {
@@ -1083,17 +1149,52 @@ export async function pruneMatrixEventRowsByAge(
 			coordinates: { table: tableName },
 		});
 	}
-	const counted = (await sql.unsafe(
-		`SELECT count(*)::int AS n FROM "${tableName}" WHERE "timestamp" < $1`,
-		[cutoffIso],
-	)) as { n: number }[];
-	const candidates = Number(counted[0]?.n ?? 0);
-	if (!options.apply || candidates === 0) return { candidates, deleted: 0 };
-	const deleted = (await sql.unsafe(
-		`DELETE FROM "${tableName}" WHERE "timestamp" < $1 RETURNING id`,
-		[cutoffIso],
-	)) as unknown[];
-	return { candidates, deleted: deleted.length };
+	if (isInTransaction()) {
+		// A batch that commits only with the caller's transaction is the
+		// unbatched prune again (one statement's worth of locks and ceiling).
+		throw new DedaloError('internal.invariant', {
+			message: 'pruneMatrixEventRowsByAge: must run outside a transaction (each batch commits)',
+			coordinates: { table: tableName },
+		});
+	}
+	return pruneInBatches(
+		(after, limit, apply) => pruneMatrixEventRowsStep(tableName, cutoffIso, after, limit, apply),
+		options,
+	);
+}
+
+/**
+ * One keyset step of pruneMatrixEventRowsByAge: the next `limit` rows older
+ * than the cutoff after `after`, removed when `apply`. The cursor travels as
+ * the column's own text (µs exact), never a JS Date.
+ */
+async function pruneMatrixEventRowsStep(
+	tableName: string,
+	cutoffIso: string,
+	after: PruneCursor | null,
+	limit: number,
+	apply: boolean,
+): Promise<PruneStepResult> {
+	const params: (string | number)[] = [cutoffIso, limit];
+	let keyset = '';
+	if (after !== null) {
+		params.push(after.ts, after.id);
+		keyset = ' AND ("timestamp", id) > ($3::timestamp, $4::int)';
+	}
+	const removal = apply
+		? `, d AS (DELETE FROM "${tableName}" t USING b WHERE t.id = b.id RETURNING 1)`
+		: ', d AS (SELECT 1 WHERE false)';
+	const rows = (await sql.unsafe(
+		`WITH b AS (SELECT "timestamp" AS ts, id FROM "${tableName}"
+		            WHERE "timestamp" < $1${keyset}
+		            ORDER BY "timestamp", id LIMIT $2)${removal},
+		      l AS (SELECT ts::text AS last_ts, id AS last_id FROM b ORDER BY ts DESC, id DESC LIMIT 1)
+		 SELECT (SELECT count(*) FROM b)::int AS seen, (SELECT count(*) FROM d)::int AS deleted,
+		        l.last_ts, l.last_id
+		 FROM (SELECT 1) one LEFT JOIN l ON true`,
+		params,
+	)) as PruneStepRow[];
+	return pruneStepResult(rows[0]);
 }
 
 /** Delete one record. Returns the number of rows removed (0 or 1). */

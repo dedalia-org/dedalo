@@ -30,6 +30,7 @@
 
 import { config } from '../../config/config.ts';
 import { readString } from '../../config/readers.ts';
+import { getComponentModel, isLangSlicedModel } from '../components/registry.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import { getSectionTipos } from '../concepts/sqo.ts';
 import { assertMatrixTable, isMatrixTable } from '../db/matrix.ts';
@@ -192,6 +193,76 @@ function pushDirectColumnOrder(
 		if (!selectExtra.includes(idSelect)) selectExtra.push(idSelect);
 	}
 	orderClauses.push(`${column} ${direction}`);
+}
+
+/**
+ * Per-family ORDER select (PHP `$model::build_order_select`): the sort key of
+ * one component, as `<expr> AS <sortAlias>`.
+ *
+ * THE LANG RULE (T1-33 / O07): only a lang-SLICED model stores its items keyed
+ * by `lang` (components/registry.ts `isLangSlicedModel` — PHP
+ * component_string_common subclasses + iri; THE one definition the save path
+ * slices with). Only those read the item of the asked lang (PHP string_common
+ * build_order_select, lang filter). Every other literal model — number, json,
+ * … — is stored lang-LESS and reads `'$[*].value'` (PHP common
+ * trait.search_component_common build_order_select: `$lang` read, unused;
+ * v6 `datos#>>'{path}'`). A lang predicate there matched no item: the key was
+ * NULL on every row and the sort collapsed to the section_id tiebreaker.
+ * `model` is the alias TARGET's (getModelByTipo hops component_alias).
+ *
+ * component_number sorts NUMERICALLY (owner C38 2026-11-13,
+ * WC-2026-11-13-number-sort-numeric): PHP / v6 extracted the key as TEXT
+ * (`#>> '{}'`), so 10 < 2 < 9 — a heritage measurement collated lexically is
+ * wrong results. The `jsonb_typeof = 'number'` guard keeps a legacy string
+ * item from failing the cast (it sorts as NULL, last).
+ */
+async function orderSelectExpression(input: {
+	componentTipo: string;
+	model: string;
+	column: string;
+	/** `<alias>.<column>->'<data tipo>'` — the component's stored item array. */
+	source: string;
+	sortAlias: string;
+	orderAlias: string;
+	/** The order entry's explicit lang, already validated. */
+	langRaw: string | undefined;
+}): Promise<string> {
+	const { model, column, source, sortAlias, orderAlias, langRaw } = input;
+	if (column === 'date') {
+		return `(jsonb_path_query_first(${source}, '$[*].start.time') #>> '{}')::bigint AS ${sortAlias}`;
+	}
+	if (column === 'section_id') {
+		return `${orderAlias}.section_id AS ${sortAlias}`;
+	}
+	if (model === 'component_number') {
+		const key = `jsonb_path_query_first(${source}, '$[*].value')`;
+		return `(CASE WHEN jsonb_typeof(${key}) = 'number' THEN (${key} #>> '{}')::numeric END) AS ${sortAlias}`;
+	}
+	if (!isLangSlicedModel(model)) {
+		return `(jsonb_path_query_first(${source}, '$[*].value') #>> '{}') AS ${sortAlias}`;
+	}
+	const translatable = await getTranslatableByTipo(input.componentTipo);
+	const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
+	return `(jsonb_path_query_first(${source}, '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
+}
+
+/**
+ * REFUSE an order by a model whose descriptor says `sortable: false` (owner C39
+ * 2026-11-13, WC-2026-11-13-sort-non-scalar-refused). Those models hold no
+ * `.value` scalar to sort on (iri `{iri,title}` frames, geolocation, media
+ * files_info, info widgets, the ACL maps) — PHP sorted them by NULL, a silent
+ * no-op — or hold a SECRET (component_password: the relative order of rows IS
+ * a comparison oracle over the stored hashes). The list header offers no sort
+ * on these columns (structure_context `sortable`), so the affordance and this
+ * gate are one answer; an API/MCP sqo naming one is refused, never ignored.
+ */
+function assertSortableModel(model: string, componentTipo: string): void {
+	if (getComponentModel(model)?.sortable !== false) return;
+	throw new DedaloError('search.invalid_sqo', {
+		message: `search assembler: order by '${componentTipo}' refused — ${model} is not sortable (no scalar sort key, or a secret value)`,
+		publicMessage: 'This field cannot be used to sort the results',
+		coordinates: { tipo: componentTipo },
+	});
 }
 
 /** Per-order-clause resolution: direct columns or single-step component sort. */
@@ -365,26 +436,23 @@ async function buildOrderClauses(
 				coordinates: { tipo: componentTipo },
 			});
 		}
-		const translatable = await getTranslatableByTipo(componentTipo);
+		assertSortableModel(model, componentTipo);
 		const langRaw = (orderEntry as { lang?: string }).lang;
 		if (langRaw !== undefined) assertValidLang(langRaw, 'order lang');
-		const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
 		// component_alias (WC-020): the sort value lives under the TARGET's key
 		// (the emitted order path carries the alias tipo; execution hops here).
 		// Re-gated as an identifier of its own (SURF-1): it names the sort alias too.
 		const orderDataTipo = await resolveSqlDataTipo(componentTipo, 'order');
 		const sortAlias = `${orderDataTipo}_order`;
-
-		// Per-family order-select (PHP $model::build_order_select).
-		let selectExpression: string;
-		if (column === 'date') {
-			selectExpression = `(jsonb_path_query_first(${orderAlias}.${column}->'${orderDataTipo}', '$[*].start.time') #>> '{}')::bigint AS ${sortAlias}`;
-		} else if (column === 'section_id') {
-			selectExpression = `${orderAlias}.section_id AS ${sortAlias}`;
-		} else {
-			// string-family default (also acceptable for number/misc ordering by value)
-			selectExpression = `(jsonb_path_query_first(${orderAlias}.${column}->'${orderDataTipo}', '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
-		}
+		const selectExpression = await orderSelectExpression({
+			componentTipo,
+			model,
+			column,
+			source: `${orderAlias}.${column}->'${orderDataTipo}'`,
+			sortAlias,
+			orderAlias,
+			langRaw,
+		});
 		selectExtra.push(selectExpression);
 		orderClauses.push(`${sortAlias} ${direction}`);
 	}
@@ -541,6 +609,18 @@ export interface SearchOptions {
 	 * (the export's record list). WHERE/ORDER/UNION logic is untouched.
 	 */
 	idsOnly?: boolean;
+	/**
+	 * KEEP THE ROOT USER RECORD (dd128 / -1) — PHP `search->include_negative`,
+	 * server-only (never from the SQO: `include_negative` stays in
+	 * SERVER_ONLY_SQO_KEYS). Lifts ONLY the main-section `section_id > 0` pin of
+	 * {@link composeMainWhere}; the per-record ACL still applies (a non-admin's
+	 * users-section rule carries its own `section_id > 0`). The one caller is the
+	 * select-family option list (relations/datalist.ts — PHP select edit
+	 * `include_negative=true`), so a stored "who = root" stays labelled. The
+	 * caller set is PINNED (test/unit/root_user_hidden_tripwire.test.ts,
+	 * INCLUDE_ROOT_USER_CALLERS): a new door passing it reddens that gate.
+	 */
+	includeRootUser?: boolean;
 }
 
 /**
@@ -1584,6 +1664,8 @@ async function resolveSectionTables(sectionTipos: readonly string[]): Promise<st
 interface WhereOptions {
 	principal?: Principal;
 	readFloor?: ReadonlySet<string>;
+	/** SearchOptions.includeRootUser — main searches only. */
+	includeRootUser?: boolean;
 	/** Enclosing `referenced_by` leaves (0 = a main search). */
 	depth: number;
 }
@@ -1610,7 +1692,7 @@ async function composeSearchWhere(
 	nonAclWhereParts: number;
 	projectsFilterActive: boolean;
 }> {
-	const mainWhere = composeMainWhere(target, params);
+	const mainWhere = composeMainWhere(target, params, options.includeRootUser === true);
 	const whereParts: string[] = [];
 	const filterSql = await composeFilterWhere(sqo, target, options, params);
 	pushFragment(whereParts, filterSql);
@@ -1644,7 +1726,11 @@ async function composeSearchWhere(
 }
 
 /** The section pin + the Users root exclusion. */
-function composeMainWhere(target: SearchTarget, params: ParamsCollector): string[] {
+function composeMainWhere(
+	target: SearchTarget,
+	params: ParamsCollector,
+	includeRootUser: boolean,
+): string[] {
 	const { alias, sectionTipos, mainSectionTipo } = target;
 	// --- WHERE: main (section_tipo) ---------------------------------------
 	const mainWhere: string[] = [];
@@ -1660,9 +1746,10 @@ function composeMainWhere(target: SearchTarget, params: ParamsCollector): string
 	// exclude the root record (section_id -1) for EVERY caller incl. admins.
 	// Covers rows, full_count, UNION branches, typeahead, filter_by_locators
 	// pins and isRecordInScope — they all AND through whereAll. PHP's
-	// include_negative escape hatch is server-only and unneeded here: the one
-	// path that legitimately includes -1 (getDatalist) bypasses this assembler.
-	if (mainSectionTipo === config.usersSectionTipo) {
+	// include_negative escape hatch is server-only: the one path that
+	// legitimately includes -1 (the select-family option list, getDatalist) asks
+	// for it through SearchOptions.includeRootUser.
+	if (mainSectionTipo === config.usersSectionTipo && !includeRootUser) {
 		mainWhere.push(`${alias}.section_id > 0`);
 	}
 	return mainWhere;
@@ -1888,6 +1975,7 @@ async function assemblePlainSearch(
 			{
 				...(principal === undefined ? {} : { principal }),
 				...(options.readFloor === undefined ? {} : { readFloor: options.readFloor }),
+				includeRootUser: options.includeRootUser === true,
 				depth: 0,
 			},
 			params,

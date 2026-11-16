@@ -1132,8 +1132,14 @@ const RENDER_SURFACE_EXEMPTIONS: ReadonlyArray<{ file: string; expr: string; rea
  * record value an `if`-block twin used to bless): both re-measure sinks that
  * were always there, and the commit that widens the census records them.
  */
+// 2026-11-13 (C26, owner ruling T1-18 D-1 "escape all record-fed sinks"): every
+// RECORD-FED sink of the remainder is closed — widgets (state, dmm, mdcat, oh,
+// numisdata, user_activity), the thesaurus/graph/search typology labels, and
+// the tools that print or edit record text (tr_print, subtitles, print,
+// propagate, indexation, lang/lang_multi, import_csv): 20 files left the map,
+// search 5→3 and subtitles 8→6. What remains is label-/config-fed or static
+// the classifier cannot prove.
 const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
-	'client/dedalo/core/area_graph/js/render_area_graph.js': 2,
 	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 6,
 	'client/dedalo/core/area_maintenance/widgets/ai_models/js/render_ai_models.js': 2,
 	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 1,
@@ -1154,7 +1160,6 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/area_maintenance/widgets/serve_ontology/js/render_serve_ontology.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/update_code/js/render_update_code.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/update_ontology/js/render_update_ontology.js': 4,
-	'client/dedalo/core/area_thesaurus/js/render_area_thesaurus.js': 4,
 	'client/dedalo/core/common/js/dd-modal.js': 1,
 	'client/dedalo/core/common/js/render_common.js': 3,
 	'client/dedalo/core/common/js/ui.js': 18,
@@ -1165,7 +1170,7 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/menu/js/render_menu_tree.js': 1,
 	'client/dedalo/core/page/js/render_page.js': 1,
 	'client/dedalo/core/relation_list/js/render_relation_list.js': 1,
-	'client/dedalo/core/search/js/render_search.js': 5,
+	'client/dedalo/core/search/js/render_search.js': 3,
 	'client/dedalo/core/section/js/render_open_list_with_direct_relations.js': 2,
 	'client/dedalo/core/section/js/view_default_list_section.js': 1,
 	'client/dedalo/core/section/js/view_graph_list_section.js': 2,
@@ -1177,16 +1182,6 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/services/service_autocomplete/js/view_default_autocomplete.js': 2,
 	'client/dedalo/core/services/service_ckeditor/js/render_text_editor.js': 2,
 	'client/dedalo/core/services/service_upload/js/render_edit_service_upload.js': 2,
-	'client/dedalo/core/ts_object/js/render_ts_line.js': 2,
-	'client/dedalo/core/widgets/calculation/js/render_calculation.js': 3,
-	'client/dedalo/core/widgets/dd/user_activity/js/render_user_activity.js': 5,
-	'client/dedalo/core/widgets/dmm/get_archive_states/js/render_get_archive_states.js': 2,
-	'client/dedalo/core/widgets/mdcat/sum_dates/js/render_sum_dates.js': 2,
-	'client/dedalo/core/widgets/numisdata/get_archive_weights/js/render_get_archive_weights.js': 8,
-	'client/dedalo/core/widgets/oh/media_icons/js/render_media_icons.js': 2,
-	'client/dedalo/core/widgets/oh/tags/js/render_tags.js': 1,
-	'client/dedalo/core/widgets/state/js/render_edit_state.js': 2,
-	'client/dedalo/core/widgets/state/js/render_list_state.js': 2,
 	'tools/tool_assistant/js/chat_render.js': 2,
 	'tools/tool_dd_label/js/render_tool_dd_label.js': 2,
 	'tools/tool_dev_template/js/render_tool_dev_template.js': 4,
@@ -1194,30 +1189,20 @@ const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'tools/tool_hierarchy/js/render_tool_hierarchy.js': 5,
 	'tools/tool_image_rotation/js/render_tool_image_rotation.js': 5,
 	'tools/tool_image_rotation/js/tool_image_rotation.js': 2,
-	'tools/tool_import_dedalo_csv/js/render_tool_import_dedalo_csv.js': 7,
 	'tools/tool_import_files/js/render_tool_import_files.js': 11,
 	'tools/tool_import_rdf/js/render_tool_import_rdf.js': 1,
-	'tools/tool_indexation/js/render_tool_indexation.js': 5,
-	'tools/tool_indexation/js/tag_note.js': 1,
-	'tools/tool_lang/js/browser_translation.js': 4,
 	'tools/tool_lang/js/render_tool_lang.js': 7,
-	'tools/tool_lang_multi/js/render_tool_lang_multi.js': 2,
 	'tools/tool_media_versions/js/render_tool_media_versions.js': 8,
 	'tools/tool_ontology/js/render_tool_ontology.js': 1,
 	'tools/tool_ontology_parser/js/render_tool_ontology_parser.js': 11,
 	'tools/tool_pdf_extractor/js/render_tool_pdf_extractor.js': 5,
 	'tools/tool_posterframe/js/render_tool_posterframe.js': 2,
-	'tools/tool_print/js/canvas_tool_print.js': 1,
-	'tools/tool_print/js/render_box_tool_print.js': 4,
-	'tools/tool_print/js/render_tool_print.js': 10,
-	'tools/tool_propagate_component_data/js/render_tool_propagate_component_data.js': 7,
 	'tools/tool_qr/js/render_tool_qr.js': 1,
 	'tools/tool_sitebuilder/js/sitebuilder_controller.js': 1,
-	'tools/tool_subtitles/js/render_tool_subtitles.js': 8,
+	'tools/tool_subtitles/js/render_tool_subtitles.js': 6,
 	'tools/tool_tc/js/render_tool_tc.js': 1,
 	'tools/tool_time_machine/js/render_tool_time_machine.js': 3,
 	'tools/tool_time_machine/js/tool_time_machine.js': 1,
-	'tools/tool_tr_print/js/render_tool_tr_print.js': 7,
 	'tools/tool_transcription/js/render_tool_transcription.js': 23,
 	'tools/tool_transcription/js/tool_transcription.js': 5,
 	'tools/tool_update_cache/js/render_tool_update_cache.js': 7,
@@ -1266,7 +1251,9 @@ describe('one escaper at the render boundary — the census', () => {
 
 	test('the census is TOTAL and non-vacuous (corpus floors)', () => {
 		expect(files.length).toBeGreaterThan(500);
-		expect(sinks.length).toBeGreaterThan(1000);
+		// 1000 until 2026-11-13: C26 closed ~70 remainder sinks (record-fed values
+		// rebuilt as text_content, which is not a sink), measured 979 after
+		expect(sinks.length).toBeGreaterThan(900);
 		expect(byClass('escaped').length).toBeGreaterThan(100);
 		expect(byClass('label').length).toBeGreaterThan(200);
 		expect(byClass('static').length).toBeGreaterThan(150);
@@ -1319,6 +1306,10 @@ describe('one escaper at the render boundary — the census', () => {
 		if (process.env.RENDER_ESCAPE_DUMP === '2')
 			for (const s of sinks)
 				if (s.kind === 'helper_option' && s.cls === 'dynamic') console.log(describeSink(s));
+		// RENDER_ESCAPE_DUMP=4 lists every dynamic remainder sink (file:line + expression)
+		if (process.env.RENDER_ESCAPE_DUMP === '4')
+			for (const s of sinks)
+				if (!RENDER_SURFACE.test(s.file) && s.cls === 'dynamic') console.log(describeSink(s));
 		const problems: string[] = [];
 		for (const [file, count] of Object.entries(actual)) {
 			const allowed = REMAINDER_RATCHET[file];

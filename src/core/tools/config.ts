@@ -27,11 +27,22 @@ type ConfigMap = Map<string, ConfigObject | null>;
 
 let defaultConfigCache: ConfigMap | null = null;
 let installConfigCache: ConfigMap | null = null;
+/** The per-(tool, tipo, section_tipo) ddo_map overrides, derived from the two maps above. */
+let overrideIndexCache: OverrideIndexes | null = null;
+/**
+ * Invalidation counter, not request state: every cache above is build-then-set
+ * across awaits, so a build stores its result only when no resetConfigCache()
+ * landed while it was reading — else a read from BEFORE a dd996/dd1324 edit
+ * would outlive the edit's invalidation (T1-43 review).
+ */
+let configGeneration = 0;
 
 /** Reset the config caches (called by invalidateAllToolCaches). */
 export function resetConfigCache(): void {
+	configGeneration++;
 	defaultConfigCache = null;
 	installConfigCache = null;
+	overrideIndexCache = null;
 }
 
 /**
@@ -61,15 +72,19 @@ async function readConfigMap(sectionTipo: string, configTipo: string): Promise<C
 /** All tools' register default config (dd1324 / dd1633), cached. */
 async function getAllDefaultConfig(): Promise<ConfigMap> {
 	if (defaultConfigCache !== null) return defaultConfigCache;
-	defaultConfigCache = await readConfigMap(TOOLS_REGISTER_SECTION_TIPO, TIPO.DEFAULT_CONFIG);
-	return defaultConfigCache;
+	const generation = configGeneration;
+	const map = await readConfigMap(TOOLS_REGISTER_SECTION_TIPO, TIPO.DEFAULT_CONFIG);
+	if (generation === configGeneration) defaultConfigCache = map;
+	return map;
 }
 
 /** All tools' per-install config (dd996 / dd999), cached. */
 async function getAllInstallConfig(): Promise<ConfigMap> {
 	if (installConfigCache !== null) return installConfigCache;
-	installConfigCache = await readConfigMap(TOOLS_CONFIG_SECTION_TIPO, TIPO.CONFIG);
-	return installConfigCache;
+	const generation = configGeneration;
+	const map = await readConfigMap(TOOLS_CONFIG_SECTION_TIPO, TIPO.CONFIG);
+	if (generation === configGeneration) installConfigCache = map;
+	return map;
 }
 
 /** The effective value of one config option (PHP: object → `.value ?? prop`). */
@@ -169,4 +184,171 @@ export async function getToolClientConfig(toolName: string): Promise<Record<stri
 		clientConfig[key] = installValue !== undefined ? installValue : resolveOption(defaults, key);
 	}
 	return clientConfig;
+}
+
+/**
+ * TOOL CONFIGURATION OVERRIDE (PHP tool_common::get_tool_configuration,
+ * class.tool_common.php:1519-1547; consumed by common::build_structure_context
+ * :1874-1916 and common::get_buttons_context :4241-4295).
+ *
+ * A tool's config may carry `properties.tool_config` — an ARRAY of
+ * `{ tipo, section_tipo, ddo_map }` entries. For an element (component, area,
+ * section, section button) whose (tipo, section_tipo) matches an entry, that
+ * entry's `ddo_map` REPLACES the ontology's `properties.tool_config.<tool>.ddo_map`
+ * (only the ddo_map: every other ontology key of the tool's config stays).
+ *
+ * Precedence (owner ruling 2026-11-11, T1-43): Tools configuration (dd996/dd999)
+ * → register default (dd1324/dd1633) → ontology. Resolved PER ENTRY: the first
+ * matching entry of the install layer wins, else the first matching entry of
+ * the register layer, else null (the caller keeps the ontology). PHP's
+ * get_config picks the layer WHOLESALE (a dd996 record for the tool masks the
+ * register default even when it carries no matching entry) — the per-entry
+ * fallthrough follows this module's per-key law instead
+ * (WC-2026-11-12-tool-configuration-override).
+ *
+ * The override never makes a tool APPLY to an element (PHP get_tools reads only
+ * the ontology) — the callers stamp it onto tools that already apply.
+ */
+
+/** One matched override entry: the tool it configures and its ddo_map. */
+interface OverrideHit {
+	readonly toolName: string;
+	readonly ddoMap: unknown[];
+}
+/** key `${toolName}\u0000${tipo}\u0000${sectionTipo}` → the entry's hit. */
+type OverrideIndex = Map<string, OverrideHit>;
+interface OverrideIndexes {
+	install: OverrideIndex;
+	register: OverrideIndex;
+}
+
+/**
+ * The tool-config cache GENERATION — bumps on every resetConfigCache(), i.e. on
+ * every dd996 / dd1324 write (invalidateAllToolCaches). A reader that DERIVES
+ * from the override index (relations/picker_constraint.ts, the write gate's
+ * tool-declared target index) stamps the generation it was built with and
+ * rebuilds when it moved — the one invalidation signal, no second cache entry
+ * point to keep in step.
+ */
+export function toolConfigGeneration(): number {
+	return configGeneration;
+}
+
+function overrideKey(toolName: string, tipo: string, sectionTipo: string): string {
+	return `${toolName}\u0000${tipo}\u0000${sectionTipo}`;
+}
+
+/** The `properties.tool_config` array of one config object (undefined when absent). */
+function overrideEntriesOf(config: ConfigObject | null): unknown {
+	const properties = config?.properties;
+	if (properties === null || typeof properties !== 'object') return undefined;
+	return (properties as { tool_config?: unknown }).tool_config;
+}
+
+/** True when a ddo_map item is a ddo OBJECT (enrichToolConfig reads its keys). */
+function isDdoItem(item: unknown): boolean {
+	return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
+/**
+ * True when an override entry has the shape the stamp needs — down to every
+ * ddo_map item: a null/scalar item would crash the element's context build
+ * downstream (T1-43 review), so the whole entry is refused here instead.
+ */
+function isOverrideEntry(
+	entry: unknown,
+): entry is { tipo: string; section_tipo: string; ddo_map: Record<string, unknown>[] } {
+	if (entry === null || typeof entry !== 'object') return false;
+	const candidate = entry as { tipo?: unknown; section_tipo?: unknown; ddo_map?: unknown };
+	return (
+		typeof candidate.tipo === 'string' &&
+		typeof candidate.section_tipo === 'string' &&
+		Array.isArray(candidate.ddo_map) &&
+		candidate.ddo_map.every(isDdoItem)
+	);
+}
+
+/**
+ * Index one tool's override entries into `index` (first match wins — PHP
+ * array_find). A malformed bag or entry is skipped LOUDLY (named by tool,
+ * layer and position) — never a dead screen, never a silent drop.
+ */
+function indexToolOverrides(
+	index: OverrideIndex,
+	toolName: string,
+	entries: unknown,
+	layer: string,
+): void {
+	if (entries === undefined || entries === null) return;
+	if (!Array.isArray(entries)) {
+		console.error(
+			`[tools/config] ignore ${layer} properties.tool_config of '${toolName}': not an array of {tipo, section_tipo, ddo_map}`,
+		);
+		return;
+	}
+	entries.forEach((entry, position) => {
+		if (!isOverrideEntry(entry)) {
+			console.error(
+				`[tools/config] ignore ${layer} properties.tool_config[${position}] of '${toolName}': needs string tipo, string section_tipo and a ddo_map array of ddo objects`,
+			);
+			return;
+		}
+		const key = overrideKey(toolName, entry.tipo, entry.section_tipo);
+		if (!index.has(key)) index.set(key, { toolName, ddoMap: entry.ddo_map });
+	});
+}
+
+/** Build the override index of one config layer. */
+function buildOverrideIndex(configs: ConfigMap, layer: string): OverrideIndex {
+	const index: OverrideIndex = new Map();
+	for (const [toolName, config] of configs) {
+		indexToolOverrides(index, toolName, overrideEntriesOf(config), layer);
+	}
+	return index;
+}
+
+/** Both layers' override indexes, built once per tool-cache generation. */
+async function getOverrideIndexes(): Promise<OverrideIndexes> {
+	if (overrideIndexCache !== null) return overrideIndexCache;
+	const generation = configGeneration;
+	const install = buildOverrideIndex(await getAllInstallConfig(), 'Tools configuration (dd996)');
+	const register = buildOverrideIndex(await getAllDefaultConfig(), 'register default (dd1324)');
+	const indexes = { install, register };
+	if (generation === configGeneration) overrideIndexCache = indexes;
+	return indexes;
+}
+
+/**
+ * The override `ddo_map` for `toolName` on the element (tipo, sectionTipo):
+ * Tools configuration match → register default match → null (keep the
+ * ontology). A deep clone — the cached index is never handed out.
+ */
+export async function getToolConfigurationOverride(
+	toolName: string,
+	tipo: string,
+	sectionTipo: string,
+): Promise<unknown[] | null> {
+	const { install, register } = await getOverrideIndexes();
+	const key = overrideKey(toolName, tipo, sectionTipo);
+	const hit = install.get(key) ?? register.get(key);
+	return hit !== undefined ? structuredClone(hit.ddoMap) : null;
+}
+
+/**
+ * Every EFFECTIVE override entry — the ddo_maps the stamp can hand to the
+ * client: each (tool, tipo, section_tipo) key once, the Tools-configuration
+ * entry shadowing the register default's (the same per-entry precedence as
+ * getToolConfigurationOverride). For the write gate's tool-declared target
+ * index (owner C36 2026-11-13: the UI offer IS the write gate, so a picker
+ * target an override declares is accepted at the door). Deep clones.
+ */
+export async function listEffectiveToolConfigurationOverrides(): Promise<
+	readonly { toolName: string; ddoMap: unknown[] }[]
+> {
+	const { install, register } = await getOverrideIndexes();
+	const effective = new Map<string, OverrideHit>([...register, ...install]);
+	return [...effective.values()].map((hit) => ({
+		toolName: hit.toolName,
+		ddoMap: structuredClone(hit.ddoMap),
+	}));
 }

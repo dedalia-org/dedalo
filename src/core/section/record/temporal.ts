@@ -307,12 +307,21 @@ async function attachTemporalEchoDatalist(
 	if (main !== undefined) {
 		// The edit door, completed against the PICKED value (the raw locators
 		// the echo answers with): select_lang's "<name> *" entry matches the read's.
+		// No owner RECORD: a temporal record is not persisted, so a record-
+		// dependent filter has nothing to read (it would read nothing either way).
+		// `picked`, NOT `stored` (datalist.ts DatalistCompletion, 2026-11-14): these
+		// locators are the client's payload — this door runs no insert law and asks
+		// only read ≥ 1 on the component — so the C6 `restricted` completion, which
+		// reads the named row to say whether it EXISTS, would be an existence oracle
+		// over any section and id the caller writes into changed_data. Nothing is
+		// stored here, so nothing can be dropped unnoticed: the built list suffices.
 		main.datalist = await getEchoDatalist(
 			model,
 			componentTipo,
 			node?.properties ?? null,
-			sectionTipo,
+			{ section_tipo: sectionTipo, section_id: null },
 			picked,
+			'picked',
 		);
 	}
 }
@@ -340,7 +349,7 @@ async function attachTemporalLiteralEchoDatalist(
 		model,
 		componentTipo,
 		null,
-		sectionTipo,
+		{ section_tipo: sectionTipo, section_id: null },
 		items,
 	);
 }

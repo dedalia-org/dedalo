@@ -47,10 +47,10 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { canonicalJson } from '../../src/core/concepts/canonical_json.ts';
-import { dbTimestamp } from '../../src/core/db/db_timestamp.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import {
+	historyStamp,
 	isFrameEntry,
 	recordMainHistory,
 	resolveDataframeSlotTipos,
@@ -1836,12 +1836,18 @@ describe('a slot save writes ONE lg-nolan row; the timeline of a language lists 
 					before: { value: [tKind.item(1, 1)], slots },
 					after: { value: [tKind.item(1, 2)], slots },
 				},
-				{ userId: USER_ID, timestamp: dbTimestamp(), bulkId: null },
+				historyStamp(USER_ID, null),
 			),
 		);
+		// Re-pinned 2026-11-12 (T1-21): the before (item 1 v1) has no history at
+		// this record, so the writer's save-before backfills it first — in the
+		// same lg-nolan lane, which is what this case pins.
 		const rows = await mainRows(tKind, id, mark);
-		expect(rows.map((row) => row.lang)).toEqual([NOLAN]);
-		expect(splitComposed(mustGet(rows[0], 'the lg-nolan row').data).main).toEqual([
+		expect(rows.map((row) => row.lang)).toEqual([NOLAN, NOLAN]);
+		expect(splitComposed(mustGet(rows[0], 'the backfill row').data).main).toEqual([
+			tKind.item(1, 1),
+		]);
+		expect(splitComposed(mustGet(rows[1], 'the lg-nolan row').data).main).toEqual([
 			tKind.item(1, 2),
 		]);
 	}, 60_000);

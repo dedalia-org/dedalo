@@ -722,6 +722,8 @@ function drillEffects(e: Engine, world: World, options: ProcessOptions): RunEffe
 				recordedHashes: async () => recordedMigrations(e),
 				ledger: async () => ledger ?? { format: 1, migrations: {} },
 				installedDataVersion: () => readDrillDataVersion(e),
+				// the drill's scratch instance has no systemd unit (C33): nothing to judge
+				hostUnits: async () => ({ kind: 'not_systemd' as const }),
 			};
 			const plans = { ...e.catalog.RELEASE_PLANS, ...journal.release_plans };
 			const predicates = e.verify.RUN_VERIFY_PREDICATES.map((predicate) =>

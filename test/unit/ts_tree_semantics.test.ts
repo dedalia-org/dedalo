@@ -16,6 +16,10 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
+	NUMBER_FORMAT_NONE,
+	numberFormatOf,
+} from '../../src/core/components/component_number/number_format.ts';
+import {
 	getInlineValueByIdKey,
 	removeInlineByIdKey,
 	updateInlineValueByIdKey,
@@ -27,27 +31,35 @@ import {
 import { getHierarchyTermsSqo } from '../../src/core/ts_object/search.ts';
 import { isEmptyData } from '../../src/core/ts_object/ts_object.ts';
 
-describe('formatNumberValue (PHP component_number::set_format_form_type parity)', () => {
-	it('empty and not the integer 0 → null', () => {
-		expect(formatNumberValue('', null)).toBeNull();
-		expect(formatNumberValue(null, null)).toBeNull();
-		expect(formatNumberValue(false, null)).toBeNull();
+describe('formatNumberValue (component_number format law, v6 empty semantics — T1-40)', () => {
+	const NONE = NUMBER_FORMAT_NONE;
+	const INT = numberFormatOf({ type: 'int' }, 'test1');
+	const FLOAT2 = numberFormatOf({ type: 'float', precision: 2 }, 'test1');
+	it('null / empty string / false → null', () => {
+		expect(formatNumberValue('', NONE)).toBeNull();
+		expect(formatNumberValue(null, NONE)).toBeNull();
+		expect(formatNumberValue(undefined, NONE)).toBeNull();
+		expect(formatNumberValue(false, NONE)).toBeNull();
 	});
-	it('the integer 0 is preserved (PHP $value!==0 exemption)', () => {
-		// no type → float 0
-		expect(formatNumberValue(0, null)).toBe(0);
+	it("0 and '0' are the number 0 (v6; frozen v7 nulled '0')", () => {
+		expect(formatNumberValue(0, NONE)).toBe(0);
+		expect(formatNumberValue('0', NONE)).toBe(0);
+		expect(formatNumberValue('0', INT)).toBe(0);
 	});
-	it('no type defaults to float', () => {
-		expect(formatNumberValue('3', null)).toBe(3);
-		expect(formatNumberValue('3.5', null)).toBe(3.5);
+	it('no type: the value as read, unrounded', () => {
+		expect(formatNumberValue('3', NONE)).toBe(3);
+		expect(formatNumberValue('3.5', NONE)).toBe(3.5);
+		expect(formatNumberValue(1.23456, NONE)).toBe(1.23456);
+		expect(formatNumberValue('abc', NONE)).toBeNull();
 	});
 	it("type 'int' truncates", () => {
-		expect(formatNumberValue('7.9', 'int')).toBe(7);
-		expect(formatNumberValue(7.9, 'int')).toBe(7);
+		expect(formatNumberValue('7.9', INT)).toBe(7);
+		expect(formatNumberValue(7.9, INT)).toBe(7);
 	});
-	it("type 'float' rounds to precision", () => {
-		expect(formatNumberValue('3.14159', 'float', 2)).toBe(3.14);
-		expect(formatNumberValue('2', 'float', 2)).toBe(2);
+	it("type 'float' rounds half away from zero to precision (decimal, not toFixed)", () => {
+		expect(formatNumberValue('1.23456', FLOAT2)).toBe(1.23);
+		expect(formatNumberValue('2', FLOAT2)).toBe(2);
+		expect(formatNumberValue(1.005, FLOAT2)).toBe(1.01);
 	});
 });
 

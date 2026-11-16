@@ -27,7 +27,7 @@
 
 import { config } from '../../config/config.ts';
 import { publishApiConfig } from '../../external/api/index.ts';
-import { getComponentModel, getRenderClass } from '../components/registry.ts';
+import { getComponentModel, getForbidsAddButton, getRenderClass } from '../components/registry.ts';
 import type { RenderClass } from '../components/types.ts';
 import { isAreaModel } from '../concepts/area.ts';
 import {
@@ -103,6 +103,16 @@ export interface StructureContextCore {
 	 * request-invariant, so it lives in the cached core.
 	 */
 	declared_order?: { tipo: string; direction: 'ASC' | 'DESC' }[];
+	/**
+	 * Grouper label switch (PHP section_group_json.php:92-107, v6 :29-34) —
+	 * present on `section_group` entries ONLY: `false` iff the STORED model is
+	 * `section_group_div` (aliased to section_group at runtime, GROUPER_MODEL_ALIASES),
+	 * `true` otherwise. The client (render_section_group.js) keys `=== false` →
+	 * unlabelled `no_margin` div, no collapse header. Absent on every other
+	 * model and stripped from the search-panel element list (PHP builds those
+	 * via get_structure_context_simple, never the json controller).
+	 */
+	add_label?: boolean;
 }
 
 /**
@@ -516,6 +526,9 @@ async function buildCore(
 		// component entry — request-invariant, so it lives in the cached core.
 		...(getComponentModel(model) !== undefined ? { render_class: getRenderClass(model) } : {}),
 		...(declaredOrder !== null ? { declared_order: declaredOrder } : {}),
+		// grouper label switch (PHP section_group_json.php:92-107): a pure
+		// function of the stored model, so it lives in the cached core.
+		...(model === 'section_group' ? { add_label: legacyModel !== 'section_group_div' } : {}),
 		configSourceProperties,
 		ownConfigProperties: effectiveProperties,
 		structuralView,
@@ -1232,11 +1245,13 @@ export async function buildStructureContext(options: {
 		}
 	}
 
-	// component_relation_related: the json controller forces
-	// properties.show_interface.button_add = false, creating show_interface if the
-	// ontology omits it (component_relation_related_json.php:76-77). The client
-	// suite asserts context.properties.show_interface exists with button_add:false.
-	if (core.model === 'component_relation_related') {
+	// `forbidsAddButton` models (relation_related, relation_parent): the json
+	// controllers force properties.show_interface.button_add = false, creating
+	// show_interface if the ontology omits it (component_relation_related_json.php:77,
+	// component_relation_parent_json.php:77). Stamped AFTER the override/governed
+	// re-emission so neither an RQO override nor a ddo can re-open it; merged so
+	// sibling keys survive. The client suites assert it.
+	if (getForbidsAddButton(core.model)) {
 		const props = (entry.properties ?? {}) as Record<string, unknown>;
 		props.show_interface = {
 			...((props.show_interface as Record<string, unknown> | undefined) ?? {}),
@@ -1348,38 +1363,22 @@ export async function buildStructureContext(options: {
 			toolConfigKeys,
 		});
 		// PHP get_tools stamping (class.common.php:1868-1916): a tool declaring
-		// properties.mode shows only in that mode; when the element's properties
-		// carry a tool_config for the tool, resolve the ddo_map 'self' sentinels
-		// to this element and enrich every entry (model/translatable/label) —
-		// PHP mutates the SHARED properties object, so the enriched map reaches
-		// the wire BOTH on the tool context and on the emitted
-		// properties.tool_config (the client builds the tool's components from
-		// it; unenriched, tool_common.js falls back to a synthetic single-entry
-		// ddo_map and the configured components never render). The per-
-		// (tipo,section_tipo) register-record override branch
-		// (tool_common::get_tool_configuration) is NOT ported: no register
-		// record in the corpus defines one (the 4 textual matches are
-		// description prose), so the ontology branch is the oracle-exercised
-		// path — a future register override needs that branch first.
-		const { enrichToolConfig } = await import('../tools/section_tool_context.ts');
-		const stampedTools: unknown[] = [];
-		for (const tool of elementTools.tools) {
+		// properties.mode shows only in that mode; each remaining tool carries
+		// its config through the ONE element stamp (ontology tool_config, the
+		// Tools-configuration / register override ddo_map, 'self' resolved,
+		// entries enriched — stampElementToolConfigs, T1-43).
+		const { stampElementToolConfigs } = await import('../tools/section_tool_context.ts');
+		const modeTools = elementTools.tools.filter((tool) => {
 			const toolMode = (tool.properties as { mode?: unknown } | null | undefined)?.mode;
-			if (toolMode !== undefined && toolMode !== options.mode) continue;
-			const rawToolConfig = toolConfigBag[tool.name];
-			if (rawToolConfig === undefined || rawToolConfig === null) {
-				stampedTools.push(tool);
-				continue;
-			}
-			const enriched = await enrichToolConfig(rawToolConfig, options.tipo, options.sectionTipo);
-			const entryProperties = (entry.properties ?? {}) as Record<string, unknown>;
-			const entryToolConfig = (entryProperties.tool_config ?? {}) as Record<string, unknown>;
-			entryToolConfig[tool.name] = structuredClone(enriched);
-			entryProperties.tool_config = entryToolConfig;
-			entry.properties = entryProperties;
-			stampedTools.push({ ...tool, tool_config: enriched });
-		}
-		entry.tools = stampedTools;
+			return toolMode === undefined || toolMode === options.mode;
+		});
+		entry.tools = await stampElementToolConfigs(
+			entry,
+			modeTools,
+			toolConfigBag,
+			options.tipo,
+			options.sectionTipo,
+		);
 	}
 
 	// request_config (spec §3.6): explicit from the Site-B SOURCE properties (with

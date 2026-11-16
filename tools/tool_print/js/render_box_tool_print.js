@@ -862,7 +862,7 @@ const build_relation_node = function(component) {
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'relation_item',
-				inner_html		: label,
+				text_content		: label,
 				parent			: wrap
 			})
 			rendered++
@@ -1058,7 +1058,7 @@ export const render_box_content = async function(self, box) {
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'print_label',
-				inner_html		: ref.label_snapshot || '',
+				text_content		: ref.label_snapshot || '',
 				parent			: content
 			})
 			if (value_node) content.appendChild(value_node)
@@ -1075,12 +1075,43 @@ export const render_box_content = async function(self, box) {
 
 
 /**
+* STATIC_TEXT_PLAIN
+* The text of a static_text box as the editor shows it. A box saved since the
+* plain-text rule holds text already; one saved before it holds the editor's
+* innerHTML (typing produced <div>/<br> line breaks, maybe <b>): its markup is
+* read in an INERT document (DOMParser: no script runs, no resource loads) and
+* only the text comes out, block ends and <br> as line breaks. Never a parse
+* into the live page.
+* @param {string|null|undefined} text - box.static.text
+* @returns {string}
+*/
+export const static_text_plain = function(text) {
+	const raw = (text === null || text === undefined) ? '' : String(text)
+	if (!/[<&]/.test(raw)) {
+		return raw
+	}
+	const with_breaks = raw
+		.replace(/<br\s*\/?>/gi, '\n')
+		.replace(/<\/(div|p|h[1-6]|li)>/gi, '\n')
+	const doc = new DOMParser().parseFromString(with_breaks, 'text/html')
+	return (doc.body.textContent || '').replace(/\n$/, '')
+}//end static_text_plain
+
+
+
+/**
 * RENDER_STATIC_TEXT
 * Renders a static_text box as an in-place contenteditable editor so the user
 * can type free text (headings, captions such as "Report of …") that no
-* component provides. The content is stored as innerHTML in box.static.text
-* and persisted via self.mark_dirty() on every input event. Mousedown
-* is stopped to prevent the canvas drag handler from intercepting typing.
+* component provides. The content is PLAIN TEXT: box.static.text holds the
+* editor's innerText (line breaks as '\n', shown by the editor's
+* white-space:pre-wrap) and is persisted via self.mark_dirty() on every input
+* event. Formatting is the box's style (font, align, colour), never markup: a
+* template is a stored record, so its text reaches the DOM as a text node
+* (ZERO MARKUP CONCATENATION, render_escape_tripwire) — a template saved
+* before this rule stored the editor's innerHTML and is read back as the text
+* it showed (static_text_plain). Mousedown is stopped to prevent the canvas
+* drag handler from intercepting typing.
 * (!) box.static is initialised to {} here if absent — callers must not
 * assume static was pre-populated before render_static_text runs.
 * @param {Object} self - tool_print instance (must expose mark_dirty method)
@@ -1096,7 +1127,7 @@ const render_static_text = function(self, box) {
 	const editor = ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'static_text_edit',
-		inner_html		: box.static.text || '',
+		text_content	: static_text_plain(box.static.text),
 		parent			: content
 	})
 	editor.contentEditable = 'true'
@@ -1104,7 +1135,7 @@ const render_static_text = function(self, box) {
 	editor.dataset.placeholder = 'Text…'
 
 	editor.addEventListener('input', () => {
-		box.static.text = editor.innerHTML
+		box.static.text = editor.innerText
 		self.mark_dirty?.()
 	})
 	// keep typing/clicks inside the editor from starting a box drag
@@ -1127,7 +1158,7 @@ const render_placeholder = function(box) {
 	ui.create_dom_element({
 		element_type	: 'span',
 		class_name		: 'box_placeholder no_print',
-		inner_html		: ref_label(box),
+		text_content		: ref_label(box),
 		parent			: content
 	})
 }//end render_placeholder

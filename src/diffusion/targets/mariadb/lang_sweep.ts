@@ -66,8 +66,9 @@ import {
 	withTargetLock,
 } from '../../../core/diffusion_bridge/target_lock.ts';
 import { DedaloError } from '../../../core/errors/index.ts';
+import { globalTableMapsOfNode, globalTableNamesOf } from '../../plan/global_tables.ts';
 import { escapeSqlIdentifier, requireSqlIdentifier } from '../../plan/identifier.ts';
-import { buildVirtualDiffusionTree } from '../../plan/virtual_tree.ts';
+import { buildVirtualDiffusionTree, type VirtualDiffusionTree } from '../../plan/virtual_tree.ts';
 import {
 	getTargetPool,
 	isMissingDatabaseError,
@@ -285,8 +286,11 @@ export async function listMariadbTargetDatabases(): Promise<{
  * install declares no published table, and therefore that nothing here may be
  * deleted.
  */
-export async function listDeclaredPublicationTables(): Promise<Set<string>> {
-	const tree = await buildVirtualDiffusionTree();
+export async function listDeclaredPublicationTables(
+	/** The domain tree to read (default: the configured domain's — injected by the gate). */
+	injectedTree?: VirtualDiffusionTree,
+): Promise<Set<string>> {
+	const tree = injectedTree ?? (await buildVirtualDiffusionTree());
 	const declared = new Set<string>();
 	if (tree === null) return declared;
 	for (const node of tree.nodes) {
@@ -297,6 +301,12 @@ export async function listDeclaredPublicationTables(): Promise<Set<string>> {
 		} catch (_error) {
 			// A label that yields no identifier names no real table (nothing could
 			// have been created under it) — dropping it can hide no published data.
+		}
+		// The GLOBAL tables its maps write (plan/global_tables.ts): a global node
+		// may live outside this domain's subtree and still hold its rows.
+		const maps = await globalTableMapsOfNode(tree.index, node);
+		for (const name of await globalTableNamesOf(tree.index, maps)) {
+			declared.add(name.toLowerCase());
 		}
 	}
 	return declared;
@@ -314,7 +324,7 @@ export const DEFAULT_LANG_SWEEP_DEPENDENCIES: LangSweepDependencies = Object.fre
 		return { unsafe: (sql, params = []) => pool.unsafe(boundSqlTargetStatement(sql), params) };
 	},
 	listTargetDatabases: listMariadbTargetDatabases,
-	listDeclaredTables: listDeclaredPublicationTables,
+	listDeclaredTables: () => listDeclaredPublicationTables(),
 	policyLangs: (): string[] => [...config.diffusion.langs],
 });
 

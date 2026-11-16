@@ -9,13 +9,18 @@
  *     new fetch site) into the private staging dir, gunzipped under the shared
  *     caps and COPY-sanity checked; `staged.json` records each file's sha256.
  *     Any failure refuses `install.step_failed` with the database untouched.
- *     SHAPE-CHECKED, NOT AUTHENTICATED: a downloaded file is trusted as far as
- *     the pinned door takes it (TLS verified, the configured server's origin, the
- *     expected file name) — the master ontology server publishes no per-file
- *     digest or signature to check its bytes against, so a well-formed file that
- *     server serves is staged as served. The sha256 in `staged.json` pins what
- *     was staged against a later change on THIS disk; it says nothing of origin.
- *     (Vendored / local files ride the release tree's own integrity.)
+ *     DIGEST-VERIFIED BEFORE ANYTHING DECOMPRESSES IT (T1-26, the U-41 law of
+ *     WC-2026-10-30-ontology-file-digests, the update stager's own): every
+ *     file — server, local or vendored — must hash to the sha256 its source
+ *     manifest publishes (`info.files_sha256`: the master's manifest, the local
+ *     package's ontology.json, the release's vendored ontology.json); a mismatch
+ *     refuses with the file deleted. A source that publishes NO digest (an older
+ *     master, a hand-built package) is staged UNVERIFIED with one warning naming
+ *     every such file. Not a signature: a digest proves the bytes are the ones
+ *     the manifest names; the manifest's own origin rests on the pinned door
+ *     (TLS verified, the configured server's origin, the expected file name) or
+ *     on the operator's local path. The sha256 in `staged.json` is a second,
+ *     separate pin: what was staged, against a later change on THIS disk.
  *  2. install_ontologies (AFTER the seed restore + its migrations, BEFORE the
  *     root password, hierarchies and tools): the staged files are re-verified
  *     (sha256), unpacked through the update panel's own Phase-A stager
@@ -64,6 +69,7 @@ import {
 import { isCoreOntologyTld } from '../ontology/core_tlds.ts';
 import {
 	copySanityCheck,
+	digestRefusal,
 	downloadRemoteOntologyFile,
 	gunzipWithCaps,
 } from '../ontology/data_io_import.ts';
@@ -158,22 +164,45 @@ function serverOrigin(source: OntologySourceView): string {
 	return new URL(source.server.url).origin;
 }
 
-/** Download one server file into `versionDir` through the pinned door. */
+/** The refusal of a file whose bytes are not the ones its source manifest names. */
+function digestMismatch(name: string): never {
+	refuseInstall(
+		'install.step_failed',
+		`${name}: sha256 mismatch — the file is not the one its source manifest names; nothing was installed`,
+	);
+}
+
+/**
+ * Download one server file into `versionDir` through the pinned door — with the
+ * manifest's sha256, the door verifies the completed bytes (and deletes them on
+ * a mismatch) before reporting ok.
+ */
 async function downloadStaged(
 	name: string,
-	url: string,
+	file: { url: string; sha256: string | undefined },
 	source: OntologySourceView,
 	versionDir: string,
 ): Promise<void> {
 	const downloaded = await downloadRemoteOntologyFile({
-		url,
+		url: file.url,
 		configuredOrigin: serverOrigin(source),
 		expectedBasename: name,
 		targetDir: versionDir,
+		expectedSha256: file.sha256,
 	});
-	if (downloaded.ok !== true) {
-		refuseInstall('install.step_failed', `${name}: ${downloaded.msg} — nothing was installed`);
-	}
+	if (downloaded.ok === true) return;
+	if (downloaded.errors.some((error) => error.startsWith('sha256 mismatch'))) digestMismatch(name);
+	refuseInstall('install.step_failed', `${name}: ${downloaded.msg} — nothing was installed`);
+}
+
+/** Copy one local/vendored file into the stage, then verify it against its digest (deleted on a mismatch). */
+async function copyVerified(
+	file: { path: string; sha256: string | undefined },
+	target: string,
+	name: string,
+): Promise<void> {
+	await copyLocal(file.path, target, name);
+	if ((await digestRefusal(target, file.sha256)) !== null) digestMismatch(name);
 }
 
 /** Gunzip under the caps + COPY-shape check (a SHAPE check — see the header); the decompressed copy is removed. */
@@ -200,23 +229,35 @@ interface StageDirs {
 	barrier: DirectoryBarrier;
 }
 
+/** One file to stage: where it comes from, and the digest its source publishes (absent = none). */
+interface StageInput {
+	tld: string;
+	origin: OntologyOrigin;
+	file: string;
+	sha256?: string | undefined;
+}
+
 /**
- * Bring one file into the stage (copy or download into `incomingDir`), shape-check it,
- * fsync its bytes, and only then RENAME it into `versionDir` — a staged name always
- * holds a whole, verified file; its directory entry becomes durable at the stage's one
- * barrier flush (stageOntologies). Answers its record fields.
+ * Bring one file into the stage (copy or download into `incomingDir`), verify its
+ * digest, shape-check it, fsync its bytes, and only then RENAME it into `versionDir` —
+ * a staged name always holds a whole, verified file; its directory entry becomes
+ * durable at the stage's one barrier flush (stageOntologies). Answers its record fields.
  */
 async function stageFile(
-	tld: string,
-	origin: OntologyOrigin,
-	file: string,
+	input: StageInput,
 	source: OntologySourceView,
 	stage: StageDirs,
 ): Promise<{ file: string; sha256: string; bytes: number }> {
-	const name = `${tld}.copy.gz`;
+	const name = `${input.tld}.copy.gz`;
 	const incoming = join(stage.incomingDir, name);
-	if (origin === 'server') await downloadStaged(name, file, source, stage.incomingDir);
-	else await copyLocal(file, incoming, name);
+	if (input.origin === 'server') {
+		await downloadStaged(
+			name,
+			{ url: input.file, sha256: input.sha256 },
+			source,
+			stage.incomingDir,
+		);
+	} else await copyVerified({ path: input.file, sha256: input.sha256 }, incoming, name);
 	await verifyStaged(incoming, name);
 	fsyncFile(incoming);
 	const target = join(stage.versionDir, name);
@@ -242,13 +283,7 @@ async function stageMatrixDd(
 ): Promise<StagedManifest['matrix_dd']> {
 	const matrixDd = request.matrixDd;
 	if (matrixDd === null) return null;
-	const staged = await stageFile(
-		'matrix_dd',
-		matrixDd.origin,
-		matrixDd.file,
-		request.source,
-		stage,
-	);
+	const staged = await stageFile({ tld: 'matrix_dd', ...matrixDd }, request.source, stage);
 	return { origin: matrixDd.origin, ...staged };
 }
 
@@ -275,7 +310,7 @@ export async function stageOntologies(
 	mkdirSync(stage.incomingDir, { mode: 0o700 });
 	const items: StagedRecord[] = [];
 	for (const item of request.items) {
-		const staged = await stageFile(item.tld, item.origin, item.file, request.source, stage);
+		const staged = await stageFile(item, request.source, stage);
 		items.push({
 			tld: item.tld,
 			origin: item.origin,
@@ -308,9 +343,43 @@ export async function stageOntologies(
 	};
 }
 
-/** The undeclared-dependency warnings the request carries forward. */
+/**
+ * The warnings the request carries forward: undeclared dependencies, and the files
+ * staged UNVERIFIED because their source publishes no digest (one line naming them all).
+ */
 function stagedWarnings(request: OntologyInstallRequest): string[] {
-	return request.items.filter((item) => item.dependencies === null).map(undeclaredWarning);
+	const undeclared = request.items.filter((item) => item.dependencies === null);
+	return [...undeclared.map(undeclaredWarning), ...unverifiedWarnings(request)];
+}
+
+/**
+ * One line PER ORIGIN naming every staged file whose source published no sha256
+ * (none → no line): a vendored item rides a server/local request too, and each
+ * line must name the source that actually omitted the digest.
+ */
+function unverifiedWarnings(request: OntologyInstallRequest): string[] {
+	const files: StageInput[] = [
+		...request.items,
+		...(request.matrixDd === null ? [] : [{ tld: 'matrix_dd', ...request.matrixDd }]),
+	];
+	const origins: OntologyOrigin[] = ['server', 'local', 'vendored'];
+	return origins.flatMap((origin) => {
+		const unverified = files
+			.filter((file) => file.origin === origin && file.sha256 === undefined)
+			.map((file) => file.tld);
+		if (unverified.length === 0) return [];
+		return [
+			`${originName(origin, request.source)} publishes no sha256 for ${unverified.join(', ')}: staged UNVERIFIED (shape-checked only — re-export the source with a current Dédalo to publish digests)`,
+		];
+	});
+}
+
+/** The source a file of `origin` came from, in words. */
+function originName(origin: OntologyOrigin, source: OntologySourceView): string {
+	if (origin === 'vendored') return 'the built-in ontology release';
+	if (source.kind === 'server') return `the ontology server '${source.server.name}'`;
+	if (source.kind === 'local') return `the ontology source ${source.path}`;
+	return `the ${origin} ontology source`;
 }
 
 // ── install ──────────────────────────────────────────────────────────────────

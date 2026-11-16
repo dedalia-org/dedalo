@@ -134,3 +134,40 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
+    # The data-format image rule (below, T1-17 D2 / C24): the CI Postgres is recreated
+    # from scratch on every run, so a pgvector major would not refuse a volume here — but
+    # one PR per bump keeps the two compose entries under ONE rule the tripwire checks.
+    ignore:
+      - dependency-name: pgvector/pgvector
+        update-types: ["version-update:semver-major"]
+
+  # THE OPERATOR STACKS (docker-compose.yml, docker-compose.simple.yml: postgres, nginx,
+  # certbot, mariadb, pgvector — T1-17, 2026-11-12). Every third-party image there is
+  # pinned `name:<version>@sha256:<index digest>`: the version for the reader and for this
+  # entry to follow, the digest so two installs of one release run the same bytes. This is
+  # the pins' updater: digest refreshes of the same version and version bumps. Dependabot
+  # discovers `docker-compose.simple.yml` (its FILENAME_REGEX allows a `.<name>` infix).
+  # The installer READS these pins from the stack files (src/core/install/host/stack/
+  # images.ts), so a merged PR is the whole bump — no TypeScript copy to move with it.
+  # A postgres/pgvector/mariadb MAJOR changes the on-disk DATA FORMAT (owner ruling C24,
+  # 2026-11-13): a merged `postgres:18 → 19` bump would make the container refuse the
+  # existing data volume on the next `up -d`. Majors are therefore IGNORED here — they
+  # move only by the explicit migration procedure (pg_upgrade / dump-restore,
+  # docs/install/docker.md "A new PostgreSQL, pgvector or MariaDB major"), and the image
+  # updater refuses to reconcile a pin whose major differs from the running one
+  # (deploy/dedalo-image-update.sh). Minors and digest refreshes still arrive as PRs.
+  # Gate: operator_image_pin_tripwire (every data-format image pinned in a compose file
+  # has its major ignored in that directory's entry).
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: pgvector/pgvector
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mariadb
+        update-types: ["version-update:semver-major"]

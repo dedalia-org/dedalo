@@ -503,6 +503,108 @@ describe('TS_OBJECT : ', function() {
 	});//end describe Model badge
 
 
+	// TERM TEXT IS ESCAPED UNLESS THE SERVER SAYS HTML (T1-18,
+	// WC-2026-11-12-tree-term-escaped). The server escapes every record piece
+	// before the `<mark>` untranslated wrap and stamps render_class 'html' on the
+	// term element; render_ts_line renders through render_value, so a term
+	// WITHOUT that class (any producer that forgets) is escaped as text — markup
+	// typed into a thesaurus term never runs in the tree, in either branch.
+	describe('Term text render class (T1-18)', function() {
+
+		const section_tipo = 'ts1'
+
+		const node_response = (section_id, term) => ({
+			ok : true,
+			data : {
+				ts_id						: `${section_tipo}_${section_id}`,
+				ts_parent					: null,
+				section_tipo				: section_tipo,
+				section_id					: section_id,
+				order						: 1,
+				is_descriptor				: true,
+				is_indexable				: true,
+				has_descriptor_children		: false,
+				permissions_button_new		: 3,
+				permissions_button_delete	: 3,
+				permissions_indexation		: 3,
+				ar_elements					: [
+					Object.assign({ type : 'term', tipo : [`${section_tipo}_term`], model : 'component_input_text' }, term)
+				]
+			}
+		})
+
+		before(function() {
+			responses.set(`get_node_data_${section_tipo}_920`, node_response('920', { value : '<img src=x id=t118_probe>' }))
+			responses.set(`get_node_data_${section_tipo}_921`, node_response('921', { value : '<mark>&lt;b&gt;</mark>', render_class : 'html' }))
+			responses.set(`get_node_data_${section_tipo}_922`, node_response('922', { value : '<img src=x id=t118_onto> dd 1' }))
+		})
+
+		const render_node = async function(section_id, caller_model) {
+			const instance = await ts_object.get_instance({
+				area_model		: caller_model,
+				caller			: {
+					filter			: {},
+					build_options	: {},
+					id				: `${caller_model}_dd100_dd100_list_lg-eng`,
+					id_base			: 'dd100__dd100',
+					model			: caller_model
+				},
+				children_tipo	: 'hierarchy49',
+				is_ontology		: caller_model==='area_ontology',
+				is_root_node	: true,
+				section_id		: section_id,
+				section_tipo	: section_tipo,
+				thesaurus_mode	: 'default',
+				thesaurus_view_mode : null
+			})
+			await instance.build(false)
+			const wrapper = await instance.render({ render_level : 'full' })
+			return {instance, wrapper}
+		}
+
+		it('a term without render_class renders as TEXT (no element is created)', async function() {
+
+			const {instance, wrapper} = await render_node('920', 'area_thesaurus')
+
+			assert.equal(wrapper.querySelector('#t118_probe'), null, 'markup in the term must not become an element')
+			assert.equal(
+				wrapper.querySelector('.term_text').textContent,
+				'<img src=x id=t118_probe>',
+				'the term shows its characters literally'
+			)
+
+			await instance.destroy(true, true, true)
+		});
+
+		it('render_class html: the server-built <mark> renders, its escaped text stays text', async function() {
+
+			const {instance, wrapper} = await render_node('921', 'area_thesaurus')
+			const marks = wrapper.querySelectorAll('.term_text mark')
+
+			assert.equal(marks.length, 1, 'expected the untranslated <mark>')
+			assert.equal(marks[0].textContent, '<b>', 'the escaped term text is shown literally')
+			assert.equal(wrapper.querySelector('.term_text b'), null, 'no element from the term text')
+
+			await instance.destroy(true, true, true)
+		});
+
+		it('ontology branch: a term without render_class renders as TEXT', async function() {
+
+			const {instance, wrapper} = await render_node('922', 'area_ontology')
+
+			assert.equal(wrapper.querySelector('#t118_onto'), null, 'markup in the ontology term must not become an element')
+			assert.equal(
+				wrapper.querySelector('.term_text').textContent,
+				'<img src=x id=t118_onto>',
+				'the parsed label shows its characters literally'
+			)
+
+			await instance.destroy(true, true, true)
+		});
+
+	});//end describe Term text render class
+
+
 	// ORDER CONTROL IN SEARCH MODE (TODO-077)
 	// The order number (render_order_form) shows in a search too (the server
 	// refuses a sibling list that is not the parent's exact children). A ROOT term

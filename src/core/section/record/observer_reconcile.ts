@@ -14,7 +14,7 @@
  */
 
 import { incrementCounter } from '../../api/counters.ts';
-import { sql } from '../../db/postgres.ts';
+import { sql, withUnboundedStatements } from '../../db/postgres.ts';
 import { getMatrixTableFromTipo, getNode, listSectionNodes } from '../../ontology/resolver.ts';
 import type { ReconcileDefinition } from '../../reconcile/registry.ts';
 import { isStoredExternalLaw, resolveExternalLaw } from './external_laws/classify.ts';
@@ -693,6 +693,17 @@ export const defaultReconcileIO: ReconcileIO = {
 export async function reconcileObserverMirrors(
 	options: ReconcileOptions = {},
 	io: ReconcileIO = defaultReconcileIO,
+): Promise<ReconcileSummary> {
+	// THE UNBOUNDED SCOPE AT THE SOURCE (T1-24 / D02): a whole-ontology sweep
+	// (discovery scans + one recompute per candidate) is long work, so the CLI,
+	// the reconcile registry run, the post-restore plan and the update engine
+	// (already scoped: nested = no-op) all run it on the maintenance lane.
+	return withUnboundedStatements(() => reconcileObserverMirrorsUnbounded(options, io));
+}
+
+async function reconcileObserverMirrorsUnbounded(
+	options: ReconcileOptions,
+	io: ReconcileIO,
 ): Promise<ReconcileSummary> {
 	const apply = options.apply === true;
 	const log = options.log ?? ((): void => {});

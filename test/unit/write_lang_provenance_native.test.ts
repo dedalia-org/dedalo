@@ -371,6 +371,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		},
 	],
 	[
+		'src/core/tools/import_link.ts',
+		{
+			lang: 'request+nolan',
+			reason:
+				'The mapped executor’s LINK create (createNamedRecord): names the new record in the RUN’s data lang the executor resolved once (currentDataLang(), handed down as LinkScope.dataLang) when the name component is translatable, else lg-nolan — the same rule as the executor’s own fields.',
+		},
+	],
+	[
 		'src/core/tools/import_execute.ts',
 		{
 			lang: 'request+items',

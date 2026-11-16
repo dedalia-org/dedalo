@@ -106,7 +106,7 @@ import {
 	getMatrixTableFromTipo,
 	getModelByTipo,
 } from '../ontology/resolver.ts';
-import { resolveComponentValue } from '../resolve/component_data.ts';
+import { resolveComponentValue, shownItems } from '../resolve/component_data.ts';
 import {
 	type FrontierScope,
 	frontierComponentAllowed,
@@ -290,8 +290,7 @@ async function readItems(
 	model: string,
 	lang: string,
 ): Promise<unknown[]> {
-	const { value, fallbackValue } = await resolveComponentValue(record, componentTipo, model, lang);
-	return value ?? fallbackValue ?? [];
+	return shownItems(await resolveComponentValue(record, componentTipo, model, lang)) ?? [];
 }
 
 /**

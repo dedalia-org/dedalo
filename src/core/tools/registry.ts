@@ -33,6 +33,7 @@
  */
 
 import { isConsultationOnlySection } from '../concepts/section.ts';
+import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { resolveLangItems } from '../resolve/lang_fallback.ts';
@@ -199,6 +200,9 @@ export async function getProfileGrantedToolIds(userId: number): Promise<Set<numb
 	const cached = profileToolGrantsCache.get(userId);
 	if (cached !== undefined) return cached;
 	const allowedIds = new Set<number>();
+	// The user's dd1725 profile locator id goes through the address law: a
+	// non-address id reaches no profile (fail-closed) instead of a wrong one or
+	// a 22P02 (DATA-26, T1-36).
 	// KEPT UNION on grants[].section_id: the profile's dd1067 locators are raw
 	// stored jsonb — a pre-sweep install holds the string form; each is
 	// Number()-ed into the allowed-id set below.
@@ -206,7 +210,7 @@ export async function getProfileGrantedToolIds(userId: number): Promise<Set<numb
 		`SELECT p.relation->'${PROFILE_TOOLS_COMPONENT}' AS grants
 		 FROM matrix_profiles p
 		 WHERE p.section_tipo = '${PROFILE_SECTION_TIPO}' AND p.section_id = (
-			SELECT (u.relation->'dd1725'->0->>'section_id')::int
+			SELECT ${sectionIdAddressSqlValue("u.relation->'dd1725'->0->>'section_id'")}
 			FROM matrix_users u WHERE u.section_id = $1
 		 )`,
 		[userId],
@@ -742,7 +746,39 @@ async function toolClientConfig(name: string): Promise<Record<string, unknown>> 
 	const { getToolClientConfigRaw } = await import('./config.ts');
 	const { getLoadedTool } = await import('./loader.ts');
 	const configName = (await getLoadedTool(name))?.module.configFrom ?? name;
-	return getToolClientConfigRaw(configName);
+	const raw = await getToolClientConfigRaw(configName);
+	return name === 'tool_lang_multi' ? withoutBrowserEngines(raw) : raw;
+}
+
+/**
+ * C54 (owner 2026-11-13, T1-P01 16b): tool_lang_multi is served tool_lang's
+ * config (configFrom, ratified 16a) MINUS the `type: 'browser'` translator
+ * engines, until the translategemma revision is pinned — the in-browser model
+ * is offered in tool_lang (one language, one component, the operator watches
+ * it) and NOT in translate-all, where one run writes every language. The
+ * filter is HERE, in the one place the client context is served, so the
+ * client offers exactly what the server serves (render_tool_lang_multi.js reads
+ * `context.config.translator_engine.value`). Every other key is untouched; a
+ * `translator_engine` that is not `{value: [...]}` is served as it is.
+ * Gate: test/unit/tool_lang.test.ts "tool_lang_multi context hides browser engines".
+ */
+function withoutBrowserEngines(raw: Record<string, unknown>): Record<string, unknown> {
+	const engine = raw.translator_engine;
+	if (
+		engine === null ||
+		typeof engine !== 'object' ||
+		!Array.isArray((engine as { value?: unknown }).value)
+	)
+		return raw;
+	const value = (engine as { value: unknown[] }).value.filter(
+		(entry) =>
+			!(
+				entry !== null &&
+				typeof entry === 'object' &&
+				(entry as { type?: unknown }).type === 'browser'
+			),
+	);
+	return { ...raw, translator_engine: { ...(engine as Record<string, unknown>), value } };
 }
 
 /** Backwards-compatible section-tools helper (model 'section', non-component). */

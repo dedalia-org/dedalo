@@ -785,28 +785,22 @@ interface BreakdownOwner {
  * CONCURRENCY — say what is true, not what is comfortable. The split into two
  * statements opens a READ COMMITTED torn-read window the single-statement form
  * did not have: an owner committed between the probe and the UNION is invisible
- * to this call. NO LOCK CLOSES IT. Measured 2026-08-08 on two connections: with
- * the delete holding `FOR UPDATE` on the TARGET row, a concurrent insert of a
- * new owner was not blocked (0 ms), the carrier UNION missed it, and the
- * single-statement form run at the same point in the SAME tx saw it.
- * `withTransaction` is a plain `pool.begin` with no isolation level
- * (db/postgres.ts), and the save paths lock only the OWNER row
- * (record/save_component.ts, relations/save.ts) — never the target's — so a
- * locator writer and a delete never conflict. An earlier revision of this
- * comment claimed the delete's row locks narrowed the window; that was FALSE.
+ * to this call. No READ-side lock closes it (measured 2026-08-08: a concurrent
+ * insert of a new owner was not blocked by the delete's `FOR UPDATE` on the
+ * target, the carrier UNION missed it). REPEATABLE READ is NOT the fix either:
+ * under RR both statements consistently miss the concurrent owner (measured).
  *
- * REPEATABLE READ is NOT the fix: under RR both statements consistently miss
- * the concurrent owner (measured). It would buy internal probe/UNION
- * consistency and zero referential integrity.
- *
- * In proportion: the ORPHANED-LOCATOR race PREDATES this split. At HEAD the
- * window already spanned the whole delete transaction (snapshot → COMMIT,
- * across the multi-second rewrite loop); the split adds a millisecond-scale gap
- * inside a far larger pre-existing one. Real closure needs a WRITE-side
- * protocol — locator writers locking or verifying the target row, or
- * SERIALIZABLE on both sides — not a read-side isolation bump here. Ledgered as
- * a known-open gap in `rewrite/LEDGER.md` (S2-45 lets a header LINK the ledger;
- * it must never restate its state).
+ * The orphaned-locator race is closed on the WRITE side since T1-19 / D01
+ * (section_record/locator_targets.ts, record_write.ts §3h,
+ * WC-2026-11-12-locator-target-deleted-refused): every write that ADDS a
+ * locator takes `FOR KEY SHARE` on the target row, held to COMMIT, which
+ * conflicts with the delete's `FOR UPDATE` on that same row. A save that locked
+ * the target first COMMITS before the delete gets its lock, so the delete's
+ * search (run after that lock, a fresh statement snapshot) sees the new owner;
+ * a save that comes second finds the target gone and is refused. Either way no
+ * owner can commit a new locator to the target inside this search's window —
+ * through a `verify` entry; the doors that are not (births, restores, raw
+ * migration writers) are named in the WC.
  */
 export async function findInverseReferenceLocators(
 	locators: RelatedLocatorFilter[],

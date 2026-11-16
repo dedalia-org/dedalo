@@ -43,7 +43,7 @@ Section-level tools surface on the section itself. A tool's own `isAvailable(con
 | `tool_import_files` | Ingests uploaded media files into media sections (EXIF/metadata extraction, multiple naming/match modes, custom processors) via ImageMagick/FFmpeg | [reference](tool_import_files.md) |
 | `tool_import_marc21` | Parses MARC21 binary (`.mrc`) files and maps fields/subfields to Dédalo components per ontology config, matching or creating records | [reference](tool_import_marc21.md) |
 | `tool_import_rdf` | Imports RDF/OWL graphs, mapping classes/properties to Dédalo components with resource matching/creation and special handling for iri/geolocation/date | [reference](tool_import_rdf.md) |
-| `tool_import_zotero` | Imports a Zotero RDF/XML bibliographic export into Publications (rsc205), mapping predicates to components | [reference](tool_import_zotero.md) |
+| `tool_import_zotero` | Imports a Zotero CSL JSON export into Publications (rsc205), with its PDFs and covers | [reference](tool_import_zotero.md) |
 | `tool_numisdata_acquisition` | Imports coin-auction lots from a pasted URL (jesusvico.com, biddr.com, aureo.com, numisbids.com, sixbid.com) into Numismatic Object (numisdata4) records, with operator review, Auction/Type resolution and obverse/reverse image import | [reference](tool_numisdata_acquisition.md) |
 
 ### Export & publishing

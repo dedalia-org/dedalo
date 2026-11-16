@@ -36,11 +36,12 @@
 
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { config } from '../../config/config.ts';
 import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../concepts/media.ts';
-import { getColumnNameByModel, getModelByTipo, getNode } from '../ontology/resolver.ts';
-import { normalizeAdditionalPath, resolveMediaPathOptions } from './ontology_path.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
+import { getModelByTipo } from '../ontology/resolver.ts';
+import { recordFromColumns, resolveMediaPathOptions } from './ontology_path.ts';
 import {
 	assertInsideMediaRoot,
 	buildMediaLocation,
@@ -48,6 +49,7 @@ import {
 	type MediaPathOptions,
 	posterframeLocation,
 } from './path.ts';
+import { escapeRegexLiteral } from './protection.ts';
 
 /**
  * PHP `date('Y-m-d_Hi')` — the `move_deleted_file` stamp, i.e. every soft-delete:
@@ -60,7 +62,7 @@ import {
  * but on `ingest/add_file.ts` — the pre-overwrite upload backup, which IS
  * PHP's rename_old_files — it is a KNOWN, ledgered divergence in the on-disk
  * name. Nothing reads the stamp to make a decision (the deleted/ scan matches
- * `<id>_*.<ext>` and orders by name), so it costs recognisability, not
+ * `<stem>_deleted_<stamp>.<ext>` and orders by name), so it costs recognisability, not
  * recoverability. Handed off rather than changed here: the two callers would
  * have to be told apart first, and that is not this workstream's file.
  */
@@ -149,6 +151,24 @@ export async function duplicateMediaFiles(
 		const from = buildMediaLocation(spec, source, quality, extension, pathOpts.source).absolutePath;
 		if (!existsSync(from)) continue;
 		const to = buildMediaLocation(spec, target, quality, extension, pathOpts.target).absolutePath;
+		if (to === from) {
+			// NEVER COPY A FILE ONTO ITSELF — an INVARIANT since T1-10 OD-1 was ruled
+			// (2026-11-13): the duplicate CLEARS the clone's `properties.image_id`
+			// sibling before the insert (duplicate_record.ts, stem_rules.ts
+			// stripImageIdSiblings), so the clone's files land under its identifier,
+			// and the stem rules refuse a stem two records would share. Two identities
+			// resolving to ONE path means one of those doors was bypassed: stop loudly,
+			// write nothing (the duplicate reports the component as incomplete, 'copy').
+			throw new DedaloError('internal.invariant', {
+				message: `duplicateMediaFiles: the copy of ${spec.model} '${target.componentTipo}' resolves to the source's own file (${basename(from)}) — the clone's image_id sibling was not cleared, or two records share a stem the stem rules refuse; nothing was copied`,
+				coordinates: {
+					section_tipo: target.sectionTipo,
+					component_tipo: target.componentTipo,
+					source_id: source.sectionId,
+					target_id: target.sectionId,
+				},
+			});
+		}
 		const toDir = dirname(to);
 		if (!existsSync(toDir)) mkdirSync(toDir, { recursive: true, mode: 0o775 });
 		await copyFile(from, to);
@@ -189,7 +209,8 @@ export function managedFileSlots(spec: MediaTypeSpec): [string, string][] {
 /**
  * List the deleted versions of ONE quality × extension (PHP get_deleted_image /
  * restore_component_media_files, both `glob("<id>_*.<ext>")` + natsort):
- * '<quality dir>/deleted/<id>_*.<ext>', natural-sorted, newest last. Absolute
+ * '<quality dir>/deleted/<stem>_deleted_<stamp>.<ext>' (exactly — see
+ * deletedVersionName), natural-sorted, newest last. Absolute
  * paths. Used by time-machine reads to recover a soft-deleted file.
  *
  * THE EXTENSION IS PART OF THE MATCH, as it is in PHP's glob. Keying on the STEM
@@ -212,6 +233,25 @@ export function listDeletedVersions(
 }
 
 /**
+ * EXACTLY one stem's soft-deleted name: `<stem>_deleted_<stamp>.<ext>`, the
+ * `moveToDeleted` shape. The stamp is `Y-m-d_Hi` (this engine, PHP
+ * move_deleted_file) or `Y-m-d_Gis` (PHP rename_old_files, 1–2 hour digits), so
+ * the time part is 3–6 digits.
+ *
+ * NOT a `<stem>_` prefix (PHP's `glob("<id>_*")`). That was safe only while every
+ * stem was an identifier ending in a section_id; an `image_id` stem is free text
+ * (T1-10), and the prefix of 'coin' matches 'coin_reverse_deleted_…' — another
+ * record's soft-deleted bytes, which a restore would then move into this record's
+ * live file (T1-10 review).
+ */
+function deletedVersionName(stem: string, extension: string): RegExp {
+	const suffix = extension === '' ? '' : `.${extension}`;
+	return new RegExp(
+		`^${escapeRegexLiteral(stem)}_deleted_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{3,6}${escapeRegexLiteral(suffix)}$`,
+	);
+}
+
+/**
  * The deleted/ scan itself, on a plain directory + stem + extension — shared by
  * `listDeletedVersions` (quality files) and the POSTERFRAME restore, which is not
  * a quality and so has no `buildMediaLocation` to go through.
@@ -219,10 +259,9 @@ export function listDeletedVersions(
 function listDeletedIn(dir: string, stem: string, extension: string): string[] {
 	const deletedDir = `${dir}/deleted`;
 	if (!existsSync(deletedDir)) return [];
-	const prefix = `${stem}_`;
-	const suffix = extension === '' ? '' : `.${extension}`;
+	const versionName = deletedVersionName(stem, extension);
 	const matches = readdirSync(deletedDir)
-		.filter((name) => name.startsWith(prefix) && name.endsWith(suffix))
+		.filter((name) => versionName.test(name))
 		.map((name) => `${deletedDir}/${name}`)
 		.filter((path) => {
 			try {
@@ -300,58 +339,6 @@ export interface SectionMediaFilesOptions {
 }
 
 /**
- * The `properties.additional_path` bucket for ONE media component, read from a
- * RECORD SNAPSHOT rather than from the database (PHP get_additional_path
- * :778-819 — same rule, different source).
- *
- * `undefined` means "this component declares no named bucket, resolve normally";
- * a string (possibly `''`) is the bucket, exactly as
- * `resolveAdditionalPathOverride` returns it. Throws — via
- * {@link normalizeAdditionalPath} — on a stored value that would escape the
- * media tree; the caller's per-component catch turns that into a reported error
- * rather than a half-swept record.
- */
-async function additionalPathFromSnapshot(
-	componentTipo: string,
-	snapshot: Record<string, unknown>,
-): Promise<string | undefined> {
-	const properties = ((await getNode(componentTipo))?.properties ?? {}) as {
-		additional_path?: unknown;
-	};
-	const siblingTipo = properties.additional_path;
-	if (typeof siblingTipo !== 'string' || siblingTipo === '') return undefined;
-	const siblingModel = await getModelByTipo(siblingTipo);
-	const column = siblingModel === null ? null : getColumnNameByModel(siblingModel);
-	const stored =
-		column === null
-			? undefined
-			: (snapshot[column] as Record<string, unknown> | null | undefined)?.[siblingTipo];
-	return normalizeAdditionalPath(snapshotFlatValue(stored));
-}
-
-/**
- * A sibling component's flat scalar value as PHP reads it for a path
- * (`component_common::get_value()`): the lg-nolan items, else every stored item,
- * values joined with ' | '. Twin of `ontology_path.ts siblingFlatValue`, which
- * reads the same rule from the DATABASE — this one reads it from a snapshot, and
- * the two must agree or a delete would sweep a different folder than the ingest
- * wrote to. Exported so the rule is gated directly.
- */
-export function snapshotFlatValue(stored: unknown): string {
-	if (!Array.isArray(stored)) return '';
-	const items = stored as { lang?: unknown; value?: unknown }[];
-	const nolan = items.filter((item) => {
-		const lang = item?.lang ?? null;
-		return lang === null || lang === 'lg-nolan';
-	});
-	const slice = nolan.length > 0 ? nolan : items;
-	return slice
-		.map((item) => (typeof item?.value === 'string' ? item.value : ''))
-		.filter((value) => value !== '')
-		.join(' | ');
-}
-
-/**
  * Walk a record's `media` column and hand each media component's identity to
  * `handle`. The two directions differ ONLY in what `handle` does, so the
  * ontology resolution, the model gate, the per-lang identity fan-out and the
@@ -398,17 +385,21 @@ async function walkSectionMedia(
 			// the numeric bucket instead would leave those files live. A caller-supplied
 			// value wins — see SectionMediaFilesOptions.additionalPathOverrides for the
 			// post-commit case where the record can no longer be read at all.
-			const resolved = await resolveMediaPathOptions(componentTipo, sectionTipo, sectionId);
+			// A SNAPSHOT is read as the record itself — the same sibling rule, so
+			// `additional_path`'s bucket AND `image_id`'s file stem (T1-10) are the
+			// pre-delete row's, never a fallback to the identifier / numeric bucket.
+			const resolved = await resolveMediaPathOptions(
+				componentTipo,
+				sectionTipo,
+				sectionId,
+				options.snapshot === undefined
+					? {}
+					: { record: recordFromColumns(sectionTipo, sectionId, options.snapshot) },
+			);
 			const explicit = options.additionalPathOverrides?.[componentTipo];
-			const supplied =
-				explicit !== undefined
-					? explicit
-					: options.snapshot === undefined
-						? undefined
-						: await additionalPathFromSnapshot(componentTipo, options.snapshot);
 			const pathOpts: MediaPathOptions = {
 				...resolved,
-				...(supplied === undefined ? {} : { additionalPathOverride: supplied }),
+				...(explicit === undefined ? {} : { additionalPathOverride: explicit }),
 				mediaRoot,
 			};
 			const items = Array.isArray(rawItems) ? rawItems : [];
@@ -570,8 +561,12 @@ export interface ComponentMediaCopy {
  * record-scoped walk as the delete/restore pair — so `properties.additional_path`'s
  * NAMED bucket is resolved from the SOURCE record's own sibling value (the
  * snapshot `sourceColumns`), the per-lang identity fan-out is the one the other
- * two directions use, and every path passes the media-root chokepoint. The clone
- * carries the same sibling value, so the target lands in the same bucket.
+ * two directions use, and every path passes the media-root chokepoint. The
+ * TARGET's options are the CLONE's own, record-scoped (resolveMediaPathOptions
+ * on the inserted row): the clone carries the same bucket sibling (same bucket)
+ * but NOT the source's `properties.image_id` sibling — the duplicate clears it
+ * (stem_rules.ts stripImageIdSiblings, T1-10 OD-1 ruled b) — so the clone's
+ * files are named by its identifier, never by the source's stem.
  *
  * NEVER THROWS for a component and never swallows: each component answers what
  * it found and copied, and why it stopped (`error`) — the duplicate turns that
@@ -609,9 +604,15 @@ export async function duplicateSectionMediaFiles(
 					).absolutePath;
 					if (existsSync(from)) copy.sourceFiles++;
 				}
+				// The clone's own record-scoped options (see the header): its row is
+				// inserted by now, its image_id sibling cleared.
+				const targetOpts = {
+					...(await resolveMediaPathOptions(identity.componentTipo, sectionTipo, targetSectionId)),
+					mediaRoot: pathOpts.mediaRoot,
+				};
 				const created = await duplicateMediaFiles(spec, identity, target, {
 					source: pathOpts,
-					target: pathOpts,
+					target: targetOpts,
 				});
 				copy.copiedFiles += created.length;
 				return created;

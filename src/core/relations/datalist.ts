@@ -15,7 +15,16 @@
  * request_config sqo carries fixed_filter, its FIRST group becomes the
  * option search's filter (bad format → ignored with an error log, PHP
  * parity) — the state widget's vocabulary leaves (rsc80 family) are the
- * live users.
+ * live users. A `component_data` fixed_filter reads its value FROM THE RECORD
+ * being edited (rsc1214), so every door names its owner RECORD
+ * ({@link DatalistOwner}); `section_id: null` states "no record" (search
+ * panel, state widget, identify, an unsaved temporal record). Else (PHP
+ * `elseif` :2871) `properties.filtered_by_search` is the filter verbatim.
+ *
+ * THE PRINCIPAL (PHP COMP-01): the enumeration is the REAL search — the
+ * request principal's projects filter and dd478 allow-list apply, exactly as
+ * PHP's search::get_instance did. One enumeration path (the assembler), with or
+ * without a filter.
  *
  * HIDE ddo values are resolved per option (PHP :2931-2955) — see
  * DatalistHideItem. They were emitted as `[]` until 2026-07-31, which broke
@@ -23,9 +32,21 @@
  * frame chip and threw "Cannot read properties of undefined (reading
  * 'literal')", killing the whole record render.
  *
- * Ledgered: properties filtered_by_search / filtered_by_search_dynamic
- * narrowing (the PHP elseif branch — no live datalist component on this
- * install carries them).
+ * `properties.filtered_by_search_dynamic` (PHP parse_search_dynamic, the v5
+ * record-dependent grammar) is NOT PORTED — owner ruling C5 (2026-11-13): it is
+ * SUPERSEDED by `fixed_filter source:'component_data'`, its v7 translation on
+ * every node that carried it (no vendored v7 node declares it live; the legacy
+ * copies live in ontology19 `propiedades`, which this engine never reads). A
+ * LIVE node still declaring it with neither a fixed_filter nor a
+ * `filtered_by_search` is REFUSED at datalist build (`ontology.invalid_node`
+ * naming the fix) — never silently served the full list; next to either, the
+ * key is ignored (WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter).
+ *
+ * A STORED pick outside the built list (owner ruling C6, same WC): when its
+ * target row still exists it is marked, not hidden — the edit datalist gains an
+ * opaque `restricted` entry and the list value the `restricted` label — so the
+ * widget keeps the selection and the next save cannot drop it unnoticed (PHP
+ * hid it). A pick whose target row is gone stays blank, as in PHP.
  */
 
 import type { FilterRecordsDatalistItem } from '../api/handlers/filter_records_datalist.ts';
@@ -33,16 +54,24 @@ import { getComponentModel } from '../components/registry.ts';
 import type { DatalistSourceId } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
-import { sql } from '../db/postgres.ts';
 import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
+import { getLabels } from '../labels/catalog.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { registerPairingChangeListener } from '../ontology/model_section.ts';
-import { getMatrixTableFromTipo, getModelByTipo } from '../ontology/resolver.ts';
-import { resolveComponentValue } from '../resolve/component_data.ts';
+import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../ontology/resolver.ts';
+import { resolveComponentValue, shownItems } from '../resolve/component_data.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
+import type { SearchStatement } from '../search/search_statement.ts';
 import { registerSectionDataListener } from '../section_record/save_event.ts';
-import { getTermByLocator, getTermTipos } from '../ts_object/term_resolver.ts';
+import type { Principal } from '../security/permissions.ts';
+import { currentPrincipal } from '../security/request_context.ts';
+import {
+	getTermByLocator,
+	getTermTipos,
+	type TermReadOptions,
+} from '../ts_object/term_resolver.ts';
 import type { FilterDatalistItem } from './filter_projects.ts';
 import { buildRequestConfigForElement } from './request_config/build.ts';
 import { extractSqoSectionTipos, type RequestConfigContext } from './request_config/explicit.ts';
@@ -93,6 +122,17 @@ export interface DatalistItem {
 	 */
 	hide: DatalistHideItem[];
 	/**
+	 * EDIT-only opaque completion (owner ruling C6, 2026-11-13;
+	 * WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter): the
+	 * component's STORED pick is outside the built list (out of the caller's
+	 * scope, or outside the record-resolved filter) but its target row exists.
+	 * `value` is the stored locator (so the widget keeps the selection and the
+	 * next save round-trips it), `label` the `restricted` catalog string,
+	 * `hide` empty. Never on a shared getDatalist list — only
+	 * {@link getEditDatalist} and the list value know the stored value.
+	 */
+	restricted?: true;
+	/**
 	 * security-tools (dd1067) `view_tools` enrichment ONLY (PHP
 	 * tool_common::hydrate_tools_info): internal tool name (icon URL + label
 	 * segment), its always_active flag and its description (dd612, raw stored
@@ -110,6 +150,21 @@ export interface DatalistItem {
  * which carries no `hide` and keys by the 'lg-<code>' token (PHP parity).
  */
 export type ComponentDatalistItem = DatalistItem | SelectLangDatalistItem;
+
+/**
+ * THE RECORD an option list is built for. `section_tipo` resolves `self` /
+ * `section_model` sqo sources; `section_id` feeds a `component_data`
+ * fixed_filter (the value is read from that record — PHP get_fixed_filter
+ * with the component's own section_id). REQUIRED on every door: `null` is an
+ * explicit "no record" (search panel, state widget, identify, an unsaved
+ * temporal record), and then a record-dependent filter narrows nothing. An
+ * INT when present (WC-2026-08-10-section-id-int-canonical): the save echo
+ * passes the coerced record id, never the wire value.
+ */
+export interface DatalistOwner {
+	section_tipo: string;
+	section_id: number | null;
+}
 
 /**
  * Model-declared option sources (descriptor facet `datalistSource`,
@@ -157,15 +212,17 @@ async function modelDatalistSource(
 
 /**
  * Growth bound (S3-22): each entry pins a full target-section option list per
- * (component, owner section, lang), so an unbounded Map grows with every
- * component×owner×lang triple ever requested. On overflow BOTH maps are
+ * (component, owner section, lang, label set, enumeration statement), so an
+ * unbounded Map grows with every such tuple ever requested. On overflow BOTH maps are
  * dropped together (the O(1) wipe of the term-resolver precedent, not LRU) —
  * clearing the list cache without its section index would leave unreachable
  * keys behind. The owner-section key part (below) multiplies the key space by
  * caller section against this cap, and the overflow is a TOTAL wipe, not an
  * LRU eviction: a wide multi-hierarchy browse that thrashes past 500 entries
  * rebuilds everything from zero — measure the hit rate there and raise the
- * cap if it thrashes, never remove the owner from the key.
+ * cap if it thrashes, never remove the owner from the key. The statement part
+ * adds keys only where the enumeration DIFFERS (a record-resolved filter, a
+ * scoped principal on a gated section) — equal scopes share one entry.
  */
 const MAX_DATALIST_CACHE_ENTRIES = 500;
 
@@ -191,16 +248,27 @@ const datalistCache = createOntologyCache<string, DatalistItem[]>();
  * names for root after an editor opened dd1725, or labels a user may not read
  * after root did (TODO-071). Keyed by the resolved set, not the user: users with
  * the same grants share one list.
+ *
+ * THE ENUMERATION (`statements`): the fingerprint of every target section's
+ * option search — the WHERE the assembler renders for THIS caller and THIS
+ * record: the record-resolved filter (T1-9: two records with the same
+ * reference value share one list, no per-record eviction needed), the
+ * projects filter + dd478 allow-list of the principal, on the main alias AND
+ * on every hop the filter path opens (T1-13 / PHP COMP-01). Keyed by WHAT the
+ * search selects, never by user id: two non-admins with the same projects, or
+ * any callers of an ungated vocabulary section, share one list; and no second
+ * statement of the ACL rules exists to drift from the assembler's.
  */
 function datalistCacheKey(
 	componentTipo: string,
 	ownerSectionTipo: string,
 	lang: string,
-	labelDdos: readonly { tipo: string }[],
-	hideDdos: readonly { tipo: string }[],
+	sources: Pick<DatalistSources, 'labelDdos' | 'hideDdos'>,
+	statements: readonly TargetStatement[],
 ): string {
 	const tipos = (ddos: readonly { tipo: string }[]) => ddos.map((ddo) => ddo.tipo).join(',');
-	return `${componentTipo}_${ownerSectionTipo}_${lang}_${tipos(labelDdos)}|${tipos(hideDdos)}`;
+	const enumeration = statements.map((entry) => entry.fingerprint).join(',');
+	return `${componentTipo}_${ownerSectionTipo}_${lang}_${tipos(sources.labelDdos)}|${tipos(sources.hideDdos)}|${enumeration}`;
 }
 
 /**
@@ -319,32 +387,41 @@ async function resolveDdoLabel(
 ): Promise<string> {
 	const model = await getModelByTipo(ddoTipo);
 	if (model === null) return '';
-	const { value, fallbackValue } = await resolveComponentValue(record, ddoTipo, model, lang);
-	const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
+	const first = shownItems(await resolveComponentValue(record, ddoTipo, model, lang))?.[0] as
+		| { value?: unknown }
+		| undefined;
 	return typeof first?.value === 'string' ? first.value : '';
 }
 
-/**
- * The option SOURCES of a selection component — which target sections its
- * request_config points at, which show-ddos label an option, and the fixed
- * filter that narrows the enumeration. Shared by the full build
- * ({@link getDatalist}) and the bounded count ({@link probeDatalistSize}) so
- * the two can never disagree about what the component's options ARE.
- */
-async function resolveDatalistSources(
-	componentTipo: string,
-	componentProperties: unknown,
-	ownerSectionTipo: string,
-	lang: string,
-): Promise<{
+/** What {@link resolveDatalistSources} answers. */
+interface DatalistSources {
 	targetSections: string[];
 	labelDdos: { tipo: string }[];
 	hideDdos: { tipo: string }[];
 	filterGroup: Record<string, unknown> | undefined;
-}> {
+}
+
+/**
+ * The option SOURCES of a selection component — which target sections its
+ * request_config points at, which show-ddos label an option, and the filter
+ * that narrows the enumeration. Shared by the full build
+ * ({@link getDatalist}) and the bounded count ({@link probeDatalistSize}) so
+ * the two can never disagree about what the component's options ARE.
+ *
+ * The OWNER RECORD rides into the request_config build (`ownerSectionId`): a
+ * `component_data` fixed_filter reads its search value from that record through
+ * the ddo_map walker (request_config/filters.ts expandFixedFilter).
+ */
+async function resolveDatalistSources(
+	componentTipo: string,
+	componentProperties: unknown,
+	owner: DatalistOwner,
+	lang: string,
+): Promise<DatalistSources> {
 	const context: RequestConfigContext = {
 		ownerTipo: componentTipo,
-		ownerSectionTipo,
+		ownerSectionTipo: owner.section_tipo,
+		ownerSectionId: owner.section_id,
 		mode: 'edit', // options come from the component's EDIT config (full ddos)
 		ownerIsSection: false,
 		lang,
@@ -352,29 +429,220 @@ async function resolveDatalistSources(
 	const config = await buildRequestConfigForElement(componentProperties, context);
 	const mainItem = config[0];
 	// Every COMPONENT-model show ddo contributes to the label (PHP skips
-	// non-component ddos with an error log).
-	const labelDdos = (mainItem?.show?.ddo_map ?? []).filter(
-		(ddo) => typeof ddo.model === 'string' && ddo.model.startsWith('component_'),
-	);
+	// non-component ddos with an error log) — EXCEPT a component_dataframe
+	// slot (owner ruling C2, 2026-11-13): a frame ddo names the HOST's frames,
+	// not a value of the option record, so it resolves to '' there and PHP's
+	// implode left every label ending in ' | '. Dropped from both sets.
+	const labelDdos = (mainItem?.show?.ddo_map ?? []).filter(isOptionValueDdo);
 	// HIDE ddos (PHP :2934-2936) — same component-model filter as the labels;
 	// their values ride on each option as internal data for the widget.
-	const hideDdos = (mainItem?.hide?.ddo_map ?? []).filter(
-		(ddo) => typeof ddo.model === 'string' && ddo.model.startsWith('component_'),
-	);
-
-	// PHP get_list_of_values (:2860): the FIRST fixed_filter group becomes the
-	// option search's filter; a non-object entry is ignored with an error log.
+	const hideDdos = (mainItem?.hide?.ddo_map ?? []).filter(isOptionValueDdo);
 	const fixedFilter = (mainItem?.sqo as { fixed_filter?: unknown[] } | undefined)?.fixed_filter;
-	let filterGroup: Record<string, unknown> | undefined;
+	await refuseUnsupersededDynamicFilter(componentTipo, fixedFilter);
+	return {
+		targetSections: extractSqoSectionTipos(mainItem),
+		labelDdos,
+		hideDdos,
+		filterGroup: optionFilterGroup(componentTipo, fixedFilter, componentProperties),
+	};
+}
+
+/** A ddo whose value lives ON the option record: a component, not a frame slot. */
+function isOptionValueDdo(ddo: { model?: unknown }): boolean {
+	return (
+		typeof ddo.model === 'string' &&
+		ddo.model.startsWith('component_') &&
+		ddo.model !== 'component_dataframe'
+	);
+}
+
+/**
+ * The C5 refusal: a LIVE node (`getNode(tipo).properties` — never the
+ * ontology19 legacy `propiedades`) still declaring the unported v5
+ * `filtered_by_search_dynamic` with NO superseding filter — neither a
+ * `fixed_filter` (declared on its request_config, or present in the built sqo)
+ * nor a `filtered_by_search` — would silently be served the FULL list. Refused
+ * instead, naming the fix. Declared next to either, the key is ignored. The
+ * DECLARATION supersedes, not the per-record expansion: a `component_data`
+ * fixed_filter expands to no group on a record without a value, and that
+ * record is not an invalid node.
+ */
+async function refuseUnsupersededDynamicFilter(
+	componentTipo: string,
+	builtFixedFilter: unknown[] | undefined,
+): Promise<void> {
+	const live = (await getNode(componentTipo))?.properties;
+	if (!isPlainObject(live) || !('filtered_by_search_dynamic' in live)) return;
+	if (hasSupersedingFilter(live, builtFixedFilter)) return;
+	throw new DedaloError('ontology.invalid_node', {
+		message:
+			`component '${componentTipo}' declares properties.filtered_by_search_dynamic, the v5 ` +
+			'record-dependent option filter, which this engine does not read (superseded). Declare ' +
+			"its translation instead: a `fixed_filter source:'component_data'` entry on the sqo of " +
+			'its request_config (or properties.filtered_by_search), then remove the key.',
+		coordinates: { tipo: componentTipo },
+	});
+}
+
+/** The v7 translations that supersede `_dynamic`: a fixed_filter (built or declared) or filtered_by_search. */
+function hasSupersedingFilter(
+	live: Record<string, unknown>,
+	builtFixedFilter: unknown[] | undefined,
+): boolean {
+	return (
+		(Array.isArray(builtFixedFilter) && builtFixedFilter.length > 0) ||
+		declaresFixedFilter(live) ||
+		isPlainObject(live.filtered_by_search)
+	);
+}
+
+/** Whether a node's live `source.request_config[*].sqo.fixed_filter` names any group. */
+function declaresFixedFilter(properties: Record<string, unknown>): boolean {
+	const source = properties.source;
+	const configs = isPlainObject(source) ? source.request_config : undefined;
+	if (!Array.isArray(configs)) return false;
+	return configs.some((entry) => {
+		const sqo = isPlainObject(entry) ? entry.sqo : undefined;
+		const fixedFilter = isPlainObject(sqo) ? sqo.fixed_filter : undefined;
+		return Array.isArray(fixedFilter) && fixedFilter.length > 0;
+	});
+}
+
+/**
+ * The option search's filter, PHP get_list_of_values (:2860-2877) branch for
+ * branch: a non-empty (expanded) fixed_filter → its FIRST group (a non-object
+ * entry is ignored with an error log, and then NOTHING filters — PHP's `if`
+ * does not fall through); else `properties.filtered_by_search` verbatim (the
+ * `elseif`), cloned so the search never holds the cached ontology object.
+ */
+function optionFilterGroup(
+	componentTipo: string,
+	fixedFilter: unknown[] | undefined,
+	componentProperties: unknown,
+): Record<string, unknown> | undefined {
 	if (Array.isArray(fixedFilter) && fixedFilter.length > 0) {
 		const first = fixedFilter[0];
-		if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
-			filterGroup = first as Record<string, unknown>;
-		} else {
-			console.error(`getDatalist '${componentTipo}': ignored fixed filter, bad format`);
+		if (isPlainObject(first)) return first;
+		console.error(`getDatalist '${componentTipo}': ignored fixed filter, bad format`);
+		return undefined;
+	}
+	const filteredBySearch = (componentProperties as { filtered_by_search?: unknown } | null)
+		?.filtered_by_search;
+	return isPlainObject(filteredBySearch) ? structuredClone(filteredBySearch) : undefined;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * THE READ FLOOR of an option filter: every `${section}_${component}` pair its
+ * paths name. The filter is SERVER-AUTHORED (ontology fixed_filter /
+ * filtered_by_search; a component_data value only fills `q`), so a reader
+ * without a grant on the filter component must still get the narrowed list —
+ * not the frontier's refusal (an empty list) and never the unfiltered one. PHP
+ * get_subdatum's floor semantics (sql_assembler SearchOptions.readFloor).
+ */
+function filterReadFloor(filterGroup: Record<string, unknown>): ReadonlySet<string> {
+	const floor = new Set<string>();
+	collectPathPairs(filterGroup, floor);
+	return floor;
+}
+
+function collectPathPairs(node: unknown, floor: Set<string>): void {
+	if (Array.isArray(node)) {
+		for (const child of node) collectPathPairs(child, floor);
+		return;
+	}
+	if (!isPlainObject(node)) return;
+	for (const step of Array.isArray(node.path) ? node.path : []) {
+		const { section_tipo: sectionTipo, component_tipo: componentTipo } = (step ?? {}) as {
+			section_tipo?: unknown;
+			component_tipo?: unknown;
+		};
+		if (typeof sectionTipo === 'string' && typeof componentTipo === 'string') {
+			floor.add(`${sectionTipo}_${componentTipo}`);
 		}
 	}
-	return { targetSections: extractSqoSectionTipos(mainItem), labelDdos, hideDdos, filterGroup };
+	for (const [key, value] of Object.entries(node)) {
+		if (key !== 'path' && key !== 'q') collectPathPairs(value, floor);
+	}
+}
+
+/** One target section's option search, built for the current caller. */
+interface TargetStatement {
+	targetSection: string;
+	statement: SearchStatement;
+	fingerprint: string;
+}
+
+/**
+ * THE ONE ENUMERATION of a target section (PHP get_list_of_values →
+ * search::get_instance, limit 0 = all): the real option search, scoped by the
+ * request PRINCIPAL — projects filter + dd478 allow-list (PHP COMP-01) — read
+ * from the request context at call time, the same ALS source the label-ddo
+ * filter of this very build reads (never a parameter that could disagree with
+ * it). No principal = internal/system caller → unscoped (the assembler's
+ * posture). The root user (-1) stays enumerable (PHP select edit
+ * `include_negative=true`); a non-admin's users-section rule still drops it.
+ * Ids only, so a cap check and the full build run the same WHERE.
+ */
+async function buildTargetStatement(
+	targetSection: string,
+	filterGroup: Record<string, unknown> | undefined,
+	limit: number | 'all',
+	principal: Principal | undefined,
+): Promise<SearchStatement> {
+	const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
+	const { buildSearchSql } = await import('../search/sql_assembler.ts');
+	const sqo = sanitizeClientSqo({
+		section_tipo: [targetSection],
+		...(filterGroup === undefined ? {} : { filter: filterGroup }),
+		limit: 1,
+	});
+	// AFTER sanitizing: the bound is the CALLER's ('all' for the build, the cap
+	// for the probe), never squeezed through the client ceiling (a small
+	// DEDALO_SEARCH_CLIENT_MAX_LIMIT would silently under-count a probe).
+	sqo.limit = limit;
+	return buildSearchSql(sqo, {
+		...(principal === undefined ? {} : { principal }),
+		...(filterGroup === undefined ? {} : { readFloor: filterReadFloor(filterGroup) }),
+		idsOnly: true,
+		includeRootUser: true,
+	});
+}
+
+/** Every resolvable target section's full option search + its fingerprint (the cache key part). */
+async function buildTargetStatements(
+	sources: DatalistSources,
+	principal: Principal | undefined,
+): Promise<TargetStatement[]> {
+	const { searchStatementFingerprint } = await import('../search/search_statement.ts');
+	const statements: TargetStatement[] = [];
+	for (const targetSection of sources.targetSections) {
+		// A target resolving no matrix table (a component tipo, a dead node) is
+		// skipped, never fatal.
+		if ((await getMatrixTableFromTipo(targetSection)) === null) continue;
+		const statement = await buildTargetStatement(
+			targetSection,
+			sources.filterGroup,
+			'all',
+			principal,
+		);
+		statements.push({
+			targetSection,
+			statement,
+			fingerprint: searchStatementFingerprint(statement),
+		});
+	}
+	return statements;
+}
+
+/** Run an option search: its ids, ascending (the enumeration order before the label sort). */
+async function runOptionSearch(statement: SearchStatement): Promise<number[]> {
+	const { runSearch } = await import('../search/search_statement.ts');
+	const rows = (await runSearch(statement)) as { section_id: number }[];
+	return rows.map((row) => row.section_id).sort((a, b) => a - b);
 }
 
 /**
@@ -398,7 +666,7 @@ async function resolveDatalistSources(
 export async function probeDatalistSize(
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	lang: string,
 	limit: number,
 ): Promise<number> {
@@ -406,52 +674,29 @@ export async function probeDatalistSize(
 	// A model-sourced list is small by construction and cheap to build: count it.
 	const modelSource = await modelDatalistSource(componentTipo);
 	if (modelSource !== null) return Math.min((await modelSource.options(lang)).length, limit);
-	const { targetSections, labelDdos, hideDdos, filterGroup } = await resolveDatalistSources(
-		componentTipo,
-		componentProperties,
-		ownerSectionTipo,
-		lang,
-	);
+	const sources = await resolveDatalistSources(componentTipo, componentProperties, owner, lang);
+	const principal = currentPrincipal();
+	const statements = await buildTargetStatements(sources, principal);
 	// A list already built is already paid for — count it rather than re-probe.
 	// SAME key as getDatalist — the doc-block on resolveDatalistSources is the
 	// contract: probe and build must never disagree about what the options ARE.
 	const cached = datalistCache.get(
-		datalistCacheKey(componentTipo, ownerSectionTipo, lang, labelDdos, hideDdos),
+		datalistCacheKey(componentTipo, owner.section_tipo, lang, sources, statements),
 	);
 	if (cached !== undefined) return Math.min(cached.length, limit);
 	let found = 0;
-	for (const targetSection of targetSections) {
+	for (const { targetSection } of statements) {
 		if (found >= limit) break;
-		const table = await getMatrixTableFromTipo(targetSection);
-		if (table === null) continue;
-		const remaining = limit - found;
-		if (filterGroup !== undefined) {
-			// The SAME option search the full build runs, capped: a fixed filter can
-			// narrow a huge section to a handful, so counting the raw table would
-			// refuse lists that are perfectly small.
-			const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
-			const { buildSearchSql } = await import('../search/sql_assembler.ts');
-			const { runSearch } = await import('../search/search_statement.ts');
-			const sqo = sanitizeClientSqo({
-				section_tipo: [targetSection],
-				filter: filterGroup,
-				limit: 1,
-			});
-			// AFTER sanitizing, exactly as the full build sets 'all': the bound is
-			// the CALLER's, not a client-supplied one, so it must not be squeezed
-			// through the client ceiling (a small DEDALO_SEARCH_CLIENT_MAX_LIMIT
-			// would silently under-count and turn every refusal into a pass).
-			sqo.limit = remaining;
-			const query = await buildSearchSql(sqo);
-			const rows = (await runSearch(query)) as unknown[];
-			found += rows.length;
-			continue;
-		}
-		const rows = (await sql.unsafe(
-			`SELECT section_id FROM "${table}" WHERE section_tipo = $1 LIMIT $2`,
-			[targetSection, remaining],
-		)) as { section_id: number }[];
-		found += rows.length;
+		// The SAME option search the full build runs, capped (a filter can narrow
+		// a huge section to a handful, so counting the raw table would refuse
+		// lists that are perfectly small).
+		const capped = await buildTargetStatement(
+			targetSection,
+			sources.filterGroup,
+			limit - found,
+			principal,
+		);
+		found += (await runOptionSearch(capped)).length;
 	}
 	return Math.min(found, limit);
 }
@@ -466,7 +711,7 @@ export async function probeDatalistSize(
 export async function getDatalist(
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	lang: string,
 ): Promise<ComponentDatalistItem[]> {
 	// The model's OWN option source wins (descriptor `datalistSource`): for
@@ -474,7 +719,7 @@ export async function getDatalist(
 	// names lg1, whose generic enumeration is every language record there is.
 	const modelSource = await modelDatalistSource(componentTipo);
 	if (modelSource !== null) return modelSource.options(lang);
-	return getTargetSectionDatalist(componentTipo, componentProperties, ownerSectionTipo, lang);
+	return getTargetSectionDatalist(componentTipo, componentProperties, owner, lang);
 }
 
 /**
@@ -528,8 +773,9 @@ export async function getEchoDatalist(
 	model: string,
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	value: readonly unknown[],
+	completion: DatalistCompletion = 'stored',
 ): Promise<ComponentDatalistItem[] | FilterDatalistItem[] | FilterRecordsDatalistItem[]> {
 	// The SET is the routing knowledge — the guard that decides whether an echo
 	// attaches a datalist ({@link echoesDatalist}) and the branch that builds it
@@ -541,7 +787,6 @@ export async function getEchoDatalist(
 	// options live elsewhere.
 	if (FILTER_FAMILY_MODELS.has(model)) {
 		if (model === 'component_filter_records') {
-			const { currentPrincipal } = await import('../security/request_context.ts');
 			const { currentDataLang } = await import('../resolve/request_lang.ts');
 			const { getFilterRecordsDatalist } = await import(
 				'../api/handlers/filter_records_datalist.ts'
@@ -559,11 +804,31 @@ export async function getEchoDatalist(
 	return getEditDatalist(
 		componentTipo,
 		componentProperties,
-		ownerSectionTipo,
+		owner,
 		await datalistLabelLang(),
 		value,
+		completion,
 	);
 }
+
+/**
+ * What the locators handed to an edit datalist ARE, which decides whether the
+ * C6 `restricted` completion runs:
+ *
+ * - `stored` — the record's STORED value (the edit read, the persisted save's
+ *   echo): a stored pick the built list lacks whose row exists is marked, so it
+ *   is not dropped unnoticed on the next save (owner C6).
+ * - `picked` — the CLIENT's own picks on a TEMPORAL instance (temporal.ts):
+ *   nothing is stored, so nothing can be dropped unnoticed, and the locators are
+ *   the caller's payload — any section, any id, never through the insert law.
+ *   Completing them would answer "this row exists" for whatever address the
+ *   caller names (a record-existence oracle over every section, outside the
+ *   caller's grants); so the temporal echo carries the built list and nothing
+ *   else. A model-declared `editGuard` (select_lang's "<name> *") still runs:
+ *   its completion reads the language table, not a record of the caller's
+ *   choosing.
+ */
+export type DatalistCompletion = 'stored' | 'picked';
 
 /**
  * THE LABEL LANG of a select-family option list and list value: the request
@@ -592,18 +857,96 @@ export async function datalistLabelLang(): Promise<string> {
  * through {@link getEchoDatalist} — so they cannot disagree.
  * `storedLocators` is the value the door is about to hand the client (read:
  * the stored data; echoes: the saved / echoed entries).
+ *
+ * The GENERIC source's own completion (owner ruling C6): every stored locator
+ * absent from the list whose target row still exists is appended as an opaque
+ * `restricted` entry ({@link DatalistItem.restricted}); a stored locator whose
+ * row is gone gets nothing (PHP). A model-declared source completes through its
+ * own `editGuard` instead (its stored values are not record locators).
  */
 export async function getEditDatalist(
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	lang: string,
 	storedLocators: readonly unknown[],
+	completion: DatalistCompletion = 'stored',
 ): Promise<ComponentDatalistItem[]> {
-	const datalist = await getDatalist(componentTipo, componentProperties, ownerSectionTipo, lang);
+	const datalist = await getDatalist(componentTipo, componentProperties, owner, lang);
 	const modelSource = await modelDatalistSource(componentTipo);
-	if (modelSource?.editGuard === undefined) return datalist;
+	if (modelSource === null) {
+		// The generic completion marks STORED picks only ({@link DatalistCompletion}).
+		return completion === 'stored'
+			? appendRestrictedEntries(datalist as DatalistItem[], storedLocators)
+			: datalist;
+	}
+	if (modelSource.editGuard === undefined) return datalist;
 	return modelSource.editGuard(datalist, storedLocators);
+}
+
+/**
+ * The stored locators a built list does NOT carry whose target row still
+ * exists — the ones C6 marks. Matched by the locator law (section_tipo +
+ * section_id, loose id); a locator without a usable address, a duplicate, or
+ * one whose row is gone (deleted target: PHP's blank) is skipped. INT ids out
+ * (WC-2026-08-10-section-id-int-canonical).
+ */
+async function restrictedStoredLocators(
+	datalist: readonly DatalistItem[],
+	storedLocators: readonly unknown[],
+): Promise<{ section_tipo: string; section_id: number }[]> {
+	const restricted: { section_tipo: string; section_id: number }[] = [];
+	const known = datalist.map((option) => option.value);
+	for (const stored of storedLocators) {
+		const address = storedAddressOf(stored);
+		if (address === null) continue;
+		if (known.some((value) => compareLocators(address, value, ['section_tipo', 'section_id'])))
+			continue;
+		known.push(address);
+		const table = await getMatrixTableFromTipo(address.section_tipo);
+		if (typeof table !== 'string') continue;
+		const row = await memoizedReadMatrixRecord(table, address.section_tipo, address.section_id);
+		if (row !== null) restricted.push(address);
+	}
+	return restricted;
+}
+
+/** The (section_tipo, INT section_id) address of a stored value, or null when it has none. */
+function storedAddressOf(stored: unknown): { section_tipo: string; section_id: number } | null {
+	if (!isPlainObject(stored) || typeof stored.section_tipo !== 'string') return null;
+	const sectionId = Number(stored.section_id);
+	if (!Number.isInteger(sectionId)) return null;
+	return { section_tipo: stored.section_tipo, section_id: sectionId };
+}
+
+/** The C6 opaque entries, appended AFTER the built options in stored order. */
+async function appendRestrictedEntries(
+	datalist: DatalistItem[],
+	storedLocators: readonly unknown[],
+): Promise<DatalistItem[]> {
+	const restricted = await restrictedStoredLocators(datalist, storedLocators);
+	if (restricted.length === 0) return datalist;
+	const label = await restrictedLabel();
+	return [
+		...datalist,
+		...restricted.map((address) => ({
+			value: address,
+			label,
+			section_id: address.section_id,
+			hide: [],
+			restricted: true as const,
+		})),
+	];
+}
+
+/**
+ * The marker's text: the `restricted` key of the UI label catalog in the
+ * request APPLICATION lang (program string, not data — the option labels are
+ * in the DATA lang). The master is tripwired complete (labels_tripwire), so the
+ * key is never absent; the fallback only types the read.
+ */
+async function restrictedLabel(): Promise<string> {
+	return (await getLabels(currentApplicationLang())).restricted ?? 'restricted';
 }
 
 /**
@@ -635,60 +978,31 @@ async function stampToolsInfo(
 
 /**
  * The GENERIC option list — every record of the request_config target
- * section(s). Private: reached only through getDatalist, after the model's own
- * source was consulted.
+ * section(s) the caller may see, narrowed by the record-resolved filter.
+ * Private: reached only through getDatalist, after the model's own source was
+ * consulted.
  */
 async function getTargetSectionDatalist(
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	lang: string,
 ): Promise<DatalistItem[]> {
-	const { targetSections, labelDdos, hideDdos, filterGroup } = await resolveDatalistSources(
-		componentTipo,
-		componentProperties,
-		ownerSectionTipo,
-		lang,
-	);
+	const sources = await resolveDatalistSources(componentTipo, componentProperties, owner, lang);
+	const statements = await buildTargetStatements(sources, currentPrincipal());
 	// Owner section is part of the key — see the datalistCache doc-block: the
 	// sqo target can resolve from the CALLER, so the same component tipo means
-	// a different option list per owner section. The label set too — see
-	// datalistCacheKey.
-	const cacheKey = datalistCacheKey(componentTipo, ownerSectionTipo, lang, labelDdos, hideDdos);
+	// a different option list per owner section. The label set and the
+	// enumeration statements too — see datalistCacheKey.
+	const cacheKey = datalistCacheKey(componentTipo, owner.section_tipo, lang, sources, statements);
 	const cached = datalistCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 	const items: DatalistItem[] = [];
+	const { labelDdos, hideDdos, targetSections } = sources;
 
-	for (const targetSection of targetSections) {
-		const table = await getMatrixTableFromTipo(targetSection);
-		if (table === null) continue;
-		let rows: { section_id: number }[];
-		if (filterGroup !== undefined) {
-			// The filtered enumeration runs the REAL option search (PHP sqo
-			// limit 0 = all; no principal here → projects filter skipped, the
-			// resolver's standing posture).
-			const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
-			const { buildSearchSql } = await import('../search/sql_assembler.ts');
-			const { runSearch } = await import('../search/search_statement.ts');
-			const sqo = sanitizeClientSqo({
-				section_tipo: [targetSection],
-				filter: filterGroup,
-				limit: 1,
-			});
-			sqo.limit = 'all';
-			const query = await buildSearchSql(sqo);
-			const found = (await runSearch(query)) as ({
-				section_id: number;
-			} & Record<string, unknown>)[];
-			rows = found
-				.map((row) => ({ section_id: row.section_id }))
-				.sort((a, b) => a.section_id - b.section_id);
-		} else {
-			rows = (await sql.unsafe(
-				`SELECT section_id FROM "${table}" WHERE section_tipo = $1 ORDER BY section_id`,
-				[targetSection],
-			)) as { section_id: number }[];
-		}
+	for (const { targetSection, statement } of statements) {
+		const table = (await getMatrixTableFromTipo(targetSection)) as string;
+		const rows = (await runOptionSearch(statement)).map((sectionId) => ({ section_id: sectionId }));
 		for (const row of rows) {
 			const labelParts: string[] = [];
 			const hideItems: DatalistHideItem[] = [];
@@ -771,6 +1085,8 @@ async function getTargetSectionDatalist(
  * datalist (which enumerates every target-section record; unbounded
  * hierarchies reach 200K+ rows). Labels return in alphabetical order,
  * matching the datalist-ordered output of get_list_value.
+ * `termOpts` = a frontier-armed caller's frontier, threaded into a label read
+ * through the term resolver (its term may cross further — T1-32 review).
  */
 export async function resolveLocatorLabels(
 	componentTipo: string,
@@ -778,6 +1094,7 @@ export async function resolveLocatorLabels(
 	ownerSectionTipo: string,
 	lang: string,
 	storedLocators: { section_tipo?: unknown; section_id?: unknown }[],
+	termOpts: TermReadOptions = {},
 ): Promise<string[]> {
 	if (storedLocators.length === 0) return [];
 	const context: RequestConfigContext = {
@@ -807,6 +1124,8 @@ export async function resolveLocatorLabels(
 				{ section_tipo: targetSection, section_id: targetId },
 				lang,
 				true,
+				'thesaurus',
+				termOpts,
 			);
 			if (term !== null && term !== '') labels.push(term);
 			continue;
@@ -815,13 +1134,9 @@ export async function resolveLocatorLabels(
 		if (table === null) continue;
 		const record = await memoizedReadMatrixRecord(table, targetSection, targetId);
 		if (record === null) continue;
-		const { value, fallbackValue } = await resolveComponentValue(
-			record,
-			labelDdo.tipo,
-			labelModel,
-			lang,
-		);
-		const first = (value ?? fallbackValue)?.[0] as { value?: unknown } | undefined;
+		const first = shownItems(
+			await resolveComponentValue(record, labelDdo.tipo, labelModel, lang),
+		)?.[0] as { value?: unknown } | undefined;
 		if (typeof first?.value === 'string' && first.value !== '') labels.push(first.value);
 	}
 	labels.sort(strnatcmp);
@@ -830,16 +1145,19 @@ export async function resolveLocatorLabels(
 
 /**
  * The label strings for a component's STORED locators (PHP get_list_value):
- * datalist entries matching the stored locators, in datalist (label) order.
+ * datalist entries matching the stored locators, in datalist (label) order —
+ * then, for each stored locator the list lacks whose target row exists, the
+ * `restricted` marker (owner ruling C6; PHP showed nothing). A stored locator
+ * whose row is gone stays blank.
  */
 export async function getRelationListValue(
 	componentTipo: string,
 	componentProperties: unknown,
-	ownerSectionTipo: string,
+	owner: DatalistOwner,
 	lang: string,
 	storedLocators: { section_tipo?: unknown; section_id?: unknown }[],
 ): Promise<string[]> {
-	const datalist = await getDatalist(componentTipo, componentProperties, ownerSectionTipo, lang);
+	const datalist = await getDatalist(componentTipo, componentProperties, owner, lang);
 	const labels: string[] = [];
 	for (const option of datalist) {
 		// Locator law (DEC-21): value-based section_tipo+section_id match via
@@ -850,5 +1168,8 @@ export async function getRelationListValue(
 		);
 		if (matched) labels.push(option.label);
 	}
-	return labels;
+	const restricted = await restrictedStoredLocators(datalist as DatalistItem[], storedLocators);
+	if (restricted.length === 0) return labels;
+	const label = await restrictedLabel();
+	return [...labels, ...restricted.map(() => label)];
 }

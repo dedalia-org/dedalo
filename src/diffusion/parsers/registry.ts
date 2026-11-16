@@ -91,7 +91,7 @@ export const PARSER_CLASSIFICATION: ReadonlyMap<string, ParserClassification> = 
 	['parser_locator::truncate_by_model', 'rewriter'],
 	['parser_locator::filter_by_section_tipo', 'rewriter'],
 	['parser_locator::slice_chain', 'rewriter'],
-	// options.map (+ global_table_maps) → plan lookup tables
+	// options.map → plan lookup tables
 	['parser_locator::map_section_tipo_to_name', 'rewriter'],
 	// → synthetic merged plan fields
 	['parser_global::merge_columns', 'rewriter'],

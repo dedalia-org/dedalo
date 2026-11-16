@@ -8,6 +8,7 @@
 	import {validate_tipo} from '../../../core/common/js/common.js'
 	import {append_text_lines} from '../../../core/common/js/utils/index.js'
 	import {ui} from '../../../core/common/js/ui.js'
+	import {a11y} from '../../../core/common/js/a11y.js'
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {request_failed, response_data} from '../../../core/common/js/api_error.js'
 	import {error_text} from '../../../core/common/js/render_api_error.js'
@@ -33,6 +34,7 @@
 * - render_service_upload    – (re-)renders the drag-and-drop upload zone
 * - get_content_data         – builds the main tool body (file list + submit controls)
 * - render_file_info         – renders one CSV file card with column mapper
+* - render_unreadable_file_card – the delete-only card of a file the server could not read (read_error)
 * - render_columns_mapper    – async; fetches component list and renders column-mapping UI
 * - follow_import_job        – subscribes to the job's PUSH event stream (get_job_events)
 * - render_progress_node     – the live panel: progress bar + record/component + counters
@@ -314,7 +316,7 @@ const get_content_data = async function(self) {
 		const import_button = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'warning import_button csv',
-			inner_html		: self.get_tool_label('import') || 'Import',
+			text_content		: self.get_tool_label('import') || 'Import',
 			parent			: submit_container
 		})
 		import_button.addEventListener('click', fn_import)
@@ -412,11 +414,23 @@ let datalist_counter = 0
 * rebuilds the columns_mapper, and updates section_label. On invalid input it
 * shows a warning and focuses the input after a short delay.
 *
+* A file the server could not READ (`item.read_error`, C51) gets the
+* delete-only card instead — see render_unreadable_file_card.
+*
 * @param {Object} self - tool_import_dedalo_csv instance
 * @param {Object} item - one entry from self.csv_files_list (shape documented in module header)
 * @returns {HTMLElement} item_wrapper – the assembled card node
 */
-const render_file_info = function(self, item) {
+export const render_file_info = function(self, item) {
+
+	// read_error. The server lists a staged file it could not read (too large,
+	// not text, damaged) WITHOUT a column analysis and WITH the refusal
+	// sentence (WC-2026-11-13-csv-staged-file-read-error-card). Nothing below
+	// applies to it — no selection, no section, no mapper, no preview — only
+	// the name, the reason and the delete button, so the operator can remove it.
+	if (item.read_error) {
+		return render_unreadable_file_card(self, item)
+	}
 
 	const fragment = new DocumentFragment()
 
@@ -611,7 +625,7 @@ const render_file_info = function(self, item) {
 				class_name		: 'button delete',
 				parent			: file_line
 			})
-			icon_delete.addEventListener('click', function(e){
+			a11y.make_activable(icon_delete, { on_activate : function(e){
 				e.stopPropagation()
 
 				if(confirm(self.get_tool_label('sure') || 'Sure?')) {
@@ -621,7 +635,7 @@ const render_file_info = function(self, item) {
 						self.refresh()
 					})
 				}
-			})
+			}})
 
 	// section_tipo input
 		const section_warn = ui.create_dom_element({
@@ -650,7 +664,7 @@ const render_file_info = function(self, item) {
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'bulk_process_name_label',
-			inner_html		: self.get_tool_label('bulk_process_title') || 'Process title: ',
+			text_content		: self.get_tool_label('bulk_process_title') || 'Process title: ',
 			parent			: info_container
 		})
 		item.bulk_process_label = `${self.context.label} | ${item.section_tipo} | ${item.section_label}`
@@ -669,7 +683,7 @@ const render_file_info = function(self, item) {
 		const button_preview = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button_preview info',
-			inner_html		: self.get_tool_label('preview') || 'Preview',
+			text_content		: self.get_tool_label('preview') || 'Preview',
 			parent			: fragment
 		})
 		button_preview.addEventListener('click', function(e){
@@ -733,6 +747,81 @@ const render_file_info = function(self, item) {
 
 	return item_wrapper
 }//end render_file_info
+
+
+
+/**
+* RENDER_UNREADABLE_FILE_CARD
+* The delete-only card of a staged CSV the server could not read (C51, owner
+* 2026-11-13). Before it, such a file lived only in get_csv_files' `errors`:
+* a red line with no card and no delete button, so it could not be removed
+* from the panel at all. The card shows the file name, the server's refusal
+* sentence (a TEXT node — the sentence names the file the operator uploaded)
+* and the same delete button the readable card has. It offers NO checkbox,
+* NO section_tipo input, NO mapper and NO preview: there is nothing to map and
+* the import button's selection (`item.checked`) can never include it.
+* @param {Object} self - tool_import_dedalo_csv instance
+* @param {Object} item - `{dir, name, read_error}` entry of self.csv_files_list
+* @returns {HTMLElement} item_wrapper – the card node
+*/
+export const render_unreadable_file_card = function(self, item) {
+
+	const item_wrapper = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'file_item unreadable'
+	})
+
+	// file_line
+		const file_line = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'file_line',
+			parent			: item_wrapper
+		})
+
+		// icon file
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'button csv',
+				parent			: file_line
+			})
+
+		// file name
+			ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'file_name',
+				text_content	: item.name,
+				parent			: file_line
+			})
+
+		// icon delete. The tool's own soft delete (delete_csv_file): the file is
+		// moved to the user's `deleted/` dir, never unlinked.
+			const icon_delete = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'button delete',
+				parent			: file_line
+			})
+			a11y.make_activable(icon_delete, { on_activate : function(e){
+				e.stopPropagation()
+
+				if(confirm(self.get_tool_label('sure') || 'Sure?')) {
+					self.remove_file(item)
+					.then(function(){
+						self.refresh()
+					})
+				}
+			}})
+
+	// read_error. The server's sentence, as text.
+		ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'read_error',
+			text_content	: item.read_error,
+			parent			: item_wrapper
+		})
+
+
+	return item_wrapper
+}//end render_unreadable_file_card
 
 
 
@@ -1136,7 +1225,7 @@ export const render_columns_mapper = async function(self, item) {
 			const decimal_label = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'decimal_label',
-				inner_html 		: column_name,
+				text_content 		: column_name,
 				parent			: container
 			})
 
@@ -1437,7 +1526,7 @@ const render_progress_node = (self, container) => {
 		const headline = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'import_progress_headline',
-			inner_html		: self.get_tool_label('preparing') || 'Preparing…',
+			text_content		: self.get_tool_label('preparing') || 'Preparing…',
 			parent			: panel
 		})
 
@@ -1544,7 +1633,7 @@ const copy_button = (self, parent, label_key, fallback_label, get_text) => {
 	const button = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'warning copy_button copy',
-		inner_html		: self.get_tool_label(label_key) || fallback_label,
+		text_content		: self.get_tool_label(label_key) || fallback_label,
 		parent			: parent
 	})
 	button.addEventListener('click', (e) => {
@@ -1720,7 +1809,7 @@ const render_final_report = function(options){
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'response_msg alert ' + message_class,
-				inner_html		: message_label,
+				text_content		: message_label,
 				parent			: result_container
 			})
 

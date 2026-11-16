@@ -17,14 +17,34 @@
  * invalidation hub so ontology writes drop it; targeted `invalidateNode` prefix
  * eviction runs after tree mutations.
  *
+ * MODEL-AWARE PARTS (T1-32 / O10): a term part whose model has a non-string
+ * flatValue family (a relation — the numisdata651 Catalog's autocomplete_hi —,
+ * a select, the record's own component_section_id, a date …) is read through
+ * THE interactive flat reader `resolveCellValue` (PHP get_value →
+ * get_export_value()->to_flat_string), never as literal `value` items. A term
+ * that CROSSES into other records (anything but the string / section_id
+ * families) is never served from nor stored in the content-keyed cache: it
+ * depends on the targets' data and, for an implicit request_config, on the
+ * request principal — see {@link termCrossesRecords}.
+ *
+ * THE CALLER'S FRONTIER (T1-32 review): a record-crossing term reads OTHER
+ * records, so a frontier-armed caller (the export: parents chain, a relation
+ * label resolved through the term) hands its `CellFrontier` in
+ * {@link TermReadOptions}; every crossing and implicit child the term's flat
+ * read makes is then asked of it, exactly as the caller's own cell read would.
+ * Absent = the interactive contract (ALS principal narrows implicit children).
+ *
  * PHP anchors: get_term_data_by_locator (:95), get_term_by_locator (:188),
  * invalidate_node (:304). section_map scope resolution mirrors
  * class.section_map.php resolve_key_scope/get_term_tipos/get_fields_separator.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from '../../config/config.ts';
+import { getFlatValueFamily } from '../components/registry.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
+import { DedaloError } from '../errors/dedalo_error.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import {
@@ -35,7 +55,24 @@ import {
 } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import { getTldFromTipo } from '../ontology/tld.ts';
+import type { CellFrontier, CellValueResolveOptions } from '../resolve/relation_list.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
+
+/**
+ * What a frontier-armed caller threads into a term read. `frontier` = the
+ * caller's CellFrontier (relation_list.ts): the term's record-crossing parts
+ * ask it for every target record and implicit child, so a term never reads
+ * what the caller's own cell read would refuse. The HOST record is not asked —
+ * the caller authorized it before asking for its term.
+ */
+export interface TermReadOptions {
+	frontier?: CellFrontier;
+}
+
+/** The flat-reader options a term part passes on (only the frontier, never the caller's sinks). */
+function cellOptsOf(opts: TermReadOptions): CellValueResolveOptions | undefined {
+	return opts.frontier === undefined ? undefined : { frontier: opts.frontier };
+}
 
 /** section_map::DEFAULT_FIELDS_SEPARATOR. */
 const DEFAULT_FIELDS_SEPARATOR = ', ';
@@ -231,13 +268,103 @@ async function readComponentItems(
 	return bag?.[tipo] ?? [];
 }
 
+/**
+ * Flat-value families whose term part is read off the HOST record alone (the
+ * literal items, the record's own id). Every other declared family crosses
+ * into other records (relation targets, iri frames, inverse referrers) or into
+ * request state (info widgets, media export base) — see termCrossesRecords.
+ */
+const RECORD_LOCAL_FAMILIES: ReadonlySet<string> = new Set(['string', 'section_id', 'json']);
+
+/**
+ * The tipo's flat-value family when it is NOT read as literal items: a declared
+ * family other than 'string'. Null = the literal path (a string-family model,
+ * or an unknown tipo). A model with NO flatValue facet THROWS
+ * `engine.uncovered_scope` naming section / tipo / model (owner C37
+ * 2026-11-13, T1-32 O1 ruled (a); AGENTS.md: an uncovered path throws loudly —
+ * a term part that silently rendered '' hid a configuration defect in every
+ * label built from it; WC-2026-11-13-section-map-term-uncovered-throws).
+ */
+async function modelFlatFamily(sectionTipo: string, tipo: string): Promise<string | null> {
+	const model = await getModelByTipo(tipo);
+	if (model === null) return null;
+	const family = getFlatValueFamily(model);
+	if (family === undefined) {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `term resolver: section_map term ${sectionTipo}/${tipo} (${model}) has no flatValue facet — the model is not readable as a term part`,
+			coordinates: { section_tipo: sectionTipo, tipo },
+		});
+	}
+	return family === 'string' ? null : family;
+}
+
+/**
+ * Does a term over `tipos` read beyond the host record? True when any part's
+ * family is outside RECORD_LOCAL_FAMILIES. Such a term is computed per call:
+ * the content-keyed cache is evicted only by a write to the HOST section, so a
+ * renamed target would serve stale, and an implicit-config relation narrows
+ * its children by the REQUEST principal (implicit.ts filterAuthorizedRelated)
+ * — one user's narrowed label must never be served to another (DEC-13).
+ */
+async function termCrossesRecords(sectionTipo: string, tipos: readonly string[]): Promise<boolean> {
+	for (const tipo of tipos) {
+		const family = await modelFlatFamily(sectionTipo, tipo);
+		if (family !== null && !RECORD_LOCAL_FAMILIES.has(family)) return true;
+	}
+	return false;
+}
+
+/**
+ * One NON-LITERAL term part: the component's flat display string through THE
+ * interactive flat reader (PHP component::get_value). Relations join their
+ * targets with the records separator ' | ' (PHP default); null → ''. No
+ * main-lang retry: PHP's empty-value retry reads string items of get_data(),
+ * which a locator / id component does not hold.
+ */
+async function modelFlatFragment(
+	sectionTipo: string,
+	sectionId: number | string,
+	tipo: string,
+	lang: string,
+	opts: TermReadOptions,
+): Promise<string> {
+	// CONVENTIONS §2 rationale 1 (cycle-breaking at the term chokepoint):
+	// relation_list → relations/datalist → term_resolver is a static edge, and a
+	// relation term legitimately recurses term(X) → relation value → term(target).
+	const { resolveCellValue } = await import('../resolve/relation_list.ts');
+	const unresolved: string[] = [];
+	const value = await resolveCellValue(
+		sectionTipo,
+		sectionId,
+		tipo,
+		lang,
+		unresolved,
+		undefined,
+		cellOptsOf(opts),
+	);
+	// The reader's `unresolved` notes (a nested model with no family, a cell the
+	// reader could not resolve) are a GAP in the term, never a silent '' (owner
+	// C37 2026-11-13, T1-32 O1 ruled (a); WC-2026-11-13-section-map-term-uncovered-throws).
+	if (unresolved.length > 0) {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `term resolver: section_map term ${sectionTipo}/${tipo} could not be resolved — unresolved: ${unresolved.join(', ')}`,
+			coordinates: { section_tipo: sectionTipo, tipo },
+		});
+	}
+	return value ?? '';
+}
+
 /** The value of one term component in `lang` with main-lang fallback. */
 async function termComponentValue(
 	sectionTipo: string,
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string> {
+	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
+		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
+	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
 	if (items.length === 0) return '';
 	const translatable = await getTranslatableByTipo(tipo);
@@ -283,7 +410,9 @@ export async function getTermDataByLocator(
  * The display label for a locator in `lang` (PHP get_term_by_locator :188), with
  * the request-scope cache. When no term tipos resolve, returns the deterministic
  * locator-string fallback `${section_tipo}_${section_id}[_component_tipo[_tag_id]]`
- * so orphan locators always render something. Always writes the cache.
+ * so orphan locators always render something. Writes the cache unless the term
+ * crosses into other records (termCrossesRecords). A frontier-armed caller
+ * passes its frontier in `opts` (TermReadOptions).
  */
 export async function getTermByLocator(
 	locator: TermLocator,
@@ -293,6 +422,7 @@ export async function getTermByLocator(
 	lang: string = currentDataLang(),
 	fromCache = false,
 	scope: string | null = 'thesaurus',
+	opts: TermReadOptions = {},
 ): Promise<string | null> {
 	const sectionTipo = locator.section_tipo;
 	if (typeof sectionTipo !== 'string') return null;
@@ -300,31 +430,77 @@ export async function getTermByLocator(
 
 	const scopeKey = scope ?? '';
 	const cacheUid = `${sectionTipo}_${sectionId}_${scopeKey}_${lang}`;
-	if (fromCache && termByLocatorCache.has(cacheUid)) {
+	const termTipos = await getTermTipos(sectionTipo, scope);
+	// A term crossing into other records never touches the cache (T1-32).
+	const cacheable = !(await termCrossesRecords(sectionTipo, termTipos));
+	if (cacheable && fromCache && termByLocatorCache.has(cacheUid)) {
 		return termByLocatorCache.get(cacheUid) ?? null;
 	}
 
-	let value: string | null;
-	const termTipos = await getTermTipos(sectionTipo, scope);
-	if (termTipos.length === 0) {
-		// legacy locator-string fallback.
-		let fallback = `${sectionTipo}_${sectionId}`;
-		if (locator.component_tipo !== undefined) fallback += `_${locator.component_tipo}`;
-		if (locator.tag_id !== undefined) fallback += `_${locator.tag_id}`;
-		value = fallback;
-	} else {
-		const fragments: string[] = [];
-		for (const tipo of termTipos) {
-			const current = await termComponentValue(sectionTipo, sectionId ?? '', tipo, lang);
-			if (current !== '') fragments.push(current);
-		}
-		const separator = await getFieldsSeparator(sectionTipo, scope);
-		value = fragments.join(separator);
-	}
+	const value =
+		termTipos.length === 0
+			? locatorStringFallback(locator, sectionTipo)
+			: await joinCrossingGuarded(cacheable, cacheUid, async () =>
+					(await termParts(sectionTipo, sectionId ?? '', termTipos, lang, opts)).join(
+						await getFieldsSeparator(sectionTipo, scope),
+					),
+				);
+	if (cacheable) storeTerm(cacheUid, value);
+	return value;
+}
 
+/** The legacy locator-string label `${section_tipo}_${section_id}[_component_tipo[_tag_id]]`. */
+function locatorStringFallback(locator: TermLocator, sectionTipo: string): string {
+	let fallback = `${sectionTipo}_${locator.section_id}`;
+	if (locator.component_tipo !== undefined) fallback += `_${locator.component_tipo}`;
+	if (locator.tag_id !== undefined) fallback += `_${locator.tag_id}`;
+	return fallback;
+}
+
+/** The non-empty term parts of a record, in `termTipos` order. */
+async function termParts(
+	sectionTipo: string,
+	sectionId: number | string,
+	termTipos: readonly string[],
+	lang: string,
+	opts: TermReadOptions,
+): Promise<string[]> {
+	const fragments: string[] = [];
+	for (const tipo of termTipos) {
+		const current = await termComponentValue(sectionTipo, sectionId, tipo, lang, opts);
+		if (current !== '') fragments.push(current);
+	}
+	return fragments;
+}
+
+/** Bounded content-keyed store (PHP's O(1) whole-cache drop on overflow). */
+function storeTerm(cacheUid: string, value: string | null): void {
 	if (termByLocatorCache.size >= 1000) termByLocatorCache.clear();
 	termByLocatorCache.set(cacheUid, value);
-	return value;
+}
+
+/**
+ * THE TERM CYCLE GUARD (T1-32). A record-crossing term re-enters the term
+ * resolver for its targets (resolveCellValue → datalist resolveLocatorLabels →
+ * getTermByLocator), through public doors that carry no flat-reader cycle
+ * trail — so records whose terms quote each other (A → B → A) recursed without
+ * end. The trail rides the async path (AsyncLocalStorage: request-scoped by
+ * construction, never module state): a term key re-entered on its OWN path has
+ * no finite value and contributes '' there; sibling paths are unaffected
+ * (path-scoped, like relation_list withCycleGuard). Record-local terms never
+ * recurse, so they skip the guard.
+ */
+const crossingTermTrail = new AsyncLocalStorage<ReadonlySet<string>>();
+
+async function joinCrossingGuarded(
+	recordLocal: boolean,
+	key: string,
+	compute: () => Promise<string>,
+): Promise<string> {
+	if (recordLocal) return compute();
+	const trail = crossingTermTrail.getStore();
+	if (trail?.has(key) === true) return '';
+	return crossingTermTrail.run(new Set([...(trail ?? []), key]), compute);
 }
 
 /**
@@ -344,13 +520,16 @@ export async function getTermByLocator(
  *
  * Shares termByLocatorCache under a `ddo:<tipos>` scope key so it inherits the
  * per-section-tipo eviction on save/delete and the ontology-hub clear; a private
- * cache here would serve renamed models stale forever.
+ * cache here would serve renamed models stale forever. A tipo list crossing into
+ * other records bypasses the cache (termCrossesRecords, T1-32) and asks a
+ * frontier-armed caller's `opts.frontier` for every crossing (TermReadOptions).
  */
 export async function getDdoValueByLocator(
 	locator: TermLocator,
 	tipos: string[],
 	fieldsSeparator: string = DEFAULT_FIELDS_SEPARATOR,
 	lang: string = currentDataLang(),
+	opts: TermReadOptions = {},
 ): Promise<string> {
 	const sectionTipo = locator.section_tipo;
 	const sectionId = locator.section_id;
@@ -359,18 +538,19 @@ export async function getDdoValueByLocator(
 	if (tipos.length === 0) return '';
 
 	const cacheUid = `${sectionTipo}_${sectionId}_ddo:${tipos.join('+')}_${lang}`;
-	const cached = termByLocatorCache.get(cacheUid);
+	const cacheable = !(await termCrossesRecords(sectionTipo, tipos));
+	const cached = cacheable ? termByLocatorCache.get(cacheUid) : undefined;
 	if (cached !== undefined) return cached ?? '';
 
-	const fragments: string[] = [];
-	for (const tipo of tipos) {
-		const current = await ddoComponentValue(sectionTipo, sectionId, tipo, lang);
-		if (current !== '') fragments.push(current);
-	}
-	const value = fragments.join(fieldsSeparator);
-
-	if (termByLocatorCache.size >= 1000) termByLocatorCache.clear();
-	termByLocatorCache.set(cacheUid, value);
+	const value = await joinCrossingGuarded(cacheable, cacheUid, async () => {
+		const fragments: string[] = [];
+		for (const tipo of tipos) {
+			const current = await ddoComponentValue(sectionTipo, sectionId, tipo, lang, opts);
+			if (current !== '') fragments.push(current);
+		}
+		return fragments.join(fieldsSeparator);
+	});
+	if (cacheable) storeTerm(cacheUid, value);
 	return value;
 }
 
@@ -380,7 +560,11 @@ async function ddoComponentValue(
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
+	opts: TermReadOptions,
 ): Promise<string> {
+	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
+		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
+	}
 	const items = await readComponentItems(sectionTipo, sectionId, tipo);
 	if (items.length === 0) return '';
 	const translatable = await getTranslatableByTipo(tipo);

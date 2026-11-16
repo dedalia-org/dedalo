@@ -72,7 +72,8 @@ The framework home is `src/core/components/component_info/widgets/`:
 |---|---|
 | `widget_common.ts` | The `InfoWidgetDescriptor` contract, `WidgetContext`, the shared IPO helpers (`readWidgetComponentData`, `resolveCurrent`, `findTyped`, a half-up rounding helper), `normalizeWidgetEntryKeys` (WC-026), and the two loud errors. |
 | `registry.ts` | The **one dispatch home**: the `INFO_WIDGETS` map, `getInfoWidget` (fail-loud lookup), `computeInfoWidgets` (read aggregate), `computeInfoDataList` (edit datalist). |
-| `calculation/functions.ts` | The STATIC calculation process-fn registry (`CALCULATION_FUNCTIONS`) — a closed set, never resolved by name from ontology-supplied strings. |
+| `calculation/fn_kit.ts` | The `CalculationFn` contract (an empty result = a formula's deliberate "no value") and the shared arithmetic primitives every formula is built from. |
+| `calculation/functions.ts` | The GENERIC calculation process-fn table (`CALCULATION_FUNCTIONS`: `summarize`) — what `process.file: "/calculation/formulas.ts"` selects. The formulas one ontology owns live in its TLD package, `src/tld/<tld>/calculation.ts`, selected by `process.file: "/<tld>/calculation/<module>.ts"` through the one registry `src/tld/registry.ts`. Both are closed static tables; the file is a lookup key, never a path. |
 | `grid.ts` | dd_grid_cell_object builders (`buildPortalGridValue`, `resolveGridColumns`). |
 | `<tld>/<name>.ts` | One widget = one module exporting one `InfoWidgetDescriptor`. |
 
@@ -216,7 +217,7 @@ client/dedalo/core/widgets/
 
 src/core/components/component_info/widgets/  # server (TS/Bun)
 ├── widget_common.ts · registry.ts · grid.ts · README.md
-├── calculation/{calculation.ts,functions.ts} · state/state.ts
+├── calculation/{calculation.ts,functions.ts,fn_kit.ts} · state/state.ts
 ├── dd/user_activity.ts · dmm/get_archive_states.ts · mdcat/sum_dates.ts
 ├── numisdata/{get_archive_weights.ts,get_coins_by_period.ts}
 ├── oh/{descriptors.ts,media_icons.ts,tags.ts} · test/test_info.ts
@@ -304,16 +305,23 @@ ontology (which names the process function) is admin/developer-writable. A
 design that loaded a file or resolved a function by name from that
 ontology-supplied string would be a code-injection vector.
 
-!!! note "Every process function is a static, closed registry entry"
+!!! note "Every process function is a static, closed table entry — `process.file` is a lookup key"
     `computeCalculation` (`widgets/calculation/calculation.ts`) never loads a
-    file or resolves a function by name. Every process function is a STATIC
-    entry in `CALCULATION_FUNCTIONS` (`widgets/calculation/functions.ts`);
-    `summarize` / `to_euros` / `calculate_period` are the available formulas,
-    and an unknown `process.fn` resolves to no output rather than executing
-    anything. The `process.file` / `engine` keys are ignored (verification
-    data only). If a widget needs a
-    configurable formula, add a STATIC entry there — never re-introduce a
-    dynamic include of ontology-supplied code.
+    file or resolves a function by name. The block's `process` is a KEY the
+    engine matches against frozen tables (`src/tld/registry.ts`
+    `resolveCalculationFn`): `{ "fn", "file": "/calculation/formulas.ts",
+    "engine": "ts" }` selects the generic table (`widgets/calculation/functions.ts`,
+    `summarize`); `"file": "/<tld>/calculation/<module>.ts"` selects that TLD
+    package's module (`src/tld/<tld>/calculation.ts` — the mdcat grant chain:
+    `calculate_period`, `calculate_import_major` / `_minor`, `to_euros`,
+    `range_to_days`, `days_correction_manually`, `subtract`, `final_total`).
+    Anything else is refused with `ontology.invalid_node` rather than executing
+    anything: a definition in the earlier engine's shape (a file that is not
+    a `.ts` name, an `engine` other than `ts`), an unknown package, module or
+    `fn`, a generic
+    file naming a package formula or the reverse. No alias is ever applied.
+    If a widget needs a configurable formula, add a STATIC entry to the right
+    table — never re-introduce a dynamic include of ontology-supplied code.
 
 ## Public API / key methods
 

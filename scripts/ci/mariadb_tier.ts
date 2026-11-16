@@ -175,6 +175,12 @@ export const ROW_CONTRACT: ReadonlyMap<string, RowContract> = new Map<string, Ro
 	// Measured 2026-10-21 (l3: +17 inserted, 0 deleted, 0 updated): each leg's table reset
 	// writes its rows; every blocked DELETE/upsert fails on its lock wait, so none moves.
 	['test/unit/diffusion_target_statement_lock_wait_native.test.ts', { rises: ['rows_inserted'] }],
+	// T1-3 (global_table_maps): the global element's publications (source + global
+	// rows), the delete-then-insert refresh, the delete door and the reconcile apply.
+	[
+		'test/unit/diffusion_global_table_native.test.ts',
+		{ rises: ['rows_inserted', 'rows_deleted', 'rows_updated'] },
+	],
 	[MEASURE_SELF_GATE, { rises: ['rows_inserted', 'rows_deleted'] }],
 	[
 		'test/unit/diffusion_row_size_native.test.ts',

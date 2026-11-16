@@ -167,3 +167,21 @@ client producers of `temporal_scope`, mirroring what it already does for
 prose and a fifth producer could have opted itself in silently.
 
 ---
+
+## Addendum 2026-11-12 — tool_import_marc21 applies the form before consuming it
+
+tool_import_marc21 cleared its staging form after a run without ever applying
+it: `components_temp_data` was read nowhere, so the consume-clear threw the
+operator's Values away. It now applies every non-empty `input_component` field
+to each imported record (`src/core/tools/import_form_values.ts`, shared with
+tool_import_files) BEFORE the clear, so "consume" is true again. Gate:
+`test/unit/tool_import_marc21.test.ts` G11/G12.
+WC-2026-11-12-marc21-config-map-and-transforms.
+
+## Addendum 2026-11-12 — tool_import_zotero applies the form, consumes it only after a write
+
+tool_import_zotero now applies every non-empty `input_component` field to each
+imported record (the shared `import_form_values.ts`), and clears its scope only
+when the run created or updated a record — a run that wrote nothing keeps the
+form for a retry. Gate: `test/unit/tool_import_zotero_native.test.ts` (Values
+form). WC-2026-11-12-zotero-csl-json-import.

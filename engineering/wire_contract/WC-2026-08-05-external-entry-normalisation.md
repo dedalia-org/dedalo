@@ -91,3 +91,8 @@ the drops reach the wire as `source_status` counters rather than vanishing.
 **No parity fixture is affected**: no fixture in the frozen oracle-harvest
 store holds a data item for any `component_external` tipo. **Re-harvest: NO —
 impossible by definition.**
+
+### Addendum 2026-11-13
+
+The "contributes NO entry" rule now covers EVERY value with no visible text,
+not only a fully refused one — WC-2026-11-13-external-empty-entry-dropped.

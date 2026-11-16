@@ -40,6 +40,7 @@ import type { Principal } from '../../../src/core/security/permissions.ts';
 import { withLiveBulkRun } from '../../../src/core/tools/bulk_run_registry.ts';
 import {
 	assertCsvStructure,
+	CSV_INGEST_MAX_BYTES,
 	type CsvAnalysis,
 	type CsvColumn,
 	type CsvParseResult,
@@ -52,7 +53,10 @@ import type {
 	ImportProgressFrame,
 	ImportRowIssue,
 } from '../../../src/core/tools/import_wire.ts';
-import { readIngestTextFile } from '../../../src/core/tools/ingest_encoding.ts';
+import {
+	oversizedIngestSentence,
+	readIngestTextFile,
+} from '../../../src/core/tools/ingest_encoding.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -176,7 +180,7 @@ function safeImportFile(dir: string, fileName: string): string {
  * for one — which is silent here, because the client renders an empty <select> and
  * simply auto-detects nothing (an empty array is truthy, so its `!ar_components`
  * error branch never fires). resolveVirtualEditScope is the canonical resolver the
- * rest of the engine already uses for exactly this (relations/request_config).
+ * rest of the engine already uses for exactly this (ontology/virtual_scope.ts).
  *
  * SECTION INFO (dd199/dd200/dd197/dd201 audit stamps, dd271, dd1223-5, dd1596).
  * Appended only when the section has components of its own and does not
@@ -192,9 +196,7 @@ async function sectionComponentTipos(
 	principal: Principal,
 ): Promise<{ tipo: string; model: string }[]> {
 	const { getOrderedSubtree } = await import('../../../src/core/ontology/resolver.ts');
-	const { resolveVirtualEditScope } = await import(
-		'../../../src/core/relations/request_config/implicit.ts'
-	);
+	const { resolveVirtualEditScope } = await import('../../../src/core/ontology/virtual_scope.ts');
 	const { realTipo, excludeSet } = await resolveVirtualEditScope(sectionTipo);
 	const nodes = await getOrderedSubtree(realTipo);
 	const own = nodes
@@ -354,11 +356,14 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			// DATA-09: decode DELIBERATELY (convert or refuse), never `Bun.file().text()`
 			// — that is a fatal:false UTF-8 decode, and every byte it cannot read becomes
 			// an irreversible U+FFFD in the preview the operator maps their columns from.
-			const decoded = await readIngestTextFile(resolve(dir, name), name);
+			// T1-S18: bounded in BYTES before a byte is buffered — the same ceiling as
+			// validate_import / import_files, so what previews here will import.
+			const decoded = await readIngestTextFile(resolve(dir, name), name, CSV_INGEST_MAX_BYTES);
 			if (decoded.notice !== null) notices.push(decoded.notice);
 			const analysis = await analyzeCsvOffLoop(decoded.text);
 			if (analysis === null) {
 				errors.push(`error reading file: ${name}`);
+				filesInfo.push({ dir, name, read_error: `error reading file: ${name}` });
 				continue;
 			}
 			const arColumnsMap = await Promise.all(analysis.header.map((cell) => resolveColumnMap(cell)));
@@ -373,12 +378,35 @@ async function getCsvFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				sample_data_errors: analysis.sample_data_errors,
 			});
 		} catch (error) {
-			errors.push(`Error on read file ${name}: ${(error as Error).message}`);
+			// The read refusals (readIngestTextFile) are DedaloErrors carrying a vetted
+			// public sentence (oversized, not text, damaged); anything else is a raw
+			// filesystem message — LOGGED (it embeds absolute paths, SEC-17), never on
+			// the wire: the operator reads a deliberate sentence.
+			let sentence: string;
+			if (error instanceof DedaloError && error.publicMessage !== undefined) {
+				sentence = error.publicMessage;
+			} else {
+				console.warn(
+					'[tool_import_dedalo_csv] get_csv_files: staged file could not be read:',
+					name,
+					(error as Error).message,
+				);
+				sentence = 'the file could not be read (the server log names the cause)';
+			}
+			errors.push(`Error on read file ${name}: ${sentence}`);
+			// C51 (owner 2026-11-13): the file the panel cannot read is STILL LISTED, so
+			// the operator can delete it from the panel — before, it was only in
+			// `errors` and had no card, so no delete button: the staged file could not
+			// be removed from the UI at all. The entry carries no column analysis;
+			// `read_error` is the sentence and the client renders a delete-only card.
+			// WC-2026-11-13-csv-staged-file-read-error-card.
+			filesInfo.push({ dir, name, read_error: sentence });
 		}
 	}
 	// `errors` is the per-file read problem list — payload, not a failed request
 	// (one unreadable CSV must not hide the files that DID parse). `notices` is
-	// the same shape for what we DID to a file we could read.
+	// the same shape for what we DID to a file we could read. A file in `errors`
+	// is ALSO in `files`, as a `read_error` entry (C51).
 	return ok({ files: filesInfo, errors, notices }, { requestId: toolRequestId(ctx) });
 }
 
@@ -397,6 +425,19 @@ async function deleteCsvFile(ctx: ToolActionContext): Promise<ToolResponse> {
 	mkdirSync(deletedDir, { recursive: true, mode: 0o775 });
 	renameSync(target, resolve(deletedDir, `${Date.now()}_${fileName}`));
 	return ok({ deleted: fileName }, { requestId: toolRequestId(ctx) });
+}
+
+/**
+ * T1-S18: refuse a staged CSV over the ingest ceiling BEFORE it enters the import
+ * dir — early feedback in the upload panel. NOT the guard: files can reach the
+ * import dir other ways, so the read door (readIngestTextFile) enforces the same
+ * bound. The refused file stays staged (the staging sweep collects it).
+ */
+function assertStagedCsvSize(staged: string, fileName: string): void {
+	const size = statSync(staged).size;
+	if (size <= CSV_INGEST_MAX_BYTES) return;
+	const sentence = oversizedIngestSentence(fileName, size, CSV_INGEST_MAX_BYTES);
+	throw new DedaloError('media.too_large', { message: sentence, publicMessage: sentence });
 }
 
 async function processUploadedFile(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -433,6 +474,7 @@ async function processUploadedFile(ctx: ToolActionContext): Promise<ToolResponse
 			message: 'staged file not found',
 		});
 	}
+	assertStagedCsvSize(staged, fileName);
 	const dir = importDir(ctx.userId);
 	renameSync(staged, safeImportFile(dir, fileName));
 	return ok({ file_name: fileName }, { requestId: toolRequestId(ctx) });
@@ -685,7 +727,9 @@ async function readCsvRows(
 			message: `File not found: ${fileName}`,
 		});
 	}
-	const decoded = await readIngestTextFile(target, fileName);
+	// T1-S18: the ceiling holds HERE, before the read — this door parses the
+	// whole file and clones every row back to this thread.
+	const decoded = await readIngestTextFile(target, fileName, CSV_INGEST_MAX_BYTES);
 	const parsed = await parseCsvOffLoop(decoded.text);
 	assertCsvStructure(parsed, fileName);
 	const rows = parsed.rows;
@@ -873,6 +917,11 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	for (const [index, current] of files.entries()) {
 		const fileName = String(current.file ?? '');
 		const sectionTipo = String(current.section_tipo ?? '');
+		// The run's dd800 id once minted. The catch reports IT, never a blanket
+		// null: a failure after the mint must name the run record it left behind
+		// (revertable, in the Processes list), and a refusal before the mint
+		// honestly answers null (gate C of csv_ingest_ceiling_native counts it).
+		let bulkProcessId: number | null = null;
 		try {
 			if (fileName === '' || sectionTipo === '')
 				throw invalidRequest('Missing file or section_tipo');
@@ -912,7 +961,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				throw invalidRequest('No column is mapped for import');
 			}
 
-			const bulkProcessId = await createBulkProcessRecord(
+			bulkProcessId = await createBulkProcessRecord(
 				fileName,
 				String(current.bulk_process_label ?? fileName),
 				ctx.userId,
@@ -921,12 +970,13 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			const labels = await resolveColumnLabels(columns);
 			// The run is held in the active-run registry while it writes: a revert
 			// of it is refused until it ends (decision D5).
-			const fileReport = await withLiveBulkRun(bulkProcessId, () =>
+			const runId = bulkProcessId;
+			const fileReport = await withLiveBulkRun(runId, () =>
 				executeCsvImport({
 					plan,
 					sectionTipo,
 					principal: ctx.principal,
-					bulkProcessId,
+					bulkProcessId: runId,
 					errors,
 					notices,
 					progress: {
@@ -944,7 +994,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				ok: false,
 				file: fileName,
 				section_tipo: sectionTipo,
-				bulk_process_id: null,
+				bulk_process_id: bulkProcessId,
 				created: [],
 				updated: [],
 				failed: [],

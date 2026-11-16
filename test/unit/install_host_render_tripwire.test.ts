@@ -34,6 +34,10 @@
  *      `/bin/false` (fail-closed, never as root); a custom layout's drop-ins
  *      carry exactly its user, group, folder, .env, HOME and the rollback/
  *      watchdog paths. (c) runs over the default AND a custom layout.
+ *  (h) THE ENGINE UNIT'S SANDBOX BASELINE (T1-26 / S15): the EFFECTIVE instance
+ *      server unit (every OS row) and deploy/dedalo-ts.service carry the
+ *      path-independent systemd sandbox (SANDBOX_BASELINE) and none of the
+ *      deliberately excluded keys (SANDBOX_EXCLUDED); positive controls.
  *  (e) THE ENGINE'S MEDIA RULES REACH ROOT'S NGINX ONLY AS VALIDATED COPIES
  *      (deploy/dedalo-media-rules.sh, EXECUTED): every rule file the engine
  *      generates (protection.ts, every mode) is accepted and copied byte-equal;
@@ -65,7 +69,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { CONFIG_CATALOG } from '../../src/config/catalog/index.ts';
+import {
+	parseWritableRootsManifest,
+	type WritableRootsManifest,
+	writableRootsViolations,
+} from '../../src/config/writable_roots.ts';
 import type { HostCommand, HostPlanCtx } from '../../src/core/install/host/contract.ts';
+import { sha256Text } from '../../src/core/install/host/fs.ts';
 import { OS_ROWS } from '../../src/core/install/host/os_support.ts';
 import { stampOf } from '../../src/core/install/host/production/common.ts';
 import { instanceDirs } from '../../src/core/install/host/production/identity.ts';
@@ -76,15 +86,28 @@ import {
 	siteCommands,
 	siteText,
 } from '../../src/core/install/host/production/web.ts';
+import { stackServiceImage } from '../../src/core/install/host/stack/images.ts';
 import {
 	backupStores,
 	instanceDropins,
+	instanceManifests,
+	pathUnderRoot,
 	ROOT_RUN_SCRIPTS,
 	renderTemplate,
+	SYSTEMD_DIR,
 	siteBuilderBackupUnit,
 	UNIT_TEMPLATES,
 	type UnitTemplate,
+	unitsRefreshCommand,
+	writableRoots,
+	writableRootsManifestPath,
 } from '../../src/core/install/host/systemd/render.ts';
+import {
+	isShippedDigest,
+	parseShippedDigests,
+	readShippedDigests,
+	SHIPPED_DIGESTS_FILE,
+} from '../../src/core/install/host/systemd/shipped_digests.ts';
 import { CATCH_ALL_STAMP, catchAllPath } from '../../src/core/install/host/web/catch_all.ts';
 import { nginxSites } from '../../src/core/install/host/web/clash.ts';
 import { SECURITY_HEADERS } from '../../src/core/install/host/web/site.ts';
@@ -604,6 +627,347 @@ test('the templates the step renders are the repository files (deploy/systemd/*@
 	}
 });
 
+// ── (h) the engine unit's sandbox baseline (T1-26 / S15) ──────────────────────
+
+/**
+ * The path-independent systemd sandbox every engine unit carries — the single-instance
+ * deploy/dedalo-ts.service and the instance template (whose comments give each line's
+ * reason). The EFFECTIVE value is measured (template + drop-in, as systemd merges):
+ * a drop-in that resets or widens a line is red here.
+ */
+const SANDBOX_BASELINE: Readonly<Record<string, string>> = Object.freeze({
+	NoNewPrivileges: 'yes',
+	CapabilityBoundingSet: '',
+	RestrictSUIDSGID: 'yes',
+	LockPersonality: 'yes',
+	RestrictRealtime: 'yes',
+	RestrictNamespaces: 'yes',
+	ProtectKernelTunables: 'yes',
+	ProtectKernelModules: 'yes',
+	ProtectKernelLogs: 'yes',
+	ProtectControlGroups: 'yes',
+	ProtectClock: 'yes',
+	ProtectHostname: 'yes',
+	PrivateDevices: 'yes',
+	ProtectProc: 'invisible',
+	SystemCallArchitectures: 'native',
+	RestrictAddressFamilies: 'AF_UNIX AF_INET AF_INET6 AF_NETLINK',
+	// the file system is read-only except the drop-in's ReadWritePaths (owner C32, 2026-11-13)
+	ProtectSystem: 'strict',
+});
+
+/**
+ * Deliberately ABSENT, each for a measured engine need (the unit's comment says which):
+ * JSC's JIT (MemoryDenyWriteExecute), /proc/cpuinfo (ProcSubset), runners surviving a
+ * restart in the temp dir (PrivateTmp), an instance under /home (ProtectHome); the
+ * read-only / inaccessible path lists (the engine's roots are OPENED, never narrowed
+ * further — a narrowing list would be a second policy the manifest does not know).
+ */
+const SANDBOX_EXCLUDED: readonly string[] = Object.freeze([
+	'MemoryDenyWriteExecute',
+	'ProcSubset',
+	'PrivateTmp',
+	'ProtectHome',
+	'ReadOnlyPaths',
+	'InaccessiblePaths',
+]);
+
+/** The sandbox verdict of a merged unit: missing/different baseline lines and excluded keys present. */
+function sandboxFaults(unit: ReadonlyMap<string, string[]>): string[] {
+	const faults: string[] = [];
+	for (const [key, expected] of Object.entries(SANDBOX_BASELINE)) {
+		const values = unit.get(`Service.${key}`);
+		if (values === undefined || values.length !== 1 || values[0] !== expected) {
+			faults.push(`${key}=${expected} (found ${JSON.stringify(values ?? null)})`);
+		}
+	}
+	for (const key of SANDBOX_EXCLUDED) {
+		if (unit.has(`Service.${key}`)) faults.push(`${key} must not be set`);
+	}
+	return faults;
+}
+
+describe("the engine unit's sandbox baseline (h)", () => {
+	for (const row of OS_ROWS) {
+		test(`${row.id}: the EFFECTIVE instance server unit (template + drop-in) carries the baseline, nothing excluded`, () => {
+			const ctx = productionPlanCtx({ os: row.id, web: 'nginx', tls: 'letsencrypt' });
+			expect(sandboxFaults(effective(ctx, 'dedalo-ts@.service'))).toEqual([]);
+		});
+	}
+
+	test('the single-instance deploy/dedalo-ts.service carries the same baseline, nothing excluded', () => {
+		const single = readFileSync(join(REPO_ROOT, 'deploy/dedalo-ts.service'), 'utf8');
+		expect(sandboxFaults(mergedUnit(single, []))).toEqual([]);
+	});
+
+	test('positive controls: a dropped line, a widening drop-in, an excluded key — each caught', () => {
+		const single = readFileSync(join(REPO_ROOT, 'deploy/dedalo-ts.service'), 'utf8');
+		expect(sandboxFaults(mergedUnit(single.replace(/^NoNewPrivileges=yes\n/m, ''), []))).toEqual([
+			'NoNewPrivileges=yes (found null)',
+		]);
+		expect(sandboxFaults(mergedUnit(single, ['[Service]\nProtectSystem=full\n']))).toEqual([
+			'ProtectSystem=strict (found ["full"])',
+		]);
+		expect(
+			sandboxFaults(
+				mergedUnit(single, ['[Service]\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE\n']),
+			),
+		).toEqual(['CapabilityBoundingSet= (found ["CAP_NET_BIND_SERVICE"])']);
+		expect(sandboxFaults(mergedUnit(single, ['[Service]\nMemoryDenyWriteExecute=yes\n']))).toEqual([
+			'MemoryDenyWriteExecute must not be set',
+		]);
+	});
+});
+
+// ── (i) the writable roots under ProtectSystem=strict (owner C32, 2026-11-13) ──
+
+/**
+ * The EFFECTIVE server unit's ReadWritePaths= (systemd's word split applied — each
+ * root is QUOTED, L8) must cover every path the install answers make the engine
+ * write: the install folder (tree, private, backups/code), the backup dir, MEDIA_PATH,
+ * the client publish dir, the socket dir, the PostgreSQL socket dir, the temp dirs;
+ * the manifest beside the drop-in carries the SAME list and names the re-render
+ * command with the instance; the engine's own judge (config/writable_roots.ts) agrees.
+ */
+describe('the writable roots: ReadWritePaths= covers every answered path; the manifest is the same list (i)', () => {
+	for (const layout of LAYOUTS) {
+		for (const row of OS_ROWS) {
+			test(`${layout.name}, ${row.id}: every answered path lies under a listed, quoted root; manifest = the list; the engine agrees`, () => {
+				const ctx = productionPlanCtx(
+					{ os: row.id, web: 'nginx', tls: 'letsencrypt' },
+					REPO_ROOT,
+					layout.extra,
+				);
+				const unit = effective(ctx, 'dedalo-ts@.service');
+				const lines = unit.get('Service.ReadWritePaths') ?? [];
+				expect(lines.length).toBeGreaterThanOrEqual(5);
+				// each assignment is ONE quoted root (L8: a space in a folder name survives)
+				for (const line of lines) expect(line, line).toMatch(/^"[^"]+"$/);
+				const roots = lines.flatMap((line) => systemdWords(line));
+				expect(roots).toEqual(writableRoots(ctx.paths, ctx.answers));
+				const { paths, answers } = ctx;
+				const pgSocket = answers.db_socket === '' ? '/var/run/postgresql' : answers.db_socket;
+				const written = [
+					paths.tree,
+					paths.privateDir,
+					paths.codeBackupRoot,
+					paths.backupDir,
+					paths.media,
+					paths.clientPublish,
+					paths.socketDir,
+					pgSocket,
+					'/tmp',
+					'/var/tmp',
+				];
+				const uncovered = written.filter(
+					(path) => !roots.some((root) => pathUnderRoot(path, root)),
+				);
+				expect(uncovered).toEqual([]);
+				// no root under another (the list is minimal), none relative, none the whole tree
+				for (const root of roots) {
+					expect(root.startsWith('/')).toBe(true);
+					expect(root).not.toBe('/');
+					expect(roots.filter((other) => other !== root && pathUnderRoot(root, other))).toEqual([]);
+				}
+				// the manifest beside the drop-in: the same list, the instance, the re-render command
+				const manifests = instanceManifests(paths, answers, stampOf(ctx));
+				expect(manifests.map((m) => m.path)).toEqual([writableRootsManifestPath(paths.instance)]);
+				expect(
+					manifests[0]?.path.startsWith(`${SYSTEMD_DIR}/dedalo-ts@${paths.instance}.service.d/`),
+				).toBe(true);
+				expect(manifests[0]?.path.endsWith('.conf')).toBe(false);
+				const parsed = parseWritableRootsManifest(manifests[0]?.content ?? '');
+				expect(typeof parsed).toBe('object');
+				const manifest = parsed as WritableRootsManifest;
+				expect(manifest.read_write_paths).toEqual(roots);
+				expect(manifest.instance).toBe(paths.instance);
+				expect(manifest.refresh).toBe(unitsRefreshCommand(paths));
+				expect(manifest.refresh).toContain(`--instance ${paths.instance}`);
+				expect(
+					manifest.refresh.startsWith(
+						`sudo ${paths.bun} run ${paths.tree}/scripts/ops/host_units_refresh.ts`,
+					),
+				).toBe(true);
+				// the drop-in names the manifest for the engine
+				expect(unitEnvironment(unit).get('DEDALO_WRITABLE_ROOTS_MANIFEST')).toBe(
+					manifests[0]?.path,
+				);
+				// the engine's judge: every written path passes; a path outside is named
+				expect(
+					writableRootsViolations(
+						manifest.read_write_paths,
+						written.map((path) => ({ label: 'x', path })),
+					),
+				).toEqual([]);
+				expect(
+					writableRootsViolations(manifest.read_write_paths, [
+						{ label: 'MEDIA_PATH', path: '/data/elsewhere/dedalo/media' },
+					]),
+				).toEqual(['MEDIA_PATH /data/elsewhere/dedalo/media']);
+			});
+		}
+	}
+
+	test('positive controls: an unquoted root is caught by the quoting rule; a DB_SOCKET elsewhere is listed; a sibling prefix is not "under"', () => {
+		expect(/^"[^"]+"$/.test('/home/ded_x')).toBe(false);
+		const ctx = productionPlanCtx(NGINX_LE, REPO_ROOT, { db_socket: '/data/pg/sock' });
+		expect(writableRoots(ctx.paths, ctx.answers)).toContain('/data/pg/sock');
+		expect(writableRoots(ctx.paths, ctx.answers)).not.toContain('/var/run/postgresql');
+		expect(pathUnderRoot('/home/ded_x2', '/home/ded_x')).toBe(false);
+		expect(pathUnderRoot('/home/ded_x/dedalo', '/home/ded_x')).toBe(true);
+		expect(pathUnderRoot('/anything', '/')).toBe(true);
+		// a root under another listed root is dropped (the backup dir under the install folder)
+		const nested = productionPlanCtx(NGINX_LE, REPO_ROOT, {
+			backup_dir: `${ctx.answers.install_dir}/backups`,
+		});
+		const roots = writableRoots(nested.paths, nested.answers);
+		expect(roots.filter((root) => root.startsWith(nested.paths.instanceDir))).toEqual([
+			nested.paths.instanceDir,
+		]);
+	});
+});
+
+// ── (j) the shipped-template digest ledger (owner C33, 2026-11-13) ───────────
+
+/**
+ * deploy/systemd/shipped_digests.json remembers every render a release shipped,
+ * so the installer upgrades its own earlier templates and still refuses a
+ * stranger's. The law it must keep: EVERY TEMPLATE EDIT ADDS A DIGEST AND
+ * REMOVES NONE — this tree's render (every OS row) and the committed HEAD's
+ * render of every template are in it, and every digest HEAD's ledger holds is
+ * still there.
+ */
+describe('the shipped-template digest ledger: append-only, current render and HEAD render present (j)', () => {
+	const git = (...args: string[]): string => {
+		const run = Bun.spawnSync(['git', '-C', REPO_ROOT, ...args]);
+		if (run.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${run.stderr.toString()}`);
+		return run.stdout.toString();
+	};
+	const digestOf = (text: string) => sha256Text(text);
+
+	test('the ledger parses, names exactly the templates, and holds the sha256 of EVERY current render (template × OS row)', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		expect(Object.keys(ledger.templates).sort()).toEqual([...UNIT_TEMPLATES].sort());
+		const missing: string[] = [];
+		for (const name of UNIT_TEMPLATES) {
+			for (const row of OS_ROWS) {
+				const digest = digestOf(renderTemplate(name, row, REPO_ROOT));
+				if (!isShippedDigest(ledger, name, digest)) missing.push(`${name} (${row.id}) ${digest}`);
+			}
+		}
+		// RED when a template is edited and the ledger not: the edit must add its new digest
+		// (bun run scripts/shipped_digests_update.ts appends exactly these)
+		expect(missing, 'run: bun run scripts/shipped_digests_update.ts').toEqual([]);
+		// no digest twice, every list non-empty
+		for (const [name, digests] of Object.entries(ledger.templates)) {
+			expect(digests.length, name).toBeGreaterThan(0);
+			expect(new Set(digests).size, name).toBe(digests.length);
+		}
+	});
+
+	/**
+	 * Judged against GIT HISTORY, not HEAD: CI and the pre-push gate run on a clean
+	 * checkout where HEAD IS the working tree, so a HEAD-only comparison compared
+	 * every file with itself and could not fail (review 2026-11-14). Every COMMITTED
+	 * render of every template (each commit that touched it, every OS row) must be in
+	 * the ledger, and every committed version of the ledger must be a subset of this
+	 * one — a regenerated or hand-pruned ledger reds here on the commit that ships
+	 * it. Anti-vacuity: the history must be visible (full clones everywhere: CI
+	 * checks out with fetch-depth 0), so a shallow run cannot pass by seeing nothing.
+	 */
+	const commitsTouching = (path: string): string[] =>
+		git('log', '--format=%H', '--', path)
+			.split('\n')
+			.filter((sha) => sha !== '');
+	const committedText = (sha: string, path: string): string | null => {
+		const run = Bun.spawnSync(['git', '-C', REPO_ROOT, 'show', `${sha}:${path}`]);
+		return run.exitCode === 0 ? run.stdout.toString() : null;
+	};
+
+	test('every COMMITTED render of every template (each commit that touched it × OS row) is in the ledger — the old digests survive every edit', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		const missing: string[] = [];
+		let judged = 0;
+		for (const name of UNIT_TEMPLATES) {
+			const shas = commitsTouching(`deploy/systemd/${name}`);
+			expect(shas.length, `${name}: no committed version visible (shallow clone?)`).toBeGreaterThan(
+				0,
+			);
+			for (const sha of shas) {
+				const committed = committedText(sha, `deploy/systemd/${name}`);
+				if (committed === null) continue; // the commit deleted it (a rename's old path)
+				judged += 1;
+				for (const row of OS_ROWS) {
+					const digest = digestOf(committed.replace(/@@PG_SERVICE@@/g, row.pgService));
+					if (!isShippedDigest(ledger, name, digest))
+						missing.push(`${name} @${sha.slice(0, 10)} (${row.id}) ${digest}`);
+				}
+			}
+		}
+		// the server template has shipped more than once: the history leg judges real past renders
+		expect(commitsTouching('deploy/systemd/dedalo-ts@.service').length).toBeGreaterThan(1);
+		expect(judged).toBeGreaterThan(UNIT_TEMPLATES.length);
+		expect(missing).toEqual([]);
+	});
+
+	test('every COMMITTED version of the ledger is a subset of this one (append-only: a digest once shipped is never dropped)', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		const shas = commitsTouching(SHIPPED_DIGESTS_FILE);
+		expect(shas.length, 'no committed ledger visible (shallow clone?)').toBeGreaterThan(0);
+		const dropped: string[] = [];
+		for (const sha of shas) {
+			const text = committedText(sha, SHIPPED_DIGESTS_FILE);
+			if (text === null) continue;
+			const past = parseShippedDigests(text);
+			if (typeof past === 'string') throw new Error(`${sha.slice(0, 10)}'s ledger: ${past}`);
+			for (const [name, digests] of Object.entries(past.templates)) {
+				for (const digest of digests) {
+					if (!(ledger.templates[name] ?? []).includes(digest))
+						dropped.push(`${name} ${digest} (shipped at ${sha.slice(0, 10)})`);
+				}
+			}
+		}
+		expect(dropped).toEqual([]);
+		// anti-vacuity: a ledger missing one committed digest is caught
+		const first = shas[shas.length - 1] as string;
+		const oldest = parseShippedDigests(committedText(first, SHIPPED_DIGESTS_FILE) ?? '');
+		if (typeof oldest === 'string') throw new Error(oldest);
+		const [someName, someDigests] = Object.entries(oldest.templates)[0] as [string, string[]];
+		const pruned = {
+			...ledger,
+			templates: {
+				...ledger.templates,
+				[someName]: (ledger.templates[someName] ?? []).filter((d) => d !== someDigests[0]),
+			},
+		};
+		expect(
+			isShippedDigest(
+				pruned,
+				someName as (typeof UNIT_TEMPLATES)[number],
+				someDigests[0] as string,
+			),
+		).toBe(false);
+	});
+
+	test('positive controls: a digest no release shipped is not shipped; a malformed ledger is refused by its reason', () => {
+		const ledger = readShippedDigests(REPO_ROOT);
+		expect(isShippedDigest(ledger, 'dedalo-ts@.service', 'f'.repeat(64))).toBe(false);
+		expect(
+			isShippedDigest(ledger, 'dedalo-ts@.service', digestOf('[Service]\nExecStart=/x\n')),
+		).toBe(false);
+		expect(parseShippedDigests('{ not json')).toBe('not JSON');
+		expect(parseShippedDigests('[]')).toBe('format undefined, expected 1');
+		expect(parseShippedDigests('{"format":2,"templates":{}}')).toBe('format 2, expected 1');
+		expect(parseShippedDigests('{"format":1}')).toBe('no templates map');
+		expect(parseShippedDigests('{"format":1,"templates":{"a@.service":["xyz"]}}')).toBe(
+			'a@.service: not a list of sha256 hex digests',
+		);
+		expect(
+			typeof parseShippedDigests(readFileSync(join(REPO_ROOT, SHIPPED_DIGESTS_FILE), 'utf8')),
+		).toBe('object');
+	});
+});
+
 // ── (e) the media rules, copied validated (deploy/dedalo-media-rules.sh) ─────
 
 describe("the engine's media rules reach root's nginx only as validated copies (e)", () => {
@@ -823,7 +1187,8 @@ describe('nginx: the host-wide catch-all (g — campaign 3 C3-30)', () => {
 		expect(catchAllWrites(productionPlanCtx(files))).toHaveLength(1);
 	});
 
-	const NGINX_IMAGE = 'nginx:alpine';
+	/** The full stack's own pinned nginx (T1-17: the stack file is the one spelling). */
+	const NGINX_IMAGE = stackServiceImage(REPO_ROOT, 'docker-compose.yml', 'nginx');
 	/** Run nginx in `image` over `files` (conf.d), then `requests` (one wget each); answers stdout. */
 	function realNginx(files: Record<string, string>, requests: Record<string, string>): string {
 		const dir = mkdtempSync(join(tmpdir(), 'dedalo_catch_all_'));

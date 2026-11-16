@@ -50,7 +50,10 @@ regexes = [
 ]
 
 # ---------------------------------------------------------------------------
-# HISTORY ONLY (the weekly full-history scan; none of this exists in the tree).
+# HISTORY ONLY (the weekly full-history scan): files that existed only in EARLIER
+# revisions. Every entry is an EXACT path that matches no tracked file today —
+# held by test/unit/ci_workflow_tripwire.test.ts, so this block can never again
+# whitelist a tree we ship.
 #
 # The 2026-08-03 first full run reported 178 hits over 38,980 commits and 3.8 GB.
 # Every one was triaged; NONE was a live Dédalo credential. What they were:
@@ -62,14 +65,37 @@ regexes = [
 #     and a CloudMade key inside COMMENTED-OUT example URLs (2020, 2023). Mapbox `pk.`
 #     tokens are public by design (they ship in client JS and are restricted by
 #     referrer), and CloudMade has not existed for a decade. Retired PHP client.
+#
+# `vendor/` IS A SHIPPED TREE (T1-17, 2026-11-12): the TS client vendors ckeditor,
+# pdfjs, json-view, lz-string and transformers there (vendor/vendor_manifest.json),
+# so the old `^vendor/` prefix kept every future commit under it out of the history
+# scan. It is replaced by the exact PHP-era files the history scan reports, measured
+# 2026-11-12 with the security.yml image over 41,621 commits: 26 hits in 11 files,
+# all third-party example keys / library fixtures (php-saml + lightsaml sample SP
+# keys, react's example PEMs, symfony/mime's MIME table, soda-php's public demo
+# page token for data.austintexas.gov).
+# `^lib/` IS GONE TOO (owner ruling C23, 2026-11-13): the PHP-era `lib/` tree held
+# first-party files (lib/dedalo/config/…), so the prefix kept Dédalo's OWN history out of
+# the scan. Measured 2026-11-13 with the security.yml image over 41,722 commits (3.96 GB,
+# 9m44s) with the prefix removed: 0 hits under lib/ — nothing to list, so the block holds
+# exact paths only.
 # Recorded here rather than in a report, because the alternative is a weekly job that
 # is permanently red and therefore permanently unread.
 # ---------------------------------------------------------------------------
 [[allowlists]]
-description = "Vendored PHP/JS dependency trees that existed only before the TS cutover — third-party example keys, deleted from the current tree."
+description = "History-only files: PHP-era vendored dependency trees and retired client files, deleted from the tree — third-party example keys and fixtures. Exact paths only (no prefix: the PHP-era vendor/ and lib/ trees are scanned file by file); a file we ship is never listed here."
 paths = [
-  '''^vendor/''',
-  '''^lib/''',
+  '''^vendor/lightsaml/lightsaml/web/sp/saml\.key$''',
+  '''^vendor/onelogin/php-saml/certs/private\.key$''',
+  '''^vendor/onelogin/php-saml/lib/Saml2/Utils\.php$''',
+  '''^vendor/onelogin/php-saml/src/Saml2/Utils\.php$''',
+  '''^vendor/onelogin/php-saml_DES/certs/private\.key$''',
+  '''^vendor/onelogin/php-saml_DES/src/Saml2/Utils\.php$''',
+  '''^vendor/react/http/examples/localhost\.pem$''',
+  '''^vendor/react/socket/examples/localhost\.pem$''',
+  '''^vendor/react/socket/examples/localhost_swordfish\.pem$''',
+  '''^vendor/socrata/soda-php/public/index\.php$''',
+  '''^vendor/symfony/mime/MimeTypes\.php$''',
   '''^core/component_geolocation/js/component_geolocation\.js$''',
   # HuggingFace transformers.js, vendored minified (2026-06-08 … 2026-07-11): `unk_token,`
   # reads as a key. Third-party bytes, removed from the tree by 27f727cb91.

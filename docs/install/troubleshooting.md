@@ -43,6 +43,7 @@ The socket's directory is the instance's own (`0750`): `curl` reaches it as root
 | `no sha256sum (coreutils) on this host`, `unzip is not installed …`, `curl is not installed …` | a minimal system without the bootstrap's tools | install them (`apt-get install curl unzip coreutils`, or `dnf install curl unzip coreutils`) and run again — see [Get Dédalo](index.md#get-dedalo) |
 | `musl libc (…): no supported Bun build` | a musl-based Linux (Alpine) | use a glibc distribution |
 | `no Bun build for CPU '…'` | neither x86_64 nor aarch64 | use a supported CPU |
+| `--release-sha256 takes the 64 hex digits of the release's sha256, not '<value>'` | the address of the `.sha256` file (or a file name) was given instead of the digest | pass the digits: `curl -fsSL <archive url>.sha256 \| cut -c1-64` — see [Get Dédalo](index.md#get-dedalo) |
 | a `--release` whose sha256 does not match `--release-sha256` | the archive is not the one you meant, or it was damaged in transit | fetch it again and compare the sha256 against the one the release publishes; there is no "accept anyway" |
 | the Bun zip does not match the release's hash table, or Bun's `SHASUMS256.txt` disagrees | a damaged or substituted download | remove the cached zip (under `/var/lib/dedalo-install/bun/` as root, `~/.cache/dedalo-install/bun/` otherwise) and run again; behind a proxy, `--offline-bun <zip> [<SHASUMS256.txt>]` or `--mirror <https base url>` |
 
@@ -189,6 +190,16 @@ Which rows appear depends on the route:
 | **Production** | `ok` when `psql` is absent: the installer installs PostgreSQL 18 itself. A warning when a `psql` of another major is present; the install's own system check (`host_preflight`) refuses another major's cluster on the database port with `--db-mode create` (see [the production System check](#the-production-system-check-refuses)) | **Operating system**, **Privilege** (`root`), **Firewall** (a warning when ports 80 and 443 are closed, with the command that opens them — see [The firewall](#the-firewall-closes-the-sites-ports); not shown on a system the route does not support: the firewall is read the way that system's row reads it, so the **Operating system** refusal comes alone), Bun, the install seed, the private directory (created by the installer), then the diagnostics: platform, memory, processor, disk, ImageMagick and FFmpeg (installed by the installer), cURL, OpenSSL |
 | **Docker**, **Trial** | none: the engine runs in a container and never uses a host `psql` | Bun, the private directory, **Docker**, **Compose**, **Disk** — the same checks, and the same sentences, as [Docker and trial refusals](#docker-and-trial-refusals). A Docker root that cannot be measured is a warning |
 | **Developer** | a failure when no `psql` runs: this route installs into an existing PostgreSQL | Bun, the install seed, the private directory, then the diagnostics: platform, memory, processor, disk, ImageMagick, FFmpeg, cURL, OpenSSL |
+
+Every route also says whether an installation is already there, before any question about the install — the run would refuse it, with the same sentence, only after the Review:
+
+| Route | Row | Fails on |
+| --- | --- | --- |
+| **Developer** | **Installation** | a finished install record in the private directory (`an install record exists at <private>/install/install.state.json (outcome: complete) — this tree is already installed …`), or a sealed state file (`this private directory belongs to a SEALED installation …`). An unfinished record is offered resume or abort on the first screen instead |
+| **Docker**, **Trial** | **Installation** | the instance's private volume, an earlier `.dedalo.env` or `compose.override.yaml` in the checkout ([Docker and trial refusals](#docker-and-trial-refusals)), or the stack's install record in `<checkout>/.dedalo-install/` |
+| **Production** | **Instance** | an installed instance of that name, or an install record under `/var/lib/dedalo-install/<instance>/` — go back to Install type and choose another name |
+
+A fresh install never overwrites a live one: use a fresh checkout or private directory, another instance name, or remove the earlier instance first.
 
 The developer route compares `psql` with the **server** once it is connected, on the Database step: a client older than the server is a warning there (`psql <n> is older than the server (PostgreSQL <m>) …`), because the backups' `pg_dump` refuses a newer server.
 

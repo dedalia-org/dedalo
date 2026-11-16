@@ -148,7 +148,7 @@ bun run scripts/install.ts --plain    # the same questions, one per line
 
 `sh install.sh` from the [installation hub](index.md) starts the same installer: it fetches and verifies the pinned Bun itself, installs the installer's dependencies, then runs `scripts/install.ts` with your arguments. In a checkout where Bun is already installed (step 3), `bun run scripts/install.ts` is the shorter way to the same questions.
 
-The *System check* screen shows Bun, the seed, the private directory and the PostgreSQL client (`psql`, required), then this machine's platform, memory, processor, disk, ImageMagick and FFmpeg; a failed row must be fixed first. A `psql` older than the server is reported by the *Database* screen, once the server's version is known. The *Database* screen checks that the database exists, is reachable and is empty.
+The *System check* screen shows Bun, the seed, the private directory and the PostgreSQL client (`psql`, required), then this machine's platform, memory, processor, disk, ImageMagick and FFmpeg; a failed row must be fixed first. A `psql` older than the server is reported by the *Database* screen, once the server's version is known. A checkout already installed (a finished install record, or a sealed state file, in the private directory) fails the *System check* — use a fresh checkout or private directory. The *Database* screen checks that the database exists, is reachable, is empty and is owned by the install user.
 
 Or headless, for a repeatable setup — `--route developer` is the default when no route is given:
 

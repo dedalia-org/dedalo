@@ -67,6 +67,14 @@ date, the tag range, the commit count (git is read here, once) and the wire-cont
 ids no earlier release claimed. From then on the page is a pure function of this
 directory, which is what lets the gate re-render it without git.
 
+It also **seals the release triple's migrations** (owner ruling C31, 2026-11-13): the
+first build of `X.Y.Z` — its first prerelease, or the release itself — writes the set of
+`incompatible` migrations the ledger assigns to that triple into
+`install/db/migrations.sealed.json` (commit it with the cut). From then on an
+`incompatible` migration added to a sealed triple fails `migration_content_hash_tripwire`
+and must move to the next minor; a `compatible` one may still join it. A later cut of the
+same triple (`7.0.1-beta.3` after `7.0.1-beta.2`) changes nothing.
+
 It also freezes the release's **notes** into `release.json` — the *Action needed*
 titles and one `{type, audience, title}` per fragment, in the page's order:
 

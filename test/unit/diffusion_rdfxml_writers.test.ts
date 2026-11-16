@@ -37,17 +37,16 @@ import * as rdfModule from '../../src/diffusion/writers/rdf.ts';
 import {
 	CONSOLIDATED_MERGED_PREFIX,
 	CONSOLIDATED_ZIP_PREFIX,
-	collectRdfNamespaces,
 	InvalidFileTargetError,
-	langToAlpha2,
 	rdfRecordFileName,
+	rdfUnionOpener,
 	rdfWriter,
-	renderRdfRecord,
 	sanitizeRdfFileName,
 } from '../../src/diffusion/writers/rdf.ts';
 import { getDiffusionWriter } from '../../src/diffusion/writers/registry.ts';
 import * as xmlModule from '../../src/diffusion/writers/xml.ts';
 import {
+	langToAlpha2,
 	renderXmlRecord,
 	sanitizeXmlNodeName,
 	xmlWriter,
@@ -59,6 +58,12 @@ import {
 	mergeRdfPartsOracle as mergeRdfParts,
 	mergeXmlPartsOracle as mergeXmlParts,
 } from '../helpers/merge_oracle.ts';
+import {
+	TEST_DC,
+	TEST_NMO,
+	TEST_RDF_ELEMENT,
+	testRdfDocument,
+} from '../helpers/rdf_test_documents.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 const ROOT = scratchDir('ts_diffusion_rdfxml_writers');
@@ -113,6 +118,8 @@ function plan(
 		recursion: { maxLevels: 2 },
 		langPolicy: { langs, mainLang: langs[0] ?? null },
 		warnings: [],
+		// an rdf plan carries its compiled element (xmlns + service type)
+		...(format === 'rdf' ? { rdf: TEST_RDF_ELEMENT } : {}),
 	};
 }
 
@@ -251,176 +258,105 @@ describe('rdf file name grammar (delete-side lockstep)', () => {
 // ------------------------------------------------------------ rdf writer
 
 describe('rdf writer', () => {
-	const rows2records2langs = [
-		row(1, 'lg-eng', {
-			'dc:title': 'Iberian coin',
-			'dc:identifier': '1',
-			'nmo:hasMaterial': 'silver & <bronze>',
-			'skos:prefLabel': null, // null column: omitted for this lang
-			internal_notes: 'NEVER',
-		}),
-		row(1, 'lg-spa', {
-			'dc:title': 'Moneda ibérica',
-			'dc:identifier': '1',
-			'nmo:hasMaterial': 'plata',
-			'skos:prefLabel': null,
-			internal_notes: 'NEVER',
-		}),
-		row(2, 'lg-eng', {
-			'dc:title': 'Second coin',
-			'dc:identifier': '2',
-			'nmo:hasMaterial': null,
-			'skos:prefLabel': 'coin',
-			internal_notes: 'NEVER',
-		}),
-		row(2, 'lg-spa', {
-			'dc:title': 'Segunda moneda',
-			'dc:identifier': '2',
-			'nmo:hasMaterial': null,
-			'skos:prefLabel': 'moneda',
-			internal_notes: 'NEVER',
-		}),
+	// Two records' GRAPHS (the writer serialises graphs — resolve/rdf_graph.ts
+	// builds them; rdf_xml_serialiser.test.ts pins the serialisation itself).
+	const twoRecords = () => [
+		testRdfDocument(
+			1,
+			[
+				['Iberian coin', 'en'],
+				['Moneda ibérica', 'es'],
+			],
+			[[`${TEST_NMO}hasMaterial`, 'silver & <bronze>']],
+		),
+		testRdfDocument(2, [
+			['Second coin', 'en'],
+			['Segunda moneda', 'es'],
+		]),
 	];
 
-	test('2 records x 2 langs: envelope, namespaces, xml:lang literals, omissions', async () => {
+	test('2 records: one EasyRdf document each, declared xmlns, xml:lang literals, escaping', async () => {
 		const sectionPlan = rdfSection();
 		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf'));
 		await session.ensureSchema();
-		await session.writeRows(sectionPlan, rows2records2langs);
+		await session.writeGraphs?.(sectionPlan, twoRecords());
 		const summary = await session.close();
 
 		const dir = `${ROOT}/rdf/svc_rdf`;
 		const doc = readFileSync(`${dir}/nmonumismaticobject-test6100-1.rdf`, 'utf-8');
 		expect(existsSync(`${dir}/nmonumismaticobject-test6100-2.rdf`)).toBe(true);
-
-		// ---- REAL-FILE PINS (byte fragments from the PHP-published fixture
-		// media_monedaiberica/rdf/nomisma/nmonumismaticobject-test6100-1-*.rdf):
-		// EasyRdf declaration (space before '?>')
+		// EasyRdf declaration (space before '?>'), envelope + 9-space continuation
 		expect(doc.startsWith('<?xml version="1.0" encoding="utf-8" ?>\n')).toBe(true);
-		// envelope opening + 9-space xmlns continuation indent
 		expect(doc).toContain('<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"');
-		expect(doc).toContain('\n         xmlns:nmo="http://nomisma.org/ontology#"');
-		// dc resolves to the purl dcterms URI the real file declares
-		expect(doc).toContain('xmlns:dc="http://purl.org/dc/terms/"');
-		// 2-space entity indent + 4-space predicate indent, xml:lang alpha2
-		expect(doc).toContain('\n  <nmo:NumismaticObject rdf:about="');
-		expect(doc).toContain('\n    <dc:title xml:lang="es">Moneda ibérica</dc:title>');
+		expect(doc).toContain(`\n         xmlns:nmo="${TEST_NMO}"`);
+		// dcterms IRIs publish under EasyRdf's 'dc' prefix (initial table order)
+		expect(doc).toContain(`xmlns:dc="${TEST_DC}"`);
+		// the SUBJECT is the record's IRI — never a urn:dedalo fallback
+		expect(doc).toContain('\n  <nmo:NumismaticObject rdf:about="https://example.test/record/1">');
+		expect(doc).not.toContain('urn:dedalo');
 		expect(doc).toContain('\n    <dc:title xml:lang="en">Iberian coin</dc:title>');
-		expect(doc.trimEnd().endsWith('</rdf:RDF>')).toBe(true);
-
-		// deterministic urn subject (no dd1010 I/O in writers — ledgered)
-		expect(doc).toContain('rdf:about="urn:dedalo:record:test6100:1"');
-		// escaping
+		expect(doc).toContain('\n    <dc:title xml:lang="es">Moneda ibérica</dc:title>');
 		expect(doc).toContain('silver &amp; &lt;bronze&gt;');
-		// null column omitted; excludeColumn never emitted
-		expect(doc).not.toContain('skos:prefLabel');
-		expect(doc).not.toContain('NEVER');
-		// determinism: no wall-clock anywhere
 		expect(doc).not.toMatch(/20\d\d-/);
 		assertWellFormedXml(doc);
-
-		// record 2: skos emitted, nmo:hasMaterial omitted
+		// EasyRdf declares only the prefixes a document uses
 		const doc2 = readFileSync(`${dir}/nmonumismaticobject-test6100-2.rdf`, 'utf-8');
-		expect(doc2).toContain('<skos:prefLabel xml:lang="es">moneda</skos:prefLabel>');
-		expect(doc2).not.toContain('nmo:hasMaterial>');
+		expect(doc2).not.toContain('nmo:hasMaterial');
 		assertWellFormedXml(doc2);
 
-		// summary: per-table counters first, consolidated entries appended
 		expect(summary.tables[0]).toEqual({
 			table_name: 'nmo:NumismaticObject',
 			records_affected: 2,
-			records_count: 4,
+			records_count: 2,
 		});
 		expect(summary.errors).toEqual([]);
 		expect(tempFilesIn(dir)).toEqual([]);
 	});
 
-	test('re-render is byte-identical (determinism gate)', () => {
+	test('re-publishing the same graphs is byte-identical (determinism gate)', async () => {
 		const sectionPlan = rdfSection();
-		const namespaces = collectRdfNamespaces(sectionPlan);
-		const first = renderRdfRecord(sectionPlan, 1, rows2records2langs.slice(0, 2), namespaces);
-		const second = renderRdfRecord(sectionPlan, 1, rows2records2langs.slice(0, 2), namespaces);
-		expect(first).toBe(second);
+		const read = async (): Promise<string> => {
+			const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_determinism'));
+			await session.ensureSchema();
+			await session.writeGraphs?.(sectionPlan, twoRecords());
+			await session.close();
+			return readFileSync(
+				`${ROOT}/rdf/svc_rdf_determinism/nmonumismaticobject-test6100-1.rdf`,
+				'utf-8',
+			);
+		};
+		const first = await read();
+		expect(first.length).toBeGreaterThan(0);
+		expect(await read()).toBe(first);
 	});
 
-	test('rdf:about column overrides the urn subject and is not emitted as predicate', () => {
-		const sectionPlan = section('nmo:NumismaticObject', 'test6100', [
-			field('rdf:about'),
-			field('dc:title'),
-		]);
-		const doc = renderRdfRecord(
-			sectionPlan,
-			7,
-			[row(7, 'lg-eng', { 'rdf:about': 'https://monedaiberica.org/coin/7', 'dc:title': 'x' })],
-			collectRdfNamespaces(sectionPlan),
-		);
-		expect(doc).toContain('rdf:about="https://monedaiberica.org/coin/7"');
-		expect(doc).not.toContain('urn:dedalo:record');
-		expect(doc).not.toContain('<rdf:about>');
-		assertWellFormedXml(doc);
-	});
-
-	test('unknown namespace prefix: urn fallback in the doc + LOUD summary error', async () => {
-		const sectionPlan = section('mystery:Thing', 'rxt1', [field('mystery:label')]);
-		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_unknown'));
-		await session.ensureSchema();
-		await session.writeRows(sectionPlan, [row(1, 'lg-eng', { 'mystery:label': 'v' })]);
-		const summary = await session.close();
-		const doc = readFileSync(
-			`${ROOT}/rdf/svc_rdf_unknown/${rdfRecordFileName(sectionPlan, 1)}`,
-			'utf-8',
-		);
-		expect(doc).toContain('xmlns:mystery="urn:dedalo:xmlns:mystery#"');
-		expect(summary.errors.length).toBe(1);
-		expect(summary.errors[0]).toContain("prefix 'mystery'");
-	});
-
-	// DIFF-1: a writer diagnostic reported BEFORE a crash is part of the run's
-	// report — it rides the writer checkpoint and is restored by the resume. The
-	// resumed batch uses a KNOWN vocabulary, so only the restore can produce it.
-	test('a writer error line reported before a crash survives the resume (checkpoint → restore)', async () => {
-		const mystery = section('mystery:Thing', 'rxt9', [field('mystery:label')]);
-		const known = section('dc:Thing', 'rxt10', [field('dc:title')]);
-		const service = 'svc_rdf_resume_errors';
-		const jobId = '00000000-0000-4000-8000-000000000301';
-		const first = await rdfWriter.open(plan('rdf', [mystery, known], service), {
-			jobId,
-			resume: null,
-		});
-		await first.ensureSchema();
-		await first.writeRows(mystery, [row(1, 'lg-eng', { 'mystery:label': 'v' })]);
-		const events = first.takeArtifacts?.() ?? [];
-		const checkpoint = await first.checkpoint?.();
-		// the process dies here: no abort, no close
-		const resumed = await rdfWriter.open(plan('rdf', [mystery, known], service), {
-			jobId,
-			resume: checkpoint ?? null,
-		});
-		await resumed.ensureSchema();
-		await resumed.writeRows(known, [row(2, 'lg-eng', { 'dc:title': 'known' })]);
-		const summary = await resumed.close(
-			localCloseContext([...events, ...(resumed.takeArtifacts?.() ?? [])]),
-		);
-		expect(
-			summary.errors.some((line) => line.includes("prefix 'mystery'")),
-			"the resumed run forgot the crashed attempt's writer error line",
-		).toBe(true);
-	});
-
-	test('invalid QName label throws loudly (labels reach the document verbatim)', async () => {
-		const sectionPlan = section('bad label with spaces', 'rxt2', [field('dc:title')]);
-		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_badname'));
+	test('rows are REFUSED: an rdf plan publishes graphs, never a flat column document', async () => {
+		const sectionPlan = rdfSection();
+		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_rows'));
 		await session.ensureSchema();
 		await expect(
 			session.writeRows(sectionPlan, [row(1, 'lg-eng', { 'dc:title': 'v' })]),
-		).rejects.toThrow('not a valid XML QName');
+		).rejects.toThrow('written as graphs');
+		expect(existsSync(`${ROOT}/rdf/svc_rdf_rows/nmonumismaticobject-test6100-1.rdf`)).toBe(false);
+		// an empty batch stays a no-op
+		expect(await session.writeRows(sectionPlan, [])).toEqual({ written: 0, deleted: 0 });
 	});
+
+	test('open() refuses a plan without its compiled rdf element (xmlns, service type)', async () => {
+		const sectionPlan = rdfSection();
+		const { rdf: _dropped, ...withoutElement } = plan('rdf', [sectionPlan], 'svc_rdf_noelement');
+		await expect(rdfWriter.open(withoutElement)).rejects.toThrow('no compiled rdf element');
+	});
+
+	// DIFF-1 (a pre-crash writer error line survives the resume) has no rdf leg
+	// any more: the graph writer reports nothing before close — the shared
+	// WriterRunLog restore is gated in diffusion_file_writers (markdown/xml).
 
 	test('removeRecords: canonical + legacy {base}_*.rdf variants, idempotent', async () => {
 		const sectionPlan = rdfSection();
 		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_rm'));
 		await session.ensureSchema();
-		await session.writeRows(sectionPlan, rows2records2langs.slice(0, 2));
+		await session.writeGraphs?.(sectionPlan, twoRecords().slice(0, 1));
 		const dir = `${ROOT}/rdf/svc_rdf_rm`;
 		// plant a legacy timestamped variant (pre-deterministic naming era)
 		const legacy = `${dir}/nmonumismaticobject-test6100-1_2019-01-01.rdf`;
@@ -446,7 +382,7 @@ describe('rdf writer', () => {
 		const sectionPlan = rdfSection();
 		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_merge'));
 		await session.ensureSchema();
-		await session.writeRows(sectionPlan, rows2records2langs);
+		await session.writeGraphs?.(sectionPlan, twoRecords());
 		const summary = await session.close();
 
 		const dir = `${ROOT}/rdf/svc_rdf_merge`;
@@ -483,7 +419,7 @@ describe('rdf writer', () => {
 		const sectionPlan = rdfSection();
 		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_abort'));
 		await session.ensureSchema();
-		await session.writeRows(sectionPlan, rows2records2langs.slice(0, 2));
+		await session.writeGraphs?.(sectionPlan, twoRecords().slice(0, 1));
 		const dir = `${ROOT}/rdf/svc_rdf_abort`;
 		writeFileSync(`${dir}/diffusion_rdf_merged.rdf.tmp-crashed`, 'partial');
 		await session.abort();
@@ -504,7 +440,7 @@ describe('rdf writer', () => {
 		const openWritten = async () => {
 			const session = await rdfWriter.open(plan('rdf', [sectionPlan], service));
 			await session.ensureSchema();
-			await session.writeRows(sectionPlan, rows2records2langs.slice(0, 2));
+			await session.writeGraphs?.(sectionPlan, twoRecords().slice(0, 1));
 			writeFileSync(stale, 'a partial archive of a dead holder');
 			return session;
 		};
@@ -527,7 +463,7 @@ describe('rdf writer', () => {
 		const sectionPlan = rdfSection();
 		const session = await rdfWriter.open(plan('rdf', [sectionPlan], 'svc_rdf_missing'));
 		await session.ensureSchema();
-		await session.writeRows(sectionPlan, rows2records2langs);
+		await session.writeGraphs?.(sectionPlan, twoRecords());
 		const dir = `${ROOT}/rdf/svc_rdf_missing`;
 		rmSync(`${dir}/nmonumismaticobject-test6100-2.rdf`);
 		const summary = await session.close(localCloseContext(session.takeArtifacts()));
@@ -857,6 +793,79 @@ function fuzzParts(random: () => number, pool: string[]): string[] {
 const FUZZ_SEED = 20260930;
 const FUZZ_ROUNDS = 60;
 
+/**
+ * The rdf merge's expected bytes: the frozen oracle, EXCEPT its envelope
+ * declares the UNION of the parts' xmlns (T1-4 —
+ * WC-2026-11-12-rdf-graph-interpretation): EasyRdf declares only the prefixes
+ * a document uses, so the first part's opener alone can leave a later block's
+ * prefix undeclared. Whenever no later part adds a prefix this IS the oracle.
+ */
+function expectedRdfMerge(parts: string[]): string {
+	const merged = mergeRdfParts(parts);
+	const nonEmpty = parts.filter((part) => part && part.trim().length > 0);
+	if (nonEmpty.length < 2) return merged;
+	const openerOf = (part: string) => part.match(/<rdf:RDF[^>]*>/s)?.[0];
+	const firstOpener = openerOf(nonEmpty[0] as string) ?? '<rdf:RDF>';
+	const declarationsOf = (opener: string) => [...opener.matchAll(/xmlns:([\w.-]+)="([^"]*)"/g)];
+	const declared = new Set(declarationsOf(firstOpener).map((match) => match[1]));
+	const firstHasDeclarations = declared.size > 0;
+	const additions: string[] = [];
+	for (const part of nonEmpty.slice(1)) {
+		const opener = openerOf(part);
+		if (opener === undefined) continue;
+		for (const match of declarationsOf(opener)) {
+			if (declared.has(match[1])) continue;
+			declared.add(match[1]);
+			additions.push(match[0]);
+		}
+	}
+	if (additions.length === 0) return merged;
+	const union = `${firstOpener.slice(0, -1)}${additions
+		.map((declaration, index) =>
+			index === 0 && !firstHasDeclarations ? ` ${declaration}` : `\n         ${declaration}`,
+		)
+		.join('')}>`;
+	const header = '<?xml version="1.0" encoding="utf-8"?>\n';
+	expect(merged.startsWith(`${header}${firstOpener}`)).toBe(true);
+	return `${header}${union}${merged.slice(header.length + firstOpener.length)}`;
+}
+
+describe("rdf merge: the envelope declares the UNION of the parts' xmlns (T1-4)", () => {
+	test('a prefix only a LATER part declares reaches the merged envelope', async () => {
+		const merged = await streamedMerge(rdfModule.writeMergedRdf, 'writeMergedRdf', [RDF_B, RDF_A]);
+		expect(merged).toContain(
+			'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"\n         xmlns:dc="http://purl.org/dc/elements/1.1/">',
+		);
+		expect(merged).toBe(expectedRdfMerge([RDF_B, RDF_A]));
+		// the oracle (first envelope only) would have left dc undeclared
+		expect(mergeRdfParts([RDF_B, RDF_A])).not.toContain('xmlns:dc=');
+	});
+
+	test('a prefix bound to two URIs across one run is REFUSED, nothing lands', async () => {
+		const clash = RDF_A.replace('http://purl.org/dc/elements/1.1/', 'http://example.test/other#');
+		const dir = `${MERGE_DIR}/${mergeCase++}`;
+		mkdirSync(dir, { recursive: true });
+		const paths = [RDF_A, clash].map((part, index) => {
+			const path = `${dir}/part_${index}`;
+			writeFileSync(path, part, 'utf-8');
+			return path;
+		});
+		await expect(rdfModule.writeMergedRdf(iterate(paths), `${dir}/merged.out`)).rejects.toThrow(
+			"prefix 'dc' is bound to",
+		);
+		expect(existsSync(`${dir}/merged.out`)).toBe(false);
+		expect(readdirSync(dir).filter((name) => name.includes('.tmp-'))).toEqual([]);
+	});
+
+	test('rdfUnionOpener: no addition returns the first opener verbatim', () => {
+		const opener = '<rdf:RDF xmlns:rdf="r#"\n         xmlns:dc="d#">';
+		expect(rdfUnionOpener(opener, ['<rdf:RDF xmlns:dc="d#">'])).toBe(opener);
+		expect(rdfUnionOpener('<rdf:RDF>', ['<rdf:RDF xmlns:a="a#" xmlns:b="b#">'])).toBe(
+			'<rdf:RDF xmlns:a="a#"\n         xmlns:b="b#">',
+		);
+	});
+});
+
 describe('streamed merge == frozen oracle (PERF-2/DIFF-4)', () => {
 	for (const [name, parts] of Object.entries(RDF_CASES)) {
 		test(`rdf: ${name}`, async () => {
@@ -868,7 +877,7 @@ describe('streamed merge == frozen oracle (PERF-2/DIFF-4)', () => {
 			// A BOM case must carry the BOM INTO the merged bytes, or it gates nothing
 			// (with two rooted parts the envelope is a constant header).
 			if (name.startsWith('BOM visible')) expect(mergeRdfParts(parts)).toContain('\uFEFF');
-			expect(merged).toBe(mergeRdfParts(parts));
+			expect(merged).toBe(expectedRdfMerge(parts));
 		});
 	}
 	for (const [name, parts] of Object.entries(XML_CASES)) {
@@ -892,7 +901,7 @@ describe('streamed merge == frozen oracle (PERF-2/DIFF-4)', () => {
 					'writeMergedRdf',
 					rdfParts,
 				),
-			).toBe(mergeRdfParts(rdfParts));
+			).toBe(expectedRdfMerge(rdfParts));
 			const xmlParts = fuzzParts(random, [XML_A, XML_B, '<other/>', ' ', '']);
 			expect(
 				await streamedMerge(
@@ -968,15 +977,17 @@ describe('a record GONE between the merge pass and the zip pass', () => {
 				plan(format, [sectionPlan], service),
 			);
 			await session.ensureSchema();
-			await session.writeRows(
-				sectionPlan,
-				format === 'rdf'
-					? [
-							row(1, 'lg-eng', { 'dc:title': 'one', 'dc:identifier': '1' }),
-							row(2, 'lg-eng', { 'dc:title': 'two', 'dc:identifier': '2' }),
-						]
-					: [row(1, 'lg-eng', { title: 'one' }), row(2, 'lg-eng', { title: 'two' })],
-			);
+			if (format === 'rdf') {
+				await session.writeGraphs?.(sectionPlan, [
+					testRdfDocument(1, [['one', 'en']]),
+					testRdfDocument(2, [['two', 'en']]),
+				]);
+			} else {
+				await session.writeRows(sectionPlan, [
+					row(1, 'lg-eng', { title: 'one' }),
+					row(2, 'lg-eng', { title: 'two' }),
+				]);
+			}
 			const recordFiles = readdirSync(dir)
 				.filter((name) => !name.includes('.tmp-'))
 				.sort();

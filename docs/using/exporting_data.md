@@ -595,6 +595,30 @@ the walk rather than an override method.
   `derived` model (`component_inverse`, `component_relation_children`,
   `component_relation_index`), which owns no stored value: its cell wraps the
   computed value, and the import skips derived models.
+- `component_json`, `component_geolocation`, `component_security_access` and
+  `component_filter_records` are the `json` flatValue family:
+  one atom per stored item, its JSON — `JSON.stringify` with every `/` written
+  `\/` and every `&` written `\u0026`, so the text cleanup below never rewrites
+  it and the cell always parses back to the stored item. A geolocation entry is
+  encoded as a list row serves it — the view and `lib_data`, without the map
+  `sources` / `legend`, which only `dedalo_raw` carries
+  (`WC-2026-11-12-export-json-geolocation-cells`). A profile's permission map
+  and a user's record filter export this way too, under the ordinary column
+  permission (`WC-2026-11-13-export-acl-components-exportable`).
+- Every `value` and `grid_value` cell is cleaned to plain text after the join
+  (`src/diffusion/export/clean_text.ts cleanTextValue`): the text tag marks
+  (`[index-…]`, `[TC_…_TC]`, `[person-…]`…) are removed
+  (`WC-2026-11-13-export-tag-marks-plain-text`), `</p><p>` becomes a line
+  break, the outer `<p>`…`</p>` is stripped, and 11 HTML entities (`&amp;`,
+  `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;` and their numeric forms `&#38;`,
+  `&#60;`, `&#62;`, `&#39;`, `&#34;`) are decoded in one pass. `dedalo_raw` cells
+  are never cleaned (`WC-2026-11-12-export-text-cell-clean`).
+- Information components (`component_info` and its calculation / state aliases)
+  export every declared widget output, async widgets included — a user activity
+  column holds the computed totals (`WC-2026-11-13-info-derived-async-published`).
+  Media columns carry `cell_type` `img` only for images; audiovisual and 3D
+  columns are `av`, PDF and SVG columns plain URL text
+  (`WC-2026-11-13-export-media-cell-type`).
 - `component_inverse` is the `inverse` flatValue family: one atom per caller,
   value the caller `section_id`, path = the host segment plus a caller-pair
   sub-segment `{section_tipo: from_section_tipo, component_tipo:
@@ -615,7 +639,7 @@ the walk rather than an override method.
 ### Files
 
 - `tools/tool_export/server/tool_export.ts` — the `get_export_grid` facade and the shared SQO section gate (`assertExportSqoSections`).
-- `src/diffusion/export/{compile_columns,atoms,join_atoms,grid,index}.ts` — the unified build: column-set plan compile, shared-walk atoms, the value join, the producer `openExportGrid` and the NDJSON emission (`exportGridUnified`).
+- `src/diffusion/export/{compile_columns,atoms,join_atoms,clean_text,grid,index}.ts` — the unified build: column-set plan compile, shared-walk atoms, the value join, the text-cell cleanup, the producer `openExportGrid` and the NDJSON emission (`exportGridUnified`).
 - `src/core/relations/{config_children,locator_source}.ts` — a relation's children per target and its locators, shared by the export walk and the interactive readers.
 - `tools/tool_export/server/index.ts` — the tool's `ToolServerModule` registration (actions, background lanes, admission).
 - `tools/tool_export/server/export_job.ts` — `build_export_artifact`, `build_export_file`, `list_export_jobs`, per-user admission, the owned-job door.

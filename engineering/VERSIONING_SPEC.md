@@ -1,6 +1,6 @@
 # Versioning spec — builds, installs, data
 
-**Status:** APPROVED 2026-10-27 by the owner (decisions D1–D6 in §8). D1 AMENDED 2026-10-28 (amendment A1 in §8). The code, gates and operator docs must satisfy it. Where they disagree, this spec wins.
+**Status:** APPROVED 2026-10-27 by the owner (decisions D1–D6 in §8). D1 AMENDED 2026-10-28 (amendment A1 in §8). The code, gates and operator docs must satisfy it. Where they disagree, this spec wins. §4, §5, §6, §7 and §9 rewritten 2026-11-12 (T1-25) to the shipped state; §4 rule 8 records the owner ruling of 2026-11-11 on rollback.
 
 This spec says what a version *means* and what each install is allowed to take. The code, gates and operator docs must agree with it. Where they disagree, this spec wins and the disagreement is a bug.
 
@@ -60,71 +60,69 @@ A dev install of `7.0.0-dev` moves to `7.0.0`, then to `7.0.1-beta.N`, `7.0.1-de
 
 ## 4. Data rules
 
-1. **Data changes ship only in a minor or major release.** A patch release never changes data, and the catalog validator refuses a patch with data steps.
-2. **Between data changes, the code runs on the data of the last data-changing release.** Every release in between is data-compatible with it. A patch or minor without data steps needs no Update data.
-3. **Every release has a catalog entry**, even a code-only one (`updateData: false`). The catalog is keyed by the target release as a dotted triple: `7.0.1` is the key `'7.0.1'`, and `7.11.1` is `'7.11.1'`. Concatenated keys such as `'701'` are not allowed: `(7,1,10)` and `(7,11,0)` both read `'7110'`, so the key cannot say which release it names. The key must equal the entry's own `versionMajor.versionMedium.versionMinor`, and the validator refuses any entry where it does not (see D5).
-4. **A data change is declared by a catalog entry with `updateData: true`**, with its `from` version and its steps (`sqlUpdate` and/or `runScripts`). It runs in one transaction. The `matrix_updates` row is written only on success.
+The catalog is `install/update/catalog.json` (grammar and validator: `src/core/update/catalog_file.ts`). Each release declares `compat` (`compatible` or `incompatible`, or none for a code-only release) and, optionally, its `steps` (`code`, `ontology`, `schema`, `data`, `ancillary`).
+
+1. **An `incompatible` change (SQL schema or data) ships only in a minor or major release, never a patch.** A `data` step makes the release `incompatible`. A `compatible` schema or ontology change may ride a patch. The validator refuses an `incompatible` patch, a `data` step declared `compatible`, and a release with a `schema`, `data` or `ontology` step that declares no `compat`; after the line start (`DATA_LINE_START`, `7.0.0`) a migration needs a release that declares `compat`, and an `incompatible` migration needs an `incompatible` release (`migration_content_hash_tripwire`). The line start `7.0.0` is exempt: its builds carry the line's first migrations, `incompatible` ones included, with no catalog rung (`update_docs_claims_tripwire` C11 holds every statement of this rule to the ledger).
+2. **Between data changes, the code runs on the data of the last data-changing release.** Every release in between is data-compatible with it.
+3. **Every release has a catalog entry**, even a code-only one (`{}`). The key is the dotted triple of the release (`'7.0.1'`, `'7.11.1'`), never a concatenation (D5). An entry that declares no steps runs the default order `code → ontology → schema → ancillary`; a `data` step is never a default.
+4. **A data change is a `data` step** (`sql` files and/or registered `scripts`, in `order`). Its `from` is derived (the previous data release), never declared. It runs in one transaction; the `matrix_updates` row is written only on commit.
 5. **Ontology changes that do not touch existing data** (a label, a list of components) ship in any version of their minor. They do not move the data version.
 6. **Nightlies never carry data changes** (see D2). A data change is first shipped in a beta.
-7. **Running a data update is done from the maintenance panel**, after putting Dédalo in maintenance mode and taking a backup. No separate script is run by the operator.
+7. **The update run applies the data change itself.** A code update (*Maintenance → Update code*, or `bun run update`) puts the installation in maintenance mode, takes or proves a fresh backup, swaps the code and runs each walked release's steps, its `data` step included. There is no separate *Update data* and no script the operator runs.
+8. **Rollback across a data model.** After the code swap, a failure puts the previous code back automatically (`ROLLED_BACK_CODE`) unless a database phase (`ontology`, `schema`, `data`) of a WALKED `incompatible` release — one whose triple is above the installed one — has started; then the run ends in `NEEDS_DB_RESTORE` (D-2: a human restores the database with the code). A code-only release and a same-triple run (a prerelease to its next prerelease or its stable, a nightly reinstall) are not counted as crossings (owner ruling 2026-11-11). For a code-only release after the line start this is a checked property (rule 1). For a same-triple run it is the ruling only: nothing holds the builds of one triple to one data model (`7.0.0-beta.8` added an `incompatible` migration over `7.0.0-beta.7`), so such a run's automatic rollback can put back code that does not fit the database; no gate refuses an `incompatible` migration added to a triple after its first build (open, an owner decision). Anything unknown fails closed: a walked release with no plan, a code-only release that declares a database step, an unreadable installed release. The one predicate: `src/core/update/run/rollback.ts`.
 
 ---
 
 ## 5. Version constants
 
-The names must say what the value *means*. The code today uses `DEDALO_VERSION_TRIPLE` for the data version and `DEDALO_NEXT_DEV_TRIPLE` for the next release. Neither name says so.
+One constant per meaning, all in `src/core/update/version.ts` (the only module that may hold a version literal — `update_ownership_tripwire`):
 
-**Proposed names (D6):**
+| Name | Holds | Value | Rule |
+|---|---|---|---|
+| `DEDALO_DATA_VERSION` | The data version, `[major, medium, minor]` | `[7, 0, 0]` | The last data-changing release. Hand-set in the tagged commit of a data release, and held equal to what the catalog derives (`dataVersionOf`) by `data_version_tripwire` (D4). |
+| `DATA_LINE_START` | The first data version of the line | `[7, 0, 0]` | A build with no data entry below its next release is at this triple. |
+| `DEDALO_NEXT_RELEASE` | The release the code builds toward | `[7, 0, 0]` | Hand-set. Names the nightly (`7.0.0-dev`). Moves to the next patch triple in the post-release commit (§6). Never below the data version (`data_version_tripwire`). |
 
-| Current name | Proposed name | Holds | Current value | Rule |
-|---|---|---|---|---|
-| `DEDALO_VERSION_TRIPLE` | `DEDALO_DATA_VERSION` | The data version, as `[major, medium, minor]` | `[7, 0, 0]` | Moves only when a data-changing release ships. Target: derived from the catalog, not hand-set (D4). |
-| `DEDALO_NEXT_DEV_TRIPLE` | `DEDALO_NEXT_RELEASE` | The release the code builds toward, as `[major, medium, minor]` | `[7, 0, 0]` | Hand-set. Moves forward in the post-release commit (§6). Never below the data version. |
+No string copy of a triple exists: text comes from `formatVersion(triple)` (`'7.0.0'`); comparisons use the triple (`compareVersionArrays`). The code version (`7.0.0-beta.7`) is the release identity, derived from the git tag (`release_identity.ts`, `build_stamp.ts`), not a constant.
 
-**One constant per meaning.** `DEDALO_VERSION` (the string) is removed: it is only `DEDALO_VERSION_TRIPLE.join('.')`, a copy that can drift from the triple. Anything that needs the string calls one helper, `formatVersion(DEDALO_DATA_VERSION)`, which returns `'7.0.0'`. Comparisons use the triple.
-
-Why `NEXT_RELEASE` and not `CODE_NEXT_DEV`: the value is a *release* (`7.0.0`). The `-dev` suffix is the *label* a nightly gets, so putting `DEV` in the constant name would suggest the release is itself a dev build.
-
-**Wire keys do not change.** The browser receives `dedalo_data_version` and `dedalo_version`. The rename is in the server only: the JSON names and the client contract stay as they are, and `dedalo_version` is filled from the helper.
-
-**Scope of the rename**, from a grep of `src`, `scripts`, `deploy`, `test` and `client`:
-- `DEDALO_VERSION_TRIPLE` → `DEDALO_DATA_VERSION`: 34 files, 118 lines.
-- `DEDALO_VERSION` (string) is removed: 60 files, 219 lines. Many matches are not the constant (for example, a word inside a string), so the change must be done by symbol, not by text search.
-- `DEDALO_NEXT_DEV_TRIPLE` → `DEDALO_NEXT_RELEASE`: 23 files, 73 lines.
-
-**Current state is wrong** in one place: the next-release value is `7.0.1` while the next release is `7.0.0`. Nightlies are therefore named `7.0.1-dev` when they should be `7.0.0-dev`.
+**Wire keys do not change.** The browser receives `dedalo_data_version` and `dedalo_version`.
 
 ---
 
 ## 6. Release procedure
 
-1. Confirm the catalog has an entry for the target release (`updateData` true or false).
+1. Confirm the catalog has an entry for the target release (`{}` for a code-only one).
 2. Tag the commit (`vX.Y.Z` or `vX.Y.Z-beta.N`).
 3. Build the Docker image for that tag, if the tag is a release or a beta.
 4. If the release is stable, move `DEDALO_NEXT_RELEASE` to the next patch triple in a follow-up commit.
 5. If the release changed data, confirm `DEDALO_DATA_VERSION` matches the catalog entry.
-6. Publish the operator notes: which version Docker installs take, and whether Update data is needed.
+6. Publish the operator notes: which version Docker installs take, and whether the release changes data (its update run then runs a `data` phase and cannot be rolled back without a database restore).
+
+The full procedure is `engineering/RELEASE.md`.
 
 ---
 
 ## 7. Scenarios (acceptance)
 
-Each scenario is a test the gates must pass once this spec is signed off.
+Each scenario has a gate.
 
-| # | Situation | Expected |
-|---|---|---|
-| S1 | Docker `7.0.0-beta.7` → `7.0.0` | Allowed. Same data. |
-| S2 | Docker `7.0.0` → `7.0.1` (code-only patch) | Allowed. No Update data. |
-| S3 | Docker asked for a `-dev` image | Refused, with a message saying Docker has no nightly images. |
-| S4 | Docker `7.0.1` asked for `7.0.0` | Refused as a downgrade. |
-| S5 | Tree dev channel `7.0.0-beta.7` takes nightly `7.0.0-dev` | Allowed (forward). |
-| S6 | Tree master channel `7.0.0` is offered nightly `7.0.1-dev` | Not offered (per D1, default). |
-| S7 | Tree installs `7.1.0`, a minor with data steps | Update data is required before the data version moves. |
-| S8 | A patch `7.0.1` declares data steps | Refused by the catalog validator. |
-| S9 | A commit tagged `v7.0.1` is built as a nightly | Refused (per D3, default). |
-| S10 | Nightly `7.0.0-dev` installed, then `7.0.0` released | Dev install moves to `7.0.0`. Nothing moves back. |
-| S11 | Nightly `7.0.0-dev` (built before the tag) installed, then `v7.0.0-beta.8` published | The beta is NOT offered on any channel (lower identity). Until a new commit lands on `master`, *Build developer release* refuses (D3); the next nightly (same identity) is offered as a reinstall. Gates: `code_manifest.test.ts` (a DEVELOPER build is offered … never the prereleases below it; a dev build reinstalled over ITSELF … the one equal case), `code_build_native.test.ts` (the tagged-commit refusal). |
-| S12 | Tree dev channel `7.0.0` is offered `7.0.1-beta.1` | Offered (higher identity; the dev channel includes the prerelease rung). Gate: `code_manifest.test.ts` (THE LADDER). |
+| # | Situation | Expected | Gate |
+|---|---|---|---|
+| S1 | Docker `7.0.0-beta.7` → `7.0.0` | Allowed. Same data. | `release_identity_walk_native` (same-triple walks), `image_update_channel_native` (check-target census) |
+| S2 | Docker `7.0.0` → `7.0.1` (code-only patch) | Allowed. No data phase. | `image_update_channel_native` (check-target census: next patch) |
+| S3 | Docker asked for a `-dev` image | Refused, with a message saying Docker has no nightly images. | `image_update_request_native`, `image_update_script_native` (a -dev target is refused …), `image_release_native` (the DEV channel is REFUSED by plan) |
+| S4 | Docker `7.0.1` asked for `7.0.0` | Refused as a downgrade. | `image_update_channel_native` (check-target census: downgrade), `release_identity_walk_native` |
+| S5 | Tree dev channel `7.0.0-beta.7` takes nightly `7.0.0-dev` | Allowed (forward). | `code_update.test.ts` (developer archive walk, S5) |
+| S6 | Tree master channel `7.0.0` is offered nightly `7.0.1-dev` | Not offered (per D1, A1). | `code_manifest.test.ts` (a -dev build on disk is NEVER advertised …) |
+| S7 | Tree installs `7.1.0`, a minor with data steps | The run's `data` phase moves the data version, its own rung only. | `update_run_data_rung_native`, `update_full_drill_native` |
+| S8 | A patch `7.0.1` declares data steps | Refused by the catalog validator. | `update_catalog_json_tripwire` (compat D-4: incompatible on a patch, data declared compatible) |
+| S9 | A commit tagged `v7.0.1` is built as a nightly | Refused (per D3). | `code_update.test.ts` (S9), `code_build_native.test.ts` |
+| S10 | Nightly `7.0.0-dev` installed, then `7.0.0` released | Dev install moves to `7.0.0`. Nothing moves back. | `code_update.test.ts` (S10) |
+| S11 | Nightly `7.0.0-dev` (built before the tag) installed, then `v7.0.0-beta.8` published | The beta is NOT offered on any channel (lower identity). Until a new commit lands on `master`, *Build developer release* refuses (D3); the next nightly (same identity) is offered as a reinstall. | `code_manifest.test.ts` (a DEVELOPER build is offered … never the prereleases below it; a dev build reinstalled over ITSELF … the one equal case), `code_build_native.test.ts` (the tagged-commit refusal) |
+| S12 | Tree dev channel `7.0.0` is offered `7.0.1-beta.1` | Offered (higher identity; the dev channel includes the prerelease rung). | `code_manifest.test.ts` (THE LADDER) |
+| S13 | A code-only patch (`7.0.0` → `7.0.1`, no `compat`) fails after the swap | `ROLLED_BACK_CODE`; the rollback sentinel is never marked `needs_restore`. | `rollback_predicate_native` (owner ruling 2026-11-11), `update_run_resume_native` (T1-25) |
+| S14 | A same-version run (`7.0.0-beta.7` → `7.0.0-beta.8`, a prerelease → its stable, a nightly reinstall) fails after the swap | `ROLLED_BACK_CODE`, whatever the catalog says of the triple. | `rollback_predicate_native`, `update_run_resume_native` (T1-25), `update_docs_claims_tripwire` (C3) |
+| S15 | An `incompatible` minor fails after its first database phase started | `NEEDS_DB_RESTORE`; the sentinel is marked before that phase runs. | `rollback_predicate_native`, `update_run_resume_native` (an incompatible data phase failing) |
 
 ---
 
@@ -173,13 +171,14 @@ The text below records each decision and the options considered.
 
 ---
 
-## 9. Gates (to be added once signed off)
+## 9. Gates
 
-- Ordering: the comparator matches §3 for every pair in the ordering fixture.
-- Install acceptance: a test per row of §3 and per scenario in §7.
-- Data: a patch with data steps is refused; a data-changing release has `updateData: true` and a matching `DEDALO_DATA_VERSION`.
-- Next release: `DEDALO_NEXT_RELEASE` is never below `DEDALO_DATA_VERSION`.
-- No `-dev` image name appears in the Docker pull, build or publish path.
+- Ordering: the comparator matches §3 for every pair in the ordering fixture — `release_identity_native` (GATE 8).
+- Install acceptance: the §7 Gate column, one per scenario.
+- Data: a patch with data steps is refused, a data step is `incompatible`, a database step needs `compat` — `update_catalog_json_tripwire`; `DEDALO_DATA_VERSION` is what the catalog derives — `data_version_tripwire`; a nightly carries no data entry — `nightly_no_data_tripwire`.
+- Next release: `DEDALO_NEXT_RELEASE` is never below `DEDALO_DATA_VERSION` — `data_version_tripwire` (NEXT is never below DATA).
+- No `-dev` image name appears in the Docker pull, build or publish path — `image_update_script_native`, `image_update_request_native`, `image_release_native`.
+- Rollback (§4 rule 8): `rollback_predicate_native`, `update_run_resume_native`, `update_docs_claims_tripwire` (the operator table measured against `rollback.ts`).
 
 ---
 

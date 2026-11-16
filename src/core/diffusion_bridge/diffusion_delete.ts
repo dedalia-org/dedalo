@@ -44,7 +44,15 @@
 import { existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { readEnv } from '../../config/env.ts';
 import { canonicalizeStoredSectionId } from '../concepts/section_id.ts';
-import { sql } from '../db/postgres.ts';
+import {
+	type PruneBatchOptions,
+	type PruneCursor,
+	type PruneStepResult,
+	type PruneStepRow,
+	pruneInBatches,
+	pruneStepResult,
+} from '../db/batched_prune.ts';
+import { isInTransaction, sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { fsyncDirectory } from '../files/durable.ts';
 import { assertTestMediaRoot } from '../media/test_media_root.ts';
@@ -53,6 +61,7 @@ import { relationProbeGroups } from '../search/containment.ts';
 import { virtualDateNow } from '../section/record/create_record.ts';
 import type { DiffusionSqlTarget } from './diffusion_graph.ts';
 import { getSectionDiffusionTargets } from './diffusion_map.ts';
+import { globalRowKey } from './global_tables.ts';
 import {
 	diffusionFilesRoot,
 	PER_RECORD_FILE_FORMATS,
@@ -382,23 +391,59 @@ async function executeNativeSqlDeletes(
 	sectionId: number,
 	outcome: DiffusionDeleteOutcome,
 ): Promise<void> {
-	const native = await executor(
-		sqlTargets.map((target) => ({
-			database_name: target.database_name,
-			table_name: target.table_name,
-			section_ids: [sectionId],
-			section_tipo: sectionTipo, // enables media marker removal in the store
-		})),
-	);
+	const native = await executor(nativeDeleteTargetsOf(sqlTargets, sectionTipo, sectionId));
 	const confirmed = new Set(native.deleted);
 	for (const target of sqlTargets) {
 		const key = targetKey(target);
-		if (confirmed.has(key)) outcome.deleted.push(key);
+		if (isTargetConfirmed(target, confirmed)) outcome.deleted.push(key);
 		else outcome.pending.push(key);
 	}
 	if (native.errors.length > 0) {
 		console.error('diffusion unpublish reported errors:', native.errors);
 	}
+}
+
+/**
+ * The executor work of one record's sql targets: each source row, plus its row
+ * in every GLOBAL table the target writes (`<section_tipo>_<section_id>`,
+ * global_tables.ts). A global row carries no section_tipo — no media markers
+ * live under a global table (its source table holds them).
+ */
+function nativeDeleteTargetsOf(
+	sqlTargets: readonly DiffusionSqlTarget[],
+	sectionTipo: string,
+	sectionId: number,
+): NativeSqlDeleteTarget[] {
+	const work: NativeSqlDeleteTarget[] = [];
+	const globalKey = globalRowKey(sectionTipo, sectionId);
+	const seenGlobals = new Set<string>();
+	for (const target of sqlTargets) {
+		work.push({
+			database_name: target.database_name,
+			table_name: target.table_name,
+			section_ids: [sectionId],
+			section_tipo: sectionTipo, // enables media marker removal in the store
+		});
+		for (const globalTable of target.global_tables ?? []) {
+			const key = `${target.database_name}|${globalTable}`;
+			if (seenGlobals.has(key)) continue;
+			seenGlobals.add(key);
+			work.push({
+				database_name: target.database_name,
+				table_name: globalTable,
+				section_ids: [globalKey],
+			});
+		}
+	}
+	return work;
+}
+
+/** A target is unpublished only when its own row AND every global row of it are gone. */
+function isTargetConfirmed(target: DiffusionSqlTarget, confirmed: ReadonlySet<string>): boolean {
+	if (!confirmed.has(targetKey(target))) return false;
+	return (target.global_tables ?? []).every((globalTable) =>
+		confirmed.has(`${target.database_name}|${globalTable}`),
+	);
 }
 
 /**
@@ -700,43 +745,80 @@ export async function logDiffusionActivity(entry: {
  * The window itself lives in the retention registry (core/retention/prune.ts);
  * the statement lives here, because this module owns the table.
  */
-export async function pruneSettledLedgerRows(options: {
-	windowDays: number;
-	apply: boolean;
-	now?: Date;
-}): Promise<{ candidates: number; deleted: number; detail: Record<string, unknown> }> {
+export async function pruneSettledLedgerRows(
+	options: PruneBatchOptions & { windowDays: number; now?: Date },
+): Promise<{ candidates: number; deleted: number; detail: Record<string, unknown> }> {
 	const table = activityTable();
 	const detail: Record<string, unknown> = { table, window_days: options.windowDays };
 	if (options.windowDays <= 0) {
 		return { candidates: 0, deleted: 0, detail: { ...detail, kept: 'no window set' } };
 	}
+	if (isInTransaction()) {
+		// Each batch commits on its own; inside a caller's transaction the
+		// whole prune would be one unit again (T1-24).
+		throw new DedaloError('internal.invariant', {
+			message: 'pruneSettledLedgerRows: must run outside a transaction (each batch commits)',
+			coordinates: { table },
+		});
+	}
 	await ensureDiffusionActivityTable();
 	const cutoff = new Date(
 		(options.now ?? new Date()).getTime() - options.windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
-	const params: string[] = [cutoff];
-	const pending = diffusionActionContains(
-		'relation',
-		DIFFUSION_ACTION.unpublishPending,
-		(payload) => {
-			params.push(payload);
-			return `$${params.length}`;
-		},
+	// KEYSET BATCHES (T1-24 / S17): never one statement over the whole window.
+	const outcome = await pruneInBatches(
+		(after, limit, apply) => pruneSettledLedgerStep(table, cutoff, after, limit, apply),
+		options,
 	);
-	const where = `"timestamp" < $1 AND NOT ${pending}`;
-	const counted = (await sql.unsafe(
-		`SELECT count(*)::int AS n FROM "${table}" WHERE ${where}`,
+	return {
+		candidates: outcome.candidates,
+		deleted: outcome.deleted,
+		detail: {
+			...detail,
+			cutoff,
+			batches: outcome.batches,
+			batch_rows: outcome.batchRows,
+			stopped: outcome.stopped,
+		},
+	};
+}
+
+/**
+ * One keyset step of pruneSettledLedgerRows: the next `limit` SETTLED rows
+ * older than the cutoff after `after` (pending rows are never matched, so never
+ * removed), removed when `apply`. Same predicate dry and apply.
+ */
+async function pruneSettledLedgerStep(
+	table: string,
+	cutoff: string,
+	after: PruneCursor | null,
+	limit: number,
+	apply: boolean,
+): Promise<PruneStepResult> {
+	const params: (string | number)[] = [cutoff, limit];
+	const bind = (value: string | number): string => {
+		params.push(value);
+		return `$${params.length}`;
+	};
+	const pending = diffusionActionContains('relation', DIFFUSION_ACTION.unpublishPending, bind);
+	const keyset =
+		after === null
+			? ''
+			: ` AND ("timestamp", id) > (${bind(after.ts)}::timestamp, ${bind(after.id)}::int)`;
+	const removal = apply
+		? `, d AS (DELETE FROM "${table}" t USING b WHERE t.id = b.id RETURNING 1)`
+		: ', d AS (SELECT 1 WHERE false)';
+	const rows = (await sql.unsafe(
+		`WITH b AS (SELECT "timestamp" AS ts, id FROM "${table}"
+		            WHERE "timestamp" < $1 AND NOT ${pending}${keyset}
+		            ORDER BY "timestamp", id LIMIT $2)${removal},
+		      l AS (SELECT ts::text AS last_ts, id AS last_id FROM b ORDER BY ts DESC, id DESC LIMIT 1)
+		 SELECT (SELECT count(*) FROM b)::int AS seen, (SELECT count(*) FROM d)::int AS deleted,
+		        l.last_ts, l.last_id
+		 FROM (SELECT 1) one LEFT JOIN l ON true`,
 		params,
-	)) as { n: number }[];
-	const candidates = Number(counted[0]?.n ?? 0);
-	if (!options.apply || candidates === 0) {
-		return { candidates, deleted: 0, detail: { ...detail, cutoff } };
-	}
-	const deleted = (await sql.unsafe(
-		`DELETE FROM "${table}" WHERE ${where} RETURNING id`,
-		params,
-	)) as unknown[];
-	return { candidates, deleted: deleted.length, detail: { ...detail, cutoff } };
+	)) as PruneStepRow[];
+	return pruneStepResult(rows[0]);
 }
 
 /** One pending dd1758 row as the retry/settle loop reads it. */

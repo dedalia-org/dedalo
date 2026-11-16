@@ -22,6 +22,10 @@
  * either database, so the property is latent here and the bucket fallback is what
  * both engines compute — which is exactly why the gap survived unnoticed.
  *
+ * `image_id` (component_image only, PHP component_image::get_id) is the same
+ * shape: a sibling's value on ONE record names the FILES (`photo_2.jpg`). The
+ * record-scoped form resolves BOTH from one row read (T1-10).
+ *
  * Call `resolveMediaPathOptions(componentTipo, sectionTipo, sectionId)` — the
  * RECORD-scoped form — from anywhere a record is in hand. The two-argument form
  * is the section-scoped one; it leaves `additionalPathOverride` UNDEFINED (never
@@ -30,11 +34,12 @@
  * (gated by test/unit/media_ingest_properties_native.test.ts).
  */
 
-import { readMatrixRecord } from '../db/matrix.ts';
+import type { MatrixRecord } from '../db/matrix.ts';
+import { memoizedReadMatrixRecord } from '../db/record_memo.ts';
 import { DedaloError } from '../errors/index.ts';
 import { getMatrixTableFromTipo, getModelByTipo, getNode } from '../ontology/resolver.ts';
 import { readComponentItems } from '../resolve/component_data.ts';
-import type { MediaIdentity, MediaPathOptions } from './path.ts';
+import { assertMediaFileStem, type MediaIdentity, type MediaPathOptions } from './path.ts';
 
 /**
  * The call sites that still resolve media path options WITHOUT a section_id, and
@@ -60,32 +65,24 @@ export const SECTION_SCOPED_PATH_OPTION_CALLERS: ReadonlyArray<{
 	readonly reason: string;
 }> = [
 	{
-		file: 'src/core/identify/preview.ts',
-		reason:
-			'passes the resolver itself as a (componentTipo, sectionTipo) callback — a BARE REFERENCE, so the section-scoped shape is baked into the seam type; the preview builder holds the section_id and must widen the seam to thread it',
-	},
-	{
 		file: 'src/core/section/indexation_grid.ts',
 		reason:
-			'NOT migration debt: the grid resolves properties.additional_path ITSELF (mediaCellUrl), because its export grammar deliberately omits initial_media_path and is oracle-pinned — it reads this resolver only for the parts it shares. Its own resolution must stay in step with normalizeAdditionalPath',
+			"NOT migration debt: the grid resolves properties.additional_path ITSELF (mediaCellUrl), because its export grammar deliberately omits initial_media_path and is oracle-pinned — it reads this resolver only for the parts it shares (initial_media_path). Its own bucket resolution must stay in step with normalizeAdditionalPath; its image_id stem goes through resolveFileIdOverride, the writer's own resolver",
 	},
 	{
 		file: 'src/core/api/handlers/media_action_context.ts',
-		reason: 'holds the request section_id',
-	},
-	{
-		file: 'src/core/media/tool_support.ts',
 		reason:
-			'resolveMediaToolContext holds sectionId and feeds every media tool AND the ingest callers (tool_upload / tool_import_files) — the highest-value migration of the list',
+			'holds the request section_id; av/3d only today (no image_id), but a record-scoped additional_path is still owed',
 	},
 	{
-		file: 'src/core/media/component_emit.ts',
+		file: 'tools/tool_export/server/writers/media_zip.ts',
 		reason:
-			'holds row.section_id at all three call sites (av rescan, posterframe_url, base_svg_url)',
+			'caches options per (section, component) and reads only relativeDir, so the image_id stem never matters to it — but a record-scoped additional_path bucket does: a record with a named bucket is exported from the numeric one (neighbour of T1-10, not fixed by it)',
 	},
 	{
-		file: 'src/ai/rag/image_source.ts',
-		reason: 'holds sectionId',
+		file: 'src/core/media/stem_rules.ts',
+		reason:
+			'NOT migration debt: the stem LOCK (T1-10 OD-3 ruled c, filesUnderStem) builds the locations of the STORED image_id stem — the value a save is about to replace — so it must not go through the record form, whose resolveFileIdOverride re-asserts that very value (a bad stored stem must stay replaceable). It takes the section-scoped options and completes the bucket itself through resolveAdditionalPathOverride (record-scoped) and the stored stem as fileIdOverride',
 	},
 ];
 
@@ -102,6 +99,7 @@ export async function resolveMediaPathOptions(
 	componentTipo: string,
 	sectionTipo: string,
 	sectionId?: number,
+	scope: RecordScope = {},
 ): Promise<MediaPathOptions> {
 	const componentNode = await getNode(componentTipo);
 	const sectionNode = await getNode(sectionTipo);
@@ -128,12 +126,77 @@ export async function resolveMediaPathOptions(
 
 	const options: MediaPathOptions = { initialMediaPath, maxItemsFolder };
 	if (sectionId === undefined) return options;
+	// ONE row read for both record-scoped answers (rsc29 declares both).
+	const record = recordLoader(sectionTipo, sectionId, scope.record);
 	options.additionalPathOverride = await resolveAdditionalPathOverride(
 		componentTipo,
 		sectionTipo,
 		sectionId,
+		record,
+	);
+	options.fileIdOverride = await resolveFileIdOverride(
+		componentTipo,
+		sectionTipo,
+		sectionId,
+		record,
 	);
 	return options;
+}
+
+/**
+ * Where the record-scoped resolution reads the record from. `record` = the
+ * caller already holds the row (the read emit, a pre-delete snapshot): no read
+ * at all. Absent = read it, at most once, and only if a property asks.
+ */
+export interface RecordScope {
+	/**
+	 * The record in hand — a matrix row, or a snapshot's columns wrapped as one
+	 * (`recordFromColumns`). `null` = "the record does not exist": every sibling
+	 * reads empty.
+	 */
+	record?: MatrixRecord | null;
+}
+
+/** A lazy, memoized row source: the read happens on first ask, once. */
+type RecordSource = () => Promise<MatrixRecord | null>;
+
+function recordLoader(
+	sectionTipo: string,
+	sectionId: number,
+	record: MatrixRecord | null | undefined | RecordSource,
+): RecordSource {
+	if (typeof record === 'function') return record;
+	if (record !== undefined) return async () => record;
+	let pending: Promise<MatrixRecord | null> | null = null;
+	return () => {
+		pending ??= (async () => {
+			const table = await getMatrixTableFromTipo(sectionTipo);
+			if (table === null) return null;
+			// The read-scoped memo when a section read is running (the row is
+			// usually already fetched); a direct read otherwise.
+			return memoizedReadMatrixRecord(table, sectionTipo, sectionId);
+		})();
+		return pending;
+	};
+}
+
+/**
+ * A record SNAPSHOT (the jsonb columns keyed by column name — the Time Machine /
+ * pre-delete shape) as a {@link MatrixRecord}, so the record-scoped resolution
+ * reads a deleted row's siblings through the very rule it reads a live one.
+ */
+export function recordFromColumns(
+	sectionTipo: string,
+	sectionId: number,
+	columns: Record<string, unknown>,
+): MatrixRecord {
+	return {
+		id: 0,
+		section_id: sectionId,
+		section_tipo: sectionTipo,
+		columns: columns as MatrixRecord['columns'],
+		rawText: {},
+	};
 }
 
 /**
@@ -149,15 +212,65 @@ export async function completeMediaPathOptions(
 	identity: MediaIdentity,
 	options: MediaPathOptions,
 ): Promise<MediaPathOptions> {
-	if (options.additionalPathOverride !== undefined) return options;
-	return {
-		...options,
-		additionalPathOverride: await resolveAdditionalPathOverride(
-			identity.componentTipo,
-			identity.sectionTipo,
-			identity.sectionId,
-		),
-	};
+	const needsBucket = options.additionalPathOverride === undefined;
+	const needsStem = options.fileIdOverride === undefined;
+	if (!needsBucket && !needsStem) return options;
+	const { componentTipo, sectionTipo, sectionId } = identity;
+	const record = recordLoader(sectionTipo, sectionId, undefined);
+	const completed: MediaPathOptions = { ...options };
+	if (needsBucket) {
+		completed.additionalPathOverride = await resolveAdditionalPathOverride(
+			componentTipo,
+			sectionTipo,
+			sectionId,
+			record,
+		);
+	}
+	if (needsStem) {
+		completed.fileIdOverride = await resolveFileIdOverride(
+			componentTipo,
+			sectionTipo,
+			sectionId,
+			record,
+		);
+	}
+	return completed;
+}
+
+/**
+ * The `properties.image_id` FILE STEM for ONE record (PHP component_image::get_id,
+ * class.component_image.php:158-219, case 2), or null:
+ *
+ * - null when the component is not a `component_image` — PHP declares the
+ *   override on component_image alone; any other model's `image_id` is inert;
+ * - null when it declares no `image_id`, or this record's sibling is empty
+ *   (PHP falls back to get_identifier — and, unlike media_common::get_id, adds
+ *   NO lang suffix to the stem);
+ * - else the sibling's TRIMMED value, through {@link assertMediaFileStem}, which
+ *   refuses a value that is no file name or names another record's files.
+ *
+ * PHP's case 1 (an `external_source` IRI's filename wins over image_id) is NOT
+ * ported here: an external image has no local files to name, and porting it
+ * makes every IIIF `…/default.jpg` record share the stem `default` — an owner
+ * decision (T1-10 OD-2), not something this resolver decides.
+ */
+export async function resolveFileIdOverride(
+	componentTipo: string,
+	sectionTipo: string,
+	sectionId: number,
+	record?: MatrixRecord | null | RecordSource,
+): Promise<string | null> {
+	if ((await getModelByTipo(componentTipo)) !== 'component_image') return null;
+	const properties = ((await getNode(componentTipo))?.properties ?? {}) as { image_id?: unknown };
+	const siblingTipo = properties.image_id;
+	if (typeof siblingTipo !== 'string' || siblingTipo === '') return null;
+	// PHP: an instance without a section_id has no id at all — the identifier is the answer.
+	if (!Number.isInteger(sectionId) || sectionId <= 0) return null;
+	const value = (
+		await siblingFlatValue(siblingTipo, recordLoader(sectionTipo, sectionId, record))
+	).trim();
+	if (value === '') return null;
+	return assertMediaFileStem(value, { componentTipo, sectionTipo, sectionId, lang: null });
 }
 
 /**
@@ -174,6 +287,7 @@ export async function resolveAdditionalPathOverride(
 	componentTipo: string,
 	sectionTipo: string,
 	sectionId: number,
+	record?: MatrixRecord | null | RecordSource,
 ): Promise<string | null> {
 	const properties = ((await getNode(componentTipo))?.properties ?? {}) as {
 		additional_path?: unknown;
@@ -182,7 +296,7 @@ export async function resolveAdditionalPathOverride(
 	if (typeof siblingTipo !== 'string' || siblingTipo === '') return null;
 	// PHP returns null before reading anything when the instance has no section_id.
 	if (!Number.isInteger(sectionId) || sectionId <= 0) return '';
-	const raw = await siblingFlatValue(siblingTipo, sectionTipo, sectionId);
+	const raw = await siblingFlatValue(siblingTipo, recordLoader(sectionTipo, sectionId, record));
 	return normalizeAdditionalPath(raw);
 }
 
@@ -231,32 +345,47 @@ export function normalizeAdditionalPath(raw: string): string {
  * the lg-nolan items, else every stored item, values joined with ' | '.
  *
  * Twin of `section/indexation_grid.ts flatSiblingValue`, which reads the same
- * rule for the EXPORT grammar. The two must agree — the grid builds the URL a
- * client fetches and this builds the path the file is written to.
+ * rule for the EXPORT grammar's bucket. The two must agree — the grid builds the
+ * URL a client fetches and this builds the path the file is written to. (The
+ * image_id STEM the grid takes from {@link resolveFileIdOverride} itself.)
+ * A snapshot read (delete/restore/duplicate) comes through here too, as a
+ * {@link recordFromColumns} record.
  */
-async function siblingFlatValue(
-	componentTipo: string,
-	sectionTipo: string,
-	sectionId: number,
-): Promise<string> {
-	const table = await getMatrixTableFromTipo(sectionTipo);
-	if (table === null) return '';
-	const record = await readMatrixRecord(table, sectionTipo, sectionId);
+async function siblingFlatValue(componentTipo: string, source: RecordSource): Promise<string> {
+	const record = await source();
 	if (record === null) return '';
 	const model = await getModelByTipo(componentTipo);
 	if (model === null) return '';
-	const items = (readComponentItems(record, componentTipo, model) ?? []) as {
-		lang?: unknown;
-		value?: unknown;
-	}[];
-	if (items.length === 0) return '';
+	return flatItemsValue(readComponentItems(record, componentTipo, model));
+}
+
+/**
+ * The flat-value RULE itself, on stored items (PHP `get_value()` as a path reads
+ * it): the lg-nolan items, else every item, string values joined with ' | '.
+ * Pure and exported so the rule is gated directly — a live row and a pre-delete
+ * snapshot both reach it through {@link siblingFlatValue}, so there is no second
+ * copy to drift (the snapshot twin in file_ops.ts retired with T1-10).
+ */
+export function flatItemsValue(stored: unknown): string {
+	return siblingStringValues(stored).join(' | ');
+}
+
+/**
+ * The non-empty string values of a sibling's stored items, read the way PHP
+ * reads a sibling in lg-nolan: the lg-nolan (or lang-less) items, else every
+ * item. ONE slice rule for the path readers ({@link flatItemsValue}, which joins
+ * them) and the provenance repair (provenance_repair.ts, which takes the first —
+ * PHP `$filename_data[0]`).
+ */
+export function siblingStringValues(stored: unknown): string[] {
+	if (!Array.isArray(stored)) return [];
+	const items = stored as ({ lang?: unknown; value?: unknown } | null)[];
 	const nolan = items.filter((item) => {
-		const lang = item.lang ?? null;
+		const lang = item?.lang ?? null;
 		return lang === null || lang === 'lg-nolan';
 	});
 	const slice = nolan.length > 0 ? nolan : items;
 	return slice
-		.map((item) => (typeof item.value === 'string' ? item.value : ''))
-		.filter((value) => value !== '')
-		.join(' | ');
+		.map((item) => (typeof item?.value === 'string' ? item.value : ''))
+		.filter((value) => value !== '');
 }

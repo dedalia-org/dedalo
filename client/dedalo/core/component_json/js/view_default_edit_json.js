@@ -8,6 +8,7 @@
 	import {ui} from '../../common/js/ui.js'
 	import {dd_request_idle_callback, lazy_in_viewport, fade_in_on_reveal} from '../../common/js/events.js'
 	import {handle_json_change} from './component_json.js'
+	import {run_escape_ladder} from '../../component_common/js/component_common.js'
 
 
 
@@ -298,6 +299,26 @@ const get_content_value = (key, current_value, self) => {
 		})
 		// start invisible for a smooth fade-in once the editor is ready (shared contract)
 		const reveal = fade_in_on_reveal(content_value)
+
+	// Escape. The editor's root (.jse-main) stopPropagation()s EVERY keydown, so
+	// the page's Escape ladder never sees it. Observed in the capture phase and
+	// decided only AFTER the whole dispatch: the editor consumes Escape itself
+	// (selection collapse, search panel, popups) by preventDefault(), and that
+	// wins. MACROTASK, never a microtask: a microtask runs between the listeners
+	// of a trusted event, i.e. BEFORE CodeMirror's own handler.
+	// run_escape_ladder runs once per event, so an Escape that also bubbles to
+	// the document (target = content_value itself) is not handled twice.
+		content_value.addEventListener('keydown', (e) => {
+			if (e.key!=='Escape') {
+				return
+			}
+			setTimeout(() => {
+				if (e.defaultPrevented) {
+					return
+				}
+				run_escape_ladder(e)
+			}, 0)
+		}, {capture : true})
 
 	// load_editor and init
 		const load_editor = async () => {

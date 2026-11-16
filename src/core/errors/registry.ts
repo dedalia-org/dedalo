@@ -3128,6 +3128,35 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: true,
 	},
+	// A `properties.image_id` FILE STEM another record of the same section already
+	// holds (T1-10 OD-1, owner ruling 2026-11-13 c: refuse — two records naming
+	// the same files is a silent cross-record overwrite/delete). Refused on the
+	// sibling's save (record_write.ts §3i, media/stem_rules.ts) and at the upload
+	// door, before any write. `section_id` is the record that holds the stem.
+	'media.stem_in_use': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_stem_in_use',
+		message: 'This file name is already used by another record of the section',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['section_id'],
+	},
+	// A `properties.image_id` sibling CHANGED while managed media files exist
+	// under its current value (T1-10 OD-3, owner ruling 2026-11-13 c: lock — a
+	// rename would orphan the files, PHP left them). Refused on the sibling's
+	// save; `files` names the files found. Remedy: delete the media first.
+	'media.stem_locked': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_stem_locked',
+		message: 'The file name cannot be changed while media files exist under it',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['files'],
+	},
 	// MEDIA_PATH absent where a media path is required. Operator-actionable,
 	// never the caller's fault.
 	'media.not_configured': {
@@ -3215,6 +3244,24 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 		details_keys: ['constraint', 'section_tipo'],
+	},
+	'relation.target_deleted': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_relation_target_deleted',
+		// A write that ADDS a locator to a record that is DELETED — gone from its
+		// matrix table with Time Machine history at the address — refused in the
+		// record-write chokepoint under a FOR KEY SHARE lock on the target held to
+		// COMMIT, so the delete-vs-link race can no longer leave a dangling
+		// locator (T1-19 / D01; section_record/locator_targets.ts;
+		// WC-2026-11-12-locator-target-deleted-refused). Kept locators, external
+		// remote ids and never-existed addresses are not judged. Nothing is written.
+		// `section_tipo` is the linked (deleted) record's section.
+		message: 'The linked record was deleted',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['section_tipo'],
 	},
 	'relation.subtree_too_large': {
 		category: 'caller',

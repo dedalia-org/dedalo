@@ -620,18 +620,20 @@ export interface OpsConfig {
 	/** Requests slower than this log a warn line, 0 = off (DEDALO_SLOW_REQUEST_MS). */
 	readonly slowRequestMs: number;
 	/** DB statements slower than this log a warn line, 0 = off (DEDALO_SLOW_QUERY_MS,
-	 * default 0). Applied by core/db/query_tap.ts on every lane. */
+	 * default 5000 — on by default since T1-24, owner ruling 2026-11-13 A3, flipped
+	 * separately from the two bounds). Applied by core/db/query_tap.ts on every lane. */
 	readonly slowQueryMs: number;
 	/** Postgres pool max per process (DB_POOL_MAX; cross-process budget in PRODUCTION.md). */
 	readonly dbPoolMax: number;
 	/** Max ms a query may QUEUE for a connection (either pool) before failing with
 	 * the typed 503 `db.pool_exhausted`, 0 = wait forever (DB_POOL_ACQUIRE_TIMEOUT_MS,
-	 * default 0; PRODUCTION.md recommends 30000). */
+	 * default 30000 — on by default since T1-24, flipped separately from the
+	 * statement ceiling). */
 	readonly dbAcquireTimeoutMs: number;
 	/** The request pool's statement_timeout ms (startup GUC), 0 = off
-	 * (DB_STATEMENT_TIMEOUT_MS, default 0; PRODUCTION.md recommends 60000 — the
-	 * on-by-default flip waits for every legitimately long statement to be in the
-	 * unbounded scope, PRODUCTION.md §4 census). A fired ceiling is the typed 503
+	 * (DB_STATEMENT_TIMEOUT_MS, default 60000 — on by default since every
+	 * legitimately long statement is in the unbounded scope or batched,
+	 * PRODUCTION.md §4 census, T1-24). A fired ceiling is the typed 503
 	 * `db.statement_timeout`. Maintenance is NOT sized around it: it runs inside
 	 * `withUnboundedStatements` (core/db/postgres.ts), on the maintenance pool. */
 	readonly dbStatementTimeoutMs: number;

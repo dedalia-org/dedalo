@@ -345,7 +345,7 @@ export async function createSectionRecord(
 	// is no relation edge — no birth hop would ever reach its slot. On an empty
 	// input the recompute is a no-drift no-op. Dynamic import: record_write.ts
 	// statically imports this module (import_scc_tripwire).
-	const { prepareBirthColumns, ownDataCoveredSlots } = await import(
+	const { prepareBirthColumns, ownDataCoveredSlots, assertBirthLocatorTargetsLive } = await import(
 		'../../section_record/record_write.ts'
 	);
 	const pinned = [
@@ -373,6 +373,20 @@ export async function createSectionRecord(
 			await insertMatrixRecordWithExplicitId(table, sectionTipo, sectionId, jsonbColumns, {
 				onConflict: 'throw',
 			});
+		}
+		// THE LOCATOR-TARGET LAW on the birth (record_write.ts §3h,
+		// assertBirthLocatorTargetsLive — owner ruling 2026-11-13 C28 a): every
+		// locator the row is born with (the projects filter, a `dato_default`
+		// pointer, the creator link) is an ADDED link — its target is locked FOR
+		// KEY SHARE to COMMIT in this transaction, and a DELETED target refuses the
+		// birth (`relation.target_deleted`; the row and the counter roll back). A
+		// race loser (born=false) inserted nothing and is judged on nothing.
+		if (born) {
+			await assertBirthLocatorTargetsLive(
+				{ table, sectionTipo, sectionId: id },
+				jsonbColumns as MatrixWriteValues,
+				'createSectionRecord',
+			);
 		}
 		await recordBirthMarker(born, options.bulkProcessId, {
 			sectionTipo,

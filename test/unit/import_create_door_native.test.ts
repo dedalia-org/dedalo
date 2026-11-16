@@ -52,6 +52,7 @@ import {
 	AUTHZ_PROJECT_Q,
 	AUTHZ_SECTION,
 	AUTHZ_TEXT,
+	AUTHZ_TEXT_AREA,
 	type AuthzIdentities,
 	assertAuthzDoorContrast,
 	authzProjectLocator,
@@ -71,6 +72,8 @@ let ids: AuthzIdentities;
 const importedIds = new Set<number>();
 /** dd800 run records the importers / this file minted. */
 const runIds = new Set<number>();
+/** Names the LINK gates gave the records the importer may create (swept by name). */
+const linkNames = new Set<string>();
 
 async function rowCount(): Promise<number> {
 	const rows = (await sql.unsafe(
@@ -113,6 +116,45 @@ async function importNew(principal: Principal) {
 	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
 	for (const id of report.createdIds) importedIds.add(id);
 	return report;
+}
+
+/**
+ * The mapped engine on ONE new record carrying a LINK (in test17) to a test3
+ * record NAMED (test52) `name` — absent, so the link must create it. The named
+ * record it creates is swept by name (it is not one of the run's createdIds).
+ */
+async function importLinked(principal: Principal, name: string) {
+	linkNames.add(name);
+	const report = await importMappedRecords(
+		[
+			{
+				sectionId: null,
+				fields: [],
+				links: [
+					{
+						component_tipo: AUTHZ_TEXT_AREA,
+						target: { sectionTipo: AUTHZ_SECTION, componentTipo: AUTHZ_TEXT },
+						text: name,
+					},
+				],
+			},
+		],
+		AUTHZ_SECTION,
+		principal,
+		{ bulkLabel: 'import link create door gate' },
+	);
+	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
+	for (const id of report.createdIds) importedIds.add(id);
+	return report;
+}
+
+/** test3 records whose test52 holds `name` (the link-created records). */
+async function recordsNamed(name: string): Promise<number[]> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id FROM ${TABLE} WHERE section_tipo = $1 AND string::text LIKE $2`,
+		[AUTHZ_SECTION, `%${name}%`],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id)).filter((id) => !importedIds.has(id));
 }
 
 /** The CSV engine on ONE row (section_id + one test52 cell), as `principal`. */
@@ -230,6 +272,9 @@ describe.if(DB_READY)(
 		});
 		afterAll(async () => {
 			await assertTestDatabase('import_create_door_native');
+			for (const name of linkNames) {
+				for (const id of await recordsNamed(name)) importedIds.add(id);
+			}
 			for (const id of importedIds) {
 				await deleteMatrixRecord(TABLE, AUTHZ_SECTION, id);
 				await sql.unsafe(
@@ -282,6 +327,38 @@ describe.if(DB_READY)(
 			expect(report.failed).toEqual([]);
 			const created = report.createdIds[0] as number;
 			expect(JSON.stringify((await recordColumns(created))?.text)).toContain('zzimport create');
+		});
+
+		// --- 1b. a LINK field's create (import_link.ts createNamedRecord) ---------
+		// The link field (test17) is writable for both identities; the NAME
+		// component of the record the link would create (test52) is 0 for
+		// TEXT_ONLY and 2 for CONTROL — so only the link-create door separates them.
+
+		test('MAPPED, LINK to an absent name, name component at 0 (TEXT_ONLY): link IGNORED, no named record created, the record written', async () => {
+			expect(await getPermissions(ids.textOnly, AUTHZ_SECTION, AUTHZ_TEXT)).toBe(0);
+			expect(await getPermissions(ids.textOnly, AUTHZ_SECTION, AUTHZ_TEXT_AREA)).toBe(2);
+			const name = `zzlink refused ${process.pid}`;
+			const report = await importLinked(ids.textOnly, name);
+			expect(report.createdIds).toHaveLength(1);
+			expect(report.failed.map((failure) => String(failure.msg))).toEqual([
+				expect.stringContaining('the importer may not create one there'),
+			]);
+			expect(await recordsNamed(name)).toEqual([]);
+		});
+
+		test('MAPPED, LINK to an absent name, the served twin (CONTROL): the named record created and linked', async () => {
+			expect(await getPermissions(ids.control, AUTHZ_SECTION, AUTHZ_TEXT)).toBe(2);
+			const name = `zzlink served ${process.pid}`;
+			const report = await importLinked(ids.control, name);
+			expect(report.failed).toEqual([]);
+			const named = await recordsNamed(name);
+			expect(named).toHaveLength(1);
+			const created = report.createdIds[0] as number;
+			const linked = (await sql.unsafe(
+				`SELECT relation -> '${AUTHZ_TEXT_AREA}' AS l, string -> '${AUTHZ_TEXT_AREA}' AS s FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`,
+				[AUTHZ_SECTION, created],
+			)) as { l: unknown; s: unknown }[];
+			expect(JSON.stringify(linked[0])).toContain(String(named[0]));
 		});
 
 		// --- 2. the CSV importer: the create, and a column of a CREATED row ---------

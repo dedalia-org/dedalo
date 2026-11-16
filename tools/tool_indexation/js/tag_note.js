@@ -194,7 +194,7 @@ tag_note.prototype.render_empty_note = function(tag) {
 	const button_new_note = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'warning new',
-		inner_html		: label,
+		text_content		: label,
 		parent			: empty_note_container
 	})
 	button_new_note.addEventListener('click', async function(e){
