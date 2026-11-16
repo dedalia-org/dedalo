@@ -2,13 +2,17 @@
  * tool_uca_maps — the handlers of the fixed-host service lookups, with core's
  * `callGeoService` (place search, DARE, elevation, Catastro, administrative units)
  * scripted: a refusal must happen before anything is asked, and a guard that
- * regressed must not reach a real third party.
+ * regressed must not reach a real third party. Every question the fake takes is
+ * first put through core's own grammar (`checkParams`, refinement included): a
+ * question core would refuse fails here, not against the provider.
  * mock.module is process-global, so the real modules are put back after this file.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import * as realGeoCall from '../../src/core/geo_services/call.ts';
+import { checkParams } from '../../src/core/geo_services/params.ts';
+import { type GeoService, geoServiceOf } from '../../src/core/geo_services/table.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
 import { contextOf, dataOf, expectCode, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
@@ -32,6 +36,8 @@ beforeAll(async () => {
 	mock.module(GEO_CALL, () => ({
 		...REAL_GEO_CALL,
 		callGeoService: async (id: string, params: Record<string, unknown>) => {
+			const service = geoServiceOf(id) as GeoService;
+			checkParams(id, service.params, service.refine, params);
 			asked.push({ id, params });
 			const data = answer(id);
 			// Catastro's two services answer markup, the rest JSON
@@ -62,6 +68,22 @@ beforeEach(() => {
 });
 
 const VALID_CLICK = { bbox: [-1, 38, -0.9, 38.1], width: 512, height: 400, x: 128, y: 64 };
+
+/** The [lat, lon] at the centre of an EPSG:3857 box, inverted by hand. */
+function boxCentre(bbox: unknown): [number, number] {
+	const [minX, minY, maxX, maxY] = bbox as number[];
+	const R = 6378137;
+	const x = ((minX as number) + (maxX as number)) / 2;
+	const y = ((minY as number) + (maxY as number)) / 2;
+	return [(Math.atan(Math.sinh(y / R)) * 180) / Math.PI, (x / R) * (180 / Math.PI)];
+}
+
+/** VALID_CLICK's pixel (128, 64): 0.25 across, linear; 0.16 down, Mercator (linear: 38.084). */
+function expectCentredOnValidClick(bbox: unknown): void {
+	const [lat, lon] = boxCentre(bbox);
+	expect(lon).toBeCloseTo(-0.975, 9);
+	expect(lat).toBeCloseTo(38.08400918, 7);
+}
 
 describe('search_places — a caller fault is refused before anything is asked', () => {
 	// the positive control: an empty `asked` below means nothing went out, not
@@ -310,6 +332,7 @@ describe("get_administrative_unit — core's IGN service wired into the handler"
 			i: 50,
 			j: 50,
 		});
+		expectCentredOnValidClick(asked[0]?.params.bbox);
 	});
 
 	test('the first unit IGN lists is the one named', async () => {
@@ -419,6 +442,13 @@ describe("get_catastro_parcel — core's two Catastro services wired into the ha
 		expect(asked).toEqual([]);
 	});
 
+	test('the feature-info box is centred on the clicked pixel', async () => {
+		answer = notFound;
+		await getCatastroParcel(contextOf(VALID_CLICK));
+		expect(asked.map((question) => question.id)).toEqual(['catastro_wms_featureinfo']);
+		expectCentredOnValidClick(asked[0]?.params.bbox);
+	});
+
 	test("a transient failure is the Catastro service unavailable; a final one is core's", async () => {
 		answer = () => {
 			throw new DedaloError('external.timeout', { message: 'slow' });
@@ -456,5 +486,27 @@ describe("the tool's search-text windows are core's own", () => {
 		expect(geoParamAccepts(id, param, 'abc')).toBe(true);
 		expect(geoParamAccepts(id, param, 'a'.repeat(max))).toBe(true);
 		expect(geoParamAccepts(id, param, 'a'.repeat(max + 1))).toBe(false);
+	});
+});
+
+// the tool picks the ring's CRS by UTM zone; core's grammar is what may be asked
+describe("Catastro's UTM zones are the CRSs core offers", () => {
+	test('every zone the tool asks in is a CRS core accepts for the ring', async () => {
+		const { CATASTRO_ZONES } = await import('../../tools/tool_uca_maps/server/catastro.ts');
+		const { geoParamAccepts } = await import('../../tools/tool_uca_maps/server/geo_call.ts');
+		expect(Object.keys(CATASTRO_ZONES)).not.toHaveLength(0);
+		for (const crs of Object.values(CATASTRO_ZONES)) {
+			expect(geoParamAccepts('catastro_wfs_parcel', 'crs', crs)).toBe(true);
+		}
+	});
+
+	// the day core offers EPSG:25828 this goes red: drop the tool's refusal
+	test('the Canary zones are refused because core does not offer their CRS', async () => {
+		const { CANARY_ZONES } = await import('../../tools/tool_uca_maps/server/catastro.ts');
+		const { geoParamAccepts } = await import('../../tools/tool_uca_maps/server/geo_call.ts');
+		expect(CANARY_ZONES).not.toHaveLength(0);
+		for (const zone of CANARY_ZONES) {
+			expect(geoParamAccepts('catastro_wfs_parcel', 'crs', `EPSG:258${zone}`)).toBe(false);
+		}
 	});
 });

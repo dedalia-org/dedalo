@@ -23,16 +23,16 @@ import { utmToLatLon, utmZoneOf } from './utm.ts';
 // replies) rides into a SECOND request as a parameter.
 const REFCAT_PATTERN = /^[0-9A-Z]{14}$/i;
 
-/** The peninsula and the Balearics, with core's CRS for each zone. */
-const CATASTRO_ZONES: Readonly<Record<number, string>> = Object.freeze({
+/** The peninsula and the Balearics, with core's CRS for each zone. Exported for the gate. */
+export const CATASTRO_ZONES: Readonly<Record<number, string>> = Object.freeze({
 	29: 'EPSG:25829',
 	30: 'EPSG:25830',
 	31: 'EPSG:25831',
 });
 
 /** The Canary Islands' zones: Catastro serves them in EPSG:25828, which core's
- * service does not offer. */
-const CANARY_ZONES: readonly number[] = Object.freeze([27, 28]);
+ * service does not offer. Exported for the gate. */
+export const CANARY_ZONES: readonly number[] = Object.freeze([27, 28]);
 
 function unavailable(message: string): DedaloError {
 	return new DedaloError('tool.source_unavailable', {
