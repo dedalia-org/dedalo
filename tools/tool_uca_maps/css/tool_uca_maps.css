@@ -1600,8 +1600,8 @@
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button:hover,
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button.is-active {
-  background-color: var(--tool_uca_maps);
-  color: var(--fg_on_brand);
+  background-color: var(--tool_fill);
+  color: var(--tool_on_fill);
   filter: none;
 }
 .uca-maps-roman-dropdown > .uca-maps-roman-result-item .uca-maps-roman-result-button .uca-maps-roman-result-name {

@@ -4064,6 +4064,33 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 	})
 
+	// today the generated pair equals the raw hue and brand ink, so sentinels on
+	// the tokens are what tell a binding to the pair from one to the raw hue
+	it('with the tool CSS, the highlighted Roma suggestion sits on the generated tool fill and its ink', async function() {
+
+		await with_tool_css(async () => {
+			mount_roman()
+			open_roman()
+			seed_roman_list('dare', [roman_hit('Saguntum', 39.68, -0.27), roman_hit('Valentia', 39.47, -0.37)])
+			const dropdown	= geolocation.map.getContainer().querySelector('.uca-maps-roman-dropdown')
+			const buttons	= dropdown.querySelectorAll('.uca-maps-roman-result-button')
+			assert.equal(buttons.length, 2, 'expected the two seeded suggestions')
+
+			dropdown.style.setProperty('--tool_fill', 'rgb(1, 2, 3)')
+			dropdown.style.setProperty('--tool_on_fill', 'rgb(4, 5, 6)')
+			try {
+				buttons[0].classList.add('is-active')
+				const active = getComputedStyle(buttons[0])
+				assert.equal(active.backgroundColor, 'rgb(1, 2, 3)', 'expected the active row on the generated tool fill')
+				assert.equal(active.color, 'rgb(4, 5, 6)', 'expected the active row in the ink tuned for that fill')
+				assert.notEqual(getComputedStyle(buttons[1]).backgroundColor, 'rgb(1, 2, 3)', 'expected only the active row highlighted')
+			} finally {
+				dropdown.style.removeProperty('--tool_fill')
+				dropdown.style.removeProperty('--tool_on_fill')
+			}
+		})
+	})
+
 	it('with the tool CSS, a panel line takes the tint of its type: error by default, success, warning, working', async function() {
 
 		await with_tool_css(async () => {
