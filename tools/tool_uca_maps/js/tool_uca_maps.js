@@ -200,7 +200,6 @@ export const tool_uca_maps = function () {
 	this._catastro_credit			= null
 	this.ua_control					= null
 	this.ua_panel					= null
-	this._ua_level					= null
 	this._ua_tile_layer			= null
 	this._ua_core_source			= null
 	this._ua_core_was_on			= false
@@ -453,8 +452,8 @@ tool_uca_maps.prototype.delete_wms_layer = function(id) {
 
 
 /**
-* catastro.js / administrative_units.js: attach only. Catastro has no panel and
-* render_administrative_units.js writes self._ua_level directly.
+* catastro.js / administrative_units.js: attach only; neither panel has a
+* control that writes back to the instance.
 */
 tool_uca_maps.prototype.attach_catastro = function() {
 	attach_catastro(this)

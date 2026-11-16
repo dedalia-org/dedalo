@@ -5,10 +5,9 @@
 
 /**
 * RENDER_ADMINISTRATIVE_UNITS
-* DOM for the "UA" panel, built once at attach: a level `<select>` (v6's own
-* three options, `special_tools_UA_es.js` create_select) and an in-flow
-* message line. Mutations reach `self.<method>(...)`, never
-* `administrative_units.js` directly.
+* DOM for the "UA" panel, built once at attach: an in-flow message line (the
+* unit found, or why not) and the hint. No level select: core's service
+* answers one unit of no chosen level (see `administrative_units.js`).
 *
 * @module render_administrative_units
 */
@@ -17,10 +16,6 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {show_panel_message} from './render_download_line.js'
-
-
-
-const LEVELS = ['Municipio', 'Provincia', 'CCAA']
 
 
 
@@ -36,20 +31,6 @@ export const render_administrative_units_panel = function(self, panel) {
 
 	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-ua-message', parent: panel})
 	message.hidden = true
-
-	const select = ui.create_dom_element({element_type: 'select', class_name: 'uca-maps-ua-level-select', parent: panel})
-	LEVELS.forEach((level) => {
-		const option = ui.create_dom_element({
-			element_type	: 'option',
-			text_content	: self.get_tool_label('ua_level_' + level.toLowerCase()) || level,
-			parent			: select
-		})
-		option.value = level
-	})
-	// attach_administrative_units seeds self._ua_level BEFORE calling this:
-	// a second '|| Municipio' default here would be a fork of the same literal
-	select.value = self._ua_level
-	select.addEventListener('change', () => { self._ua_level = select.value })
 
 	ui.create_dom_element({
 		element_type	: 'div',

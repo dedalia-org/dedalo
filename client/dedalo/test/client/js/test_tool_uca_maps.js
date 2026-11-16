@@ -5914,7 +5914,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	describe('administrative units (UA)', function() {
 
-		it('attach_administrative_units builds the button+panel (level select) once section_lang is es/cat/eus', function() {
+		it('attach_administrative_units builds the button+panel (no level select) once section_lang is es/cat/eus', function() {
 
 			geolocation.section_lang = 'lg-eus'
 			tool.attach_administrative_units()
@@ -5924,7 +5924,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(controls.length, 1, 'expected exactly one "UA" button')
 			assert.isOk(tool.ua_panel, 'expected the UA panel built')
 			assert.equal(tool.ua_panel.hidden, true, 'expected the panel hidden by default')
-			assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-level-select'), 'expected the level select rendered')
+			// core's service answers one unit of no chosen level: a select would promise a choice
+			assert.isNotOk(tool.ua_panel.querySelector('select'), 'expected no level select')
+			assert.isOk(tool.ua_panel.querySelector('.uca-maps-ua-message'), 'expected the message line rendered')
 		})
 
 		// v6's UA_on swapped the basemap; core's built-in is boundaries only, transparent,
@@ -6010,14 +6012,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.notEqual(tool._ua_click_handler, armed_click_handler, 'expected a fresh click listener')
 		})
 
-		it('the UA level select sets the level the next lookup asks for', async function() {
+		it('check_administrative_unit_at_point asks with the clicked point only, no level', async function() {
 
 			arm_ua()
-
-			const select = tool.ua_panel.querySelector('.uca-maps-ua-level-select')
-			assert.equal(select.value, 'Municipio', 'expected v6\'s default level selected')
-			select.value = 'Provincia'
-			select.dispatchEvent(new Event('change'))
 
 			let requested_options = null
 			stub_tool_request(async function(options) {
@@ -6026,33 +6023,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			})
 			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
 
-			assert.equal(requested_options.options.level, 'Provincia', 'expected the picked level sent, not the default')
+			assert.equal(requested_options.action, 'get_administrative_unit')
+			assert.notProperty(requested_options.options, 'level', 'expected no level: core\'s service cannot honour one')
+			assert.includeMembers(Object.keys(requested_options.options), ['bbox', 'width', 'height', 'x', 'y'])
 		})
 
-		it('check_administrative_unit_at_point (found) adds the unit as an object in the active group, asking for the level', async function() {
+		it('check_administrative_unit_at_point (found) names the unit and its level in the panel, creates nothing', async function() {
 
-			arm_ua() // level defaults to 'Municipio'
+			arm_ua()
 
-			let requested_options = null
-			stub_tool_request(async function(options) {
-				requested_options = options
-				return {ok: true, data: {found: true, feature: {
-					type: 'Feature',
-					geometry: {type: 'Polygon', coordinates: [[[-3.71,40.40],[-3.60,40.40],[-3.60,40.50],[-3.71,40.50],[-3.71,40.40]]]},
-					properties: {nameunit: 'Test municipality'}
-				}}}
-			})
+			stub_tool_request(async () => ({ok: true, data: {found: true, unit: {name: 'Test municipality', level: 'Municipio', code: '1'}}}))
 
 			const before_layer_count = active_group().getLayers().length
 			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
-			await settle_map(geolocation.map) // the polygon is fitted, which animates
 
-			assert.equal(requested_options.action, 'get_administrative_unit')
-			assert.equal(requested_options.options.level, 'Municipio')
+			const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
+			const level = tool.get_tool_label('ua_level_municipio') || 'Municipio'
+			assert.equal(message.hidden, false, 'expected the unit shown in the panel')
+			assert.equal(message.dataset.type, 'ok')
+			assert.equal(message.textContent, 'Test municipality (' + level + ')')
+			assert.equal(active_group().getLayers().length, before_layer_count, 'expected no object: the service has no geometry')
 
-			const layers = active_group().getLayers()
-			assert.equal(layers.length, before_layer_count + 1, 'expected one new object added to the active FeatureGroup')
-			assert.equal(layers[layers.length - 1].feature.properties.nameunit, 'Test municipality', 'expected the raw IGN properties kept, v6 parity')
+			// a level the server could not name: the bare name, never "(null)"
+			stub_tool_request(async () => ({ok: true, data: {found: true, unit: {name: 'España', level: null, code: null}}}))
+			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
+			assert.equal(message.textContent, 'España')
 		})
 
 		it('check_administrative_unit_at_point (not found) shows an in-panel message, creates nothing', async function() {
@@ -6116,24 +6111,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			let resolve_tool_request
 			stub_tool_request(() => new Promise((resolve) => { resolve_tool_request = resolve }))
 
-			const before_layer_count = active_group().getLayers().length
 			const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))
 
 			tool.ua_control.getContainer().click() // close WHILE the request is in flight
 			assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed')
 
-			resolve_tool_request({ok: true, data: {found: true, feature: {
-				type: 'Feature',
-				geometry: {type: 'Point', coordinates: [-3.65, 40.45]},
-				properties: {}
-			}}})
+			resolve_tool_request({ok: true, data: {found: true, unit: {name: 'Late unit', level: 'Provincia', code: null}}})
 			await pending
 
-			assert.equal(
-				active_group().getLayers().length,
-				before_layer_count,
-				'expected the late "found" response NOT to create an object after the panel was closed'
-			)
+			const message = tool.ua_panel.querySelector('.uca-maps-ua-message')
+			assert.equal(message.hidden, true, 'expected the late "found" response NOT written into the closed panel')
 		})
 
 		it('detach_administrative_units removes the button/panel AND restores the previous basemap', async function() {
@@ -6161,7 +6148,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// source adds the built-in, and the layer control it had to create for it
 	for (const swap of [
 		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}, core: true},
-		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {level: 'Municipio'}, core: false}
+		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {}, core: false}
 	]) {
 		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks click, layer and the control it made`, async function() {
 

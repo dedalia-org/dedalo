@@ -1,7 +1,7 @@
 /**
  * The click payload `catastro.ts` and `administrative_units.ts` both turn into
- * a WMS GetFeatureInfo query: visible bbox, map pixel size, clicked pixel. One
- * parser, so a malformed click is refused the same way by both actions.
+ * core's WMS GetFeatureInfo question: visible bbox, map pixel size, clicked
+ * pixel. One parser and one question, so both actions refuse and ask alike.
  */
 
 import { DedaloError } from '../../../src/core/errors/index.ts';
@@ -41,4 +41,38 @@ export function parseClickParams(options: Record<string, unknown>): ClickParams 
 		throw invalidClickRequest('A valid click position is required.');
 	}
 	return { bbox: bbox as [number, number, number, number], width, height, x, y };
+}
+
+const EARTH_RADIUS = 6378137;
+
+/**
+ * The clicked [lat, lon]: the map is Web Mercator, so a pixel is linear in
+ * longitude but not in latitude. Exported for unit coverage.
+ */
+export function clickedPoint({ bbox, height, width, x, y }: ClickParams): [number, number] {
+	const [west, south, east, north] = bbox;
+	const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+	const top = mercY(north);
+	const yAt = top - (y / height) * (top - mercY(south));
+	const lat = (Math.atan(Math.sinh(yAt)) * 180) / Math.PI;
+	return [lat, west + (x / width) * (east - west)];
+}
+
+/**
+ * The feature-info question for one point: a 100 m box around it in EPSG:3857
+ * at one metre a pixel, the point at its centre. Asking for the user's whole
+ * view would refuse a wide one (core caps the box): only the clicked point
+ * matters. Exported for unit coverage.
+ */
+export function featureInfoQuery([lat, lon]: [number, number]): Record<string, unknown> {
+	const x = (EARTH_RADIUS * lon * Math.PI) / 180;
+	const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+	return {
+		crs: 'EPSG:3857',
+		bbox: [x - 50, y - 50, x + 50, y + 50],
+		width: 101,
+		height: 101,
+		i: 50,
+		j: 50,
+	};
 }

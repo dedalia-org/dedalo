@@ -1,32 +1,23 @@
 /**
  * tool_uca_maps — the handlers of the fixed-host service lookups, with core's
- * `callGeoService` (place search, DARE, elevation, Catastro) and
- * `fetchGuardedText` (administrative units) scripted: a refusal must happen before anything is
- * sent, and a guard that regressed must not reach a real third party.
+ * `callGeoService` (place search, DARE, elevation, Catastro, administrative units)
+ * scripted: a refusal must happen before anything is asked, and a guard that
+ * regressed must not reach a real third party.
  * mock.module is process-global, so the real modules are put back after this file.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import * as realGeoCall from '../../src/core/geo_services/call.ts';
-import * as realSsrfGuard from '../../src/core/security/ssrf_guard.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
 import { contextOf, dataOf, expectCode, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
 
-const SSRF_GUARD = '../../src/core/security/ssrf_guard.ts';
-const REAL_SSRF_GUARD = { ...realSsrfGuard };
 const GEO_CALL = '../../src/core/geo_services/call.ts';
 const REAL_GEO_CALL = { ...realGeoCall };
 
 /** Every question asked of core's geo services, and the scripted answer (its data). */
 const asked: { id: string; params: Record<string, unknown> }[] = [];
 let answer: (id: string) => unknown = () => {
-	throw new Error('no scripted answer');
-};
-
-/** Every URL the handlers asked for, and the scripted answer by URL. */
-const sent: string[] = [];
-let reply: (url: URL) => string = () => {
 	throw new Error('no scripted answer');
 };
 
@@ -49,13 +40,6 @@ beforeAll(async () => {
 				: { service: id, kind: 'json', data, attribution: 'the provider' };
 		},
 	}));
-	mock.module(SSRF_GUARD, () => ({
-		...REAL_SSRF_GUARD,
-		fetchGuardedText: async (uri: string) => {
-			sent.push(uri);
-			return reply(new URL(uri));
-		},
-	}));
 	({ searchPlaces } = await import('../../tools/tool_uca_maps/server/place_search.ts'));
 	({ getElevation } = await import('../../tools/tool_uca_maps/server/elevation.ts'));
 	({ getAdministrativeUnit } = await import(
@@ -66,7 +50,6 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-	mock.module(SSRF_GUARD, () => REAL_SSRF_GUARD);
 	mock.module(GEO_CALL, () => REAL_GEO_CALL);
 	mock.restore();
 });
@@ -74,10 +57,6 @@ afterAll(() => {
 beforeEach(() => {
 	asked.length = 0;
 	answer = () => {
-		throw new Error('no scripted answer');
-	};
-	sent.length = 0;
-	reply = () => {
 		throw new Error('no scripted answer');
 	};
 });
@@ -287,71 +266,75 @@ describe('get_elevation — an outage is "unavailable", a refused question is no
 });
 
 describe('get_administrative_unit — handler validation', () => {
-	test('a missing bbox is refused as request.invalid_options, before the level check', async () => {
-		for (const level of ['Municipio', 'Galaxy']) {
-			const error = await failureOf(getAdministrativeUnit(contextOf({ level })));
-			expectCode(error, 'request.invalid_options');
-			expect(error.message).toMatch(/bounding box/);
-		}
-		expect(sent).toEqual([]);
-	});
-
-	test('a missing/unknown level is refused as request.invalid_options', async () => {
-		for (const options of [VALID_CLICK, { ...VALID_CLICK, level: 'Galaxy' }]) {
-			const error = await failureOf(getAdministrativeUnit(contextOf(options)));
-			expectCode(error, 'request.invalid_options');
-			expect(error.message).toMatch(/administrative level/);
-		}
-		expect(sent).toEqual([]);
+	test('a missing bbox is refused as request.invalid_options, nothing asked', async () => {
+		const error = await failureOf(getAdministrativeUnit(contextOf({})));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/bounding box/);
+		expect(asked).toEqual([]);
 	});
 });
 
-describe('get_administrative_unit — the IGN reply wired into the handler', () => {
+describe("get_administrative_unit — core's IGN service wired into the handler", () => {
 	const LEVEL = 'https://inspire.ec.europa.eu/codelist/AdministrativeHierarchyLevel/';
-	const unit = (order: string, name: string, lon: number) => ({
+	const unit = (order: string, name: string) => ({
 		type: 'Feature',
-		geometry: { type: 'Point', coordinates: [lon, 38.05] },
-		properties: { nationallevel: LEVEL + order, nameunit: name },
+		geometry: null,
+		properties: {
+			nationallevel: LEVEL + order,
+			nationalcode: '34104600000',
+			nameunit: name,
+		},
 	});
-	const UNITS = [
-		unit('3rdOrder', 'Alicante', -0.5),
-		unit('4thOrder', 'Elche', -0.7),
-		unit('4thOrder', 'Crevillent', -0.8),
-	];
-	// IGN answers every level under the click; the asked one is picked
-	const REPLY = JSON.stringify({ features: UNITS });
 
 	test.each([
-		['Municipio', 1],
-		['Provincia', 0],
-	] as const)(
-		'%s answers its own level, the first one IGN lists, as drawn',
-		async (level, index) => {
-			reply = () => REPLY;
-			expect(dataOf(await getAdministrativeUnit(contextOf({ ...VALID_CLICK, level })))).toEqual({
-				found: true,
-				feature: UNITS[index],
-			});
-			expect(sent).toHaveLength(1);
-		},
-	);
-
-	test('a level IGN did not list is not found, with no feature', async () => {
-		reply = () => REPLY;
-		expect(
-			dataOf(await getAdministrativeUnit(contextOf({ ...VALID_CLICK, level: 'CCAA' }))),
-		).toEqual({
-			found: false,
-			feature: null,
+		['4thOrder', 'València', 'Municipio'],
+		['3rdOrder', 'Valencia', 'Provincia'],
+		['2ndOrder', 'Comunitat Valenciana', 'CCAA'],
+		['1stOrder', 'España', null],
+	] as const)('a %s unit is named with level %s', async (order, name, level) => {
+		answer = () => ({ features: [unit(order, name)] });
+		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toEqual({
+			found: true,
+			unit: { name, level, code: '34104600000' },
 		});
 	});
 
-	test('an unreadable reply is the source unavailable, not a crash', async () => {
-		reply = () => '<html>maintenance</html>';
-		const error = await failureOf(
-			getAdministrativeUnit(contextOf({ ...VALID_CLICK, level: 'Municipio' })),
-		);
+	test("one question for the clicked point, core's 100 m box around it", async () => {
+		answer = () => ({ features: [unit('3rdOrder', 'Alicante')] });
+		await getAdministrativeUnit(contextOf(VALID_CLICK));
+		expect(asked.map((question) => question.id)).toEqual(['ign_admin_units_featureinfo']);
+		expect(asked[0]?.params).toMatchObject({
+			crs: 'EPSG:3857',
+			width: 101,
+			height: 101,
+			i: 50,
+			j: 50,
+		});
+	});
+
+	test('the first unit IGN lists is the one named', async () => {
+		answer = () => ({ features: [unit('3rdOrder', 'Alicante'), unit('4thOrder', 'Elche')] });
+		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toMatchObject({
+			unit: { name: 'Alicante', level: 'Provincia' },
+		});
+	});
+
+	test('"nothing there" or a unit with no name is not found, not a failure', async () => {
+		answer = () => {
+			throw new DedaloError('external.not_found', { message: 'nothing there' });
+		};
+		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toEqual({ found: false });
+		answer = () => ({ features: [{ properties: { nameunit: '  ' } }] });
+		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toEqual({ found: false });
+	});
+
+	test("a transient failure is the source unavailable with the tool's reason", async () => {
+		answer = () => {
+			throw new DedaloError('external.timeout', { message: 'slow' });
+		};
+		const error = await failureOf(getAdministrativeUnit(contextOf(VALID_CLICK)));
 		expectCode(error, 'tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'admin_units_unavailable' });
 	});
 });
 

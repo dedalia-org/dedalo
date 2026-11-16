@@ -1,17 +1,15 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global L */
 /*eslint no-undef: "error"*/
 
 
 
 /**
 * ADMINISTRATIVE_UNITS
-* "Administrative Units" (UA): the same language gate as Catastro. v6's one toggle
-* (`special_tools_UA_es.js` UA_on/UA_off) shows the level select, lays the IGN
-* administrative units out and arms the click; here opening the panel IS arming, and
-* closing it, by any path, disarms. Unlike v6 the units go OVER the active basemap: core's
-* built-in is boundaries only, transparent, so as a basemap a record's zoom (inside one
-* municipality) showed nothing. A component may configure `ign_unidades` instead
+* "Administrative Units" (UA): the same language gate as Catastro. Opening the panel
+* lays the IGN units over the active basemap and arms the click; closing it, by any path,
+* disarms. A click names the unit core's `ign_admin_units_featureinfo` answers: one unit,
+* of no chosen level, without geometry, so neither v6's level select nor its polygon
+* (`special_tools_UA_es.js`) can be served. A component may configure `ign_unidades`
 * (`properties.map_sources`), e.g. IGN's units with their names, as v6 drew them.
 */
 
@@ -53,8 +51,6 @@ export const attach_administrative_units = function(self) {
 	if (!is_spanish_official_lang(self)) {
 		return
 	}
-
-	self._ua_level = self._ua_level || 'Municipio'
 
 	const title = self.get_tool_label('ua_control_title') || 'Administrative Units'
 
@@ -151,9 +147,8 @@ const disable_ua = function(self) {
 
 /**
 * CHECK_ADMINISTRATIVE_UNIT_AT_POINT
-* v6's `init_UA` click without its client-side `nationallevel` filter: the server
-* already returns at most the ONE feature of the chosen level. Exported for the
-* client gate.
+* Names, in the panel, the unit at the click. Nothing is created: core's service
+* has no geometry to draw. Exported for the client gate.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} latlng - a Leaflet LatLng
@@ -172,11 +167,11 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 			action	: 'get_administrative_unit',
 			retries	: 1,
 			timeout	: LOOKUP_TIMEOUT_MS,
-			options	: {...wms_point_options(self, latlng), level: self._ua_level}
+			options	: wms_point_options(self, latlng)
 		})
 
 		// torn down or closed (by any path) while in flight: a late response must
-		// not create an object nobody asks for any more
+		// not speak in a panel nobody looks at any more
 		if (!self.ua_panel || !is_toolbar_panel_visible(self.ua_panel)) {
 			return
 		}
@@ -189,7 +184,7 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 		}
 
 		const data = response_data(response)
-		if (!data || !data.found) {
+		if (!data || !data.found || !data.unit) {
 			show_ua_message(
 				self.ua_panel,
 				self.get_tool_label('ua_not_found') || 'No administrative unit could be found at this point.',
@@ -198,8 +193,7 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 			return
 		}
 
-		clear_ua_message(self.ua_panel)
-		create_administrative_unit_object(self, data.feature)
+		show_ua_message(self.ua_panel, administrative_unit_text(self, data.unit), 'ok')
 
 	} catch (error) {
 		// torn down while in flight: the page toast would report work the
@@ -218,30 +212,23 @@ export const check_administrative_unit_at_point = async function(self, latlng) {
 
 
 /**
-* CREATE_ADMINISTRATIVE_UNIT_OBJECT
-* Pans to a point, fits anything with extent (v6's `init_UA`). With one feature from
-* the server there is nothing to compare.
+* ADMINISTRATIVE_UNIT_TEXT
+* "Name (level)", the level in the user's language; the bare name for a level
+* the server could not name.
 *
 * @param {Object} self - tool_uca_maps instance
-* @param {Object} feature - a GeoJSON Feature
-* @returns {void}
+* @param {{name: string, level: ?string}} unit
+* @returns {string}
 */
-const create_administrative_unit_object = function(self, feature) {
+const administrative_unit_text = function(self, unit) {
 
-	const [layer] = L.geoJSON(feature).getLayers()
-	if (!layer) {
-		return
+	if (!unit.level) {
+		return unit.name
 	}
+	const level = self.get_tool_label('ua_level_' + unit.level.toLowerCase()) || unit.level
 
-	self.geolocation.map.fire('pm:create', {layer})
-
-	if (typeof layer.getLatLng==='function') {
-		self.geolocation.map.panTo(layer.getLatLng())
-	} else if (typeof layer.getBounds==='function') {
-		self.geolocation.map.fitBounds(layer.getBounds())
-	}
-
-}//end create_administrative_unit_object
+	return unit.name + ' (' + level + ')'
+}//end administrative_unit_text
 
 
 

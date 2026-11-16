@@ -6,12 +6,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-	clickedPoint,
 	extractParcelPosList,
-	featureInfoQuery,
 	parseCatastroRefcat,
 	parseParcelGeometry,
 } from '../../tools/tool_uca_maps/server/catastro.ts';
+import { clickedPoint, featureInfoQuery } from '../../tools/tool_uca_maps/server/click_params.ts';
 import { geoParamAccepts } from '../../tools/tool_uca_maps/server/geo_call.ts';
 import { utmToLatLon, utmZoneOf } from '../../tools/tool_uca_maps/server/utm.ts';
 

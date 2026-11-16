@@ -14,7 +14,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import { type ClickParams, parseClickParams } from './click_params.ts';
+import { clickedPoint, featureInfoQuery, parseClickParams } from './click_params.ts';
 import { askGeoService } from './geo_call.ts';
 import { utmToLatLon, utmZoneOf } from './utm.ts';
 
@@ -22,8 +22,6 @@ import { utmToLatLon, utmZoneOf } from './utm.ts';
 // checked before the value (scraped out of a third party's own HTML/GML
 // replies) rides into a SECOND request as a parameter.
 const REFCAT_PATTERN = /^[0-9A-Z]{14}$/i;
-
-const EARTH_RADIUS = 6378137;
 
 /** The peninsula and the Balearics, with core's CRS for each zone. */
 const CATASTRO_ZONES: Readonly<Record<number, string>> = Object.freeze({
@@ -41,38 +39,6 @@ function unavailable(message: string): DedaloError {
 		message,
 		details: { reason_key: 'catastro_unavailable' },
 	});
-}
-
-/**
- * The clicked [lat, lon]: the map is Web Mercator, so a pixel is linear in
- * longitude but not in latitude. Exported for unit coverage.
- */
-export function clickedPoint({ bbox, height, width, x, y }: ClickParams): [number, number] {
-	const [west, south, east, north] = bbox;
-	const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-	const top = mercY(north);
-	const yAt = top - (y / height) * (top - mercY(south));
-	const lat = (Math.atan(Math.sinh(yAt)) * 180) / Math.PI;
-	return [lat, west + (x / width) * (east - west)];
-}
-
-/**
- * The feature-info question for one point: a 100 m box around it in EPSG:3857
- * at one metre a pixel, the point at its centre. Asking for the user's whole
- * view would refuse a wide one (core caps the box): only the clicked point
- * matters. Exported for unit coverage.
- */
-export function featureInfoQuery([lat, lon]: [number, number]): Record<string, unknown> {
-	const x = (EARTH_RADIUS * lon * Math.PI) / 180;
-	const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-	return {
-		crs: 'EPSG:3857',
-		bbox: [x - 50, y - 50, x + 50, y + 50],
-		width: 101,
-		height: 101,
-		i: 50,
-		j: 50,
-	};
 }
 
 /** The text of the first `<td>` after the one that reads `label`, or null. */
