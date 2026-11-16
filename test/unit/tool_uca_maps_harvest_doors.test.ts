@@ -134,6 +134,39 @@ describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 		expect(error.details).toEqual({ reason_key: 'wms_server_unavailable' });
 		expect(error.message).toContain('HTTP 404');
 	});
+	// the negative control of the tool's catch: only an ADDRESS refusal becomes
+	// "unreachable"; any other failure of the door leaves exactly as it came
+	test('a refusal that is not about the address, or any other failure, is not rewritten', async () => {
+		const site = scriptedSite({
+			'https://wms.example/wms?service=WMS&request=GetCapabilities': {
+				status: 301,
+				location: 'ftp://wms.example/wms',
+			},
+		});
+		const refused = await failureOf(
+			getWmsLayers(contextOf({ url: 'https://wms.example/wms' }), site.deps),
+		);
+		expect(refused.code).toBe('harvest.refused');
+		expect(refused.details).toMatchObject({ reason: 'protocol' });
+
+		// robots.txt still answers; only the capabilities request fails
+		const capabilities = 'https://wms.example/other?service=WMS&request=GetCapabilities';
+		const down = new DedaloError('external.timeout', { message: 'slow' });
+		const reached: string[] = [];
+		const failing: HarvestDeps = {
+			...site.deps,
+			hop: async (request) => {
+				reached.push(request.url.toString());
+				if (request.url.toString() === capabilities) throw down;
+				return (site.deps.hop as NonNullable<HarvestDeps['hop']>)(request);
+			},
+		};
+		const error = await failureOf(
+			getWmsLayers(contextOf({ url: 'https://wms.example/other' }), failing),
+		);
+		expect(reached).toContain(capabilities);
+		expect(error).toBe(down);
+	});
 });
 
 describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades over https only', () => {
