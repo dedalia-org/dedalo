@@ -69,9 +69,34 @@ describe('wmsCapabilitiesUrl', () => {
 describe('tool_uca_maps get_wms_layers — handler', () => {
 	test('a private/loopback target is refused by the SSRF guard, no network reached', async () => {
 		const action = await loadAction('get_wms_layers');
-		const error = await action
-			.handler(contextOf({ url: 'http://127.0.0.1:9999/wms' }))
-			.catch((e: unknown) => e);
-		expect(isSsrfRefusal(error)).toBe(true);
+		const error = await failureOf(action.handler(contextOf({ url: 'http://127.0.0.1:9999/wms' })));
+		expectCode(error, 'request.invalid_options');
+		expect(error.details?.reason_key).toBe('wms_server_unreachable');
+		expect(isSsrfRefusal(error.cause)).toBe(true);
+	});
+
+	test('unresolved and non-public hosts answer alike, so the field maps no internal DNS', async () => {
+		const resolvers = {
+			failing: async () => {
+				throw new Error('ENOTFOUND');
+			},
+			empty: async () => [],
+			private: async () => [{ address: '10.0.0.1', family: 4 }],
+		};
+		const answers = new Set<string>();
+		for (const lookup of Object.values(resolvers)) {
+			const error = await failureOf(
+				getWmsLayers(contextOf({ url: 'https://wms.any.example/wms' }), { pinned: { lookup } }),
+			);
+			expect(isSsrfRefusal(error.cause)).toBe(true);
+			answers.add(JSON.stringify([error.code, error.message, error.details]));
+		}
+		expect([...answers]).toEqual([
+			JSON.stringify([
+				'request.invalid_options',
+				'The server could not be reached: check the URL.',
+				{ reason_key: 'wms_server_unreachable' },
+			]),
+		]);
 	});
 });

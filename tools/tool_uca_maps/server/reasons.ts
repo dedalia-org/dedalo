@@ -14,6 +14,7 @@ export const REASON_KEYS = {
 	no_dataset_selected: 'Select at least one dataset to search.',
 	wms_url_required: 'The WMS server URL is required.',
 	wms_url_invalid: 'Please enter a valid URL.',
+	wms_server_unreachable: 'The server could not be reached: check the URL.',
 	file_name_unusable: 'The file name has no usable characters.',
 	image_not_on_server: 'The image is no longer on the server.',
 	image_not_displayable: 'The uploaded image has no version this browser can display.',

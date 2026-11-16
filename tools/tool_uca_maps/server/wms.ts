@@ -7,6 +7,7 @@
 
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
+import { isAddressRefusal } from '../../../src/core/security/ssrf_guard.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -15,8 +16,12 @@ import {
 import type { ReasonKey } from './reasons.ts';
 
 /** A caller fault — missing/malformed WMS server URL. */
-function invalidWmsRequest(message: string, reason: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', { message, details: { reason_key: reason } });
+function invalidWmsRequest(message: string, reason: ReasonKey, cause?: unknown): DedaloError {
+	return new DedaloError('request.invalid_options', {
+		message,
+		details: { reason_key: reason },
+		cause,
+	});
 }
 
 /**
@@ -69,7 +74,19 @@ async function fetchWmsCapabilities(
 			timeoutMs: 15_000,
 		},
 		deps,
-	);
+	).catch((error: unknown) => {
+		// a host the user typed that does not resolve, or resolves somewhere non-public,
+		// gets ONE answer: telling them apart would map the internal DNS. The guard's
+		// own reason stays in the cause, for the operator's log.
+		if (isAddressRefusal(error)) {
+			throw invalidWmsRequest(
+				'The server could not be reached: check the URL.',
+				'wms_server_unreachable',
+				error,
+			);
+		}
+		throw error;
+	});
 	if (!response.ok) {
 		// the remote is down or refuses, not this server: retryable, and readOnly
 		// lets the resend show it

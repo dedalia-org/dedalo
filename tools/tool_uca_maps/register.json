@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.8",
+	"version": "1.0.9",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -628,6 +628,8 @@
 
 		{ "lang": "lg-eng", "name": "reason_wms_url_invalid", "value": "Please enter a valid URL." },
 		{ "lang": "lg-spa", "name": "reason_wms_url_invalid", "value": "Introduce una URL válida." },
+		{ "lang": "lg-eng", "name": "reason_wms_server_unreachable", "value": "The server could not be reached: check the URL." },
+		{ "lang": "lg-spa", "name": "reason_wms_server_unreachable", "value": "No se puede acceder al servidor; revisa la dirección." },
 
 		{ "lang": "lg-eng", "name": "reason_file_name_unusable", "value": "The file name has no usable characters." },
 		{ "lang": "lg-spa", "name": "reason_file_name_unusable", "value": "El nombre del fichero no tiene ningún carácter utilizable." },
