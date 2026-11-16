@@ -296,7 +296,8 @@
   opacity: 0.4;
   cursor: default;
 }
-.uca-maps-map-image-panel .uca-maps-map-image-message {
+.uca-maps-map-image-panel .uca-maps-map-image-message,
+.uca-maps-map-image-panel .uca-maps-map-image-direct {
   background-color: var(--uca_maps_msg_error_bg);
   color: var(--uca_maps_msg_error_fg);
   border-radius: 0.2rem;
@@ -305,19 +306,23 @@
   white-space: pre-line;
   margin: 0 0.75rem 0.5rem;
 }
-.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="ok"] {
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="ok"],
+.uca-maps-map-image-panel .uca-maps-map-image-direct[data-type="ok"] {
   background-color: var(--uca_maps_msg_ok_bg);
   color: var(--uca_maps_msg_ok_fg);
 }
-.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="warning"] {
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="warning"],
+.uca-maps-map-image-panel .uca-maps-map-image-direct[data-type="warning"] {
   background-color: var(--uca_maps_msg_warning_bg);
   color: var(--uca_maps_msg_warning_fg);
 }
-.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="info"] {
+.uca-maps-map-image-panel .uca-maps-map-image-message[data-type="info"],
+.uca-maps-map-image-panel .uca-maps-map-image-direct[data-type="info"] {
   background-color: var(--bg_surface_alt);
   color: var(--fg_default);
 }
-.uca-maps-map-image-panel .uca-maps-map-image-message[hidden] {
+.uca-maps-map-image-panel .uca-maps-map-image-message[hidden],
+.uca-maps-map-image-panel .uca-maps-map-image-direct[hidden] {
   display: none;
 }
 .uca-maps-object-viewer-panel > .uca-maps-object-viewer-title {

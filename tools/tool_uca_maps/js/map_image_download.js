@@ -63,6 +63,14 @@ export const attach_map_image_download_control = function(self) {
 	})
 	render_map_image_download_panel(self, self.map_image_panel)
 
+	// the base map can change while the panel is open: the warning follows it
+	self._map_image_layers_handler = () => {
+		if (is_toolbar_panel_visible(self.map_image_panel)) {
+			refresh_direct_layer_warning(self)
+		}
+	}
+	self.geolocation.map.on('layeradd layerremove', self._map_image_layers_handler)
+
 }//end attach_map_image_download_control
 
 
@@ -76,8 +84,88 @@ export const attach_map_image_download_control = function(self) {
 * @returns {void}
 */
 const toggle_map_image_panel = function(self) {
-	set_toolbar_panel_visible(self, self.map_image_panel, self.map_image_control, !is_toolbar_panel_visible(self.map_image_panel))
+	const next_visible = !is_toolbar_panel_visible(self.map_image_panel)
+	if (next_visible) {
+		refresh_direct_layer_warning(self)
+	}
+	set_toolbar_panel_visible(self, self.map_image_panel, self.map_image_control, next_visible)
 }//end toggle_map_image_panel
+
+
+
+/**
+* DIRECT_TILE_LAYER_NAMES
+* The tile layers on the map that load straight from their provider (another origin):
+* the page's CSP keeps the capture from reading their tiles, so the image cannot include
+* them. Told by origin, never by name: ARCGIS without its configured source, DARE, OSM
+* where the server lists it as direct. Named as the layer control lists them.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {Array<string>} plain-text names, each once
+*/
+// exported for the client gate
+export const direct_tile_layer_names = function(self) {
+
+	const geolocation	= self.geolocation
+	const entries		= geolocation.layer_control ? Object.values(geolocation.layer_control._layers || {}) : []
+	const names			= new Set()
+
+	geolocation.map.eachLayer((layer) => {
+		if (!(layer instanceof L.TileLayer) || typeof layer._url!=='string') {
+			return
+		}
+		let url
+		try {
+			url = new URL(layer._url.replace(/[{}]/g, ''), window.location.href)
+		} catch {
+			return
+		}
+		if ((url.protocol!=='http:' && url.protocol!=='https:') || url.origin===window.location.origin) {
+			return
+		}
+		const entry = entries.find((item) => item.layer===layer)
+		// the control's names are escaped HTML: read back as text
+		const name = entry
+			? new DOMParser().parseFromString(String(entry.name), 'text/html').body.textContent.trim()
+			: ''
+		names.add(name!=='' ? name : url.hostname)
+	})
+
+	return Array.from(names)
+}//end direct_tile_layer_names
+
+
+
+/**
+* REFRESH_DIRECT_LAYER_WARNING
+* The panel's standing warning: which active layers the image will leave out. The
+* download stays allowed (drawings and legend are still worth it), and those tiles
+* come out as plain background (`imagePlaceholder`), not as broken images.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+// exported for the client gate
+export const refresh_direct_layer_warning = function(self) {
+
+	const line = self._map_image_direct_line
+	if (!line || !self.geolocation || !self.geolocation.map) {
+		return
+	}
+
+	const names = direct_tile_layer_names(self)
+	if (names.length===0) {
+		line.hidden			= true
+		line.textContent	= ''
+		return
+	}
+
+	const template = self.get_tool_label('map_image_direct_layer')
+		|| 'The base layer «{name}» cannot be included in the image: it loads directly from its provider. To include it, an administrator can configure it for the section, or you can add it to this record from the XYZ panel.'
+	line.textContent	= template.replace('{name}', names.join('», «'))
+	line.dataset.type	= 'warning'
+	line.hidden			= false
+}//end refresh_direct_layer_warning
 
 
 
@@ -90,17 +178,26 @@ const toggle_map_image_panel = function(self) {
 */
 export const detach_map_image_download_control = function(self) {
 
+	if (self._map_image_layers_handler && self.geolocation && self.geolocation.map) {
+		self.geolocation.map.off('layeradd layerremove', self._map_image_layers_handler)
+	}
 	remove_toolbar_button(self, self.map_image_control)
 	remove_toolbar_panel(self, self.map_image_panel)
 
 	self.map_image_control			= null
 	self.map_image_panel			= null
+	self._map_image_direct_line		= null
+	self._map_image_layers_handler	= null
 
 }//end detach_map_image_download_control
 
 
 
 let dom_to_image_load_promise = null
+
+/** A 1x1 transparent GIF: what the capture paints for a tile it cannot read. */
+// exported for the client gate
+export const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
 
 /**
 * LOAD_DOM_TO_IMAGE
@@ -222,11 +319,13 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 		// (closed grammar), and its same-origin tiles need no interceptor. Geoman's
 		// toolbar stays out: dom-to-image-more fetches its icons' `url(#…)`. filterUrls:
 		// a relative URL with no base is an unresolved custom property, never painted.
+		// imagePlaceholder: a tile it cannot read (a direct provider) is plain background.
 		const capture_options	= {
-			width		: container.offsetWidth,
-			height		: container.offsetHeight,
-			filter		: (node) => keep_in_map_image(self, node),
-			filterUrls	: (url, base_url) => Boolean(base_url) || /^[a-z][a-z0-9+.-]*:/i.test(url)
+			width				: container.offsetWidth,
+			height				: container.offsetHeight,
+			filter				: (node) => keep_in_map_image(self, node),
+			filterUrls			: (url, base_url) => Boolean(base_url) || /^[a-z][a-z0-9+.-]*:/i.test(url),
+			imagePlaceholder	: TRANSPARENT_PIXEL
 		}
 
 		if (format==='png') {

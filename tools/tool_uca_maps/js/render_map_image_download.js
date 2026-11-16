@@ -89,6 +89,9 @@ export const render_map_image_download_panel = function(self, panel) {
 		parent			: row
 	})
 	button.type = 'button'
+	// standing warning (map_image_download.js refresh_direct_layer_warning), apart from
+	// the download's own result line
+	self._map_image_direct_line = create_panel_message(panel, 'uca-maps-map-image-direct')
 	const message = create_panel_message(panel, 'uca-maps-map-image-message')
 	bind_download_button(button, message, () => self.download_map_image(select.value, name_input.value))
 

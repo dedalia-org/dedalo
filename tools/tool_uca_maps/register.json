@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.10",
+	"version": "1.0.11",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -225,6 +225,8 @@
 
 		{ "lang": "lg-eng", "name": "map_image_name_required", "value": "Please enter a name for the file" },
 		{ "lang": "lg-spa", "name": "map_image_name_required", "value": "Por favor, indique un nombre para el archivo" },
+		{ "lang": "lg-eng", "name": "map_image_direct_layer", "value": "The base layer «{name}» cannot be included in the image: it loads directly from its provider. To include it, an administrator can configure it for the section, or you can add it to this record from the XYZ panel." },
+		{ "lang": "lg-spa", "name": "map_image_direct_layer", "value": "La capa de fondo «{name}» no se puede incluir en la imagen: se carga directamente desde su proveedor. Para incluirla, un administrador puede configurarla para la sección, o puedes añadirla a esta ficha desde el panel XYZ." },
 
 		{ "lang": "lg-eng", "name": "raster_format_png", "value": "PNG" },
 		{ "lang": "lg-spa", "name": "raster_format_png", "value": "PNG" },

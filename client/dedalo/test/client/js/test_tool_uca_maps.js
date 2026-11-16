@@ -47,7 +47,7 @@ import {
 	RESERVED_PROPERTY_KEYS,
 	computed_property_keys
 } from '../../../tools/tool_uca_maps/js/object_console.js'
-import { download_map_image, keep_in_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
+import { download_map_image, keep_in_map_image, direct_tile_layer_names, TRANSPARENT_PIXEL } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { rotated_image_overlay } from '../../../tools/tool_uca_maps/js/rotated_image_overlay.js'
@@ -2657,6 +2657,67 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isAbove(captured.blob.size, 0, 'expected a non-empty capture')
 		assert.equal(captured.name, `${DEFAULT_MAP_IMAGE_NAME}.png`, 'expected the default base name when the caller passes nothing')
 		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format')
+	})
+
+	it('the download panel warns, by origin, of an active layer the image cannot include, and follows the map while it is open', function() {
+
+		tool.attach_map_image_download_control()
+		const map		= geolocation.map
+		const line		= tool.map_image_panel.querySelector('.uca-maps-map-image-direct')
+		const offline	= (layer) => { layer.getTileUrl = () => BLANK_TILE; return layer }
+		assert.isOk(line, 'expected the warning line in the panel')
+		const before	= direct_tile_layer_names(tool)
+
+		// same origin (the tile proxy) and data: tiles are never named; a direct one is,
+		// by its control name read back as text, or by its host when unlisted
+		const proxied	= offline(L.tileLayer('/dedalo/core/api/v1/map_tile?builtin=test&z={z}&x={x}&y={y}')).addTo(map)
+		const inline	= offline(L.tileLayer(BLANK_TILE)).addTo(map)
+		const listed	= offline(L.tileLayer('https://tiles.example.com/{z}/{x}/{y}.png'))
+		geolocation.ensure_layer_control().addBaseLayer(listed, 'Test &amp; direct')
+		listed.addTo(map)
+		const unlisted	= offline(L.tileLayer('https://{s}.other.example.org/{z}/{x}/{y}.png')).addTo(map)
+		assert.sameMembers(direct_tile_layer_names(tool), [...before, 'Test & direct', 's.other.example.org'], 'expected only the cross-origin layers, by name or host')
+
+		tool.map_image_control.getContainer().click()
+		assert.equal(tool.map_image_panel.hidden, false)
+		assert.equal(line.hidden, false, 'expected the warning shown on opening')
+		assert.include(line.textContent, '«Test & direct', 'expected the layer named in the warning')
+		assert.equal(line.dataset.type, 'warning', 'expected a warning, not an error: the download stays allowed')
+		assert.isFalse(tool.map_image_panel.querySelector('.uca-maps-map-image-button').disabled, 'expected the download still allowed')
+
+		map.removeLayer(listed)
+		map.removeLayer(unlisted)
+		assert.notInclude(line.textContent, 'Test & direct', 'expected the warning to follow a layer switched off while the panel is open')
+		assert.equal(line.hidden, before.length===0, 'expected the line hidden once no direct layer is left')
+
+		for (const layer of [proxied, inline]) {
+			map.removeLayer(layer)
+		}
+		geolocation.layer_control.removeLayer(listed)
+	})
+
+	it('download_map_image paints a tile it cannot read as plain background, never a broken image', async function() {
+
+		tool.attach_map_image_download_control()
+
+		const had		= Object.hasOwn(window, 'domtoimage')
+		const original	= window.domtoimage
+		let options_seen = null
+		window.domtoimage = {
+			toBlob	: async (node, options) => { options_seen = options; return new Blob(['x'], {type: 'image/png'}) }
+		}
+		try {
+			await capture_download(() => download_map_image(tool, 'png'))
+		} finally {
+			if (had) {
+				window.domtoimage = original
+			} else {
+				delete window.domtoimage
+			}
+		}
+
+		assert.isOk(options_seen, 'expected the capture to run')
+		assert.equal(options_seen.imagePlaceholder, TRANSPARENT_PIXEL, 'expected the transparent placeholder for an unreadable tile')
 	})
 
 	it('download_map_image names the PNG with what the user typed, sanitized', async function() {
