@@ -47,7 +47,7 @@ import {
 	RESERVED_PROPERTY_KEYS,
 	computed_property_keys
 } from '../../../tools/tool_uca_maps/js/object_console.js'
-import { download_map_image, keep_in_map_image, direct_tile_layer_names, TRANSPARENT_PIXEL } from '../../../tools/tool_uca_maps/js/map_image_download.js'
+import { download_map_image, keep_in_map_image, direct_tile_layer_names, detach_map_image_download_control, TRANSPARENT_PIXEL } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
 import { rotated_image_overlay } from '../../../tools/tool_uca_maps/js/rotated_image_overlay.js'
@@ -70,6 +70,7 @@ import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_u
 import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js'
 import { upload_refusal_text, exception_text } from '../../../tools/tool_uca_maps/js/panel_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
+import { request_failed } from '../../../core/common/js/api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
 import { is_catastro_enabled, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/armed_layer.js'
@@ -125,6 +126,23 @@ const until = async function(done, tries = 200, ms = 10) {
 }
 
 /**
+* The credit's day, the viewer's local one, taken before and after `fn`: a run
+* across midnight sees either, never a false red.
+* @returns {string[]}
+*/
+const days_around = function(fn) {
+	const day = () => new Date().toLocaleDateString('sv-SE')
+	const before = day()
+	fn()
+	return [...new Set([before, day()])]
+}
+
+/** Asserts `text` holds `prefix` + one of `days`. */
+const assert_credited_day = function(text, prefix, days, message) {
+	assert.isTrue(days.some((d) => text.includes(prefix + d)), message + ' (' + JSON.stringify(text) + ')')
+}
+
+/**
 * Runs `fn` with the tool's own stylesheet loaded, and removes it after:
 * the suite runs without it, so only a layout or paint test pays for it.
 */
@@ -160,6 +178,27 @@ const with_phone_rules = async function(selector_part, fn) {
 	assert.isAbove(rules.length, 0, 'expected phone rules for ' + selector_part)
 	const style = document.createElement('style')
 	style.textContent = rules.map((rule) => rule.cssText).join('\n')
+	document.head.appendChild(style)
+	try {
+		return await fn()
+	} finally {
+		style.remove()
+	}
+}
+
+/**
+* Runs `fn` with the WHOLE tool sheet re-applied, in its own order, its phone
+* @media made unconditional: unlike with_phone_rules, a later desktop rule still
+* beats an earlier phone one, so a cascade-order bug shows. Call inside with_tool_css.
+* @returns {Promise<*>}
+*/
+const with_phone_cascade = async function(fn) {
+	const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+	const unwrap = (rule) => (rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
+		? [...rule.cssRules].map(unwrap).join('\n')
+		: rule.cssText
+	const style = document.createElement('style')
+	style.textContent = [...sheet.cssRules].map(unwrap).join('\n')
 	document.head.appendChild(style)
 	try {
 		return await fn()
@@ -734,6 +773,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.build_source_layers(0)
 	}
 
+	/**
+	* `entries` configured BEFORE the map is built, as on an install: the map is taken down
+	* and get_map runs again on a context that already lists them (core's own overlays
+	* come from get_map itself, not from a later rebuild).
+	*/
+	const mount_with_defaults = async function(entries) {
+		const properties = geolocation.context.properties || {}
+		geolocation.context = {...geolocation.context, properties: {...properties, map_sources: entries}}
+		geolocation.map.remove()
+		geolocation.map				= null
+		geolocation.layer_control	= false
+		await geolocation.get_map(map_container, 0)
+		assert.isOk(geolocation.map, 'expected the map built again')
+	}
+
 	/** The layer-control entries whose tiles are `url_part`'s (the default or built-in it names). */
 	const control_entries_of = (url_part) => Object.values(geolocation.layer_control._layers)
 		.filter((entry) => String(entry.layer._url).includes(url_part))
@@ -822,7 +876,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	* `hold`, a promise, keeps the answer on the wire until it settles. Returns the values
 	* sent, in order.
 	*/
-	const fake_component_save = function({fail = false, hold = null} = {}) {
+	const fake_component_save = function({fail = false, hold = null, degraded = false} = {}) {
 		const sent		= []
 		let next_id		= 101
 		geolocation.change_value = async function({changed_data}) {
@@ -833,6 +887,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const value = JSON.parse(JSON.stringify(changed_data[0].value))
 			if (fail) {
 				return {ok: false, error: {is_api_error: true, code: 'request.invalid', message: 'Invalid data.'}}
+			}
+			// answered, but the component could not read its value back
+			if (degraded) {
+				geolocation.data_degraded = true
+				return {ok: true, data: {}}
 			}
 			// the server's attribution rule (checkPlainText): control characters refused, trimmed
 			if ((value.sources || []).some((source) => /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(source.attribution || ''))) {
@@ -2671,34 +2730,61 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const line		= tool.map_image_panel.querySelector('.uca-maps-map-image-direct')
 		const offline	= (layer) => { layer.getTileUrl = () => BLANK_TILE; return layer }
 		assert.isOk(line, 'expected the warning line in the panel')
-		const before	= direct_tile_layer_names(tool)
-
-		// same origin (the tile proxy) and data: tiles are never named; a direct one is,
-		// by its control name read back as text, or by its host when unlisted
-		const proxied	= offline(L.tileLayer('/dedalo/core/api/v1/map_tile?builtin=test&z={z}&x={x}&y={y}')).addTo(map)
-		const inline	= offline(L.tileLayer(BLANK_TILE)).addTo(map)
-		const listed	= offline(L.tileLayer('https://tiles.example.com/{z}/{x}/{y}.png'))
-		geolocation.ensure_layer_control().addBaseLayer(listed, 'Test &amp; direct')
-		listed.addTo(map)
-		const unlisted	= offline(L.tileLayer('https://{s}.other.example.org/{z}/{x}/{y}.png')).addTo(map)
-		assert.sameMembers(direct_tile_layer_names(tool), [...before, 'Test & direct', 's.other.example.org'], 'expected only the cross-origin layers, by name or host')
-
-		tool.map_image_control.getContainer().click()
-		assert.equal(tool.map_image_panel.hidden, false)
-		assert.equal(line.hidden, false, 'expected the warning shown on opening')
-		assert.include(line.textContent, '«Test & direct', 'expected the layer named in the warning')
-		assert.equal(line.dataset.type, 'warning', 'expected a warning, not an error: the download stays allowed')
-		assert.isFalse(tool.map_image_panel.querySelector('.uca-maps-map-image-button').disabled, 'expected the download still allowed')
-
-		map.removeLayer(listed)
-		map.removeLayer(unlisted)
-		assert.notInclude(line.textContent, 'Test & direct', 'expected the warning to follow a layer switched off while the panel is open')
-		assert.equal(line.hidden, before.length===0, 'expected the line hidden once no direct layer is left')
-
-		for (const layer of [proxied, inline]) {
+		// built from a map with no tile layer at all, whatever the suite server serves
+		// directly: so the branch that hides the warning has a real empty case to reach
+		const ambient = []
+		map.eachLayer((layer) => { if (layer instanceof L.TileLayer) ambient.push(layer) })
+		for (const layer of ambient) {
 			map.removeLayer(layer)
 		}
-		geolocation.layer_control.removeLayer(listed)
+		try {
+			assert.deepEqual(direct_tile_layer_names(tool), [], 'expected no direct layer to start from')
+
+			// same origin (the tile proxy) and data: tiles are never named; a direct one is,
+			// by its control name read back as text, or by its host when unlisted
+			const proxied	= offline(L.tileLayer('/dedalo/core/api/v1/map_tile?builtin=test&z={z}&x={x}&y={y}')).addTo(map)
+			const inline	= offline(L.tileLayer(BLANK_TILE)).addTo(map)
+			const listed	= offline(L.tileLayer('https://tiles.example.com/{z}/{x}/{y}.png'))
+			geolocation.ensure_layer_control().addBaseLayer(listed, 'Test &amp; direct')
+			listed.addTo(map)
+			const unlisted	= offline(L.tileLayer('https://{s}.other.example.org/{z}/{x}/{y}.png')).addTo(map)
+			assert.sameMembers(direct_tile_layer_names(tool), ['Test & direct', 's.other.example.org'], 'expected only the cross-origin layers, by name or host')
+
+			tool.map_image_control.getContainer().click()
+			assert.equal(tool.map_image_panel.hidden, false)
+			assert.equal(line.hidden, false, 'expected the warning shown on opening')
+			assert.include(line.textContent, '«Test & direct', 'expected the layer named in the warning')
+			assert.equal(line.dataset.type, 'warning', 'expected a warning, not an error: the download stays allowed')
+			assert.isFalse(tool.map_image_panel.querySelector('.uca-maps-map-image-button').disabled, 'expected the download still allowed')
+
+			map.removeLayer(listed)
+			map.removeLayer(unlisted)
+			assert.notInclude(line.textContent, 'Test & direct', 'expected the warning to follow a layer switched off while the panel is open')
+			assert.equal(line.hidden, true, 'expected the line hidden once no direct layer is left')
+
+			for (const layer of [proxied, inline]) {
+				map.removeLayer(layer)
+			}
+			geolocation.layer_control.removeLayer(listed)
+		} finally {
+			for (const layer of ambient) {
+				layer.addTo(map)
+			}
+		}
+	})
+
+	it('detaching the download control stops it following the map\'s layers', function() {
+
+		tool.attach_map_image_download_control()
+		const map		= geolocation.map
+		const handler	= tool._map_image_layers_handler
+		assert.isOk(handler, 'expected the layer follower attached')
+		assert.isTrue(map.listens('layeradd', handler) && map.listens('layerremove', handler), 'expected it on both events')
+
+		detach_map_image_download_control(tool)
+		assert.isFalse(map.listens('layeradd', handler), 'expected layeradd unhooked')
+		assert.isFalse(map.listens('layerremove', handler), 'expected layerremove unhooked')
+		assert.isNull(tool._map_image_layers_handler)
 	})
 
 	it('download_map_image paints a tile it cannot read as plain background, never a broken image', async function() {
@@ -4334,6 +4420,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}))
 	})
 
+	// Roma's 46rem comes AFTER the shared phone rule: only its own restatement
+	// keeps it from overflowing a phone, and only the sheet's order shows that
+	it('on a phone the wide Roman panel still stretches between the bar and the map edge', async function() {
+
+		mount_roman()
+		await with_tool_css(() => with_phone_cascade(() => {
+			open_roman()
+			const panel = tool.roman_panel
+			assert.isFalse(panel.hidden, 'expected the Roman panel open')
+			assert.isTrue(panel.classList.contains('uca-maps-panel-centered'), 'expected the centred panel the 46rem names')
+			const map_rect	= geolocation.map.getContainer().getBoundingClientRect()
+			const rem		= parseFloat(getComputedStyle(document.documentElement).fontSize)
+			const rect		= panel.getBoundingClientRect()
+			assert.equal(getComputedStyle(panel).right, (0.5 * rem) + 'px', 'expected the phone rule\'s right edge')
+			assert.equal(Math.round(rect.right), Math.round(map_rect.right - 0.5 * rem), 'expected the width the phone rule gives, not 46rem')
+		}))
+	})
+
 	it('on a phone every control in a panel is a 44px target with 16px text, and the projection fields stand one per line', async function() {
 
 		await with_tool_css(() => with_phone_rules('.uca-maps-', () => {
@@ -4668,7 +4772,30 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		offer_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: ''}])
 		tool.attach_xyz_basemaps()
-		assert.include(arcgis_layer().getAttribution(), 'Esri', 'expected Esri\'s own credit when the entry gives none')
+		// whole and as text: get_source_layer escapes it, so an entity in it would show literally
+		const esri = DEFAULT_BASEMAPS.find((basemap) => basemap.default_id==='arcgis').attribution
+		assert.equal(arcgis_layer().getAttribution(), esri, 'expected Esri\'s own credit, whole, when the entry gives none')
+		assert.notMatch(esri, /[&<>"']/, 'expected a credit escaping leaves unchanged')
+	})
+
+	// accepted: core's own overlay checkbox for the entry beside the tool's basemap of the same source
+	it('ARCGIS configured before the map is built: core\'s overlay checkbox stays beside the tool\'s ARCGIS basemap, both through the proxy', async function() {
+
+		await mount_with_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: 'Esri test credit'}])
+		const core_entries = control_entries_of('default_id=arcgis')
+		assert.lengthOf(core_entries, 1, 'expected core\'s own checkbox, built by get_map')
+		assert.isTrue(core_entries[0].overlay, 'expected core\'s entry an overlay')
+
+		tool.attach_xyz_basemaps()
+		const entries = control_entries_of('default_id=arcgis')
+		assert.lengthOf(entries, 2, 'expected core\'s checkbox kept and the tool\'s basemap added')
+		assert.lengthOf(entries.filter((entry) => entry.overlay), 1, 'expected exactly one overlay: core\'s')
+		const base = entries.find((entry) => !entry.overlay)
+		assert.equal(base.name, 'ARCGIS', 'expected the tool\'s basemap')
+		assert.equal(base.layer.getAttribution(), 'Esri test credit')
+		for (const entry of Object.values(geolocation.layer_control._layers)) {
+			assert.notInclude(String(entry.layer._url), 'arcgisonline', 'expected no direct Esri request on any entry')
+		}
 	})
 
 	it('attach_xyz_basemaps seeds v6\'s defaults minus Google, replaces the core\'s arcgis/osm (no duplicate), activates the first', function() {
@@ -4838,6 +4965,95 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(result, {ok: false, error: 'The base map could not be saved.'})
 		assert.isUndefined(geolocation.current_value[0].sources, 'expected the refused source taken back out of the buffer')
 		assert.deepEqual(geolocation.source_layers, {}, 'expected no layer offered for it')
+	})
+
+	// every other save gate answers from a stand-in: this one sends what the tool builds to
+	// the suite's own server, on the suite's own record, and puts that record back after
+	it('core accepts the base map and the legend the tool saves: a real save, the record restored after', async function() {
+
+		this.timeout(30000)
+		// the record as the server holds it, not the seeded stand-in of beforeEach
+		const reader = await get_instance({
+			model			: 'component_geolocation',
+			tipo			: tipo,
+			section_tipo	: section_tipo,
+			section_id		: section_id,
+			lang			: lang,
+			mode			: 'edit',
+			view			: 'default',
+			id_variant		: 'uca_real_save_' + Math.random()
+		})
+		await reader.build(true)
+		assert.notEqual(reader.data_degraded, true, 'expected the record read whole, or it cannot be put back')
+		const original = JSON.parse(JSON.stringify(reader.data?.entries || []))
+		await reader.destroy(true)
+
+		geolocation.data.entries	= JSON.parse(JSON.stringify(original))
+		geolocation.current_value	= []
+		let body_error = null
+		try {
+			tool.attach_xyz_basemaps()
+			const added = await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
+			assert.deepEqual(added, {ok: true}, 'expected core to accept the base map the tool sends')
+			const source = (geolocation.get_stored_entry(0).sources || []).find((one) => one.url===XYZ_URL)
+			assert.isOk(source, 'expected it stored')
+			assert.isTrue(Number.isInteger(source.id), 'expected it numbered by the server')
+
+			// the legend editor writes the buffer; the component's own save sends it
+			tool.attach_legend()
+			tool.set_legend_title('Roman roads')
+			tool.add_legend_column()
+			tool.set_legend_column_name(0, 'Surface')
+			tool.add_legend_element(0)
+			tool.set_legend_element_name(0, 0, 'Paved')
+			const response = await geolocation.change_value({changed_data: [geolocation.build_changed_data_item(0)], refresh: false})
+			assert.isOk(response, 'expected the save sent')
+			assert.isFalse(request_failed(response), 'expected core to accept the legend the tool writes')
+			assert.notEqual(geolocation.data_degraded, true)
+			assert.deepEqual(geolocation.get_stored_entry(0).legend, {
+				title: 'Roman roads', groups: [{name: 'Surface', symbols: [{label: 'Paved', icon: default_element_icon()}]}]
+			}, 'expected the legend stored as the tool wrote it, its pin included')
+		} catch (error) {
+			body_error = error
+		}
+
+		// put back, then read back: a failed restore never hides the body's own failure
+		const restore = original.length > 0
+			? {action: 'set_data', key: null, id: null, value: original}
+			: {action: 'clear', key: null, id: null, value: null}
+		const restored = await geolocation.change_value({changed_data: [restore], refresh: false})
+		const check = await get_instance({
+			model			: 'component_geolocation',
+			tipo			: tipo,
+			section_tipo	: section_tipo,
+			section_id		: section_id,
+			lang			: lang,
+			mode			: 'edit',
+			view			: 'default',
+			id_variant		: 'uca_real_save_check_' + Math.random()
+		})
+		await check.build(true)
+		const after = JSON.parse(JSON.stringify(check.data?.entries || []))
+		await check.destroy(true)
+		if (body_error) {
+			throw body_error
+		}
+		assert.isFalse(!restored || request_failed(restored), 'expected the suite record put back')
+		assert.deepEqual(after, original, 'expected the suite record exactly as it was')
+	})
+
+	it('a save answered degraded is a refused one: the buffer gets the previous list back', async function() {
+
+		tool.attach_xyz_basemaps()
+		fake_component_save()
+		await tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
+		const kept = JSON.parse(JSON.stringify(geolocation.current_value[0].sources))
+		assert.lengthOf(kept, 1, 'expected one source saved first')
+
+		fake_component_save({degraded: true})
+		const result = await tool.add_basemap({url: 'https://other.example.org/{z}/{x}/{y}.png', attribution: 'Other', minzoom: 0, maxzoom: 18})
+		assert.isFalse(result.ok, 'expected the degraded save refused')
+		assert.deepEqual(geolocation.current_value[0].sources, kept, 'expected the previous list back in the buffer')
 	})
 
 	it('the take-over and every rebuild of the base maps leave the record\'s own layers alone', async function() {
@@ -5512,23 +5728,22 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(basemap, 'expected a basemap on the map before arming (test fixture default)')
 		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s one checkbox to start with')
 
-		tool.catastro_control.getContainer().click()
+		const days = days_around(() => tool.catastro_control.getContainer().click())
 		assert.equal(is_catastro_enabled(tool), true)
 		assert.equal(tool._catastro_tile_layer, core_layer, 'expected core\'s own layer, not a second copy')
 		assert.equal(map.hasLayer(core_layer), true, 'expected its checkbox ticked')
 		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected still ONE Catastro entry in the layer control')
 		assert.equal(map.hasLayer(basemap), true, 'expected the basemap kept under the parcels — an overlay, not a swap')
 		assert.notInclude(String(core_layer._url), 'catastro.meh.es', 'expected no direct request to Catastro: the page CSP blocks it and the map image loses it')
-		const today = new Date().toISOString().slice(0, 10)
 		const credits = map.attributionControl.getContainer().textContent
 		assert.include(credits, 'Test credit', 'expected the configured source credit on the armed map')
-		assert.include(credits, 'Catastro, ' + today, 'expected the date the licence asks for, while armed')
+		assert_credited_day(credits, 'Catastro, ', days, 'expected the date the licence asks for, while armed')
 
 		tool.catastro_control.getContainer().click()
 		assert.equal(is_catastro_enabled(tool), false)
 		assert.equal(map.hasLayer(core_layer), false, 'expected its checkbox unticked again')
 		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s checkbox still offered')
-		assert.notInclude(map.attributionControl.getContainer().textContent, 'Catastro, ' + today, 'expected the date credit gone with it')
+		assert.notInclude(map.attributionControl.getContainer().textContent, 'Catastro, ', 'expected the date credit gone with it')
 		assert.equal(map.hasLayer(basemap), true)
 	})
 
@@ -5537,15 +5752,91 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.section_lang = 'lg-spa'
 		offer_defaults([{...CATASTRO_DEFAULT, attribution: ''}])
 		tool.attach_catastro()
-		tool.catastro_control.getContainer().click()
+		const days = days_around(() => tool.catastro_control.getContainer().click())
 
-		const today = new Date().toISOString().slice(0, 10)
-		assert.include(
+		assert_credited_day(
 			geolocation.map.attributionControl.getContainer().textContent,
-			'Dirección General del Catastro (Spain), ' + today,
+			'Dirección General del Catastro (Spain), ',
+			days,
 			'expected the source named even when the entry gives no credit'
 		)
 	})
+
+	it('Catastro configured before the map is built: core offers its checkbox from get_map, and arming ticks that one', async function() {
+
+		geolocation.section_lang = 'lg-spa'
+		await mount_with_defaults([CATASTRO_DEFAULT])
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s own checkbox, built by get_map')
+		const core_layer = geolocation.source_layers['default:catastro'].layer
+
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click()
+		assert.equal(tool._catastro_tile_layer, core_layer, 'expected core\'s layer, not a copy')
+		assert.isTrue(geolocation.map.hasLayer(core_layer), 'expected its checkbox ticked')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected still one Catastro entry')
+
+		tool.catastro_control.getContainer().click()
+		assert.isFalse(geolocation.map.hasLayer(core_layer), 'expected it unticked again')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s checkbox still offered')
+	})
+
+	it('when core offers no layer for the entry, Catastro arms its own copy over the basemap, and disarming takes it out of the control', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
+		// core's overlay for the entry is gone (e.g. a core that stops offering it)
+		const core_layer = geolocation.source_layers['default:catastro'].layer
+		geolocation.layer_control.removeLayer(core_layer)
+		delete geolocation.source_layers['default:catastro']
+		assert.lengthOf(control_entries_of('default_id=catastro'), 0)
+
+		const map		= geolocation.map
+		const basemap	= find_active_tile_layer(map)
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click()
+		const layer = tool._catastro_tile_layer
+		assert.isOk(layer, 'expected a layer armed')
+		assert.notEqual(layer, core_layer, 'expected the tool\'s own layer')
+		assert.include(String(layer._url), 'default_id=catastro', 'expected the configured entry, through the tile proxy')
+		assert.isTrue(map.hasLayer(layer), 'expected it on the map')
+		assert.isTrue(map.hasLayer(basemap), 'expected the basemap kept under it')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected it offered in the layer control')
+		assert.isTrue(control_entries_of('default_id=catastro')[0].overlay, 'expected an overlay, not a basemap')
+
+		tool.catastro_control.getContainer().click()
+		assert.isFalse(map.hasLayer(layer), 'expected it off the map')
+		assert.lengthOf(control_entries_of('default_id=catastro'), 0, 'expected no stale entry left in the control')
+	})
+
+	for (const ticked of [true, false]) {
+		it(`closing the tool with Catastro armed takes its credits away and leaves core's checkbox ${ticked ? 'ticked, as the viewer had it' : 'unticked'}`, async function() {
+
+			const credit_line	= () => geolocation.node.querySelector('.uca-maps-catastro-credit')
+			const map_credits	= () => geolocation.map.attributionControl.getContainer().textContent
+			geolocation.section_lang = 'lg-spa'
+			offer_catastro()
+			const map			= geolocation.map
+			const core_layer	= geolocation.source_layers['default:catastro'].layer
+			if (ticked) {
+				core_layer.addTo(map)
+			}
+			tool.attach_catastro()
+			tool.catastro_control.getContainer().click()
+			const handler = tool._catastro_click_handler
+			stub_tool_request(async () => ({ok: true, data: {...parcel_found(), attribution: 'Dirección General del Catastro (Spain)'}}))
+			await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+			assert.include(map_credits(), 'Catastro, ', 'expected the dated credit while armed')
+			assert.isOk(credit_line(), 'expected the parcel\'s credit line')
+
+			await tool.destroy(false, false, false)
+
+			assert.notInclude(map_credits(), 'Catastro, ', 'expected the dated credit gone with the tool')
+			assert.isNull(credit_line(), 'expected the parcel\'s credit line gone with the tool')
+			assert.isFalse(map.listens('click', handler), 'expected the map click unhooked')
+			assert.equal(map.hasLayer(core_layer), ticked, 'expected core\'s checkbox back as the viewer had it')
+			assert.lengthOf(control_entries_of('default_id=catastro'), 1, 'expected core\'s checkbox still offered')
+		})
+	}
 
 	it('a Catastro checkbox the viewer had ticked stays ticked after Catastro is disarmed, also across a save rebuild', function() {
 
@@ -5634,6 +5925,24 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const created = layers[layers.length - 1]
 		assert.equal(created.feature.properties.url, 'https://example.com/parcel', 'expected a REGULAR, visible "url" property (v6 parity)')
 		assert.equal(created.feature.properties.uca_maps.catastro, true)
+	})
+
+	// Catastro may name a parcel without linking its record (a non-https link is dropped)
+	it('a parcel found with no url is drawn with no url property, and the console offers no link', async function() {
+
+		tool.attach_console()
+		arm_catastro()
+		stub_tool_request(async () => ({ok: true, data: parcel_found(null)}))
+		await check_catastro_at_point(tool, L.latLng(40.15, -3.65))
+
+		const layers	= active_group().getLayers()
+		const parcel	= layers[layers.length - 1]
+		assert.notProperty(parcel.feature.properties, 'url', 'expected no url key, not url: null')
+		assert.isTrue(parcel.feature.properties.uca_maps.catastro, 'expected the parcel still marked as Catastro\'s')
+		parcel.openPopup()
+		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected no link')
+		const keys = Array.from(tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-key'), (key) => key.textContent)
+		assert.notInclude(keys, 'url:', 'expected no url row')
 	})
 
 	// v6 prints any URL-valued property as a "Más información" link; here only
@@ -5827,6 +6136,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		populate_roman_results(tool, tool.roman_panel)
 		assert.equal(tool.roman_dropdown.querySelectorAll('.uca-maps-roman-result-button').length, 1, 'expected the credit not a row')
 		assert.equal(tool.roman_dropdown.querySelector('.uca-maps-attribution').textContent, 'DARE, CC BY')
+
+		stub_tool_request(async () => ({ok: true, data: {results: [], attribution: 'DARE, CC BY'}}))
+		await search_roman(tool, 'dare', {query: 'Nowhere', name_type: 'mss'})
+		populate_roman_results(tool, tool.roman_panel)
+		assert.isNull(tool.roman_dropdown.querySelector('.uca-maps-attribution'), 'expected no DARE credit for no data')
 	})
 
 	it('the elevation line carries its provider\'s credit under the heading', async function() {
@@ -6150,7 +6464,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}, core: true},
 		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {}, core: false}
 	]) {
-		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks click, layer and the control it made`, async function() {
+		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks the click and the layer`, async function() {
 
 			const map		= geolocation.map
 			const toggle	= () => tool[swap.control].getContainer().click()
@@ -6172,7 +6486,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const armed_handler	= handler()
 			const tile_layer	= tool[`_${swap.key}_tile_layer`]
 			assert.isTrue(map.listens('click', armed_handler), 'expected the map click armed')
-			assert.isNotOk(tool[`_${swap.key}_created_layer_control`], 'expected the existing control reused, not a new one')
 
 			// a pixel off the diagonal, so x and y cannot stand for each other
 			const latlng = map.containerPointToLatLng(L.point(37, 101))
@@ -6206,29 +6519,42 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				swap.core,
 				swap.core ? 'expected core\'s checkbox still offered' : 'expected the tool\'s layer out of the layer control'
 			)
-			if (swap.core) {
-				return
-			}
-
-			// without one (the core's OSM branch): the swap creates a control and removes it again.
-			// The fixture's control is removed for real, as in the XYZ takeover
-			map.removeControl(fixture_control)
-			geolocation.layer_control = false
-			const original_base_layer = find_active_tile_layer(map)
-			assert.isOk(original_base_layer, 'expected the fixture basemap on the map')
-
-			toggle() // arm
-			const created_control = geolocation.layer_control
-			assert.isOk(created_control, 'expected a layer control created')
-			assert.isTrue(tool[`_${swap.key}_created_layer_control`], 'expected the creation recorded')
-			assert.isTrue(map.getContainer().contains(created_control.getContainer()), 'expected the created control on the map')
-
-			toggle() // disarm
-			assert.isFalse(map.getContainer().contains(created_control.getContainer()), 'expected the created control gone from the map')
-			assert.strictEqual(geolocation.layer_control, false, 'expected no control left behind')
-			assert.isTrue(map.hasLayer(original_base_layer), 'expected the original basemap back')
 		})
 	}
+
+	// UA's built-in is the tool's own layer: it joins whatever control the map has, or
+	// one it creates, and only the one it created leaves with it
+	it('ua: arming reuses the map\'s layer control; with none (core\'s OSM branch), creates one and removes it on disarm', function() {
+
+		const map		= geolocation.map
+		const toggle	= () => tool.ua_control.getContainer().click()
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_administrative_units()
+
+		const fixture_control = geolocation.layer_control
+		toggle() // arm
+		assert.isNotOk(tool._ua_created_layer_control, 'expected the existing control reused, not a new one')
+		assert.strictEqual(geolocation.layer_control, fixture_control)
+		toggle() // disarm
+		assert.strictEqual(geolocation.layer_control, fixture_control, 'expected the fixture\'s control kept')
+
+		// the fixture's control is removed for real, as in the XYZ takeover
+		map.removeControl(fixture_control)
+		geolocation.layer_control = false
+		const original_base_layer = find_active_tile_layer(map)
+		assert.isOk(original_base_layer, 'expected the fixture basemap on the map')
+
+		toggle() // arm
+		const created_control = geolocation.layer_control
+		assert.isOk(created_control, 'expected a layer control created')
+		assert.isTrue(tool._ua_created_layer_control, 'expected the creation recorded')
+		assert.isTrue(map.getContainer().contains(created_control.getContainer()), 'expected the created control on the map')
+
+		toggle() // disarm
+		assert.isFalse(map.getContainer().contains(created_control.getContainer()), 'expected the created control gone from the map')
+		assert.strictEqual(geolocation.layer_control, false, 'expected no control left behind')
+		assert.isTrue(map.hasLayer(original_base_layer), 'expected the original basemap back')
+	})
 
 	// core's page notice says why, once and translated (details.reason_key):
 	// no panel repeats it, and UA's line of an earlier lookup goes
@@ -8969,6 +9295,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const by_size = await tool.set_legend_element_icon(0, 0, oversized)
 		assert.isFalse(by_size.ok, 'expected the size refused without reading')
 
+		// v6's cap is inclusive: a file of exactly 2 MB passes the size check (its bytes
+		// are no image, so whatever it answers is not the size refusal)
+		const at_cap = new File([new Uint8Array(MAX_ICON_BYTES)], 'cap.png', {type: 'image/png'})
+		const by_cap = await tool.set_legend_element_icon(0, 0, at_cap)
+		assert.notEqual(by_cap.error, by_size.error, 'expected a file of exactly the cap not refused for its size')
+
 		assert.equal(tool.legend.columns[0].elements[0].icon, default_element_icon())
 	})
 
@@ -9287,7 +9619,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			symbol_btn.click()
 			const shape_btn	= panel.querySelector('.uca-maps-legend-symbol-shape:not([aria-pressed="true"])')
 			const action_btn	= panel.querySelector('.uca-maps-legend-add-column')
+			const secondary_btn	= panel.querySelector('.uca-maps-legend-delete-element')
 			assert.isOk(shape_btn, 'expected an unpressed shape button')
+			assert.isOk(secondary_btn, 'expected a secondary button (the row\'s ✕)')
 
 			const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
 			const hover_rules = [...sheet.cssRules]
@@ -9313,9 +9647,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 					node.classList.add('uca-test-hover')
 					assert.equal(getComputedStyle(node).backgroundColor, 'rgba(0, 0, 0, 0)', label + ': expected no fill under the pointer')
 				}
+
+				// the secondary variant keeps its neutral fill, only dimmed: the tool's hover
+				// fill was tuned for the tool ink, not for the inverse ink it carries
+				const inverse = document.createElement('div')
+				inverse.style.cssText = 'background-color: var(--bg_fill_inverse)'
+				panel.appendChild(inverse)
+				const fill_inverse = getComputedStyle(inverse).backgroundColor
+				inverse.remove()
+				assert.notEqual(fill_inverse, fill_hover, 'expected the two fills apart, or this proves nothing')
+				secondary_btn.classList.add('uca-test-hover')
+				assert.equal(getComputedStyle(secondary_btn).backgroundColor, fill_inverse, 'secondary: expected its neutral fill under the pointer')
+				assert.include(getComputedStyle(secondary_btn).filter, 'brightness', 'secondary: expected the hover shown by dimming')
 			} finally {
 				style.remove()
-				for (const node of [action_btn, symbol_btn, shape_btn]) node.classList.remove('uca-test-hover')
+				for (const node of [action_btn, symbol_btn, shape_btn, secondary_btn]) node.classList.remove('uca-test-hover')
 			}
 		})
 	})
@@ -9779,6 +10125,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		})
 
 		for (const source of ['pleiades', 'pelagios']) {
+			// the block must exist, or "no button in it" holds of nothing
+			assert.isOk(tool.roman_panel.querySelector('.uca-maps-roman-' + source + ' .uca-maps-roman-input'), 'expected the ' + source + ' block with its field')
 			assert.isNull(tool.roman_panel.querySelector('.uca-maps-roman-' + source + ' .uca-maps-roman-search-button'), 'expected no button on the as-you-type source ' + source)
 		}
 		const block		= tool.roman_panel.querySelector('.uca-maps-roman-dare')
