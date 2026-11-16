@@ -16,8 +16,8 @@
  *
  * What it does not do: test the server actions (test/unit/tool_uca_maps_*),
  * or reach a third party's answer. Lookups are stubbed per test and
- * get_elevation in the beforeEach, which also blanks every IGN (UA) tile.
- * Basemap, Catastro and example.com WMS tiles still load from the network,
+ * get_elevation in the beforeEach, which also blanks every IGN (UA) and
+ * Catastro tile. Basemap and example.com WMS tiles still load from the network,
  * and nothing asserts on them. A few tests round-trip a GDAL/ImageMagick
  * action on the suite's own server. The tool stylesheet is loaded only by
  * with_tool_css() tests.
@@ -71,7 +71,7 @@ import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_uploa
 import { upload_refusal_text, exception_text } from '../../../tools/tool_uca_maps/js/panel_error_text.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
-import { is_catastro_enabled, check_catastro_at_point } from '../../../tools/tool_uca_maps/js/catastro.js'
+import { is_catastro_enabled, check_catastro_at_point, catastro_source, catastro_attribution } from '../../../tools/tool_uca_maps/js/catastro.js'
 import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/basemap_swap.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { focus_place_result, search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
@@ -691,16 +691,17 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
 
 	/**
-	* Arming UA builds the core's built-in IGN layer (`builtin=ign_admin_units`,
-	* through the tile proxy): while this is in place (beforeEach) its tiles come
-	* from BLANK_TILE, so no test makes the server reach IGN. The layer stays a
+	* Arming UA builds the core's built-in IGN layer (`builtin=ign_admin_units`)
+	* and arming Catastro its `catastro` default (`default_id=catastro`), both
+	* through the tile proxy: while this is in place (beforeEach) their tiles come
+	* from BLANK_TILE, so no test makes the server reach a provider. The layers stay
 	* real L.TileLayer. Returns the restore (L is global).
 	*/
 	const offline_ua_wms = function() {
 		const original = L.tileLayer
 		const patched = function(url, options) {
 			const layer = original.call(this, url, options)
-			if (String(url).includes('builtin=ign_admin_units')) {
+			if (String(url).includes('builtin=ign_admin_units') || String(url).includes('default_id=catastro')) {
 				layer.getTileUrl = () => BLANK_TILE
 			}
 			return layer
@@ -711,8 +712,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	}
 
 	/** The layer a basemap swap (Catastro, UA) puts on the map. */
-	const is_swap_layer = (layer) => layer instanceof L.TileLayer.WMS
-		|| (layer instanceof L.TileLayer && String(layer._url).includes('builtin=ign_admin_units'))
+	const is_swap_layer = (layer) => layer instanceof L.TileLayer
+		&& /builtin=ign_admin_units|default_id=catastro/.test(String(layer._url))
+
+	/** The `catastro` default an administrator lists in `properties.map_sources`, as core sends it. */
+	const CATASTRO_DEFAULT = {id: 'catastro', label: 'Catastro', type: 'wms', attribution: 'Test credit', crs: 'EPSG:3857'}
+
+	/**
+	* Catastro's button exists only for a component that lists that default. A copy of the
+	* context, so no other instance sharing it sees the entry; set after get_map, so core
+	* does not offer it as an overlay too.
+	*/
+	const offer_catastro = function() {
+		const properties = geolocation.context.properties || {}
+		geolocation.context = {...geolocation.context, properties: {...properties, map_sources: [CATASTRO_DEFAULT]}}
+	}
 
 	let geolocation, tool, map_container, restore_ua_wms
 
@@ -965,6 +979,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	const arm_catastro = function() {
 		geolocation.section_lang = 'lg-spa' // Catastro exists only for es/cat/eus
+		offer_catastro()
 		tool.attach_catastro()
 		tool.catastro_control.getContainer().click()
 	}
@@ -3822,6 +3837,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			// the second row reuses the instance: destroy(false) only detaches
 			tool.geolocation			= geolocation
 			geolocation.section_lang	= row.section_lang
+			offer_catastro()
 			assert.isNotOk(geolocation.map.getContainer().querySelector('.uca-maps-toolbar-button'), 'expected no button before edit() runs')
 			await run_edit()
 
@@ -3924,6 +3940,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		await with_tool_css(async () => {
 			geolocation.section_lang = 'lg-spa' // gates Catastro and UA in
+			offer_catastro()
 			await run_edit()
 
 			const corner	= tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
@@ -4342,6 +4359,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		await with_tool_css(() => with_phone_rules('.uca-maps-toolbar', () => {
 			// the whole bar, in the tool's order: 13 squares, taller than the map
 			geolocation.section_lang = 'lg-spa' // gates UA in
+			offer_catastro()
 			tool.attach_console()
 			tool.attach_map_image_download_control()
 			tool.attach_object_viewer()
@@ -4935,6 +4953,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('a lookup that throws toasts while the tool lives, and never once it is torn down mid-flight', async function() {
 
 		geolocation.section_lang = 'lg-spa' // Catastro and UA exist only for es/cat/eus
+		offer_catastro()
 		tool.attach_wms_services()
 		mount_roman()
 		tool.attach_catastro()
@@ -5365,6 +5384,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('attach_catastro builds the toggle button once section_lang is es/cat/eus', function() {
 
 		geolocation.section_lang = 'lg-cat'
+		offer_catastro()
 		assert.equal(is_spanish_official_lang(tool), true)
 
 		tool.attach_catastro()
@@ -5375,11 +5395,41 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro off by default')
 	})
 
+	it('without a `catastro` default in properties.map_sources there is no "Catastro" button, whatever the language', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		tool.attach_catastro()
+		assert.equal(tool.catastro_control, null, 'expected no "Catastro" button: the installation has not configured the source')
+
+		offer_catastro()
+		tool.attach_catastro()
+		assert.isOk(tool.catastro_control, 'expected the button once the component lists the source')
+	})
+
+	it('armed, Catastro is the configured default through the tile proxy, credited with its source and the day', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
+		tool.attach_catastro()
+		tool.catastro_control.getContainer().click()
+
+		const layer	= tool._catastro_tile_layer
+		const url	= String(layer._url)
+		assert.include(url, 'default_id=catastro', 'expected the tile proxy to serve the configured default')
+		assert.notInclude(url, 'catastro.meh.es', 'expected no direct request to Catastro: the page CSP blocks it and the map image loses it')
+		const today = new Date().toISOString().slice(0, 10)
+		assert.equal(layer.getAttribution(), 'Test credit, ' + today, 'expected the configured credit and the date the licence asks for')
+
+		const without_credit = catastro_attribution({...catastro_source(tool), attribution: ''})
+		assert.equal(without_credit, 'Dirección General del Catastro (Spain), ' + today, 'expected core\'s credit when the entry gives none')
+	})
+
 	// as v6, Catastro SWAPS the active basemap (marked in the map's own
 	// layer-control) rather than laying a translucent overlay on top of it
 	it('clicking "Catastro" swaps the active basemap for the cadastral map; a second click restores the previous one', function() {
 
 		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
 		tool.attach_catastro()
 
 		const previous_base_layer = find_active_tile_layer(geolocation.map)
@@ -5405,6 +5455,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('Catastro and UA take turns on the basemap: CAT → UA → CAT → UA, then closing UA, leaves only the original basemap', function() {
 
 		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
 		tool.attach_catastro()
 		tool.attach_administrative_units()
 
@@ -5697,6 +5748,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('detach_catastro removes the button AND restores the previous basemap on the live map', async function() {
 
 		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
 		tool.attach_catastro()
 
 		const previous_base_layer = find_active_tile_layer(geolocation.map)
@@ -5970,6 +6022,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const handler	= () => tool[`_${swap.key}_click_handler`]
 
 			geolocation.section_lang = 'lg-spa'
+			offer_catastro()
 			tool[swap.attach]()
 
 			let requested = null

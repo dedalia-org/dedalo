@@ -7,9 +7,10 @@
 /**
 * CATASTRO
 * Panel-less toggle, as v6 (`special_tools_catastro.js`), offered for es/cat/eus
-* records. Armed, the cadastral WMS REPLACES the basemap, as v6, through the layer
-* control's own API instead of v6's simulated radio click. A map click asks the server
-* for the parcel (the browser cannot read that WMS's replies) and draws it.
+* records whose component lists a `catastro` default in `properties.map_sources`. Armed,
+* that source, drawn through core's tile proxy (so it also reaches the map image),
+* REPLACES the basemap, as v6. A map click asks the server for the parcel (the browser
+* cannot read that WMS's replies) and draws it.
 */
 
 
@@ -34,14 +35,18 @@ import {render_attribution} from './render_download_line.js'
 
 
 
-const ENABLED_CLASS	= 'uca-maps-catastro-enabled'
-const CATASTRO_URL	= 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx'
+const ENABLED_CLASS		= 'uca-maps-catastro-enabled'
+// the `id` an administrator gives the cadastral WMS in `properties.map_sources`
+const CATASTRO_SOURCE_ID	= 'catastro'
+// core's own credit for the same provider (src/core/geo_services/table.ts)
+const CATASTRO_CREDIT		= 'Dirección General del Catastro (Spain)'
 
 
 
 /**
 * ATTACH_CATASTRO
-* Idempotent; a no-op when the record's language does not gate it in (v6).
+* Idempotent; a no-op when the record's language does not gate it in (v6) or the
+* component has no `catastro` source: Catastro's licence is the installation's to accept.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
@@ -51,7 +56,7 @@ export const attach_catastro = function(self) {
 	if (self.catastro_control || !self.geolocation || !self.geolocation.map) {
 		return
 	}
-	if (!is_spanish_official_lang(self)) {
+	if (!is_spanish_official_lang(self) || !catastro_source(self)) {
 		return
 	}
 
@@ -63,6 +68,40 @@ export const attach_catastro = function(self) {
 	})
 
 }//end attach_catastro
+
+
+
+/**
+* CATASTRO_SOURCE
+* The component's `catastro` default (`properties.map_sources`), as core describes it
+* for drawing, or null.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {Object|null} {kind, id, type, params, attribution, name}
+*/
+// exported for the client gate
+export const catastro_source = function(self) {
+	const entries = self.geolocation && typeof self.geolocation.get_source_entries==='function'
+		? self.geolocation.get_source_entries(0)
+		: []
+	return entries.find((entry) => entry.kind==='default' && entry.id===CATASTRO_SOURCE_ID) || null
+}//end catastro_source
+
+
+
+/**
+* CATASTRO_ATTRIBUTION
+* The licence asks for the source and the date on every use: the configured credit (or
+* core's, when the entry gives none) and the day the map was drawn.
+*
+* @param {Object} source - catastro_source()
+* @returns {string} plain text
+*/
+// exported for the client gate
+export const catastro_attribution = function(source) {
+	const credit = source.attribution!=='' ? source.attribution : CATASTRO_CREDIT
+	return credit + ', ' + new Date().toISOString().slice(0, 10)
+}//end catastro_attribution
 
 
 
@@ -92,24 +131,22 @@ const toggle_catastro = function(self) {
 
 /**
 * ENABLE_CATASTRO
-* Arms the button, then swaps the basemap for the cadastral WMS and arms the click.
+* Arms the button, then swaps the basemap for the cadastral source and arms the click.
 *
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
 const enable_catastro = function(self) {
 
+	const source = catastro_source(self)
+
 	set_toolbar_button_armed(self.catastro_control, ENABLED_CLASS, true)
 
 	enable_basemap_swap(self, 'catastro', {
-		url			: CATASTRO_URL,
-		wms_options	: {
-			layers		: 'Catastro',
-			format		: 'image/png',
-			transparent	: true,
-			opacity		: 1,
-			maxZoom		: 21
-		},
+		tile_layer	: self.geolocation.get_source_layer(
+			{...source, attribution: catastro_attribution(source)},
+			{opacity: 1}
+		),
 		label		: self.get_tool_label('catastro_control_title') || 'Catastro',
 		on_click	: (latlng) => check_catastro_at_point(self, latlng),
 		disarm		: () => disable_catastro(self)

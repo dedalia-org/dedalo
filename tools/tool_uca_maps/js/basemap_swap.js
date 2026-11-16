@@ -6,7 +6,7 @@
 
 /**
 * BASEMAP_SWAP
-* What Catastro and UA share: v6's language gate, swapping the basemap for one WMS
+* What Catastro and UA share: v6's language gate, swapping the basemap for one layer
 * and back, and the point a map click asks the server about. Each feature keeps its
 * state on the tool under its own key (`_<key>_tile_layer`, `_<key>_click_handler`,
 * `_<key>_previous_base_layers`, `_<key>_created_layer_control`). The one shared
