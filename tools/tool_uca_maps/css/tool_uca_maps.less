@@ -1490,6 +1490,17 @@
 // the rows of the shared result list DRAW the place, unlike place_search
 .uca-maps-roman-panel {
 
+	// wider than the other centred panels: DARE's three filters share one line,
+	// and at 37.5rem their longest options ("Nombre de lugar antiguo") were cut
+	&.uca-maps-panel-centered {
+		width: 46rem;
+
+		// later than the shared phone rule and as specific: restate it
+		@media screen and (max-width: @width_break_point_phone) {
+			width: auto;
+		}
+	}
+
 	.uca-maps-roman-source {
 		display: flex;
 		flex-direction: column;

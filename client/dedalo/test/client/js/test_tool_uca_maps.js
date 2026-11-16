@@ -9606,6 +9606,34 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(document.activeElement, input, 'expected the focus back on the field, whose arrows walk the list')
 	})
 
+	// a select's natural width (width auto) is its longest option plus its own
+	// chrome: the real one at least that wide shows every option whole
+	it('with the tool CSS, every DARE filter shows its longest option whole, on one line', async function() {
+
+		await with_tool_css(async () => {
+			mount_roman()
+			open_roman()
+			// the Spanish labels, the longest the tool ships for this select
+			for (const option of tool.roman_panel.querySelectorAll('.uca-maps-roman-dare-name-type option')) {
+				option.textContent = option.value==='ass' ? 'Nombre de lugar antiguo' : 'Nombre de lugar moderno'
+			}
+
+			const selects = Array.from(tool.roman_panel.querySelectorAll('.uca-maps-roman-dare-filters select'))
+			assert.equal(selects.length, 3, 'expected name type, site type and country')
+			for (const select of selects) {
+				const natural = select.cloneNode(true)
+				natural.style.cssText = 'flex: none; width: auto; position: absolute; visibility: hidden'
+				select.parentNode.appendChild(natural)
+				const needed = natural.offsetWidth
+				natural.remove()
+				assert.isAbove(needed, 0, 'expected the probe laid out, or the comparison proves nothing')
+				assert.isAtLeast(select.offsetWidth, needed, 'expected ' + select.className + ' wide enough for its longest option (needs ' + needed + 'px)')
+			}
+			const tops = new Set(selects.map((one) => one.offsetTop))
+			assert.equal(tops.size, 1, 'expected the three filters on one line')
+		})
+	})
+
 	it('a burst of keystrokes is ONE request, not one per character (v6 fires per keyup)', async function() {
 
 		mount_roman(WITH_PLEIADES) // a local source: DARE searches on Enter only

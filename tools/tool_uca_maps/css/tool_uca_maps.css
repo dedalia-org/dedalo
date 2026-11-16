@@ -1447,6 +1447,14 @@
   flex: 0 0 auto;
   object-fit: contain;
 }
+.uca-maps-roman-panel.uca-maps-panel-centered {
+  width: 46rem;
+}
+@media screen and (max-width: 600px) {
+  .uca-maps-roman-panel.uca-maps-panel-centered {
+    width: auto;
+  }
+}
 .uca-maps-roman-panel .uca-maps-roman-source {
   display: flex;
   flex-direction: column;
