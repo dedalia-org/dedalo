@@ -1,231 +1,229 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*eslint no-undef: "error"*/
 
+/**
+ * RENDER_PLACE_SEARCH
+ * DOM for the "Search" panel (its header is toolbar.js's). Form and result
+ * list are built once at attach and reset on every open; the list is rebuilt
+ * from `self._place_results` on every search or clear. Calls reach
+ * `self.<method>(...)`, never `place_search.js` directly.
+ *
+ * @module render_place_search
+ */
 
+import { ui } from '../../../core/common/js/ui.js';
+import {
+	create_panel_message,
+	render_attribution,
+	show_panel_message,
+} from './render_download_line.js';
 
 /**
-* RENDER_PLACE_SEARCH
-* DOM for the "Search" panel (its header is toolbar.js's). Form and result
-* list are built once at attach and reset on every open; the list is rebuilt
-* from `self._place_results` on every search or clear. Calls reach
-* `self.<method>(...)`, never `place_search.js` directly.
-*
-* @module render_place_search
-*/
-
-
-
-import {ui} from '../../../core/common/js/ui.js'
-import {create_panel_message, render_attribution, show_panel_message} from './render_download_line.js'
-
-
-
-/**
-* RENDER_PLACE_SEARCH_PANEL
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
-* @returns {HTMLElement} panel
-*/
-export const render_place_search_panel = function(self, panel) {
-
+ * RENDER_PLACE_SEARCH_PANEL
+ * @param {Object} self - tool_uca_maps instance
+ * @param {HTMLElement} panel - the panel shell (toolbar.js create_toolbar_panel)
+ * @returns {HTMLElement} panel
+ */
+export const render_place_search_panel = function (self, panel) {
 	// the header (title + ×) is toolbar.js's: the panel opens centred
 
-	render_search_form(self, panel)
+	render_search_form(self, panel);
 
-	ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-place-search-results', parent: panel})
+	ui.create_dom_element({
+		element_type: 'ul',
+		class_name: 'uca-maps-place-search-results',
+		parent: panel,
+	});
 
-	return panel
-}//end render_place_search_panel
-
-
-
-/**
-* SHOW_PLACE_SEARCH_MESSAGE
-* The search form's in-flow line (`render_download_line.js` show_panel_message).
-*
-* @param {HTMLElement} panel
-* @param {string} text
-* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
-* @returns {void}
-*/
-const show_place_search_message = function(panel, text, type='error') {
-	show_panel_message(panel.querySelector('.uca-maps-place-search-message'), text, type)
-}//end show_place_search_message
-
-
+	return panel;
+}; //end render_place_search_panel
 
 /**
-* RENDER_SEARCH_FORM
-* Query input + "Search"/"Clear" buttons. Enter in the field searches too —
-* v6's geocoder box does, and a search panel where Enter does nothing reads
-* as broken.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
-* @returns {void}
-*/
-const render_search_form = function(self, panel) {
+ * SHOW_PLACE_SEARCH_MESSAGE
+ * The search form's in-flow line (`render_download_line.js` show_panel_message).
+ *
+ * @param {HTMLElement} panel
+ * @param {string} text
+ * @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
+ * @returns {void}
+ */
+const show_place_search_message = function (panel, text, type = 'error') {
+	show_panel_message(panel.querySelector('.uca-maps-place-search-message'), text, type);
+}; //end show_place_search_message
 
-	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-place-search-form', parent: panel})
+/**
+ * RENDER_SEARCH_FORM
+ * Query input + "Search"/"Clear" buttons. Enter in the field searches too —
+ * v6's geocoder box does, and a search panel where Enter does nothing reads
+ * as broken.
+ *
+ * @param {Object} self - tool_uca_maps instance
+ * @param {HTMLElement} panel
+ * @returns {void}
+ */
+const render_search_form = function (self, panel) {
+	const form = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'uca-maps-place-search-form',
+		parent: panel,
+	});
 
-	const message = create_panel_message(form, 'uca-maps-place-search-message')
+	const message = create_panel_message(form, 'uca-maps-place-search-message');
 
 	const query_input = ui.create_dom_element({
-		element_type	: 'input',
-		class_name		: 'uca-maps-place-search-input',
-		parent			: form
-	})
-	query_input.type		= 'text'
-	query_input.placeholder	= self.get_tool_label('place_search_placeholder') || 'Place name'
+		element_type: 'input',
+		class_name: 'uca-maps-place-search-input',
+		parent: form,
+	});
+	query_input.type = 'text';
+	query_input.placeholder = self.get_tool_label('place_search_placeholder') || 'Place name';
 
-	const button_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-place-search-button-row', parent: form})
+	const button_row = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'uca-maps-place-search-button-row',
+		parent: form,
+	});
 
 	const search_btn = ui.create_dom_element({
-		element_type	: 'button',
-		class_name		: 'uca-maps-place-search-button',
-		text_content	: self.get_tool_label('place_search_button') || 'Search',
-		parent			: button_row
-	})
-	search_btn.type = 'button'
+		element_type: 'button',
+		class_name: 'uca-maps-place-search-button',
+		text_content: self.get_tool_label('place_search_button') || 'Search',
+		parent: button_row,
+	});
+	search_btn.type = 'button';
 
 	// Enter bypasses the locked button, so the lock is checked here. Clear is
 	// locked with it: the answer in flight would land under an emptied field.
 	const run_search = async () => {
-
 		if (search_btn.disabled) {
-			return
+			return;
 		}
 
-		search_btn.disabled	= true
-		clear_btn.disabled	= true
-		const result = await self.search_places(query_input.value)
-		search_btn.disabled	= false
-		clear_btn.disabled	= false
+		search_btn.disabled = true;
+		clear_btn.disabled = true;
+		const result = await self.search_places(query_input.value);
+		search_btn.disabled = false;
+		clear_btn.disabled = false;
 
 		if (!result.ok) {
 			// no error text: a server refusal (core's page notice says why) or a
 			// torn-down tool, whose detached panel nobody sees. Either way the
 			// hits of the search before are no answer to this one
 			if (result.error) {
-				show_place_search_message(panel, result.error)
+				show_place_search_message(panel, result.error);
 			} else {
-				message.hidden = true
+				message.hidden = true;
 			}
-			panel.querySelector('.uca-maps-place-search-results').replaceChildren()
-			return
+			panel.querySelector('.uca-maps-place-search-results').replaceChildren();
+			return;
 		}
 
-		message.hidden = true
-		if (result.results.length===0) {
-			show_place_search_message(panel, self.get_tool_label('place_search_no_results') || 'No places found.', 'warning')
+		message.hidden = true;
+		if (result.results.length === 0) {
+			show_place_search_message(
+				panel,
+				self.get_tool_label('place_search_no_results') || 'No places found.',
+				'warning',
+			);
 		}
-		populate_place_search_results(self, panel)
-	}
+		populate_place_search_results(self, panel);
+	};
 
 	const clear_btn = ui.create_dom_element({
-		element_type	: 'button',
-		class_name		: 'uca-maps-place-search-clear-button',
-		text_content	: self.get_tool_label('place_search_clear_button') || 'Clear search',
-		parent			: button_row
-	})
-	clear_btn.type = 'button'
-	clear_btn.addEventListener('click', () => clear_place_search_form(self, panel))
+		element_type: 'button',
+		class_name: 'uca-maps-place-search-clear-button',
+		text_content: self.get_tool_label('place_search_clear_button') || 'Clear search',
+		parent: button_row,
+	});
+	clear_btn.type = 'button';
+	clear_btn.addEventListener('click', () => clear_place_search_form(self, panel));
 
-	search_btn.addEventListener('click', run_search)
+	search_btn.addEventListener('click', run_search);
 	query_input.addEventListener('keydown', (event) => {
-		if (event.key==='Enter') {
-			event.preventDefault()
-			run_search()
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			run_search();
 		}
-	})
-
-}//end render_search_form
-
-
+	});
+}; //end render_search_form
 
 /**
-* CLEAR_PLACE_SEARCH_FORM
-* Empty field, no hits, no message — the "Clear" button, and every open.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
-* @returns {void}
-*/
-const clear_place_search_form = function(self, panel) {
-	self.clear_place_search()
-	panel.querySelector('.uca-maps-place-search-message').hidden	= true
-	panel.querySelector('.uca-maps-place-search-input').value		= ''
-	populate_place_search_results(self, panel)
-}//end clear_place_search_form
-
-
+ * CLEAR_PLACE_SEARCH_FORM
+ * Empty field, no hits, no message — the "Clear" button, and every open.
+ *
+ * @param {Object} self - tool_uca_maps instance
+ * @param {HTMLElement} panel
+ * @returns {void}
+ */
+const clear_place_search_form = function (self, panel) {
+	self.clear_place_search();
+	panel.querySelector('.uca-maps-place-search-message').hidden = true;
+	panel.querySelector('.uca-maps-place-search-input').value = '';
+	populate_place_search_results(self, panel);
+}; //end clear_place_search_form
 
 /**
-* RESET_PLACE_SEARCH_PANEL
-* Opening Search starts it from zero, as the upload panel does (render_file_upload.js
-* reset_file_upload_panel); v6's geocoder keeps the typed text. A search in
-* flight (its button locked) keeps its query: its answer lands after this.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement|null} panel
-* @returns {void}
-*/
-export const reset_place_search_panel = function(self, panel) {
+ * RESET_PLACE_SEARCH_PANEL
+ * Opening Search starts it from zero, as the upload panel does (render_file_upload.js
+ * reset_file_upload_panel); v6's geocoder keeps the typed text. A search in
+ * flight (its button locked) keeps its query: its answer lands after this.
+ *
+ * @param {Object} self - tool_uca_maps instance
+ * @param {HTMLElement|null} panel
+ * @returns {void}
+ */
+export const reset_place_search_panel = function (self, panel) {
 	if (!panel) {
-		return
+		return;
 	}
-	const search_btn = panel.querySelector('.uca-maps-place-search-button')
+	const search_btn = panel.querySelector('.uca-maps-place-search-button');
 	if (search_btn && search_btn.disabled) {
-		return
+		return;
 	}
-	clear_place_search_form(self, panel)
-}//end reset_place_search_panel
-
-
+	clear_place_search_form(self, panel);
+}; //end reset_place_search_panel
 
 /**
-* POPULATE_PLACE_SEARCH_RESULTS
-* Rebuilds the result `<ul>` from `self._place_results` after every search
-* or clear. Each row is a button, not a bare `<li>` with a click listener, so
-* the list is keyboard-reachable.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {HTMLElement} panel
-* @returns {void}
-*/
+ * POPULATE_PLACE_SEARCH_RESULTS
+ * Rebuilds the result `<ul>` from `self._place_results` after every search
+ * or clear. Each row is a button, not a bare `<li>` with a click listener, so
+ * the list is keyboard-reachable.
+ *
+ * @param {Object} self - tool_uca_maps instance
+ * @param {HTMLElement} panel
+ * @returns {void}
+ */
 // exported for the client gate
-export const populate_place_search_results = function(self, panel) {
+export const populate_place_search_results = function (self, panel) {
+	const list = panel.querySelector('.uca-maps-place-search-results');
+	list.replaceChildren();
 
-	const list = panel.querySelector('.uca-maps-place-search-results')
-	list.replaceChildren()
-
-	const results = self._place_results
+	const results = self._place_results;
 	if (!results) {
-		return
+		return;
 	}
 
 	results.forEach((result, index) => {
-
-		const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-place-search-result-item', parent: list})
+		const item = ui.create_dom_element({
+			element_type: 'li',
+			class_name: 'uca-maps-place-search-result-item',
+			parent: list,
+		});
 
 		const focus_btn = ui.create_dom_element({
-			element_type	: 'button',
-			class_name		: 'uca-maps-place-search-result-button',
-			text_content	: result.name,
-			title			: result.name,
-			parent			: item
-		})
-		focus_btn.type = 'button'
-		focus_btn.addEventListener('click', () => self.focus_place_result(index))
-
-	})
+			element_type: 'button',
+			class_name: 'uca-maps-place-search-result-button',
+			text_content: result.name,
+			title: result.name,
+			parent: item,
+		});
+		focus_btn.type = 'button';
+		focus_btn.addEventListener('click', () => self.focus_place_result(index));
+	});
 
 	if (results.length > 0) {
-		render_attribution(self._place_attribution, list, 'li')
+		render_attribution(self._place_attribution, list, 'li');
 	}
-
-}//end populate_place_search_results
-
-
+}; //end populate_place_search_results
 
 // @license-end

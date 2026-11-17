@@ -9,10 +9,10 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { MEDIA_KEYS } from '../../src/config/catalog/media.ts';
 import { GEO_ORIGINS, GEO_SERVICE_IDS, GEO_SERVICES } from '../../src/core/geo_services/table.ts';
 import { HARVEST_DEFAULT_TIMEOUT_MS } from '../../src/core/harvest/harvest.ts';
 import { MIN_INTERVAL_MS } from '../../src/core/harvest/pacing.ts';
-import { MEDIA_KEYS } from '../../src/config/catalog/media.ts';
 import { TOOL_BINARY_TIMEOUT_MS } from '../../tools/tool_uca_maps/server/gdal.ts';
 import { loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 import {
@@ -324,7 +324,7 @@ async function serverWaitByAction(): Promise<Map<string, number>> {
 /** A browser constant's value in ms: `NAME = 4 * 60 * 1000` (digits and `*` only). */
 function browserConstantMs(file: string, name: string): number | null {
 	const source = readFileSync(join(JS_DIR, file), 'utf8');
-	const expression = new RegExp(`const ${name} = ([^\\n]+)\\n`).exec(source)?.[1];
+	const expression = new RegExp(`const ${name} = ([^;\\n]+);?\\n`).exec(source)?.[1];
 	return expression === undefined ? null : productMs(expression);
 }
 
