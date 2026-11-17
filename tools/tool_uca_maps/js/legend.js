@@ -5,7 +5,7 @@
 
 /**
 * LEGEND
-* A MANUAL legend editor (title, columns of icon+text items) and its overlay, as v6:
+* A MANUAL legend editor (title, groups of icon+text items) and its overlay, as v6:
 * nothing is generated from the WMS layers. It is kept in the record, as the geolocation
 * entry's `legend` ({title, groups: [{name, symbols: [{label, icon}]}]}): every edit is
 * written to the component's buffer and marks it dirty, and the component's save button
@@ -65,15 +65,14 @@ export const default_element_icon = function() {
 
 /**
 * EMPTY_LEGEND
-* The same shape v6 writes to its JSON the first time
-* (`{"legend":"", "enable":true, "columns":[]}`): the editor's own model, which
-* `to_entry_legend` turns into the record's.
+* The editor's model: the record's names, plus `enable` (the overlay shown or not) and a
+* symbol's optional drawn `symbol`, neither saved. `to_entry_legend` makes the record's.
 *
 * @returns {Object}
 */
 // exported for the client gate
 export const empty_legend = function() {
-	return {legend: '', enable: true, columns: []}
+	return {title: '', enable: true, groups: []}
 }//end empty_legend
 
 
@@ -85,7 +84,7 @@ export const empty_legend = function() {
 * reopened legend is shown.
 *
 * @param {*} entry_legend - the entry's `legend`
-* @returns {Object} {legend, enable, columns}
+* @returns {Object} {title, enable, groups}
 */
 const from_entry_legend = function(entry_legend) {
 
@@ -94,11 +93,11 @@ const from_entry_legend = function(entry_legend) {
 		return legend
 	}
 
-	legend.legend	= typeof entry_legend.title==='string' ? entry_legend.title : ''
-	legend.columns	= (Array.isArray(entry_legend.groups) ? entry_legend.groups : []).map((group) => ({
-		name		: typeof group?.name==='string' ? group.name : '',
-		elements	: (Array.isArray(group?.symbols) ? group.symbols : []).map((symbol) => ({
-			name	: typeof symbol?.label==='string' ? symbol.label : '',
+	legend.title	= typeof entry_legend.title==='string' ? entry_legend.title : ''
+	legend.groups	= (Array.isArray(entry_legend.groups) ? entry_legend.groups : []).map((group) => ({
+		name	: typeof group?.name==='string' ? group.name : '',
+		symbols	: (Array.isArray(group?.symbols) ? group.symbols : []).map((symbol) => ({
+			label	: typeof symbol?.label==='string' ? symbol.label : '',
 			icon	: is_raster_icon(symbol?.icon) ? symbol.icon : null
 		}))
 	}))
@@ -193,21 +192,21 @@ const to_entry_legend = function(legend) {
 
 	let skipped		= 0
 	const groups	= []
-	for (const column of legend.columns) {
-		const name = legend_text(column.name)
+	for (const group of legend.groups) {
+		const name = legend_text(group.name)
 		if (!name) {
-			skipped += column.elements.length + 1
+			skipped += group.symbols.length + 1
 			continue
 		}
 		const symbols = []
-		for (const element of column.elements) {
-			const label = legend_text(element.name)
+		for (const symbol of group.symbols) {
+			const label = legend_text(symbol.label)
 			if (!label) {
 				skipped++
 				continue
 			}
-			if (is_raster_icon(element.icon)) {
-				symbols.push({label, icon: element.icon})
+			if (is_raster_icon(symbol.icon)) {
+				symbols.push({label, icon: symbol.icon})
 			} else {
 				symbols.push({label})
 			}
@@ -215,7 +214,7 @@ const to_entry_legend = function(legend) {
 		groups.push({name, symbols})
 	}
 
-	const title = legend_text(legend.legend)
+	const title = legend_text(legend.title)
 	const value = (title || groups.length)
 		? {title, groups}
 		: null
@@ -347,7 +346,7 @@ const toggle_legend_panel = function(self) {
 */
 export const set_legend_title = function(self, text) {
 
-	self.legend.legend = strip_tags(String(text || ''))
+	self.legend.title = strip_tags(String(text || ''))
 	legend_changed(self)
 
 }//end set_legend_title
@@ -356,7 +355,7 @@ export const set_legend_title = function(self, text) {
 
 /**
 * SET_LEGEND_VISIBLE
-* v6's "Show legend" checkbox. Only hides the overlay: the columns stay editable,
+* v6's "Show legend" checkbox. Only hides the overlay: the groups stay editable,
 * as in v6.
 *
 * @param {Object} self
@@ -379,10 +378,10 @@ export const set_legend_visible = function(self, visible) {
 */
 export const add_legend_column = function(self) {
 
-	self.legend.columns.push({name: '', elements: []})
+	self.legend.groups.push({name: '', symbols: []})
 	legend_changed(self)
 
-	return {ok: true, index: self.legend.columns.length - 1}
+	return {ok: true, index: self.legend.groups.length - 1}
 }//end add_legend_column
 
 
@@ -395,11 +394,11 @@ export const add_legend_column = function(self) {
 */
 export const delete_legend_column = function(self, index) {
 
-	if (index<0 || index>=self.legend.columns.length) {
+	if (index<0 || index>=self.legend.groups.length) {
 		return {ok: false}
 	}
 
-	self.legend.columns.splice(index, 1)
+	self.legend.groups.splice(index, 1)
 	legend_changed(self)
 
 	return {ok: true}
@@ -416,7 +415,7 @@ export const delete_legend_column = function(self, index) {
 */
 export const set_legend_column_name = function(self, index, text) {
 
-	const column = self.legend.columns[index]
+	const column = self.legend.groups[index]
 	if (!column) {
 		return {ok: false}
 	}
@@ -438,7 +437,7 @@ export const set_legend_column_name = function(self, index, text) {
 */
 export const move_legend_column = function(self, index, offset) {
 
-	const result = move_item(self.legend.columns, index, offset)
+	const result = move_item(self.legend.groups, index, offset)
 	if (result.ok) {
 		legend_changed(self)
 	}
@@ -456,15 +455,15 @@ export const move_legend_column = function(self, index, offset) {
 */
 export const add_legend_element = function(self, column_index) {
 
-	const column = self.legend.columns[column_index]
+	const column = self.legend.groups[column_index]
 	if (!column) {
 		return {ok: false}
 	}
 
-	column.elements.push({name: '', icon: default_element_icon()})
+	column.symbols.push({label: '', icon: default_element_icon()})
 	legend_changed(self)
 
-	return {ok: true, index: column.elements.length - 1}
+	return {ok: true, index: column.symbols.length - 1}
 }//end add_legend_element
 
 
@@ -478,12 +477,12 @@ export const add_legend_element = function(self, column_index) {
 */
 export const delete_legend_element = function(self, column_index, element_index) {
 
-	const column = self.legend.columns[column_index]
-	if (!column || element_index<0 || element_index>=column.elements.length) {
+	const column = self.legend.groups[column_index]
+	if (!column || element_index<0 || element_index>=column.symbols.length) {
 		return {ok: false}
 	}
 
-	column.elements.splice(element_index, 1)
+	column.symbols.splice(element_index, 1)
 	legend_changed(self)
 
 	return {ok: true}
@@ -503,12 +502,12 @@ export const delete_legend_element = function(self, column_index, element_index)
 */
 export const move_legend_element = function(self, column_index, element_index, offset) {
 
-	const column = self.legend.columns[column_index]
+	const column = self.legend.groups[column_index]
 	if (!column) {
 		return {ok: false}
 	}
 
-	const result = move_item(column.elements, element_index, offset)
+	const result = move_item(column.symbols, element_index, offset)
 	if (result.ok) {
 		legend_changed(self)
 	}
@@ -553,13 +552,13 @@ const move_item = function(list, index, offset) {
 */
 export const set_legend_element_name = function(self, column_index, element_index, text) {
 
-	const column	= self.legend.columns[column_index]
-	const element	= column && column.elements[element_index]
+	const column	= self.legend.groups[column_index]
+	const element	= column && column.symbols[element_index]
 	if (!element) {
 		return {ok: false}
 	}
 
-	element.name = strip_tags(String(text || ''))
+	element.label = strip_tags(String(text || ''))
 	legend_changed(self)
 
 	return {ok: true}
@@ -582,8 +581,8 @@ export const set_legend_element_name = function(self, column_index, element_inde
 */
 export const set_legend_element_symbol = function(self, column_index, element_index, symbol) {
 
-	const column	= self.legend.columns[column_index]
-	const element	= column && column.elements[element_index]
+	const column	= self.legend.groups[column_index]
+	const element	= column && column.symbols[element_index]
 	if (!element || !is_legend_symbol(symbol)) {
 		return {ok: false}
 	}
@@ -620,8 +619,8 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 	// the tool (teardown nulls self.legend), and the picker's handler is on a
 	// detached input detach cannot reach — same guard shape as
 	// render_file_upload.js's post-await panel check
-	const column	= self.legend && self.legend.columns[column_index]
-	const element	= column && column.elements[element_index]
+	const column	= self.legend && self.legend.groups[column_index]
+	const element	= column && column.symbols[element_index]
 	if (!element || !file) {
 		return {ok: false}
 	}

@@ -549,12 +549,11 @@ describe('TOOL_UCA_MAPS (structural)', function() {
 		}
 	})
 
-	// the seed is the object v6 writes the first time
-	// (`class.tool_leaflet_special_tools.php` legends()): persisting a legend
-	// is writing this shape verbatim
-	it('empty_legend seeds v6\'s own stored shape', function() {
+	// the editor holds the record's own names (title, groups), plus the overlay's
+	// shown flag the record never carries
+	it('empty_legend seeds an empty legend in the record\'s names, shown', function() {
 
-		assert.deepEqual(empty_legend(), {legend: '', enable: true, columns: []})
+		assert.deepEqual(empty_legend(), {title: '', enable: true, groups: []})
 
 		assert.deepEqual(
 			ALLOWED_ICON_TYPES,
@@ -8979,7 +8978,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		panel.querySelector('.uca-maps-legend-add-column').click()
 		panel.querySelector('.uca-maps-legend-add-element').click()
 
-		const icon = tool.legend.columns[0].elements[0].icon
+		const icon = tool.legend.groups[0].symbols[0].icon
 		assert.equal(await icon_pixel(icon, 18, 21), new_object_blue.toLowerCase(), 'expected the pin in the map\'s blue')
 		assert.isNull(await icon_pixel(icon, 18, 13), 'expected the pin\'s hole left clear')
 
@@ -9055,7 +9054,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		// "Mostrar leyenda" off hides the drawing, it does not wipe the data
 		tool.set_legend_visible(false)
 		assert.isTrue(overlay.hidden, 'expected the overlay hidden')
-		assert.equal(tool.legend.columns.length, 1, 'expected the columns kept')
+		assert.equal(tool.legend.groups.length, 1, 'expected the groups kept')
 
 		tool.set_legend_visible(true)
 		assert.isFalse(overlay.hidden, 'expected the overlay back')
@@ -9071,20 +9070,20 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.add_legend_element(0)
 		tool.set_legend_element_name(0, 0, '<script>x</script>Neolítico')
 
-		assert.equal(tool.legend.legend, 'Leyenda')
-		assert.equal(tool.legend.columns[0].name, 'Periodo')
-		assert.equal(tool.legend.columns[0].elements[0].name, 'xNeolítico')
+		assert.equal(tool.legend.title, 'Leyenda')
+		assert.equal(tool.legend.groups[0].name, 'Periodo')
+		assert.equal(tool.legend.groups[0].symbols[0].label, 'xNeolítico')
 
 		assert.deepEqual(tool.delete_legend_column(7), {ok: false})
 		assert.deepEqual(tool.delete_legend_element(0, 7), {ok: false})
 		assert.deepEqual(tool.set_legend_column_name(7, 'x'), {ok: false})
 		assert.deepEqual(tool.add_legend_element(7), {ok: false})
-		assert.equal(tool.legend.columns.length, 1, 'expected the legend untouched')
+		assert.equal(tool.legend.groups.length, 1, 'expected the legend untouched')
 
 		assert.deepEqual(tool.delete_legend_element(0, 0), {ok: true})
-		assert.equal(tool.legend.columns[0].elements.length, 0)
+		assert.equal(tool.legend.groups[0].symbols.length, 0)
 		assert.deepEqual(tool.delete_legend_column(0), {ok: true})
-		assert.equal(tool.legend.columns.length, 0)
+		assert.equal(tool.legend.groups.length, 0)
 	})
 
 	it('an icon must be an allowed type under 2 MB; a good one is kept redrawn as a small PNG', async function() {
@@ -9112,12 +9111,12 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			0, 0, new File([new Uint8Array([137, 80, 78, 71])], 'fake.png', {type: 'image/png'})
 		)
 		assert.deepEqual(not_an_image, {ok: false, error: 'The icon could not be read.'})
-		assert.equal(tool.legend.columns[0].elements[0].icon, default_element_icon(), 'expected a refused icon to leave the pin in place')
+		assert.equal(tool.legend.groups[0].symbols[0].icon, default_element_icon(), 'expected a refused icon to leave the pin in place')
 
 		// a large JPEG: kept as a PNG that fits 36 px, its proportions kept
 		const red = '#c0392b'
 		assert.isTrue((await tool.set_legend_element_icon(0, 0, await painted_file(400, 200, red, 'image/jpeg'))).ok)
-		const kept = tool.legend.columns[0].elements[0].icon
+		const kept = tool.legend.groups[0].symbols[0].icon
 		const image = new Image()
 		image.src = kept
 		await image.decode()
@@ -9128,13 +9127,13 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		// a small image is not enlarged; an SVG is redrawn as a PNG too
 		assert.isTrue((await tool.set_legend_element_icon(0, 0, await painted_file(10, 12, red))).ok)
 		const small = new Image()
-		small.src = tool.legend.columns[0].elements[0].icon
+		small.src = tool.legend.groups[0].symbols[0].icon
 		await small.decode()
 		assert.deepEqual([small.naturalWidth, small.naturalHeight], [10, 12], 'expected a small image kept at its size')
 
 		const svg = new File(['<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#c0392b"/></svg>'], 'a.svg', {type: 'image/svg+xml'})
 		assert.isTrue((await tool.set_legend_element_icon(0, 0, svg)).ok, 'expected an SVG accepted')
-		assert.equal(await icon_pixel(tool.legend.columns[0].elements[0].icon, 12, 12), red, 'expected the SVG kept as a PNG of the same picture')
+		assert.equal(await icon_pixel(tool.legend.groups[0].symbols[0].icon, 12, 12), red, 'expected the SVG kept as a PNG of the same picture')
 	})
 
 	// the record is the legend's home: the core saves it with the map
@@ -9230,7 +9229,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		for (let i = 0; i < 5; i++) {
 			tool.add_legend_element(0)
 			tool.set_legend_element_name(0, i + 1, 'Heavy ' + i)
-			tool.legend.columns[0].elements[i + 1].icon = heavy
+			tool.legend.groups[0].symbols[i + 1].icon = heavy
 		}
 		refused(() => tool.set_legend_title('Kept again'), 'The legend\'s images are too large to save: remove some of them.')
 		tool.delete_legend_element(0, 5)
@@ -9263,8 +9262,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		tool.attach_legend()
 
-		assert.equal(tool.legend.legend, 'Saved')
-		assert.deepEqual(tool.legend.columns[0].elements.map((element) => [element.name, element.icon]), [
+		assert.equal(tool.legend.title, 'Saved')
+		assert.deepEqual(tool.legend.groups[0].symbols.map((element) => [element.label, element.icon]), [
 			['With icon', png], ['Without', null], ['Hostile', null], ['Address', null]
 		])
 		const images = Array.from(tool.legend_overlay.getContainer().querySelectorAll('.uca-maps-legend-overlay-element img'))
@@ -9301,7 +9300,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const by_cap = await tool.set_legend_element_icon(0, 0, at_cap)
 		assert.notEqual(by_cap.error, by_size.error, 'expected a file of exactly the cap not refused for its size')
 
-		assert.equal(tool.legend.columns[0].elements[0].icon, default_element_icon())
+		assert.equal(tool.legend.groups[0].symbols[0].icon, default_element_icon())
 	})
 
 	it('the panel edits the same legend the overlay draws', function() {
@@ -9319,7 +9318,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const title_input = panel.querySelector('.uca-maps-legend-title-input')
 		title_input.value = 'Simbología'
 		title_input.dispatchEvent(new Event('input'))
-		assert.equal(tool.legend.legend, 'Simbología', 'expected typing to reach the legend')
+		assert.equal(tool.legend.title, 'Simbología', 'expected typing to reach the legend')
 		assert.isFalse(overlay.hidden, 'expected the overlay drawn once the panel gives it a title')
 		assert.equal(overlay.querySelector('.uca-maps-legend-overlay-title').textContent, 'Simbología', 'expected the overlay to draw the typed title')
 
@@ -9364,9 +9363,9 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		element_input.value = 'Neolítico'
 		element_input.dispatchEvent(new Event('input'))
 
-		assert.equal(tool.legend.columns[0].name, 'Periodo', 'expected the column name in the column')
-		assert.equal(tool.legend.columns[0].elements[0].name, 'Neolítico', 'expected the element name in the element')
-		assert.equal(tool.legend.legend, '', 'expected the legend title untouched by either input')
+		assert.equal(tool.legend.groups[0].name, 'Periodo', 'expected the column name in the column')
+		assert.equal(tool.legend.groups[0].symbols[0].label, 'Neolítico', 'expected the element name in the element')
+		assert.equal(tool.legend.title, '', 'expected the legend title untouched by either input')
 
 		// the row carries its pin and its upload button
 		const row = panel.querySelector('.uca-maps-legend-element')
@@ -9426,7 +9425,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.isTrue(message.hidden || message.dataset.type==='warning', 'expected the old error cleared by the next pick')
 		assert.notEqual(message.textContent, 'The icon could not be read.')
 		assert.isTrue(row_src().startsWith('data:image/png;base64,'), 'expected the row repainted with the uploaded icon')
-		assert.equal(row_src(), tool.legend.columns[0].elements[0].icon, 'expected the row to show the stored icon')
+		assert.equal(row_src(), tool.legend.groups[0].symbols[0].icon, 'expected the row to show the stored icon')
 	})
 
 	it('the Legend toggle reads the DOM, so a sibling panel closing it never jams it shut', function() {
@@ -9494,7 +9493,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		panel.querySelector('.uca-maps-legend-add-column').click()
 		panel.querySelector('.uca-maps-legend-delete-column').click()
-		assert.equal(tool.legend.columns.length, 0, 'expected an empty group deleted without asking')
+		assert.equal(tool.legend.groups.length, 0, 'expected an empty group deleted without asking')
 
 		panel.querySelector('.uca-maps-legend-add-column').click()
 		panel.querySelector('.uca-maps-legend-add-element').click()
@@ -9504,16 +9503,16 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		panel.querySelector('.uca-maps-legend-delete-column').click()
 		assert.isFalse(confirm_node.hidden, 'expected the question shown')
-		assert.equal(tool.legend.columns.length, 1, 'expected nothing deleted yet')
+		assert.equal(tool.legend.groups.length, 1, 'expected nothing deleted yet')
 		assert.equal(document.activeElement, confirm_node.querySelector('.uca-maps-legend-confirm-cancel'), 'expected Cancel focused, the safe answer')
 
 		confirm_node.querySelector('.uca-maps-legend-confirm-cancel').click()
 		assert.isTrue(confirm_node.hidden, 'expected Cancel to close the question')
-		assert.equal(tool.legend.columns[0].elements.length, 1, 'expected the group and its element kept')
+		assert.equal(tool.legend.groups[0].symbols.length, 1, 'expected the group and its element kept')
 
 		panel.querySelector('.uca-maps-legend-delete-column').click()
 		panel.querySelector('.uca-maps-legend-confirm-delete').click()
-		assert.equal(tool.legend.columns.length, 0, 'expected the group deleted on Delete')
+		assert.equal(tool.legend.groups.length, 0, 'expected the group deleted on Delete')
 		assert.isOk(panel.querySelector('.uca-maps-legend-empty'), 'expected the list rebuilt empty')
 	})
 
@@ -9536,14 +9535,14 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.isTrue(rows()[1].querySelector('.uca-maps-legend-move-down').disabled, 'expected the last group unable to go down')
 
 		rows()[1].querySelector('.uca-maps-legend-move-up').click()
-		assert.deepEqual(tool.legend.columns.map((column) => column.name), ['B', 'A'], 'expected the groups swapped')
+		assert.deepEqual(tool.legend.groups.map((column) => column.name), ['B', 'A'], 'expected the groups swapped')
 		assert.equal(panel.querySelectorAll('.uca-maps-legend-column-name')[0].value, 'B', 'expected the list rebuilt in the new order')
 		// B is now first: its ↑ is disabled, so focus lands on its ↓
 		assert.equal(document.activeElement, rows()[0].querySelector('.uca-maps-legend-move-down'), 'expected focus kept on the moved group')
 
 		const element_rows = () => panel.querySelectorAll('.uca-maps-legend-column')[0].querySelectorAll('.uca-maps-legend-element-row')
 		element_rows()[0].querySelector('.uca-maps-legend-move-down').click()
-		assert.deepEqual(tool.legend.columns[0].elements.map((element) => element.name), ['y', 'x'], 'expected the elements swapped')
+		assert.deepEqual(tool.legend.groups[0].symbols.map((element) => element.label), ['y', 'x'], 'expected the elements swapped')
 		assert.equal(document.activeElement, element_rows()[1].querySelector('.uca-maps-legend-move-up'), 'expected focus kept on the moved element')
 
 		const overlay_names = [...tool.legend_overlay.getContainer().querySelectorAll('.uca-maps-legend-overlay-column-name')].map((node) => node.textContent)
@@ -9560,7 +9559,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.attach_legend()
 		tool.add_legend_column()
 		tool.add_legend_element(0)
-		const element = tool.legend.columns[0].elements[0]
+		const element = tool.legend.groups[0].symbols[0]
 
 		for (const bad of [
 			{shape: 'star', fill: picked_colour(), stroke: picked_colour()},
@@ -9594,6 +9593,11 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.equal(await icon_pixel(element.icon, 18, 18), default_symbol_colour().toLowerCase(), 'expected a point filled at its centre')
 		assert.equal(await icon_pixel(element.icon, 27, 18), picked_colour(), 'expected its ring')
 		assert.isNull(await icon_pixel(element.icon, 3, 3), 'expected a circle, not a square')
+
+		// the drawn values reopen the editor but are never saved: core refuses an unknown key
+		tool.set_legend_column_name(0, 'Surface')
+		tool.set_legend_element_name(0, 0, 'Paved')
+		assert.deepEqual(geolocation.current_value[0].legend.groups[0].symbols[0], {label: 'Paved', icon: element.icon}, 'expected the saved symbol without its drawn values')
 
 		// an uploaded image replaces the drawn symbol
 		const uploaded = await tool.set_legend_element_icon(
@@ -9680,7 +9684,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.isOk(editor.querySelector('.uca-maps-legend-upload-icon'), 'expected image upload offered in the editor')
 
 		editor.querySelector('[data-shape="area"]').click()
-		const element = tool.legend.columns[0].elements[0]
+		const element = tool.legend.groups[0].symbols[0]
 		assert.equal(element.symbol.shape, 'area')
 		assert.equal(row_icon.getAttribute('src'), element.icon, 'expected the row repainted')
 		assert.isTrue(row_icon.isConnected, 'expected the row repainted IN PLACE, the list not rebuilt')

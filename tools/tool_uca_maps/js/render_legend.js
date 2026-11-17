@@ -9,7 +9,8 @@
 * Two halves: the edit PANEL (tool chrome, left out of the map image), whose
 * group list is rebuilt only on STRUCTURAL change (typing or a colour repaints
 * just the overlay: a rebuild would drop focus or close the colour picker), and
-* the OVERLAY, map CONTENT. A data "column" is a "group" in the UI: groups wrap.
+* the OVERLAY, map CONTENT. A "column" (class names, function names) is a group:
+* groups wrap; an "element" is one of its symbols.
 *
 * @module render_legend
 */
@@ -56,7 +57,7 @@ export const render_legend_panel = function(self, panel) {
 	})
 	title_input.type		= 'text'
 	title_input.placeholder	= self.get_tool_label('legend_title_placeholder') || 'Legend title'
-	title_input.value		= self.legend.legend
+	title_input.value		= self.legend.title
 	title_input.addEventListener('input', () => {
 		self.set_legend_title(title_input.value)
 	})
@@ -135,7 +136,7 @@ export const clear_legend_message = function(panel) {
 
 /**
 * POPULATE_LEGEND_COLUMNS
-* Rebuilds the group list from `self.legend.columns`, on every open and after
+* Rebuilds the group list from `self.legend.groups`, on every open and after
 * every structural mutation.
 *
 * @param {Object} self - tool_uca_maps instance
@@ -147,7 +148,7 @@ export const populate_legend_columns = function(self, panel) {
 	const list = panel.querySelector('.uca-maps-legend-columns')
 	list.replaceChildren()
 
-	if (!self.legend.columns.length) {
+	if (!self.legend.groups.length) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-empty-state uca-maps-legend-empty',
@@ -157,9 +158,9 @@ export const populate_legend_columns = function(self, panel) {
 		return
 	}
 
-	const column_count = self.legend.columns.length
+	const column_count = self.legend.groups.length
 
-	self.legend.columns.forEach((column, column_index) => {
+	self.legend.groups.forEach((column, column_index) => {
 
 		const column_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column', parent: list})
 
@@ -206,7 +207,7 @@ export const populate_legend_columns = function(self, panel) {
 		delete_column_btn.addEventListener('click', () => {
 			// an empty group goes at once; one with elements asks first, in
 			// the panel — a page dialog would not show over a fullscreen map
-			if (!column.elements.length) {
+			if (!column.symbols.length) {
 				self.delete_legend_column(column_index)
 				populate_legend_columns(self, panel)
 				return
@@ -217,7 +218,7 @@ export const populate_legend_columns = function(self, panel) {
 
 		const elements_list = ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-legend-elements', parent: column_node})
 
-		column.elements.forEach((element, element_index) => {
+		column.symbols.forEach((element, element_index) => {
 			render_element_row(self, panel, elements_list, column_index, element_index, element)
 		})
 
@@ -388,7 +389,7 @@ const focus_move_button = function(panel, column_index, element_index, offset) {
 * @param {HTMLElement} elements_list
 * @param {number} column_index
 * @param {number} element_index
-* @param {Object} element - {name, icon, symbol?}
+* @param {Object} element - {label, icon, symbol?}
 * @returns {void}
 */
 const render_element_row = function(self, panel, elements_list, column_index, element_index, element) {
@@ -424,12 +425,12 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	name_input.type			= 'text'
 	name_input.placeholder	= self.get_tool_label('legend_element_placeholder') || 'Element name'
 	name_input.setAttribute('aria-label', name_input.placeholder)
-	name_input.value			= element.name
+	name_input.value			= element.label
 	name_input.addEventListener('input', () => {
 		self.set_legend_element_name(column_index, element_index, name_input.value)
 	})
 
-	const element_count = self.legend.columns[column_index].elements.length
+	const element_count = self.legend.groups[column_index].symbols.length
 	render_move_buttons(self, row, element_index, element_count, (offset) => {
 		const result = self.move_legend_element(column_index, element_index, offset)
 		if (result.ok) {
@@ -708,20 +709,20 @@ export const render_legend_overlay = function(self) {
 	container.replaceChildren()
 
 	const legend	= self.legend
-	// emptiness is measured in what would be DRAWN, not in how many columns
-	// exist: a column just created, still unnamed and with no elements, paints
+	// emptiness is measured in what would be DRAWN, not in how many groups
+	// exist: a group just created, still unnamed and with no symbols, paints
 	// a blank white box — which is the noise this branch exists to avoid
-	const is_empty	= !legend.legend && !legend.columns.some((column) => column.name || column.elements.length)
+	const is_empty	= !legend.title && !legend.groups.some((column) => column.name || column.symbols.length)
 	container.hidden = !legend.enable || is_empty
 	if (container.hidden) {
 		return
 	}
 
-	if (legend.legend) {
+	if (legend.title) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-legend-overlay-title',
-			text_content	: legend.legend,
+			text_content	: legend.title,
 			parent			: container
 		})
 	}
@@ -732,7 +733,7 @@ export const render_legend_overlay = function(self) {
 		parent			: container
 	})
 
-	for (const column of legend.columns) {
+	for (const column of legend.groups) {
 
 		const column_node = ui.create_dom_element({
 			element_type	: 'div',
@@ -749,7 +750,7 @@ export const render_legend_overlay = function(self) {
 			})
 		}
 
-		for (const element of column.elements) {
+		for (const element of column.symbols) {
 
 			const element_node = ui.create_dom_element({
 				element_type	: 'div',
@@ -766,7 +767,7 @@ export const render_legend_overlay = function(self) {
 
 			ui.create_dom_element({
 				element_type	: 'span',
-				text_content	: element.name,
+				text_content	: element.label,
 				parent			: element_node
 			})
 
