@@ -6,11 +6,8 @@
  */
 
 import { describe, expect, spyOn, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
-import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import * as gdal from '../../tools/tool_uca_maps/server/gdal.ts';
 import {
 	cornersFromWgs84Extent,
@@ -19,24 +16,19 @@ import {
 } from '../../tools/tool_uca_maps/server/image_overlay.ts';
 import { mustGet } from '../helpers/assert.ts';
 import {
+	contextOf,
 	dataOf,
 	expectCode,
 	failureOf,
 	haveGdal,
 	loadAction,
+	runFixtureBinary,
+	thrownBy,
+	withTempDir,
 } from './fixtures/tool_uca_maps/helpers.ts';
 import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 const HAVE_GDAL = haveGdal('gdalinfo', 'gdal_create');
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: 1, isGlobalAdmin: true, isDeveloper: true },
-		userId: 1,
-		options,
-		background: false,
-	};
-}
 
 describe('tool_uca_maps get_image_overlay — caller-fault validation (no DB/GDAL needed)', () => {
 	// a record id is always positive
@@ -46,7 +38,9 @@ describe('tool_uca_maps get_image_overlay — caller-fault validation (no DB/GDA
 	])('a section_id %s is refused before any database access', async (_, id) => {
 		const action = await loadAction('get_image_overlay');
 		const error = await failureOf(
-			action.handler(contextOf({ tipo: 'test99', section_tipo: 'test3', ...id })),
+			action.handler(
+				contextOf({ tipo: 'test99', section_tipo: 'test3', ...id }, 1, { record: false }),
+			),
 		);
 		expectCode(error, 'request.invalid_source');
 		expect(error.message).toMatch(/tipo, section_tipo and a positive section_id/);
@@ -116,13 +110,7 @@ describe('tool_uca_maps get_image_overlay — a failed georeference read', () =>
 		['the media root missing', new DedaloError('tool.dependency_unavailable', {})],
 		['an error that is no DedaloError', new Error('boom')],
 	])('%s is rethrown as is', (_, error) => {
-		let thrown: unknown = null;
-		try {
-			overlayFallbackOf(error);
-		} catch (caught) {
-			thrown = caught;
-		}
-		expect(thrown).toBe(error);
+		expect(thrownBy(() => overlayFallbackOf(error))).toBe(error);
 	});
 });
 
@@ -142,7 +130,10 @@ describe('tool_uca_maps get_image_overlay — the handler on a planted TIFF mast
 		try {
 			return await withImageFiles(SLOT, FILES, async (planted) => {
 				const handler = (await loadAction('get_image_overlay')).handler;
-				return { planted, outcome: await handler(contextOf(SLOT)).catch((thrown) => thrown) };
+				return {
+					planted,
+					outcome: await handler(contextOf(SLOT, 1, { record: false })).catch((thrown) => thrown),
+				};
 			});
 		} finally {
 			read.mockRestore();
@@ -174,17 +165,12 @@ describe.skipIf(!HAVE_GDAL)(
 		// pixels are irrelevant here, only the CRS + corner coordinates are.
 		async function createTiff(dir: string, name: string, argv: readonly string[]): Promise<string> {
 			const path = join(dir, name);
-			const proc = Bun.spawn([mustGet(Bun.which('gdal_create'), 'gdal_create'), ...argv, path], {
-				stdout: 'pipe',
-				stderr: 'pipe',
-			});
-			expect(await proc.exited).toBe(0);
+			await runFixtureBinary([mustGet(Bun.which('gdal_create'), 'gdal_create'), ...argv, path]);
 			return path;
 		}
 
 		test('a GeoTIFF in UTM 30N reports its footprint already reprojected to WGS84', async () => {
-			const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
-			try {
+			await withTempDir('uca_maps_overlay_', async (dir) => {
 				// A 1 km square anchored in UTM zone 30N (EPSG:25830) over Valencia.
 				const path = await createTiff(dir, 'utm.tif', [
 					'-outsize',
@@ -214,19 +200,14 @@ describe.skipIf(!HAVE_GDAL)(
 				// in UTM is NOT axis-aligned once reprojected — the two top corners
 				// do not share a latitude
 				expect(corners.top_left[0]).not.toBe(corners.top_right[0]);
-			} finally {
-				rmSync(dir, { recursive: true, force: true });
-			}
+			});
 		});
 
 		test('a TIFF with no CRS reports no footprint instead of guessing one', async () => {
-			const dir = mkdtempSync(join(tmpdir(), 'uca_maps_overlay_'));
-			try {
+			await withTempDir('uca_maps_overlay_', async (dir) => {
 				const plain = await createTiff(dir, 'plain.tif', ['-outsize', '10', '10']);
 				expect(await readGeoreference(plain)).toBeNull();
-			} finally {
-				rmSync(dir, { recursive: true, force: true });
-			}
+			});
 		});
 	},
 );

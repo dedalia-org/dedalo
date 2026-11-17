@@ -10,12 +10,8 @@ import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { toErrorBody } from '../../src/core/errors/convert.ts';
 import { ERROR_REGISTRY } from '../../src/core/errors/registry.ts';
-import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
-import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
-import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
 import { STAGED_NAME_DIR } from '../../src/core/media/ingest/staged_name_record.ts';
-import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
 import * as toolConfig from '../../src/core/tools/config.ts';
 import {
 	EXTERNAL_IMAGE_MAX_BYTES,
@@ -26,6 +22,11 @@ import {
 	stageExternalImage,
 } from '../../tools/tool_uca_maps/server/external_image.ts';
 import { contextOf, dataOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	resetHarvestState,
+	type ScriptedRoute,
+	scriptedSite,
+} from './fixtures/tool_uca_maps/scripted_site.ts';
 
 /** A 1×1 PNG: real bytes, so the receiver's sniff and structural check pass. */
 const ONE_PIXEL_PNG = new Uint8Array(
@@ -47,54 +48,9 @@ const USER_ID = -1;
 const IMAGE = 'https://images.example/collection/Muro%20norte.png';
 const JPEG = 'https://images.example/collection/Fachada.jpg';
 
-interface Scripted {
-	status: number;
-	type?: string;
-	body?: string | Uint8Array;
-}
-
-interface ScriptedSite {
-	deps: HarvestDeps;
-	sent: string[];
-	ceilings: Map<string, number>;
-	/** URLs whose body the door told the site not to send (`acceptBody`). */
-	skipped: string[];
-}
-
-/** A site answering by URL the way the pinned primitive would. */
-function scriptedSite(routes: Record<string, Scripted>): ScriptedSite {
-	const sent: string[] = [];
-	const ceilings = new Map<string, number>();
-	const skipped: string[] = [];
-	let now = 1_000_000;
-	const hop = async (request: PinnedHopRequest): Promise<PinnedHopResponse> => {
-		const url = request.url.toString();
-		sent.push(url);
-		ceilings.set(url, request.maxBytes);
-		const answer = routes[url] ?? { status: 404 };
-		const headers = new Headers();
-		if (answer.type !== undefined) headers.set('content-type', answer.type);
-		const base = { status: answer.status, headers, location: null, truncated: false };
-		if (request.acceptBody?.(answer.status, headers) === false) {
-			skipped.push(url);
-			return { ...base, bytes: new Uint8Array(0), bodySkipped: true };
-		}
-		const body =
-			typeof answer.body === 'string'
-				? new TextEncoder().encode(answer.body)
-				: (answer.body ?? new Uint8Array(0));
-		return { ...base, bytes: body, bodySkipped: false };
-	};
-	const deps: HarvestDeps = {
-		hop,
-		now: () => now,
-		sleep: async (ms) => {
-			now += ms;
-		},
-		setTimer: () => {},
-	};
-	return { deps, sent, ceilings, skipped };
-}
+/** The image door skips a body by its status and type: the site asks it first. */
+const imageSite = (routes: Record<string, ScriptedRoute>) =>
+	scriptedSite(routes, { acceptBody: true });
 
 const on = async () => true;
 const off = async () => false;
@@ -110,20 +66,16 @@ function stagedPath(fileData: Record<string, unknown>): string {
 	return join(dir, tmpName);
 }
 
-beforeEach(() => {
-	clearRobotsCache();
-	clearPacingForTests();
-});
+beforeEach(resetHarvestState);
 
 afterEach(() => {
-	clearRobotsCache();
-	clearPacingForTests();
+	resetHarvestState();
 	for (const path of staged.splice(0)) rmSync(path, { force: true });
 });
 
 describe('tool_uca_maps stage_external_image — the switch', () => {
 	test('off, it is refused before anything is requested', async () => {
-		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
 		const error = await failureOf(
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: off }),
 		);
@@ -137,7 +89,7 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 		) as { default_config: Record<string, unknown> };
 		expect(register.default_config[EXTERNAL_IMAGES_CONFIG_KEY]).toBe(true);
 
-		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
 		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
 			harvest: site.deps,
 		});
@@ -173,7 +125,7 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 
 describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	test('a PNG is staged in the caller staging dir, answered as an upload is', async () => {
-		const site = scriptedSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
 		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
 			harvest: site.deps,
 			enabled: on,
@@ -197,7 +149,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	test.each(['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/jpeg; charset=binary'])(
 		'a JPEG served as %s is staged as a .jpg',
 		async (type) => {
-			const site = scriptedSite({ [JPEG]: { status: 200, type, body: ONE_PIXEL_JPEG } });
+			const site = imageSite({ [JPEG]: { status: 200, type, body: ONE_PIXEL_JPEG } });
 			const response = await stageExternalImage(contextOf({ url: JPEG }, USER_ID), {
 				harvest: site.deps,
 				enabled: on,
@@ -210,7 +162,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	);
 
 	test('a non-2xx answer is the source unavailable, keyed, naming the status in the log', async () => {
-		const site = scriptedSite({ [IMAGE]: { status: 404 } });
+		const site = imageSite({ [IMAGE]: { status: 404 } });
 		const error = await failureOf(
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
@@ -223,7 +175,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 		['a page instead of an image', 'text/html', '<html></html>'],
 		['an image type the picker does not take (GIF)', 'image/gif', 'GIF89a'],
 	])('%s is refused by its declared type, unread', async (_label, type, body) => {
-		const site = scriptedSite({ [IMAGE]: { status: 200, type, body } });
+		const site = imageSite({ [IMAGE]: { status: 200, type, body } });
 		const error = await failureOf(
 			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
 		);
@@ -233,7 +185,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	});
 
 	test('bytes that are not the declared type are refused by the receiver, nothing staged', async () => {
-		const site = scriptedSite({
+		const site = imageSite({
 			[IMAGE]: { status: 200, type: 'image/png', body: '<html>not a png</html>' },
 		});
 		const dir = stagingDir(USER_ID, 'image');
@@ -250,7 +202,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 	});
 
 	test("the site's robots.txt is obeyed: a disallowed image is never requested", async () => {
-		const site = scriptedSite({
+		const site = imageSite({
 			'https://images.example/robots.txt': {
 				status: 200,
 				type: 'text/plain',
@@ -269,7 +221,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 
 	test('a url that is not absolute http(s) is refused before the door', async () => {
 		for (const url of ['file:///etc/passwd', 'images/a.png', '', 42]) {
-			const site = scriptedSite({});
+			const site = imageSite({});
 			const error = await failureOf(
 				stageExternalImage(contextOf({ url }, USER_ID), { harvest: site.deps, enabled: on }),
 			);

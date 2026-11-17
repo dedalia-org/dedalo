@@ -73,27 +73,42 @@ async function labelCalls(): Promise<LabelCall[]> {
 	return calls;
 }
 
+let registerRead: ReturnType<typeof authoringRegisterSchema.safeParse> | undefined;
+
+/**
+ * register.json through the authoring schema, read on first use. Not at module
+ * scope: an invalid manifest would fail the file with a raw zod error, not
+ * this readable message.
+ */
+async function registered() {
+	registerRead ??= authoringRegisterSchema.safeParse(
+		await Bun.file(new URL('register.json', TOOL_DIR)).json(),
+	);
+	if (!registerRead.success) {
+		throw new Error(`register.json failed authoring schema: ${registerRead.error.message}`);
+	}
+	return registerRead.data;
+}
+
+/** The manifest's labels and every language they ship in, sorted. */
+async function registeredLabels() {
+	const labels = (await registered()).labels ?? [];
+	return { labels, langs: [...new Set(labels.map((label) => label.lang))].sort() };
+}
+
 async function usedLabelKeys(): Promise<Set<string>> {
 	return new Set((await labelCalls()).flatMap((call) => (call.key === null ? [] : [call.key])));
 }
 
 describe('tool_uca_maps register.json', () => {
 	test('parses as a valid authoring-format manifest', async () => {
-		const raw = await Bun.file(new URL('register.json', TOOL_DIR)).json();
-		const parsed = authoringRegisterSchema.safeParse(raw);
-		if (!parsed.success) {
-			throw new Error(`register.json failed authoring schema: ${parsed.error.message}`);
-		}
-		expect(parsed.data.name).toBe('tool_uca_maps');
-		expect(parsed.data.affected_models).toEqual(['component_geolocation']);
+		const register = await registered();
+		expect(register.name).toBe('tool_uca_maps');
+		expect(register.affected_models).toEqual(['component_geolocation']);
 	});
 
 	test('every label key the client asks for is shipped in every language', async () => {
-		const raw = await Bun.file(new URL('register.json', TOOL_DIR)).json();
-		const parsed = authoringRegisterSchema.parse(raw);
-		const labels = parsed.labels ?? [];
-
-		const langs = [...new Set(labels.map((label) => label.lang))].sort();
+		const { labels, langs } = await registeredLabels();
 		expect(langs.length).toBeGreaterThan(0);
 
 		const shipped = new Map<string, Set<string>>();
@@ -131,14 +146,11 @@ describe('tool_uca_maps register.json', () => {
 	// the console's measure rows name their label by `label_key`; the family's
 	// prefix check passes whatever happens to one member, this one does not
 	test('every label_key compute_info answers ships its info_ label, in every language', async () => {
-		const labels =
-			authoringRegisterSchema.parse(await Bun.file(new URL('register.json', TOOL_DIR)).json())
-				.labels ?? [];
-		const langs = [...new Set(labels.map((label) => label.lang))];
+		const { labels, langs } = await registeredLabels();
 		const source = await Bun.file(new URL('js/object_console.js', TOOL_DIR)).text();
 		const literals = [...source.matchAll(/\blabel_key\s*:\s*'([a-z_]+)'/g)];
 		// a key written any other way (double-quoted, computed) would escape the check
-		const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+		const code = stripComments(source);
 		expect(literals.length).toBe([...code.matchAll(/\blabel_key\s*:/g)].length);
 		const keys = [...new Set(literals.map((m) => m[1]))];
 		expect(keys.sort()).toEqual(['area', 'center', 'coordinates', 'distance', 'radius']);
@@ -153,10 +165,7 @@ describe('tool_uca_maps register.json', () => {
 	// the members are computed at run time; at least one per family proves the
 	// prefix is spelled as the labels are, so the family can resolve at all
 	test('every computed family has labels under its prefix, in every language', async () => {
-		const labels =
-			authoringRegisterSchema.parse(await Bun.file(new URL('register.json', TOOL_DIR)).json())
-				.labels ?? [];
-		const langs = [...new Set(labels.map((label) => label.lang))];
+		const { labels, langs } = await registeredLabels();
 		const families = new Set(
 			(await labelCalls()).flatMap((call) => (call.family === null ? [] : [call.family])),
 		);
@@ -172,13 +181,11 @@ describe('tool_uca_maps register.json', () => {
 	});
 
 	test('a label called with values has one %s per value, in every language', async () => {
-		const parsed = authoringRegisterSchema.parse(
-			await Bun.file(new URL('register.json', TOOL_DIR)).json(),
-		);
+		const { labels } = await registeredLabels();
 		const withValues = (await labelCalls()).filter((call) => call.key !== null && call.args > 0);
 		expect(withValues.length).toBeGreaterThan(0);
 		const wrong = withValues.flatMap((call) =>
-			(parsed.labels ?? [])
+			labels
 				.filter((label) => label.name === call.key)
 				.filter((label) => (label.value.match(/%s/g) ?? []).length !== call.args)
 				.map((label) => `${call.file}: ${call.key} (${label.lang}) wants ${call.args}`),

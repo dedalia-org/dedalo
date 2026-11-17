@@ -8,7 +8,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { config } from '../../src/config/config.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { openZipStream } from '../../src/core/files/zip.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
@@ -36,16 +35,27 @@ import {
 	failureOf,
 	haveGdal,
 	loadAction,
+	stageFile,
+	stagingOf,
+	thrownBy,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_GDAL = haveGdal('ogr2ogr', 'ogrinfo', 'gdalsrsinfo');
 
-/** The staging dir of a scratch uploader: the user ids are this file's own. */
-const stagingOf = (userId: number) =>
-	resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
-
 async function callUpload(userId: number, options: Record<string, unknown>): Promise<ToolResponse> {
 	return (await loadAction('upload_vector_layer')).handler(contextOf(options, userId));
+}
+
+/** The upload of what `userId` staged as `tmpName`, the extension read off the name. */
+async function uploadStaged(
+	userId: number,
+	tmpName: string,
+	fields: Record<string, string> = {},
+): Promise<ToolResponse> {
+	return callUpload(userId, {
+		file_data: { key_dir: '', tmp_name: tmpName, extension: tmpName.split('.').pop() },
+		...fields,
+	});
 }
 
 describe('tool_uca_maps upload_vector_layer — caller-fault validation (no GDAL/file needed)', () => {
@@ -79,12 +89,8 @@ describe('tool_uca_maps upload_vector_layer — the fields are judged after the 
 		bytes: string,
 		fields: Record<string, string>,
 	): Promise<ToolResponse> {
-		mkdirSync(userStaging, { recursive: true });
-		writeFileSync(resolve(userStaging, tmpName), bytes);
-		return callUpload(SCRATCH_USER, {
-			file_data: { key_dir: '', tmp_name: tmpName, extension: tmpName.split('.').pop() },
-			...fields,
-		});
+		stageFile(SCRATCH_USER, tmpName, bytes);
+		return uploadStaged(SCRATCH_USER, tmpName, fields);
 	}
 
 	// v6 drops a partial set without a word
@@ -301,12 +307,7 @@ describe('tool_uca_maps explodeToSingleParts (pure)', () => {
 describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', () => {
 	test('an EPSG that is not 4 to 6 digits is refused', () => {
 		for (const epsg of ['EPSG:4326', '432', '1234567', '43 26']) {
-			let error: unknown = null;
-			try {
-				parseManualProjection({ epsg });
-			} catch (caught) {
-				error = caught;
-			}
+			const error = thrownBy(() => parseManualProjection({ epsg }));
 			expectCode(error, 'request.invalid_options');
 			expect((error as DedaloError).message).toMatch(/Invalid EPSG code/);
 		}
@@ -381,12 +382,8 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 	});
 
 	test('a southern refusal names bands that are then accepted, never the MGRS S (northern)', () => {
-		let message = '';
-		try {
-			assertProjectionMatches({ epsg: '32719', utm: null }, UTM_19S);
-		} catch (error) {
-			message = (error as Error).message;
-		}
+		const refusal = thrownBy(() => assertProjectionMatches({ epsg: '32719', utm: null }, UTM_19S));
+		const message = (refusal as Error | undefined)?.message ?? '';
 		expect(message).toContain('band C to M');
 		expect(message).not.toMatch(/19S/);
 		const followed = parseManualProjection({ epsg: '32719', zone: '19', band: 'C' });
@@ -484,12 +481,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 
 	// the victim's file exists: a refusal for any other reason would hide a read
 	test("another user's staged upload is refused, through key_dir or tmp_name", async () => {
-		const victimStaging = stagingOf(VICTIM);
-		mkdirSync(victimStaging, { recursive: true });
-		writeFileSync(
-			resolve(victimStaging, 'victim.geojson'),
-			'{"type":"FeatureCollection","features":[]}',
-		);
+		stageFile(VICTIM, 'victim.geojson', '{"type":"FeatureCollection","features":[]}');
 		for (const file_data of [
 			{ key_dir: `../${VICTIM}`, tmp_name: 'victim.geojson', extension: 'geojson' },
 			{ key_dir: '', tmp_name: `../${VICTIM}/victim.geojson`, extension: 'geojson' },
@@ -499,9 +491,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 	});
 
 	test('a staged file over the 10 MB cap is refused before any conversion runs', async () => {
-		const userStaging = stagingOf(SCRATCH_USER);
-		mkdirSync(userStaging, { recursive: true });
-		writeFileSync(resolve(userStaging, 'big.geojson'), Buffer.alloc(10_000_001));
+		stageFile(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
 		await expect(
 			callUpload(SCRATCH_USER, {
 				file_data: { key_dir: '', tmp_name: 'big.geojson', extension: 'geojson' },
@@ -520,9 +510,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 			})(),
 		);
 		await writer.finish();
-		const userStaging = stagingOf(SCRATCH_USER);
-		mkdirSync(userStaging, { recursive: true });
-		writeFileSync(resolve(userStaging, 'bomb.zip'), Buffer.concat(chunks));
+		stageFile(SCRATCH_USER, 'bomb.zip', Buffer.concat(chunks));
 		const error = await failureOf(
 			callUpload(SCRATCH_USER, {
 				file_data: { key_dir: '', tmp_name: 'bomb.zip', extension: 'zip' },
@@ -686,16 +674,18 @@ describe.skipIf(!HAVE_GDAL)(
 		const SOURCE_GEOJSON =
 			'{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[-0.375,39.47]}}]}';
 
-		function stage(tmpName: string, bytes: string | Uint8Array): void {
-			mkdirSync(userStaging, { recursive: true });
-			writeFileSync(resolve(userStaging, tmpName), bytes);
-		}
-
-		async function uploadStaged(
-			fileData: Record<string, unknown>,
-			projection: Record<string, string> = {},
-		): Promise<ToolResponse> {
-			return callUpload(SCRATCH_USER, { file_data: { key_dir: '', ...fileData }, ...projection });
+		/** `src.geojson` (SOURCE_GEOJSON) converted by ogr2ogr with `args` to `outName` in `dir`. */
+		async function ogrFixture(dir: string, outName: string, args: string[]): Promise<string> {
+			const src = resolve(dir, 'src.geojson');
+			writeFileSync(src, SOURCE_GEOJSON);
+			const out = resolve(dir, outName);
+			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
+			await runToolBinary(
+				[ogr2ogr, '-if', 'GeoJSON', ...args, out, src],
+				`test fixture (${outName})`,
+				{ scratchDir: dir, expectedOutput: out },
+			);
+			return out;
 		}
 
 		/** The conversion's answer, as these gates read it. */
@@ -708,8 +698,8 @@ describe.skipIf(!HAVE_GDAL)(
 		}
 
 		test('a plain WGS84 .geojson round-trips unchanged', async () => {
-			stage('plain.geojson', SOURCE_GEOJSON);
-			const response = await uploadStaged({ tmp_name: 'plain.geojson', extension: 'geojson' });
+			stageFile(SCRATCH_USER, 'plain.geojson', SOURCE_GEOJSON);
+			const response = await uploadStaged(SCRATCH_USER, 'plain.geojson');
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
 			expect(data.feature_count).toBe(1);
@@ -719,20 +709,11 @@ describe.skipIf(!HAVE_GDAL)(
 		});
 
 		test('a .kml round-trips to WGS84 GeoJSON', async () => {
-			const kmlBytes = await withScratchDir(async (dir) => {
-				const src = resolve(dir, 'src.geojson');
-				writeFileSync(src, SOURCE_GEOJSON);
-				const out = resolve(dir, 'src.kml');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[ogr2ogr, '-if', 'GeoJSON', '-f', 'KML', out, src],
-					'test fixture (kml)',
-					{ scratchDir: dir, expectedOutput: out },
-				);
-				return Bun.file(out).text();
-			});
-			stage('plain.kml', kmlBytes);
-			const response = await uploadStaged({ tmp_name: 'plain.kml', extension: 'kml' });
+			const kmlBytes = await withScratchDir(async (dir) =>
+				Bun.file(await ogrFixture(dir, 'src.kml', ['-f', 'KML'])).text(),
+			);
+			stageFile(SCRATCH_USER, 'plain.kml', kmlBytes);
+			const response = await uploadStaged(SCRATCH_USER, 'plain.kml');
 			expect(response.ok).toBe(true);
 			expect(dataOf<UploadedLayer>(response).feature_count).toBe(1);
 		});
@@ -745,8 +726,8 @@ describe.skipIf(!HAVE_GDAL)(
 				'<Placemark><name>mix</name><MultiGeometry>' +
 				`${point(-0.4)}<LineString><coordinates>-0.4,39.4 -0.42,39.42</coordinates></LineString>` +
 				'</MultiGeometry></Placemark></Document></kml>';
-			stage('multi.kml', kml);
-			const response = await uploadStaged({ tmp_name: 'multi.kml', extension: 'kml' });
+			stageFile(SCRATCH_USER, 'multi.kml', kml);
+			const response = await uploadStaged(SCRATCH_USER, 'multi.kml');
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
 			expect(data.feature_count).toBe(4);
@@ -760,24 +741,21 @@ describe.skipIf(!HAVE_GDAL)(
 
 		test('a zipped shapefile with a UTM .prj reprojects on its own and refuses the fields', async () => {
 			const zipBytes = await withScratchDir(async (dir) => {
-				const src = resolve(dir, 'src.geojson');
-				writeFileSync(src, SOURCE_GEOJSON);
 				// GDAL opens a zipped shapefile only by the literal '.shp.zip', the
 				// way vector_download.ts writes one
-				const out = resolve(dir, 'utm.shp.zip');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', out, src],
-					'test fixture (utm shp.zip)',
-					{ scratchDir: dir, expectedOutput: out },
-				);
+				const out = await ogrFixture(dir, 'utm.shp.zip', [
+					'-f',
+					'ESRI Shapefile',
+					'-t_srs',
+					'EPSG:25830',
+				]);
 				return Bun.file(out).arrayBuffer();
 			});
 			// staged upload's real name never carries a meaningful extension (an
 			// opaque tmp_name) — the client-declared 'zip' extension is what routes
 			// this through the '.shp.zip' scratch-name branch.
-			stage('plain.zip', new Uint8Array(zipBytes));
-			const response = await uploadStaged({ tmp_name: 'plain.zip', extension: 'zip' });
+			stageFile(SCRATCH_USER, 'plain.zip', new Uint8Array(zipBytes));
+			const response = await uploadStaged(SCRATCH_USER, 'plain.zip');
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
 			expect(data.feature_count).toBe(1);
@@ -788,10 +766,7 @@ describe.skipIf(!HAVE_GDAL)(
 			// the file's own .prj wins, as in v6: even fields that agree with it are
 			// refused rather than handed to -s_srs, which would override it silently
 			await expect(
-				uploadStaged(
-					{ tmp_name: 'plain.zip', extension: 'zip' },
-					{ epsg: '25830', zone: '30', band: 'N' },
-				),
+				uploadStaged(SCRATCH_USER, 'plain.zip', { epsg: '25830', zone: '30', band: 'N' }),
 			).rejects.toThrow(/already declares its own projection/);
 
 			// checked BEFORE the EPSG lookup: a UTM code without zone/band, or a
@@ -801,23 +776,15 @@ describe.skipIf(!HAVE_GDAL)(
 				{ epsg: '25830', zone: '19', band: 'N' },
 			];
 			for (const fields of partialOrWrong) {
-				await expect(
-					uploadStaged({ tmp_name: 'plain.zip', extension: 'zip' }, fields),
-				).rejects.toThrow(/already declares its own projection/);
+				await expect(uploadStaged(SCRATCH_USER, 'plain.zip', fields)).rejects.toThrow(
+					/already declares its own projection/,
+				);
 			}
 		});
 
 		test('a zipped shapefile without a .prj is refused until EPSG, zone and band are given', async () => {
 			const zipBytes = await withScratchDir(async (dir) => {
-				const src = resolve(dir, 'src.geojson');
-				writeFileSync(src, SOURCE_GEOJSON);
-				const utm = resolve(dir, 'utm.shp');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830', utm, src],
-					'test fixture (utm shp, unzipped)',
-					{ scratchDir: dir, expectedOutput: utm },
-				);
+				await ogrFixture(dir, 'utm.shp', ['-f', 'ESRI Shapefile', '-t_srs', 'EPSG:25830']);
 				// re-zip WITHOUT the .prj sidecar — a source with genuinely no CRS
 				const noPrjDir = resolve(dir, 'noprj');
 				mkdirSync(noPrjDir, { recursive: true });
@@ -828,6 +795,7 @@ describe.skipIf(!HAVE_GDAL)(
 					);
 				}
 				const out = resolve(dir, 'noprj.shp.zip');
+				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 				await runToolBinary(
 					[
 						ogr2ogr,
@@ -843,33 +811,28 @@ describe.skipIf(!HAVE_GDAL)(
 				);
 				return Bun.file(out).arrayBuffer();
 			});
-			stage('noprj.zip', new Uint8Array(zipBytes));
-			await expect(uploadStaged({ tmp_name: 'noprj.zip', extension: 'zip' })).rejects.toThrow(
+			stageFile(SCRATCH_USER, 'noprj.zip', new Uint8Array(zipBytes));
+			await expect(uploadStaged(SCRATCH_USER, 'noprj.zip')).rejects.toThrow(
 				/no embedded coordinate system/,
 			);
 
 			// PROJ, not a regex, says what 25830 is: a zone it contradicts and a
 			// code it does not know are both refused before ogr2ogr runs
 			await expect(
-				uploadStaged(
-					{ tmp_name: 'noprj.zip', extension: 'zip' },
-					{ epsg: '25830', zone: '19', band: 'N' },
-				),
+				uploadStaged(SCRATCH_USER, 'noprj.zip', { epsg: '25830', zone: '19', band: 'N' }),
 			).rejects.toThrow(
 				/UTM zone 30, northern hemisphere \(band N to X\), not the zone and band given \(zone 19, northern/,
 			);
 			await expect(
-				uploadStaged(
-					{ tmp_name: 'noprj.zip', extension: 'zip' },
-					{ epsg: '99999', zone: '30', band: 'N' },
-				),
+				uploadStaged(SCRATCH_USER, 'noprj.zip', { epsg: '99999', zone: '30', band: 'N' }),
 			).rejects.toThrow(/Unknown EPSG code/);
 
 			// S is an MGRS band of the north (Spain lies in S and T)
-			const response = await uploadStaged(
-				{ tmp_name: 'noprj.zip', extension: 'zip' },
-				{ epsg: '25830', zone: '30', band: 'S' },
-			);
+			const response = await uploadStaged(SCRATCH_USER, 'noprj.zip', {
+				epsg: '25830',
+				zone: '30',
+				band: 'S',
+			});
 			expect(response.ok).toBe(true);
 			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
 				.geometry.coordinates;
@@ -879,17 +842,10 @@ describe.skipIf(!HAVE_GDAL)(
 
 		test('a CRS-less shapefile in longitude/latitude takes the EPSG alone (v6 lists 4326 with no zone or band)', async () => {
 			const zipBytes = await withScratchDir(async (dir) => {
-				const src = resolve(dir, 'src.geojson');
-				writeFileSync(src, SOURCE_GEOJSON);
-				const shp = resolve(dir, 'lonlat.shp');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[ogr2ogr, '-if', 'GeoJSON', '-f', 'ESRI Shapefile', shp, src],
-					'test fixture (lonlat shp)',
-					{ scratchDir: dir, expectedOutput: shp },
-				);
+				const shp = await ogrFixture(dir, 'lonlat.shp', ['-f', 'ESRI Shapefile']);
 				rmSync(resolve(dir, 'lonlat.prj'));
 				const out = resolve(dir, 'lonlat.shp.zip');
+				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
 				await runToolBinary(
 					[ogr2ogr, '-if', 'ESRI Shapefile', '-f', 'ESRI Shapefile', out, shp],
 					'test fixture (lonlat noprj shp.zip)',
@@ -897,11 +853,8 @@ describe.skipIf(!HAVE_GDAL)(
 				);
 				return Bun.file(out).arrayBuffer();
 			});
-			stage('lonlat.zip', new Uint8Array(zipBytes));
-			const response = await uploadStaged(
-				{ tmp_name: 'lonlat.zip', extension: 'zip' },
-				{ epsg: '4326' },
-			);
+			stageFile(SCRATCH_USER, 'lonlat.zip', new Uint8Array(zipBytes));
+			const response = await uploadStaged(SCRATCH_USER, 'lonlat.zip', { epsg: '4326' });
 			expect(response.ok).toBe(true);
 			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
 				.geometry.coordinates;
@@ -911,42 +864,26 @@ describe.skipIf(!HAVE_GDAL)(
 
 		test('a legacy UTM .geojson without crs takes the fields; one declaring crs refuses them', async () => {
 			const declared = await withScratchDir(async (dir) => {
-				const src = resolve(dir, 'src.geojson');
-				writeFileSync(src, SOURCE_GEOJSON);
-				const out = resolve(dir, 'utm.geojson');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[
-						ogr2ogr,
-						'-if',
-						'GeoJSON',
-						'-f',
-						'GeoJSON',
-						'-lco',
-						'RFC7946=NO',
-						'-t_srs',
-						'EPSG:25830',
-						out,
-						src,
-					],
-					'test fixture (utm geojson)',
-					{ scratchDir: dir, expectedOutput: out },
-				);
+				const out = await ogrFixture(dir, 'utm.geojson', [
+					'-f',
+					'GeoJSON',
+					'-lco',
+					'RFC7946=NO',
+					'-t_srs',
+					'EPSG:25830',
+				]);
 				return (await Bun.file(out).json()) as Record<string, unknown>;
 			});
 			expect(declared.crs).toBeDefined();
 			const { crs: _crs, ...legacy } = declared;
-			stage('declared.geojson', JSON.stringify(declared));
-			stage('legacy.geojson', JSON.stringify(legacy));
+			stageFile(SCRATCH_USER, 'declared.geojson', JSON.stringify(declared));
+			stageFile(SCRATCH_USER, 'legacy.geojson', JSON.stringify(legacy));
 			const fields = { epsg: '25830', zone: '30', band: 'N' };
-			await expect(
-				uploadStaged({ tmp_name: 'declared.geojson', extension: 'geojson' }, fields),
-			).rejects.toThrow(/already declares its own projection/);
-
-			const response = await uploadStaged(
-				{ tmp_name: 'legacy.geojson', extension: 'geojson' },
-				fields,
+			await expect(uploadStaged(SCRATCH_USER, 'declared.geojson', fields)).rejects.toThrow(
+				/already declares its own projection/,
 			);
+
+			const response = await uploadStaged(SCRATCH_USER, 'legacy.geojson', fields);
 			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
 				.geometry.coordinates;
 			expect(lon).toBeCloseTo(-0.375, 3);
@@ -956,32 +893,32 @@ describe.skipIf(!HAVE_GDAL)(
 		test('coordinates ogr2ogr leaves as no longitude/latitude are refused, the right fields fix them', async () => {
 			const features =
 				'"features":[{"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[725695.71,4372210.14]}}]';
-			stage('undeclared.geojson', `{"type":"FeatureCollection",${features}}`);
-			stage(
+			stageFile(SCRATCH_USER, 'undeclared.geojson', `{"type":"FeatureCollection",${features}}`);
+			stageFile(
+				SCRATCH_USER,
 				'declared.geojson',
 				`{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::4326"}},${features}}`,
 			);
 			// GDAL reads a CRS-less GeoJSON as WGS84 and writes its metres through unchanged
-			await expect(
-				uploadStaged({ tmp_name: 'undeclared.geojson', extension: 'geojson' }),
-			).rejects.toThrow(
+			await expect(uploadStaged(SCRATCH_USER, 'undeclared.geojson')).rejects.toThrow(
 				/does not declare its projection and its coordinates are not longitude\/latitude \(725695\.71, 4372210\.14\): provide its EPSG code/,
 			);
 			await expect(
-				uploadStaged({ tmp_name: 'undeclared.geojson', extension: 'geojson' }, { epsg: '4326' }),
+				uploadStaged(SCRATCH_USER, 'undeclared.geojson', { epsg: '4326' }),
 			).rejects.toThrow(
 				/With EPSG:4326 the coordinates are not longitude\/latitude .*not this file's projection/,
 			);
 			// the fields would be refused on this file: only the file itself can be corrected
-			await expect(
-				uploadStaged({ tmp_name: 'declared.geojson', extension: 'geojson' }),
-			).rejects.toThrow(/do not fit the projection this file declares/);
+			await expect(uploadStaged(SCRATCH_USER, 'declared.geojson')).rejects.toThrow(
+				/do not fit the projection this file declares/,
+			);
 
 			// the same metres with their projection land in Valencia
-			const response = await uploadStaged(
-				{ tmp_name: 'undeclared.geojson', extension: 'geojson' },
-				{ epsg: '25830', zone: '30', band: 'S' },
-			);
+			const response = await uploadStaged(SCRATCH_USER, 'undeclared.geojson', {
+				epsg: '25830',
+				zone: '30',
+				band: 'S',
+			});
 			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
 				.geometry.coordinates;
 			expect(lon).toBeCloseTo(-0.375, 1);

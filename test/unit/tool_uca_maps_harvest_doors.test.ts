@@ -10,8 +10,6 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { clearPacingForTests } from '../../src/core/harvest/pacing.ts';
-import { clearRobotsCache } from '../../src/core/harvest/robots.ts';
-import type { PinnedHopRequest, PinnedHopResponse } from '../../src/core/security/ssrf_guard.ts';
 import {
 	PLEIADES_DUMP_MAX_BYTES,
 	PLEIADES_DUMP_MAX_EXPANDED_BYTES,
@@ -20,74 +18,24 @@ import {
 import { getPleiadesPlace } from '../../tools/tool_uca_maps/server/roman_empire.ts';
 import { getWmsLayers } from '../../tools/tool_uca_maps/server/wms.ts';
 import { contextOf, dataOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	resetHarvestState,
+	type ScriptedRoute,
+	scriptedSite,
+} from './fixtures/tool_uca_maps/scripted_site.ts';
 
-interface Scripted {
-	status: number;
-	body?: string | Uint8Array;
-	location?: string;
-}
+/** These doors never ask `acceptBody`; an oversized body is refused by the primitive. */
+const cappedSite = (routes: Record<string, ScriptedRoute>) =>
+	scriptedSite(routes, { bodyCap: true });
 
-interface ScriptedSite {
-	deps: HarvestDeps;
-	/** Every URL the door requested, in order. */
-	sent: string[];
-	/** The byte ceiling each request carried, by URL. */
-	ceilings: Map<string, number>;
-}
-
-const REDIRECTS = new Set([301, 302, 303, 307, 308]);
-
-/** A site answering by URL the way the pinned primitive would. */
-function scriptedSite(routes: Record<string, Scripted>): ScriptedSite {
-	const sent: string[] = [];
-	const ceilings = new Map<string, number>();
-	let now = 1_000_000;
-	const hop = async (request: PinnedHopRequest): Promise<PinnedHopResponse> => {
-		const url = request.url.toString();
-		sent.push(url);
-		ceilings.set(url, request.maxBytes);
-		const answer = routes[url] ?? { status: 404 };
-		const headers = new Headers();
-		const location = REDIRECTS.has(answer.status) ? (answer.location ?? null) : null;
-		const base = { status: answer.status, headers, location, truncated: false };
-		if (location !== null) return { ...base, bytes: new Uint8Array(0), bodySkipped: true };
-		const body =
-			typeof answer.body === 'string'
-				? new TextEncoder().encode(answer.body)
-				: (answer.body ?? new Uint8Array(0));
-		if (body.byteLength > request.maxBytes) {
-			throw new DedaloError('security.outbound_failed', {
-				coordinates: { reason: 'body_cap', max_bytes: request.maxBytes },
-			});
-		}
-		return { ...base, bytes: body, bodySkipped: false };
-	};
-	const deps: HarvestDeps = {
-		hop,
-		now: () => now,
-		sleep: async (ms) => {
-			now += ms;
-		},
-		setTimer: () => {},
-	};
-	return { deps, sent, ceilings };
-}
-
-beforeEach(() => {
-	clearRobotsCache();
-	clearPacingForTests();
-});
-
-afterEach(() => {
-	clearRobotsCache();
-	clearPacingForTests();
-});
+beforeEach(resetHarvestState);
+afterEach(resetHarvestState);
 
 const CAPABILITIES = '<WMS_Capabilities version="1.3.0"><Capability/></WMS_Capabilities>';
 
 describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 	test('a redirect is followed, and the base returned is where the service landed', async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			'http://wms.example/geoserver/wms?service=WMS&request=GetCapabilities': {
 				status: 301,
 				location: 'https://wms.example/geoserver/ows?service=WMS&request=GetCapabilities',
@@ -105,7 +53,7 @@ describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 
 	test("the site's robots.txt is obeyed: a disallowed path is never requested", async () => {
 		const capabilities = 'https://wms.example/wms?service=WMS&request=GetCapabilities';
-		const site = scriptedSite({
+		const site = cappedSite({
 			'https://wms.example/robots.txt': { status: 200, body: 'User-agent: *\nDisallow: /wms\n' },
 			[capabilities]: { status: 200, body: CAPABILITIES },
 		});
@@ -118,7 +66,7 @@ describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 	});
 
 	test('a non-2xx answer is the source unavailable, keyed, naming the status in the log', async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			'https://wms.example/wms?service=WMS&request=GetCapabilities': { status: 404 },
 		});
 		const error = await failureOf(
@@ -131,7 +79,7 @@ describe('tool_uca_maps get_wms_layers — through harvestFetch', () => {
 	// the negative control of the tool's catch: only an ADDRESS refusal becomes
 	// "unreachable"; any other failure of the door leaves exactly as it came
 	test('a refusal that is not about the address, or any other failure, is not rewritten', async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			'https://wms.example/wms?service=WMS&request=GetCapabilities': {
 				status: 301,
 				location: 'ftp://wms.example/wms',
@@ -179,7 +127,7 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 				},
 			],
 		};
-		const site = scriptedSite({ [PLACE]: { status: 200, body: JSON.stringify(place) } });
+		const site = cappedSite({ [PLACE]: { status: 200, body: JSON.stringify(place) } });
 		const data = dataOf(await getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
 		expect(data).toEqual({ place });
 		expect(site.sent).toContain(PLACE);
@@ -189,14 +137,14 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 		['off Pleiades', 302, 'https://elsewhere.example/places/423025/json'],
 		['down to http', 301, 'http://pleiades.stoa.org/places/423025/json'],
 	])('a redirect %s is refused, never followed', async (_case, status, location) => {
-		const site = scriptedSite({ [PLACE]: { status, location } });
+		const site = cappedSite({ [PLACE]: { status, location } });
 		const error = await failureOf(getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
 		expect(error.code).toBe('harvest.refused');
 		expect(site.sent).not.toContain(location);
 	});
 
 	test("Pleiades' robots.txt is obeyed: a disallowed place is never requested", async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			'https://pleiades.stoa.org/robots.txt': {
 				status: 200,
 				body: 'User-agent: *\nDisallow: /places\n',
@@ -209,7 +157,7 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 	});
 
 	test('a non-2xx answer (an id its own index named) is the source unavailable, keyed', async () => {
-		const site = scriptedSite({ 'https://pleiades.stoa.org/places/1/json': { status: 404 } });
+		const site = cappedSite({ 'https://pleiades.stoa.org/places/1/json': { status: 404 } });
 		const error = await failureOf(getPleiadesPlace(contextOf({ id: '1' }), site.deps));
 		expect(error.code).toBe('tool.source_unavailable');
 		expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
@@ -217,7 +165,7 @@ describe('tool_uca_maps get_pleiades_place — through harvestFetch, Pleiades ov
 
 	test('a 200 that is not a place document is refused', async () => {
 		for (const body of ['not json', '{}']) {
-			const site = scriptedSite({ [PLACE]: { status: 200, body } });
+			const site = cappedSite({ [PLACE]: { status: 200, body } });
 			const error = await failureOf(getPleiadesPlace(contextOf({ id: '423025' }), site.deps));
 			expect(error.code).toBe('tool.source_unavailable');
 			expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
@@ -231,7 +179,7 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 
 	test('a dump is read under the declared ceiling and its [title, id] pairs extracted', async () => {
 		const csv = 'title,path\nSaguntum,/places/265849\n"Carthago Nova, Hispania",/places/265968\n';
-		const site = scriptedSite({ [DUMP]: { status: 200, body: Bun.gzipSync(csv) } });
+		const site = cappedSite({ [DUMP]: { status: 200, body: Bun.gzipSync(csv) } });
 		expect(await readDump(DUMP, site.deps)).toEqual([
 			['Saguntum', '265849'],
 			['Carthago Nova, Hispania', '265968'],
@@ -242,12 +190,12 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 	test('the names dump points at its place through the pid column', async () => {
 		const NAMES = 'https://atlantides.org/downloads/pleiades/dumps/pleiades-names-latest.csv.gz';
 		const csv = 'title,pid\nArse,/places/265849\n';
-		const site = scriptedSite({ [NAMES]: { status: 200, body: Bun.gzipSync(csv) } });
+		const site = cappedSite({ [NAMES]: { status: 200, body: Bun.gzipSync(csv) } });
 		expect(await readDump(NAMES, site.deps)).toEqual([['Arse', '265849']]);
 	});
 
 	test('a dump past the byte ceiling is refused, not read into memory', async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			[DUMP]: { status: 200, body: new Uint8Array(PLEIADES_DUMP_MAX_BYTES + 1) },
 		});
 		const error = await failureOf(readDump(DUMP, site.deps));
@@ -262,7 +210,7 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 		for (let i = 0; i < members; i++) bomb.set(member, i * member.byteLength);
 		expect(bomb.byteLength).toBeLessThan(PLEIADES_DUMP_MAX_BYTES);
 
-		const site = scriptedSite({ [DUMP]: { status: 200, body: bomb } });
+		const site = cappedSite({ [DUMP]: { status: 200, body: bomb } });
 		const error = await failureOf(readDump(DUMP, site.deps));
 		expect(error.code).toBe('harvest.too_large');
 		expect(error.details).toEqual({
@@ -276,12 +224,12 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 		const padding = `${' '.repeat(1023)}\n`.repeat(65 * 1024);
 		const csv = `title,path\nSaguntum,/places/265849\n${padding}`;
 		expect(csv.length).toBeGreaterThan(PLEIADES_DUMP_MAX_BYTES);
-		const site = scriptedSite({ [DUMP]: { status: 200, body: Bun.gzipSync(csv) } });
+		const site = cappedSite({ [DUMP]: { status: 200, body: Bun.gzipSync(csv) } });
 		expect(await readDump(DUMP, site.deps)).toEqual([['Saguntum', '265849']]);
 	});
 
 	test("Pleiades' robots.txt is obeyed for the dumps too", async () => {
-		const site = scriptedSite({
+		const site = cappedSite({
 			'https://atlantides.org/robots.txt': {
 				status: 200,
 				body: 'User-agent: *\nDisallow: /downloads\n',
@@ -294,7 +242,7 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 	});
 
 	test('a dump that does not answer 2xx is a plain failure', async () => {
-		const site = scriptedSite({ [DUMP]: { status: 500 } });
+		const site = cappedSite({ [DUMP]: { status: 500 } });
 		const error = await failureOf(readDump(DUMP, site.deps));
 		expect(error.code).toBe('tool.action_failed');
 	});
@@ -304,7 +252,7 @@ describe('tool_uca_maps provision.ts — the Pleiades dumps, capped', () => {
 			'https://mirror.example/pleiades.csv.gz',
 			'http://atlantides.org/downloads/pleiades/dumps/pleiades-places-latest.csv.gz',
 		]) {
-			const site = scriptedSite({});
+			const site = cappedSite({});
 			const error = await failureOf(readDump(url, site.deps));
 			expect(error.code).toBe('harvest.refused');
 			expect(site.sent.some((sent) => sent === url)).toBe(false);

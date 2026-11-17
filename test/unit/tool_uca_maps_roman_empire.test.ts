@@ -14,17 +14,7 @@ import {
 	parseDareResults,
 	searchPelagios,
 } from '../../tools/tool_uca_maps/server/roman_empire.ts';
-import { expectCode } from './fixtures/tool_uca_maps/helpers.ts';
-
-/** What `run` threw, for asserting its code. */
-function thrownBy(run: () => unknown): unknown {
-	try {
-		run();
-	} catch (error) {
-		return error;
-	}
-	return undefined;
-}
+import { contextOf, expectCode, thrownBy } from './fixtures/tool_uca_maps/helpers.ts';
 
 /** v6's own index shape: a flat array of [name, id] pairs. */
 const PLEIADES_INDEX = JSON.stringify([
@@ -249,18 +239,14 @@ describe('decodeDareText', () => {
 
 describe('searchPelagios: the dataset list the client sends is filtered, not trusted', () => {
 	// reached BEFORE any store/DB access, so this needs no database
-	const contextOf = (datasets: unknown) => ({
-		principal: { userId: -1, isGlobalAdmin: true, isDeveloper: true },
-		userId: -1,
-		options: { query: 'Baetica', datasets },
-		background: false,
-	});
+	const searching = (datasets: unknown) =>
+		contextOf({ query: 'Baetica', datasets }, -1, { record: false });
 
 	test('a name outside the closed list is dropped, and dropping them all is refused', async () => {
-		await expect(searchPelagios(contextOf(['../../etc/passwd', 'places_secret']))).rejects.toThrow(
+		await expect(searchPelagios(searching(['../../etc/passwd', 'places_secret']))).rejects.toThrow(
 			/at least one dataset/,
 		);
-		await expect(searchPelagios(contextOf([]))).rejects.toThrow(/at least one dataset/);
-		await expect(searchPelagios(contextOf(undefined))).rejects.toThrow(/at least one dataset/);
+		await expect(searchPelagios(searching([]))).rejects.toThrow(/at least one dataset/);
+		await expect(searchPelagios(searching(undefined))).rejects.toThrow(/at least one dataset/);
 	});
 });

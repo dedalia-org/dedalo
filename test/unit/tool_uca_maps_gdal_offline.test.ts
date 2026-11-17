@@ -7,22 +7,9 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import {
-	chmodSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	utimesSync,
-	writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
-import { Glob, type TCPSocketListener } from 'bun';
-import { config } from '../../src/config/config.ts';
+import { join, resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { meetsGdalMinVersion } from '../../tools/tool_uca_maps/server/capabilities.ts';
@@ -35,9 +22,7 @@ import {
 	rasterDriverOf,
 	resolveGdalBinary,
 	runToolBinary,
-	SCRATCH_ORPHAN_TTL_MS,
 	scratchRoot,
-	startScratchSweep,
 	withScratchDir,
 } from '../../tools/tool_uca_maps/server/gdal.ts';
 import { renderImageDownload } from '../../tools/tool_uca_maps/server/image_download.ts';
@@ -46,16 +31,17 @@ import {
 	GEOREFERENCED_EXTENSIONS,
 	readGeoreference,
 } from '../../tools/tool_uca_maps/server/image_overlay.ts';
-import { tool } from '../../tools/tool_uca_maps/server/index.ts';
 import { parseStrictGeoJson } from '../../tools/tool_uca_maps/server/vector_upload.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
 import {
 	contextOf,
 	expectCode,
 	failureOf,
 	haveGdal,
 	loadAction,
+	stageFile,
+	stagingOf,
+	thrownBy,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_GDAL = haveGdal(
@@ -66,10 +52,6 @@ const HAVE_GDAL = haveGdal(
 	'gdalwarp',
 	'gdal_create',
 );
-
-/** The staging dir of a scratch uploader: the user ids are this file's own. */
-const stagingOf = (userId: number) =>
-	resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
 
 const POINT_FEATURES =
 	'"features":[{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[-0.375,39.47]}}]';
@@ -133,12 +115,7 @@ describe('tool_uca_maps GeoJSON crs — only what GDAL resolves offline (pure)',
 			{ properties: {} },
 			'EPSG:4326',
 		]) {
-			let error: unknown = null;
-			try {
-				assertOfflineGeoJsonCrs({ type: 'FeatureCollection', crs });
-			} catch (caught) {
-				error = caught;
-			}
+			const error = thrownBy(() => assertOfflineGeoJsonCrs({ type: 'FeatureCollection', crs }));
 			expectCode(error, 'request.invalid_options');
 			expect((error as DedaloError).details).toEqual({ reason_key: 'geojson_crs_link' });
 		}
@@ -146,12 +123,7 @@ describe('tool_uca_maps GeoJSON crs — only what GDAL resolves offline (pure)',
 
 	test('every crs GDAL reads is checked: on a geometry, in a collection, in any case; attribute values are not', () => {
 		for (const [shape, geojson] of Object.entries(LINKED_CRS_SHAPES)) {
-			let error: unknown = null;
-			try {
-				assertOfflineGeoJsonCrs(geojson);
-			} catch (caught) {
-				error = caught;
-			}
+			const error = thrownBy(() => assertOfflineGeoJsonCrs(geojson));
 			expect([shape, error instanceof DedaloError]).toEqual([shape, true]);
 			expectCode(error, 'request.invalid_options');
 		}
@@ -176,12 +148,7 @@ describe('tool_uca_maps GeoJSON crs — only what GDAL resolves offline (pure)',
 				/crs is a link/,
 			],
 		] as const) {
-			let error: unknown = null;
-			try {
-				parseStrictGeoJson(text);
-			} catch (caught) {
-				error = caught;
-			}
+			const error = thrownBy(() => parseStrictGeoJson(text));
 			expectCode(error, 'request.invalid_options');
 			expect((error as DedaloError).message).toMatch(pattern);
 		}
@@ -233,12 +200,7 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 		expect(isMissingGdalBinary(notInstalled, missing)).toBe(true);
 		expect(isMissingGdalBinary(notInstalled, 'gdalinfo')).toBe(false);
 
-		let noMediaRoot: unknown = null;
-		try {
-			scratchRoot(null);
-		} catch (caught) {
-			noMediaRoot = caught;
-		}
+		const noMediaRoot = thrownBy(() => scratchRoot(null));
 		expectCode(noMediaRoot, 'tool.dependency_unavailable');
 		expect(isMissingGdalBinary(noMediaRoot, 'gdalinfo')).toBe(false);
 
@@ -302,386 +264,6 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 	});
 });
 
-/** Server files that may spawn outside `runToolBinary`, each with its reason. */
-const SPAWN_EXEMPT: Readonly<Record<string, string>> = {
-	'capabilities.ts': '--version only, no input file: probeOnPath bounds it itself',
-};
-
-// A binding census (after agent_confinement_tripwire's), one hop deep: what a
-// file reaches of `bun`, child_process or core's media engine, however bound.
-// Every engine export counts as a spawn unless ENGINE_INERT names it, so a core
-// wrapper that spawns (`runIdentify`) is red by default. The spelling census
-// stays as a backstop: a re-export or a `globalThis.Bun` still spells it.
-const PROCESS_MODULES = new Set(['bun', 'node:child_process', 'child_process']);
-const ENGINE_DIR = resolve(import.meta.dir, '../../src/core/media/engine');
-/** Engine exports that start no process, by module. Closed: a new import is a spawn until listed. */
-const ENGINE_INERT: Readonly<Record<string, readonly string[]>> = {
-	'admission.ts': ['withConverterSlot'],
-	'binaries.ts': [
-		'identifyAvailable',
-		'magickPolicyEnv',
-		'magickResourceLimitArgs',
-		'resolveIdentify',
-		'resolveMagick',
-	],
-	'spawn.ts': ['assertSpawnOk'],
-};
-const SERVER = resolve(import.meta.dir, '../../tools/tool_uca_maps/server');
-/** `Bun.<member>` reads (or named imports from 'bun') that cannot start a process. Closed. */
-const BUN_INERT = new Set(['file', 'write', 'which', 'Glob']);
-const PROCESS_REF = '__UCA_PROCESS_REF__';
-const BUN_GLOBAL = '__UCA_BUN_GLOBAL__';
-const IMPORT_LINE = /^import\s+([^;"'`]+?)\s+from\s*["']([^"']+)["'];?[ \t]*$/gm;
-const EXPORT_FROM_LINE = /^export\s+([^;"'`]+?)\s+from\s*["']([^"']+)["'];?[ \t]*$/gm;
-const SPELLED_SPAWN =
-	/\brunBinary\b|\bBun\.spawn(Sync)?\b|\bBun\.\$|['"](node:)?child_process['"]|import\s*\{[^}]*(\bspawn(Sync)?\b|\$)[^}]*\}\s*from\s*['"]bun['"]/;
-const TS = new Bun.Transpiler({ loader: 'ts' });
-
-/** The locals an import clause binds, with what each imports (`*`, `default` or a name). */
-function importBindings(clause: string): { imported: string; local: string }[] {
-	const out: { imported: string; local: string }[] = [];
-	const namespace = clause.match(/\*\s*as\s+([\w$]+)/);
-	if (namespace?.[1]) out.push({ imported: '*', local: namespace[1] });
-	for (const part of (clause.match(/\{([^}]*)\}/)?.[1] ?? '').split(',')) {
-		const [imported, local] = part.trim().split(/\s+as\s+/);
-		if (imported) out.push({ imported, local: local ?? imported });
-	}
-	const fallback = clause
-		.replace(/\{[^}]*\}/, '')
-		.replace(/\*\s*as\s+[\w$]+/, '')
-		.replace(/,/g, ' ')
-		.trim();
-	if (fallback) out.push({ imported: 'default', local: fallback });
-	return out;
-}
-
-/** The engine module `specifier` resolves to from a server file (relative to ENGINE_DIR), or null. */
-function engineModule(specifier: string): string | null {
-	try {
-		const resolved = Bun.resolveSync(specifier, SERVER);
-		return resolved.startsWith(ENGINE_DIR + sep) ? resolved.slice(ENGINE_DIR.length + 1) : null;
-	} catch {
-		return null;
-	}
-}
-const isDoor = (specifier: string) => engineModule(specifier) !== null;
-
-/** Process-capable references in one server source, or the dynamic loads no scan resolves. */
-function processRefs(code: string): { refs: number; unresolvable: string[]; spelled: boolean } {
-	const transpiled = TS.transformSync(code);
-	const unresolvable = TS.scanImports(transpiled)
-		.filter((entry) => entry.kind !== 'import-statement')
-		.filter((entry) => PROCESS_MODULES.has(entry.path) || isDoor(entry.path))
-		.map((entry) => `${entry.kind} ${entry.path}`);
-	for (const [, , from] of transpiled.matchAll(EXPORT_FROM_LINE)) {
-		if (from !== undefined && (PROCESS_MODULES.has(from) || isDoor(from))) {
-			unresolvable.push(`re-export ${from}`);
-		}
-	}
-	const bindings: string[] = [];
-	const js = transpiled.replace(IMPORT_LINE, (line, clause: string, from: string) => {
-		const engine = engineModule(from);
-		if (engine === null && !PROCESS_MODULES.has(from)) return line;
-		for (const { imported, local } of importBindings(clause)) {
-			const counted =
-				engine !== null
-					? !(ENGINE_INERT[engine] ?? []).includes(imported)
-					: !(from === 'bun' && BUN_INERT.has(imported));
-			if (counted) bindings.push(local);
-		}
-		return '';
-	});
-	const define: Record<string, string> = { Bun: BUN_GLOBAL };
-	for (const name of bindings) define[name] = PROCESS_REF;
-	const out = new Bun.Transpiler({ loader: 'js', define }).transformSync(js);
-	let refs = out.split(PROCESS_REF).length - 1;
-	for (const match of out.matchAll(
-		new RegExp(`${BUN_GLOBAL}(\\s*\\.\\s*([A-Za-z_$][\\w$]*))?`, 'g'),
-	)) {
-		if (!(match[2] && BUN_INERT.has(match[2]))) refs++;
-	}
-	return { refs, unresolvable, spelled: SPELLED_SPAWN.test(transpiled) };
-}
-
-const reaches = (reach: ReturnType<typeof processRefs>) =>
-	reach.refs > 0 || reach.unresolvable.length > 0 || reach.spelled;
-
-describe('tool_uca_maps spawn census — every binary runs through runToolBinary', () => {
-	const DOOR = "import { runBinary } from '../../../src/core/media/engine/spawn.ts';\n";
-
-	test.each([
-		['the door', `${DOOR}export const go = () => runBinary(['/bin/true'], {});`],
-		[
-			'the door aliased',
-			`${DOOR.replace('runBinary', 'runBinary as run')}export const go = () => run([]);`,
-		],
-		[
-			'the door as a namespace',
-			"import * as door from '../../../src/core/media/engine/spawn.ts';\nexport const go = () => door.runBinary([]);",
-		],
-		[
-			'the door without its extension',
-			"import { runBinary } from '../../../src/core/media/engine/spawn';\nexport const go = () => runBinary([]);",
-		],
-		['Bun.spawn', "export const go = () => Bun.spawn(['gdalinfo']);"],
-		['Bun.$', 'export const go = () => Bun.$`gdalinfo`;'],
-		['an alias of Bun', "const B = Bun;\nexport const go = () => B.spawn(['gdalinfo']);"],
-		[
-			'a destructure of Bun',
-			"const { spawnSync } = Bun;\nexport const go = () => spawnSync(['x']);",
-		],
-		[
-			'a named import from bun',
-			"import { spawn as s } from 'bun';\nexport const go = () => s(['x']);",
-		],
-		[
-			'a namespace import of bun',
-			"import * as B from 'bun';\nexport const go = () => B.spawn(['x']);",
-		],
-		[
-			'node child_process',
-			"import { execFile } from 'node:child_process';\nexport const go = () => execFile('x');",
-		],
-		[
-			'a re-export of the door',
-			"export { runBinary as go } from '../../../src/core/media/engine/spawn.ts';",
-		],
-		['a re-export of child_process', "export * from 'node:child_process';"],
-		[
-			'an engine wrapper that spawns',
-			"import { runIdentify } from '../../../src/core/media/engine/binaries.ts';\nexport const go = () => runIdentify([]);",
-		],
-		[
-			'an engine module as a namespace',
-			"import * as bin from '../../../src/core/media/engine/binaries.ts';\nexport const go = () => bin.resolveMagick();",
-		],
-		[
-			'an unlisted engine export',
-			"import { producerSpawnOptions } from '../../../src/core/media/engine/ffmpeg.ts';\nexport const go = () => producerSpawnOptions();",
-		],
-		['Bun through globalThis', "export const go = () => globalThis.Bun.spawn(['x']);"],
-		[
-			'child_process through import.meta',
-			"export const go = () => import.meta.require('child_process').spawn('x');",
-		],
-	])('the census sees %s', (_, code) => {
-		expect(reaches(processRefs(code))).toBe(true);
-	});
-
-	test('a dynamic import or require of a process module is unresolvable, never counted as none', () => {
-		for (const code of [
-			"export const go = async () => (await import('node:child_process')).spawn('x');",
-			"export const go = () => require('child_process').spawn('x');",
-			"export const go = async () => (await import('../../../src/core/media/engine/spawn')).runBinary([]);",
-		]) {
-			expect(processRefs(code).unresolvable.length).toBeGreaterThan(0);
-		}
-	});
-
-	test.each([
-		['a comment', '// Bun.spawn would bypass the offline env\nexport const n = 0;'],
-		['an inert Bun read', "export const f = () => Bun.file('/x');"],
-		['an inert import from bun', "import { Glob } from 'bun';\nexport const g = new Glob('*');"],
-		[
-			'a type-only door import',
-			"import type { SpawnResult } from '../../../src/core/media/engine/spawn.ts';\nexport let r: SpawnResult;",
-		],
-		[
-			'another door export',
-			"import { assertSpawnOk } from '../../../src/core/media/engine/spawn.ts';\nexport const f = assertSpawnOk;",
-		],
-		[
-			'the inert engine exports',
-			"import { identifyAvailable, resolveMagick } from '../../../src/core/media/engine/binaries.ts';\nimport { withConverterSlot } from '../../../src/core/media/engine/admission.ts';\nexport const f = () => withConverterSlot('x', async () => identifyAvailable() && resolveMagick());",
-		],
-	])('the census ignores %s', (_, code) => {
-		expect(reaches(processRefs(code))).toBe(false);
-	});
-
-	test('every inert engine name is still a function its module exports', async () => {
-		for (const [file, names] of Object.entries(ENGINE_INERT)) {
-			const module = (await import(join(ENGINE_DIR, file))) as Record<string, unknown>;
-			for (const name of names) {
-				expect([file, name, typeof module[name]]).toEqual([file, name, 'function']);
-			}
-		}
-	});
-
-	test('only gdal.ts spawns, once, inside runToolBinary; the exemptions still spawn', () => {
-		const files = [...new Glob('**/*.ts').scanSync({ cwd: SERVER })];
-		expect(files.length).toBeGreaterThanOrEqual(15);
-		const census = Object.fromEntries(
-			files
-				.map((file) => [file, processRefs(readFileSync(join(SERVER, file), 'utf-8'))] as const)
-				.filter(([, reach]) => reaches(reach)),
-		);
-		const expected = Object.fromEntries(
-			['gdal.ts', ...Object.keys(SPAWN_EXEMPT)].map((file) => [
-				file,
-				{ refs: 1, unresolvable: [], spelled: true },
-			]),
-		);
-		expect(census).toEqual(expected);
-		// and gdal.ts's one reference is runToolBinary's own call
-		const gdal = readFileSync(join(SERVER, 'gdal.ts'), 'utf-8');
-		const from = gdal.slice(gdal.indexOf('export async function runToolBinary('));
-		expect(from.slice(0, from.indexOf('\n}\n'))).toContain('await runBinary(argv,');
-	});
-});
-
-describe('tool_uca_maps scratch — inside the media root, never the OS temp dir (no GDAL needed)', () => {
-	// ImageMagick spills its pixel cache into the scratch dir, and the OS temp
-	// dir is the database's volume on the shipped compose stacks
-	const within = (dir: string, root: string) => resolve(dir).startsWith(resolve(root) + sep);
-
-	test('each call gets a private dir under the media root, swept afterwards', async () => {
-		const mediaRoot = resolve(mustGet(config.media.rootPath, 'config.media.rootPath'));
-		const toolRoot = join(mediaRoot, config.media.upload.tmpSubdir, 'tool_uca_maps');
-		const seen: string[] = [];
-		for (let i = 0; i < 2; i++) {
-			await withScratchDir(async (dir) => {
-				seen.push(dir);
-				expect(existsSync(dir)).toBe(true);
-				expect(within(dir, toolRoot)).toBe(true);
-			});
-		}
-		expect(seen.length).toBe(2);
-		expect(seen[0]).not.toBe(seen[1]);
-		for (const dir of seen) expect(existsSync(dir)).toBe(false);
-	});
-
-	test('no media root, or an empty one, refuses as the missing dependency it is', () => {
-		for (const root of [null, '']) {
-			let error: unknown = null;
-			try {
-				scratchRoot(root);
-			} catch (caught) {
-				error = caught;
-			}
-			expectCode(error, 'tool.dependency_unavailable');
-		}
-	});
-
-	test('a root without the test-media marker is refused and nothing is created in it', () => {
-		const unmarked = mkdtempSync(join(tmpdir(), 'uca_maps_unmarked_'));
-		try {
-			let error: unknown = null;
-			try {
-				scratchRoot(unmarked);
-			} catch (caught) {
-				error = caught;
-			}
-			expectCode(error, 'media.invalid_path');
-			expect(existsSync(join(unmarked, config.media.upload.tmpSubdir))).toBe(false);
-		} finally {
-			rmSync(unmarked, { recursive: true, force: true });
-		}
-	});
-
-	test('a marked root gets the scratch under its staging tree, closed to other users', () => {
-		const marked = scratchMediaRoot('uca_maps_marked_');
-		try {
-			const scratch = scratchRoot(marked);
-			expect(scratch).toBe(join(marked, config.media.upload.tmpSubdir, 'tool_uca_maps'));
-			expect(statSync(scratch).isDirectory()).toBe(true);
-			expect(statSync(scratch).mode & 0o007).toBe(0);
-		} finally {
-			rmSync(marked, { recursive: true, force: true });
-		}
-	});
-
-	// an orphan exists only once a process died mid-action: the boot after it
-	// collects it, and no action's request path walks the scratch tree
-	test('the boot hook sweeps an orphan a killed process left; a live one, a foreign entry and every action leave them', async () => {
-		const root = scratchRoot();
-		const old = join(root, 'scratch_orphan_gate');
-		const live = join(root, 'scratch_live_gate');
-		const foreign = join(root, 'not_scratch_gate');
-		const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-		try {
-			for (const dir of [old, live, foreign]) {
-				mkdirSync(dir, { recursive: true });
-				writeFileSync(join(dir, 'magick-spill'), 'x');
-			}
-			const stale = (Date.now() - SCRATCH_ORPHAN_TTL_MS - 60_000) / 1000;
-			for (const dir of [old, foreign]) {
-				utimesSync(join(dir, 'magick-spill'), stale, stale);
-				utimesSync(dir, stale, stale);
-			}
-
-			await withScratchDir(async () => {});
-			expect(existsSync(old)).toBe(true);
-
-			// stopped before it fires (a shutdown during boot): nothing is swept
-			mustGet(tool.onBoot, 'tool.onBoot')()?.stop();
-			await settle();
-			expect(existsSync(old)).toBe(true);
-
-			const handle = mustGet(tool.onBoot, 'tool.onBoot')();
-			await settle();
-			handle?.stop();
-			expect(existsSync(old)).toBe(false);
-			expect(existsSync(live)).toBe(true);
-			expect(existsSync(foreign)).toBe(true);
-		} finally {
-			for (const dir of [old, live, foreign]) rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	// a crash shortly before the boot leaves an orphan younger than the TTL: the
-	// boot pass spares it, a later pass collects it
-	test('the sweep repeats after boot, so an orphan younger than the TTL at boot is collected later; stop ends it', async () => {
-		const root = scratchRoot();
-		const late = join(root, 'scratch_late_gate');
-		const after_stop = join(root, 'scratch_after_stop_gate');
-		const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-		const age = (dir: string) => {
-			mkdirSync(dir, { recursive: true });
-			const stale = (Date.now() - SCRATCH_ORPHAN_TTL_MS - 60_000) / 1000;
-			utimesSync(dir, stale, stale);
-		};
-		const handle = startScratchSweep(undefined, 40);
-		try {
-			await settle(10);
-			age(late); // becomes an orphan after the boot pass
-			await settle(120);
-			expect(existsSync(late)).toBe(false);
-
-			handle.stop();
-			age(after_stop);
-			await settle(120);
-			expect(existsSync(after_stop)).toBe(true);
-		} finally {
-			handle.stop();
-			for (const dir of [late, after_stop]) rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	// the sweep runs in a timer, past the loader's guard: a bad media root must
-	// only warn, never throw where nothing catches it
-	test('a sweep that cannot reach the media root warns and writes nothing', async () => {
-		const unmarked = mkdtempSync(join(tmpdir(), 'uca_maps_unmarked_sweep_'));
-		const warned: unknown[] = [];
-		const warn = console.warn;
-		console.warn = (...args: unknown[]) => warned.push(args[0]);
-		try {
-			for (const configured of [null, unmarked]) {
-				const handle = startScratchSweep(configured, 60_000);
-				await new Promise((resolve) => setTimeout(resolve, 20));
-				handle.stop();
-			}
-			expect(warned).toEqual([
-				'[tool_uca_maps] scratch sweep skipped:',
-				'[tool_uca_maps] scratch sweep skipped:',
-			]);
-			expect(readdirSync(unmarked)).toEqual([]);
-		} finally {
-			console.warn = warn;
-			rmSync(unmarked, { recursive: true, force: true });
-		}
-	});
-});
-
 // refused before any binary runs, so these hold where GDAL is not installed (CI)
 describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDAL (no GDAL needed)', () => {
 	const UPLOADER = 987685;
@@ -706,9 +288,8 @@ describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDA
 		for (const [shape, geojson] of Object.entries(LINKED_CRS_SHAPES)) {
 			staged[`${shape}.geojson`] = JSON.stringify(geojson);
 		}
-		mkdirSync(staging, { recursive: true });
 		for (const [name, text] of Object.entries(staged)) {
-			writeFileSync(resolve(staging, name), text);
+			stageFile(UPLOADER, name, text);
 			const error = await failureOf(
 				action.handler(
 					contextOf({ file_data: { key_dir: '', tmp_name: name, extension: 'geojson' } }, UPLOADER),
@@ -722,12 +303,8 @@ describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDA
 const vectorVrt = (source: string) =>
 	`<OGRVRTDataSource><OGRVRTLayer name="canary"><SrcDataSource>${source}</SrcDataSource></OGRVRTLayer></OGRVRTDataSource>`;
 
-/** The connections ogr2ogr makes, run by `run`, on a linked crs (http and https)
- * and a `/vsicurl/` source pointing at a listener that counts them. Whatever
- * GDAL then does is not inspected: only whether it reached the network. */
-async function linkConnections(
-	run: (argv: string[], dir: string) => Promise<unknown>,
-): Promise<number> {
+/** A loopback listener that counts the connections made to it, closing each. */
+function countingListener(): { base: string; count(): number; reset(): void; stop(): void } {
 	let connections = 0;
 	const listener = Bun.listen({
 		hostname: '127.0.0.1',
@@ -740,7 +317,24 @@ async function linkConnections(
 			data() {},
 		},
 	});
-	const base = `127.0.0.1:${listener.port}`;
+	return {
+		base: `127.0.0.1:${listener.port}`,
+		count: () => connections,
+		reset: () => {
+			connections = 0;
+		},
+		stop: () => listener.stop(true),
+	};
+}
+
+/** The connections ogr2ogr makes, run by `run`, on a linked crs (http and https)
+ * and a `/vsicurl/` source pointing at a listener that counts them. Whatever
+ * GDAL then does is not inspected: only whether it reached the network. */
+async function linkConnections(
+	run: (argv: string[], dir: string) => Promise<unknown>,
+): Promise<number> {
+	const listener = countingListener();
+	const base = listener.base;
 	const linkCrs = (scheme: string, type: string, key: string) =>
 		`{"type":"FeatureCollection","crs":{"type":"${type}","properties":{"${key}":"${scheme}://${base}/crs"}},${POINT_FEATURES}}`;
 	try {
@@ -761,9 +355,9 @@ async function linkConnections(
 			}
 		});
 	} finally {
-		listener.stop(true);
+		listener.stop();
 	}
-	return connections;
+	return listener.count();
 }
 
 const NO_PROXY_ENV = Object.fromEntries(
@@ -797,31 +391,20 @@ test.skipIf(!GDAL_FOLLOWS_LINKS)(
 describe.skipIf(!HAVE_GDAL)(
 	'tool_uca_maps GDAL — zero connections, real binaries (needs GDAL)',
 	() => {
-		let connections = 0;
-		let listener: TCPSocketListener<undefined>;
+		let listener: ReturnType<typeof countingListener>;
 		let base = '';
 
 		beforeAll(() => {
-			listener = Bun.listen({
-				hostname: '127.0.0.1',
-				port: 0,
-				socket: {
-					open(socket) {
-						connections += 1;
-						socket.end();
-					},
-					data() {},
-				},
-			});
-			base = `127.0.0.1:${listener.port}`;
+			listener = countingListener();
+			base = listener.base;
 		});
 
 		afterAll(() => {
-			listener.stop(true);
+			listener.stop();
 		});
 
 		beforeEach(() => {
-			connections = 0;
+			listener.reset();
 		});
 
 		const UPLOADER = 987686;
@@ -843,9 +426,8 @@ describe.skipIf(!HAVE_GDAL)(
 					['local.kml', vectorVrt(`CSV:${canary}`)],
 					['remote.kml', vectorVrt(`/vsicurl/http://${base}/v.csv`)],
 				];
-				mkdirSync(staging, { recursive: true });
 				for (const [name, text] of staged) {
-					writeFileSync(resolve(staging, name), text);
+					stageFile(UPLOADER, name, text);
 					const error = await failureOf(
 						action.handler(
 							contextOf(
@@ -858,7 +440,7 @@ describe.skipIf(!HAVE_GDAL)(
 					expect(String((error as Error).message)).not.toContain('UCA_MAPS_CANARY');
 				}
 			});
-			expect(connections).toBe(0);
+			expect(listener.count()).toBe(0);
 		});
 
 		test('a raster VRT posing as the PNG screenshot, the overlay TIFF or the drawn image is never opened', async () => {
@@ -907,7 +489,7 @@ describe.skipIf(!HAVE_GDAL)(
 					);
 				}
 			});
-			expect(connections).toBe(0);
+			expect(listener.count()).toBe(0);
 		});
 	},
 );

@@ -8,10 +8,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ToolActionContext } from '../../src/core/tools/module.ts';
 import {
 	type ImageCorners,
 	isCmykSource,
@@ -21,7 +19,13 @@ import {
 	renderImageDownload,
 } from '../../tools/tool_uca_maps/server/image_download.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	contextOf,
+	haveGdal,
+	loadAction,
+	runFixtureBinary,
+	withTempDir,
+} from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_GDAL = haveGdal(
 	'gdalinfo',
@@ -30,15 +34,6 @@ const HAVE_GDAL = haveGdal(
 	'gdalwarp',
 	'gdallocationinfo',
 );
-
-function contextOf(options: Record<string, unknown>): ToolActionContext {
-	return {
-		principal: { userId: 1, isGlobalAdmin: true, isDeveloper: true },
-		userId: 1,
-		options,
-		background: false,
-	};
-}
 
 /** A square rotated ~45°: its bounding box is far larger than the picture, so
  * the corners of the output must fall OUTSIDE the image. */
@@ -86,7 +81,9 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 	for (const [label, override] of cases) {
 		test(`refuses ${label}`, async () => {
 			const action = await loadAction('image_download');
-			await expect(action.handler(contextOf({ ...VALID, ...override }))).rejects.toMatchObject({
+			await expect(
+				action.handler(contextOf({ ...VALID, ...override }, 1, { record: false })),
+			).rejects.toMatchObject({
 				code: 'request.invalid_options',
 			});
 		});
@@ -97,7 +94,9 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 		"refuses the inherited key '%s' as a format",
 		async (format) => {
 			const action = await loadAction('image_download');
-			await expect(action.handler(contextOf({ ...VALID, format }))).rejects.toMatchObject({
+			await expect(
+				action.handler(contextOf({ ...VALID, format }, 1, { record: false })),
+			).rejects.toMatchObject({
 				code: 'request.invalid_options',
 				message: expect.stringMatching(/^Unsupported image format/),
 			});
@@ -193,29 +192,15 @@ const YCCK_JPEG_BASE64 =
 	'/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwwODAoQDg0OEhEQExgoGhgWFhgxIyUdKDozPTw5Mzg3QEhcTkBEV0U3OFBtUVdfYmdoZz5NcXlwZHhcZWdj/9sAQwEREhIYFRgvGhovY0I4QmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAIBAEiAAIRAQMRAQQiAP/EABYAAQEBAAAAAAAAAAAAAAAAAAAEBv/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAFBv/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAhEDEQQAAD8AsAIoxpAH/9k=';
 
 describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (needs GDAL)', () => {
-	async function run(argv: string[]): Promise<string> {
-		// the env spread, as `spawn.ts` does: Bun.spawn's default misses a runtime change
-		const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env } });
-		const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-		expect(code).toBe(0);
-		return stdout;
-	}
-
-	async function withDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
-		const dir = mkdtempSync(join(tmpdir(), 'uca_maps_image_download_'));
-		try {
-			return await fn(dir);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
+	const withDir = <T>(fn: (dir: string) => Promise<T>) =>
+		withTempDir('uca_maps_image_download_', fn);
 
 	async function master(
 		dir: string,
 		extra: string[] = ['-bands', '3', '-burn', '200', '-burn', '30', '-burn', '30'],
 	) {
 		const path = join(mkdtempSync(join(dir, 'master_')), 'master.tif');
-		await run([
+		await runFixtureBinary([
 			mustGet(Bun.which('gdal_create'), 'gdal_create'),
 			'-outsize',
 			'64',
@@ -238,12 +223,14 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 		const result = await renderImageDownload(work, source, corners, format, width);
 		const out = join(work, `out.${result.extension}`);
 		await Bun.write(out, Buffer.from(result.content, 'base64'));
-		const info = JSON.parse(await run([mustGet(Bun.which('gdalinfo'), 'gdalinfo'), '-json', out]));
+		const info = JSON.parse(
+			await runFixtureBinary([mustGet(Bun.which('gdalinfo'), 'gdalinfo'), '-json', out]),
+		);
 		return { out, info, result };
 	}
 
 	async function pixel(path: string, band: number, x: number, y: number): Promise<number> {
-		const value = await run([
+		const value = await runFixtureBinary([
 			mustGet(Bun.which('gdallocationinfo'), 'gdallocationinfo'),
 			'-valonly',
 			'-b',
@@ -359,7 +346,7 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 	 * plain CMYK, a 3-band one as ordinary YCbCr. */
 	async function jpegOf(dir: string, source: string): Promise<string> {
 		const path = join(mkdtempSync(join(dir, 'served_')), 'served.jpg');
-		await run([
+		await runFixtureBinary([
 			mustGet(Bun.which('gdal_translate'), 'gdal_translate'),
 			'-q',
 			'-of',
@@ -372,7 +359,9 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 
 	/** What GDAL reports for a file: the band names and the source colour space. */
 	async function colourOf(path: string) {
-		const info = JSON.parse(await run([mustGet(Bun.which('gdalinfo'), 'gdalinfo'), '-json', path]));
+		const info = JSON.parse(
+			await runFixtureBinary([mustGet(Bun.which('gdalinfo'), 'gdalinfo'), '-json', path]),
+		);
 		return {
 			bands: info.bands.map((band: { colorInterpretation: string }) => band.colorInterpretation),
 			space: info.metadata?.IMAGE_STRUCTURE?.SOURCE_COLOR_SPACE,

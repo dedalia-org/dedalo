@@ -1,11 +1,16 @@
 /**
  * Plumbing shared by the tool_uca_maps unit gates: the loaded tool and its
- * actions, a caller context on the generic `test` map record, and readers for
- * a refusal or a success envelope.
+ * actions, a caller context on the generic `test` map record, readers for a
+ * refusal or a success envelope, staged uploads and fixture binaries.
  */
 
 import { expect } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { config } from '../../../../src/config/config.ts';
 import { DedaloError } from '../../../../src/core/errors/index.ts';
+import { requireTestMediaRoot } from '../../../../src/core/media/test_media_root.ts';
 import { getLoadedTool } from '../../../../src/core/tools/loader.ts';
 import type {
 	ToolActionContext,
@@ -25,12 +30,20 @@ export async function loadAction(name: string): Promise<ToolActionSpec> {
 	return mustGet((await loadTool()).apiActions[name], name);
 }
 
-/** An admin caller on MAP_RECORD; `options` may override any of its keys. */
-export function contextOf(options: Record<string, unknown> = {}, userId = -1): ToolActionContext {
+/**
+ * A caller on MAP_RECORD; `options` may override any of its keys. `record: false`
+ * leaves MAP_RECORD out (a refusal of a missing id must not get one), and
+ * `admin: false` is a caller with no global grant.
+ */
+export function contextOf(
+	options: Record<string, unknown> = {},
+	userId = -1,
+	{ record = true, admin = true }: { record?: boolean; admin?: boolean } = {},
+): ToolActionContext {
 	return {
-		principal: { userId, isGlobalAdmin: true, isDeveloper: true },
+		principal: { userId, isGlobalAdmin: admin, isDeveloper: admin },
 		userId,
-		options: { ...MAP_RECORD, ...options },
+		options: record ? { ...MAP_RECORD, ...options } : options,
 		background: false,
 	};
 }
@@ -44,6 +57,16 @@ export async function failureOf(promise: Promise<unknown>): Promise<DedaloError>
 		return error as DedaloError;
 	}
 	throw new Error('expected a rejection');
+}
+
+/** What `run` threw, or undefined: the caller asserts its class and code. */
+export function thrownBy(run: () => unknown): unknown {
+	try {
+		run();
+	} catch (error) {
+		return error;
+	}
+	return undefined;
 }
 
 export function expectCode(error: unknown, code: DedaloError['code']): void {
@@ -60,4 +83,41 @@ export function dataOf<T = Record<string, unknown>>(response: unknown): T {
 /** All or none: a partial install would fail a gate instead of skipping it. */
 export function haveGdal(...binaries: string[]): boolean {
 	return binaries.every((binary) => Bun.which(binary) !== null);
+}
+
+/** The staging dir of a scratch uploader: each file picks user ids of its own. */
+export function stagingOf(userId: number): string {
+	return resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
+}
+
+/** `bytes` staged as `name` for `userId`, where the upload door leaves a file. */
+export function stageFile(userId: number, name: string, bytes: string | Uint8Array): void {
+	requireTestMediaRoot(config.media.rootPath ?? '', 'tool_uca_maps staged upload');
+	const staging = stagingOf(userId);
+	mkdirSync(staging, { recursive: true });
+	writeFileSync(resolve(staging, name), bytes);
+}
+
+/**
+ * A fixture binary run to exit 0, its stdout answered. The env is spread as
+ * `spawn.ts` does: Bun.spawn's default misses a change made at run time.
+ */
+export async function runFixtureBinary(argv: string[]): Promise<string> {
+	const proc = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe', env: { ...process.env } });
+	const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+	expect(code).toBe(0);
+	return stdout;
+}
+
+/** `body` run in a fresh OS temp dir, removed afterwards. */
+export async function withTempDir<T>(
+	prefix: string,
+	body: (dir: string) => Promise<T>,
+): Promise<T> {
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	try {
+		return await body(dir);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }

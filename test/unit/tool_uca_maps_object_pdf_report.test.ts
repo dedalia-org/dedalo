@@ -6,14 +6,9 @@
  */
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { config } from '../../src/config/config.ts';
-import { scanContextFromItem, scanFilesInfo } from '../../src/core/media/files_info.ts';
-import { buildMediaLocation } from '../../src/core/media/path.ts';
-import { requireTestMediaRoot } from '../../src/core/media/test_media_root.ts';
-import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
+import { join } from 'node:path';
 import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
 import { unguarded } from '../../src/core/tools/reason_keys.ts';
 import {
@@ -31,7 +26,8 @@ import {
 	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
-import { contextOf, expectCode, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import { contextOf, expectCode, loadAction, thrownBy } from './fixtures/tool_uca_maps/helpers.ts';
+import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -152,13 +148,10 @@ describe('readRequestedImages — what may be asked for', () => {
 	});
 
 	test('a non-list is refused as request.invalid_options', () => {
-		let refusal: unknown;
-		try {
-			readRequestedImages('test3');
-		} catch (error) {
-			refusal = error;
-		}
-		expectCode(refusal, 'request.invalid_options');
+		expectCode(
+			thrownBy(() => readRequestedImages('test3')),
+			'request.invalid_options',
+		);
 	});
 });
 
@@ -393,52 +386,21 @@ describe('objectPdfReport — the whole document', () => {
 	// this id in the suite's MARKED media root, so only the gate can keep it out
 	const IMAGE = { section_tipo: 'test3', tipo: 'test99', section_id: 905104 };
 
-	/** The slot's files and stored items: anything here is a residue. */
-	async function slotResidue(): Promise<string[]> {
-		const { spec, identity, pathOpts, items } = await resolveMediaToolContext(IMAGE);
-		const files = scanFilesInfo(spec, identity, pathOpts, scanContextFromItem(items[0]))
-			.filter((entry) => entry.file_exist)
-			.map((entry) => String(entry.file_path));
-		return items.length === 0 ? files : [...files, `${items.length} stored media item(s)`];
-	}
-
-	/** Runs `body` with a JPEG at the slot's default quality, then removes it and its dirs. */
-	async function withPlantedJpeg<T>(body: () => Promise<T>): Promise<T> {
-		requireTestMediaRoot(config.media.rootPath ?? '', 'tool_uca_maps_object_pdf_report.test');
-		expect(await slotResidue(), 'residue in test3/test99/905104 before planting').toHaveLength(0);
-		const { spec, identity, pathOpts } = await resolveMediaToolContext(IMAGE);
-		const location = buildMediaLocation(spec, identity, spec.defaultQuality, 'jpg', pathOpts);
-		const created = mkdirSync(dirname(location.absolutePath), { recursive: true });
-		try {
-			writeFileSync(location.absolutePath, await realJpeg('tiny'));
-			return await body();
-		} finally {
-			rmSync(location.absolutePath, { force: true });
-			for (let dir = dirname(location.absolutePath); created !== undefined; dir = dirname(dir)) {
-				rmdirSync(dir);
-				if (dir === created) break;
-			}
-			expect(await slotResidue(), 'residue in test3/test99/905104 after the test').toHaveLength(0);
-		}
-	}
-
-	async function reportFor(userId: number, isGlobalAdmin: boolean): Promise<Uint8Array> {
-		const response = await objectPdfReport({
-			principal: { userId, isGlobalAdmin, isDeveloper: false },
-			userId,
-			options: {
-				section_tipo: 'test2',
-				tipo: 'test52',
-				section_id: 905101,
-				geojson: {
-					type: 'Feature',
-					properties: {},
-					geometry: { type: 'Point', coordinates: [0, 0] },
+	async function reportFor(userId: number, admin: boolean): Promise<Uint8Array> {
+		const response = await objectPdfReport(
+			contextOf(
+				{
+					geojson: {
+						type: 'Feature',
+						properties: {},
+						geometry: { type: 'Point', coordinates: [0, 0] },
+					},
+					images: [{ ...IMAGE, name: 'secreta.jpg' }],
 				},
-				images: [{ ...IMAGE, name: 'secreta.jpg' }],
-			},
-			background: false,
-		});
+				userId,
+				{ admin },
+			),
+		);
 		return new Uint8Array(
 			Buffer.from((response.data as { content_base64: string }).content_base64, 'base64'),
 		);
@@ -454,7 +416,10 @@ describe('objectPdfReport — the whole document', () => {
 	test.skipIf(!HAVE_MAGICK)(
 		'a refused image is left out although it embeds for a caller who may read it (needs ImageMagick)',
 		async () => {
-			await withPlantedJpeg(async () => {
+			const jpeg = [
+				{ quality: 'default', extension: 'jpg', bytes: await realJpeg('tiny') },
+			] as const;
+			await withImageFiles(IMAGE, jpeg, async () => {
 				const refused = await reportFor(7, false);
 				expect(await pdfText(refused, 'forbidden_planted')).toContain(
 					'you may not read this record',
