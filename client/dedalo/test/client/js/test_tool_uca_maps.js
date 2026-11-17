@@ -5,22 +5,11 @@
 
 /**
  * TEST_TOOL_UCA_MAPS
- *
- * Client suite for tool_uca_maps, in two describes. STRUCTURAL: pure exports
- * and the constructor, no fixture. LIVE MAP: every test builds a real
- * component_geolocation (TLD `test`, the elements.js record) seeded with a
- * polygon, a circle and a marker, and wires a tool to it by hand: init() and
- * tool_common's ceremony are skipped, because production init only resolves
- * `geolocation` and `map_ready` (get_caller_by_model) and the tool reads no
- * ontology.
- *
- * What it does not do: test the server actions (test/unit/tool_uca_maps_*),
- * or reach a third party's answer. Lookups are stubbed per test and
- * get_elevation in the beforeEach, which also blanks every IGN (UA) and
- * Catastro tile. Basemap and example.com WMS tiles still load from the network,
- * and nothing asserts on them. A few tests round-trip a GDAL/ImageMagick
- * action on the suite's own server. The tool stylesheet is loaded only by
- * with_tool_css() tests.
+ * STRUCTURAL: pure exports and the constructor. LIVE MAP: a real component_geolocation
+ * (TLD `test`) wired to a tool by hand, init() and tool_common's ceremony skipped: production
+ * init only resolves `geolocation` and `map_ready` and the tool reads no ontology.
+ * Lookups are stubbed; basemap and WMS tiles load from the network but are never asserted
+ * on. The server actions are test/unit/tool_uca_maps_*.
  */
 
 import { elements } from './elements.js'
@@ -464,8 +453,8 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 			assert.strictEqual(instance[key], value, 'expected ' + key + ' to start as ' + value)
 		}
 
-		// wire_tool's delegates and the members the live-map tests never call
-		for (const name of ['render', 'refresh', 'init', 'build', 'wait_for_map', 'close_transient_modal', 'clear_roman_search']) {
+		// wire_tool's delegates and members other tests reach only indirectly
+		for (const name of ['render', 'refresh', 'init', 'build', 'close_transient_modal', 'clear_roman_search']) {
 			assert.isFunction(tool_uca_maps.prototype[name], 'expected ' + name + ' on the prototype')
 		}
 	})
@@ -1233,10 +1222,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	})
 
 
-	// an associated image is stored as a media-relative path (v6 stores an
-	// absolute URL, which breaks on a host change), and the PDF export sends
-	// record identities, never a path
-
 	/** What `fn` sent by any door: data_manager, an XHR (service_upload) or fetch. */
 	const requests_sent_by = async function(fn) {
 		const sent				= []
@@ -1299,6 +1284,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(object_images(layer).length, MAX_OBJECT_IMAGES, 'expected nothing added')
 	})
 
+	// an associated image is stored as a media-relative path: v6 stores an
+	// absolute URL, which breaks on a host change
 	it('object_images / object_image_url read the stored descriptors', function() {
 
 		const layer = seeded_layer(1)
@@ -1792,7 +1779,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			'expected the control attached'
 		)
 
-		// the tool's own modal closing must NOT tear the console down (file header)
+		// the tool's own modal closing must NOT tear the console down (tool_uca_maps.js on_close_actions)
 		tool.on_close_actions()
 		assert.equal(
 			geolocation.map.getContainer().querySelectorAll('.uca-maps-control').length, 1,
@@ -5171,9 +5158,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isOk(tool.xyz_control, 'expected the control attached first')
 
 		// this fixture's default provider (VARIOUS) already had a
-		// layer_control — attach_xyz_basemaps reused it (file header,
-		// xyz_basemaps.js), so detach must leave the control itself in
-		// place, only stripped of the tile layers THIS tool added
+		// layer_control — attach_xyz_basemaps reused it (its
+		// `_xyz_created_layer_control` stays false), so detach must leave the
+		// control itself in place, only stripped of the tile layers THIS tool added
 		const reused_control = geolocation.layer_control
 
 		await tool.destroy(false, false, false)
@@ -6104,8 +6091,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(banner(), 'expected no banner once Catastro is disarmed')
 	})
 
-	// the providers' licences (ODbL, CC BY) ask for their credit beside their
-	// data: core's geo services answer it, the tool shows it, quietly
 	// core's banner times out (10 s); the credit belongs beside the parcel while
 	// it is the answer, so it is the tool's own line, gone with the next lookup,
 	// a disarm or the tool
@@ -6143,6 +6128,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(credit(), 'expected no credit once the tool is closed')
 	})
 
+	// the providers' licences (ODbL, CC BY) ask for their credit beside their
+	// data: core's geo services answer it, the tool shows it, quietly
 	it('place search and DARE list the provider\'s credit after their hits, never as a hit', async function() {
 
 		tool.attach_place_search()
@@ -6589,8 +6576,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(map.hasLayer(original_base_layer), 'expected the original basemap back')
 	})
 
-	// core's page notice says why, once and translated (details.reason_key):
-	// no panel repeats it, and UA's line of an earlier lookup goes
 	// the Roma block's own line of an earlier failure would stand beside core's
 	// notice as if it were the answer to the refused search
 	it('a refused Roma search takes the block\'s earlier line away', async function() {
@@ -6622,6 +6607,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isTrue(line.hidden, 'expected no line beside core\'s notice')
 	})
 
+	// core's page notice says why, once and translated (details.reason_key):
+	// no panel repeats it, and UA's line of an earlier lookup goes
 	it('a refusal leaves no panel line: UA, WMS, place and Roman searches', async function() {
 
 		arm_ua()
@@ -7702,9 +7689,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('create_image_object flags the object is_raster so the object viewer lists it as a raster', async function() {
 
 		// the PRODUCTION builder, not a hand-made carrier: object_viewer.js
-		// splits its two lists on properties.uca_maps.is_raster and its own
-		// header names THIS row as what fills the raster one, so the flag has
-		// to be written where the object is actually created
+		// collect_objects splits its two lists on properties.uca_maps.is_raster,
+		// so the flag has to be written where the object is actually created
 		const carrier = await create_image_object(tool, image_descriptor())
 
 		await settle_map(geolocation.map)

@@ -312,10 +312,9 @@ interface RunToolBinaryOptions {
 
 /**
  * Run one GDAL/OGR or ImageMagick binary and assert it succeeded (and left
- * `expectedOutput`, when given); `context` names the operation in the
- * log-only message. Every spawn goes through here (bar `probeOnPath`'s
- * bounded `--version`) so none inherits `spawn.ts`'s 10-minute default
- * instead of TOOL_BINARY_TIMEOUT_MS.
+ * `expectedOutput`, when given). Every spawn goes through here (bar
+ * `probeOnPath`'s bounded `--version`) so none inherits `spawn.ts`'s
+ * 10-minute default instead of TOOL_BINARY_TIMEOUT_MS.
  */
 export async function runToolBinary(
 	argv: readonly string[],

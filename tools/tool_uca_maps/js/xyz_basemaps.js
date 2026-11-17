@@ -33,20 +33,20 @@ import {render_xyz_basemaps_panel, populate_xyz_basemaps} from './render_xyz_bas
 
 /** v6's defaults (`class.tool_leaflet_special_tools.php`) for a non-numisdata
 * `section_tipo`, WITHOUT Google Maps: `mt1.google.com` is no documented endpoint, and
-* requesting its tiles bypasses the official Map Tiles API, which its terms forbid. OSM is
-* the core's built-in `osm` (`builtin`), whose tiles come through the tile proxy (or
-* straight from OpenStreetMap where the server says so): the page may not name an OSM
-* host of its own. Max zoom 19, the built-in's own. ARCGIS loads straight from Esri (core
-* does not relay it: its terms forbid it), so it is missing from the map image, unless the
-* component configures an `arcgis` default (`default_id`), drawn through the tile proxy. */
+* requesting its tiles bypasses the official Map Tiles API, which its terms forbid. */
 // exported for the client gate
 export const DEFAULT_BASEMAPS = [
+	// core's built-in, through the tile proxy (or straight from OpenStreetMap where the
+	// server says so): the page may not name an OSM host of its own. Max zoom is its own.
 	{
 		builtin		: 'osm',
 		name		: 'OSM',
 		minzoom		: 0,
 		maxzoom		: 19
 	},
+	// straight from Esri (core does not relay it: its terms forbid it), so missing from
+	// the map image, unless the component configures an `arcgis` default (`default_id`),
+	// which is drawn through the tile proxy
 	{
 		url			: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 		default_id	: 'arcgis',

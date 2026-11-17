@@ -1,11 +1,9 @@
 /**
- * tool_uca_maps — the handlers of the fixed-host service lookups, with core's
- * `callGeoService` (place search, DARE, elevation, Catastro, administrative units)
- * scripted: a refusal must happen before anything is asked, and a guard that
- * regressed must not reach a real third party. Every question the fake takes is
- * first put through core's own grammar (`checkParams`, refinement included): a
- * question core would refuse fails here, not against the provider.
- * mock.module is process-global, so the real modules are put back after this file.
+ * tool_uca_maps — the fixed-host lookup handlers with core's `callGeoService` scripted: a
+ * refusal must happen before anything is asked, and a regressed guard must not reach a real
+ * third party. Every question first passes core's own grammar (`checkParams`), so one core
+ * would refuse fails here, not at the provider. mock.module is process-global, so the real
+ * modules are put back after this file.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';

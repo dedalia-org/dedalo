@@ -5,12 +5,11 @@
 
 /**
 * ADMINISTRATIVE_UNITS
-* "Administrative Units" (UA): the same language gate as Catastro. Opening the panel
-* lays the IGN units over the active basemap and arms the click; closing it, by any path,
-* disarms. A click names the unit core's `ign_admin_units_featureinfo` answers: one unit,
-* of no chosen level, without geometry, so neither v6's level select nor its polygon
-* (`special_tools_UA_es.js`) can be served. A component may configure `ign_unidades`
-* (`properties.map_sources`), e.g. IGN's units with their names, as v6 drew them.
+* "Administrative Units" (UA): Catastro's language gate. The open panel lays the IGN units
+* over the basemap and arms the click; closing it, by any path, disarms. Core's
+* `ign_admin_units_featureinfo` answers one unit of no chosen level, without geometry, so
+* v6's level select and polygon (`special_tools_UA_es.js`) cannot be served. `ign_unidades`
+* (`properties.map_sources`) is optional, e.g. IGN's units with their names, as v6 drew them.
 */
 
 

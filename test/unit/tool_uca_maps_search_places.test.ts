@@ -1,8 +1,8 @@
 /**
- * tool_uca_maps — `search_places`: Nominatim's JSON reduced, no network (the
- * question core asks: tool_uca_maps_service_handlers.test.ts). The boundingbox reorder is where a silent axis swap
- * would send the map to the wrong continent with every row looking right.
- * The handler's refusals: tool_uca_maps_service_handlers.test.ts.
+ * tool_uca_maps — `search_places`: Nominatim's JSON reduced, no network. The
+ * boundingbox reorder is pinned: a silent axis swap would send the map to the
+ * wrong continent with every row looking right. Handler, question and refusals:
+ * tool_uca_maps_service_handlers.test.ts.
  */
 
 import { describe, expect, test } from 'bun:test';

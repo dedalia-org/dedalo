@@ -1,8 +1,9 @@
 /**
- * The tool's one way to a fixed public geo service: core's closed table
+ * The tool's way to a fixed public geo service: core's closed table
  * (`src/core/geo_services/`), asked by id and parameters, never by URL. A
- * transient provider failure becomes the source unavailable with the tool's key,
- * so the browser says which service; anything else stays as core threw it.
+ * transient failure becomes the source unavailable with the tool's key, so the
+ * browser says which service. `get_elevation` calls core directly: it degrades
+ * every external failure to `unavailable`, so it needs core's raw error.
  */
 
 import { DedaloError, isErrorInDomain, specOf } from '../../../src/core/errors/index.ts';
@@ -38,7 +39,7 @@ export async function askGeoService(
 	}
 }
 
-/** The JSON a `kind: 'json'` service answered (every service this tool asks is one). */
+/** The JSON of a json-kind answer; null for a markup one (Catastro reads its text itself). */
 export function geoData(result: GeoServiceResult): unknown {
 	return result.kind === 'json' ? result.data : null;
 }

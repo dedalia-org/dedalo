@@ -1,13 +1,9 @@
 /**
  * tool_uca_maps — a refusal's sentence is the tool's DECLARATION, never the throw's.
- *
- * The browser explains a refusal from `details.reason_key` (the tool's
- * `reason_<key>` label, else the sentence `server/reasons.ts` declares; the
- * loader's guard puts it on the wire). Core's tripwire holds the map against
- * the labels and the guard; this census holds the tool's side of it: no throw
- * under server/ carries a `publicMessage` of its own, a throw that names a
- * key names a code that carries one, the module serves exactly the declared
- * map, and no declared key is dead.
+ * The browser explains a refusal from `details.reason_key` (the tool's label, else
+ * `server/reasons.ts`); core's tripwire holds that map against the labels and the guard.
+ * This census holds the tool's side: no own `publicMessage` under server/, a named key
+ * names a code that carries one, the module serves exactly the declared map, no dead key.
  */
 
 import { describe, expect, test } from 'bun:test';

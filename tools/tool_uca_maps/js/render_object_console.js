@@ -7,8 +7,8 @@
 /**
 * RENDER_OBJECT_CONSOLE
 * DOM for the object console panel: a header and the per-geometry object
-* section. Every mutation handler it wires lives in `object_console.js`;
-* this module only builds DOM and reads state.
+* section. Every handler it wires is a self.<method> wrapper (tool_uca_maps.js)
+* over the logic modules; this module only builds DOM and reads state.
 *
 * @module render_object_console
 */
@@ -715,7 +715,7 @@ const render_style_controls = function(self, layer, container) {
 /**
 * RENDER_CENTROID_CONTROL
 * Circle/polygon only — matches v6 (`object_console.js` `toggle_centroid`
-* file header).
+* doc).
 *
 * @param {Object} self
 * @param {Object} layer
@@ -744,7 +744,7 @@ const render_centroid_control = function(self, layer, container) {
 /**
 * RENDER_UNCERTAINTY_CONTROL
 * Polygon only — matches v6 exactly (`object_console.js` `toggle_uncertainty`
-* file header). Shows the scale tier and the stored area once enabled.
+* doc). Shows the scale tier and the stored area once enabled.
 *
 * @param {Object} self
 * @param {Object} layer
@@ -785,7 +785,7 @@ const render_uncertainty_control = function(self, layer, container) {
 /**
 * RENDER_HIERARCHY_CONTROLS
 * Circle/polygon/polyline (not marker) — matches v6
-* (`object_console.js` `set_hierarchy` file header). The two checkboxes are
+* (`object_console.js` `set_hierarchy` doc). The two checkboxes are
 * mutually exclusive ON CHECK (checking one unchecks the other, as in v6);
 * unchecking leaves both clear and the layer back in its natural order.
 *

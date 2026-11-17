@@ -1,7 +1,8 @@
 /**
- * `get_capabilities`: which binaries this install has, so the client greys out
- * what it cannot serve instead of failing mid-conversion. Core has no config
- * key for GDAL, so it is looked up on $PATH; ImageMagick goes through core's
+ * `get_capabilities`: which binaries this install has, reported for diagnostics
+ * and gates; the actions themselves refuse with `tool.dependency_unavailable`
+ * (`resolveGdalBinary`/`resolveMagickBinary`). Core has no config key for GDAL,
+ * so it is looked up on $PATH; ImageMagick goes through core's
  * install-configured resolver (`media/engine/binaries.ts`).
  */
 
@@ -68,8 +69,8 @@ export function meetsGdalMinVersion(banner: string | null): boolean {
 
 /**
  * A GDAL probe as `get_capabilities` reports it: below GDAL_MIN_VERSION the
- * binary runs but every action would refuse, so it reads as unavailable and
- * the client greys the action out instead of offering a button that fails.
+ * binary runs but every action would refuse, so it reads as unavailable, the
+ * same verdict `resolveGdalBinary` gives when an action asks for it.
  */
 export function gdalCapability(probe: BinaryCapability): BinaryCapability {
 	return { ...probe, available: probe.available && meetsGdalMinVersion(probe.version) };
@@ -81,7 +82,7 @@ export interface UcaMapsCapabilities {
 	gdal: BinaryCapability;
 	/** `ogr2ogr` — vector format conversion (SHP/KML downloads, vector uploads). */
 	ogr2ogr: BinaryCapability;
-	/** `gdal_translate` — raster conversion (GeoTIFF export). */
+	/** `gdal_translate` — raster conversion (GeoTIFF export, image download). */
 	gdalTranslate: BinaryCapability;
 	/** Core-resolved ImageMagick (the map image as jpg/gif/webp). */
 	imagemagick: { available: boolean; path: string | null };

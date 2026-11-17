@@ -6,11 +6,10 @@
 /**
 * CORE_LIMITS
 * The core's rules for a map source and a legend (`src/core/geo/map_source.ts`,
-* `map_source_url.ts`, `map_legend.ts`) that the panels check before saving: a value the
-* server would refuse blocks the whole geolocation save, drawings included. Also the
-* core's words the tool repeats (a provider's credit). The core's
-* modules are not served to the browser, so they are mirrored here, in one place, and
-* test/unit/tool_uca_maps_core_limits.test.ts fails when one drifts.
+* `map_source_url.ts`, `map_legend.ts`) that the panels check before saving, since a refused
+* value blocks the whole geolocation save, and the core's words the tool repeats (a
+* provider's credit). The core's modules are not served to the browser, so they are
+* mirrored here and test/unit/tool_uca_maps_core_limits.test.ts fails when one drifts.
 *
 * @module core_limits
 */
@@ -59,9 +58,9 @@ export const LEGEND_TAG_START = /<[A-Za-z/!?]/
 * refuses in a text (`checked.ts` isControlCode). */
 export const is_control_code = (code) => code<=0x1f || (code>=0x7f && code<=0x9f) || code===0x2028 || code===0x2029
 
+/** Core's credit for Catastro (`src/core/geo_services/table.ts` GEO_ORIGINS.catastro). */
+export const CATASTRO_CREDIT = 'Dirección General del Catastro (Spain)'
+
 
 
 // @license-end
-
-/** Core's credit for Catastro (`src/core/geo_services/table.ts` GEO_ORIGINS.catastro). */
-export const CATASTRO_CREDIT = 'Dirección General del Catastro (Spain)'

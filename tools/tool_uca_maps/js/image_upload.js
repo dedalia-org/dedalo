@@ -555,14 +555,11 @@ export const create_image_object = async function(self, image) {
 
 /**
 * ATTACH_OVERLAY
-* Creates the image overlay for one carrier layer and remembers it on BOTH
-* the layer (`_uca_maps_overlay`, so the console and the removal hook find it
-* from the object the user clicked) and the tool (`_image_overlays`, so
-* teardown can sweep every one without walking the map).
-*
-* SYNCHRONOUS on purpose: `hydrate_image_overlays` runs un-serialized on every
-* `updated_layer_data_` event, and with no await between the check below and the
-* assignment, a second rebuild always finds the carrier taken.
+* Creates one carrier's image overlay, tracked by the layer (for the console and
+* `pm:remove`) and by the tool (for the teardown sweep). SYNCHRONOUS on purpose:
+* `hydrate_image_overlays` runs un-serialized on every `updated_layer_data_`, and
+* with no await between the check and the assignment a second rebuild finds the
+* carrier taken.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier - the transparent rectangle carrying the descriptor

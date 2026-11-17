@@ -236,7 +236,7 @@ const select_layer = function(self, layer) {
 * ENSURE_PROPERTIES
 * Layers built here (the centroid marker) or drawn through Geoman's `pm:create`
 * have no `.feature` yet; only the core's `load_layer` path seeds one. Exported so
-* object_viewer.js seeds a never-clicked layer the same way.
+* onexone.js and image_upload.js seed a never-clicked layer the same way.
 *
 * @param {Object} layer
 * @returns {Object} layer.feature.properties, created if missing
@@ -533,7 +533,7 @@ const reapply_hierarchy = function(layer) {
 
 
 /**
-* IS_GEOMAN_EDITION / SET_GEOMAN_EDITION / REAPPLY_GEOMAN
+* IS_GEOMAN_EDITION / HAS_GEOMAN_EDITION / SET_GEOMAN_EDITION / APPLY_GEOMAN
 * v6's per-object "Edición Geoman activa" checkbox (`special_tools.js`
 * `create_div_geoman_edition_mode`). The core's click handler enables every layer
 * of the clicked group AFTER 'popupopen', hence the deferred re-assert in hydrate().
@@ -1409,7 +1409,7 @@ export const layer_center = function(layer) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} layer
-* @returns {Promise<{elevation: number|null, unavailable: boolean}>}
+* @returns {Promise<{elevation: number|null, unavailable: boolean, attribution?: string|null}>}
 */
 export const fetch_elevation = async function(self, layer) {
 
@@ -1457,7 +1457,7 @@ export const fetch_elevation = async function(self, layer) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} center - L.LatLng
-* @returns {Promise<{elevation: number|null, unavailable: boolean, failed: boolean}>}
+* @returns {Promise<{elevation: number|null, unavailable: boolean, failed: boolean, attribution?: string|null}>}
 */
 const request_elevation = async function(self, center) {
 

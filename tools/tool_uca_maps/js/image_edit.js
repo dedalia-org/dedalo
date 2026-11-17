@@ -19,8 +19,8 @@ import {carrier_image} from './uca_maps_data.js'
 
 
 
-/** Matches the marker CSS in `tool_uca_maps.less`. Anchored at its centre so
- * the stored corner is the point the user sees, not the icon's top-left. */
+/** The handle's size (the divIcon sets it inline; the CSS only styles it).
+ * Anchored at its centre so the stored corner is the point the user sees. */
 const HANDLE_SIZE = 14
 
 

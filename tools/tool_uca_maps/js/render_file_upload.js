@@ -300,7 +300,7 @@ const bind_vector_upload = function(self, file_input, submit_button, message, pr
 /**
 * BIND_UPLOAD_ON_PICK
 * The image half: one upload per pick. The picker is disabled for the round
-* trip and its direction read off the DOM, never a cached flag.
+* trip: its own disabled state is the busy flag, never a cached one.
 * It is emptied after every attempt, failed ones too, so that choosing the
 * SAME file again still fires `change`.
 *
@@ -354,8 +354,8 @@ const render_upload_message = function(parent) {
 
 
 
-/** How long a transient line stays: a couple of seconds, the same window as
- * the self-closing "UCA Maps" modal (`tool_uca_maps.js`). */
+/** How long a transient line stays: long enough to read a one-line
+ * confirmation; the map itself is the lasting proof. */
 // exported for the client gate
 export const UPLOAD_MESSAGE_MS = 2000
 

@@ -335,7 +335,7 @@ tool_uca_maps.prototype.wait_for_map = async function() {
 
 /**
 * GET_CAPABILITIES
-* Calls the server 'get_capabilities' action (GDAL/ImageMagick availability).
+* Calls the server 'get_capabilities' action (gazetteers, linked-image import).
 * Permission 'record_tipo': needs the map component's tipo + a record in scope.
 *
 * @returns {Promise<Object>} API response envelope; response.result on success
@@ -366,13 +366,16 @@ tool_uca_maps.prototype.get_capabilities = async function() {
 
 
 /**
-* ATTACH_CONSOLE
+* WRAPPERS
 * The render files call these self.<method> wrappers instead of importing the
 * logic modules: each X.js already imports its render_X.js (as this file imports
 * render_tool_uca_maps.js), and the reverse import would close a cycle.
-*
-* @returns {void}
 */
+
+
+
+/** object_console.js / map_image_download.js / object_viewer.js / onexone.js attach;
+ * their other wrappers are grouped further down. */
 tool_uca_maps.prototype.attach_console = function() {
 	attach_console(this)
 }//end attach_console
@@ -724,6 +727,7 @@ tool_uca_maps.prototype.download_map_image = function(format, file_name) {
 	return download_map_image(this, format, file_name)
 }//end download_map_image
 
+/** object_console.js wrappers, continued. */
 tool_uca_maps.prototype.toggle_centroid = function(layer) {
 	return toggle_centroid(this, layer)
 }//end toggle_centroid

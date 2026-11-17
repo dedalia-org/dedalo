@@ -682,10 +682,7 @@ describe.skipIf(!HAVE_GDAL)(
 		const userStaging = stagingOf(SCRATCH_USER);
 		afterEach(() => rmSync(userStaging, { recursive: true, force: true }));
 
-		// A minimal WGS84 point — the SAME shape as vector_download.test.ts's own
-		// SAMPLE_GEOJSON, one geometry type is enough: the round-trip proves the
-		// CONVERSION path, not GDAL's own geometry coverage (already proven by
-		// vector_download's tests in the other direction).
+		// one point is enough: the round-trip proves the conversion path, not GDAL's geometry coverage
 		const SOURCE_GEOJSON =
 			'{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[-0.375,39.47]}}]}';
 

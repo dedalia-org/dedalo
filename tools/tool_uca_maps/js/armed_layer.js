@@ -6,13 +6,10 @@
 
 /**
 * ARMED_LAYER
-* What Catastro and UA share: v6's language gate, one layer armed at a time, laid OVER
-* the active basemap (both are transparent: alone, v6's basemap swap showed the bare
-* container), and the point a map click asks the server about. Each feature keeps its
-* state on the tool under its own key (`_<key>_tile_layer`, `_<key>_click_handler`,
-* `_<key>_core_source`, `_<key>_core_was_on`, `_<key>_attribution`,
-* `_<key>_created_layer_control`). The one
-* shared slot, `_armed_layer`, holds the feature armed right now.
+* What Catastro and UA share: v6's language gate, a layer laid OVER the active basemap
+* (both are transparent: alone, v6's basemap swap showed the bare container), and the
+* point a map click asks the server about. Each keeps its state in `_<key>_*` slots;
+* the shared `_armed_layer` holds the one feature armed right now.
 */
 
 
@@ -48,11 +45,10 @@ const OVERLAY_Z_INDEX = 10
 /**
 * ENABLE_ARMED_LAYER
 * Shows the feature's layer over the basemap and arms the click. A source core already
-* offers (an ontology default, `source_key` = 'default:<id>') is switched on in place, its
-* own checkbox ticked, never a second copy beside it; otherwise the layer the caller
-* builds (`build_layer`, e.g. a core built-in through the tile proxy) joins the control as
-* an overlay. `attribution`: plain text the map credits while armed. One at a time, as v6's `only_one_active_control`: another armed feature is
-* disarmed first, through its own `disarm` (button, banner, panel).
+* offers (`source_key` = 'default:<id>') is switched on in place, never copied beside it;
+* otherwise `build_layer`'s layer joins the control as an overlay. One at a time, as v6's
+* `only_one_active_control`: another armed feature is disarmed first, by its own `disarm`.
+* `attribution`: plain text the map credits while armed.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {string} key - the feature's state key ('catastro' | 'ua')

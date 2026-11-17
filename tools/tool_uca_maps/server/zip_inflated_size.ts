@@ -2,9 +2,8 @@
  * zip_inflated_size — how many bytes an uploaded `.shp.zip` really inflates
  * to, measured before GDAL opens it. The 10 MB upload cap bounds the zip, not
  * what `/vsizip/` decompresses: a zip bomb would otherwise be stopped only by
- * the binary timeout. Each entry is inflated (and discarded) up to a shared
- * budget, so a size the headers lie about, or entries overlapping one
- * compressed stream, cannot get past it.
+ * the binary timeout. Entries inflate (discarded) against one shared budget,
+ * so lying headers or overlapping streams cannot get past it.
  */
 
 import { createInflateRaw } from 'node:zlib';

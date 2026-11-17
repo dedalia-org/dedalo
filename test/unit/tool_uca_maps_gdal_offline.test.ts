@@ -1,18 +1,9 @@
 /**
- * tool_uca_maps — GDAL never reaches the network nor a file it was not given.
- *
- * GDAL fetches on its own through libcurl (a GeoJSON `crs` of type link/URL,
- * a VRT's `/vsicurl/`), out of sight of the engine's SSRF guard, and picks its
- * driver by CONTENT: a `.kml`, `.png` or `.tif` that is really a VRT reads any
- * path or URL it names. Three layers, each gated here on its own:
- *  - every spawn runs with `OFFLINE_ENV` (proven against a loopback listener
- *    that counts TCP connections, with the input deliberately NOT inspected);
- *  - every GDAL file read names its driver (`-if`), or `runToolBinary`
- *    refuses it before spawning;
- *  - an uploaded GeoJSON is strict JSON, reserialized, with no linked `crs`
- *    anywhere GDAL reads one; the client's GeoJSON in `vector_download` is held
- *    to the same rule. Those refusals come before any binary, so they run
- *    where GDAL is not installed.
+ * tool_uca_maps — GDAL never reaches the network nor a file it was not given. GDAL
+ * fetches through libcurl (a GeoJSON link `crs`, a VRT's `/vsicurl/`) outside the
+ * engine's SSRF guard, and picks its driver by CONTENT: a `.kml`/`.png`/`.tif` that is
+ * really a VRT reads any path it names. Gated here: the `OFFLINE_ENV` spawn, the named
+ * driver (`-if`), strict reserialized GeoJSON (those refusals run without GDAL).
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';

@@ -99,11 +99,10 @@ export function downloadBaseName(value: unknown, fallback: string): string {
 }
 
 /**
- * JPG/GIF/WebP via ImageMagick. The bytes are the client's, so the spawn carries
- * core's hardened policy, the install's `-limit` argv (before the image it
- * governs) and a converter permit. The last two are gated here, since
- * `magick_policy_tripwire` walks `src/core/media/` only; the `.png` input name
- * pins the decoder, so the policy is defence in depth no request can reach.
+ * JPG/GIF/WebP via ImageMagick. On the client's bytes the spawn carries core's
+ * hardened policy, the install's `-limit` argv (before the image) and a converter
+ * permit, the last two gated here as `magick_policy_tripwire` walks only
+ * `src/core/media/`; the `.png` input name pins the decoder (defence in depth).
  */
 async function convertWithImageMagick(
 	dir: string,

@@ -165,7 +165,7 @@ const clear_place_search_form = function(self, panel) {
 
 /**
 * RESET_PLACE_SEARCH_PANEL
-* Opening Search starts it from zero, as UP does (render_file_upload.js
+* Opening Search starts it from zero, as the upload panel does (render_file_upload.js
 * reset_file_upload_panel); v6's geocoder keeps the typed text. A search in
 * flight (its button locked) keeps its query: its answer lands after this.
 *

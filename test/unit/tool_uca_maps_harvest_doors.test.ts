@@ -1,14 +1,8 @@
 /**
- * tool_uca_maps — the three files it fetches from other sites go through the
- * harvesting door (`harvestFetch`, engineering/OUTBOUND_SPEC.md §2-3): a WMS
- * GetCapabilities, a Pleiades place, the Pleiades dumps `provision.ts` reads.
- *
- * Each runs against a SCRIPTED site (`HarvestDeps.hop` replaces the pinned
- * primitive, the clock and the pace's sleep are ours): no network, no wait.
- * What is pinned is the tool's half of the contract — the host policy it
- * declares, what a redirect, a robots.txt, a non-2xx or an oversized body
- * turn into — not the door itself (`harvest_door_native.test.ts`). The two
- * actions are driven through the handlers the action table pins as bound.
+ * tool_uca_maps — its three fetches from other sites (a WMS GetCapabilities, a Pleiades
+ * place, the Pleiades dumps) go through `harvestFetch` (engineering/OUTBOUND_SPEC.md §2-3),
+ * here against a SCRIPTED site: no network, no wait. Pinned is the tool's half (host policy,
+ * redirect, robots.txt, non-2xx, oversized body), not the door (`harvest_door_native.test.ts`).
  * Robots verdicts and the pace are process-wide: cleared around every test.
  */
 

@@ -35,8 +35,9 @@ export interface RenderableImage {
 /**
  * The served version of an ingested component_image: the default quality, else
  * any other browser-renderable tier, never an undrawable master (a `.tif` path
- * would be a broken image with no error). Returns the whole scan too, because
- * `image_overlay.ts` reads the master's georeference from it.
+ * would be a broken image with no error). Returns the whole scan too, for the
+ * callers that pick another tier: the overlay's master georeference, the
+ * download's shown tier and the PDF's JPEG.
  */
 export async function resolveRenderableImage(options: Record<string, unknown>) {
 	const { spec, identity, pathOpts, items } = await resolveMediaToolContext(options);

@@ -151,7 +151,6 @@ export const create_toolbar_button = function(self, {title, icon, class_name, on
 	})
 	register_toolbar_node(self, button)
 
-	// the one method every caller uses, so callers did not change shape
 	return {
 		getContainer : () => button
 	}
@@ -243,7 +242,7 @@ const render_centered_panel_header = function(panel, title) {
 * place.
 *
 * @param {HTMLElement} panel
-* @param {Object} control - the L.Control returned by create_toolbar_button
+* @param {Object} control - the handle create_toolbar_button returned
 * @returns {void}
 */
 const anchor_panel_to_button = function(panel, control) {
