@@ -842,8 +842,10 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 			open_roman();
 			await two_frames(); // the capabilities answer resets the panel: the list opens after it
 			const panel = tool.roman_panel;
-			const input = panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input');
-			seed_roman_list('pleiades', [roman_hit('Gades', 36.5, -6.2)]);
+			// DARE: always served, and the field the panel opens on. A source without local
+			// data is disabled, so a short panel scrolls past it and its list rightly stays shut
+			const input = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input');
+			seed_roman_list('dare', [roman_hit('Gades', 36.5, -6.2)]);
 			await two_frames();
 			assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open under its field');
 			const before = tool.roman_dropdown.style.left;
