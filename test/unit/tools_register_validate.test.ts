@@ -95,6 +95,7 @@ describe('seeded register.json corpus', () => {
 		'tool_numisdata_acquisition',
 		'tool_rag',
 		'tool_sitebuilder',
+		'tool_uca_maps',
 	]);
 
 	test('every tool directory is declared in exactly one list', () => {
