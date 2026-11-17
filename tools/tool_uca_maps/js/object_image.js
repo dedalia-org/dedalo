@@ -422,6 +422,7 @@ export const import_linked_images = async function (self, layer, on_progress) {
 					return !imported.includes(entry);
 				});
 				if (properties.images.length === 0) {
+					// biome-ignore lint/performance/noDelete: stored in the feature: a feature without images carries no `images` key
 					delete properties.images;
 				}
 			}

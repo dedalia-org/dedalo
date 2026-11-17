@@ -913,6 +913,7 @@ const release_overlay = function (self, map, entry) {
 	detach_handles(self, entry.carrier);
 	detach_carrier_drag(entry.carrier);
 	if (entry.carrier) {
+		// biome-ignore lint/performance/noDelete: our own slot on a Leaflet layer: removed, not left behind on an object Leaflet owns
 		delete entry.carrier._uca_maps_overlay;
 	}
 }; //end release_overlay

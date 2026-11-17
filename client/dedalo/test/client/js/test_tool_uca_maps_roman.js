@@ -1254,7 +1254,9 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 				'expected teardown to remove that same listener, in capture',
 			);
 		} finally {
+			// biome-ignore lint/performance/noDelete: drops the stub so the prototype's own method shows through again
 			delete container.addEventListener;
+			// biome-ignore lint/performance/noDelete: drops the stub so the prototype's own method shows through again
 			delete container.removeEventListener;
 		}
 	});

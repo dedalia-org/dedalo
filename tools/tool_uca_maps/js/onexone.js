@@ -174,13 +174,16 @@ const clear_orphaned_onexone_uid = function (self, removed_layer) {
 			// the key is gone once the box is used: that choice stays
 			const restore = 'onexone_prior_geoman_edition' in uca_maps;
 			const prior = uca_maps.onexone_prior_geoman_edition;
+			// biome-ignore lint/performance/noDelete: stored in the feature: absent, not undefined, is the saved shape
 			delete uca_maps.onexone_uid;
+			// biome-ignore lint/performance/noDelete: this key is tested with `in`: it must be absent, not undefined
 			delete uca_maps.onexone_prior_geoman_edition;
 			if (restore && typeof prior === 'boolean') {
 				set_geoman_edition(self, marker_layer, prior); // applies and commits
 				return;
 			}
 			if (restore) {
+				// biome-ignore lint/performance/noDelete: restores the feature as it was before the 1x1, without the key
 				delete uca_maps.geoman_edition;
 			}
 			commit(self, marker_layer);

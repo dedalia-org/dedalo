@@ -90,10 +90,12 @@ const with_to_blob_stub = async function (fn) {
 		await fn();
 	} finally {
 		if (!had_library) {
+			// biome-ignore lint/performance/noDelete: restores the global's absence: the library was not loaded before
 			delete window.domtoimage;
 		} else if (had_to_blob) {
 			library.toBlob = real_to_blob;
 		} else {
+			// biome-ignore lint/performance/noDelete: restores the method's absence on the library
 			delete library.toBlob;
 		}
 	}
@@ -891,6 +893,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		// the core's init_feature never assigns .feature (only the L.geoJson
 		// restore does): a shape just drawn with Geoman reaches this module bare
 		const layer = seeded_layer(1);
+		// biome-ignore lint/performance/noDelete: a shape just drawn with Geoman has no `feature` at all
 		delete layer.feature;
 		assert.isNotOk(
 			layer.feature,
@@ -1334,6 +1337,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		];
 		for (const row of rows) {
 			if (row.before === undefined) {
+				// biome-ignore lint/performance/noDelete: restores the absence of the key the row started without
 				delete (marker.feature.properties.uca_maps || {}).geoman_edition;
 			} else {
 				tool.set_geoman_edition(marker, row.before);
@@ -3239,6 +3243,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		]) {
 			const descriptor = image_descriptor();
 			if (given === undefined) {
+				// biome-ignore lint/performance/noDelete: the case where the descriptor never names the key
 				delete descriptor.interactive;
 			} else {
 				descriptor.interactive = given;

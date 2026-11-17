@@ -223,6 +223,7 @@ export const detach_handles = function (self, carrier) {
 		}
 	}
 
+	// biome-ignore lint/performance/noDelete: our own slot on a Leaflet layer: removed, not left behind on an object Leaflet owns
 	delete carrier._uca_maps_handles;
 }; //end detach_handles
 
@@ -342,6 +343,7 @@ export const detach_carrier_drag = function (carrier) {
 	carrier.off('pm:drag', bound.on_move);
 	carrier.off('pm:dragend', bound.on_end);
 
+	// biome-ignore lint/performance/noDelete: our own slot on a Leaflet layer: removed, not left behind on an object Leaflet owns
 	delete carrier._uca_maps_drag_bound;
 }; //end detach_carrier_drag
 

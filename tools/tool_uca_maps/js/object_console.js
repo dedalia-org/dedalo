@@ -523,6 +523,7 @@ export const set_geoman_edition = function (self, layer, enabled) {
 	const uca_maps = ensure_uca_maps(layer);
 	uca_maps.geoman_edition = Boolean(enabled);
 	// a choice made on the box outranks the state a 1x1 would give back
+	// biome-ignore lint/performance/noDelete: onexone.js tests this key with `in`: it must be absent, not undefined
 	delete uca_maps.onexone_prior_geoman_edition;
 
 	apply_geoman(layer);
@@ -956,6 +957,7 @@ const remove_centroid = function (self, layer) {
 		remove_centroid_layer(feature_group, centroid_uid);
 	}
 
+	// biome-ignore lint/performance/noDelete: stored in the feature: absent, not undefined, is the saved shape
 	delete uca_maps.centroid_uid;
 	commit(self, layer);
 }; //end remove_centroid
@@ -1047,6 +1049,7 @@ export const toggle_uncertainty = function (self, layer) {
 	const uca_maps = ensure_uca_maps(layer);
 
 	if (uca_maps.uncertainty) {
+		// biome-ignore lint/performance/noDelete: stored in the feature: absent, not undefined, is the saved shape
 		delete uca_maps.uncertainty;
 		commit(self, layer);
 		return;

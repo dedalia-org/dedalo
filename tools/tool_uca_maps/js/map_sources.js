@@ -116,6 +116,7 @@ const save_sources = async function (self, edit) {
 	if (next.length > 0) {
 		buffer.sources = next;
 	} else {
+		// biome-ignore lint/performance/noDelete: no own sources is no `sources` key in the stored value, never an undefined one
 		delete buffer.sources;
 	}
 
@@ -128,6 +129,7 @@ const save_sources = async function (self, edit) {
 		const live = geolocation.current_value && geolocation.current_value[0];
 		if (live) {
 			if (previous === undefined) {
+				// biome-ignore lint/performance/noDelete: the rollback restores the value as it was, and it had no `sources` key
 				delete live.sources;
 			} else {
 				live.sources = previous;

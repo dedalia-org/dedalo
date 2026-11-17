@@ -1772,6 +1772,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 				['polyline', polyline],
 			]) {
 				if (layer.feature && layer.feature.properties) {
+					// biome-ignore lint/performance/noDelete: builds a feature that never had the key
 					delete layer.feature.properties.area;
 				}
 				tool.sync_measurements(layer);

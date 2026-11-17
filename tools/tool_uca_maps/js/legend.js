@@ -258,6 +258,7 @@ const legend_changed = function (self) {
 	if (value) {
 		buffer.legend = value;
 	} else {
+		// biome-ignore lint/performance/noDelete: no legend is no `legend` key in the stored value, never an undefined one
 		delete buffer.legend;
 	}
 	geolocation.is_data_changed = true;
@@ -610,6 +611,7 @@ export const set_legend_symbol_icon = async function (self, group_index, symbol_
 
 	symbol.icon = data_url;
 	// an uploaded image replaces the drawn symbol: nothing left to reopen
+	// biome-ignore lint/performance/noDelete: the stored symbol keeps `icon` alone: the drawn symbol's key goes with it
 	delete symbol.symbol;
 	legend_changed(self);
 

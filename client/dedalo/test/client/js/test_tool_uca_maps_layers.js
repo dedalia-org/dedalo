@@ -1786,6 +1786,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		// core's overlay for the entry is gone (e.g. a core that stops offering it)
 		const core_layer = geolocation.source_layers['default:catastro'].layer;
 		geolocation.layer_control.removeLayer(core_layer);
+		// biome-ignore lint/performance/noDelete: core's source as never configured: absent, not undefined
 		delete geolocation.source_layers['default:catastro'];
 		assert.lengthOf(control_entries_of('default_id=catastro'), 0);
 
@@ -2067,6 +2068,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 
 		// the same key on an ordinary polygon is plain editable text
 		parcel.feature.properties.url = 'https://example.com/parcel';
+		// biome-ignore lint/performance/noDelete: an ordinary polygon never carries the Catastro marker
 		delete parcel.feature.properties.uca_maps.catastro;
 		parcel.closePopup();
 		parcel.openPopup();
