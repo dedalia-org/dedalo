@@ -170,6 +170,15 @@ export const CLIENT_LIBS: Readonly<Record<string, ClientLib>> = {
 		probe: 'dist/easy.qrcode.min.js',
 		note: 'The QR tool. Was a copy committed under its own `lib/` directory with no digest.',
 	},
+	'dom-to-image': {
+		// dom-to-image-more: renders a DOM subtree (a Leaflet map, its tiles and
+		// vectors) to a PNG/JPEG Blob in the browser. The UMD dist binds
+		// `domtoimage` on the global object, so it is loaded as a classic script.
+		base: 'node_modules/dom-to-image-more',
+		source: 'npm',
+		probe: 'dist/dom-to-image-more.min.js',
+		note: 'Renders a map view to an image for download.',
+	},
 	svgedit: {
 		// Was a vendored ~7.2.x-era build (2.0 MB) with no upstream package. 7.4.2 is a
 		// verified drop-in: same default export, all 29 methods + 3 properties

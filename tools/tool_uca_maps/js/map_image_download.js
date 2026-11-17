@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global L, domtoimage */
+/*global L, domtoimage, DEDALO_ROOT_WEB */
 /*eslint no-undef: "error"*/
 
 
@@ -216,7 +216,7 @@ const load_dom_to_image = function() {
 	if (!dom_to_image_load_promise) {
 		dom_to_image_load_promise = new Promise((resolve, reject) => {
 			const script	= document.createElement('script')
-			script.src		= new URL('./lib/dom-to-image-more/dom-to-image-more.min.js', import.meta.url).href
+			script.src		= DEDALO_ROOT_WEB + '/lib/dom-to-image/dist/dom-to-image-more.min.js'
 			script.onload	= () => resolve()
 			script.onerror	= () => reject(new Error('tool_uca_maps: failed to load dom-to-image-more'))
 			document.head.appendChild(script)

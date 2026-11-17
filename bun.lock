@@ -16,6 +16,7 @@
         "cheerio": "1.2.0",
         "codex-tooltip": "1.1.0",
         "d3": "7.9.0",
+        "dom-to-image-more": "3.11.0",
         "easyqrcodejs": "4.6.2",
         "leaflet": "1.9.4",
         "mmdb-lib": "3.0.3",
@@ -659,6 +660,8 @@
     "diff-sequences": ["diff-sequences@29.6.3", "", {}, "sha512-EjePK1srD3P08o2j4f0ExnylqRs5B9tJjcp9t1krH2qRi8CCdsYfwe9JgSLurFBWwq4uOlipzfk5fHNvwFKr8Q=="],
 
     "dom-serializer": ["dom-serializer@2.0.0", "", { "dependencies": { "domelementtype": "^2.3.0", "domhandler": "^5.0.2", "entities": "^4.2.0" } }, "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg=="],
+
+    "dom-to-image-more": ["dom-to-image-more@3.11.0", "", {}, "sha512-qvT580MyiR4wh6q3zNj0fXt0ViDA1y4iCJRkDioy4Ema6N9EOrwdvXT/wuRHh20epPJPvq9xl5ea/y87nYnkug=="],
 
     "domelementtype": ["domelementtype@3.0.0", "", {}, "sha512-umCQid3jKbDmVjx8jGaW7uUykm4DEUeyV21hPxNMo2nV955DhUThwqyOIDtreepP31hl84X7G5U9ZfsWvIB3Pg=="],
 
