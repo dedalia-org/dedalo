@@ -171,6 +171,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			// the server's attribution rule (checkPlainText): control characters refused, trimmed
 			if (
 				(value.sources || []).some((source) =>
+					// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the rule this stub mirrors
 					/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(source.attribution || ''),
 				)
 			) {

@@ -72,7 +72,8 @@ const build_overlay_class = function () {
 		},
 
 		_initImage() {
-			const picture = (this._picture = L.DomUtil.create('img', 'leaflet-image-layer'));
+			const picture = L.DomUtil.create('img', 'leaflet-image-layer');
+			this._picture = picture;
 			// hidden until loaded: with no size there is no matrix yet, and it
 			// would flash at its natural size in the container's corner
 			picture.style.display = 'none';
@@ -86,7 +87,8 @@ const build_overlay_class = function () {
 			picture.onerror = () => this.fire('error');
 			picture.src = this._url;
 
-			const container = (this._image = L.DomUtil.create('div', 'leaflet-image-layer'));
+			const container = L.DomUtil.create('div', 'leaflet-image-layer');
+			this._image = container;
 			if (this._zoomAnimated) {
 				L.DomUtil.addClass(container, 'leaflet-zoom-animated');
 			}
