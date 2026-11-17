@@ -681,6 +681,39 @@ describe('TOOL_UCA_MAPS (live map: roman)', function() {
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected the list closed once its field left the view')
 	})
 
+	// the panel is centred: a new map width moves it, and the list must follow its field
+	it('the map changing size moves the centred panel and the open list follows its field', async function() {
+
+		await with_tool_css(async () => {
+			mount_roman()
+			open_roman()
+			await two_frames() // the capabilities answer resets the panel: the list opens after it
+			const panel		= tool.roman_panel
+			const input		= panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input')
+			seed_roman_list('pleiades', [roman_hit('Gades', 36.5, -6.2)])
+			await two_frames()
+			assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open under its field')
+			const before = tool.roman_dropdown.style.left
+
+			const container	= tool.roman_dropdown.parentNode
+			const width		= container.style.width
+			try {
+				// wider, not narrower: below the panel's own width it spans the map at a fixed margin
+				container.style.width = (container.getBoundingClientRect().width + 400) + 'px'
+				await until(() => tool.roman_dropdown.style.left!==before)
+				assert.equal(tool.roman_dropdown.hidden, false, 'expected the list kept open')
+				assert.notEqual(tool.roman_dropdown.style.left, before, 'expected the wider map to move the list')
+				assert.equal(
+					tool.roman_dropdown.style.left,
+					Math.round(input.getBoundingClientRect().left - container.getBoundingClientRect().left) + 'px',
+					'expected the list right under its field again'
+				)
+			} finally {
+				container.style.width = width
+			}
+		})
+	})
+
 	// hiding a message at the panel's bottom makes the browser clamp scrollTop
 	// and fire `scroll`, which must not close the list nor drop its search
 	it('a scroll the layout causes by itself never closes the list it just opened', async function() {

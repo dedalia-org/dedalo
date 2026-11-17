@@ -116,11 +116,7 @@ export const render_roman_empire_panel = function(self, panel) {
 	// the list follows its field when the panel scrolls, and closes only once
 	// the field leaves the panel's view. Never close on any scroll: hiding a
 	// message at the bottom makes the browser clamp scrollTop and fire one
-	panel.addEventListener('scroll', () => {
-		if (self.roman_dropdown && !self.roman_dropdown.hidden) {
-			place_roman_list(self, panel)
-		}
-	})
+	panel.addEventListener('scroll', () => follow_roman_field(self, panel))
 
 	// pointer and keyboard ways of going elsewhere, one rule. CAPTURE on the
 	// map container: the panel stops mousedown bubbling
@@ -181,6 +177,24 @@ const leave_roman_list_if_elsewhere = function(self, panel, target) {
 	}
 	self.close_roman_suggestions()
 }//end leave_roman_list_if_elsewhere
+
+/**
+* FOLLOW_ROMAN_FIELD
+* An open list goes back under its field after the field moved: the panel
+* scrolled, or the map changed size and moved the centred panel (toolbar.js
+* `on_reflow`).
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+export const follow_roman_field = function(self, panel) {
+	if (self.roman_dropdown && !self.roman_dropdown.hidden) {
+		place_roman_list(self, panel)
+	}
+}//end follow_roman_field
+
+
 
 /**
 * PLACE_ROMAN_LIST
@@ -998,8 +1012,7 @@ export const populate_roman_results = function(self, panel) {
 /**
 * ANCHOR_SUGGESTIONS_TO_INPUT
 * Positions the list right under its source's field, in the map container's own
-* coordinates — measured live, same approach (and the same accepted "not
-* recalculated on resize" gap) as toolbar.js's anchor_panel_to_button.
+* coordinates, measured live like toolbar.js's anchor_panel_to_button.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel

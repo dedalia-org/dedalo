@@ -216,6 +216,7 @@ export const tool_uca_maps = function () {
 	this._image_overlay_remove_handler = null
 	this._image_overlay_token		= null
 	this._toolbar_bar				= null
+	this._toolbar_resize_observer	= null
 	this._toolbar_nodes			= null
 }//end tool_uca_maps
 

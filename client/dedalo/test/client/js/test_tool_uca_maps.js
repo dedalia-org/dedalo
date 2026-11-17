@@ -440,6 +440,32 @@ describe('TOOL_UCA_MAPS (live map: shell)', function() {
 		assert.equal(tool.console_panel.hidden, true, 'expected panel hidden again after a second click')
 	})
 
+	// placed on show; the map changing size under the open panel (fullscreen, a window
+	// resize, a phone turned) places it again, and the watch ends with the bar
+	it('an open anchored panel is placed again when the map changes size; the watch ends with the toolbar', async function() {
+
+		tool.attach_console()
+		const container = geolocation.map.getContainer()
+		container.querySelector('.uca-maps-control').click()
+		const panel		= tool.console_panel
+		const placed	= panel.style.getPropertyValue('--uca_maps_anchor_top')
+		assert.notEqual(placed, '', 'expected the panel placed on show')
+
+		panel.style.setProperty('--uca_maps_anchor_top', '999px') // a place the old size gave
+		const width = container.style.width
+		try {
+			container.style.width = (container.getBoundingClientRect().width - 40) + 'px'
+			await until(() => panel.style.getPropertyValue('--uca_maps_anchor_top')!=='999px')
+			assert.equal(panel.style.getPropertyValue('--uca_maps_anchor_top'), placed, 'expected it placed again by its button')
+		} finally {
+			container.style.width = width
+		}
+
+		assert.isOk(tool._toolbar_resize_observer, 'expected the map watched while the bar lives')
+		await tool.destroy(false, false, false)
+		assert.isNull(tool._toolbar_resize_observer, 'expected the watch ended with the last button')
+	})
+
 
 	// the elevation is asked, never stored: v6 saves `center_elevation` on
 	// every click, which dirties a record the user only looked at

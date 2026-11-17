@@ -114,6 +114,11 @@ const get_toolbar_bar = function(self) {
 	register_toolbar_node(self, bar.getContainer())
 	self._toolbar_bar = bar
 
+	// a panel is placed when it opens; the map changing size under an open one
+	// (fullscreen, a window resize, a phone turned) places it again
+	self._toolbar_resize_observer = new ResizeObserver(() => reflow_open_panels(self))
+	self._toolbar_resize_observer.observe(self.geolocation.map.getContainer())
+
 	return bar
 }//end get_toolbar_bar
 
@@ -175,15 +180,19 @@ export const create_toolbar_button = function(self, {title, icon, class_name, on
 *   top, where v6's modals sat: a list row needs more width than a column
 *   beside the buttons leaves. The header (title + ×) is built here
 * @param {string} [options.title] - the header title of a centered panel
+* @param {Function} [options.on_reflow] - called after the open panel is placed
+*   again because the map changed size: what hangs outside it follows
+*   (roman_empire.js's suggestion list)
 * @returns {HTMLElement} panel, already appended to the map container
 */
-export const create_toolbar_panel = function(self, {class_name, on_hide, centered, title}) {
+export const create_toolbar_panel = function(self, {class_name, on_hide, centered, title, on_reflow}) {
 
 	const panel = document.createElement('div')
 	panel.className	= 'uca-maps-panel ' + class_name
 	mark_tool_scope(panel)
-	panel.hidden	= true
-	panel._on_hide	= on_hide || null
+	panel.hidden		= true
+	panel._on_hide		= on_hide || null
+	panel._on_reflow	= on_reflow || null
 
 	if (centered) {
 		panel.classList.add('uca-maps-panel-centered')
@@ -238,8 +247,7 @@ const render_centered_panel_header = function(panel, title) {
 * ANCHOR_PANEL_TO_BUTTON
 * Places `panel` right of its button, top-aligned, measured live
 * (getBoundingClientRect) so it holds however many buttons sit above. Re-run on
-* every show, not on resize: a panel already open when the map reflows keeps its
-* place.
+* every show and by reflow_open_panels when the map changes size.
 *
 * @param {HTMLElement} panel
 * @param {Object} control - the handle create_toolbar_button returned
@@ -301,6 +309,32 @@ const measure_bar_edge = function(self, panel) {
 	panel.style.setProperty('--uca_maps_panel_top', top + 'px')
 
 }//end measure_bar_edge
+
+
+
+/**
+* REFLOW_OPEN_PANELS
+* The map changed size: the open panel is measured again, as on show, and then
+* told (`on_reflow`), so a list anchored to one of its fields follows a centred
+* panel that the new width moved.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+const reflow_open_panels = function(self) {
+	for (const node of self._toolbar_nodes || []) {
+		if (!node.classList || !node.classList.contains('uca-maps-panel') || node.hidden) {
+			continue
+		}
+		if (!node.classList.contains('uca-maps-panel-centered')) {
+			anchor_panel_to_button(node, node._toolbar_control)
+		}
+		measure_bar_edge(self, node)
+		if (typeof node._on_reflow==='function') {
+			node._on_reflow()
+		}
+	}
+}//end reflow_open_panels
 
 
 
@@ -451,6 +485,10 @@ export const remove_toolbar_button = function(self, control) {
 
 	const bar = self._toolbar_bar
 	if (bar && !bar.getContainer().querySelector('.uca-maps-toolbar-button')) {
+		if (self._toolbar_resize_observer) {
+			self._toolbar_resize_observer.disconnect()
+			self._toolbar_resize_observer = null
+		}
 		unregister_toolbar_node(self, bar.getContainer())
 		try {
 			if (self.geolocation && self.geolocation.map) {

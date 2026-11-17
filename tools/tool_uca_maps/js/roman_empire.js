@@ -30,6 +30,7 @@ import {
 import {report_client_error} from './client_error.js'
 import {
 	focus_first_roman_field,
+	follow_roman_field,
 	refresh_roman_sources,
 	render_roman_empire_panel,
 	reset_roman_panel,
@@ -102,7 +103,8 @@ export const attach_roman_empire = function(self) {
 		class_name	: 'uca-maps-roman-panel',
 		centered	: true,
 		title		: title,
-		on_hide		: () => close_roman_suggestions(self)
+		on_hide		: () => close_roman_suggestions(self),
+		on_reflow	: () => follow_roman_field(self, self.roman_panel)
 	})
 
 	// THE SUGGESTION LIST HANGS FROM THE MAP, NOT FROM THE PANEL: the shared
