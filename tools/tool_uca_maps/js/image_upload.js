@@ -26,7 +26,7 @@ import {report_client_error} from './client_error.js'
 import {deliver_download} from './download_delivery.js'
 import {carrier_image} from './uca_maps_data.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME, name_required_text, sanitize_download_name} from './download_filename.js'
-import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
+import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag, fit_carrier_to_corners} from './image_edit.js'
 import {rotated_image_overlay} from './rotated_image_overlay.js'
 import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
 import {IMAGE_UPLOAD_EXTENSIONS} from './upload_formats.js'
@@ -580,6 +580,9 @@ const attach_overlay = function(self, carrier) {
 	// carrying the picture with it when dragged (image_edit.js)
 	seal_carrier_from_geoman(carrier)
 	attach_carrier_drag(self, carrier)
+	// the corners are what draws the picture; a stored carrier that disagrees with
+	// them (saved before it followed its handles) is put back over it
+	fit_carrier_to_corners(carrier, image.corners)
 
 	if (!self.geolocation || !self.geolocation.map) {
 		return null

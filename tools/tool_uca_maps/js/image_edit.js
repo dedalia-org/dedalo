@@ -191,18 +191,33 @@ const apply_handles = function(carrier, handles) {
 		bottom_left	: [bottom_left.lat, bottom_left.lng]
 	}
 
-	// the carrier follows as the axis-aligned hull it was built as. setLatLngs
-	// rather than setBounds: a carrier reloaded from saved data comes back as a
-	// plain polygon, and only L.Rectangle has setBounds
-	const bounds = hull_bounds(image.corners)
+	fit_carrier_to_corners(carrier, image.corners)
+
+}//end apply_handles
+
+
+
+/**
+* FIT_CARRIER_TO_CORNERS
+* The carrier is the axis-aligned hull of its picture's corners: the handle that
+* selects the picture, so one off it is clicked where the picture is not.
+* setLatLngs rather than setBounds: a carrier reloaded from saved data comes back
+* as a plain polygon, and only L.Rectangle has setBounds.
+*
+* @param {Object} carrier
+* @param {Object} corners - {top_left, top_right, bottom_left}, each [lat, lng]
+* @returns {void}
+*/
+export const fit_carrier_to_corners = function(carrier, corners) {
+
+	const bounds = hull_bounds(corners)
 	carrier.setLatLngs([
 		bounds.getSouthWest(),
 		bounds.getNorthWest(),
 		bounds.getNorthEast(),
 		bounds.getSouthEast()
 	])
-
-}//end apply_handles
+}//end fit_carrier_to_corners
 
 
 

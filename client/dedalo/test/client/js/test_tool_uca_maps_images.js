@@ -13,6 +13,7 @@ import { data_manager } from '../../../core/common/js/data_manager.js'
 import { event_manager } from '../../../core/common/js/event_manager.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
+import { hull_bounds } from '../../../tools/tool_uca_maps/js/image_edit.js'
 import { corners_from_viewport, create_image_object, IMAGE_COMPONENT_TIPO, IMAGE_DOWNLOAD_TIMEOUT_MS, IMAGE_SECTION_TIPO, image_download_width, ingest_image_upload } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import { detach_map_image_download_control, direct_tile_layer_names, download_map_image, keep_in_map_image, TRANSPARENT_PIXEL } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import {
@@ -2535,6 +2536,30 @@ describe('TOOL_UCA_MAPS (live map: images)', function() {
 				assert.closeTo(latlng.lng, after[key][1], 1e-9, `expected the ${label}'s ${key} moved with the carrier`)
 			}
 		})
+	})
+
+	// the carrier is the picture's selection handle: one stored off its corners (saved
+	// before it followed its handles) is put back over the picture when it is drawn
+	it('a stored carrier that disagrees with its corners is fitted over the picture on load', async function() {
+
+		const carrier	= add_image_carrier()
+		const image		= carrier.feature.properties.uca_maps.image
+		// a picture turned and moved, its carrier still where the old corners were
+		image.corners = {
+			top_left	: [40.47, -3.67],
+			top_right	: [40.48, -3.65],
+			bottom_left	: [40.455, -3.665]
+		}
+
+		tool.attach_image_overlays()
+		await await_overlay(carrier)
+
+		const expected	= hull_bounds(image.corners)
+		const actual	= carrier.getBounds()
+		for (const corner of ['getSouthWest', 'getNorthEast']) {
+			assert.closeTo(actual[corner]().lat, expected[corner]().lat, 1e-9, `expected the carrier's ${corner} on the picture's hull`)
+			assert.closeTo(actual[corner]().lng, expected[corner]().lng, 1e-9, `expected the carrier's ${corner} on the picture's hull`)
+		}
 	})
 
 	it('two concurrent hydrations never paint the same image twice', async function() {
