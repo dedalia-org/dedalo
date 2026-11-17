@@ -53,6 +53,12 @@ Work with the image, audio and video files attached to records.
 - **[Upload](using_upload.md)** — the post-upload step that files a freshly uploaded file into storage.
 - **[QR](using_qr.md)** — the sample/base tool (developer reference).
 
+## Maps
+
+Work with the map component: geographic data, layers and map exports.
+
+- **[UCA Maps](using_uca_maps.md)** — inspect, style and export map objects, add basemaps and WMS layers, upload shapefiles, GeoJSON, KML and georeferenced images, look up Catastro parcels and administrative units, search modern and ancient places, keep a legend, and download the map as an image.
+
 ## Thesaurus and ontology
 
 Organise records into hierarchies and shape the schema.
