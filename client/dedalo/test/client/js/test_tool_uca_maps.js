@@ -14,10 +14,10 @@ import { resolve_error_policy } from '../../../core/common/js/error_policy.js'
 import { error_text } from '../../../core/common/js/render_api_error.js'
 import { IMAGE_COMPONENT_TIPO, IMAGE_SECTION_TIPO } from '../../../tools/tool_uca_maps/js/image_upload.js'
 import {
-	ALLOWED_ICON_TYPES,
 	empty_legend,
 	MAX_ICON_BYTES
 } from '../../../tools/tool_uca_maps/js/legend.js'
+import { ALLOWED_ICON_TYPES } from '../../../tools/tool_uca_maps/js/legend_symbol.js'
 import { download_map_image } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import {
 	computed_property_keys,
@@ -379,7 +379,7 @@ describe('TOOL_UCA_MAPS (structural)', function() {
 
 
 
-describe('TOOL_UCA_MAPS (live map)', function() {
+describe('TOOL_UCA_MAPS (live map: shell)', function() {
 
 	this.timeout(20000)
 

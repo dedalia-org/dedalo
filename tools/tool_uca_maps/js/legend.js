@@ -48,9 +48,6 @@ import {LEGEND_LIMITS, LEGEND_TAG_START, is_control_code} from './core_limits.js
 
 
 
-// re-exported for the client gate; lives in the leaf so the picker reads it too
-export {ALLOWED_ICON_TYPES}
-
 /** v6's cap on the file picked, verbatim: what is kept is the redrawn icon. */
 // exported for the client gate
 export const MAX_ICON_BYTES = 2000000

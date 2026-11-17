@@ -532,7 +532,9 @@ const reset_roman_state = function(self) {
 	self._roman_search_token	= 0
 	self._roman_search_timer	= null
 	self._roman_active_index	= -1
-	self._roman_panel_opening	= 0 // bumped by every reset: a late answer knows it is late
+	// restarts with attach/detach; reset_roman_panel (render_roman_empire.js) bumps
+	// it on every open, so an answer that outlives its open knows it is late
+	self._roman_panel_opening	= 0
 }//end reset_roman_state
 
 

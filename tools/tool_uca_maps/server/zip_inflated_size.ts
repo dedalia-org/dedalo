@@ -7,8 +7,7 @@
  */
 
 import { createInflateRaw } from 'node:zlib';
-import { DedaloError } from '../../../src/core/errors/index.ts';
-import { invalidOptions } from './reasons.ts';
+import { invalidOptions, tooLarge } from './reasons.ts';
 
 // A shapefile is a handful of sidecar files; a zip of several layers is a few
 // dozen. Far above that is not a shapefile upload.
@@ -144,10 +143,10 @@ export async function assertZipInflatesWithin(
 
 		if (total > maxBytes) {
 			// a size ceiling, not a bad option: the code that says so
-			throw new DedaloError('media.too_large', {
-				message: `The zip archive inflates to more than ${maxBytes} bytes: upload a smaller shapefile`,
-				details: { reason_key: 'zip_too_large' },
-			});
+			throw tooLarge(
+				`The zip archive inflates to more than ${maxBytes} bytes: upload a smaller shapefile`,
+				'zip_too_large',
+			);
 		}
 	}
 	return total;

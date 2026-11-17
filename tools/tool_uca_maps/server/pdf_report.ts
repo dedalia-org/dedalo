@@ -6,12 +6,12 @@
  * gate as `get_image_file`; a refused image is named in the document.
  */
 
-import { DedaloError } from '../../../src/core/errors/index.ts';
 import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { assertActionPermission } from '../../../src/core/tools/security.ts';
 import { downloadAnswer } from './download_answer.ts';
 import { type EmbedRefusal, getImageFile, resolveEmbeddableImage } from './image_media.ts';
 import { PdfDocument } from './pdf_writer.ts';
+import { invalidOptions } from './reasons.ts';
 
 /** v6's own cap for the same document ("Imágenes asociadas (Max. 30)"). */
 const MAX_IMAGES = 30;
@@ -92,9 +92,7 @@ export function readRequestedImages(raw: unknown): RequestedImage[] {
 		return [];
 	}
 	if (!Array.isArray(raw)) {
-		throw new DedaloError('request.invalid_options', {
-			message: 'tool_uca_maps: images must be a list',
-		});
+		throw invalidOptions('tool_uca_maps: images must be a list');
 	}
 	const images: RequestedImage[] = [];
 	for (const entry of raw.slice(0, MAX_IMAGES)) {
@@ -122,9 +120,7 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 	const options = ctx.options;
 	const geojson = options.geojson as Record<string, unknown> | undefined;
 	if (typeof geojson !== 'object' || geojson === null) {
-		throw new DedaloError('request.invalid_options', {
-			message: 'tool_uca_maps: object_pdf_report needs the object as GeoJSON',
-		});
+		throw invalidOptions('tool_uca_maps: object_pdf_report needs the object as GeoJSON');
 	}
 
 	const geometry = (geojson.geometry ?? {}) as Record<string, unknown>;

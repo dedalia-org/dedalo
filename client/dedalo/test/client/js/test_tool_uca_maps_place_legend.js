@@ -64,7 +64,7 @@ const painted_file = async function(width, height, colour, type = 'image/png') {
 
 
 
-describe('TOOL_UCA_MAPS (live map)', function() {
+describe('TOOL_UCA_MAPS (live map: place and legend)', function() {
 
 	this.timeout(20000)
 

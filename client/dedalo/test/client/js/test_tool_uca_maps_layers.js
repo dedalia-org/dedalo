@@ -84,7 +84,7 @@ const parcel_found = (url = 'https://example.com/parcel') => ({
 
 
 
-describe('TOOL_UCA_MAPS (live map)', function() {
+describe('TOOL_UCA_MAPS (live map: layers)', function() {
 
 	this.timeout(20000)
 

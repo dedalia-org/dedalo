@@ -19,6 +19,7 @@ import {
 import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts';
 import type { ToolBootHandle } from '../../../src/core/tools/module.ts';
 import { GDAL_MIN_VERSION, meetsGdalMinVersion, probeOnPath } from './capabilities.ts';
+import { invalidOptions } from './reasons.ts';
 
 /** Bounded — these are single-object/single-screenshot conversions, never a
  * multi-GB media transcode; a stuck GDAL/ImageMagick process must not hold
@@ -120,10 +121,7 @@ function assertOfflineCrs(crs: unknown): void {
 	const message =
 		"This GeoJSON's crs is a link, which is never followed: name its projection " +
 		'instead (for example "EPSG:25830")';
-	throw new DedaloError('request.invalid_options', {
-		message,
-		details: { reason_key: 'geojson_crs_link' },
-	});
+	throw invalidOptions(message, 'geojson_crs_link');
 }
 
 /**

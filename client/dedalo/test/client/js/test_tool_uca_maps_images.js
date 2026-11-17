@@ -109,7 +109,7 @@ const sample_vector_file = () => new File([JSON.stringify(SAMPLE_UPLOAD_GEOJSON)
 
 
 
-describe('TOOL_UCA_MAPS (live map)', function() {
+describe('TOOL_UCA_MAPS (live map: images)', function() {
 
 	this.timeout(20000)
 

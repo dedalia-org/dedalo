@@ -956,7 +956,9 @@ const release_overlay = function(self, map, entry) {
 	}
 	detach_handles(self, entry.carrier)
 	detach_carrier_drag(entry.carrier)
-	delete entry.carrier._uca_maps_overlay
+	if (entry.carrier) {
+		delete entry.carrier._uca_maps_overlay
+	}
 }//end release_overlay
 
 

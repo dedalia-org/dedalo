@@ -42,7 +42,7 @@ const make_panel_scrollable = function(panel) {
 
 
 
-describe('TOOL_UCA_MAPS (live map)', function() {
+describe('TOOL_UCA_MAPS (live map: roman)', function() {
 
 	this.timeout(20000)
 
