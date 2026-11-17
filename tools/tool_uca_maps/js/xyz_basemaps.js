@@ -192,7 +192,15 @@ const rebuild_xyz_layer_control = function(self, {activate_index = 0} = {}) {
 			: configured
 				// a base layer, not one of the record's overlays (is_base_tile_layer)
 				? geolocation.get_source_layer(
-					{...configured, attribution: configured.attribution || basemap.attribution},
+					{
+						...configured,
+						attribution	: configured.attribution || basemap.attribution,
+						// an entry with no last zoom of its own asks no further than the
+						// provider serves (Esri: 19), and Leaflet scales those up
+						params		: Number.isInteger(configured.params?.max_zoom)
+							? configured.params
+							: {...configured.params, max_zoom: basemap.maxzoom}
+					},
 					{dedalo_source: false}
 				)
 				: L.tileLayer(basemap.url, {attribution: basemap.attribution, ...zooms})

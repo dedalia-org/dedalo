@@ -4768,6 +4768,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.notInclude(String(layer._url), 'arcgisonline', 'expected no direct Esri request')
 		assert.notEqual(layer.options.dedalo_source, true, 'expected a base layer, which the takeover and rebuilds manage, not a record overlay')
 		assert.equal(layer.getAttribution(), 'Esri test credit', 'expected the configured credit')
+		assert.equal(layer.options.maxNativeZoom, 19, 'expected tiles asked no further than Esri\'s z19 when the entry names no last zoom')
+		detach_xyz_basemaps(tool)
+
+		offer_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: 'Esri test credit', max_zoom: 17}])
+		tool.attach_xyz_basemaps()
+		assert.equal(arcgis_layer().options.maxNativeZoom, 17, 'expected the entry\'s own last zoom kept')
 		detach_xyz_basemaps(tool)
 
 		offer_defaults([{id: 'arcgis', label: 'ArcGIS', type: 'xyz', attribution: ''}])
