@@ -10,7 +10,7 @@
     "is_media": false,
     "modes": ["edit","list","tm","search"],
     "default_tools" : [
-        "tool_leaflet_special_tools",
+        "tool_uca_maps",
         "tool_propagate_component_data",
         "tool_time_machine",
         "tool_dev_template"
@@ -308,6 +308,6 @@ See the full geolocation import definition in [Importing data](../importing_data
 - **Diffusion.** The stored item can convert to a GeoJSON `Point` object `{type, coordinates:[lon, lat]}` (Socrata-style) or to an encoded `FeatureCollection` (layer wrapper, 16‑decimal `[lon, lat]` coordinates). Precedence is the same on every path: drawn geometry publishes as the location (and on the standalone path the stored center is dropped from the published value), otherwise a usable coordinate publishes as the point, otherwise nothing is published at all. See [Diffusion parsers](../../diffusion/parsers.md).
 - **Observers / observables (client).** Configured via the `observe` property. The flagship pattern is `map_update_coordinates`: a related component (e.g. a toponymy portal) is the *observable*; on its `update_value` it fires the observer geolocation, which copies the coordinates of the referenced record (the geolocation identified by `role: "target_geolocation_tipo"` in the observable's `request_config` `hide`) and re-centers the map, recording the change like any save. Only the coordinate travels: the borrowed item's own id is dropped, so the copy replaces **this** record's item instead of appending a second one beside it, and the other record's map `sources` and `legend` are not copied — this record keeps its own, because saving replaces the whole item.
 - **Text-area integration.** `lib_data` layers pair with `geo` tags in a [component_text_area](component_text_area.md) transcription; inserting/removing a tag loads/unloads the matching layer (`layer_data_change`, `load_tag_into_geo_editor`, `get_data_tag`). See the `geo` tag in [Importing data](../importing_data.md#geo).
-- **Default tools.** `tool_leaflet_special_tools`, `tool_propagate_component_data`, `tool_time_machine`, `tool_dev_template` (per the ontology node; exact set is ontology-driven).
+- **Default tools.** `tool_uca_maps`, `tool_propagate_component_data`, `tool_time_machine`, `tool_dev_template` (per the ontology node; exact set is ontology-driven).
 - **Client libraries.** Leaflet, Leaflet-Geoman, Turf (measurements) and iro (color picker) are lazy-loaded on first map build (`load_libs`). The map never auto-saves on pan/zoom — saving is always explicit via the save button, and navigating a record that holds no value writes nothing at all.
 - **Related docs:** [component_input_text](component_input_text.md), [component_portal](component_portal.md), [component_text_area](component_text_area.md), [component_json](component_json.md), [Introduction to components](index.md).
