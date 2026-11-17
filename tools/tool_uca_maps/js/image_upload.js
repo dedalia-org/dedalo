@@ -755,9 +755,10 @@ export const image_download_width = function(map, corners, quality) {
 
 
 // A large PNG at "Excelente" takes seconds per GDAL run (four, each bounded at
-// 60 s, server/gdal.ts), past data_manager's 5 s per attempt.
+// 60 s, server/gdal.ts), past data_manager's 5 s per attempt; the fifth minute
+// leaves room for the answer to travel back.
 // exported for the client gate
-export const IMAGE_DOWNLOAD_TIMEOUT_MS = 4 * 60 * 1000
+export const IMAGE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
 
 /**
 * DOWNLOAD_IMAGE

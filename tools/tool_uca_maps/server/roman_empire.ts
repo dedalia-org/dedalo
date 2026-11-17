@@ -368,8 +368,8 @@ export async function getPleiadesPlace(
 	return ok({ place: await fetchPleiadesPlace(id, deps) }, { requestId: toolRequestId(ctx) });
 }
 
-/** A Pleiades place's own deadline. Exported for the budget gate. */
-export const PLEIADES_PLACE_TIMEOUT_MS = 15_000;
+/** A Pleiades place's own deadline. */
+const PLEIADES_PLACE_TIMEOUT_MS = 15_000;
 
 /**
  * One place document from Pleiades, a GeoJSON FeatureCollection. A non-2xx
