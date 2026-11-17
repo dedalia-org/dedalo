@@ -911,7 +911,7 @@ export const deliver_download = async function(response, failed) {
 	}
 
 	const {content_base64, filename, mime} = data
-	trigger_blob_download(await base64_to_blob(content_base64, mime), filename)
+	trigger_blob_download(base64_to_blob(content_base64, mime), filename)
 
 	return {ok: true}
 }//end deliver_download

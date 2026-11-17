@@ -34,12 +34,12 @@ export const render_object_viewer_panel = function(self, panel) {
 	// the header (title + ×) is toolbar.js's: the panel opens centred
 
 	create_object_list_section(
-		self, panel,
+		panel,
 		self.get_tool_label('object_viewer_vector_title') || 'Vector Objects',
 		'uca-maps-object-viewer-vector-list'
 	)
 	create_object_list_section(
-		self, panel,
+		panel,
 		self.get_tool_label('object_viewer_raster_title') || 'Rasterized Objects',
 		'uca-maps-object-viewer-raster-list'
 	)
@@ -54,14 +54,13 @@ export const render_object_viewer_panel = function(self, panel) {
 * One `<h5>` title + its empty `<ul>`, the shape both lists share; filled
 * later by `render_list`, found by `list_class`.
 *
-* @param {Object} self - tool_uca_maps instance
 * @param {HTMLElement} panel
 * @param {string} title
 * @param {string} list_class - the specific class (…-vector-list / …-raster-list)
 *   `populate_object_viewer` queries back to find this exact list
 * @returns {void}
 */
-const create_object_list_section = function(self, panel, title, list_class) {
+const create_object_list_section = function(panel, title, list_class) {
 
 	ui.create_dom_element({
 		element_type	: 'h5',

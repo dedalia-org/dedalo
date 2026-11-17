@@ -78,8 +78,7 @@ export const attach_catastro = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {Object|null} {kind, id, type, params, attribution, name}
 */
-// exported for the client gate
-export const catastro_source = function(self) {
+const catastro_source = function(self) {
 	return default_source(self, CATASTRO_SOURCE_ID)
 }//end catastro_source
 
@@ -96,8 +95,7 @@ export const catastro_source = function(self) {
 * @param {Object} source - catastro_source()
 * @returns {string} plain text
 */
-// exported for the client gate
-export const catastro_armed_credit = function(self, source) {
+const catastro_armed_credit = function(self, source) {
 	const name = source.attribution!==''
 		? (self.get_tool_label('catastro_control_title') || 'Catastro')
 		: CATASTRO_CREDIT

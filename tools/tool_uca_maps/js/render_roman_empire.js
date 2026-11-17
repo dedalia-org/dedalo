@@ -30,8 +30,7 @@ export const LIVE_SEARCH_DELAY_MS = 300
 
 /** The sources searched as you type: the local data. DARE is a third party, which
 * core's service paces and whose provider asks for no as-you-type search. */
-// exported for the client gate
-export const LIVE_SOURCES = new Set(['pleiades', 'pelagios'])
+const LIVE_SOURCES = new Set(['pleiades', 'pelagios'])
 
 
 
@@ -267,11 +266,10 @@ export const focus_first_roman_field = function(panel) {
 *
 * @param {HTMLElement} block - a source's own section
 * @param {string} text
-* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
 * @returns {void}
 */
-const show_roman_message = function(block, text, type='error') {
-	show_panel_message(block.querySelector('.uca-maps-roman-message'), text, type)
+const show_roman_message = function(block, text) {
+	show_panel_message(block.querySelector('.uca-maps-roman-message'), text)
 }//end show_roman_message
 
 const clear_roman_message = function(block) {

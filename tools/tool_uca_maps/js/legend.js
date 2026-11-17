@@ -89,8 +89,7 @@ export const empty_legend = function() {
 * @param {*} entry_legend - the entry's `legend`
 * @returns {Object} {legend, enable, columns}
 */
-// exported for the client gate
-export const from_entry_legend = function(entry_legend) {
+const from_entry_legend = function(entry_legend) {
 
 	const legend = empty_legend()
 	if (!entry_legend || typeof entry_legend!=='object') {
@@ -157,8 +156,7 @@ const icon_pixels = function(icon) {
 * @param {Object} value - to_entry_legend's value
 * @returns {'too_long'|'markup'|'too_big'|null}
 */
-// exported for the client gate
-export const legend_refusal = function(value) {
+const legend_refusal = function(value) {
 
 	const limits	= LEGEND_LIMITS
 	const texts		= [value.title, ...value.groups.flatMap((group) => [group.name, ...group.symbols.map((symbol) => symbol.label)])]
@@ -193,8 +191,7 @@ export const legend_refusal = function(value) {
 * @param {Object} legend - the editor's model
 * @returns {{value: Object|null, skipped: number}}
 */
-// exported for the client gate
-export const to_entry_legend = function(legend) {
+const to_entry_legend = function(legend) {
 
 	let skipped		= 0
 	const groups	= []

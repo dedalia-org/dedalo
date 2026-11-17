@@ -107,7 +107,7 @@ export const render_legend_panel = function(self, panel) {
 *
 * @param {HTMLElement} panel
 * @param {string} text
-* @param {string} [type='error'] - 'error' | 'warning' (nothing found) | 'ok' | 'info' (working)
+* @param {string} [type='error'] - 'error' | 'warning' (groups and items the save drops)
 * @returns {void}
 */
 export const show_legend_message = function(panel, text, type='error') {

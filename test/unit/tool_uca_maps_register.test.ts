@@ -45,12 +45,8 @@ function countArgs(source: string, from: number): number {
 /** Every `get_tool_label(` in the client's code, comments stripped. */
 async function labelCalls(): Promise<LabelCall[]> {
 	const calls: LabelCall[] = [];
-	// js/lib/ is vendored third-party code — it never calls get_tool_label
 	const glob = new Glob('js/**/*.js');
 	for await (const relative of glob.scan({ cwd: Bun.fileURLToPath(TOOL_DIR) })) {
-		if (relative.startsWith('js/lib/')) {
-			continue;
-		}
 		const source = stripComments(await Bun.file(new URL(relative, TOOL_DIR)).text());
 		for (const match of source.matchAll(/get_tool_label\(/g)) {
 			const at = match.index as number;

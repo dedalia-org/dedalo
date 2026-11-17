@@ -21,7 +21,7 @@ const NATIONAL_LEVEL_TO_LEVEL: Readonly<Record<string, string>> = Object.freeze(
 	'https://inspire.ec.europa.eu/codelist/AdministrativeHierarchyLevel/2ndOrder': 'CCAA',
 });
 
-export interface AdministrativeUnit {
+interface AdministrativeUnit {
 	name: string;
 	/** 'Municipio' | 'Provincia' | 'CCAA', or null for a level v6 never named. */
 	level: string | null;
@@ -29,7 +29,7 @@ export interface AdministrativeUnit {
 }
 
 /** The first feature IGN listed, as a named unit; null when it names none. */
-export function unitOf(data: unknown): AdministrativeUnit | null {
+function unitOf(data: unknown): AdministrativeUnit | null {
 	const features = (data as { features?: unknown } | null)?.features;
 	const first = Array.isArray(features) ? features[0] : undefined;
 	const properties = (first as { properties?: Record<string, unknown> } | undefined)?.properties;

@@ -145,7 +145,7 @@ export const direct_tile_layer_names = function(self) {
 * @param {Object} self - tool_uca_maps instance
 * @returns {void}
 */
-export const refresh_direct_layer_warning = function(self) {
+const refresh_direct_layer_warning = function(self) {
 
 	const line = self._map_image_direct_line
 	if (!line || !self.geolocation || !self.geolocation.map) {

@@ -421,7 +421,6 @@ export const delete_wms_layer = async function(self, id) {
 		return {ok: false, error: self.get_tool_label('wms_error_save') || 'The WMS layer could not be saved.'}
 	}
 	delete self._source_opacity[id]
-	reapply_source_opacity(self)
 
 	return {ok: true}
 }//end delete_wms_layer

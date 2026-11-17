@@ -131,7 +131,7 @@ export const reapply_source_opacity = function(self) {
 * @param {function(Array<Object>): Array<Object>} edit - gets a copy, returns the new list
 * @returns {Promise<{ok: boolean, new_ids?: Array<number>}>} new_ids: numbers the save added
 */
-export const save_sources = async function(self, edit) {
+const save_sources = async function(self, edit) {
 
 	const geolocation	= self.geolocation
 	const before_ids	= new Set(stored_sources(self).map((source) => source.id))

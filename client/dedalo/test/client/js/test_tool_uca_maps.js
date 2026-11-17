@@ -665,7 +665,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	const element = elements.find(el => el.model==='component_geolocation')
 	if (!element) {
-		console.error('Error: component_geolocation not found in elements');
+		throw new Error('elements.js holds no component_geolocation')
 	}
 	const section_tipo	= element.section_tipo
 	const section_id	= element.section_id
@@ -1579,9 +1579,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return {ok: false, error: refusal}
 		})
 		const rows = [
-			{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
-			{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
-			{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
+			{label: 'vector', run: () => download_vector(tool, layer, 'shp')},
+			{label: 'pdf', run: () => download_object_pdf(tool, layer)},
+			{label: 'map image', run: () => download_map_image(tool, 'jpg')}
 		]
 		for (const row of rows) {
 			assert.deepEqual(await row.run(), {ok: false}, row.label)
@@ -6481,8 +6481,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// undoes all of it. Catastro arms core's own checkbox (`core`); UA without a configured
 	// source adds the built-in, and the layer control it had to create for it
 	for (const swap of [
-		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', extra: {}, core: true},
-		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', extra: {}, core: false}
+		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', core: true},
+		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', core: false}
 	]) {
 		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks the click and the layer`, async function() {
 
@@ -6526,8 +6526,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				width			: size.x,
 				height			: size.y,
 				x				: point.x,
-				y				: point.y,
-				...swap.extra
+				y				: point.y
 			})
 
 			toggle() // disarm
