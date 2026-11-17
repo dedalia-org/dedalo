@@ -18,7 +18,7 @@ import { get_instance } from '../../../core/common/js/instances.js';
 import { ui } from '../../../core/common/js/ui.js';
 import { populate_roman_results } from '../../../tools/tool_uca_maps/js/render_roman_empire.js';
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js';
-import { elements } from './elements.js';
+import { elements, uca_maps_section_id } from './elements.js';
 
 /** The colour a cataloguer picks in the style field: the tool's own hue
  * (`--tool_uca_maps` is Dédalo's orange, main.css), which no default shares. Read
@@ -258,7 +258,8 @@ export const use_live_map = function (bind) {
 		throw new Error('elements.js holds no component_geolocation');
 	}
 	const section_tipo = element.section_tipo;
-	const section_id = element.section_id;
+	// own record: the real-save case writes it (manifest.ts SUITE_ISOLATION_RECORDS[17])
+	const section_id = uca_maps_section_id;
 	const tipo = element.tipo;
 	const lang = element.lang;
 

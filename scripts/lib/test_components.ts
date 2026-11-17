@@ -27,7 +27,7 @@
  *     bridges the two largest clusters.
  *  3. The CANONICAL test3 RECORD SET (records 1/2/27): `restoreCanonicalTest3`
  *     rewrites the rows other gates are mid-assertion on. (This is NOT the
- *     WC-021 partition — `manifest.ts`'s SUITE_ISOLATION_RECORDS 10-16 belongs
+ *     WC-021 partition — `manifest.ts`'s SUITE_ISOLATION_RECORDS belongs
  *     to the CLIENT suites and is a different contract.)
  *
  * Membership is DERIVED BY SCANNING SOURCE — never a hand list: comment-

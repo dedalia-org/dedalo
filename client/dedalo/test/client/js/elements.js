@@ -43,6 +43,7 @@ export const iri_section_id		= 12 // test_component_iri owns test3/12
 export const geo_section_id		= 14 // test_component_geolocation owns test3/14
 export const media_3d_section_id = 15 // test_component_3d owns test3/15
 export const additional_text_area_section_id = 16 // test_additional_text_area owns test3/16
+export const uca_maps_section_id = 17 // the tool_uca_maps suites own test3/17
 
 
 

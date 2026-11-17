@@ -47,6 +47,7 @@ export const SUITE_ISOLATION_RECORDS: Readonly<Record<number, string>> = {
 	14: 'test_component_geolocation — write-heavy suite whose saves append a new test100 entry whenever the targeted key holds no id, and whose removes leave a null in the slot. On the shared record 1 the geo array grew to [null,{…},null,…] across runs, after which the suite asserted entries[0] against a null hole and failed on run order alone. Own record + teardown keeps the growth out of the record the generic sweeps render.',
 	15: 'test_component_3d — write-heavy suite whose add/update/remove chain ends on a REMOVE with no teardown, leaving media.test26 as [] on whatever record it targets. On the shared record 1 that served an EMPTY 3d component to every generic sweep that renders it. Own record + teardown keeps the emptying out of the canonical record.',
 	16: 'test_additional_text_area — the text_area+geolocation / text_area+image pairing suite (migrated off the `dmm` install ontology 2026-08-22). It ACTIVATES the editor and SAVES test84/test98 on every run; own record keeps that written text out of the record the generic sweeps render.',
+	17: 'tool_uca_maps suites — one case SAVES what the tool builds (a base map and a legend) through the real component save, then puts the record back. Own record keeps that write off test3/14, which test_component_geolocation asserts against, so neither suite depends on the other running first.',
 };
 
 /** The per-suite clone ids, ascending. */
