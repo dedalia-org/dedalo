@@ -13,7 +13,7 @@ import { request_failed } from '../../../core/common/js/api_error.js'
 import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js'
 import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/armed_layer.js'
 import { check_catastro_at_point, is_catastro_enabled } from '../../../tools/tool_uca_maps/js/catastro.js'
-import { default_element_icon } from '../../../tools/tool_uca_maps/js/legend.js'
+import { default_symbol_icon } from '../../../tools/tool_uca_maps/js/legend.js'
 import { search_places } from '../../../tools/tool_uca_maps/js/place_search.js'
 import { show_ua_message } from '../../../tools/tool_uca_maps/js/render_administrative_units.js'
 import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/render_place_search.js'
@@ -408,16 +408,16 @@ describe('TOOL_UCA_MAPS (live map: layers)', function() {
 			// the legend editor writes the buffer; the component's own save sends it
 			tool.attach_legend()
 			tool.set_legend_title('Roman roads')
-			tool.add_legend_column()
-			tool.set_legend_column_name(0, 'Surface')
-			tool.add_legend_element(0)
-			tool.set_legend_element_name(0, 0, 'Paved')
+			tool.add_legend_group()
+			tool.set_legend_group_name(0, 'Surface')
+			tool.add_legend_symbol(0)
+			tool.set_legend_symbol_label(0, 0, 'Paved')
 			const response = await geolocation.change_value({changed_data: [geolocation.build_changed_data_item(0)], refresh: false})
 			assert.isOk(response, 'expected the save sent')
 			assert.isFalse(request_failed(response), 'expected core to accept the legend the tool writes')
 			assert.notEqual(geolocation.data_degraded, true)
 			assert.deepEqual(geolocation.get_stored_entry(0).legend, {
-				title: 'Roman roads', groups: [{name: 'Surface', symbols: [{label: 'Paved', icon: default_element_icon()}]}]
+				title: 'Roman roads', groups: [{name: 'Surface', symbols: [{label: 'Paved', icon: default_symbol_icon()}]}]
 			}, 'expected the legend stored as the tool wrote it, its pin included')
 		} catch (error) {
 			body_error = error

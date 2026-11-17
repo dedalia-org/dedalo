@@ -111,16 +111,16 @@
 		detach_legend,
 		set_legend_title,
 		set_legend_visible,
-		add_legend_column,
-		delete_legend_column,
-		set_legend_column_name,
-		add_legend_element,
-		delete_legend_element,
-		set_legend_element_name,
-		set_legend_element_icon,
-		set_legend_element_symbol,
-		move_legend_column,
-		move_legend_element
+		add_legend_group,
+		delete_legend_group,
+		set_legend_group_name,
+		add_legend_symbol,
+		delete_legend_symbol,
+		set_legend_symbol_label,
+		set_legend_symbol_icon,
+		set_legend_symbol_drawing,
+		move_legend_group,
+		move_legend_symbol
 	} from './legend.js'
 	import {
 		attach_roman_empire,
@@ -554,45 +554,45 @@ tool_uca_maps.prototype.set_legend_visible = function(visible) {
 	return set_legend_visible(this, visible)
 }//end set_legend_visible
 
-tool_uca_maps.prototype.add_legend_column = function() {
-	return add_legend_column(this)
-}//end add_legend_column
+tool_uca_maps.prototype.add_legend_group = function() {
+	return add_legend_group(this)
+}//end add_legend_group
 
-tool_uca_maps.prototype.delete_legend_column = function(index) {
-	return delete_legend_column(this, index)
-}//end delete_legend_column
+tool_uca_maps.prototype.delete_legend_group = function(index) {
+	return delete_legend_group(this, index)
+}//end delete_legend_group
 
-tool_uca_maps.prototype.set_legend_column_name = function(index, text) {
-	return set_legend_column_name(this, index, text)
-}//end set_legend_column_name
+tool_uca_maps.prototype.set_legend_group_name = function(index, text) {
+	return set_legend_group_name(this, index, text)
+}//end set_legend_group_name
 
-tool_uca_maps.prototype.add_legend_element = function(column_index) {
-	return add_legend_element(this, column_index)
-}//end add_legend_element
+tool_uca_maps.prototype.add_legend_symbol = function(group_index) {
+	return add_legend_symbol(this, group_index)
+}//end add_legend_symbol
 
-tool_uca_maps.prototype.delete_legend_element = function(column_index, element_index) {
-	return delete_legend_element(this, column_index, element_index)
-}//end delete_legend_element
+tool_uca_maps.prototype.delete_legend_symbol = function(group_index, symbol_index) {
+	return delete_legend_symbol(this, group_index, symbol_index)
+}//end delete_legend_symbol
 
-tool_uca_maps.prototype.set_legend_element_name = function(column_index, element_index, text) {
-	return set_legend_element_name(this, column_index, element_index, text)
-}//end set_legend_element_name
+tool_uca_maps.prototype.set_legend_symbol_label = function(group_index, symbol_index, text) {
+	return set_legend_symbol_label(this, group_index, symbol_index, text)
+}//end set_legend_symbol_label
 
-tool_uca_maps.prototype.set_legend_element_icon = function(column_index, element_index, file) {
-	return set_legend_element_icon(this, column_index, element_index, file)
-}//end set_legend_element_icon
+tool_uca_maps.prototype.set_legend_symbol_icon = function(group_index, symbol_index, file) {
+	return set_legend_symbol_icon(this, group_index, symbol_index, file)
+}//end set_legend_symbol_icon
 
-tool_uca_maps.prototype.set_legend_element_symbol = function(column_index, element_index, symbol) {
-	return set_legend_element_symbol(this, column_index, element_index, symbol)
-}//end set_legend_element_symbol
+tool_uca_maps.prototype.set_legend_symbol_drawing = function(group_index, symbol_index, drawing) {
+	return set_legend_symbol_drawing(this, group_index, symbol_index, drawing)
+}//end set_legend_symbol_drawing
 
-tool_uca_maps.prototype.move_legend_column = function(index, offset) {
-	return move_legend_column(this, index, offset)
-}//end move_legend_column
+tool_uca_maps.prototype.move_legend_group = function(index, offset) {
+	return move_legend_group(this, index, offset)
+}//end move_legend_group
 
-tool_uca_maps.prototype.move_legend_element = function(column_index, element_index, offset) {
-	return move_legend_element(this, column_index, element_index, offset)
-}//end move_legend_element
+tool_uca_maps.prototype.move_legend_symbol = function(group_index, symbol_index, offset) {
+	return move_legend_symbol(this, group_index, symbol_index, offset)
+}//end move_legend_symbol
 
 
 

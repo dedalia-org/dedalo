@@ -9,8 +9,9 @@
 * Two halves: the edit PANEL (tool chrome, left out of the map image), whose
 * group list is rebuilt only on STRUCTURAL change (typing or a colour repaints
 * just the overlay: a rebuild would drop focus or close the colour picker), and
-* the OVERLAY, map CONTENT. A "column" (class names, function names) is a group:
-* groups wrap; an "element" is one of its symbols.
+* the OVERLAY, map CONTENT. The code says group/symbol, as the record does; the
+* class names keep the old "column"/"element" on purpose: they are the
+* stylesheet's and the client tests' contract.
 *
 * @module render_legend
 */
@@ -78,16 +79,16 @@ export const render_legend_panel = function(self, panel) {
 	ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-columns', parent: panel})
 
 	// after the list, where the new group appears
-	const add_column_btn = ui.create_dom_element({
+	const add_group_btn = ui.create_dom_element({
 		element_type	: 'button',
 		class_name		: 'uca-maps-legend-add-column',
 		text_content	: '+ ' + (self.get_tool_label('legend_add_column') || 'Add group'),
 		parent			: panel
 	})
-	add_column_btn.type = 'button'
-	add_column_btn.addEventListener('click', () => {
-		const result = self.add_legend_column()
-		populate_legend_columns(self, panel)
+	add_group_btn.type = 'button'
+	add_group_btn.addEventListener('click', () => {
+		const result = self.add_legend_group()
+		populate_legend_groups(self, panel)
 		focus_in_list(panel, result.index, null, '.uca-maps-legend-column-name')
 	})
 
@@ -135,7 +136,7 @@ export const clear_legend_message = function(panel) {
 
 
 /**
-* POPULATE_LEGEND_COLUMNS
+* POPULATE_LEGEND_GROUPS
 * Rebuilds the group list from `self.legend.groups`, on every open and after
 * every structural mutation.
 *
@@ -143,7 +144,7 @@ export const clear_legend_message = function(panel) {
 * @param {HTMLElement} panel
 * @returns {void}
 */
-export const populate_legend_columns = function(self, panel) {
+export const populate_legend_groups = function(self, panel) {
 
 	const list = panel.querySelector('.uca-maps-legend-columns')
 	list.replaceChildren()
@@ -158,15 +159,15 @@ export const populate_legend_columns = function(self, panel) {
 		return
 	}
 
-	const column_count = self.legend.groups.length
+	const group_count = self.legend.groups.length
 
-	self.legend.groups.forEach((column, column_index) => {
+	self.legend.groups.forEach((group, group_index) => {
 
-		const column_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column', parent: list})
+		const group_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column', parent: list})
 
-		const column_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column-row', parent: column_node})
+		const group_row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-column-row', parent: group_node})
 
-		const name_field = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-field', parent: column_row})
+		const name_field = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-legend-field', parent: group_row})
 		ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'uca-maps-legend-field-label',
@@ -180,82 +181,82 @@ export const populate_legend_columns = function(self, panel) {
 		})
 		name_input.type			= 'text'
 		name_input.placeholder	= self.get_tool_label('legend_column_placeholder') || 'Group name'
-		name_input.value			= column.name
+		name_input.value			= group.name
 		name_input.addEventListener('input', () => {
-			self.set_legend_column_name(column_index, name_input.value)
+			self.set_legend_group_name(group_index, name_input.value)
 		})
 
-		render_move_buttons(self, column_row, column_index, column_count, (offset) => {
-			const result = self.move_legend_column(column_index, offset)
+		render_move_buttons(self, group_row, group_index, group_count, (offset) => {
+			const result = self.move_legend_group(group_index, offset)
 			if (result.ok) {
-				populate_legend_columns(self, panel)
+				populate_legend_groups(self, panel)
 				focus_move_button(panel, result.index, null, offset)
 			}
 		})
 
-		const confirm_node = render_delete_column_confirm(self, panel, column_node, column_index)
+		const confirm_node = render_delete_group_confirm(self, panel, group_node, group_index)
 
-		const delete_column_btn = ui.create_dom_element({
+		const delete_group_btn = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'uca-maps-legend-delete-column',
 			text_content	: '✕',
-			parent			: column_row
+			parent			: group_row
 		})
-		delete_column_btn.type	= 'button'
-		delete_column_btn.title	= self.get_tool_label('legend_delete_column') || 'Delete group'
-		delete_column_btn.setAttribute('aria-label', delete_column_btn.title)
-		delete_column_btn.addEventListener('click', () => {
-			// an empty group goes at once; one with elements asks first, in
+		delete_group_btn.type	= 'button'
+		delete_group_btn.title	= self.get_tool_label('legend_delete_column') || 'Delete group'
+		delete_group_btn.setAttribute('aria-label', delete_group_btn.title)
+		delete_group_btn.addEventListener('click', () => {
+			// an empty group goes at once; one with symbols asks first, in
 			// the panel — a page dialog would not show over a fullscreen map
-			if (!column.symbols.length) {
-				self.delete_legend_column(column_index)
-				populate_legend_columns(self, panel)
+			if (!group.symbols.length) {
+				self.delete_legend_group(group_index)
+				populate_legend_groups(self, panel)
 				return
 			}
 			confirm_node.hidden = false
 			confirm_node.querySelector('.uca-maps-legend-confirm-cancel').focus()
 		})
 
-		const elements_list = ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-legend-elements', parent: column_node})
+		const symbols_list = ui.create_dom_element({element_type: 'ul', class_name: 'uca-maps-legend-elements', parent: group_node})
 
-		column.symbols.forEach((element, element_index) => {
-			render_element_row(self, panel, elements_list, column_index, element_index, element)
+		group.symbols.forEach((symbol, symbol_index) => {
+			render_symbol_row(self, panel, symbols_list, group_index, symbol_index, symbol)
 		})
 
-		// after the elements, where the new one appears
-		const add_element_btn = ui.create_dom_element({
+		// after the symbols, where the new one appears
+		const add_symbol_btn = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'uca-maps-legend-add-element',
 			text_content	: '+ ' + (self.get_tool_label('legend_add_element') || 'Add element'),
-			parent			: column_node
+			parent			: group_node
 		})
-		add_element_btn.type = 'button'
-		add_element_btn.addEventListener('click', () => {
-			const result = self.add_legend_element(column_index)
-			populate_legend_columns(self, panel)
-			focus_in_list(panel, column_index, result.index, '.uca-maps-legend-element-name')
+		add_symbol_btn.type = 'button'
+		add_symbol_btn.addEventListener('click', () => {
+			const result = self.add_legend_symbol(group_index)
+			populate_legend_groups(self, panel)
+			focus_in_list(panel, group_index, result.index, '.uca-maps-legend-element-name')
 		})
 
 	})
 
-}//end populate_legend_columns
+}//end populate_legend_groups
 
 
 
 /**
-* RENDER_DELETE_COLUMN_CONFIRM
-* The in-panel "are you sure" of a group that still has elements: deleting
+* RENDER_DELETE_GROUP_CONFIRM
+* The in-panel "are you sure" of a group that still has symbols: deleting
 * it takes all of them.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
-* @param {HTMLElement} column_node
-* @param {number} column_index
+* @param {HTMLElement} group_node
+* @param {number} group_index
 * @returns {HTMLElement} the confirm line, hidden
 */
-const render_delete_column_confirm = function(self, panel, column_node, column_index) {
+const render_delete_group_confirm = function(self, panel, group_node, group_index) {
 
-	const confirm_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-confirm', parent: column_node})
+	const confirm_node = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-confirm', parent: group_node})
 	confirm_node.hidden = true
 
 	ui.create_dom_element({
@@ -272,8 +273,8 @@ const render_delete_column_confirm = function(self, panel, column_node, column_i
 	})
 	accept_btn.type = 'button'
 	accept_btn.addEventListener('click', () => {
-		self.delete_legend_column(column_index)
-		populate_legend_columns(self, panel)
+		self.delete_legend_group(group_index)
+		populate_legend_groups(self, panel)
 	})
 
 	const cancel_btn = ui.create_dom_element({
@@ -288,7 +289,7 @@ const render_delete_column_confirm = function(self, panel, column_node, column_i
 	})
 
 	return confirm_node
-}//end render_delete_column_confirm
+}//end render_delete_group_confirm
 
 
 
@@ -334,17 +335,17 @@ const render_move_buttons = function(self, parent, index, count, on_move) {
 * is gone: put it back on the equivalent node of the new list.
 *
 * @param {HTMLElement} panel
-* @param {number} column_index
-* @param {number|null} element_index - null for the group's own row
+* @param {number} group_index
+* @param {number|null} symbol_index - null for the group's own row
 * @param {string} selector
 * @returns {HTMLElement|null} the node focused
 */
-const focus_in_list = function(panel, column_index, element_index, selector) {
+const focus_in_list = function(panel, group_index, symbol_index, selector) {
 
-	const column_node	= panel.querySelectorAll('.uca-maps-legend-column')[column_index]
-	const scope			= column_node && element_index!==null
-		? column_node.querySelectorAll('.uca-maps-legend-element')[element_index]
-		: column_node && column_node.querySelector('.uca-maps-legend-column-row')
+	const group_node	= panel.querySelectorAll('.uca-maps-legend-column')[group_index]
+	const scope			= group_node && symbol_index!==null
+		? group_node.querySelectorAll('.uca-maps-legend-element')[symbol_index]
+		: group_node && group_node.querySelector('.uca-maps-legend-column-row')
 	const node			= scope && scope.querySelector(selector)
 	if (node) {
 		node.focus()
@@ -361,18 +362,18 @@ const focus_in_list = function(panel, column_index, element_index, selector) {
 * button in that direction is disabled, so focus goes to its twin.
 *
 * @param {HTMLElement} panel
-* @param {number} column_index
-* @param {number|null} element_index
+* @param {number} group_index
+* @param {number|null} symbol_index
 * @param {number} offset
 * @returns {void}
 */
-const focus_move_button = function(panel, column_index, element_index, offset) {
+const focus_move_button = function(panel, group_index, symbol_index, offset) {
 
 	const selector	= offset<0 ? '.uca-maps-legend-move-up' : '.uca-maps-legend-move-down'
 	const twin		= offset<0 ? '.uca-maps-legend-move-down' : '.uca-maps-legend-move-up'
-	const node		= focus_in_list(panel, column_index, element_index, selector)
+	const node		= focus_in_list(panel, group_index, symbol_index, selector)
 	if (node && node.disabled) {
-		focus_in_list(panel, column_index, element_index, twin)
+		focus_in_list(panel, group_index, symbol_index, twin)
 	}
 
 }//end focus_move_button
@@ -380,21 +381,21 @@ const focus_move_button = function(panel, column_index, element_index, offset) {
 
 
 /**
-* RENDER_ELEMENT_ROW
-* Symbol (a button opening its editor) + name + ↑/↓ + delete, with the
-* symbol editor below it, closed.
+* RENDER_SYMBOL_ROW
+* Icon (a button opening the symbol editor) + label + ↑/↓ + delete, with
+* that editor below it, closed.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
-* @param {HTMLElement} elements_list
-* @param {number} column_index
-* @param {number} element_index
-* @param {Object} element - {label, icon, symbol?}
+* @param {HTMLElement} symbols_list
+* @param {number} group_index
+* @param {number} symbol_index
+* @param {Object} symbol - {label, icon, symbol?}
 * @returns {void}
 */
-const render_element_row = function(self, panel, elements_list, column_index, element_index, element) {
+const render_symbol_row = function(self, panel, symbols_list, group_index, symbol_index, symbol) {
 
-	const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-legend-element', parent: elements_list})
+	const item = ui.create_dom_element({element_type: 'li', class_name: 'uca-maps-legend-element', parent: symbols_list})
 
 	const row = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-element-row', parent: item})
 
@@ -412,7 +413,7 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	// refuses `data:`. A saved icon comes off the wire, so only a raster data
 	// URI reaches the sink (is_raster_icon); an item without one shows none.
 	const icon = ui.create_dom_element({element_type: 'img', class_name: 'uca-maps-legend-element-icon', parent: symbol_btn})
-	set_icon_src(icon, element.icon)
+	set_icon_src(icon, symbol.icon)
 	icon.width	= 18
 	icon.height	= 18
 	icon.alt	= ''
@@ -425,17 +426,17 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	name_input.type			= 'text'
 	name_input.placeholder	= self.get_tool_label('legend_element_placeholder') || 'Element name'
 	name_input.setAttribute('aria-label', name_input.placeholder)
-	name_input.value			= element.label
+	name_input.value			= symbol.label
 	name_input.addEventListener('input', () => {
-		self.set_legend_element_name(column_index, element_index, name_input.value)
+		self.set_legend_symbol_label(group_index, symbol_index, name_input.value)
 	})
 
-	const element_count = self.legend.groups[column_index].symbols.length
-	render_move_buttons(self, row, element_index, element_count, (offset) => {
-		const result = self.move_legend_element(column_index, element_index, offset)
+	const symbol_count = self.legend.groups[group_index].symbols.length
+	render_move_buttons(self, row, symbol_index, symbol_count, (offset) => {
+		const result = self.move_legend_symbol(group_index, symbol_index, offset)
 		if (result.ok) {
-			populate_legend_columns(self, panel)
-			focus_move_button(panel, column_index, result.index, offset)
+			populate_legend_groups(self, panel)
+			focus_move_button(panel, group_index, result.index, offset)
 		}
 	})
 
@@ -449,40 +450,40 @@ const render_element_row = function(self, panel, elements_list, column_index, el
 	delete_btn.title	= self.get_tool_label('legend_delete_element') || 'Delete element'
 	delete_btn.setAttribute('aria-label', delete_btn.title)
 	delete_btn.addEventListener('click', () => {
-		self.delete_legend_element(column_index, element_index)
-		populate_legend_columns(self, panel)
+		self.delete_legend_symbol(group_index, symbol_index)
+		populate_legend_groups(self, panel)
 	})
 
-	const editor = render_symbol_editor(self, panel, item, icon, column_index, element_index, element)
+	const editor = render_symbol_editor(self, panel, item, icon, group_index, symbol_index, symbol)
 
 	symbol_btn.addEventListener('click', () => {
 		editor.hidden = !editor.hidden
 		symbol_btn.setAttribute('aria-expanded', String(!editor.hidden))
 	})
 
-}//end render_element_row
+}//end render_symbol_row
 
 
 
 /**
 * RENDER_SYMBOL_EDITOR
 * Shape + fill + stroke, or an uploaded image. Every gesture applies the whole
-* symbol at once; nothing rebuilds the list, so the native colour picker stays
+* drawing at once; nothing rebuilds the list, so the native colour picker stays
 * open while dragging.
 *
 * @param {Object} self
 * @param {HTMLElement} panel
-* @param {HTMLElement} item - the element's <li>
+* @param {HTMLElement} item - the symbol's <li>
 * @param {HTMLImageElement} row_icon - the row's own symbol image, repainted in place
-* @param {number} column_index
-* @param {number} element_index
-* @param {Object} element
+* @param {number} group_index
+* @param {number} symbol_index
+* @param {Object} symbol
 * @returns {HTMLElement} the editor, hidden
 */
-const render_symbol_editor = function(self, panel, item, row_icon, column_index, element_index, element) {
+const render_symbol_editor = function(self, panel, item, row_icon, group_index, symbol_index, symbol) {
 
-	// an element still on the pin, or on an uploaded image, opens on the defaults
-	const current = Object.assign({}, element.symbol || default_legend_symbol())
+	// a symbol still on the pin, or on an uploaded image, opens on the defaults
+	const current = Object.assign({}, symbol.symbol || default_legend_symbol())
 
 	const editor = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-symbol-editor', parent: item})
 	editor.hidden = true
@@ -527,14 +528,14 @@ const render_symbol_editor = function(self, panel, item, row_icon, column_index,
 	upload_btn.type	= 'button'
 	upload_btn.title	= self.get_tool_label('legend_upload_icon_title') || 'Upload an image as the symbol (recommended size 36x36)'
 	upload_btn.addEventListener('click', () => {
-		pick_icon_file(self, panel, column_index, element_index)
+		pick_icon_file(self, panel, group_index, symbol_index)
 	})
 
 	// the editor's own look follows `current`, applied or not yet
 	const paint = function() {
 		for (const button of shape_buttons) {
 			const shape = button.dataset.shape
-			button.setAttribute('aria-pressed', String(Boolean(element.symbol) && shape===current.shape))
+			button.setAttribute('aria-pressed', String(Boolean(symbol.symbol) && shape===current.shape))
 			button.replaceChildren(
 				legend_symbol_node(Object.assign({}, current, {shape: shape})),
 				document.createTextNode(shape_labels[shape])
@@ -548,9 +549,9 @@ const render_symbol_editor = function(self, panel, item, row_icon, column_index,
 	}
 
 	const apply = function() {
-		const result = self.set_legend_element_symbol(column_index, element_index, current)
+		const result = self.set_legend_symbol_drawing(group_index, symbol_index, current)
 		if (result.ok) {
-			set_icon_src(row_icon, element.icon)
+			set_icon_src(row_icon, symbol.icon)
 		}
 		paint()
 	}
@@ -597,11 +598,11 @@ const render_colour_field = function(parent, class_name, text, value, on_input) 
 *
 * @param {Object} self
 * @param {HTMLElement} panel
-* @param {number} column_index
-* @param {number} element_index
+* @param {number} group_index
+* @param {number} symbol_index
 * @returns {void}
 */
-const pick_icon_file = function(self, panel, column_index, element_index) {
+const pick_icon_file = function(self, panel, group_index, symbol_index) {
 
 	const file_input = document.createElement('input')
 	file_input.type		= 'file'
@@ -616,10 +617,10 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 
 		clear_legend_message(panel)
 
-		const result = await self.set_legend_element_icon(column_index, element_index, file)
+		const result = await self.set_legend_symbol_icon(group_index, symbol_index, file)
 
 		// the tool may be gone: the OS chooser can stay open across a teardown
-		// (legend.js set_legend_element_icon carries the same guard)
+		// (legend.js set_legend_symbol_icon carries the same guard)
 		if (!self.legend_panel) {
 			return
 		}
@@ -629,7 +630,7 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 			return
 		}
 
-		populate_legend_columns(self, panel)
+		populate_legend_groups(self, panel)
 
 	})
 
@@ -712,7 +713,7 @@ export const render_legend_overlay = function(self) {
 	// emptiness is measured in what would be DRAWN, not in how many groups
 	// exist: a group just created, still unnamed and with no symbols, paints
 	// a blank white box — which is the noise this branch exists to avoid
-	const is_empty	= !legend.title && !legend.groups.some((column) => column.name || column.symbols.length)
+	const is_empty	= !legend.title && !legend.groups.some((group) => group.name || group.symbols.length)
 	container.hidden = !legend.enable || is_empty
 	if (container.hidden) {
 		return
@@ -727,48 +728,48 @@ export const render_legend_overlay = function(self) {
 		})
 	}
 
-	const columns_node = ui.create_dom_element({
+	const groups_node = ui.create_dom_element({
 		element_type	: 'div',
 		class_name		: 'uca-maps-legend-overlay-columns',
 		parent			: container
 	})
 
-	for (const column of legend.groups) {
+	for (const group of legend.groups) {
 
-		const column_node = ui.create_dom_element({
+		const group_node = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'uca-maps-legend-overlay-column',
-			parent			: columns_node
+			parent			: groups_node
 		})
 
-		if (column.name) {
+		if (group.name) {
 			ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'uca-maps-legend-overlay-column-name',
-				text_content	: column.name,
-				parent			: column_node
+				text_content	: group.name,
+				parent			: group_node
 			})
 		}
 
-		for (const element of column.symbols) {
+		for (const symbol of group.symbols) {
 
-			const element_node = ui.create_dom_element({
+			const symbol_node = ui.create_dom_element({
 				element_type	: 'div',
 				class_name		: 'uca-maps-legend-overlay-element',
-				parent			: column_node
+				parent			: group_node
 			})
 
 			// same guarded sink as the panel row above
-			const icon = ui.create_dom_element({element_type: 'img', parent: element_node})
-			set_icon_src(icon, element.icon)
+			const icon = ui.create_dom_element({element_type: 'img', parent: symbol_node})
+			set_icon_src(icon, symbol.icon)
 			icon.width	= 18
 			icon.height	= 18
 			icon.alt	= ''
 
 			ui.create_dom_element({
 				element_type	: 'span',
-				text_content	: element.label,
-				parent			: element_node
+				text_content	: symbol.label,
+				parent			: symbol_node
 			})
 
 		}

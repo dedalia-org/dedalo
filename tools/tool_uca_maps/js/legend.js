@@ -28,7 +28,7 @@ import {
 } from './toolbar.js'
 import {
 	render_legend_panel,
-	populate_legend_columns,
+	populate_legend_groups,
 	clear_legend_message,
 	show_legend_message,
 	create_legend_overlay,
@@ -54,9 +54,9 @@ export const MAX_ICON_BYTES = 2000000
 
 /** A new item's default pin, a PNG drawn here (v6 serves `img/pin.svg`). */
 // exported for the client gate
-export const default_element_icon = function() {
+export const default_symbol_icon = function() {
 	return pin_data_url(default_symbol_colour())
-}//end default_element_icon
+}//end default_symbol_icon
 
 
 
@@ -326,7 +326,7 @@ const toggle_legend_panel = function(self) {
 
 	if (next_visible) {
 		clear_legend_message(self.legend_panel)
-		populate_legend_columns(self, self.legend_panel)
+		populate_legend_groups(self, self.legend_panel)
 	}
 
 	set_toolbar_panel_visible(self, self.legend_panel, self.legend_control, next_visible)
@@ -369,27 +369,27 @@ export const set_legend_visible = function(self, visible) {
 
 
 /**
-* ADD_LEGEND_COLUMN
+* ADD_LEGEND_GROUP
 * @param {Object} self
 * @returns {{ok: boolean, index: number}}
 */
-export const add_legend_column = function(self) {
+export const add_legend_group = function(self) {
 
 	self.legend.groups.push({name: '', symbols: []})
 	legend_changed(self)
 
 	return {ok: true, index: self.legend.groups.length - 1}
-}//end add_legend_column
+}//end add_legend_group
 
 
 
 /**
-* DELETE_LEGEND_COLUMN
+* DELETE_LEGEND_GROUP
 * @param {Object} self
 * @param {number} index
 * @returns {{ok: boolean}}
 */
-export const delete_legend_column = function(self, index) {
+export const delete_legend_group = function(self, index) {
 
 	if (index<0 || index>=self.legend.groups.length) {
 		return {ok: false}
@@ -399,40 +399,40 @@ export const delete_legend_column = function(self, index) {
 	legend_changed(self)
 
 	return {ok: true}
-}//end delete_legend_column
+}//end delete_legend_group
 
 
 
 /**
-* SET_LEGEND_COLUMN_NAME
+* SET_LEGEND_GROUP_NAME
 * @param {Object} self
 * @param {number} index
 * @param {string} text
 * @returns {{ok: boolean}}
 */
-export const set_legend_column_name = function(self, index, text) {
+export const set_legend_group_name = function(self, index, text) {
 
-	const column = self.legend.groups[index]
-	if (!column) {
+	const group = self.legend.groups[index]
+	if (!group) {
 		return {ok: false}
 	}
 
-	column.name = strip_tags(String(text || ''))
+	group.name = strip_tags(String(text || ''))
 	legend_changed(self)
 
 	return {ok: true}
-}//end set_legend_column_name
+}//end set_legend_group_name
 
 
 
 /**
-* MOVE_LEGEND_COLUMN
+* MOVE_LEGEND_GROUP
 * @param {Object} self
 * @param {number} index
 * @param {number} offset - -1 up, +1 down
 * @returns {{ok: boolean, index?: number}}
 */
-export const move_legend_column = function(self, index, offset) {
+export const move_legend_group = function(self, index, offset) {
 
 	const result = move_item(self.legend.groups, index, offset)
 	if (result.ok) {
@@ -440,77 +440,77 @@ export const move_legend_column = function(self, index, offset) {
 	}
 
 	return result
-}//end move_legend_column
+}//end move_legend_group
 
 
 
 /**
-* ADD_LEGEND_ELEMENT
+* ADD_LEGEND_SYMBOL
 * @param {Object} self
-* @param {number} column_index
+* @param {number} group_index
 * @returns {{ok: boolean, index?: number}}
 */
-export const add_legend_element = function(self, column_index) {
+export const add_legend_symbol = function(self, group_index) {
 
-	const column = self.legend.groups[column_index]
-	if (!column) {
+	const group = self.legend.groups[group_index]
+	if (!group) {
 		return {ok: false}
 	}
 
-	column.symbols.push({label: '', icon: default_element_icon()})
+	group.symbols.push({label: '', icon: default_symbol_icon()})
 	legend_changed(self)
 
-	return {ok: true, index: column.symbols.length - 1}
-}//end add_legend_element
+	return {ok: true, index: group.symbols.length - 1}
+}//end add_legend_symbol
 
 
 
 /**
-* DELETE_LEGEND_ELEMENT
+* DELETE_LEGEND_SYMBOL
 * @param {Object} self
-* @param {number} column_index
-* @param {number} element_index
+* @param {number} group_index
+* @param {number} symbol_index
 * @returns {{ok: boolean}}
 */
-export const delete_legend_element = function(self, column_index, element_index) {
+export const delete_legend_symbol = function(self, group_index, symbol_index) {
 
-	const column = self.legend.groups[column_index]
-	if (!column || element_index<0 || element_index>=column.symbols.length) {
+	const group = self.legend.groups[group_index]
+	if (!group || symbol_index<0 || symbol_index>=group.symbols.length) {
 		return {ok: false}
 	}
 
-	column.symbols.splice(element_index, 1)
+	group.symbols.splice(symbol_index, 1)
 	legend_changed(self)
 
 	return {ok: true}
-}//end delete_legend_element
+}//end delete_legend_symbol
 
 
 
 /**
-* MOVE_LEGEND_ELEMENT
+* MOVE_LEGEND_SYMBOL
 * Within its own group only.
 *
 * @param {Object} self
-* @param {number} column_index
-* @param {number} element_index
+* @param {number} group_index
+* @param {number} symbol_index
 * @param {number} offset - -1 up, +1 down
 * @returns {{ok: boolean, index?: number}}
 */
-export const move_legend_element = function(self, column_index, element_index, offset) {
+export const move_legend_symbol = function(self, group_index, symbol_index, offset) {
 
-	const column = self.legend.groups[column_index]
-	if (!column) {
+	const group = self.legend.groups[group_index]
+	if (!group) {
 		return {ok: false}
 	}
 
-	const result = move_item(column.symbols, element_index, offset)
+	const result = move_item(group.symbols, symbol_index, offset)
 	if (result.ok) {
 		legend_changed(self)
 	}
 
 	return result
-}//end move_legend_element
+}//end move_legend_symbol
 
 
 
@@ -540,85 +540,85 @@ const move_item = function(list, index, offset) {
 
 
 /**
-* SET_LEGEND_ELEMENT_NAME
+* SET_LEGEND_SYMBOL_LABEL
 * @param {Object} self
-* @param {number} column_index
-* @param {number} element_index
+* @param {number} group_index
+* @param {number} symbol_index
 * @param {string} text
 * @returns {{ok: boolean}}
 */
-export const set_legend_element_name = function(self, column_index, element_index, text) {
+export const set_legend_symbol_label = function(self, group_index, symbol_index, text) {
 
-	const column	= self.legend.groups[column_index]
-	const element	= column && column.symbols[element_index]
-	if (!element) {
+	const group		= self.legend.groups[group_index]
+	const symbol	= group && group.symbols[symbol_index]
+	if (!symbol) {
 		return {ok: false}
 	}
 
-	element.label = strip_tags(String(text || ''))
+	symbol.label = strip_tags(String(text || ''))
 	legend_changed(self)
 
 	return {ok: true}
-}//end set_legend_element_name
+}//end set_legend_symbol_label
 
 
 
 /**
-* SET_LEGEND_ELEMENT_SYMBOL
-* A drawn symbol (`legend_symbol.js`). The element keeps v6's `icon` as the
-* thing drawn — a PNG `data:` URL like an upload — and `symbol` only so the
-* editor can reopen on its values this session (the record keeps the icon).
-* An invalid symbol changes nothing.
+* SET_LEGEND_SYMBOL_DRAWING
+* A drawing (`legend_symbol.js`) as the symbol's picture. The symbol keeps v6's
+* `icon` as the thing drawn — a PNG `data:` URL like an upload — and the drawing
+* as `symbol` only so the editor can reopen on its values this session (the
+* record keeps the icon). An invalid drawing changes nothing.
 *
 * @param {Object} self
-* @param {number} column_index
-* @param {number} element_index
-* @param {{shape: string, fill: string, stroke: string}} symbol
+* @param {number} group_index
+* @param {number} symbol_index
+* @param {{shape: string, fill: string, stroke: string}} drawing
 * @returns {{ok: boolean}}
 */
-export const set_legend_element_symbol = function(self, column_index, element_index, symbol) {
+export const set_legend_symbol_drawing = function(self, group_index, symbol_index, drawing) {
 
-	const column	= self.legend.groups[column_index]
-	const element	= column && column.symbols[element_index]
-	if (!element || !is_legend_symbol(symbol)) {
+	const group		= self.legend.groups[group_index]
+	const symbol	= group && group.symbols[symbol_index]
+	if (!symbol || !is_legend_symbol(drawing)) {
 		return {ok: false}
 	}
 
-	element.symbol	= {
-		shape	: symbol.shape,
-		fill	: symbol.fill.toLowerCase(),
-		stroke	: symbol.stroke.toLowerCase()
+	symbol.symbol	= {
+		shape	: drawing.shape,
+		fill	: drawing.fill.toLowerCase(),
+		stroke	: drawing.stroke.toLowerCase()
 	}
-	element.icon	= legend_symbol_data_url(element.symbol)
+	symbol.icon		= legend_symbol_data_url(symbol.symbol)
 	legend_changed(self)
 
 	return {ok: true}
-}//end set_legend_element_symbol
+}//end set_legend_symbol_drawing
 
 
 
 /**
-* SET_LEGEND_ELEMENT_ICON
+* SET_LEGEND_SYMBOL_ICON
 * The picked image is redrawn, in the browser, as a PNG at most LEGEND_ICON_SIDE on a
 * side (`raster_icon`): the record keeps it as a `data:` URI, and only a small raster
 * one. Type and size are checked BEFORE reading, so a 30 MB file is never loaded only
 * to be refused.
 *
 * @param {Object} self
-* @param {number} column_index
-* @param {number} element_index
+* @param {number} group_index
+* @param {number} symbol_index
 * @param {File} file
 * @returns {Promise<{ok: boolean, error?: string}>}
 */
-export const set_legend_element_icon = async function(self, column_index, element_index, file) {
+export const set_legend_symbol_icon = async function(self, group_index, symbol_index, file) {
 
 	// the only mutator with an await in it: the OS file chooser can outlive
 	// the tool (teardown nulls self.legend), and the picker's handler is on a
 	// detached input detach cannot reach — same guard shape as
 	// render_file_upload.js's post-await panel check
-	const column	= self.legend && self.legend.groups[column_index]
-	const element	= column && column.symbols[element_index]
-	if (!element || !file) {
+	const group		= self.legend && self.legend.groups[group_index]
+	const symbol	= group && group.symbols[symbol_index]
+	if (!symbol || !file) {
 		return {ok: false}
 	}
 
@@ -646,13 +646,13 @@ export const set_legend_element_icon = async function(self, column_index, elemen
 		}
 	}
 
-	element.icon = data_url
+	symbol.icon = data_url
 	// an uploaded image replaces the drawn symbol: nothing left to reopen
-	delete element.symbol
+	delete symbol.symbol
 	legend_changed(self)
 
 	return {ok: true}
-}//end set_legend_element_icon
+}//end set_legend_symbol_icon
 
 
 
