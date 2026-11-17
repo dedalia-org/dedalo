@@ -35,12 +35,14 @@
  *      raw live value is not rewritten (the row speaks for its lane only);
  *   R2 a benign row restores byte-identical (a valid restore is unchanged);
  *   R3 a whole-record row: the text area gated to the save-door form, a number
- *      formatted as its node declares, a non-html literal verbatim;
+ *      formatted as its node declares, a non-html literal verbatim; the
+ *      recover's own whole-record history row holds the gated values;
  *   R4 a credential row that is not a stored hash is REFUSED
  *      (`tool.snapshot_unrestorable`), nothing written — whether a save would
  *      refuse it (it breaks the policy) or hash it (it conforms): a replay
  *      never mints a credential from history bytes; a stored hash replays
- *      verbatim.
+ *      verbatim. On the WHOLE-RECORD door the image is refused WHOLE: its
+ *      other keys are not written either, no history row is added.
  *
  * Situation: the suite's `test3` playground (matrix_test) with its translatable
  * `component_text_area` test17 and `component_input_text` test52. Records are
@@ -405,6 +407,19 @@ describe('R3 — a whole-record history row is gated key by key', () => {
 		]);
 		// Not an `html` render class: the client escapes it, the gate leaves it.
 		expect(await storedValue(id, INPUT_TEXT, 'lg-spa')).toBe(literal);
+
+		// The recover's OWN whole-record history row (the record AS WRITTEN, newer
+		// than the replayed one) holds the gated values — never the raw image.
+		const newer = (await sql`
+			SELECT data FROM matrix_time_machine
+			 WHERE section_tipo = ${SECTION} AND section_id = ${id} AND tipo = ${SECTION}
+			   AND id > ${rowId}
+		`) as { data: Record<string, Record<string, { value: unknown }[]>> }[];
+		expect(newer).toHaveLength(1);
+		const written = newer[0]?.data ?? {};
+		expect(JSON.stringify(written)).not.toMatch(/on(mouseover|error)/i);
+		expect(written.string?.[TEXT_AREA]?.map((item) => item.value)).toEqual([stored]);
+		expect(written.number?.[NUMBER]?.map((item) => item.value)).toEqual([1.2346]);
 	});
 });
 
@@ -424,6 +439,35 @@ describe('R4 — a credential row that is not a stored hash is refused, never wr
 			expect(await storedItems(id, PASSWORD)).toEqual(live);
 		});
 	}
+
+	test('a WHOLE-RECORD image carrying a non-hash credential is refused whole: no key written, no history row', async () => {
+		const liveText = [{ id: 1, lang: 'lg-spa', value: '<p>ahora</p>' }];
+		const liveHash = [{ id: 1, lang: 'lg-nolan', value: STORED_HASH }];
+		const id = await mint(TEXT_AREA, liveText);
+		expect(
+			await updateMatrixRecord(table, SECTION, id, {
+				string: { [TEXT_AREA]: liveText, [PASSWORD]: liveHash },
+			}),
+		).toBe('updated');
+		const plaintext = 'Conforming-Passw0rd-2017!';
+		const rowId = await mintTmRow(id, SECTION, 'lg-nolan', {
+			string: {
+				// a clean, DIFFERENT text: the refusal is the credential's alone
+				[TEXT_AREA]: [{ id: 1, lang: 'lg-spa', value: '<p>antes</p>' }],
+				[PASSWORD]: [{ id: 1, lang: 'lg-nolan', value: plaintext }],
+			},
+		});
+		const refusal = await refusalOf(restore(id, SECTION, 'lg-nolan', rowId));
+		expect(refusal.code).toBe('tool.snapshot_unrestorable');
+		expect(JSON.stringify(refusal.coordinates ?? {})).not.toContain(plaintext);
+		expect(await storedItems(id, TEXT_AREA)).toEqual(liveText);
+		expect(await storedItems(id, PASSWORD)).toEqual(liveHash);
+		const newer = (await sql`
+			SELECT id FROM matrix_time_machine
+			 WHERE section_tipo = ${SECTION} AND section_id = ${id} AND id > ${rowId}
+		`) as { id: number }[];
+		expect(newer).toEqual([]);
+	});
 
 	test('a stored hash replays verbatim (never re-hashed)', async () => {
 		const other = `${STORED_HASH}x`;
