@@ -5762,6 +5762,33 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		)
 	})
 
+	// UTC's day is the previous one in Spain after midnight: the suite runs in UTC, so a
+	// clock whose local day (2000-01-01) and UTC day (1999-12-31) disagree stands in
+	it('the credit\'s date is the viewer\'s local day, never UTC\'s', function() {
+
+		geolocation.section_lang = 'lg-spa'
+		offer_catastro()
+		tool.attach_catastro()
+		const RealDate = window.Date
+		window.Date = class extends RealDate {
+			getFullYear()		{ return 2000 }
+			getMonth()			{ return 0 }
+			getDate()			{ return 1 }
+			getUTCFullYear()	{ return 1999 }
+			getUTCMonth()		{ return 11 }
+			getUTCDate()		{ return 31 }
+			toISOString()		{ return '1999-12-31T23:30:00.000Z' }
+		}
+		try {
+			tool.catastro_control.getContainer().click()
+		} finally {
+			window.Date = RealDate
+		}
+		const credits = geolocation.map.attributionControl.getContainer().textContent
+		assert.notInclude(credits, '1999-12-31', 'expected no UTC day in the credit')
+		assert.include(credits, 'Catastro, 2000-01-01', 'expected the local day in the credit')
+	})
+
 	it('Catastro configured before the map is built: core offers its checkbox from get_map, and arming ticks that one', async function() {
 
 		geolocation.section_lang = 'lg-spa'

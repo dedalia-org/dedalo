@@ -102,7 +102,12 @@ export const catastro_armed_credit = function(self, source) {
 	const name = source.attribution!==''
 		? (self.get_tool_label('catastro_control_title') || 'Catastro')
 		: CATASTRO_CREDIT
-	return name + ', ' + new Date().toISOString().slice(0, 10)
+	// the viewer's own day: toISOString's is UTC, yesterday in Spain after midnight
+	const now	= new Date()
+	const day	= [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+		.map((part) => String(part).padStart(2, '0'))
+		.join('-')
+	return name + ', ' + day
 }//end catastro_armed_credit
 
 
