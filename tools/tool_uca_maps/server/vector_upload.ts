@@ -22,7 +22,7 @@ import {
 	uploadStagingBase,
 	withScratchDir,
 } from './gdal.ts';
-import type { ReasonKey } from './reasons.ts';
+import { invalidOptions, tooLarge } from './reasons.ts';
 import { assertZipInflatesWithin } from './zip_inflated_size.ts';
 
 // client extension -> the scratch-file extension ogr2ogr needs and the only
@@ -43,20 +43,6 @@ const MAX_UPLOAD_BYTES = 10_000_000;
 // grow unbounded behind the 10 MB upload. 20x the upload covers a padded .dbf.
 const MAX_INFLATED_BYTES = 200_000_000;
 const MAX_OUTPUT_BYTES = 200_000_000;
-
-/** A refusal the user can act on (a field, the file): the log keeps the
- * specifics the key's fixed sentence cannot carry. */
-function invalidVectorUpload(message: string, reason?: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', {
-		message,
-		details: reason === undefined ? undefined : { reason_key: reason },
-	});
-}
-
-/** A size ceiling, not a bad option. */
-function tooLarge(message: string, reason: ReasonKey): DedaloError {
-	return new DedaloError('media.too_large', { message, details: { reason_key: reason } });
-}
 
 /** v6's manual projection: GDAL applies the EPSG; zone+band describe a UTM one. */
 interface ManualProjection {
@@ -87,27 +73,27 @@ export function parseManualProjection(options: Record<string, unknown>): ManualP
 		.trim()
 		.toUpperCase();
 	if (epsg === '') {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			'Zone and band describe an EPSG code: fill in the EPSG too',
 			'projection_epsg_missing',
 		);
 	}
 	if ((zone === '') !== (band === '')) {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			'Zone and band go together: fill in both, or neither',
 			'projection_zone_band_pair',
 		);
 	}
 	if (!/^[0-9]{4,6}$/.test(epsg)) {
-		throw invalidVectorUpload(`Invalid EPSG code '${epsg}'`, 'epsg_invalid');
+		throw invalidOptions(`Invalid EPSG code '${epsg}'`, 'epsg_invalid');
 	}
 	if (zone === '') return { epsg, utm: null };
 	const zoneNumber = /^[0-9]{1,2}$/.test(zone) ? Number(zone) : 0;
 	if (zoneNumber < 1 || zoneNumber > 60) {
-		throw invalidVectorUpload(`Invalid UTM zone '${zone}' (expected 1 to 60)`, 'utm_zone_invalid');
+		throw invalidOptions(`Invalid UTM zone '${zone}' (expected 1 to 60)`, 'utm_zone_invalid');
 	}
 	if (band.length !== 1 || !UTM_BANDS.includes(band)) {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			`Invalid UTM band '${band}' (expected one letter, C to X)`,
 			'utm_band_invalid',
 		);
@@ -127,7 +113,7 @@ export function assertProjectionMatches(projection: ManualProjection, proj4: str
 	const zone = /\+proj=utm\b/.test(proj4) ? /\+zone=([0-9]+)/.exec(proj4) : null;
 	if (zone === null) {
 		if (projection.utm !== null) {
-			throw invalidVectorUpload(
+			throw invalidOptions(
 				`EPSG:${projection.epsg} is not a UTM projection: leave zone and band empty`,
 				'epsg_not_utm',
 			);
@@ -138,13 +124,13 @@ export function assertProjectionMatches(projection: ManualProjection, proj4: str
 	// in the band's own terms: an MGRS "S" is northern, so "19S" would mislead
 	const actual = `UTM zone ${zone[1]}, ${south ? 'southern hemisphere (band C to M)' : 'northern hemisphere (band N to X)'}`;
 	if (projection.utm === null) {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			`EPSG:${projection.epsg} is ${actual}: fill in its zone and band too`,
 			'epsg_needs_zone_band',
 		);
 	}
 	if (Number(zone[1]) !== projection.utm.zone || south !== projection.utm.south) {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			`EPSG:${projection.epsg} is ${actual}, not the zone and band given ` +
 				`(zone ${projection.utm.zone}, ${projection.utm.south ? 'southern' : 'northern'} hemisphere)`,
 			'epsg_zone_band_mismatch',
@@ -158,7 +144,7 @@ export function assertProjectionMatches(projection: ManualProjection, proj4: str
  */
 export function classifyProjectionLookupError(error: unknown, epsg: string): unknown {
 	if (error instanceof Error && /crs not found/i.test(error.message)) {
-		return invalidVectorUpload(`Unknown EPSG code '${epsg}'`, 'epsg_unknown');
+		return invalidOptions(`Unknown EPSG code '${epsg}'`, 'epsg_unknown');
 	}
 	return error;
 }
@@ -189,7 +175,7 @@ export function parseStrictGeoJson(text: string): unknown {
 	try {
 		parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
 	} catch {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			'This GeoJSON is not strict JSON: save it as strict JSON',
 			'geojson_not_strict',
 		);
@@ -238,7 +224,7 @@ export async function declaresOwnCrs(
  * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`).
  */
 function resolveStagedUpload(userId: number, rawKeyDir: string, rawTmpName: string): string {
-	if (rawTmpName === '') throw invalidVectorUpload('Missing staged file (tmp_name)');
+	if (rawTmpName === '') throw invalidOptions('Missing staged file (tmp_name)');
 	const keyDir = rawKeyDir === '' ? '' : sanitizeSegment(rawKeyDir);
 	const tmpName = sanitizeSegment(rawTmpName);
 	const userStaging = join(uploadStagingBase('tool_uca_maps.vectorUpload'), String(userId));
@@ -364,7 +350,7 @@ export async function outsideLonLatRefusal(
 ): Promise<DedaloError> {
 	const at = position.map((value) => Number(value.toFixed(2))).join(', ');
 	if (projection !== null) {
-		return invalidVectorUpload(
+		return invalidOptions(
 			`With EPSG:${projection.epsg} the coordinates are not longitude/latitude (${at}): ` +
 				"it is not this file's projection",
 			'projection_not_this_file',
@@ -372,13 +358,13 @@ export async function outsideLonLatRefusal(
 	}
 	const declares = await declaresOwnCrs(dir, inputFile, extension);
 	if (declares) {
-		return invalidVectorUpload(
+		return invalidOptions(
 			`The coordinates do not fit the projection this file declares (${at} is not ` +
 				"longitude/latitude): correct the file's projection",
 			'projection_declared_wrong',
 		);
 	}
-	return invalidVectorUpload(
+	return invalidOptions(
 		`This file does not declare its projection and its coordinates are not ` +
 			`longitude/latitude (${at}): provide its EPSG code (and, for a UTM one, its zone ` +
 			'and band) to reproject it',
@@ -434,7 +420,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		.replace(/^\./, '');
 	const format = VECTOR_UPLOAD_FORMATS[extension];
 	if (format === undefined) {
-		throw invalidVectorUpload(
+		throw invalidOptions(
 			`Unsupported vector file extension '${extension}' (expected zip, geojson or kml)`,
 			'upload_extension_unsupported',
 		);
@@ -480,7 +466,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		if (typed) {
 			const declares = await declaresOwnCrs(dir, inputFile, extension);
 			if (declares) {
-				throw invalidVectorUpload(
+				throw invalidOptions(
 					'This file already declares its own projection: leave EPSG, zone and band empty',
 					'projection_already_declared',
 				);
@@ -512,7 +498,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 			// override fails otherwise and keeps its generic error.
 			const message = error instanceof Error ? error.message : String(error);
 			if (projection === null && /coordinate system/i.test(message)) {
-				throw invalidVectorUpload(
+				throw invalidOptions(
 					'This file has no embedded coordinate system (no .prj / crs member) — ' +
 						'provide its EPSG code (and, for a UTM one, its zone and band) to reproject it',
 					'no_coordinate_system',

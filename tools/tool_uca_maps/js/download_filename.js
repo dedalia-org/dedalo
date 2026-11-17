@@ -6,7 +6,7 @@
 /**
 * DOWNLOAD_FILENAME
 * The ONE rule turning a user-typed download name into a safe one, imported by
-* the browser (`link.download`) and the server (`server/raster_download.ts`), so
+* the browser (`link.download`) and the server (`server/download_answer.ts`), so
 * it cannot have two behaviours; hence a leaf with no imports and no DOM. The
 * result is never a path; the extension is appended, never read from the text.
 *

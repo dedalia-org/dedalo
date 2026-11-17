@@ -8,7 +8,7 @@
 
 import { createInflateRaw } from 'node:zlib';
 import { DedaloError } from '../../../src/core/errors/index.ts';
-import type { ReasonKey } from './reasons.ts';
+import { invalidOptions } from './reasons.ts';
 
 // A shapefile is a handful of sidecar files; a zip of several layers is a few
 // dozen. Far above that is not a shapefile upload.
@@ -17,10 +17,6 @@ const MAX_ENTRIES = 1000;
 const EOCD_LENGTH = 22;
 const CENTRAL_HEADER_LENGTH = 46;
 const LOCAL_HEADER_LENGTH = 30;
-
-function invalidZip(message: string, reason: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', { message, details: { reason_key: reason } });
-}
 
 // signatures compared as byte runs (PK + two bytes), the way the engine's
 // readers sniff: a 32-bit literal is how the ZIP encoder census spots emission
@@ -39,7 +35,7 @@ function findEndOfCentralDirectory(bytes: Uint8Array): number {
 	for (let at = bytes.length - EOCD_LENGTH; at >= lowest; at--) {
 		if (hasSignature(bytes, at, 0x05, 0x06)) return at;
 	}
-	throw invalidZip('The uploaded file is not a readable zip archive', 'zip_unreadable');
+	throw invalidOptions('The uploaded file is not a readable zip archive', 'zip_unreadable');
 }
 
 /** Inflate `data` without keeping it, counting into the remaining budget. */
@@ -55,7 +51,7 @@ function inflatedLength(data: Uint8Array, budget: number): Promise<number> {
 			}
 		});
 		inflate.on('error', () =>
-			reject(invalidZip('The uploaded zip archive is corrupt', 'zip_unreadable')),
+			reject(invalidOptions('The uploaded zip archive is corrupt', 'zip_unreadable')),
 		);
 		inflate.on('end', () => resolve(total));
 		inflate.end(data);
@@ -77,27 +73,30 @@ export async function assertZipInflatesWithin(
 	const directorySize = view.getUint32(eocd + 12, true);
 	const directoryOffset = view.getUint32(eocd + 16, true);
 	if (view.getUint16(eocd + 4, true) !== 0 || view.getUint16(eocd + 6, true) !== 0) {
-		throw invalidZip('A zip archive split into several files is not supported', 'zip_split');
+		throw invalidOptions('A zip archive split into several files is not supported', 'zip_split');
 	}
 	// a ZIP64 marker: a 10 MB upload never needs one, and its sizes would need their own reader
 	if (entries === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) {
-		throw invalidZip('A ZIP64 archive is not supported: zip the shapefile without ZIP64', 'zip64');
+		throw invalidOptions(
+			'A ZIP64 archive is not supported: zip the shapefile without ZIP64',
+			'zip64',
+		);
 	}
 	if (entries > MAX_ENTRIES) {
-		throw invalidZip(
+		throw invalidOptions(
 			`The zip archive holds ${entries} files (at most ${MAX_ENTRIES})`,
 			'zip_too_many_files',
 		);
 	}
 	if (directoryOffset + directorySize > eocd) {
-		throw invalidZip('The uploaded zip archive is corrupt', 'zip_unreadable');
+		throw invalidOptions('The uploaded zip archive is corrupt', 'zip_unreadable');
 	}
 
 	let total = 0;
 	let at = directoryOffset;
 	for (let index = 0; index < entries; index++) {
 		if (at + CENTRAL_HEADER_LENGTH > eocd || !hasSignature(bytes, at, 0x01, 0x02)) {
-			throw invalidZip('The uploaded zip archive is corrupt', 'zip_unreadable');
+			throw invalidOptions('The uploaded zip archive is corrupt', 'zip_unreadable');
 		}
 		const flags = view.getUint16(at + 8, true);
 		const method = view.getUint16(at + 10, true);
@@ -111,9 +110,9 @@ export async function assertZipInflatesWithin(
 			view.getUint16(at + 32, true);
 
 		if ((flags & 0x1) !== 0)
-			throw invalidZip('An encrypted zip archive is not supported', 'zip_encrypted');
+			throw invalidOptions('An encrypted zip archive is not supported', 'zip_encrypted');
 		if (compressedSize === 0xffffffff || localOffset === 0xffffffff) {
-			throw invalidZip(
+			throw invalidOptions(
 				'A ZIP64 archive is not supported: zip the shapefile without ZIP64',
 				'zip64',
 			);
@@ -122,7 +121,7 @@ export async function assertZipInflatesWithin(
 			localOffset + LOCAL_HEADER_LENGTH > bytes.length ||
 			!hasSignature(bytes, localOffset, 0x03, 0x04)
 		) {
-			throw invalidZip('The uploaded zip archive is corrupt', 'zip_unreadable');
+			throw invalidOptions('The uploaded zip archive is corrupt', 'zip_unreadable');
 		}
 		const dataStart =
 			localOffset +
@@ -130,14 +129,14 @@ export async function assertZipInflatesWithin(
 			view.getUint16(localOffset + 26, true) +
 			view.getUint16(localOffset + 28, true);
 		if (dataStart + compressedSize > bytes.length) {
-			throw invalidZip('The uploaded zip archive is corrupt', 'zip_unreadable');
+			throw invalidOptions('The uploaded zip archive is corrupt', 'zip_unreadable');
 		}
 		const data = bytes.subarray(dataStart, dataStart + compressedSize);
 
 		if (method === 0) total += compressedSize;
 		else if (method === 8) total += await inflatedLength(data, maxBytes - total);
 		else {
-			throw invalidZip(
+			throw invalidOptions(
 				`Zip compression method ${method} is not supported (store or deflate)`,
 				'zip_method_unsupported',
 			);

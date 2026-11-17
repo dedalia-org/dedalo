@@ -6,19 +6,14 @@
  * object. A bad coordinate throws.
  */
 
-import { DedaloError, isErrorInDomain, ok } from '../../../src/core/errors/index.ts';
+import { isErrorInDomain, ok } from '../../../src/core/errors/index.ts';
 import { callGeoService } from '../../../src/core/geo_services/call.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-
-/** A caller fault — a coordinate that is not a coordinate. No publicMessage:
- * the console shows only "unavailable" whatever the failure. */
-function invalidCoordinate(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message });
-}
+import { invalidOptions } from './reasons.ts';
 
 /**
  * A number, or nothing. Not `Number(value)`: it reads `null`, `''` and `[]` as
@@ -40,15 +35,16 @@ function finiteNumber(value: unknown): number | null {
  * Reads one finite coordinate out of the options, refusing anything outside
  * its real range. The range check is not decoration: `locations=` goes
  * straight into a URL, and a NaN or an unbounded number would be shipped to a
- * third party as text.
+ * third party as text. Refused bare: the console shows only "unavailable"
+ * whatever the failure.
  */
 function readCoordinate(value: unknown, name: string, limit: number): number {
 	const parsed = finiteNumber(value);
 	if (parsed === null) {
-		throw invalidCoordinate(`The ${name} of the point is required.`);
+		throw invalidOptions(`The ${name} of the point is required.`);
 	}
 	if (parsed < -limit || parsed > limit) {
-		throw invalidCoordinate(`The ${name} of the point is out of range.`);
+		throw invalidOptions(`The ${name} of the point is out of range.`);
 	}
 	return parsed;
 }

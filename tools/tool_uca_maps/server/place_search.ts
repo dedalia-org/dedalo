@@ -5,7 +5,7 @@
  * 'self'`) makes a browser-side geocoder fail on every search, silently.
  */
 
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { ok } from '../../../src/core/errors/index.ts';
 import { getAlpha2FromCode } from '../../../src/core/resolve/lang_names.ts';
 import {
 	type ToolActionContext,
@@ -13,15 +13,10 @@ import {
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
 import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
-import type { ReasonKey } from './reasons.ts';
+import { invalidOptions, sourceUnavailable } from './reasons.ts';
 
 /** v6's own result count for the same control (`leaflet-control-geocoder` default). */
 const RESULT_LIMIT = 8;
-
-/** A caller fault — empty or over-long search text. */
-function invalidSearchRequest(message: string, reason: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', { message, details: { reason_key: reason } });
-}
 
 /** One search hit, already reduced to what the map needs. */
 export interface PlaceResult {
@@ -31,18 +26,6 @@ export interface PlaceResult {
 	point: [number, number];
 	/** [south, west, north, east] — Leaflet `fitBounds` order, or null. */
 	bbox: [number, number, number, number] | null;
-}
-
-/**
- * The service answered, but not with something usable: the source failing,
- * never `request.invalid_options`, which would tell the user their input was
- * wrong and leave a third-party outage unclassified in the log.
- */
-function outboundFailure(message: string): DedaloError {
-	return new DedaloError('tool.source_unavailable', {
-		message,
-		details: { reason_key: 'place_search_unavailable' },
-	});
 }
 
 /**
@@ -56,7 +39,10 @@ export function parsePlaceResults(payload: unknown): PlaceResult[] {
 	// user would be told the toponym does not exist during an outage. Core's
 	// shape check refuses it first; this one keeps the parser honest on its own.
 	if (!Array.isArray(payload)) {
-		throw outboundFailure('The place-search service refused the request.');
+		throw sourceUnavailable(
+			'The place-search service refused the request.',
+			'place_search_unavailable',
+		);
 	}
 
 	const results: PlaceResult[] = [];
@@ -105,25 +91,22 @@ function parseBoundingBox(raw: unknown): [number, number, number, number] | null
 export async function searchPlaces(ctx: ToolActionContext): Promise<ToolResponse> {
 	const query = String(ctx.options.query ?? '').trim();
 	if (!query) {
-		throw invalidSearchRequest('The search text is required.', 'search_text_required');
+		throw invalidOptions('The search text is required.', 'search_text_required');
 	}
 	// Nominatim's policy forbids as-you-type search: core's service takes three
 	// characters at least, and this says so in the user's words
 	if (query.length < 3) {
-		throw invalidSearchRequest('The search text is too short.', 'search_text_too_short');
+		throw invalidOptions('The search text is too short.', 'search_text_too_short');
 	}
 	// a URL query param, not a database key — the cap is about not shipping an
 	// unbounded string to a third party, nothing more
 	if (query.length > 200) {
-		throw invalidSearchRequest('The search text is too long.', 'search_text_too_long');
+		throw invalidOptions('The search text is too long.', 'search_text_too_long');
 	}
 	// what else core's grammar refuses (a control or bidi character) would come
 	// back as a reasonless request.invalid_data: refused here, by core's own rule
 	if (!geoParamAccepts('nominatim_search', 'q', query)) {
-		throw invalidSearchRequest(
-			'The search text holds a character core refuses.',
-			'search_text_invalid',
-		);
+		throw invalidOptions('The search text holds a character core refuses.', 'search_text_invalid');
 	}
 
 	// Nominatim names its results in the record's language; an unmapped lang

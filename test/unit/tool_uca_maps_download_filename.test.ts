@@ -1,7 +1,7 @@
 /**
  * tool_uca_maps — `js/download_filename.js`, the one rule that turns a typed
  * download name into a safe one. A unit gate, not only a browser one, because
- * both sides run it: the client on `link.download`, `server/raster_download.ts`
+ * both sides run it: the client on `link.download`, `server/download_answer.ts`
  * in the envelope's `filename`.
  */
 

@@ -6,22 +6,14 @@
  */
 
 import { join } from 'node:path';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { withConverterSlot } from '../../../src/core/media/engine/admission.ts';
 import {
 	magickPolicyEnv,
 	magickResourceLimitArgs,
 } from '../../../src/core/media/engine/binaries.ts';
-import {
-	type ToolActionContext,
-	type ToolResponse,
-	toolRequestId,
-} from '../../../src/core/tools/module.ts';
-import {
-	DEFAULT_MAP_IMAGE_NAME,
-	sanitize_download_name,
-	with_extension,
-} from '../js/download_filename.js';
+import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
+import { DEFAULT_MAP_IMAGE_NAME, with_extension } from '../js/download_filename.js';
+import { downloadAnswer, downloadBaseName } from './download_answer.ts';
 import {
 	inputDrivers,
 	readFileBase64,
@@ -31,7 +23,7 @@ import {
 	withScratchDir,
 	writeFileBase64,
 } from './gdal.ts';
-import type { ReasonKey } from './reasons.ts';
+import { invalidOptions } from './reasons.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -40,15 +32,6 @@ const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string 
 	webp: { mime: 'image/webp', extension: 'webp' },
 	geotiff: { mime: 'image/tiff', extension: 'tif' },
 };
-
-/** A caller fault. Only the typed file name has a user reason; the format,
- * image and bounds are built by the tool's own client, so they go bare. */
-function invalidRasterRequest(message: string, reason?: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', {
-		message,
-		details: reason === undefined ? undefined : { reason_key: reason },
-	});
-}
 
 /** The client's already-projected EPSG:3857 corners (`map_image_download.js`
  * `projected_bounds`) — meters, not degrees. */
@@ -65,37 +48,19 @@ interface RasterBounds {
  * refusing. */
 function parseBounds(value: unknown): RasterBounds {
 	if (value === null || typeof value !== 'object') {
-		throw invalidRasterRequest('Missing bounds for geotiff export');
+		throw invalidOptions('Missing bounds for geotiff export');
 	}
 	const { west, north, east, south } = value as Record<string, unknown>;
 	for (const [key, n] of Object.entries({ west, north, east, south })) {
 		if (typeof n !== 'number' || !Number.isFinite(n)) {
-			throw invalidRasterRequest(`bounds.${key} must be a finite number`);
+			throw invalidOptions(`bounds.${key} must be a finite number`);
 		}
 	}
 	const bounds = { west, north, east, south } as RasterBounds;
 	if (bounds.west >= bounds.east || bounds.south >= bounds.north) {
-		throw invalidRasterRequest('bounds are degenerate (west>=east or south>=north)');
+		throw invalidOptions('bounds are degenerate (west>=east or south>=north)');
 	}
 	return bounds;
-}
-
-/**
- * The download name, sanitized here whatever the client did with it
- * (`js/download_filename.js` is the one rule both sides run). Absent takes
- * `fallback`; a name that sanitizes to nothing is refused, never quietly
- * renamed. It never becomes a path: the scratch files keep fixed names.
- */
-export function downloadBaseName(value: unknown, fallback: string): string {
-	if (value === undefined || value === null) return fallback;
-	if (typeof value !== 'string') {
-		throw invalidRasterRequest('file_name must be a string');
-	}
-	const base = sanitize_download_name(value);
-	if (base === '') {
-		throw invalidRasterRequest('file_name has no usable characters', 'file_name_unusable');
-	}
-	return base;
 }
 
 /**
@@ -160,13 +125,13 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 	const format = String(ctx.options.format ?? '');
 	const spec = Object.hasOwn(RASTER_FORMATS, format) ? RASTER_FORMATS[format] : undefined;
 	if (spec === undefined) {
-		throw invalidRasterRequest(
+		throw invalidOptions(
 			`Unsupported raster format '${format}' (expected 'jpg', 'gif', 'webp' or 'geotiff')`,
 		);
 	}
 	const imageBase64 = ctx.options.image_base64;
 	if (typeof imageBase64 !== 'string' || imageBase64 === '') {
-		throw invalidRasterRequest('Missing image_base64');
+		throw invalidOptions('Missing image_base64');
 	}
 	// Validated BEFORE any file touches disk: a bad bounds object should never
 	// spend a GDAL invocation to discover it was invalid.
@@ -181,12 +146,5 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 			: convertToGeotiff(dir, inputFile, bounds);
 	});
 
-	return ok(
-		{
-			content_base64: content,
-			filename: with_extension(baseName, spec.extension),
-			mime: spec.mime,
-		},
-		{ requestId: toolRequestId(ctx) },
-	);
+	return downloadAnswer(ctx, content, with_extension(baseName, spec.extension), spec.mime);
 }

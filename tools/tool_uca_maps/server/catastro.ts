@@ -16,6 +16,7 @@ import {
 } from '../../../src/core/tools/module.ts';
 import { clickedPoint, featureInfoQuery, parseClickParams } from './click_params.ts';
 import { askGeoService } from './geo_call.ts';
+import { sourceUnavailable } from './reasons.ts';
 import { utmToLatLon, utmZoneOf } from './utm.ts';
 
 // 14 alphanumerics — the Spanish cadastral reference's fixed shape. Sanity-
@@ -34,23 +35,11 @@ export const CATASTRO_ZONES: Readonly<Record<number, string>> = Object.freeze({
  * service does not offer. Exported for the gate. */
 export const CANARY_ZONES: readonly number[] = Object.freeze([27, 28]);
 
-function unavailable(message: string): DedaloError {
-	return new DedaloError('tool.source_unavailable', {
-		message,
-		details: { reason_key: 'catastro_unavailable' },
-	});
-}
-
 /** The text of the first `<td>` after the one that reads `label`, or null. */
 function cellAfter(html: string, label: string): string | null {
 	const at = html.search(new RegExp(`<td[^>]*>\\s*${label}\\s*</td>`, 'i'));
 	if (at === -1) return null;
-	const rest = html.slice(at + 1);
-	for (const { index, tag } of htmlTags(rest, /<td/iy)) {
-		const text = rest.slice(index + tag.length).match(/^([^<]*)<\/td>/i)?.[1];
-		if (text !== undefined) return text.trim();
-	}
-	return null;
+	return firstLeafText(html.slice(at + 1), /<td/iy, /^([^<]*)<\/td>/i)?.trim() ?? null;
 }
 
 /**
@@ -62,7 +51,10 @@ function cellAfter(html: string, label: string): string | null {
  */
 export function parseCatastroRefcat(html: string): { refcat: string; url: string | null } | null {
 	if (!/Get Feature Info Response/i.test(html)) {
-		throw unavailable('Catastro feature info answered without its result page');
+		throw sourceUnavailable(
+			'Catastro feature info answered without its result page',
+			'catastro_unavailable',
+		);
 	}
 	const refcat = cellAfter(html, 'nationalCadastralReference');
 	if (refcat === null || !REFCAT_PATTERN.test(refcat)) {
@@ -161,7 +153,10 @@ export function parseParcelGeometry(
 	zone: number,
 ): [number, number][] | null {
 	if (!/<(?:\w+:)?FeatureCollection[\s>]/.test(xml)) {
-		throw unavailable('Catastro WFS answered with no FeatureCollection');
+		throw sourceUnavailable(
+			'Catastro WFS answered with no FeatureCollection',
+			'catastro_unavailable',
+		);
 	}
 	return extractParcelPosList(xml, refcat, zone);
 }

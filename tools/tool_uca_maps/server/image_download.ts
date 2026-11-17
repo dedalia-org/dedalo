@@ -7,15 +7,12 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError } from '../../../src/core/errors/index.ts';
 import type { FileInfoEntry } from '../../../src/core/media/files_info.ts';
 import { buildMediaLocation } from '../../../src/core/media/path.ts';
-import {
-	type ToolActionContext,
-	type ToolResponse,
-	toolRequestId,
-} from '../../../src/core/tools/module.ts';
+import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { DEFAULT_IMAGE_DOWNLOAD_NAME, with_extension } from '../js/download_filename.js';
+import { downloadAnswer, downloadBaseName } from './download_answer.ts';
 import {
 	inputDrivers,
 	rasterDriverOf,
@@ -26,7 +23,8 @@ import {
 	withScratchDir,
 } from './gdal.ts';
 import { OVERLAY_EXTENSIONS, resolveRenderableImage } from './image_media.ts';
-import { downloadBaseName } from './raster_download.ts';
+import { invalidOptions } from './reasons.ts';
+import { toWebMercator } from './web_mercator.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const IMAGE_DOWNLOAD_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -43,14 +41,6 @@ export const MAX_IMAGE_DOWNLOAD_SIDE = 8000;
 /** EPSG:3857 stops short of the poles; a corner past this cannot be warped. */
 const MAX_MERCATOR_LAT = 85.0511;
 
-const EARTH_RADIUS = 6378137;
-
-/** A caller fault — bad format, corners or width. The tool's own client builds
- * all three, so there is no user reason to give: the code goes bare. */
-function invalidImageDownload(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message });
-}
-
 /** The descriptor's three control points, [lat, lon] each — the same shape
  * `js/rotated_image_overlay.js` takes and `image_edit.js` moves. */
 export interface ImageCorners {
@@ -63,13 +53,13 @@ export interface ImageCorners {
  * the image somewhere absurd instead of refusing. */
 function parseCorners(value: unknown): ImageCorners {
 	if (value === null || typeof value !== 'object') {
-		throw invalidImageDownload('Missing corners');
+		throw invalidOptions('Missing corners');
 	}
 	const out: Partial<ImageCorners> = {};
 	for (const key of ['top_left', 'top_right', 'bottom_left'] as const) {
 		const point = (value as Record<string, unknown>)[key];
 		if (!Array.isArray(point) || point.length !== 2) {
-			throw invalidImageDownload(`corners.${key} must be a [lat, lon] pair`);
+			throw invalidOptions(`corners.${key} must be a [lat, lon] pair`);
 		}
 		const [lat, lon] = point;
 		if (
@@ -80,31 +70,24 @@ function parseCorners(value: unknown): ImageCorners {
 			Math.abs(lat) > MAX_MERCATOR_LAT ||
 			Math.abs(lon) > 180
 		) {
-			throw invalidImageDownload(`corners.${key} is not a valid [lat, lon]`);
+			throw invalidOptions(`corners.${key} is not a valid [lat, lon]`);
 		}
 		out[key] = [lat, lon];
 	}
 	const corners = out as ImageCorners;
 	// coincident or collinear corners make the control-point transform
 	// singular: a caller fault, not a GDAL failure
-	const [tlx, tly] = toMercator(corners.top_left);
-	const [trx, try_] = toMercator(corners.top_right);
-	const [blx, bly] = toMercator(corners.bottom_left);
+	const [tlx, tly] = toWebMercator(corners.top_left);
+	const [trx, try_] = toWebMercator(corners.top_right);
+	const [blx, bly] = toWebMercator(corners.bottom_left);
 	const [ax, ay] = [trx - tlx, try_ - tly];
 	const [dx, dy] = [blx - tlx, bly - tly];
 	const area = Math.abs(ax * dy - ay * dx);
 	const side = Math.max(Math.hypot(ax, ay), Math.hypot(dx, dy));
 	if (!(side > 0) || area < side * side * 1e-6) {
-		throw invalidImageDownload('corners do not span an area');
+		throw invalidOptions('corners do not span an area');
 	}
 	return corners;
-}
-
-/** [lat, lon] → EPSG:3857 [x, y] meters (spherical Mercator, as Leaflet). */
-function toMercator([lat, lon]: [number, number]): [number, number] {
-	const x = (EARTH_RADIUS * lon * Math.PI) / 180;
-	const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-	return [x, y];
 }
 
 /**
@@ -122,7 +105,7 @@ export function outputSize(
 		top_right[0] + bottom_left[0] - top_left[0],
 		top_right[1] + bottom_left[1] - top_left[1],
 	];
-	const points = [top_left, top_right, bottom_left, bottom_right].map(toMercator);
+	const points = [top_left, top_right, bottom_left, bottom_right].map(toWebMercator);
 	const xs = points.map((point) => point[0]);
 	const ys = points.map((point) => point[1]);
 	const aspect = (Math.max(...ys) - Math.min(...ys)) / (Math.max(...xs) - Math.min(...xs));
@@ -138,7 +121,7 @@ export function outputSize(
  * "Excelente" on a very wide screen gets the largest allowed file, not an error. */
 function parseWidth(value: unknown): number {
 	if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-		throw invalidImageDownload('width must be a positive integer');
+		throw invalidOptions('width must be a positive integer');
 	}
 	return value;
 }
@@ -336,7 +319,7 @@ export async function imageDownload(ctx: ToolActionContext): Promise<ToolRespons
 		? IMAGE_DOWNLOAD_FORMATS[format]
 		: undefined;
 	if (spec === undefined) {
-		throw invalidImageDownload(
+		throw invalidOptions(
 			`Unsupported image format '${format}' (expected 'geotiff', 'png' or 'jpg')`,
 		);
 	}
@@ -374,12 +357,5 @@ export async function imageDownload(ctx: ToolActionContext): Promise<ToolRespons
 		renderImageDownload(dir, location.absolutePath, corners, format, width),
 	);
 
-	return ok(
-		{
-			content_base64: result.content,
-			filename: with_extension(baseName, result.extension),
-			mime: spec.mime,
-		},
-		{ requestId: toolRequestId(ctx) },
-	);
+	return downloadAnswer(ctx, result.content, with_extension(baseName, result.extension), spec.mime);
 }

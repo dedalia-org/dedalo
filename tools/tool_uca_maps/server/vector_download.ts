@@ -6,12 +6,8 @@
  */
 
 import { join } from 'node:path';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import {
-	type ToolActionContext,
-	type ToolResponse,
-	toolRequestId,
-} from '../../../src/core/tools/module.ts';
+import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
+import { downloadAnswer } from './download_answer.ts';
 import {
 	assertOfflineGeoJsonCrs,
 	inputDrivers,
@@ -20,6 +16,7 @@ import {
 	runToolBinary,
 	withScratchDir,
 } from './gdal.ts';
+import { invalidOptions } from './reasons.ts';
 
 /** Each format's OGR driver, download name and MIME. */
 const VECTOR_FORMATS: Readonly<Record<string, { driver: string; fileName: string; mime: string }>> =
@@ -31,12 +28,6 @@ const VECTOR_FORMATS: Readonly<Record<string, { driver: string; fileName: string
 			mime: 'application/vnd.google-earth.kml+xml',
 		},
 	};
-
-/** A caller fault — bad format, missing/malformed geojson — that only a client
- * other than the tool's own sends: no user reason, the code goes bare. */
-function invalidVectorRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message });
-}
 
 /** One `ogr2ogr` call into `fileName`, returned base64. */
 async function convertWithOgr2Ogr(
@@ -68,11 +59,11 @@ export async function vectorDownload(ctx: ToolActionContext): Promise<ToolRespon
 	const format = String(ctx.options.format ?? '');
 	const spec = Object.hasOwn(VECTOR_FORMATS, format) ? VECTOR_FORMATS[format] : undefined;
 	if (spec === undefined) {
-		throw invalidVectorRequest(`Unsupported vector format '${format}' (expected 'shp' or 'kml')`);
+		throw invalidOptions(`Unsupported vector format '${format}' (expected 'shp' or 'kml')`);
 	}
 	const geojson = ctx.options.geojson;
 	if (geojson === null || typeof geojson !== 'object') {
-		throw invalidVectorRequest('Missing or invalid geojson');
+		throw invalidOptions('Missing or invalid geojson');
 	}
 	// `-a_srs` replaces the CRS only after GDAL has read the one the file names
 	assertOfflineGeoJsonCrs(geojson);
@@ -85,8 +76,5 @@ export async function vectorDownload(ctx: ToolActionContext): Promise<ToolRespon
 		return convertWithOgr2Ogr(dir, inputFile, spec.driver, spec.fileName);
 	});
 
-	return ok(
-		{ content_base64: content, filename: spec.fileName, mime: spec.mime },
-		{ requestId: toolRequestId(ctx) },
-	);
+	return downloadAnswer(ctx, content, spec.fileName, spec.mime);
 }

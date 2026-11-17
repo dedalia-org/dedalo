@@ -6,6 +6,8 @@
  * is refused with the bare code, since no sentence would help the user fix it.
  */
 
+import { DedaloError } from '../../../src/core/errors/index.ts';
+
 export const REASON_KEYS = {
 	search_text_required: 'Type something to search.',
 	search_text_too_short: 'The search text is too short.',
@@ -63,3 +65,29 @@ export const REASON_KEYS = {
 } as const satisfies Readonly<Record<string, string>>;
 
 export type ReasonKey = keyof typeof REASON_KEYS;
+
+/** A caller fault; keyed only when the user can act on it. The log keeps the
+ * specifics the key's fixed sentence cannot carry. */
+export function invalidOptions(message: string, reason?: ReasonKey, cause?: unknown): DedaloError {
+	return new DedaloError('request.invalid_options', {
+		message,
+		details: reason === undefined ? undefined : { reason_key: reason },
+		cause,
+	});
+}
+
+/** A size ceiling, not a bad option. */
+export function tooLarge(message: string, reason: ReasonKey): DedaloError {
+	return new DedaloError('media.too_large', { message, details: { reason_key: reason } });
+}
+
+/** The third party is down or answered nothing usable: the source failing, never
+ * `request.invalid_options`, which would tell the user their input was wrong and
+ * leave an outage unclassified in the log. Retryable, and every caller is a
+ * readOnly action, so the resend shows it. */
+export function sourceUnavailable(message: string, reason: ReasonKey): DedaloError {
+	return new DedaloError('tool.source_unavailable', {
+		message,
+		details: { reason_key: reason },
+	});
+}

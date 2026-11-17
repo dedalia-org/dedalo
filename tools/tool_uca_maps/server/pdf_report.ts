@@ -6,13 +6,10 @@
  * gate as `get_image_file`; a refused image is named in the document.
  */
 
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import {
-	type ToolActionContext,
-	type ToolResponse,
-	toolRequestId,
-} from '../../../src/core/tools/module.ts';
+import { DedaloError } from '../../../src/core/errors/index.ts';
+import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { assertActionPermission } from '../../../src/core/tools/security.ts';
+import { downloadAnswer } from './download_answer.ts';
 import { type EmbedRefusal, getImageFile, resolveEmbeddableImage } from './image_media.ts';
 import { PdfDocument } from './pdf_writer.ts';
 
@@ -231,12 +228,10 @@ export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolRespo
 
 	const bytes = pdf.build();
 
-	return ok(
-		{
-			content_base64: Buffer.from(bytes).toString('base64'),
-			filename: 'uca_maps_object.pdf',
-			mime: 'application/pdf',
-		},
-		{ requestId: toolRequestId(ctx) },
+	return downloadAnswer(
+		ctx,
+		Buffer.from(bytes).toString('base64'),
+		'uca_maps_object.pdf',
+		'application/pdf',
 	);
 }

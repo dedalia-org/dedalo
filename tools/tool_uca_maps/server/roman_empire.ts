@@ -6,7 +6,7 @@
  * `connect-src 'self'` and the local data is not the browser's to read.
  */
 
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { ok } from '../../../src/core/errors/index.ts';
 import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
 import {
 	type ToolActionContext,
@@ -23,7 +23,7 @@ import {
 } from './gazetteer_store.ts';
 import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
 import { WIN_ANSI_HIGH } from './pdf_writer.ts';
-import type { ReasonKey } from './reasons.ts';
+import { invalidOptions, sourceUnavailable } from './reasons.ts';
 
 /** v6's own result count for all three searches (10 result slots per panel). */
 const RESULT_LIMIT = 10;
@@ -35,25 +35,6 @@ const DARE_SERVICES: Readonly<Record<string, DareService>> = Object.freeze({
 	mss: 'dare_search_modern',
 	ass: 'dare_search_ancient',
 });
-
-/** A caller fault — empty, too short or malformed search input. Only what the
- * user typed or ticked has a reason; the panel's closed lists and a result's
- * own id go bare. */
-function invalidRequest(message: string, reason?: ReasonKey): DedaloError {
-	return new DedaloError('request.invalid_options', {
-		message,
-		details: reason === undefined ? undefined : { reason_key: reason },
-	});
-}
-
-/** The third party is down or answered nothing usable: retryable, and every
- * gazetteer action is readOnly, so the resend shows it. */
-function outboundFailure(message: string): DedaloError {
-	return new DedaloError('tool.source_unavailable', {
-		message,
-		details: { reason_key: 'gazetteer_service_unavailable' },
-	});
-}
 
 /** One hit from any of the three sources, already reduced to what the map needs. */
 export interface GazetteerResult {
@@ -67,6 +48,37 @@ export interface GazetteerResult {
 	geometry_type?: string;
 	/** The full GeoJSON Feature, for the sources that already carry it. */
 	feature?: unknown;
+}
+
+/**
+ * Up to `limit` of what `toResult` makes of `items`, in order (null skips one).
+ * The mapper stops at the limit: nothing past the last hit is read.
+ */
+function collectUpTo(
+	items: readonly unknown[],
+	limit: number,
+	toResult: (item: unknown) => GazetteerResult | null,
+): GazetteerResult[] {
+	const results: GazetteerResult[] = [];
+	if (limit <= 0) {
+		return results; // "no room left" is zero hits, not one more (the break below runs AFTER a push)
+	}
+	for (const item of items) {
+		const result = toResult(item);
+		if (result === null) {
+			continue;
+		}
+		results.push(result);
+		if (results.length >= limit) {
+			break;
+		}
+	}
+	return results;
+}
+
+/** A GeoJSON feature's geometry type, when it states one. */
+function geometryTypeOf(feature: { geometry?: { type?: unknown } }): string | undefined {
+	return typeof feature.geometry?.type === 'string' ? feature.geometry.type : undefined;
 }
 
 /**
@@ -90,29 +102,18 @@ export function matchPleiadesIndex(
 		throw gazetteerUnavailable('The Pleiades index has an unexpected shape.');
 	}
 	const needle = value.toLowerCase();
-	const results: GazetteerResult[] = [];
-	if (limit <= 0) {
-		return results; // "no room left" is zero hits, not one more (the break below runs AFTER a push)
-	}
-	for (const entry of payload) {
+	return collectUpTo(payload, limit, (entry) => {
 		if (!Array.isArray(entry) || entry.length < 2) {
-			continue;
+			return null;
 		}
 		const name = String(entry[0] ?? '');
 		const id = String(entry[1] ?? '');
 		if (name === '' || id === '') {
-			continue;
+			return null;
 		}
 		const hit = type === 'id' ? id === value : name.toLowerCase().includes(needle);
-		if (!hit) {
-			continue;
-		}
-		results.push({ name, id });
-		if (results.length >= limit) {
-			break;
-		}
-	}
-	return results;
+		return hit ? { name, id } : null;
+	});
 }
 
 /**
@@ -154,13 +155,9 @@ export function matchPelagiosFeatures(
 		throw gazetteerUnavailable(`The "${dataset}" dataset has an unexpected shape.`);
 	}
 	const needle = query.toLowerCase();
-	const results: GazetteerResult[] = [];
-	if (limit <= 0) {
-		return results;
-	}
-	for (const feature of features) {
+	return collectUpTo(features, limit, (feature) => {
 		if (typeof feature !== 'object' || feature === null) {
-			continue;
+			return null;
 		}
 		const typed = feature as { properties?: unknown; geometry?: { type?: unknown } };
 		const properties =
@@ -169,19 +166,10 @@ export function matchPelagiosFeatures(
 				: {};
 		const { label, searchable } = pelagiosNames(properties);
 		if (!searchable.some((value) => value.toLowerCase().includes(needle))) {
-			continue;
+			return null;
 		}
-		results.push({
-			name: label,
-			dataset,
-			geometry_type: typeof typed.geometry?.type === 'string' ? typed.geometry.type : undefined,
-			feature,
-		});
-		if (results.length >= limit) {
-			break;
-		}
-	}
-	return results;
+		return { name: label, dataset, geometry_type: geometryTypeOf(typed), feature };
+	});
 }
 
 /** A DARE search: core's service for the name field, and the two filters. */
@@ -206,13 +194,13 @@ export function dareQuery(options: {
 		? DARE_SERVICES[options.nameType]
 		: undefined;
 	if (service === undefined) {
-		throw invalidRequest('Unknown name type.');
+		throw invalidOptions('Unknown name type.');
 	}
 	if (options.typeId && !/^[0-9]{1,4}$/.test(options.typeId)) {
-		throw invalidRequest('Unknown site type.');
+		throw invalidOptions('Unknown site type.');
 	}
 	if (options.country && !/^[A-Z]{2}$/i.test(options.country)) {
-		throw invalidRequest('Unknown country.');
+		throw invalidOptions('Unknown country.');
 	}
 	return {
 		service,
@@ -256,48 +244,43 @@ export function parseDareResults(
 ): GazetteerResult[] {
 	const features = (payload as { features?: unknown } | null)?.features;
 	if (!Array.isArray(features)) {
-		throw outboundFailure('The DARE service refused the request.');
+		throw sourceUnavailable(
+			'The DARE service refused the request.',
+			'gazetteer_service_unavailable',
+		);
 	}
-	const results: GazetteerResult[] = [];
-	if (limit <= 0) {
-		return results;
-	}
-	for (const feature of features) {
+	return collectUpTo(features, limit, (feature) => {
 		if (typeof feature !== 'object' || feature === null) {
-			continue;
+			return null;
 		}
 		const typed = feature as {
 			properties?: { name?: unknown; numType?: unknown; country?: unknown };
 			geometry?: { type?: unknown };
 		};
 		if (filters.typeId !== null && String(typed.properties?.numType ?? '') !== filters.typeId) {
-			continue;
+			return null;
 		}
 		if (
 			filters.country !== null &&
 			String(typed.properties?.country ?? '').toUpperCase() !== filters.country
 		) {
-			continue;
+			return null;
 		}
 		const raw = typeof typed.properties?.name === 'string' ? typed.properties.name.trim() : '';
 		if (raw === '') {
-			continue;
+			return null;
 		}
 		// the repaired name also replaces the feature's own, so the OBJECT the
 		// user ends up with on the map is not called "CÃ¡diz" either (v6 repairs
 		// only the list entry and stores the mojibake verbatim)
 		const name = decodeDareText(raw);
 		const properties = { ...(typed.properties as Record<string, unknown>), name };
-		results.push({
+		return {
 			name,
-			geometry_type: typeof typed.geometry?.type === 'string' ? typed.geometry.type : undefined,
+			geometry_type: geometryTypeOf(typed),
 			feature: { ...(feature as Record<string, unknown>), properties },
-		});
-		if (results.length >= limit) {
-			break;
-		}
-	}
-	return results;
+		};
+	});
 }
 
 /**
@@ -326,13 +309,13 @@ async function requireGazetteerDir(): Promise<string> {
 function requireQuery(raw: unknown, minLength: number, maxLength = 200): string {
 	const query = String(raw ?? '').trim();
 	if (query.length < minLength) {
-		throw invalidRequest(
+		throw invalidOptions(
 			`The search text needs at least ${minLength} characters.`,
 			'search_text_too_short',
 		);
 	}
 	if (query.length > maxLength) {
-		throw invalidRequest('The search text is too long.', 'search_text_too_long');
+		throw invalidOptions('The search text is too long.', 'search_text_too_long');
 	}
 	return query;
 }
@@ -340,7 +323,7 @@ function requireQuery(raw: unknown, minLength: number, maxLength = 200): string 
 export async function searchPleiades(ctx: ToolActionContext): Promise<ToolResponse> {
 	const type = String(ctx.options.type ?? 'name');
 	if (type !== 'name' && type !== 'id') {
-		throw invalidRequest('Unknown search type.');
+		throw invalidOptions('Unknown search type.');
 	}
 	// v6's own minimums: 3 characters by name, an exact id otherwise
 	const value = requireQuery(ctx.options.value, type === 'name' ? 3 : 1);
@@ -362,7 +345,7 @@ export async function getPleiadesPlace(
 ): Promise<ToolResponse> {
 	const id = String(ctx.options.id ?? '').trim();
 	if (!/^[0-9]{1,12}$/.test(id)) {
-		throw invalidRequest('A numeric Pleiades id is required.');
+		throw invalidOptions('A numeric Pleiades id is required.');
 	}
 
 	return ok({ place: await fetchPleiadesPlace(id, deps) }, { requestId: toolRequestId(ctx) });
@@ -389,18 +372,27 @@ async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<u
 		deps,
 	);
 	if (!response.ok) {
-		throw outboundFailure(`Pleiades answered HTTP ${String(response.status)}`);
+		throw sourceUnavailable(
+			`Pleiades answered HTTP ${String(response.status)}`,
+			'gazetteer_service_unavailable',
+		);
 	}
 	const text = response.text();
 	let payload: unknown;
 	try {
 		payload = JSON.parse(text);
 	} catch {
-		throw outboundFailure('Pleiades returned an unreadable response.');
+		throw sourceUnavailable(
+			'Pleiades returned an unreadable response.',
+			'gazetteer_service_unavailable',
+		);
 	}
 	// a place document is itself a GeoJSON FeatureCollection
 	if (!Array.isArray((payload as { features?: unknown }).features)) {
-		throw outboundFailure('Pleiades returned an unexpected document.');
+		throw sourceUnavailable(
+			'Pleiades returned an unexpected document.',
+			'gazetteer_service_unavailable',
+		);
 	}
 	return payload;
 }
@@ -411,7 +403,7 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 	const requested = Array.isArray(ctx.options.datasets) ? ctx.options.datasets.map(String) : [];
 	const datasets = requested.filter((name) => PELAGIOS_DATASETS.includes(name));
 	if (datasets.length === 0) {
-		throw invalidRequest('Select at least one dataset to search.', 'no_dataset_selected');
+		throw invalidOptions('Select at least one dataset to search.', 'no_dataset_selected');
 	}
 
 	const dir = await requireGazetteerDir();
@@ -448,7 +440,7 @@ export async function searchDare(ctx: ToolActionContext): Promise<ToolResponse> 
 
 	// what else core's grammar refuses (a control or bidi character): by its own rule
 	if (!geoParamAccepts(dare.service, 'name', query)) {
-		throw invalidRequest('The search text holds a character core refuses.', 'search_text_invalid');
+		throw invalidOptions('The search text holds a character core refuses.', 'search_text_invalid');
 	}
 
 	const answer = await askGeoService(

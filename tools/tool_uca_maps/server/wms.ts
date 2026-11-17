@@ -13,16 +13,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
-import type { ReasonKey } from './reasons.ts';
-
-/** A caller fault — missing/malformed WMS server URL. */
-function invalidWmsRequest(message: string, reason: ReasonKey, cause?: unknown): DedaloError {
-	return new DedaloError('request.invalid_options', {
-		message,
-		details: { reason_key: reason },
-		cause,
-	});
-}
+import { invalidOptions } from './reasons.ts';
 
 /**
  * `raw` as an absolute http(s) WMS server URL, query and fragment dropped: v6
@@ -32,17 +23,17 @@ function invalidWmsRequest(message: string, reason: ReasonKey, cause?: unknown):
 export function normalizeWmsBaseUrl(raw: string): URL {
 	const trimmed = String(raw ?? '').trim();
 	if (!trimmed) {
-		throw invalidWmsRequest('The WMS server URL is required.', 'wms_url_required');
+		throw invalidOptions('The WMS server URL is required.', 'wms_url_required');
 	}
 	// absolute only — a bare path has no remote host to proxy to
 	if (!/^https?:\/\//i.test(trimmed)) {
-		throw invalidWmsRequest('Please enter a valid URL.', 'wms_url_invalid');
+		throw invalidOptions('Please enter a valid URL.', 'wms_url_invalid');
 	}
 	let url: URL;
 	try {
 		url = new URL(trimmed);
 	} catch {
-		throw invalidWmsRequest('Please enter a valid URL.', 'wms_url_invalid');
+		throw invalidOptions('Please enter a valid URL.', 'wms_url_invalid');
 	}
 	url.search = '';
 	url.hash = '';
@@ -82,7 +73,7 @@ async function fetchWmsCapabilities(
 		// gets ONE answer: telling them apart would map the internal DNS. The guard's
 		// own reason stays in the cause, for the operator's log.
 		if (isAddressRefusal(error)) {
-			throw invalidWmsRequest(
+			throw invalidOptions(
 				'The server could not be reached: check the URL.',
 				'wms_server_unreachable',
 				error,

@@ -4,7 +4,8 @@
  * pixel. One parser and one question, so both actions refuse and ask alike.
  */
 
-import { DedaloError } from '../../../src/core/errors/index.ts';
+import { invalidOptions } from './reasons.ts';
+import { mercatorY, toWebMercator } from './web_mercator.ts';
 
 export interface ClickParams {
 	bbox: [number, number, number, number]; // [west, south, east, north]
@@ -12,12 +13,6 @@ export interface ClickParams {
 	height: number;
 	x: number;
 	y: number;
-}
-
-/** The tool's own client computes the click: a malformed one is a bug, not a
- * user's reason, so the code goes bare. */
-function invalidClickRequest(message: string): DedaloError {
-	return new DedaloError('request.invalid_options', { message });
 }
 
 /** Parses+vets the client's click payload. Throws on anything malformed. */
@@ -28,22 +23,20 @@ export function parseClickParams(options: Record<string, unknown>): ClickParams 
 		bbox.length !== 4 ||
 		!bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
 	) {
-		throw invalidClickRequest('A valid bounding box is required.');
+		throw invalidOptions('A valid bounding box is required.');
 	}
 	const width = Number(options.width);
 	const height = Number(options.height);
 	const x = Number(options.x);
 	const y = Number(options.y);
 	if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-		throw invalidClickRequest('A valid map size is required.');
+		throw invalidOptions('A valid map size is required.');
 	}
 	if (!Number.isFinite(x) || !Number.isFinite(y)) {
-		throw invalidClickRequest('A valid click position is required.');
+		throw invalidOptions('A valid click position is required.');
 	}
 	return { bbox: bbox as [number, number, number, number], width, height, x, y };
 }
-
-const EARTH_RADIUS = 6378137;
 
 /**
  * The clicked [lat, lon]: the map is Web Mercator, so a pixel is linear in
@@ -51,9 +44,8 @@ const EARTH_RADIUS = 6378137;
  */
 export function clickedPoint({ bbox, height, width, x, y }: ClickParams): [number, number] {
 	const [west, south, east, north] = bbox;
-	const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-	const top = mercY(north);
-	const yAt = top - (y / height) * (top - mercY(south));
+	const top = mercatorY(north);
+	const yAt = top - (y / height) * (top - mercatorY(south));
 	const lat = (Math.atan(Math.sinh(yAt)) * 180) / Math.PI;
 	return [lat, west + (x / width) * (east - west)];
 }
@@ -65,8 +57,7 @@ export function clickedPoint({ bbox, height, width, x, y }: ClickParams): [numbe
  * matters. Exported for unit coverage.
  */
 export function featureInfoQuery([lat, lon]: [number, number]): Record<string, unknown> {
-	const x = (EARTH_RADIUS * lon * Math.PI) / 180;
-	const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+	const [x, y] = toWebMercator([lat, lon]);
 	return {
 		crs: 'EPSG:3857',
 		bbox: [x - 50, y - 50, x + 50, y + 50],
