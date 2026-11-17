@@ -28,6 +28,7 @@ import {
 	tick,
 	toasts_during,
 	tool_sheet,
+	two_frames,
 	until,
 	use_live_map,
 	with_tool_css
@@ -644,6 +645,23 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function() {
 			is_toolbar_node(tool, tool.legend_overlay.getContainer()),
 			'expected the overlay NOT registered — it must survive the screenshot filter'
 		)
+	})
+
+	// on the core's short edit map the bar reaches the map's foot: the legend, in the
+	// same left column below it, starts right of it instead of covering its last squares
+	it('the legend sits right of the toolbar, never over its last buttons', async function() {
+
+		await with_tool_css(async () => {
+			tool.attach_console()
+			tool.attach_legend()
+			tool.set_legend_title('Simbología')
+			await two_frames()
+
+			const bar_rect		= geolocation.map.getContainer().querySelector('.uca-maps-toolbar').getBoundingClientRect()
+			const legend_rect	= tool.legend_overlay.getContainer().getBoundingClientRect()
+			assert.isAbove(legend_rect.width, 0, 'expected the legend drawn')
+			assert.isAtLeast(legend_rect.left, bar_rect.right, 'expected the legend right of the bar')
+		})
 	})
 
 	it('the overlay draws only what there is to draw, and the checkbox hides it', function() {

@@ -2172,12 +2172,13 @@ describe('TOOL_UCA_MAPS (live map: shell)', function() {
 			const corner	= tool.console_control.getContainer().closest('.leaflet-top.leaflet-left')
 			assert.equal(corner.querySelectorAll('.uca-maps-toolbar').length, 1, 'expected ONE bar')
 
-			// the zoom bar stays first, set 30px apart from the tool's bar
+			// the zoom bar stays first, 5px apart from the tool's bar: on the core's short
+			// edit map every pixel of the column counts
 			const zoom	= corner.querySelector('.leaflet-control-zoom')
 			const bar	= corner.querySelector('.uca-maps-toolbar')
 			assert.isOk(zoom, 'expected Leaflet\'s zoom bar in the same corner')
 			assert.equal(zoom.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING, 'expected the zoom bar above the tool\'s')
-			assert.closeTo(bar.getBoundingClientRect().top - zoom.getBoundingClientRect().bottom, 30, 0.5, 'expected 30px between the zoom bar and the tool\'s')
+			assert.closeTo(bar.getBoundingClientRect().top - zoom.getBoundingClientRect().bottom, 5, 0.5, 'expected 5px between the zoom bar and the tool\'s')
 			const links		= Array.from(corner.querySelectorAll('.uca-maps-toolbar > .uca-maps-toolbar-button'))
 
 			const rects = links.map((node) => node.getBoundingClientRect())

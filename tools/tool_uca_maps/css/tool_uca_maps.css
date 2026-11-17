@@ -67,7 +67,7 @@
   color: var(--uca_maps_msg_error_fg);
 }
 .leaflet-control.uca-maps-toolbar {
-  margin-top: 30px;
+  margin-top: 5px;
 }
 @media screen and (max-width: 600px) {
   .leaflet-top.leaflet-left:has(> .uca-maps-toolbar) {
@@ -1410,6 +1410,9 @@
 }
 .uca-maps-legend-panel > .uca-maps-legend-add-column {
   margin: 0 0.75rem 0.75rem;
+}
+.leaflet-left .leaflet-control.uca-maps-legend-overlay {
+  margin-left: calc(10px + 30px + 2 * 2px + 10px);
 }
 .uca-maps-legend-overlay {
   background-color: var(--uca_maps_legend_overlay_bg);
