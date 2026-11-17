@@ -18,7 +18,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {eye_node, eye_off_node} from './icons.js'
-import {show_panel_message} from './render_download_line.js'
+import {create_panel_message, show_panel_message} from './render_download_line.js'
 
 
 
@@ -55,9 +55,7 @@ export const render_wms_services_panel = function(self, panel) {
 
 /**
 * SHOW_WMS_MESSAGE
-* Plain in-flow error/status line — NOT `ui.show_message`'s page-level toast,
-* clipped by this panel's own `overflow-y: auto` (same reasoning as
-* `render_xyz_basemaps.js` `show_xyz_message`).
+* The search form's in-flow line (`render_download_line.js` show_panel_message).
 *
 * @param {HTMLElement} panel
 * @param {string} text
@@ -67,6 +65,17 @@ export const render_wms_services_panel = function(self, panel) {
 const show_wms_message = function(panel, text, type='error') {
 	show_panel_message(panel.querySelector('.uca-maps-wms-message'), text, type)
 }//end show_wms_message
+
+
+
+/**
+* CLEAR_WMS_MESSAGE
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const clear_wms_message = function(panel) {
+	panel.querySelector('.uca-maps-wms-message').hidden = true
+}//end clear_wms_message
 
 
 
@@ -84,8 +93,7 @@ const render_search_form = function(self, panel) {
 
 	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-wms-search-form', parent: panel})
 
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-wms-message', parent: form})
-	message.hidden = true
+	const message = create_panel_message(form, 'uca-maps-wms-message')
 
 	const url_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-wms-input uca-maps-wms-url', parent: form})
 	url_input.type			= 'text'
@@ -203,7 +211,7 @@ export const populate_wms_search_results = function(self, panel) {
 				}
 				return
 			}
-			panel.querySelector('.uca-maps-wms-message').hidden = true
+			clear_wms_message(panel)
 			populate_wms_layers(self, panel)
 		})
 
@@ -294,7 +302,7 @@ export const populate_wms_layers = function(self, panel) {
 				show_wms_message(panel, result.error)
 				return
 			}
-			panel.querySelector('.uca-maps-wms-message').hidden = true
+			clear_wms_message(panel)
 			populate_wms_layers(self, panel)
 		})
 

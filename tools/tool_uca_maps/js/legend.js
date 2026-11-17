@@ -41,17 +41,15 @@ import {
 	legend_symbol_data_url,
 	pin_data_url,
 	is_raster_icon,
+	ALLOWED_ICON_TYPES,
 	LEGEND_ICON_SIDE
 } from './legend_symbol.js'
 import {LEGEND_LIMITS, LEGEND_TAG_START, is_control_code} from './core_limits.js'
 
 
 
-/** The icon types v6 accepts (`special_tools_legend.js` change_icon). Every one is
-* redrawn as a small PNG before it is kept (`raster_icon`): the record admits only
-* png, jpeg or webp icons of at most 64 KiB, never SVG. */
-// exported for the client gate
-export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
+// re-exported for the client gate; lives in the leaf so the picker reads it too
+export {ALLOWED_ICON_TYPES}
 
 /** v6's cap on the file picked, verbatim: what is kept is the redrawn icon. */
 // exported for the client gate

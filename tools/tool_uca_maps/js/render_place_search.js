@@ -16,7 +16,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {render_attribution, show_panel_message} from './render_download_line.js'
+import {create_panel_message, render_attribution, show_panel_message} from './render_download_line.js'
 
 
 
@@ -41,9 +41,7 @@ export const render_place_search_panel = function(self, panel) {
 
 /**
 * SHOW_PLACE_SEARCH_MESSAGE
-* Plain in-flow status line — NOT `ui.show_message`'s page-level toast,
-* clipped by this panel's own `overflow-y: auto` (same reasoning as
-* `render_wms_services.js` show_wms_message).
+* The search form's in-flow line (`render_download_line.js` show_panel_message).
 *
 * @param {HTMLElement} panel
 * @param {string} text
@@ -70,8 +68,7 @@ const render_search_form = function(self, panel) {
 
 	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-place-search-form', parent: panel})
 
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-place-search-message', parent: form})
-	message.hidden = true
+	const message = create_panel_message(form, 'uca-maps-place-search-message')
 
 	const query_input = ui.create_dom_element({
 		element_type	: 'input',

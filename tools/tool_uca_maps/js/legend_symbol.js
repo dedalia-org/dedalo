@@ -103,6 +103,11 @@ export const is_raster_icon = function(icon) {
 * core's ceiling (256). Small on purpose: a legend's icons share 256 KiB in the record. */
 export const LEGEND_ICON_SIDE = 36
 
+/** The icon types v6 accepts (`special_tools_legend.js` change_icon). Every one is
+* redrawn as a small PNG before it is kept (`legend.js` raster_icon): the record
+* admits only png, jpeg or webp icons of at most 64 KiB, never SVG. */
+export const ALLOWED_ICON_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
+
 /** The default pin (`legend.js` default_element_icon), in the 24px box of the symbols. */
 const PIN_PATH = 'M12 2c-3.9 0-7 3.1-7 7 0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z'
 

@@ -37,6 +37,7 @@ export const create_panel_message = (parent, class_name) => {
  * Shows `text` on a panel's in-flow line, tinted by `type`, and scrolls it into
  * view: the line sits under the form that fired it, and in a panel that scrolls
  * (a phone) it would land below the fold. 'nearest' leaves a visible line still.
+ * Not `ui.show_message`: its page-level toast is clipped by a panel's overflow.
  *
  * @param {HTMLElement} message - the line create_panel_message built
  * @param {string} text

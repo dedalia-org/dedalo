@@ -17,6 +17,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {create_panel_message, render_new_tab_link, show_panel_message} from './render_download_line.js'
+import {IMAGE_UPLOAD_EXTENSIONS, VECTOR_UPLOAD_EXTENSIONS, accept_attribute} from './upload_formats.js'
 
 
 
@@ -58,7 +59,7 @@ export const render_file_upload_panel = function(self, panel) {
 
 	const file_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-upload-file', parent: panel})
 	file_input.type	= 'file'
-	file_input.accept	= '.zip,.geojson,.kml'
+	file_input.accept	= accept_attribute(VECTOR_UPLOAD_EXTENSIONS)
 
 	ui.create_dom_element({
 		element_type	: 'div',
@@ -197,7 +198,7 @@ const render_image_section = function(self, panel) {
 		parent			: panel
 	})
 	file_input.type	= 'file'
-	file_input.accept	= '.tif,.tiff,.jpg,.jpeg,.png'
+	file_input.accept	= accept_attribute(IMAGE_UPLOAD_EXTENSIONS)
 
 	const message = render_upload_message(panel)
 

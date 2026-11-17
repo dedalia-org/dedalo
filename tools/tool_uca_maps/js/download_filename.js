@@ -110,6 +110,20 @@ export const sanitize_download_name = function(raw) {
 
 
 /**
+* NAME_REQUIRED_TEXT
+* The refusal both download paths answer when sanitize_download_name leaves ''.
+* Client-only (the server words its own), but kept beside the rule it reports.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {string}
+*/
+export const name_required_text = function(self) {
+	return self.get_tool_label('map_image_name_required') || 'Please enter a name for the file'
+}//end name_required_text
+
+
+
+/**
 * WITH_EXTENSION
 * Appends the format's extension unless the base already carries it — a user
 * who types "map.png" gets `map.png`, not `map.png.png` (v6 always appended).

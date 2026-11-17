@@ -84,17 +84,7 @@ export const attach_roman_empire = function(self) {
 		return
 	}
 
-	// the ONE suggestion list serves the three fields; `_roman_source` is whose
-	// it is, from the moment a field arms a search (render_roman_empire.js
-	// "WHOSE IS THE LIST"), and the source of `_roman_results` once they arrive
-	self._roman_results			= null
-	self._roman_attribution			= null
-	self._roman_source			= null
-	self._roman_gazetteers		= null
-	self._roman_search_token	= 0
-	self._roman_search_timer	= null
-	self._roman_active_index	= -1
-	self._roman_panel_opening	= 0 // bumped by every reset: a late answer knows it is late
+	reset_roman_state(self)
 
 	const title = self.get_tool_label('roman_control_title') || 'Roman Empire'
 
@@ -527,6 +517,27 @@ export const clear_roman_search = function(self) {
 
 
 /**
+* RESET_ROMAN_STATE
+* Every per-instance `_roman_*` field, one list for attach and detach. The ONE
+* suggestion list serves the three fields; `_roman_source` is whose it is, from the
+* moment a field arms a search (render_roman_empire.js "WHOSE IS THE LIST"), and
+* the source of `_roman_results` once they arrive.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {void}
+*/
+const reset_roman_state = function(self) {
+	clear_roman_search(self)
+	self._roman_gazetteers		= null
+	self._roman_search_token	= 0
+	self._roman_search_timer	= null
+	self._roman_active_index	= -1
+	self._roman_panel_opening	= 0 // bumped by every reset: a late answer knows it is late
+}//end reset_roman_state
+
+
+
+/**
 * DETACH_ROMAN_EMPIRE
 * Removes the panel, the floating list and their listeners.
 *
@@ -553,15 +564,9 @@ export const detach_roman_empire = function(self) {
 	remove_toolbar_panel(self, self.roman_panel)
 	remove_toolbar_button(self, self.roman_control)
 
-	self.roman_panel		= null
-	self.roman_control		= null
-	self._roman_results			= null
-	self._roman_attribution			= null
-	self._roman_source			= null
-	self._roman_gazetteers		= null
-	self._roman_search_token	= 0
-	self._roman_active_index	= -1
-	self._roman_panel_opening	= 0
+	self.roman_panel	= null
+	self.roman_control	= null
+	reset_roman_state(self)
 
 }//end detach_roman_empire
 

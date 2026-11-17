@@ -23,10 +23,11 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
 import {commit, ensure_properties, ensure_uca_maps, report_client_error, deliver_download} from './object_console.js'
 import {carrier_image} from './uca_maps_data.js'
-import {DEFAULT_IMAGE_DOWNLOAD_NAME, sanitize_download_name} from './download_filename.js'
+import {DEFAULT_IMAGE_DOWNLOAD_NAME, name_required_text, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
 import {rotated_image_overlay} from './rotated_image_overlay.js'
 import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
+import {IMAGE_UPLOAD_EXTENSIONS} from './upload_formats.js'
 
 
 
@@ -36,7 +37,6 @@ import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
 export const IMAGE_SECTION_TIPO	= 'rsc170'
 export const IMAGE_COMPONENT_TIPO	= 'rsc29'
 
-const IMAGE_UPLOAD_EXTENSIONS	= ['tif', 'tiff', 'jpg', 'jpeg', 'png']
 /** Refused in the BROWSER, before the bytes leave. Not a policy the server
  * relies on (it has its own limits) — it is what stops a mistakenly picked
  * multi-GB raster from uploading for ten minutes to be rejected at the end. */
@@ -622,9 +622,9 @@ const attach_overlay = function(self, carrier) {
 
 /**
 * DETACH_OVERLAY
-* The reverse, for one carrier — used when the user deletes the object and by
-* the teardown sweep. Removing the carrier alone would leave the image
-* painted on a map with nothing to select it by.
+* The reverse, for one carrier the user deletes (pm:remove); the teardown sweep
+* uses release_overlay directly. Removing the carrier alone would leave the
+* image painted on a map with nothing to select it by.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} carrier
@@ -632,23 +632,15 @@ const attach_overlay = function(self, carrier) {
 */
 const detach_overlay = function(self, carrier) {
 
+	const overlay = carrier && carrier._uca_maps_overlay
+
 	// the handles come off even when there is no overlay left to move: they
 	// are markers on the map, and nothing else in the engine tracks them
-	detach_handles(self, carrier)
-	detach_carrier_drag(carrier)
+	release_overlay(self, self.geolocation && self.geolocation.map, {carrier, overlay})
 
-	const overlay = carrier && carrier._uca_maps_overlay
-	if (!overlay) {
-		return
-	}
-
-	if (self.geolocation && self.geolocation.map) {
-		self.geolocation.map.removeLayer(overlay)
-	}
-	if (Array.isArray(self._image_overlays)) {
+	if (overlay && Array.isArray(self._image_overlays)) {
 		self._image_overlays = self._image_overlays.filter((el) => el.overlay!==overlay)
 	}
-	delete carrier._uca_maps_overlay
 
 }//end detach_overlay
 
@@ -781,7 +773,7 @@ export const download_image = async function(self, carrier, format, quality, fil
 
 	const base_name = sanitize_download_name(file_name)
 	if (base_name==='') {
-		return {ok: false, error: self.get_tool_label('map_image_name_required') || 'Please enter a name for the file'}
+		return {ok: false, error: name_required_text(self)}
 	}
 
 	const failed = self.get_tool_label('image_download_error_failed') || 'The image could not be downloaded.'
@@ -948,16 +940,16 @@ export const detach_image_overlays = function(self) {
 
 /**
 * RELEASE_OVERLAY
-* Takes one tracked {carrier, overlay} pair off the map, handles and drag
-* included; the caller owns `self._image_overlays`.
+* Takes one {carrier, overlay} pair off the map, handles and drag included;
+* the overlay may be missing. The caller owns `self._image_overlays`.
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object|null} map - the live map, or null when it is already gone
-* @param {{carrier: Object, overlay: Object}} entry
+* @param {{carrier: Object, overlay: ?Object}} entry
 * @returns {void}
 */
 const release_overlay = function(self, map, entry) {
-	if (map) {
+	if (map && entry.overlay) {
 		map.removeLayer(entry.overlay)
 	}
 	detach_handles(self, entry.carrier)

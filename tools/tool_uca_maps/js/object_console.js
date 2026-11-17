@@ -18,8 +18,7 @@ import {event_manager} from '../../../core/common/js/event_manager.js'
 import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
 import {exception_text} from './panel_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
-import {is_onexone_rectangle} from './onexone_flags.js'
-import {read_uca_maps} from './uca_maps_data.js'
+import {is_onexone_rectangle, read_uca_maps} from './uca_maps_data.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,

@@ -28,10 +28,10 @@ import {
 import {render_file_upload_panel, clear_upload_messages, reset_file_upload_panel} from './render_file_upload.js'
 import {report_client_error} from './object_console.js'
 import {UPLOAD_TIMEOUT_MS} from './request_budgets.js'
+import {VECTOR_UPLOAD_EXTENSIONS} from './upload_formats.js'
 
 
 
-const VECTOR_UPLOAD_EXTENSIONS	= ['zip', 'geojson', 'kml']
 const VECTOR_UPLOAD_MAX_BYTES	= 10_000_000 // v6/server parity, see vector_upload.ts
 const VECTOR_UPLOAD_KEY_DIR	= 'uca_maps_vector'
 

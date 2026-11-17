@@ -27,6 +27,7 @@ import {
 import {render_map_image_download_panel} from './render_map_image_download.js'
 import {
 	DEFAULT_MAP_IMAGE_NAME,
+	name_required_text,
 	sanitize_download_name,
 	with_extension
 } from './download_filename.js'
@@ -304,7 +305,7 @@ export const download_map_image = async function(self, format, file_name=DEFAULT
 
 	const base_name = sanitize_download_name(file_name)
 	if (base_name==='') {
-		return {ok: false, error: self.get_tool_label('map_image_name_required') || 'Please enter a name for the file'}
+		return {ok: false, error: name_required_text(self)}
 	}
 
 	const failed = self.get_tool_label('map_image_download_error_failed') || 'The map image could not be downloaded.'

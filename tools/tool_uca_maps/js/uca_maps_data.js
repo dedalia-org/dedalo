@@ -41,4 +41,31 @@ export const carrier_image = function(layer) {
 
 
 
+/**
+* IS_ONEXONE_MARKER
+* The marker a 1x1 rectangle was built around — v6's `oneXone_type: 'Marker'`.
+* v6 stores `is_oneXone`/`oneXone_type`; this port reads the uid link it keeps.
+*
+* @param {Object} layer
+* @returns {boolean}
+*/
+export const is_onexone_marker = function(layer) {
+	return Boolean(read_uca_maps(layer)?.onexone_uid)
+}//end is_onexone_marker
+
+
+
+/**
+* IS_ONEXONE_RECTANGLE
+* The 1 m² rectangle itself — v6's `oneXone_type: 'Rectangle'`.
+*
+* @param {Object} layer
+* @returns {boolean}
+*/
+export const is_onexone_rectangle = function(layer) {
+	return Boolean(read_uca_maps(layer)?.onexone_of)
+}//end is_onexone_rectangle
+
+
+
 // @license-end

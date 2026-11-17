@@ -21,9 +21,10 @@ import {
 	LEGEND_SYMBOL_SHAPES,
 	default_legend_symbol,
 	legend_symbol_node,
-	is_raster_icon
+	is_raster_icon,
+	ALLOWED_ICON_TYPES
 } from './legend_symbol.js'
-import {show_panel_message} from './render_download_line.js'
+import {create_panel_message, show_panel_message} from './render_download_line.js'
 
 
 
@@ -91,8 +92,7 @@ export const render_legend_panel = function(self, panel) {
 
 	// last and sticky to the panel's foot: the panel scrolls, and a note at its top
 	// was out of sight while the user typed in a group further down
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-legend-message', parent: panel})
-	message.hidden = true
+	create_panel_message(panel, 'uca-maps-legend-message')
 
 	return panel
 }//end render_legend_panel
@@ -101,9 +101,9 @@ export const render_legend_panel = function(self, panel) {
 
 /**
 * SHOW_LEGEND_MESSAGE
-* In-flow error line, not `ui.show_message`: its page toast would be clipped
-* by the panel's `overflow-y: auto`. Its CLASS is the node `render_legend_panel`
-* builds: renaming either side silently breaks the icon upload.
+* The panel's in-flow line (`render_download_line.js` show_panel_message). Its
+* CLASS is the node `render_legend_panel` builds: renaming either side silently
+* breaks the icon upload.
 *
 * @param {HTMLElement} panel
 * @param {string} text
@@ -604,7 +604,7 @@ const pick_icon_file = function(self, panel, column_index, element_index) {
 
 	const file_input = document.createElement('input')
 	file_input.type		= 'file'
-	file_input.accept	= 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml'
+	file_input.accept	= ALLOWED_ICON_TYPES.join(',')
 
 	file_input.addEventListener('change', async () => {
 

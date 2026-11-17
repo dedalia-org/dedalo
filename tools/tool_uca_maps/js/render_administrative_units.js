@@ -15,7 +15,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {show_panel_message} from './render_download_line.js'
+import {create_panel_message, show_panel_message} from './render_download_line.js'
 
 
 
@@ -29,8 +29,7 @@ export const render_administrative_units_panel = function(self, panel) {
 
 	// the header (title + ×) is toolbar.js's: the panel opens centred
 
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-ua-message', parent: panel})
-	message.hidden = true
+	create_panel_message(panel, 'uca-maps-ua-message')
 
 	ui.create_dom_element({
 		element_type	: 'div',
@@ -46,8 +45,7 @@ export const render_administrative_units_panel = function(self, panel) {
 
 /**
 * SHOW_UA_MESSAGE
-* Plain in-flow error line — same reasoning as `render_wms_services.js`
-* show_wms_message.
+* The panel's in-flow line (`render_download_line.js` show_panel_message).
 *
 * @param {HTMLElement} panel
 * @param {string} text

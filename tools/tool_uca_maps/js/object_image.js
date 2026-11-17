@@ -61,6 +61,19 @@ export const object_images = function(layer) {
 
 
 /**
+* IMAGES_FULL_TEXT
+* The refusal for an object already at MAX_OBJECT_IMAGES, single and batch alike.
+*
+* @param {Object} self - tool_uca_maps instance
+* @returns {string}
+*/
+const images_full_text = function(self) {
+	return self.get_tool_label('object_images_full') || 'This object already holds the maximum number of images.'
+}//end images_full_text
+
+
+
+/**
 * OBJECT_IMAGE_URL
 * A stored descriptor's URL through image_upload.js's `image_url`, the one
 * resolver; null for a descriptor with no path.
@@ -96,11 +109,7 @@ export const associate_image = async function(self, layer, file) {
 		return {ok: false, error: self.get_tool_label('upload_no_file') || 'Please choose a file first.'}
 	}
 	if (object_images(layer).length >= MAX_OBJECT_IMAGES) {
-		return {
-			ok		: false,
-			error	: self.get_tool_label('object_images_full')
-				|| 'This object already holds the maximum number of images.'
-		}
+		return {ok: false, error: images_full_text(self)}
 	}
 
 	self._object_image_busy = true
@@ -388,8 +397,7 @@ export const import_linked_images = async function(self, layer, on_progress) {
 			const url	= entry.url.trim()
 
 			if (object_images(layer).length >= MAX_OBJECT_IMAGES) {
-				const full = self.get_tool_label('object_images_full')
-					|| 'This object already holds the maximum number of images.'
+				const full = images_full_text(self)
 				pending.slice(i).forEach(function(rest) {
 					failures.push({url: rest.url.trim(), error: full})
 				})

@@ -16,8 +16,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
-import {carrier_image} from './uca_maps_data.js'
+import {carrier_image, is_onexone_marker, is_onexone_rectangle, read_uca_maps} from './uca_maps_data.js'
 import {svg_node} from './svg.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME} from './download_filename.js'
 import {bind_download_button, create_panel_message, render_attribution, render_new_tab_link, show_panel_message} from './render_download_line.js'
@@ -274,6 +273,34 @@ const set_range = (input, min, max, step, value) => {
 
 
 /**
+* RENDER_RANGE_ROW
+* The shape every style slider row shares: a `label` holding its text and the
+* slider. No `input_class` leaves the input unclassed.
+*
+* @param {HTMLElement} container
+* @param {string} label_text
+* @param {string|undefined} input_class
+* @param {Array<string>} range - [min, max, step]
+* @param {*} value
+* @returns {HTMLInputElement} the slider
+*/
+const render_range_row = (container, label_text, input_class, [min, max, step], value) => {
+
+	const row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: container})
+	ui.create_dom_element({
+		element_type	: 'span',
+		text_content	: label_text,
+		parent			: row
+	})
+	const input = ui.create_dom_element({element_type: 'input', class_name: input_class, parent: row})
+	set_range(input, min, max, step, value)
+
+	return input
+}//end render_range_row
+
+
+
+/**
 * RENDER_PROPERTY_DELETE
 * The delete button every property row ends with, link rows included.
 *
@@ -434,7 +461,7 @@ const is_image_carrier = function(layer) {
 */
 const render_image_controls = function(self, layer, container) {
 
-	const image = layer.feature.properties.uca_maps.image
+	const image = carrier_image(layer)
 
 	const href = self.get_image_href(layer)
 	if (href) {
@@ -463,57 +490,58 @@ const render_image_controls = function(self, layer, container) {
 		self.set_image_interactive(layer, edit_input.checked)
 	})
 
-	const opacity_row = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-image-row',
-		parent			: container
-	})
-	ui.create_dom_element({
-		element_type	: 'label',
-		text_content	: self.get_tool_label('image_opacity') || 'Opacity',
-		parent			: opacity_row
-	})
-	const opacity_input = ui.create_dom_element({
-		element_type	: 'input',
-		class_name		: 'uca-maps-image-opacity',
-		parent			: opacity_row
-	})
-	set_range(opacity_input, '0', '1', '0.05', String(typeof image.opacity==='number' ? image.opacity : 1))
-	// 'input' previews while dragging, 'change' is the one that commits — see
-	// set_image_display's own do_commit note
-	opacity_input.addEventListener('input', () => {
-		self.set_image_display(layer, {opacity: parseFloat(opacity_input.value)}, false)
-	})
-	opacity_input.addEventListener('change', () => {
-		self.set_image_display(layer, {opacity: parseFloat(opacity_input.value)}, true)
-	})
+	render_image_slider(self, layer, container, self.get_tool_label('image_opacity') || 'Opacity', 'uca-maps-image-opacity',
+		['0', '1', '0.05'], String(typeof image.opacity==='number' ? image.opacity : 1), 'opacity', parseFloat)
 
-	const z_row = ui.create_dom_element({
-		element_type	: 'div',
-		class_name		: 'uca-maps-image-row',
-		parent			: container
-	})
-	ui.create_dom_element({
-		element_type	: 'label',
-		text_content	: self.get_tool_label('image_z_index') || 'z-index',
-		parent			: z_row
-	})
-	const z_input = ui.create_dom_element({
-		element_type	: 'input',
-		class_name		: 'uca-maps-image-z-index',
-		parent			: z_row
-	})
 	// v6's own slider, 0..1000
-	set_range(z_input, '0', '1000', '1', String(typeof image.z_index==='number' ? image.z_index : 200))
-	// same preview/commit split as the opacity slider above
-	z_input.addEventListener('input', () => {
-		self.set_image_display(layer, {z_index: parseInt(z_input.value, 10)}, false)
-	})
-	z_input.addEventListener('change', () => {
-		self.set_image_display(layer, {z_index: parseInt(z_input.value, 10)}, true)
-	})
+	render_image_slider(self, layer, container, self.get_tool_label('image_z_index') || 'z-index', 'uca-maps-image-z-index',
+		['0', '1000', '1'], String(typeof image.z_index==='number' ? image.z_index : 200), 'z_index', (value) => parseInt(value, 10))
 
 }//end render_image_controls
+
+
+
+/**
+* RENDER_IMAGE_SLIDER
+* One image display slider. 'input' previews while dragging, 'change' is the
+* one that commits — see set_image_display's own do_commit note.
+*
+* @param {Object} self
+* @param {Object} layer
+* @param {HTMLElement} container
+* @param {string} label_text
+* @param {string} input_class
+* @param {Array<string>} range - [min, max, step]
+* @param {string} value
+* @param {string} field - the image descriptor field it sets
+* @param {Function} parse - slider string to stored number
+* @returns {void}
+*/
+const render_image_slider = (self, layer, container, label_text, input_class, [min, max, step], value, field, parse) => {
+
+	const row = ui.create_dom_element({
+		element_type	: 'div',
+		class_name		: 'uca-maps-image-row',
+		parent			: container
+	})
+	ui.create_dom_element({
+		element_type	: 'label',
+		text_content	: label_text,
+		parent			: row
+	})
+	const input = ui.create_dom_element({
+		element_type	: 'input',
+		class_name		: input_class,
+		parent			: row
+	})
+	set_range(input, min, max, step, value)
+	input.addEventListener('input', () => {
+		self.set_image_display(layer, {[field]: parse(input.value)}, false)
+	})
+	input.addEventListener('change', () => {
+		self.set_image_display(layer, {[field]: parse(input.value)}, true)
+	})
+}//end render_image_slider
 
 
 
@@ -634,7 +662,7 @@ const render_style_controls = function(self, layer, container) {
 	}
 
 	const properties	= layer.feature && layer.feature.properties || {}
-	const style			= (properties.uca_maps && properties.uca_maps.style) || {}
+	const style			= read_uca_maps(layer)?.style || {}
 
 	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-style-controls', parent: container})
 	ui.create_dom_element({
@@ -657,52 +685,26 @@ const render_style_controls = function(self, layer, container) {
 		color_input.addEventListener('change', () => self.set_object_color(layer, color_input.value))
 
 	// fill opacity
-		const opacity_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: self.get_tool_label('style_fill_opacity') || 'Fill opacity',
-			parent			: opacity_row
-		})
-		const opacity_input = ui.create_dom_element({element_type: 'input', parent: opacity_row})
-		set_range(opacity_input, '0', '1', '0.1', style.fillOpacity!=null
+		const opacity_input = render_range_row(fieldset, self.get_tool_label('style_fill_opacity') || 'Fill opacity', undefined, ['0', '1', '0.1'], style.fillOpacity!=null
 			? style.fillOpacity
 			: (layer.options.fillOpacity!=null ? layer.options.fillOpacity : 0.2))
 		opacity_input.addEventListener('change', () => self.set_style_field(layer, 'fillOpacity', Number(opacity_input.value)))
 
 	// stroke weight
-		const weight_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: self.get_tool_label('style_weight') || 'Stroke weight',
-			parent			: weight_row
-		})
-		const weight_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-weight', parent: weight_row})
-		set_range(weight_input, '1', '100', '1', style.weight!=null ? style.weight : (layer.options.weight!=null ? layer.options.weight : 3))
+		const weight_input = render_range_row(fieldset, self.get_tool_label('style_weight') || 'Stroke weight', 'uca-maps-style-weight', ['1', '100', '1'],
+			style.weight!=null ? style.weight : (layer.options.weight!=null ? layer.options.weight : 3))
 		weight_input.addEventListener('change', () => self.set_style_field(layer, 'weight', Number(weight_input.value)))
 
 	// stroke opacity
-		const stroke_opacity_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: self.get_tool_label('style_stroke_opacity') || 'Stroke opacity',
-			parent			: stroke_opacity_row
-		})
-		const stroke_opacity_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-stroke-opacity', parent: stroke_opacity_row})
-		set_range(stroke_opacity_input, '0', '1', '0.1', style.opacity!=null
+		const stroke_opacity_input = render_range_row(fieldset, self.get_tool_label('style_stroke_opacity') || 'Stroke opacity', 'uca-maps-style-stroke-opacity', ['0', '1', '0.1'], style.opacity!=null
 			? style.opacity
 			: (layer.options.opacity!=null ? layer.options.opacity : 1))
 		stroke_opacity_input.addEventListener('change', () => self.set_style_field(layer, 'opacity', Number(stroke_opacity_input.value)))
 
 	// dashed border — 0 means solid, and is stored as a cleared field rather
 	// than the string '0' so `layer.options.dashArray` goes back to null
-		const dash_row = ui.create_dom_element({element_type: 'label', class_name: 'uca-maps-field', parent: fieldset})
-		ui.create_dom_element({
-			element_type	: 'span',
-			text_content	: self.get_tool_label('style_dash') || 'Dashed border',
-			parent			: dash_row
-		})
-		const dash_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-style-dash', parent: dash_row})
-		set_range(dash_input, '0', '100', '2', style.dashArray!=null ? parseInt(style.dashArray, 10) : 0)
+		const dash_input = render_range_row(fieldset, self.get_tool_label('style_dash') || 'Dashed border', 'uca-maps-style-dash', ['0', '100', '2'],
+			style.dashArray!=null ? parseInt(style.dashArray, 10) : 0)
 		dash_input.addEventListener('change', () => {
 			const dash = parseInt(dash_input.value, 10)
 			self.set_style_field(layer, 'dashArray', dash>0 ? String(dash) : null)
@@ -730,8 +732,7 @@ const render_centroid_control = function(self, layer, container) {
 		return
 	}
 
-	const properties	= layer.feature && layer.feature.properties || {}
-	const has_centroid	= Boolean(properties.uca_maps && properties.uca_maps.centroid_uid)
+	const has_centroid = Boolean(read_uca_maps(layer)?.centroid_uid)
 
 	const input = render_checkbox_row(container, 'uca-maps-field uca-maps-checkbox uca-maps-centroid', has_centroid,
 		self.get_tool_label('centroid_label') || 'Centroid')
@@ -757,8 +758,7 @@ const render_uncertainty_control = function(self, layer, container) {
 		return
 	}
 
-	const properties	= layer.feature && layer.feature.properties || {}
-	const uncertainty	= properties.uca_maps && properties.uca_maps.uncertainty
+	const uncertainty = read_uca_maps(layer)?.uncertainty
 
 	const input = render_checkbox_row(container, 'uca-maps-field uca-maps-checkbox uca-maps-uncertainty', Boolean(uncertainty),
 		self.get_tool_label('uncertainty_label') || 'Uncertainty')
@@ -800,8 +800,7 @@ const render_hierarchy_controls = function(self, layer, container) {
 		return
 	}
 
-	const properties	= layer.feature && layer.feature.properties || {}
-	const hierarchy		= (properties.uca_maps && properties.uca_maps.hierarchy) || {}
+	const hierarchy = read_uca_maps(layer)?.hierarchy || {}
 
 	const fieldset = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-section uca-maps-hierarchy-controls', parent: container})
 	ui.create_dom_element({

@@ -28,6 +28,7 @@ import {
 	disable_armed_layer,
 	enable_armed_layer,
 	is_spanish_official_lang,
+	reset_armed_layer_state,
 	wms_point_options
 } from './armed_layer.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
@@ -361,17 +362,9 @@ export const detach_catastro = function(self) {
 	}
 	clear_catastro_credit(self)
 
-	self.catastro_control				= null
-	self._catastro_tile_layer			= null
-	self._catastro_click_handler		= null
-	self._catastro_busy				= false
-	self._catastro_core_source			= null
-	self._catastro_core_was_on			= false
-	self._catastro_attribution			= null
-	self._catastro_created_layer_control	= false
-	if (self._armed_layer?.key==='catastro') {
-		self._armed_layer = null
-	}
+	self.catastro_control	= null
+	self._catastro_busy		= false
+	reset_armed_layer_state(self, 'catastro')
 
 }//end detach_catastro
 

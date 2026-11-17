@@ -30,8 +30,7 @@ import {
 	set_geoman_edition,
 	remove_map_listeners
 } from './object_console.js'
-import {is_onexone_marker, is_onexone_rectangle} from './onexone_flags.js'
-import {read_uca_maps} from './uca_maps_data.js'
+import {is_onexone_marker, is_onexone_rectangle, read_uca_maps} from './uca_maps_data.js'
 
 
 

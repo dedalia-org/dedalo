@@ -163,6 +163,31 @@ export const disable_armed_layer = function(self, key) {
 
 
 /**
+* RESET_ARMED_LAYER_STATE
+* Drops every `_<key>_*` slot ENABLE_ARMED_LAYER may have set. For a detach, which
+* must not keep stale refs even when the map is already gone and disable was skipped.
+*
+* @param {Object} self - tool_uca_maps instance
+* @param {string} key - the feature's state key ('catastro' | 'ua')
+* @returns {void}
+*/
+export const reset_armed_layer_state = function(self, key) {
+
+	self[slot(key, 'click_handler')]			= null
+	self[slot(key, 'core_source')]			= null
+	self[slot(key, 'core_was_on')]			= false
+	self[slot(key, 'tile_layer')]				= null
+	self[slot(key, 'attribution')]			= null
+	self[slot(key, 'created_layer_control')]	= false
+	if (self._armed_layer?.key===key) {
+		self._armed_layer = null
+	}
+
+}//end reset_armed_layer_state
+
+
+
+/**
 * WMS_POINT_OPTIONS
 * The record plus the view and clicked pixel the server needs for its
 * GetFeatureInfo: the browser cannot read those WMS replies itself.

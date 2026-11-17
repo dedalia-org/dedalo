@@ -29,6 +29,7 @@ import {
 	disable_armed_layer,
 	enable_armed_layer,
 	is_spanish_official_lang,
+	reset_armed_layer_state,
 	wms_point_options
 } from './armed_layer.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
@@ -247,16 +248,10 @@ export const detach_administrative_units = function(self) {
 	remove_toolbar_button(self, self.ua_control)
 	remove_toolbar_panel(self, self.ua_panel)
 
-	self.ua_control				= null
-	self.ua_panel				= null
-	self._ua_busy				= false
-	self._ua_core_source			= null
-	self._ua_core_was_on			= false
-	self._ua_attribution			= null
-	self._ua_created_layer_control	= false
-	if (self._armed_layer?.key==='ua') {
-		self._armed_layer = null
-	}
+	self.ua_control	= null
+	self.ua_panel	= null
+	self._ua_busy	= false
+	reset_armed_layer_state(self, 'ua')
 
 }//end detach_administrative_units
 

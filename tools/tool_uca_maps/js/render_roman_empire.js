@@ -17,7 +17,7 @@
 
 import {ui} from '../../../core/common/js/ui.js'
 import {a11y} from '../../../core/common/js/a11y.js'
-import {render_attribution, show_panel_message} from './render_download_line.js'
+import {create_panel_message, render_attribution, show_panel_message} from './render_download_line.js'
 
 
 
@@ -110,8 +110,7 @@ export const render_roman_empire_panel = function(self, panel) {
 		render_query_input(self, panel, block)
 		render_filters[source](self, block)
 
-		const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-roman-message', parent: block})
-		message.hidden = true
+		create_panel_message(block, 'uca-maps-roman-message')
 	}
 
 	// the list follows its field when the panel scrolls, and closes only once

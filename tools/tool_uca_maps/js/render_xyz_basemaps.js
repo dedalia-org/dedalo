@@ -16,7 +16,7 @@
 
 
 import {ui} from '../../../core/common/js/ui.js'
-import {show_panel_message} from './render_download_line.js'
+import {create_panel_message, show_panel_message} from './render_download_line.js'
 import {stored_sources} from './map_sources.js'
 import {MAX_ATTRIBUTION_LENGTH, MAX_SOURCE_ZOOM} from './core_limits.js'
 
@@ -58,9 +58,7 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 
 /**
 * SHOW_XYZ_MESSAGE
-* Plain in-flow error line, NOT `ui.show_message`: its page-level toast CSS
-* (`top: -height`, nothing resets it) renders clipped by this panel's
-* `overflow-y: auto`.
+* The add form's in-flow line (`render_download_line.js` show_panel_message).
 *
 * @param {HTMLElement} panel
 * @param {string} text
@@ -70,6 +68,17 @@ export const render_xyz_basemaps_panel = function(self, panel) {
 const show_xyz_message = function(panel, text, type='error') {
 	show_panel_message(panel.querySelector('.uca-maps-xyz-message'), text, type)
 }//end show_xyz_message
+
+
+
+/**
+* CLEAR_XYZ_MESSAGE
+* @param {HTMLElement} panel
+* @returns {void}
+*/
+const clear_xyz_message = function(panel) {
+	panel.querySelector('.uca-maps-xyz-message').hidden = true
+}//end clear_xyz_message
 
 
 
@@ -86,8 +95,7 @@ const render_add_form = function(self, panel) {
 
 	const form = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-xyz-add-form', parent: panel})
 
-	const message = ui.create_dom_element({element_type: 'div', class_name: 'uca-maps-xyz-message', parent: form})
-	message.hidden = true
+	const message = create_panel_message(form, 'uca-maps-xyz-message')
 
 	const url_input = ui.create_dom_element({element_type: 'input', class_name: 'uca-maps-xyz-input uca-maps-xyz-url', parent: form})
 	url_input.type			= 'text'
@@ -207,7 +215,7 @@ export const populate_xyz_basemaps = function(self, panel) {
 				show_xyz_message(panel, result.error)
 				return
 			}
-			panel.querySelector('.uca-maps-xyz-message').hidden = true
+			clear_xyz_message(panel)
 			populate_xyz_basemaps(self, panel)
 		})
 
@@ -262,7 +270,7 @@ const populate_saved_basemaps = function(self, panel) {
 				show_xyz_message(panel, result.error)
 				return
 			}
-			panel.querySelector('.uca-maps-xyz-message').hidden = true
+			clear_xyz_message(panel)
 			populate_xyz_basemaps(self, panel)
 		})
 	}
