@@ -35,8 +35,8 @@
  * restored through `component->Save()`; see {@link gateReplayedValue}). That
  * claim is censused, not prose:
  * `test/unit/component_value_gate_census_tripwire.test.ts` derives every caller
- * of the chokepoint and requires each to reach this gate or carry a named,
- * reasoned exemption.
+ * of the chokepoint's key / column / replay entries and requires each to reach
+ * this gate or carry a named, reasoned exemption.
  */
 
 import {

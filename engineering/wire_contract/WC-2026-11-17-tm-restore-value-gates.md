@@ -40,6 +40,18 @@
   is the defect. A stored hash replays verbatim. The value never rides the error
   (`coordinates.reason` names the cause only). Known wart: the code's label says "not a valid
   link" (the relation case's wording).
+- **Open owner question (2026-11-17 review) — a v6 ciphertext in a WHOLE-RECORD image.** The
+  refusal is whole, so a user record whose history image holds a v6 AES ciphertext under its
+  password key cannot be restored at all through this door: an undelete of a user deleted on v6,
+  or a restore of a user to a snapshot from before the upgrade (even when only other fields
+  differ). `scripts/migrate_v6_passwords.ts` converts live `matrix_users` rows only, never
+  history rows, and the bulk revert's undelete covers run-deleted records only — there is no
+  other path. Not decided here; the alternatives named by the review: replay a legacy ciphertext
+  verbatim (`isLegacyEncryptedPassword` — it is no working credential, auth accepts Argon2 only,
+  and it is the state the migration recovers from — but that predicate cannot tell a ciphertext
+  from a plaintext a pre-gate door stored: both are "a non-empty string that is no hash"), or
+  drop the credential key from the image and keep the live one. Until ruled the refusal stands
+  (fail closed).
 - **Client effect:** none for a clean row. The Time Machine PREVIEW still shows the row as
   recorded (history is not rewritten); a restored hostile row lands cleaned, so the live value
   may differ from the previewed one by exactly what a save would have stripped.
@@ -47,10 +59,16 @@
   (`bulk_revert_undo.ts`, `bulk_revert_records.ts` — `persistRestoredKeys` / the undelete's
   `persistRecordBirth`) replay their undo-log images verbatim: a revert is EXACT by contract
   (`changed_since_run` compares the bytes the run wrote), and gating one side would refuse its
-  own pairs. Open owner question; not censused (those chokepoint entries are outside the
-  census's derivation).
+  own pairs. Open owner question. Censused since the 2026-11-17 review (the census walks the
+  replay entries `persistRestoredKeys` / `persistRecordBirth` too): those four writers carry
+  the `exact_revert` verdict, which only the bulk revert's own files may take.
 - **Reason:** the gates are the engine's claim that no door stores an ungated component value;
   a history row is stored bytes, not proof they were gated.
 - **Gate reconciliation:** TS-only (no oracle interaction covers a restore of a dirty row; no
   re-harvest). The census drops its `replays_stored_image` verdict with its last two rows
-  (`applyDataframeRestore`, `restoreSectionRow` → `gated`).
+  (`applyDataframeRestore`, `restoreSectionRow` → `gated`). Review addendum (2026-11-17): the
+  component restore (`toolTimeMachineApplyValue` → `persistRestoredKeys`) was gated in code but
+  outside the census's walk — removing `gatedLaneState` left it green. The walk now derives the
+  replay entries' callers and a `gated` row may not reach the gate THROUGH another chokepoint
+  writer (the whole-record restore lives in the same file); the outcome gate adds the
+  whole-record credential refusal (R4) and the recover's own history row (R3).
