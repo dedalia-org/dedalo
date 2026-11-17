@@ -151,6 +151,24 @@ const with_tool_css = async function(fn) {
 	}
 }
 
+/** The tool's own stylesheet, as with_tool_css loaded it. */
+const tool_sheet = () => [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+
+/**
+* What `token` resolves to inside `parent`: a probe painted with it is appended,
+* its computed `property` read, and the probe removed (a leftover would join the
+* text walks and the layout of the panel it sits in).
+* @returns {string}
+*/
+const resolve_token = function(parent, token, property = 'background-color') {
+	const probe = document.createElement('div')
+	probe.style.setProperty(property, 'var(' + token + ')')
+	parent.appendChild(probe)
+	const value = getComputedStyle(probe).getPropertyValue(property)
+	probe.remove()
+	return value
+}//end resolve_token
+
 /**
 * Runs `fn` with the tool sheet's phone rules applied at the suite's desktop
 * width, where the phone @media never matches: the rules inside it whose
@@ -159,7 +177,7 @@ const with_tool_css = async function(fn) {
 * @returns {Promise<*>}
 */
 const with_phone_rules = async function(selector_part, fn) {
-	const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+	const sheet = tool_sheet()
 	const rules = [...sheet.cssRules]
 		.filter((rule) => rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
 		.flatMap((rule) => [...rule.cssRules])
@@ -182,7 +200,7 @@ const with_phone_rules = async function(selector_part, fn) {
 * @returns {Promise<*>}
 */
 const with_phone_cascade = async function(fn) {
-	const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+	const sheet = tool_sheet()
 	const unwrap = (rule) => (rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
 		? [...rule.cssRules].map(unwrap).join('\n')
 		: rule.cssText
@@ -224,6 +242,53 @@ const capture_download = async function(fn) {
 }//end capture_download
 
 /**
+* Runs `fn(toasts)` with every page toast (`api_error`) collected into `toasts`,
+* and returns them: a test asserts mid-flight inside `fn`, or after it.
+* @returns {Promise<object[]>}
+*/
+const toasts_during = async function(fn) {
+	const toasts	= []
+	const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
+	try {
+		await fn(toasts)
+	} finally {
+		event_manager.unsubscribe(token)
+	}
+	return toasts
+}//end toasts_during
+
+/**
+* Runs `fn` with domtoimage.toBlob stubbed to answer a 1-byte PNG Blob, and puts
+* the library back exactly as found, loaded or not: only the capture options are
+* under test. Returns the node and options toBlob saw, null if it never ran.
+* @returns {Promise<{node: Element, options: object}|null>}
+*/
+const with_to_blob_stub = async function(fn) {
+	const had_library	= Object.hasOwn(window, 'domtoimage')
+	if (!had_library) window.domtoimage = {}
+	const library		= window.domtoimage
+	const had_to_blob	= Object.hasOwn(library, 'toBlob')
+	const real_to_blob	= library.toBlob
+	let seen = null
+	library.toBlob = async function(node, options) {
+		seen = {node, options}
+		return new Blob(['x'], {type: 'image/png'})
+	}
+	try {
+		await fn()
+	} finally {
+		if (!had_library) {
+			delete window.domtoimage
+		} else if (had_to_blob) {
+			library.toBlob = real_to_blob
+		} else {
+			delete library.toBlob
+		}
+	}
+	return seen
+}//end with_to_blob_stub
+
+/**
 * "Download image" asks through data_manager.request with its own timeout:
 * `answer` sees the {action, options} a tool_request stub would, plus the
 * transport options. Returns the restore (data_manager outlives the test).
@@ -253,7 +318,7 @@ const settle_map = function(map) {
 	})
 }
 
-/** The base tile layer on the map, read off the map itself: Catastro and UA swap it. */
+/** The last tile layer on the map, read off the map itself: the basemap until Catastro or UA lays its own over it. */
 const find_active_tile_layer = function(map) {
 	let found = null
 	map.eachLayer((layer) => { if (layer instanceof L.TileLayer) found = layer })
@@ -291,10 +356,10 @@ const load_file = function(input, file) {
 
 const vector_file	= () => new File(['{}'], 'plan.geojson', {type: 'application/geo+json'})
 const image_file	= () => new File(['x'], 'plan.png', {type: 'image/png'})
-/** A real 1x1 PNG: a picked icon is decoded and redrawn, so it must be an image. */
-const pin_png		= () => new File(
-	[Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='), (c) => c.charCodeAt(0))],
-	'pin.png', {type: 'image/png'}
+/** A real 1x1 PNG: the staging endpoint checks the file signature, and a picked icon is decoded and redrawn. */
+const one_pixel_png = (name = 'plan.png') => new File(
+	[Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))],
+	name, {type: 'image/png'}
 )
 
 /** One drawable point, what the real vector upload round trip sends. */
@@ -423,7 +488,7 @@ const WITH_PLEIADES = { configured: true, pleiades: true, pelagios: [] }
 
 
 
-describe('TOOL_UCA_MAPS CLIENT TEST', function() {
+describe('TOOL_UCA_MAPS (structural)', function() {
 
 	this.timeout(10000)
 
@@ -659,7 +724,7 @@ describe('TOOL_UCA_MAPS CLIENT TEST', function() {
 
 
 
-describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
+describe('TOOL_UCA_MAPS (live map)', function() {
 
 	this.timeout(20000)
 
@@ -739,8 +804,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		return () => { L.tileLayer = original }
 	}
 
-	/** The layer a basemap swap (Catastro, UA) puts on the map. */
-	const is_swap_layer = (layer) => layer instanceof L.TileLayer
+	/** The layer Catastro or UA lays over the basemap when armed. */
+	const is_armed_layer = (layer) => layer instanceof L.TileLayer
 		&& /builtin=ign_admin_units|default_id=/.test(String(layer._url))
 
 	/** The `catastro` default an administrator lists in `properties.map_sources`, as core sends it. */
@@ -781,20 +846,37 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	const control_entries_of = (url_part) => Object.values(geolocation.layer_control._layers)
 		.filter((entry) => String(entry.layer._url).includes(url_part))
 
+	/** A component_geolocation on the fixture record; `id_prefix` keeps it apart from every other instance. */
+	const geolocation_instance = (id_prefix) => get_instance({
+		model			: 'component_geolocation',
+		tipo			: tipo,
+		section_tipo	: section_tipo,
+		section_id		: section_id,
+		lang			: lang,
+		mode			: 'edit',
+		view			: 'default',
+		id_variant		: id_prefix + Math.random()
+	})
+
+	/** A tool on `component` with what production init resolves, without the ceremony (file header). tool_request is the caller's. */
+	const wire_tool_by_hand = function(component) {
+		const wired = new tool_uca_maps()
+		wired.model				= 'tool_uca_maps'
+		wired.caller			= component
+		wired.geolocation		= component
+		wired.map_ready			= true
+		// init's own default: without it create_source() sends `source.mode:
+		// null` and the server rejects every tool_request as request.invalid_rqo
+		wired.mode				= 'edit'
+		wired.get_tool_label	= () => undefined // force the '||' fallback label strings
+		return wired
+	}
+
 	let geolocation, tool, map_container, restore_ua_wms
 
 	beforeEach(async function() {
 
-		geolocation = await get_instance({
-			model			: 'component_geolocation',
-			tipo			: tipo,
-			section_tipo	: section_tipo,
-			section_id		: section_id,
-			lang			: lang,
-			mode			: 'edit',
-			view			: 'default',
-			id_variant		: 'uca_console_' + Math.random()
-		})
+		geolocation = await geolocation_instance('uca_console_')
 		await geolocation.build(true)
 		geolocation.data.entries	= [ { id: 9001, lib_data: seeded_lib_data() } ]
 		geolocation.permissions	= 2
@@ -811,17 +893,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// the core's own 'full' load to get a FeatureGroup at all
 		geolocation.layers_loader({ load: 'full', layer_id: null })
 
-		// what production init resolves, without the ceremony (file header)
-		tool					= new tool_uca_maps()
-		tool.model				= 'tool_uca_maps'
-		tool.caller				= geolocation
-		tool.geolocation		= geolocation
-		tool.map_ready			= true
-		// init's own default: without it create_source() sends `source.mode:
-		// null` and the server rejects every tool_request as request.invalid_rqo
-		tool.mode				= 'edit'
-		tool.get_tool_label		= () => undefined // force the '||' fallback label strings
-		tool.tool_request		= real_tool_request
+		tool				= wire_tool_by_hand(geolocation)
+		tool.tool_request	= real_tool_request
 
 	})
 
@@ -909,8 +982,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	const XYZ_URL = 'https://tiles.example.org/{z}/{x}/{y}.png'
 
+	/** A WMS layer as the search hands it to add_wms_layer; `overrides` changes what a test is about. */
+	const wms_layer = (overrides = {}) => ({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857', ...overrides})
+
 	/** The one layer of a seeded FeatureGroup (seeded_lib_data). */
 	const seeded_layer = (layer_id) => geolocation.FeatureGroup[layer_id].getLayers()[0]
+
+	/** A square ring of `side_deg` degrees, the polygon a reshape test sets. */
+	const square = (side_deg) => [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
 
 	const active_group = () => geolocation.FeatureGroup[geolocation.active_layer_id]
 
@@ -1670,32 +1749,31 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const layer		= seeded_layer(1)
 		const carrier	= add_image_carrier()
 
-		// no envelope ever reached data_manager, so nothing else toasts it
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		stub_tool_request(async function() {
 			throw new Error('Boom.')
 		})
 		const restore_image_download = stub_image_download(async () => { throw new Error('Boom.') })
 		try {
-			const rows = [
-				{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
-				{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
-				{label: 'image', run: () => tool.download_image(carrier, 'png', 0.8, 'plan'), lead: 'The image could not be downloaded.'},
-				{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
-			]
-			for (const row of rows) {
-				assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\nBoom.'}, row.label)
-			}
-			assert.equal(toasts.length, rows.length, 'expected one page toast per throw')
-			for (const toast of toasts) {
-				assert.equal(toast.code, 'client.tool_uca_maps_failed', 'expected the client-origin code')
-				assert.equal(toast.message, 'Boom.', 'expected the exception named in the toast')
-				assert.strictEqual(toast.transport, false, 'expected a throw not read as a network failure')
-				assert.equal(resolve_error_policy(toast).action, 'toast', 'expected the page policy to toast it')
-			}
+			// no envelope ever reached data_manager, so nothing else toasts it
+			await toasts_during(async (toasts) => {
+				const rows = [
+					{label: 'vector', run: () => download_vector(tool, layer, 'shp'), lead: 'The object could not be downloaded.'},
+					{label: 'pdf', run: () => download_object_pdf(tool, layer), lead: 'The PDF could not be created.'},
+					{label: 'image', run: () => tool.download_image(carrier, 'png', 0.8, 'plan'), lead: 'The image could not be downloaded.'},
+					{label: 'map image', run: () => download_map_image(tool, 'jpg'), lead: 'The map image could not be downloaded.'}
+				]
+				for (const row of rows) {
+					assert.deepEqual(await row.run(), {ok: false, error: row.lead + '\nBoom.'}, row.label)
+				}
+				assert.equal(toasts.length, rows.length, 'expected one page toast per throw')
+				for (const toast of toasts) {
+					assert.equal(toast.code, 'client.tool_uca_maps_failed', 'expected the client-origin code')
+					assert.equal(toast.message, 'Boom.', 'expected the exception named in the toast')
+					assert.strictEqual(toast.transport, false, 'expected a throw not read as a network failure')
+					assert.equal(resolve_error_policy(toast).action, 'toast', 'expected the page policy to toast it')
+				}
+			})
 		} finally {
-			event_manager.unsubscribe(token)
 			restore_image_download()
 		}
 	})
@@ -1864,13 +1942,12 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}
 	})
 
-	// core drops the map BEFORE it announces its destroy, so every detach_*
-	// runs against a map that is already gone
-	it('destroying the map component tears the tool down through its event, with the map already gone', async function() {
-
-		await run_edit()
-		assert.isOk(tool.map_control, 'precondition: edit() attached the console')
-
+	/**
+	* Destroys the map component as core does, the map dropped BEFORE its destroy
+	* event is announced, and waits for the tool teardown that event starts: every
+	* detach_* runs against a map that is already gone.
+	*/
+	const destroy_map_component = async function() {
 		let teardown = null
 		const on_destroyed = tool.on_geolocation_destroyed
 		tool.on_geolocation_destroyed = function() {
@@ -1882,6 +1959,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.isNull(geolocation.map, 'precondition: the map is gone before the tool hears of it')
 		assert.isOk(teardown, 'expected the component\'s destroy event to reach the tool')
 		await teardown // a detach_* that needs the map rejects here
+	}//end destroy_map_component
+
+	it('destroying the map component tears the tool down through its event, with the map already gone', async function() {
+
+		await run_edit()
+		assert.isOk(tool.map_control, 'precondition: edit() attached the console')
+
+		await destroy_map_component()
 
 		assert.equal(tool.status, 'destroyed', 'expected the tool instance destroyed')
 		assert.isNull(tool.geolocation, 'expected the geolocation reference cleared')
@@ -1894,6 +1979,34 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isNull(tool[key], 'expected ' + key + ' released')
 		}
 	})
+
+	// with the map gone a detach cannot disarm: only reset_armed_layer_state drops
+	// what the armed layer left on the tool. `set` are the slots arming fills here
+	for (const armed of [
+		{key: 'ua', control: 'ua_control', set: ['click_handler', 'tile_layer']},
+		{key: 'catastro', control: 'catastro_control', set: ['click_handler', 'tile_layer', 'core_source', 'attribution']}
+	]) {
+		it(`destroying the map component with ${armed.key} armed leaves none of its armed-layer state on the tool`, async function() {
+
+			geolocation.section_lang = 'lg-spa' // gates Catastro and UA in
+			offer_catastro()
+			await run_edit()
+			tool[armed.control].getContainer().click() // arm
+			assert.equal(tool._armed_layer && tool._armed_layer.key, armed.key, 'precondition: ' + armed.key + ' armed')
+			for (const name of armed.set) {
+				assert.isOk(tool[`_${armed.key}_${name}`], 'precondition: arming set _' + armed.key + '_' + name)
+			}
+
+			await destroy_map_component()
+
+			// only the slots the precondition saw filled: asserting one that never
+			// left its initial value could not fail
+			assert.isNull(tool._armed_layer, 'expected nothing left armed')
+			for (const name of armed.set) {
+				assert.isNull(tool[`_${armed.key}_${name}`], 'expected _' + armed.key + '_' + name + ' released')
+			}
+		})
+	}
 
 
 
@@ -2163,9 +2276,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('a checked uncertainty follows the geometry when the polygon is reshaped', function() {
 
 		const polygon	= seeded_layer(1)
-		const square	= function(side_deg) {
-			return [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
-		}
 
 		polygon.setLatLngs(square(0.01)) // ~0.94 km² → tier 4
 		toggle_uncertainty(tool, polygon)
@@ -2193,9 +2303,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	it('sync_measurements resyncs a stale uncertainty under a current area, and ignores a sub-print jitter', function() {
 
 		const polygon	= seeded_layer(1)
-		const square	= function(side_deg) {
-			return [[40.45, -3.655], [40.45, -3.655 + side_deg], [40.45 + side_deg, -3.655 + side_deg], [40.45 + side_deg, -3.655]]
-		}
 		const dirty = []
 		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
 
@@ -2778,24 +2885,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_map_image_download_control()
 
-		const had		= Object.hasOwn(window, 'domtoimage')
-		const original	= window.domtoimage
-		let options_seen = null
-		window.domtoimage = {
-			toBlob	: async (node, options) => { options_seen = options; return new Blob(['x'], {type: 'image/png'}) }
-		}
-		try {
-			await capture_download(() => download_map_image(tool, 'png'))
-		} finally {
-			if (had) {
-				window.domtoimage = original
-			} else {
-				delete window.domtoimage
-			}
-		}
+		const seen = await with_to_blob_stub(() => capture_download(() => download_map_image(tool, 'png')))
 
-		assert.isOk(options_seen, 'expected the capture to run')
-		assert.equal(options_seen.imagePlaceholder, TRANSPARENT_PIXEL, 'expected the transparent placeholder for an unreadable tile')
+		assert.isOk(seen && seen.options, 'expected the capture to run')
+		assert.equal(seen.options.imagePlaceholder, TRANSPARENT_PIXEL, 'expected the transparent placeholder for an unreadable tile')
 	})
 
 	it('download_map_image names the PNG with what the user typed, sanitized', async function() {
@@ -2869,25 +2962,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const container = geolocation.map.getContainer()
 		container.querySelector('.uca-maps-map-image-control').click()
 
-		// only the options matter here: a stub capture, the real library left as found
-		const had_library	= typeof window.domtoimage!=='undefined'
-		if (!had_library) window.domtoimage = {}
-		const library		= window.domtoimage
-		const real_to_blob	= library.toBlob
-		let seen = null
-		library.toBlob = async function(node, options) {
-			seen = {node, options}
-			return new Blob(['png'], {type: 'image/png'})
-		}
-		try {
-			await capture_download(() => download_map_image(tool, 'png'))
-		} finally {
-			if (had_library) {
-				library.toBlob = real_to_blob
-			} else {
-				delete window.domtoimage
-			}
-		}
+		const seen = await with_to_blob_stub(() => capture_download(() => download_map_image(tool, 'png')))
 
 		assert.isOk(seen, 'expected the capture to go through domtoimage.toBlob')
 		assert.equal(seen.node, container, 'expected the map container captured')
@@ -2947,23 +3022,18 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			return real_tool_request(options)
 		})
 
-		// The refusal has to be VISIBLE, not just "nothing happened": it comes
-		// back for the panel's line, under the field it is about, and nothing
-		// toasts — no request failed.
-		const errors = []
-		const token = event_manager.subscribe('api_error', (error) => errors.push(error))
-
 		// A name that sanitizes to nothing is a refusal, never a silent
 		// fallback to the default (download_filename.js).
 		let result = null
 		let captured = null
-		try {
+		// The refusal has to be VISIBLE, not just "nothing happened": it comes
+		// back for the panel's line, under the field it is about, and nothing
+		// toasts — no request failed.
+		const errors = await toasts_during(async () => {
 			captured = await capture_download(async () => {
 				result = await download_map_image(tool, 'png', '   ')
 			})
-		} finally {
-			event_manager.unsubscribe(token)
-		}
+		})
 
 		assert.isNotOk(captured.blob, 'expected no capture at all')
 		assert.isNotOk(captured.name, 'expected no download triggered')
@@ -3407,12 +3477,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const layers_after = geolocation.FeatureGroup[3].getLayers()
 		assert.equal(layers_after.length, layers_before + 1, 'expected one new layer (the rectangle) added')
 
-		const rectangle = layers_after.find((candidate) =>
-			candidate.feature
-			&& candidate.feature.properties
-			&& candidate.feature.properties.uca_maps
-			&& candidate.feature.properties.uca_maps.uid===onexone_uid
-		)
+		const rectangle = layer_by_uid(geolocation.FeatureGroup[3], onexone_uid)
 		assert.isOk(rectangle, 'expected to find the rectangle by its uid')
 		assert.instanceOf(rectangle, L.Rectangle, 'expected an L.Rectangle, matching v6\'s own L.rectangle(bounds)')
 		// a 1 m square centred on the point: v6's `radiusMts = 1` fed to toBounds
@@ -4170,10 +4235,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.attach_map_image_download_control()
 			geolocation.map.getContainer().querySelector('.uca-maps-xyz-control').click()
 
-			const probe = document.createElement('div')
-			probe.style.cssText = 'background-color: var(--tool_uca_maps)'
-			tool.xyz_panel.appendChild(probe)
-			const hue = getComputedStyle(probe).backgroundColor
+			const hue = resolve_token(tool.xyz_panel, '--tool_uca_maps')
 			const unpainted = document.createElement('div')
 			tool.xyz_panel.appendChild(unpainted)
 			assert.notEqual(hue, getComputedStyle(unpainted).backgroundColor, 'expected the tool hue to resolve')
@@ -4196,21 +4258,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(object_btn, 'expected the object section\'s Add button')
 			assert.isOk(delete_btn, 'expected the property row\'s ✕')
 			// the fill is the generated one (the hue clamped for its ink), not the raw hue
-			const fill_probe = document.createElement('div')
-			fill_probe.style.cssText = 'background-color: var(--tool_fill)'
-			tool.xyz_panel.appendChild(fill_probe)
-			assert.notEqual(getComputedStyle(fill_probe).backgroundColor, 'rgba(0, 0, 0, 0)', 'expected the generated tool fill to resolve, or the equality proves nothing')
-			assert.equal(getComputedStyle(xyz_add).backgroundColor, getComputedStyle(fill_probe).backgroundColor, 'expected the action fill on the generated tool fill')
-			fill_probe.remove()
+			const fill = resolve_token(tool.xyz_panel, '--tool_fill')
+			assert.notEqual(fill, 'rgba(0, 0, 0, 0)', 'expected the generated tool fill to resolve, or the equality proves nothing')
+			assert.equal(getComputedStyle(xyz_add).backgroundColor, fill, 'expected the action fill on the generated tool fill')
 			assert.equal(getComputedStyle(xyz_add).cursor, 'pointer')
 			assert.equal(chrome(image_btn), chrome(xyz_add), 'expected the map-image button on the shared action chrome')
 			assert.equal(chrome(object_btn), chrome(xyz_add), 'expected the object section\'s buttons on the shared action chrome')
 
 			// the ✕ is the secondary variant of the same mixin
-			const secondary = document.createElement('div')
-			secondary.style.cssText = 'background-color: var(--bg_fill_inverse)'
-			tool.panel_node.appendChild(secondary)
-			assert.equal(getComputedStyle(delete_btn).backgroundColor, getComputedStyle(secondary).backgroundColor, 'expected the ✕ on the secondary fill')
+			assert.equal(getComputedStyle(delete_btn).backgroundColor, resolve_token(tool.panel_node, '--bg_fill_inverse'), 'expected the ✕ on the secondary fill')
 			assert.equal(getComputedStyle(delete_btn).cursor, 'pointer')
 
 			for (const node of [xyz_add, image_btn, object_btn, delete_btn]) {
@@ -4259,14 +4315,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const message = tool.upload_panel.querySelector('.uca-maps-upload-message')
 			message.hidden = false
 
-			const tint_of = (token) => {
-				const probe = document.createElement('div')
-				probe.style.backgroundColor = 'var(' + token + ')'
-				tool.upload_panel.appendChild(probe)
-				const value = getComputedStyle(probe).backgroundColor
-				probe.remove()
-				return value
-			}
+			const tint_of = (token) => resolve_token(tool.upload_panel, token)
 			const expected = {
 				error	: tint_of('--uca_maps_msg_error_bg'),
 				ok		: tint_of('--uca_maps_msg_ok_bg'),
@@ -4303,10 +4352,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			}
 			assert.equal(look(list_line), look(console_line), 'expected one look for both')
 
-			const probe = document.createElement('span')
-			probe.style.color = 'var(--fg_muted)'
-			tool.panel_node.appendChild(probe)
-			assert.equal(getComputedStyle(console_line).color, getComputedStyle(probe).color, 'expected the muted ink')
+			assert.equal(getComputedStyle(console_line).color, resolve_token(tool.panel_node, '--fg_muted', 'color'), 'expected the muted ink')
 			assert.equal(getComputedStyle(console_line).fontStyle, 'italic')
 		})
 	})
@@ -4472,12 +4518,11 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isAbove(submit.getBoundingClientRect().bottom, panel.getBoundingClientRect().bottom, 'expected the form\'s button, and the line under it, below the fold')
 
 			submit.click() // no file chosen: refused
-			const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 			// the scroll is smooth: wait for it to start, then to settle
 			let last = -1
 			for (let i = 0; i < 90 && (message.hidden || panel.scrollTop===0 || panel.scrollTop!==last); i++) {
 				last = panel.scrollTop
-				await frames()
+				await two_frames()
 			}
 			assert.isFalse(message.hidden, 'expected the refusal shown')
 			const rect	= message.getBoundingClientRect()
@@ -4507,8 +4552,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const panel_top	= panel.scrollTop
 
 			form.querySelector('.uca-maps-xyz-add-button').click() // no URL: refused
-			const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-			for (let i = 0; i < 15; i++) await frames()
+			for (let i = 0; i < 15; i++) await two_frames()
 
 			assert.isFalse(panel.querySelector('.uca-maps-xyz-message').hidden, 'expected the refusal shown')
 			assert.equal(panel.scrollTop, panel_top, 'expected the panel still')
@@ -4557,6 +4601,19 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		}))
 	})
 
+	/** Every panel the tool hangs from its bar: [attach, panel key, control key]. */
+	const TOOLBAR_PANELS = [
+		['attach_console',						'panel_node',			'map_control'],
+		['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
+		['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
+		['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
+		['attach_wms_services',					'wms_panel',			'wms_control'],
+		['attach_file_upload',					'upload_panel',			'upload_control'],
+		['attach_place_search',					'place_search_panel',	'place_search_control'],
+		['attach_legend',						'legend_panel',			'legend_control'],
+		['attach_roman_empire',					'roman_panel',			'roman_control']
+	]
+
 	// The panels live inside Leaflet's container, which sets its own 12px
 	// Helvetica; they take the page's font and base size instead (html is the
 	// app's 1rem), with one smaller step for secondary text. Every text node a
@@ -4571,25 +4628,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.match(map.fontFamily, /Helvetica Neue/, 'expected Leaflet\'s own font on the map, or this proves nothing')
 
 			mount_roman(WITH_PLEIADES)
-			const panels = [
-				['attach_console',						'panel_node',			'map_control'],
-				['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
-				['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
-				['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
-				['attach_wms_services',					'wms_panel',			'wms_control'],
-				['attach_file_upload',					'upload_panel',			'upload_control'],
-				['attach_place_search',					'place_search_panel',	'place_search_control'],
-				['attach_legend',						'legend_panel',			'legend_control'],
-				['attach_roman_empire',					'roman_panel',			'roman_control']
-			]
-			for (const [attach, , control_key] of panels) {
+			for (const [attach, , control_key] of TOOLBAR_PANELS) {
 				tool[attach]()
 				tool[control_key].getContainer().click() // opening populates the lists
 			}
 			seeded_layer(1).openPopup() // the console's object section
 
 			let measured = 0
-			for (const [, panel_key] of panels) {
+			for (const [, panel_key] of TOOLBAR_PANELS) {
 				const panel = tool[panel_key]
 				assert.equal(getComputedStyle(panel).fontSize, root.fontSize, panel_key + ': expected the page\'s base size (1rem)')
 				let panel_measured = 0
@@ -4634,33 +4680,21 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		await with_tool_css(async () => {
 			mount_roman(WITH_PLEIADES)
-			const panels = [
-				['attach_console',						'panel_node',			'map_control'],
-				['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
-				['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
-				['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
-				['attach_wms_services',					'wms_panel',			'wms_control'],
-				['attach_file_upload',					'upload_panel',			'upload_control'],
-				['attach_place_search',					'place_search_panel',	'place_search_control'],
-				['attach_legend',						'legend_panel',			'legend_control'],
-				['attach_roman_empire',					'roman_panel',			'roman_control']
-			]
-			for (const [attach] of panels) {
+			for (const [attach] of TOOLBAR_PANELS) {
 				tool[attach]()
 			}
 
 			// the generated values, read under a scope of their own
-			const probe = document.createElement('div')
-			probe.setAttribute('data-tool', 'tool_uca_maps')
-			probe.style.cssText = 'background-color: var(--tool_fill); color: var(--tool_on_fill)'
-			document.body.appendChild(probe)
-			const fill	= getComputedStyle(probe).backgroundColor
-			const ink	= getComputedStyle(probe).color
-			probe.remove()
+			const scope = document.createElement('div')
+			scope.setAttribute('data-tool', 'tool_uca_maps')
+			document.body.appendChild(scope)
+			const fill	= resolve_token(scope, '--tool_fill')
+			const ink	= resolve_token(scope, '--tool_on_fill', 'color')
+			scope.remove()
 			assert.notEqual(fill, 'rgba(0, 0, 0, 0)', 'expected main.css\'s generated tokens loaded, or this proves nothing')
 
 			const bar = geolocation.map.getContainer().querySelector('.uca-maps-toolbar')
-			for (const [label, node] of [['bar', bar], ['roman_dropdown', tool.roman_dropdown], ...panels.map(([, key]) => [key, tool[key]])]) {
+			for (const [label, node] of [['bar', bar], ['roman_dropdown', tool.roman_dropdown], ...TOOLBAR_PANELS.map(([, key]) => [key, tool[key]])]) {
 				assert.equal(node.getAttribute('data-tool'), 'tool_uca_maps', label + ': expected the tool scope')
 				assert.isNull(node.closest('.wrapper_tool'), label + ': expected outside .wrapper_tool, or the scope is not what paints it')
 
@@ -4966,16 +5000,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		this.timeout(30000)
 		// the record as the server holds it, not the seeded stand-in of beforeEach
-		const reader = await get_instance({
-			model			: 'component_geolocation',
-			tipo			: tipo,
-			section_tipo	: section_tipo,
-			section_id		: section_id,
-			lang			: lang,
-			mode			: 'edit',
-			view			: 'default',
-			id_variant		: 'uca_real_save_' + Math.random()
-		})
+		const reader = await geolocation_instance('uca_real_save_')
 		await reader.build(true)
 		assert.notEqual(reader.data_degraded, true, 'expected the record read whole, or it cannot be put back')
 		const original = JSON.parse(JSON.stringify(reader.data?.entries || []))
@@ -5015,16 +5040,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			? {action: 'set_data', key: null, id: null, value: original}
 			: {action: 'clear', key: null, id: null, value: null}
 		const restored = await geolocation.change_value({changed_data: [restore], refresh: false})
-		const check = await get_instance({
-			model			: 'component_geolocation',
-			tipo			: tipo,
-			section_tipo	: section_tipo,
-			section_id		: section_id,
-			lang			: lang,
-			mode			: 'edit',
-			view			: 'default',
-			id_variant		: 'uca_real_save_check_' + Math.random()
-		})
+		const check = await geolocation_instance('uca_real_save_check_')
 		await check.build(true)
 		const after = JSON.parse(JSON.stringify(check.data?.entries || []))
 		await check.destroy(true)
@@ -5272,11 +5288,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			{label: 'ua', run: () => check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65))}
 		]
 
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		const failures	= []
 		stub_tool_request(() => new Promise((resolve, reject) => { failures.push(reject) }))
-		try {
+		await toasts_during(async (toasts) => {
 			// control: alive, each exception reaches the page toast
 			for (const row of rows) {
 				const pending = row.run()
@@ -5297,9 +5311,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 				toasts.slice(rows.length).map((toast) => toast.message), [],
 				'expected NO toast from a lookup the closed tool left in flight'
 			)
-		} finally {
-			event_manager.unsubscribe(token)
-		}
+		})
 	})
 
 	it('search_wms_layers (mocked server) stores the parsed results; "Add and save" saves the layer in the record', async function() {
@@ -5359,15 +5371,14 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		const sent = fake_component_save({fail: true})
-		const layer_one = {url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0'}
 
 		assert.deepEqual(
-			await tool.add_wms_layer({...layer_one, crs: null}),
+			await tool.add_wms_layer(wms_layer({crs: null})),
 			{ok: false, error: 'This layer offers no projection the map can draw (EPSG:3857, EPSG:4326 or EPSG:4258).'}
 		)
 		assert.equal(sent.length, 0, 'expected nothing sent for a layer that cannot be drawn')
 
-		assert.deepEqual(await tool.add_wms_layer({...layer_one, crs: 'EPSG:3857'}), {ok: false, error: 'The WMS layer could not be saved.'})
+		assert.deepEqual(await tool.add_wms_layer(wms_layer()), {ok: false, error: 'The WMS layer could not be saved.'})
 		assert.isUndefined(geolocation.current_value[0].sources, 'expected the refused source taken back out of the buffer')
 	})
 
@@ -5394,7 +5405,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		const sent = fake_component_save()
-		const layer = (title, name = 'topo:layer1') => ({url: 'https://example.com/geoserver/wms', name, title, version: '1.3.0', crs: 'EPSG:3857'})
+		const layer = (title, name = 'topo:layer1') => wms_layer({name, title})
 
 		assert.deepEqual(await tool.add_wms_layer(layer('Límites\n\tmunicipales\u2028 <IGN>')), {ok: true}, 'expected a multi-line title saved')
 		assert.equal(sent[0].sources[0].attribution, 'Límites municipales IGN')
@@ -5419,17 +5430,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 	// the record can be closed while a save is on the wire: the late answer must not throw
 	it('a save still in flight when the tool closes ends quietly: add and delete, WMS and XYZ', async function() {
 
-		const wms_layer = {url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'}
-
 		tool.attach_wms_services()
 		tool.attach_xyz_basemaps()
 		fake_component_save()
-		await tool.add_wms_layer(wms_layer)
+		await tool.add_wms_layer(wms_layer())
 
 		let release
 		fake_component_save({hold: new Promise((resolve) => { release = resolve })})
 		const deleting	= tool.delete_wms_layer(101)
-		const adding	= tool.add_wms_layer({...wms_layer, name: 'topo:layer2', title: 'Layer Two'})
+		const adding	= tool.add_wms_layer(wms_layer({name: 'topo:layer2', title: 'Layer Two'}))
 		const basemap	= tool.add_basemap({url: XYZ_URL, attribution: 'Example Org', minzoom: 0, maxzoom: 18})
 
 		await tool.destroy(false, false, false)
@@ -5445,7 +5454,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		fake_component_save()
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer())
 
 		const layer = () => geolocation.source_layers['stored:101'].layer
 		assert.equal(geolocation.map.hasLayer(layer()), true, 'expected visible right after add')
@@ -5464,7 +5473,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.deepEqual(tool.toggle_wms_layer(999), {ok: false}, 'expected an unknown number refused')
 
 		// another save rebuilds the component's layers: the session's opacity goes back on
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer({name: 'topo:layer2', title: 'Layer Two'}))
 		assert.notEqual(layer(), null)
 		assert.equal(layer().options.opacity, 0.4, 'expected the opacity re-applied to the rebuilt layer')
 		assert.equal(geolocation.map.hasLayer(layer()), true, 'expected it kept on (the component remembers)')
@@ -5474,8 +5483,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		const sent = fake_component_save()
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer2', title: 'Layer Two', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer())
+		await tool.add_wms_layer(wms_layer({name: 'topo:layer2', title: 'Layer Two'}))
 		const first = geolocation.source_layers['stored:101'].layer
 
 		assert.deepEqual(await tool.delete_wms_layer(101), {ok: true})
@@ -5546,7 +5555,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		fake_component_save()
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer())
 		geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
 
 		const panel			= tool.wms_panel
@@ -5588,7 +5597,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		fake_component_save()
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer())
 		const control	= geolocation.map.getContainer().querySelector('.uca-maps-wms-control')
 		const panel		= tool.wms_panel
 		control.click()
@@ -5614,13 +5623,10 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			tool.attach_wms_services()
 			fake_component_save()
 			for (let i = 1; i <= 3; i++) {
-				await tool.add_wms_layer({
-					url		: 'https://example.com/geoserver/wms',
+				await tool.add_wms_layer(wms_layer({
 					name	: 'topo:layer' + i,
-					title	: 'Límites administrativos históricos del municipio, capa ' + i,
-					version	: '1.3.0',
-					crs		: 'EPSG:3857'
-				})
+					title	: 'Límites administrativos históricos del municipio, capa ' + i
+				}))
 			}
 			geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click()
 
@@ -5648,7 +5654,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_wms_services()
 		fake_component_save()
-		await tool.add_wms_layer({url: 'https://example.com/geoserver/wms', name: 'topo:layer1', title: 'Layer One', version: '1.3.0', crs: 'EPSG:3857'})
+		await tool.add_wms_layer(wms_layer())
 		const map_container_node	= geolocation.map.getContainer()
 		const layer					= geolocation.source_layers['stored:101'].layer
 
@@ -5667,7 +5673,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	// CATASTRO (catastro.js) AND UA (administrative_units.js) — both exist only
 	// for an es/cat/eus section_lang, which the fixture does not set, and both
-	// SWAP the base map (find_active_tile_layer). Every lookup is stubbed.
+	// lay a WMS layer over the basemap, which stays. Every lookup is stubbed.
 
 	it('attach_catastro/attach_administrative_units are a no-op without section_lang or with a non-Spanish one (v6 parity)', function() {
 
@@ -5891,7 +5897,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original			= find_active_tile_layer(map)
 		const wms_on_map		= () => {
 			const layers = []
-			map.eachLayer((layer) => { if (is_swap_layer(layer)) layers.push(layer) })
+			map.eachLayer((layer) => { if (is_armed_layer(layer)) layers.push(layer) })
 			return layers
 		}
 		const click_cat	= () => tool.catastro_control.getContainer().click()
@@ -6196,7 +6202,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(call_count, 1, 'expected the second, overlapping lookup never to reach tool_request')
 	})
 
-	it('detach_catastro removes the button AND restores the previous basemap on the live map', async function() {
+	it('detach_catastro removes the button AND keeps the basemap on the live map', async function() {
 
 		geolocation.section_lang = 'lg-spa'
 		offer_catastro()
@@ -6212,7 +6218,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(tool.catastro_control, null, 'expected catastro_control cleared')
 		assert.isNotOk(map_container_node.querySelector('.uca-maps-catastro-control'), 'expected the button removed from the DOM')
 		assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the cadastral layer removed from the map')
-		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+		assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the basemap still on the map after teardown, not left blank')
 	})
 
 	// a parcel drawn after the disarm would land on a map no longer in Catastro mode
@@ -6457,7 +6463,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(message.hidden, true, 'expected the late "found" response NOT written into the closed panel')
 		})
 
-		it('detach_administrative_units removes the button/panel AND restores the previous basemap', async function() {
+		it('detach_administrative_units removes the button/panel AND keeps the basemap on the live map', async function() {
 
 			geolocation.section_lang = 'lg-spa'
 			tool.attach_administrative_units()
@@ -6473,26 +6479,26 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(tool.ua_panel, null, 'expected ua_panel cleared')
 			assert.isNotOk(map_container_node.querySelector('.uca-maps-ua-control'), 'expected the button removed from the DOM')
 			assert.equal(geolocation.map.hasLayer(tile_layer), false, 'expected the administrative-units layer removed from the map')
-			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the previous basemap restored on teardown, not left blank')
+			assert.equal(geolocation.map.hasLayer(previous_base_layer), true, 'expected the basemap still on the map after teardown, not left blank')
 		})
 	})
 
 	// armed_layer.js, shared by Catastro and UA: a map click is the lookup, and disarming
 	// undoes all of it. Catastro arms core's own checkbox (`core`); UA without a configured
 	// source adds the built-in, and the layer control it had to create for it
-	for (const swap of [
+	for (const armed of [
 		{key: 'catastro', attach: 'attach_catastro', control: 'catastro_control', action: 'get_catastro_parcel', core: true},
 		{key: 'ua', attach: 'attach_administrative_units', control: 'ua_control', action: 'get_administrative_unit', core: false}
 	]) {
-		it(`${swap.key}: a map click asks with the view and clicked pixel; disarming unhooks the click and the layer`, async function() {
+		it(`${armed.key}: a map click asks with the view and clicked pixel; disarming unhooks the click and the layer`, async function() {
 
 			const map		= geolocation.map
-			const toggle	= () => tool[swap.control].getContainer().click()
-			const handler	= () => tool[`_${swap.key}_click_handler`]
+			const toggle	= () => tool[armed.control].getContainer().click()
+			const handler	= () => tool[`_${armed.key}_click_handler`]
 
 			geolocation.section_lang = 'lg-spa'
 			offer_catastro()
-			tool[swap.attach]()
+			tool[armed.attach]()
 
 			let requested = null
 			stub_tool_request(async (options) => {
@@ -6504,20 +6510,20 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			const fixture_control = geolocation.layer_control
 			toggle() // arm
 			const armed_handler	= handler()
-			const tile_layer	= tool[`_${swap.key}_tile_layer`]
+			const tile_layer	= tool[`_${armed.key}_tile_layer`]
 			assert.isTrue(map.listens('click', armed_handler), 'expected the map click armed')
 
 			// a pixel off the diagonal, so x and y cannot stand for each other
 			const latlng = map.containerPointToLatLng(L.point(37, 101))
 			map.fire('click', {latlng})
 			assert.isOk(requested, 'expected the click to reach tool_request')
-			await until(() => !tool[`_${swap.key}_busy`])
-			assert.isFalse(tool[`_${swap.key}_busy`], 'expected the lookup settled')
+			await until(() => !tool[`_${armed.key}_busy`])
+			assert.isFalse(tool[`_${armed.key}_busy`], 'expected the lookup settled')
 
 			const bounds	= map.getBounds()
 			const size		= map.getSize()
 			const point		= map.latLngToContainerPoint(latlng)
-			assert.equal(requested.action, swap.action)
+			assert.equal(requested.action, armed.action)
 			assert.deepEqual(requested.options, {
 				tipo			: geolocation.tipo,
 				section_id		: geolocation.section_id,
@@ -6535,8 +6541,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isFalse(map.hasLayer(tile_layer), 'expected the layer off the map')
 			assert.equal(
 				Object.values(fixture_control._layers).some((entry) => entry.layer===tile_layer),
-				swap.core,
-				swap.core ? 'expected core\'s checkbox still offered' : 'expected the tool\'s layer out of the layer control'
+				armed.core,
+				armed.core ? 'expected core\'s checkbox still offered' : 'expected the tool\'s layer out of the layer control'
 			)
 		})
 	}
@@ -6768,28 +6774,27 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			resolve_tool_request = resolve
 		}))
 
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		try {
-			const before_layer_count = active_group().getLayers().length
-			const pending = tool.upload_vector_file(sample_vector_file(), {})
+			await toasts_during(async (toasts) => {
+				const before_layer_count = active_group().getLayers().length
+				const pending = tool.upload_vector_file(sample_vector_file(), {})
 
-			// the real staging upload runs first: tool_request has no "about to be
-			// called" hook, so its arrival is polled
-			await until(() => resolve_tool_request)
-			assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
+				// the real staging upload runs first: tool_request has no "about to be
+				// called" hook, so its arrival is polled
+				await until(() => resolve_tool_request)
+				assert.isOk(resolve_tool_request, 'expected tool_request reached within the wait budget')
 
-			await tool.destroy(false, false, false)
-			assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
+				await tool.destroy(false, false, false)
+				assert.equal(tool.upload_panel, null, 'expected the panel already torn down')
 
-			resolve_tool_request({ok: true, data: {geojson: SAMPLE_UPLOAD_GEOJSON, feature_count: 1}})
-			const result = await pending
+				resolve_tool_request({ok: true, data: {geojson: SAMPLE_UPLOAD_GEOJSON, feature_count: 1}})
+				const result = await pending
 
-			assert.deepEqual(result, {ok: false}, 'expected a quiet drop, with no error for a panel that is gone')
-			assert.equal(toasts.length, 0, 'expected NO toast for an upload the closed tool left in flight')
-			assert.equal(active_group().getLayers().length, before_layer_count, 'expected no object created')
+				assert.deepEqual(result, {ok: false}, 'expected a quiet drop, with no error for a panel that is gone')
+				assert.equal(toasts.length, 0, 'expected NO toast for an upload the closed tool left in flight')
+				assert.equal(active_group().getLayers().length, before_layer_count, 'expected no object created')
+			})
 		} finally {
-			event_manager.unsubscribe(token)
 			if (staged) {
 				await release_staged([staged])
 			}
@@ -7346,12 +7351,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		return body
 	}
 
-	/** A real 1x1 PNG: the staging endpoint checks the file signature. */
-	const png_file = () => new File(
-		[Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))],
-		'plan.png', {type: 'image/png'}
-	)
-
 	/**
 	* Stands in for core's create, the ingest, the file check and delete, so no
 	* record is ever written; the staging upload stays real (service_upload).
@@ -7488,7 +7487,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			)
 			let result
 			try {
-				result = await ingest_image_upload(tool, png_file())
+				result = await ingest_image_upload(tool, one_pixel_png())
 			} finally {
 				released.push(...await seen.restore())
 			}
@@ -7524,8 +7523,8 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		const reason	= 'Coordinates out of range'
 		const rows		= [
-			{label: 'overlay', action: 'get_image_overlay', run: () => tool.upload_image_file(png_file())},
-			{label: 'associate_image', action: 'get_image_file', run: () => associate_image(tool, layer, png_file())}
+			{label: 'overlay', action: 'get_image_overlay', run: () => tool.upload_image_file(one_pixel_png())},
+			{label: 'associate_image', action: 'get_image_file', run: () => associate_image(tool, layer, one_pixel_png())}
 		]
 		const seen = stub_image_record_doors(9100, () => ({ok: true, data: true}), () => ({ok: true, data: []}))
 		let released = []
@@ -7827,24 +7826,23 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			}
 			return original_add_layer.call(this, layer)
 		}
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		try {
-			const carrier = add_image_carrier()
-			tool.attach_image_overlays()
-			await until(() => toasts.length > 0)
+			await toasts_during(async (toasts) => {
+				const carrier = add_image_carrier()
+				tool.attach_image_overlays()
+				await until(() => toasts.length > 0)
 
-			assert.deepEqual(toasts.map((toast) => toast.message), ['Boom.'], 'expected the rebuild\'s throw reported, once')
-			assert.isUndefined(carrier._uca_maps_overlay, 'expected no picture from the failed build')
+				assert.deepEqual(toasts.map((toast) => toast.message), ['Boom.'], 'expected the rebuild\'s throw reported, once')
+				assert.isUndefined(carrier._uca_maps_overlay, 'expected no picture from the failed build')
 
-			event_manager.publish(`updated_layer_data_${geolocation.id_base}`, {})
-			await await_overlay(carrier)
-			await tick(100)
-			assert.isOk(carrier._uca_maps_overlay, 'expected the next hydration to paint the picture')
-			assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay')
+				event_manager.publish(`updated_layer_data_${geolocation.id_base}`, {})
+				await await_overlay(carrier)
+				await tick(100)
+				assert.isOk(carrier._uca_maps_overlay, 'expected the next hydration to paint the picture')
+				assert.equal(tool._image_overlays.length, 1, 'expected exactly one overlay')
+			})
 		} finally {
 			map.addLayer = original_add_layer
-			event_manager.unsubscribe(token)
 		}
 	})
 
@@ -7937,9 +7935,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('hiding an uploaded image hides the picture, not just its carrier', async function() {
 
-		const carrier = add_image_carrier()
-		tool.attach_image_overlays()
-		await await_overlay(carrier)
+		const carrier = await add_image_carrier_with_overlay()
 
 		apply_display(carrier, false)
 
@@ -8129,16 +8125,16 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const carrier = add_image_carrier()
 		let asked = false
 		const restore	= stub_image_download(async function() { asked = true; return {ok: false} })
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		try {
-			const result = await tool.download_image(carrier, 'png', 0.8, '   ')
+			let result = null
+			const toasts = await toasts_during(async () => {
+				result = await tool.download_image(carrier, 'png', 0.8, '   ')
+			})
 			assert.equal(asked, false, 'expected no request for an empty name')
 			assert.deepEqual(result, {ok: false, error: 'Please enter a name for the file'}, 'expected the reason for the section\'s line')
 			assert.equal(toasts.length, 0, 'expected the line alone to say it, no page toast')
 		} finally {
 			restore()
-			event_manager.unsubscribe(token)
 		}
 	})
 
@@ -8229,9 +8225,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 	it('set_image_display writes the live overlay AND the descriptor that gets saved', async function() {
 
-		const carrier = add_image_carrier()
-		tool.attach_image_overlays()
-		await await_overlay(carrier)
+		const carrier = await add_image_carrier_with_overlay()
 
 		tool.set_image_display(carrier, {opacity: 0.4, z_index: 300}, false)
 
@@ -8250,9 +8244,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		// switch/reload and fires NO 'pm:remove' — the carriers are simply
 		// replaced by new objects. An overlay is not a drawn object, so
 		// nothing in the engine would take the old ones off the map.
-		const stale = add_image_carrier()
-		tool.attach_image_overlays()
-		await await_overlay(stale)
+		const stale = await add_image_carrier_with_overlay()
 		const stale_overlay = stale._uca_maps_overlay
 		assert.equal(geolocation.map.hasLayer(stale_overlay), true, 'expected the first overlay on the map')
 
@@ -8520,11 +8512,9 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		tool.attach_place_search()
 
-		const toasts	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		let fail = null
 		stub_tool_request(() => new Promise((resolve, reject) => { fail = reject }))
-		try {
+		await toasts_during(async (toasts) => {
 			// control: alive, the exception reaches the page toast
 			const alive = search_places(tool, 'Sagunto')
 			fail(new Error('Boom.'))
@@ -8539,9 +8529,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 			assert.equal((await pending).ok, false)
 			assert.equal(toasts.length, 1, 'expected NO toast for a search the closed tool left in flight')
-		} finally {
-			event_manager.unsubscribe(token)
-		}
+		})
 	})
 
 	it('focus_place_result fits the bounding box, and falls back to a point zoom without one', async function() {
@@ -8790,7 +8778,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(saves, 0, 'expected NO save — nothing here writes')
 	})
 
-	it('a position fix with no FeatureGroup to land in says so and draws nothing', function() {
+	it('a position fix with no FeatureGroup to land in says so and draws nothing', async function() {
 
 		tool.attach_geolocate()
 
@@ -8798,19 +8786,15 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		geolocation.active_layer_id = 99
 		assert.isNotOk(geolocation.FeatureGroup[99], 'expected no group for the active layer')
 
-		const toasts	= []
 		const created	= []
-		const token		= event_manager.subscribe('api_error', (error) => toasts.push(error))
 		geolocation.map.on('pm:create', (event) => created.push(event.layer))
-		try {
+		await toasts_during((toasts) => {
 			const marker = create_position_marker(tool, L.latLng(40.44, -3.70))
 			assert.isNull(marker, 'expected no marker')
 			assert.equal(created.length, 0, 'expected nothing handed to the draw pipeline')
 			assert.equal(toasts.length, 1, 'expected the user told why nothing was drawn')
 			assert.equal(toasts[0].message, 'Select a map layer before using geolocation.')
-		} finally {
-			event_manager.unsubscribe(token)
-		}
+		})
 	})
 
 	it('a second locationfound while disarmed drops nothing — v6 re-binds a listener per click and drops N markers', function() {
@@ -9431,7 +9415,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		const original_decode = HTMLImageElement.prototype.decode
 		HTMLImageElement.prototype.decode = () => Promise.reject(new DOMException('undecodable', 'EncodingError'))
 		try {
-			await pick(pin_png(), () => !message.hidden)
+			await pick(one_pixel_png('pin.png'), () => !message.hidden)
 		} finally {
 			HTMLImageElement.prototype.decode = original_decode
 		}
@@ -9439,7 +9423,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 		assert.equal(message.textContent, 'The icon could not be read.')
 		assert.equal(row_src(), default_element_icon(), 'expected the pin kept')
 
-		await pick(pin_png(), () => row_src()!==default_element_icon())
+		await pick(one_pixel_png('pin.png'), () => row_src()!==default_element_icon())
 		assert.isTrue(message.hidden || message.dataset.type==='warning', 'expected the old error cleared by the next pick')
 		assert.notEqual(message.textContent, 'The icon could not be read.')
 		assert.isTrue(row_src().startsWith('data:image/png;base64,'), 'expected the row repainted with the uploaded icon')
@@ -9614,7 +9598,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		// an uploaded image replaces the drawn symbol
 		const uploaded = await tool.set_legend_element_icon(
-			0, 0, pin_png()
+			0, 0, one_pixel_png('pin.png')
 		)
 		assert.isTrue(uploaded.ok)
 		assert.notProperty(element, 'symbol', 'expected the symbol dropped once an image replaces it')
@@ -9640,7 +9624,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.isOk(shape_btn, 'expected an unpressed shape button')
 			assert.isOk(secondary_btn, 'expected a secondary button (the row\'s ✕)')
 
-			const sheet = [...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'))
+			const sheet = tool_sheet()
 			const hover_rules = [...sheet.cssRules]
 				.filter((rule) => rule instanceof CSSStyleRule && rule.selectorText.includes(':hover'))
 				.map((rule) => rule.cssText.replace(/:hover/g, '.uca-test-hover'))
@@ -9650,11 +9634,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			style.textContent = hover_rules.join('\n') + '\n.uca-test-hover { transition: none !important; }'
 			document.head.appendChild(style)
 			try {
-				const probe = document.createElement('div')
-				probe.style.cssText = 'background-color: var(--tool_fill_hover)'
-				panel.appendChild(probe)
-				const fill_hover = getComputedStyle(probe).backgroundColor
-				probe.remove()
+				const fill_hover = resolve_token(panel, '--tool_fill_hover')
 
 				// positive control: the replay does reach the action hover
 				action_btn.classList.add('uca-test-hover')
@@ -9667,11 +9647,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 				// the secondary variant keeps its neutral fill, only dimmed: the tool's hover
 				// fill was tuned for the tool ink, not for the inverse ink it carries
-				const inverse = document.createElement('div')
-				inverse.style.cssText = 'background-color: var(--bg_fill_inverse)'
-				panel.appendChild(inverse)
-				const fill_inverse = getComputedStyle(inverse).backgroundColor
-				inverse.remove()
+				const fill_inverse = resolve_token(panel, '--bg_fill_inverse')
 				assert.notEqual(fill_inverse, fill_hover, 'expected the two fills apart, or this proves nothing')
 				secondary_btn.classList.add('uca-test-hover')
 				assert.equal(getComputedStyle(secondary_btn).backgroundColor, fill_inverse, 'secondary: expected its neutral fill under the pointer')
@@ -9858,13 +9834,7 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 
 		mount_roman(WITH_PLEIADES)
 		// a second tool on the same page, as when two records' maps are open at once
-		const other = new tool_uca_maps()
-		other.model				= 'tool_uca_maps'
-		other.caller			= geolocation
-		other.geolocation		= geolocation
-		other.map_ready			= true
-		other.mode				= 'edit'
-		other.get_tool_label	= () => undefined
+		const other = wire_tool_by_hand(geolocation)
 		other.get_capabilities	= async () => ({ ok: true, data: { gazetteers: structuredClone(WITH_PLEIADES) } })
 		other.attach_roman_empire()
 		try {
