@@ -16,7 +16,8 @@
 import {response_data, request_failed} from '../../../core/common/js/api_error.js'
 import {error_text} from '../../../core/common/js/render_api_error.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
-import {commit, ensure_uca_maps, report_client_error} from './object_console.js'
+import {commit, ensure_uca_maps} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {read_uca_maps} from './uca_maps_data.js'
 import {
 	ingest_image_upload,
@@ -238,7 +239,7 @@ const attach_ingested_image = async function(self, layer, section_id, extra) {
 */
 const is_still_shown = function(self, layer) {
 
-	return Boolean(self.panel_node) && self.active_console_layer===layer
+	return Boolean(self.console_panel) && self.active_console_layer===layer
 }//end is_still_shown
 
 

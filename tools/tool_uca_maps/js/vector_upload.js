@@ -26,7 +26,7 @@ import {
 	remove_toolbar_panel
 } from './toolbar.js'
 import {render_file_upload_panel, clear_upload_messages, reset_file_upload_panel} from './render_file_upload.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {UPLOAD_TIMEOUT_MS} from './request_budgets.js'
 import {VECTOR_UPLOAD_EXTENSIONS} from './upload_formats.js'
 

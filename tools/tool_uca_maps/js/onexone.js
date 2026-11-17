@@ -27,9 +27,9 @@ import {
 	toggle_uncertainty,
 	commit,
 	has_geoman_edition,
-	set_geoman_edition,
-	remove_map_listeners
+	set_geoman_edition
 } from './object_console.js'
+import {remove_map_listeners} from './map_listeners.js'
 import {is_onexone_marker, is_onexone_rectangle, read_uca_maps} from './uca_maps_data.js'
 
 

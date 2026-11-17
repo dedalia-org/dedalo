@@ -22,7 +22,9 @@ import {
 	remove_toolbar_button,
 	set_toolbar_button_armed
 } from './toolbar.js'
-import {commit, ensure_uid, remove_map_listeners, report_client_error} from './object_console.js'
+import {commit, ensure_uid} from './object_console.js'
+import {remove_map_listeners} from './map_listeners.js'
+import {report_client_error} from './client_error.js'
 
 
 

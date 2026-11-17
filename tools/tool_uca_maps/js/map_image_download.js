@@ -14,7 +14,8 @@
 
 
 import {exception_text} from './panel_error_text.js'
-import {trigger_blob_download, deliver_download, report_client_error} from './object_console.js'
+import {trigger_blob_download, deliver_download} from './download_delivery.js'
+import {report_client_error} from './client_error.js'
 import {
 	create_toolbar_button,
 	create_toolbar_panel,

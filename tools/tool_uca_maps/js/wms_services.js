@@ -24,7 +24,7 @@ import {
 	remove_toolbar_panel
 } from './toolbar.js'
 import {render_wms_services_panel, populate_wms_layers} from './render_wms_services.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 import {add_source, delete_source, plain_attribution, reapply_source_opacity, source_layer, stored_sources} from './map_sources.js'
 

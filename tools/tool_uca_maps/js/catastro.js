@@ -23,7 +23,7 @@ import {
 	remove_toolbar_button,
 	set_toolbar_button_armed
 } from './toolbar.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {
 	disable_armed_layer,
 	enable_armed_layer,

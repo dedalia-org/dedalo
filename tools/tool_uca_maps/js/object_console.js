@@ -15,7 +15,6 @@
 
 
 import {event_manager} from '../../../core/common/js/event_manager.js'
-import {response_data, request_failed, ApiError} from '../../../core/common/js/api_error.js'
 import {exception_text} from './panel_error_text.js'
 import {render_console_panel, render_selected_object, render_placeholder} from './render_object_console.js'
 import {is_onexone_rectangle, read_uca_maps} from './uca_maps_data.js'
@@ -27,7 +26,10 @@ import {
 	remove_toolbar_button,
 	remove_toolbar_panel
 } from './toolbar.js'
-import {CONVERSION_TIMEOUT_MS, LOOKUP_TIMEOUT_MS} from './request_budgets.js'
+import {CONVERSION_TIMEOUT_MS} from './request_budgets.js'
+import {trigger_blob_download, deliver_download} from './download_delivery.js'
+import {report_client_error} from './client_error.js'
+import {remove_map_listeners} from './map_listeners.js'
 
 
 
@@ -84,19 +86,19 @@ const UNCERTAINTY_TIERS = [1000, 10000, 100000, 1000000, 10000000]
 */
 export const attach_console = function(self) {
 
-	if (self.map_control || !self.geolocation || !self.geolocation.map) {
+	if (self.console_control || !self.geolocation || !self.geolocation.map) {
 		return
 	}
 
-	self.map_control = create_toolbar_button(self, {
+	self.console_control = create_toolbar_button(self, {
 		title		: self.get_tool_label('uca_maps_control_title') || 'UCA Maps',
 		icon		: 'info',
 		class_name	: 'uca-maps-control',
 		on_click	: () => toggle_panel(self)
 	})
 
-	self.panel_node = create_toolbar_panel(self, {class_name: 'uca-maps-console'})
-	render_console_panel(self, self.panel_node)
+	self.console_panel = create_toolbar_panel(self, {class_name: 'uca-maps-console'})
+	render_console_panel(self, self.console_panel)
 
 	hydrate(self)
 
@@ -113,8 +115,8 @@ export const attach_console = function(self) {
 * @returns {void}
 */
 const toggle_panel = function(self) {
-	if (self.panel_node) {
-		set_toolbar_panel_visible(self, self.panel_node, self.map_control, !is_toolbar_panel_visible(self.panel_node))
+	if (self.console_panel) {
+		set_toolbar_panel_visible(self, self.console_panel, self.console_control, !is_toolbar_panel_visible(self.console_panel))
 	}
 }//end toggle_panel
 
@@ -843,105 +845,6 @@ export const delete_property = function(self, layer, key) {
 
 
 /**
-* TRIGGER_BLOB_DOWNLOAD
-* The anchor-click download every format ends in, local Blob or decoded server
-* answer. Exported so map_image_download.js shares the one trigger.
-*
-* @param {Blob} blob
-* @param {string} filename
-* @returns {void}
-*/
-export const trigger_blob_download = function(blob, filename) {
-
-	const url		= URL.createObjectURL(blob)
-
-	const link		= document.createElement('a')
-	link.href		= url
-	link.download	= filename
-	document.body.appendChild(link)
-	link.click()
-	link.remove()
-	URL.revokeObjectURL(url)
-}//end trigger_blob_download
-
-
-
-/**
-* BASE64_TO_BLOB
-* Decodes a download carried in the API envelope: unlike v6's web-exposed
-* `downloads/` folder, no generated file reaches a servable path. A manual loop,
-* NOT `fetch('data:…')`: `APP_CSP` (`src/core/api/static_asset.ts`) has no `data:`
-* in `connect-src`, so that fetch fails.
-*
-* @param {string} base64
-* @param {string} mime
-* @returns {Blob}
-*/
-const base64_to_blob = function(base64, mime) {
-
-	const binary	= atob(base64)
-	const bytes		= new Uint8Array(binary.length)
-
-	for (let i = 0; i < binary.length; i++) {
-		bytes[i] = binary.charCodeAt(i)
-	}
-
-	return new Blob([bytes], {type: mime})
-}//end base64_to_blob
-
-
-
-/**
-* DELIVER_DOWNLOAD
-* The tail every server-built download shares: a refusal leaves the button's
-* line empty (core's page notice says why, once and translated); an answer
-* with no data gets the download's own text; one with data is decoded and
-* handed to the browser.
-*
-* @param {Object} response - the tool_request envelope
-* @param {string} failed - the download's own fallback text
-* @returns {Promise<{ok: boolean, error?: string}>}
-*/
-export const deliver_download = async function(response, failed) {
-
-	const data = response_data(response)
-	if (!data) {
-		return request_failed(response) ? {ok: false} : {ok: false, error: failed}
-	}
-
-	const {content_base64, filename, mime} = data
-	trigger_blob_download(base64_to_blob(content_base64, mime), filename)
-
-	return {ok: true}
-}//end deliver_download
-
-
-
-/**
-* REPORT_CLIENT_ERROR
-* Surfaces a thrown client-side exception (no envelope to read) through the same
-* global toast as server failures (`api_error`, subscribed in page.js). The
-* `client.` prefix marks it client-origin and falls through error_policy.js's '*'
-* wildcard, so nothing needs registering.
-*
-* @param {string} message
-* @returns {void}
-*/
-export const report_client_error = function(message) {
-	event_manager.publish('api_error', new ApiError({
-		code		: 'client.tool_uca_maps_failed',
-		message		: message,
-		source		: 'client',
-		// NOT a transport (network/CSRF/retry) failure — the `client.` prefix
-		// defaults `transport` to true, which is the wrong default for "a
-		// screenshot capture or a decode threw", so it is overridden explicitly.
-		transport	: false
-	}))
-}//end report_client_error
-
-
-
-/**
 * DOWNLOAD_VECTOR
 * GeoJSON is built in the browser; SHP/KML go through the server's
 * `vector_download` (ogr2ogr). No reprojection: v6's `turf.toMercator` broke RFC
@@ -1372,133 +1275,6 @@ export const compute_info = function(self, layer) {
 
 
 /**
-* LAYER_CENTER
-* The point an elevation is asked about: a marker's own position, anything
-* else's bounds centre — v6 verbatim (`special_tools.js` `create_div_elevation`,
-* which prints a different label for each of the two cases).
-*
-* @param {Object} layer
-* @returns {Object|null} L.LatLng
-*/
-// exported for the client gate
-export const layer_center = function(layer) {
-
-	if (!layer) {
-		return null
-	}
-	if (layer instanceof L.Marker) {
-		return layer.getLatLng()
-	}
-	if (typeof layer.getBounds!=='function') {
-		return null
-	}
-	const bounds = layer.getBounds()
-
-	return (bounds && bounds.isValid()) ? bounds.getCenter() : null
-}//end layer_center
-
-
-
-/**
-* FETCH_ELEVATION
-* The selected object's centre elevation (`tools/tool_uca_maps/server/elevation.ts`).
-* Not persisted, unlike v6, which saved it on a mere click: nothing auto-saves; it
-* is shown and handed to the PDF in memory. Never throws: a service outage must
-* not stop the console from opening.
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {Object} layer
-* @returns {Promise<{elevation: number|null, unavailable: boolean, attribution?: string|null}>}
-*/
-export const fetch_elevation = async function(self, layer) {
-
-	const center = layer_center(layer)
-	if (!center) {
-		return {elevation: null, unavailable: true}
-	}
-
-	// THE CACHE IS NOT AN OPTIMISATION: commit() re-renders the section after every
-	// mutation and Open-Elevation rate-limits. Keyed on layer AND coordinates, so a
-	// moved shape re-asks; the PROMISE is cached at once, so a burst of renders
-	// shares one request.
-	const cache_key = center.lat + ',' + center.lng
-	const cached = self._elevation
-	if (cached && cached.layer===layer && cached.key===cache_key) {
-		return cached.promise
-	}
-
-	// `elevation` is filled on arrival for the PDF export, which must print the
-	// number the user is LOOKING AT — asking the service a second time could
-	// legitimately answer differently and make the document disagree with the panel
-	const entry = {layer: layer, key: cache_key, elevation: null, promise: null}
-	entry.promise = request_elevation(self, center).then(function(result) {
-		if (result.failed) {
-			// a refused or thrown request is not an answer: the next render asks again
-			if (self._elevation===entry) {
-				self._elevation = null
-			}
-		} else {
-			entry.elevation = result.elevation
-		}
-		return {elevation: result.elevation, unavailable: result.unavailable, attribution: result.attribution || null}
-	})
-	self._elevation = entry
-
-	return entry.promise
-}//end fetch_elevation
-
-
-
-/**
-* REQUEST_ELEVATION
-* The one round trip behind `fetch_elevation`. `failed` separates a refusal or
-* a throw (not cached) from an answer that has no elevation (cached).
-*
-* @param {Object} self - tool_uca_maps instance
-* @param {Object} center - L.LatLng
-* @returns {Promise<{elevation: number|null, unavailable: boolean, failed: boolean, attribution?: string|null}>}
-*/
-const request_elevation = async function(self, center) {
-
-	try {
-
-		const response = await self.tool_request({
-			action	: 'get_elevation',
-			retries	: 1,
-			timeout	: LOOKUP_TIMEOUT_MS,
-			options	: {
-				tipo			: self.geolocation.tipo,
-				section_id		: self.geolocation.section_id,
-				section_tipo	: self.geolocation.section_tipo,
-				lat				: center.lat,
-				lon				: center.lng
-			}
-		})
-
-		if (request_failed(response)) {
-			return {elevation: null, unavailable: true, failed: true}
-		}
-
-		const data = response_data(response)
-
-		return (data && typeof data.elevation==='number')
-			? {
-				elevation	: data.elevation,
-				unavailable	: false,
-				failed		: false,
-				attribution	: typeof data.attribution==='string' ? data.attribution : null
-			}
-			: {elevation: null, unavailable: true, failed: false}
-
-	} catch (error) {
-		console.error('tool_uca_maps: get_elevation failed unexpectedly', error)
-		return {elevation: null, unavailable: true, failed: true}
-	}
-}//end request_elevation
-
-
-
-/**
 * FORMAT_POLYGON_AREA
 * m² below a hectare, ha below a km², km² above — two decimals. Exported so
 * the console prints a stored area the way it writes `properties.area`.
@@ -1550,7 +1326,7 @@ export const find_layer_id = function(self, layer) {
 /**
 * DETACH_CONSOLE
 * Called from tool_uca_maps' destroy(). Guarded: if component_geolocation went
-* first, the map and its DOM (panel_node included) are already gone, so skipping
+* first, the map and its DOM (console_panel included) are already gone, so skipping
 * the removal is correct, not a leak.
 *
 * @param {Object} self - tool_uca_maps instance
@@ -1572,11 +1348,11 @@ export const detach_console = function(self) {
 	// it would touch a map this tool no longer owns
 	self._geoman_reassert = null
 
-	remove_toolbar_button(self, self.map_control)
-	remove_toolbar_panel(self, self.panel_node)
+	remove_toolbar_button(self, self.console_control)
+	remove_toolbar_panel(self, self.console_panel)
 
-	self.map_control			= null
-	self.panel_node				= null
+	self.console_control		= null
+	self.console_panel			= null
 	self._popupopen_handler	= null
 	self._popupclose_handler	= null
 	self._click_handler			= null
@@ -1585,31 +1361,6 @@ export const detach_console = function(self) {
 	self.active_console_layer	= null
 
 }//end detach_console
-
-
-
-/**
-* REMOVE_MAP_LISTENERS
-* Unsubscribes each stored map listener a detach_* owns. One failing `off`
-* is reported and does not stop the rest.
-*
-* @param {Object} self - tool_uca_maps instance (its map must exist)
-* @param {string} scope - the detach_* name, for the warning
-* @param {Array<[string, string]>} listeners - [event name, `self` key of the handler]
-* @returns {void}
-*/
-export const remove_map_listeners = function(self, scope, listeners) {
-	for (const [event_name, key] of listeners) {
-		if (!self[key]) {
-			continue
-		}
-		try {
-			self.geolocation.map.off(event_name, self[key])
-		} catch (error) {
-			console.warn(`tool_uca_maps ${scope}: error removing ${event_name} listener`, error)
-		}
-	}
-}//end remove_map_listeners
 
 
 

@@ -25,7 +25,7 @@ import {
 	remove_toolbar_panel,
 	set_toolbar_panel_visible
 } from './toolbar.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {render_place_search_panel, reset_place_search_panel} from './render_place_search.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
 

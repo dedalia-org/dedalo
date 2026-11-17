@@ -25,7 +25,6 @@
 		attach_console,
 		detach_console,
 		compute_info,
-		fetch_elevation,
 		RESERVED_PROPERTY_KEYS,
 		computed_property_keys,
 		is_protected_property_key,
@@ -44,6 +43,7 @@
 		has_geoman_edition,
 		set_geoman_edition
 	} from './object_console.js'
+	import {fetch_elevation} from './object_elevation.js'
 	import {
 		download_map_image,
 		attach_map_image_download_control,
@@ -162,8 +162,8 @@ export const tool_uca_maps = function () {
 	this.caller						= null
 	this.geolocation				= null
 	this.map_ready					= false
-	this.map_control				= null
-	this.panel_node					= null
+	this.console_control			= null
+	this.console_panel				= null
 	this.active_console_layer		= null
 	this._popupopen_handler		= null
 	this._popupclose_handler		= null
@@ -374,8 +374,8 @@ tool_uca_maps.prototype.get_capabilities = async function() {
 
 
 
-/** object_console.js / map_image_download.js / object_viewer.js / onexone.js attach;
- * their other wrappers are grouped further down. */
+/** object_console.js / map_image_download.js / object_viewer.js / onexone.js attach,
+ * with map_image_download.js's one other wrapper; the rest are grouped further down. */
 tool_uca_maps.prototype.attach_console = function() {
 	attach_console(this)
 }//end attach_console
@@ -385,6 +385,10 @@ tool_uca_maps.prototype.attach_console = function() {
 tool_uca_maps.prototype.attach_map_image_download_control = function() {
 	attach_map_image_download_control(this)
 }//end attach_map_image_download_control
+
+tool_uca_maps.prototype.download_map_image = function(format, file_name) {
+	return download_map_image(this, format, file_name)
+}//end download_map_image
 
 tool_uca_maps.prototype.attach_object_viewer = function() {
 	attach_object_viewer(this)
@@ -643,8 +647,9 @@ tool_uca_maps.prototype.center_on_object = function(layer) {
 
 
 /**
-* object_console.js / object_image.js wrappers. Both modules still export the raw
-* functions, which the client gate calls without building a tool instance.
+* object_console.js / object_elevation.js / object_image.js wrappers. The modules
+* still export the raw functions, which the client gate calls without building a
+* tool instance.
 */
 tool_uca_maps.prototype.compute_info = function(layer) {
 	return compute_info(this, layer)
@@ -722,12 +727,6 @@ tool_uca_maps.prototype.download_object_pdf = function(layer) {
 	return download_object_pdf(this, layer)
 }//end download_object_pdf
 
-/** map_image_download.js wrapper. */
-tool_uca_maps.prototype.download_map_image = function(format, file_name) {
-	return download_map_image(this, format, file_name)
-}//end download_map_image
-
-/** object_console.js wrappers, continued. */
 tool_uca_maps.prototype.toggle_centroid = function(layer) {
 	return toggle_centroid(this, layer)
 }//end toggle_centroid

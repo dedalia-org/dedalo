@@ -21,8 +21,6 @@ import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js'
 import {
 	find_layer_id,
 	download_object_pdf,
-	layer_center,
-	fetch_elevation,
 	set_style_field,
 	set_property,
 	delete_property,
@@ -36,6 +34,7 @@ import {
 	RESERVED_PROPERTY_KEYS,
 	computed_property_keys
 } from '../../../tools/tool_uca_maps/js/object_console.js'
+import { layer_center, fetch_elevation } from '../../../tools/tool_uca_maps/js/object_elevation.js'
 import { download_map_image, keep_in_map_image, direct_tile_layer_names, detach_map_image_download_control, TRANSPARENT_PIXEL } from '../../../tools/tool_uca_maps/js/map_image_download.js'
 import { DEFAULT_MAP_IMAGE_NAME } from '../../../tools/tool_uca_maps/js/download_filename.js'
 import { collect_objects, set_object_display, center_on_object } from '../../../tools/tool_uca_maps/js/object_viewer.js'
@@ -500,7 +499,7 @@ describe('TOOL_UCA_MAPS (structural)', function() {
 		const initial = {
 			geolocation						: null,
 			map_ready						: false,
-			map_control						: null,
+			console_control					: null,
 			_popupopen_handler				: null,
 			_popupclose_handler				: null,
 			_click_handler					: null,
@@ -1145,10 +1144,10 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		const controls = geolocation.map.getContainer().querySelectorAll('.uca-maps-control')
 		assert.equal(controls.length, 1, 'expected exactly one map control')
-		assert.isOk(tool.panel_node, 'expected panel_node built')
-		assert.equal(tool.panel_node.hidden, true, 'expected panel hidden by default')
+		assert.isOk(tool.console_panel, 'expected console_panel built')
+		assert.equal(tool.console_panel.hidden, true, 'expected panel hidden by default')
 		assert.equal(
-			geolocation.map.getContainer().contains(tool.panel_node), true,
+			geolocation.map.getContainer().contains(tool.console_panel), true,
 			'expected the panel appended to the map\'s own DOM container'
 		)
 	})
@@ -1159,10 +1158,10 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const control = geolocation.map.getContainer().querySelector('.uca-maps-control')
 
 		control.click()
-		assert.equal(tool.panel_node.hidden, false, 'expected panel shown after one click')
+		assert.equal(tool.console_panel.hidden, false, 'expected panel shown after one click')
 
 		control.click()
-		assert.equal(tool.panel_node.hidden, true, 'expected panel hidden again after a second click')
+		assert.equal(tool.console_panel.hidden, true, 'expected panel hidden again after a second click')
 	})
 
 
@@ -1536,7 +1535,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		try {
 			layer.openPopup()
 			await tick()
-			const before = tool.panel_node.querySelector('.uca-maps-object-linked-import')
+			const before = tool.console_panel.querySelector('.uca-maps-object-linked-import')
 			assert.isOk(before, 'expected the import button')
 
 			before.click()
@@ -1544,10 +1543,10 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			assert.isFalse(before.isConnected, 'expected the commit to re-render the console')
 			await tick()
 
-			const lines = [...tool.panel_node.querySelectorAll('.uca-maps-object-linked-failure')]
+			const lines = [...tool.console_panel.querySelectorAll('.uca-maps-object-linked-failure')]
 			assert.equal(lines.length, 1, 'expected the failed link listed in the new panel')
 			assert.include(lines[0].textContent, refused.url, 'expected the failure to name its link')
-			assert.include(tool.panel_node.querySelector('.uca-maps-object-linked-import').textContent, '1',
+			assert.include(tool.console_panel.querySelector('.uca-maps-object-linked-import').textContent, '1',
 				'expected the button offering the one link left')
 		} finally {
 			seen.restore()
@@ -1591,7 +1590,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const layer = seeded_layer(1)
 		layer.feature.properties.images = [{url: 'https://images.example/a.jpg'}, {url: 'https://images.example/b.jpg'}]
 
-		const button = () => tool.panel_node.querySelector('.uca-maps-object-linked-import')
+		const button = () => tool.console_panel.querySelector('.uca-maps-object-linked-import')
 		tool.external_images_enabled = async () => false
 		layer.openPopup()
 		await tick()
@@ -1692,7 +1691,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 				return new Promise(resolve => { answer = resolve })
 			}
 		}
-		const object_section = () => tool.panel_node.querySelector('.uca-maps-object-section')
+		const object_section = () => tool.console_panel.querySelector('.uca-maps-object-section')
 
 		const rows = [
 			{
@@ -1708,7 +1707,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			{
 				label	: 'image', name: 'download_image',
 				open	: () => select_carrier(add_image_carrier()),
-				box		: () => tool.panel_node.querySelector('.uca-maps-image-download-section'),
+				box		: () => tool.console_panel.querySelector('.uca-maps-image-download-section'),
 				button	: '.uca-maps-image-download-button', line: '.uca-maps-download-message'
 			},
 			{
@@ -1803,7 +1802,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.get_tool_label = (key) => spanish[key]
 
 		tool.attach_console()
-		const heading = () => tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-object-type').textContent
+		const heading = () => tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-object-type').textContent
 		for (const [layer_id, expected] of [[1, 'Polígono'], [2, 'Círculo'], [3, 'Marcador']]) {
 			seeded_layer(layer_id).openPopup()
 			assert.equal(heading(), expected, 'expected the translated kind of layer ' + layer_id)
@@ -1835,18 +1834,18 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const layer = open_console_on(1)
 
 		assert.strictEqual(tool.active_console_layer, layer, 'expected the clicked layer selected')
-		assert.equal(tool.panel_node.hidden, true, 'expected the panel to stay closed when a geometry is selected')
+		assert.equal(tool.console_panel.hidden, true, 'expected the panel to stay closed when a geometry is selected')
 		assert.isOk(
-			tool.panel_node.querySelector('.uca-maps-object-section').textContent.includes('Polygon'),
+			tool.console_panel.querySelector('.uca-maps-object-section').textContent.includes('Polygon'),
 			'expected the object section to name the geometry type'
 		)
 
 		// and the content keeps tracking the selection while it IS open
-		// (`map_control` is the L.Control; the clickable node is its container)
+		// (`console_control` is the L.Control; the clickable node is its container)
 		geolocation.map.getContainer().querySelector('.uca-maps-control').click()
-		assert.equal(tool.panel_node.hidden, false, 'expected the UCA button to open it')
+		assert.equal(tool.console_panel.hidden, false, 'expected the UCA button to open it')
 		seeded_layer(3).openPopup()
-		assert.equal(tool.panel_node.hidden, false, 'expected a selection not to close an open panel either')
+		assert.equal(tool.console_panel.hidden, false, 'expected a selection not to close an open panel either')
 	})
 
 	it('on_close_actions keeps the console alive; on_geolocation_destroyed is the real teardown', async function() {
@@ -1864,7 +1863,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			'expected the control to survive on_close_actions'
 		)
 		assert.isOk(tool.geolocation, 'expected the geolocation reference to survive on_close_actions')
-		assert.isOk(tool.panel_node, 'expected panel_node to survive on_close_actions')
+		assert.isOk(tool.console_panel, 'expected console_panel to survive on_close_actions')
 
 		// component_geolocation itself being torn down IS the real teardown trigger
 		const map_container_node = geolocation.map.getContainer()
@@ -1875,8 +1874,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			'expected the control removed by real teardown'
 		)
 		assert.equal(tool.geolocation, null, 'expected the geolocation reference cleared')
-		assert.equal(tool.panel_node, null, 'expected panel_node cleared')
-		assert.equal(tool.map_control, null, 'expected map_control cleared')
+		assert.equal(tool.console_panel, null, 'expected console_panel cleared')
+		assert.equal(tool.console_control, null, 'expected console_control cleared')
 	})
 
 	// core's spinner covers the load, so the modal closes at the first idle
@@ -1964,14 +1963,14 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 	it('destroying the map component tears the tool down through its event, with the map already gone', async function() {
 
 		await run_edit()
-		assert.isOk(tool.map_control, 'precondition: edit() attached the console')
+		assert.isOk(tool.console_control, 'precondition: edit() attached the console')
 
 		await destroy_map_component()
 
 		assert.equal(tool.status, 'destroyed', 'expected the tool instance destroyed')
 		assert.isNull(tool.geolocation, 'expected the geolocation reference cleared')
 		for (const key of [
-			'map_control', 'panel_node', 'map_image_control', 'object_viewer_control', 'onexone_control',
+			'console_control', 'console_panel', 'map_image_control', 'object_viewer_control', 'onexone_control',
 			'xyz_control', 'wms_control', 'catastro_control', 'ua_control', 'upload_control',
 			'place_search_control', 'geolocate_control', 'scale_control', 'legend_control', 'roman_control',
 			'_toolbar_bar'
@@ -2243,12 +2242,12 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		toggle_uncertainty(tool, polygon)
 
 		polygon.openPopup()
-		const badge	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-badge')
+		const badge	= tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-uncertainty-badge')
 		const area	= format_polygon_area(polygon.feature.properties.uca_maps.uncertainty.area_m2)
 		assert.isOk(badge, 'expected the badge beside the checked box')
 		assert.isTrue(badge.textContent.endsWith(' — ' + area), 'expected the badge to end with "' + area + '", got "' + badge.textContent + '"')
 		assert.equal(
-			tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale').getAttribute('title'), area,
+			tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale').getAttribute('title'), area,
 			'expected the scale\'s title to carry the same area'
 		)
 	})
@@ -2258,7 +2257,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.attach_console()
 		const polygon = seeded_layer(1)
 		toggle_uncertainty(tool, polygon)
-		const ring_cx = () => tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale svg circle').getAttribute('cx')
+		const ring_cx = () => tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-uncertainty-scale svg circle').getAttribute('cx')
 
 		// the seeded polygon is ~100 km², past the last band
 		polygon.openPopup()
@@ -2383,7 +2382,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		const layer = open_console_on(1)
 
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 
 		// no "Selected object" heading any more — the panel header names it
 		assert.isNotOk(section.querySelector('h5'), 'expected no heading above the geometry type')
@@ -2447,7 +2446,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		const layer = open_console_on(1)
 
-		const controls = tool.panel_node.querySelector('.uca-maps-style-controls')
+		const controls = tool.console_panel.querySelector('.uca-maps-style-controls')
 
 		const weight = controls.querySelector('.uca-maps-style-weight')
 		assert.equal(weight.type, 'range', 'expected the stroke width to be a slider, as in v6')
@@ -2476,11 +2475,11 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		// ONE colour for border and body (v6's own model), and the
 		// only style value with a split home: the stroke half is the core's
 		// `properties.color`, the fill half nobody restores but this tool
-		const color = tool.panel_node.querySelector('.uca-maps-style-color')
+		const color = tool.console_panel.querySelector('.uca-maps-style-color')
 		assert.isOk(color, 'expected a single colour field (v6 polygon_circle_style)')
 		assert.equal(color.type, 'color')
 		assert.isNotOk(
-			tool.panel_node.querySelector('.uca-maps-style-stroke-color'),
+			tool.console_panel.querySelector('.uca-maps-style-stroke-color'),
 			'expected NO separate stroke-colour field'
 		)
 
@@ -2515,7 +2514,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		layer.openPopup()
 
 		const rows = () => new Map(Array.from(
-			tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'),
+			tool.console_panel.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'),
 			(item) => [item.querySelector('.uca-maps-property-key').textContent.replace(':', ''), item]
 		))
 
@@ -2535,8 +2534,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const dirty = []
 		geolocation.update_draw_data = (layer_id) => dirty.push(layer_id)
 		const values_before = {area: layer.feature.properties.area, radius: layer.feature.properties.radius, shape: layer.feature.properties.shape}
-		const add_row = tool.panel_node.querySelector('.uca-maps-property-add')
-		const message = tool.panel_node.querySelector('.uca-maps-property-add-message')
+		const add_row = tool.console_panel.querySelector('.uca-maps-property-add')
+		const message = tool.console_panel.querySelector('.uca-maps-property-add-message')
 		assert.isTrue(message.hidden, 'expected no message before any refusal')
 		for (const key of ['area', ' radius ', 'shape']) {
 			add_row.querySelector('.uca-maps-property-add-key').value	= key
@@ -2590,14 +2589,14 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			}
 
 			tool.attach_console()
-			const reference = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-empty-state')
+			const reference = tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-empty-state')
 			assert.isOk(reference, 'expected the console\'s own placeholder to compare with')
 			// read now: selecting an object below replaces the placeholder
 			const reference_look = look(reference)
 			assert.include(reference_look, 'italic', 'expected the reference itself styled')
 
 			open_console_on(1)
-			const gallery_empty = tool.panel_node.querySelector('.uca-maps-object-gallery-empty')
+			const gallery_empty = tool.console_panel.querySelector('.uca-maps-object-gallery-empty')
 
 			tool.attach_legend()
 			tool.legend_control.getContainer().click()
@@ -2638,7 +2637,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		const layer = open_console_on(1)
 
-		const images = tool.panel_node.querySelector('.uca-maps-object-images')
+		const images = tool.console_panel.querySelector('.uca-maps-object-images')
 		const nodes = Array.from(images.children)
 		const index = selector => nodes.findIndex(node => node.matches(selector))
 
@@ -2660,7 +2659,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		const layer = open_console_on(1)
 
-		const picker = tool.panel_node.querySelector('.uca-maps-object-image-file')
+		const picker = tool.console_panel.querySelector('.uca-maps-object-image-file')
 
 		let asked_for	= undefined
 		let disabled_during = null
@@ -2684,7 +2683,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.equal(tool.has_geoman_edition(layer), false, 'expected no stored state before anyone ticks it')
 
 		// each change redraws the console: read the box afresh every time
-		const box = () => tool.panel_node.querySelector('.uca-maps-geoman input')
+		const box = () => tool.console_panel.querySelector('.uca-maps-geoman input')
 		const set_box = function(checked) {
 			box().checked = checked
 			box().dispatchEvent(new Event('change'))
@@ -2722,7 +2721,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.deepEqual(info, [{label_key: 'coordinates', label: 'Coordinates', value: geolocation.str_lat_lng(layer.getLatLng())}], 'expected one Coordinates row, formatted as the core\'s own popup')
 
 		layer.openPopup()
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 		assert.isNotOk(section.querySelector('.uca-maps-style-controls'), 'expected NO style controls for a marker')
 		assert.isNotOk(section.querySelector('.uca-maps-centroid'), 'expected NO centroid checkbox for a marker')
 		assert.isNotOk(section.querySelector('.uca-maps-uncertainty'), 'expected NO uncertainty checkbox for a marker')
@@ -2747,7 +2746,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		], 'expected the area as π·r², printed as a polygon\'s, after centre and radius')
 
 		layer.openPopup()
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 		const lines = Array.from(section.querySelectorAll('.uca-maps-object-info > .uca-maps-object-info-row'), (row) => row.textContent)
 		assert.deepEqual(lines, [
 			(tool.get_tool_label('info_center') || 'Center') + ': ' + center,
@@ -3729,7 +3728,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		create_onexone_rectangle(tool, marker)
 
 		marker.openPopup()
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 
 		assert.isOk(
 			section.querySelector('.uca-maps-onexone-reference'),
@@ -3778,7 +3777,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		)
 
 		rectangle.openPopup()
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 		assert.isNotOk(section.querySelector('.uca-maps-centroid'), 'expected NO centroid checkbox on a 1x1 (v6 create_div_centroid)')
 		assert.isOk(section.querySelector('.uca-maps-uncertainty-scale svg'), 'expected the scale bar beside the checked box')
 	})
@@ -3811,7 +3810,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.isTrue(marker.isPopupOpen(), 'expected the first click to open the popup')
 		assert.equal(marker.pm.enabled(), false, 'expected the re-assert to lock the marker after the sweep')
 
-		const box = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-geoman input')
+		const box = tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-geoman input')
 		assert.isOk(box, 'expected the "Geoman editing active" checkbox on the marker console')
 		assert.equal(box.checked, false, 'expected the checkbox to say the marker is locked')
 
@@ -3826,7 +3825,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		// the box is the way out, and no later re-assert locks it back
 		await click()
 		assert.isTrue(marker.isPopupOpen(), 'expected the third click to reopen the popup')
-		const unlock = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-geoman input')
+		const unlock = tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-geoman input')
 		unlock.checked = true
 		unlock.dispatchEvent(new Event('change'))
 		assert.equal(marker.pm.enabled(), true, 'expected the ticked box to unlock the marker')
@@ -4050,7 +4049,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			assert.isNotOk(geolocation.map.getContainer().querySelector('.uca-maps-toolbar-button'), 'expected no button before edit() runs')
 			await run_edit()
 
-			const corner = tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+			const corner = tool.console_control.getContainer().closest('.leaflet-top.leaflet-left')
 			assert.isOk(corner, 'expected the "UCA" button inside Leaflet\'s topleft corner')
 			const order = Array.from(corner.querySelectorAll('.uca-maps-toolbar-button'), (button) =>
 				Object.keys(NAMES).filter((name) => button.classList.contains(name)).map((name) => NAMES[name]).join('+') || 'unknown'
@@ -4072,21 +4071,21 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const obj_control	= geolocation.map.getContainer().querySelector('.uca-maps-object-viewer-control')
 
 		uca_control.click()
-		assert.equal(tool.panel_node.hidden, false, 'expected UCA open after its own click')
+		assert.equal(tool.console_panel.hidden, false, 'expected UCA open after its own click')
 
 		img_control.click()
 		assert.equal(tool.map_image_panel.hidden, false, 'expected IMG open after its own click')
-		assert.equal(tool.panel_node.hidden, true, 'expected UCA closed by opening IMG')
+		assert.equal(tool.console_panel.hidden, true, 'expected UCA closed by opening IMG')
 
 		obj_control.click()
 		assert.equal(tool.object_viewer_panel.hidden, false, 'expected OBJ open after its own click')
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by opening OBJ')
-		assert.equal(tool.panel_node.hidden, true, 'expected UCA to stay closed')
+		assert.equal(tool.console_panel.hidden, true, 'expected UCA to stay closed')
 
 		// a sibling closed UCA: its own button still reopens it, since the
 		// toggle reads the panel's `hidden`, never a flag of its own
 		uca_control.click()
-		assert.equal(tool.panel_node.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
+		assert.equal(tool.console_panel.hidden, false, 'expected UCA reopened by its own click, even though a sibling force-closed it earlier')
 		assert.equal(tool.map_image_panel.hidden, true, 'expected IMG closed by reopening UCA')
 		assert.equal(tool.object_viewer_panel.hidden, true, 'expected OBJ closed by reopening UCA')
 	})
@@ -4100,11 +4099,11 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const onexone_control	= geolocation.map.getContainer().querySelector('.uca-maps-onexone-control')
 
 		uca_control.click()
-		assert.equal(tool.panel_node.hidden, false, 'expected UCA open after its own click')
+		assert.equal(tool.console_panel.hidden, false, 'expected UCA open after its own click')
 
 		onexone_control.click()
 		assert.equal(is_onexone_enabled(tool), true, 'expected 1x1 armed by its own click')
-		assert.equal(tool.panel_node.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
+		assert.equal(tool.console_panel.hidden, false, 'expected UCA to stay open — 1x1 has no panel, so it never enters the exclusivity set')
 	})
 
 	it('toolbar buttons are links of ONE Leaflet bar: an icon each, no visible label; the title names each', async function() {
@@ -4132,7 +4131,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const click = new MouseEvent('click', {bubbles: true, cancelable: true})
 		uca_link.dispatchEvent(click)
 		assert.isTrue(click.defaultPrevented, 'expected the click\'s default prevented')
-		assert.equal(tool.panel_node.hidden, false, 'expected the click on the link to reach the button\'s handler')
+		assert.equal(tool.console_panel.hidden, false, 'expected the click on the link to reach the button\'s handler')
 
 		// the bar goes with its last button
 		detach_xyz_basemaps(tool)
@@ -4152,7 +4151,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			offer_catastro()
 			await run_edit()
 
-			const corner	= tool.map_control.getContainer().closest('.leaflet-top.leaflet-left')
+			const corner	= tool.console_control.getContainer().closest('.leaflet-top.leaflet-left')
 			assert.equal(corner.querySelectorAll('.uca-maps-toolbar').length, 1, 'expected ONE bar')
 
 			// the zoom bar stays first, set 30px apart from the tool's bar
@@ -4252,8 +4251,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			}
 			const xyz_add		= tool.xyz_panel.querySelector('.uca-maps-xyz-add-button')
 			const image_btn		= tool.map_image_panel.querySelector('.uca-maps-map-image-button')
-			const object_btn	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-property-add-button')
-			const delete_btn	= tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-property-delete')
+			const object_btn	= tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-property-add-button')
+			const delete_btn	= tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-property-delete')
 			assert.isOk(image_btn, 'expected the map-image download button')
 			assert.isOk(object_btn, 'expected the object section\'s Add button')
 			assert.isOk(delete_btn, 'expected the property row\'s ✕')
@@ -4266,7 +4265,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			assert.equal(chrome(object_btn), chrome(xyz_add), 'expected the object section\'s buttons on the shared action chrome')
 
 			// the ✕ is the secondary variant of the same mixin
-			assert.equal(getComputedStyle(delete_btn).backgroundColor, resolve_token(tool.panel_node, '--bg_fill_inverse'), 'expected the ✕ on the secondary fill')
+			assert.equal(getComputedStyle(delete_btn).backgroundColor, resolve_token(tool.console_panel, '--bg_fill_inverse'), 'expected the ✕ on the secondary fill')
 			assert.equal(getComputedStyle(delete_btn).cursor, 'pointer')
 
 			for (const node of [xyz_add, image_btn, object_btn, delete_btn]) {
@@ -4341,7 +4340,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			// the vector list holds the seeded polygon: the empty line is the raster list's
 			tool.object_viewer_control.getContainer().click()
 
-			const console_line	= tool.panel_node.querySelector('.uca-maps-empty-state')
+			const console_line	= tool.console_panel.querySelector('.uca-maps-empty-state')
 			const list_line		= tool.object_viewer_panel.querySelector('.uca-maps-empty-state')
 			assert.isOk(console_line, 'expected the console\'s empty line on the shared class')
 			assert.isOk(list_line, 'expected the object list\'s empty line on the shared class')
@@ -4352,7 +4351,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			}
 			assert.equal(look(list_line), look(console_line), 'expected one look for both')
 
-			assert.equal(getComputedStyle(console_line).color, resolve_token(tool.panel_node, '--fg_muted', 'color'), 'expected the muted ink')
+			assert.equal(getComputedStyle(console_line).color, resolve_token(tool.console_panel, '--fg_muted', 'color'), 'expected the muted ink')
 			assert.equal(getComputedStyle(console_line).fontStyle, 'italic')
 		})
 	})
@@ -4384,15 +4383,15 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		}
 
 		tool.attach_console()
-		tool.map_control.getContainer().click()
-		assert.isFalse(tool.panel_node.classList.contains('uca-maps-panel-centered'), 'expected the console not centred')
-		assert.notEqual(tool.panel_node.style.getPropertyValue('--uca_maps_anchor_left'), '', 'expected the console anchored beside its button')
+		tool.console_control.getContainer().click()
+		assert.isFalse(tool.console_panel.classList.contains('uca-maps-panel-centered'), 'expected the console not centred')
+		assert.notEqual(tool.console_panel.style.getPropertyValue('--uca_maps_anchor_left'), '', 'expected the console anchored beside its button')
 
 		// what the phone rule lays every panel against: the bar's live right edge
 		const map_rect	= geolocation.map.getContainer().getBoundingClientRect()
-		const bar_rect	= tool.map_control.getContainer().parentNode.getBoundingClientRect()
+		const bar_rect	= tool.console_control.getContainer().parentNode.getBoundingClientRect()
 		assert.equal(
-			tool.panel_node.style.getPropertyValue('--uca_maps_bar_edge'),
+			tool.console_panel.style.getPropertyValue('--uca_maps_bar_edge'),
 			Math.round(bar_rect.right - map_rect.left + 8) + 'px',
 			'expected the bar\'s edge measured on show'
 		)
@@ -4401,7 +4400,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.isOk(view_box, 'expected the core\'s view box beside the map')
 		const box_bottom = Math.round(view_box.getBoundingClientRect().bottom - map_rect.top + 8)
 		assert.equal(
-			tool.panel_node.style.getPropertyValue('--uca_maps_panel_top'),
+			tool.console_panel.style.getPropertyValue('--uca_maps_panel_top'),
 			Math.max(8, box_bottom) + 'px',
 			'expected the panel\'s phone top measured below the view box'
 		)
@@ -4411,10 +4410,10 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		await with_tool_css(async () => {
 			tool.attach_console()
-			tool.map_control.getContainer().click()
-			const panel			= tool.panel_node
+			tool.console_control.getContainer().click()
+			const panel			= tool.console_panel
 			const map_rect		= geolocation.map.getContainer().getBoundingClientRect()
-			const button_rect	= tool.map_control.getContainer().getBoundingClientRect()
+			const button_rect	= tool.console_control.getContainer().getBoundingClientRect()
 			const rect			= panel.getBoundingClientRect()
 			assert.equal(panel.style.top + panel.style.left, '', 'expected no inline top/left: it would beat the phone rule')
 			assert.equal(Math.round(rect.left - map_rect.left), Math.round(button_rect.right - map_rect.left + 8), 'expected the console right of its button')
@@ -4432,7 +4431,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			const map_rect	= map_node.getBoundingClientRect()
 			const view_box	= map_node.parentNode.querySelector(':scope > .map_inputs')
 			const cases = [
-				[tool.map_control, tool.panel_node, 'console'],
+				[tool.console_control, tool.console_panel, 'console'],
 				[tool.xyz_control, tool.xyz_panel, 'XYZ (centred on a desktop)'],
 				[tool.upload_control, tool.upload_panel, 'upload (centred on a desktop)']
 			]
@@ -4603,7 +4602,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 	/** Every panel the tool hangs from its bar: [attach, panel key, control key]. */
 	const TOOLBAR_PANELS = [
-		['attach_console',						'panel_node',			'map_control'],
+		['attach_console',						'console_panel',		'console_control'],
 		['attach_map_image_download_control',	'map_image_panel',		'map_image_control'],
 		['attach_object_viewer',				'object_viewer_panel',	'object_viewer_control'],
 		['attach_xyz_basemaps',					'xyz_panel',			'xyz_control'],
@@ -4715,14 +4714,14 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 
 		await with_tool_css(async () => {
 			tool.attach_console()
-			tool.map_control.getContainer().click()
+			tool.console_control.getContainer().click()
 			seeded_layer(1).openPopup()
 
 			// a plain panel anchored by its button, as the console is
 			const plain = create_toolbar_panel(tool, {class_name: 'uca-maps-test-plain-panel'})
 			plain.hidden = false
 
-			const panel = tool.panel_node
+			const panel = tool.console_panel
 			assert.isOk(panel.querySelector('.uca-maps-style-controls input[type="range"]'), 'expected the style sliders on screen')
 			assert.isAbove(panel.offsetWidth, plain.offsetWidth, 'expected the console wider than a plain panel')
 			assert.isAtMost(panel.scrollWidth, panel.clientWidth, 'expected no sideways scroll in the console')
@@ -5966,8 +5965,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		assert.notProperty(parcel.feature.properties, 'url', 'expected no url key, not url: null')
 		assert.isTrue(parcel.feature.properties.uca_maps.catastro, 'expected the parcel still marked as Catastro\'s')
 		parcel.openPopup()
-		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected no link')
-		const keys = Array.from(tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-key'), (key) => key.textContent)
+		assert.isNotOk(tool.console_panel.querySelector('.uca-maps-property-link'), 'expected no link')
+		const keys = Array.from(tool.console_panel.querySelectorAll('.uca-maps-properties-list .uca-maps-property-key'), (key) => key.textContent)
 		assert.notInclude(keys, 'url:', 'expected no url row')
 	})
 
@@ -5986,7 +5985,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		const parcel	= layers[layers.length - 1]
 		parcel.openPopup()
 
-		const find_url_row = () => Array.from(tool.panel_node.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'))
+		const find_url_row = () => Array.from(tool.console_panel.querySelectorAll('.uca-maps-properties-list .uca-maps-property-item'))
 			.find(item => item.querySelector('.uca-maps-property-link') || (item.querySelector('.uca-maps-property-key') || {}).textContent==='url:')
 
 		const row	= find_url_row()
@@ -6003,7 +6002,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		parcel.feature.properties.url = 'javascript:alert(1)'
 		parcel.closePopup() // a popup already open fires no second popupopen
 		parcel.openPopup()
-		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected a javascript: url kept out of any href')
+		assert.isNotOk(tool.console_panel.querySelector('.uca-maps-property-link'), 'expected a javascript: url kept out of any href')
 		const fallback = find_url_row() && find_url_row().querySelector('input.uca-maps-property-value')
 		assert.isOk(fallback, 'expected the row still there, falling back to editable text')
 		assert.equal(fallback.value, 'javascript:alert(1)')
@@ -6013,7 +6012,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		delete parcel.feature.properties.uca_maps.catastro
 		parcel.closePopup()
 		parcel.openPopup()
-		assert.isNotOk(tool.panel_node.querySelector('.uca-maps-property-link'), 'expected no link without the catastro mark')
+		assert.isNotOk(tool.console_panel.querySelector('.uca-maps-property-link'), 'expected no link without the catastro mark')
 		assert.isOk(find_url_row().querySelector('input.uca-maps-property-value'), 'expected the url editable text on a non-parcel')
 
 		// the link row's ✕ really deletes the property
@@ -6174,7 +6173,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool._elevation = null
 		stub_tool_request(async () => ({ok: true, data: {elevation: 412, unavailable: false, attribution: 'NASA/USGS SRTM'}}))
 		open_console_on(1)
-		const section = tool.panel_node.querySelector('.uca-maps-elevation-section')
+		const section = tool.console_panel.querySelector('.uca-maps-elevation-section')
 		await until(() => section.querySelector('.uca-maps-attribution'), 100)
 		const credit = section.querySelector('.uca-maps-attribution')
 		assert.isOk(credit, 'expected the credit')
@@ -7960,7 +7959,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		// hydrate's 'popupopen' handler reads popup._source and nothing else)
 		select_carrier(carrier)
 
-		const section = tool.panel_node.querySelector('.uca-maps-object-section')
+		const section = tool.console_panel.querySelector('.uca-maps-object-section')
 		assert.isOk(section.querySelector('.uca-maps-image-view'), 'expected the "View image" link')
 		assert.isOk(section.querySelector('.uca-maps-image-opacity'), 'expected the opacity control')
 		assert.isOk(section.querySelector('.uca-maps-image-z-index'), 'expected the z-index control')
@@ -7988,7 +7987,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.attach_console()
 		select_carrier(carrier)
 
-		const section	= tool.panel_node.querySelector('.uca-maps-object-section')
+		const section	= tool.console_panel.querySelector('.uca-maps-object-section')
 		const download	= section.querySelector('.uca-maps-image-download-section')
 		assert.isOk(download, 'expected the image download section')
 
@@ -8027,7 +8026,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		})
 
 		try {
-			const download = tool.panel_node.querySelector('.uca-maps-image-download-section')
+			const download = tool.console_panel.querySelector('.uca-maps-image-download-section')
 			download.querySelector('.uca-maps-image-download-quality').value = '2'
 			download.querySelector('.uca-maps-image-download-format').value = 'jpg'
 			download.querySelector('.uca-maps-image-download-button').click()
@@ -8083,7 +8082,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			return {ok: false, error: {is_api_error: true, code: 'resource.not_found', details: {reason_key: 'image_not_on_server'}, message: 'The image is no longer on the server.', transport: false}}
 		})
 		try {
-			const download	= tool.panel_node.querySelector('.uca-maps-image-download-section')
+			const download	= tool.console_panel.querySelector('.uca-maps-image-download-section')
 			const line		= download.querySelector('.uca-maps-download-message')
 			const button	= download.querySelector('.uca-maps-image-download-button')
 			assert.isTrue(line.hidden, 'expected no line before any attempt')
@@ -8148,8 +8147,8 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 			select_carrier(carrier)
 
 			assert.equal(tool.get_image_href(carrier), null, 'expected no target without ' + missing)
-			assert.isNotOk(tool.panel_node.querySelector('.uca-maps-image-view'), 'expected no link without ' + missing)
-			assert.isOk(tool.panel_node.querySelector('.uca-maps-image-z-index'), 'expected the rest of the image controls still there')
+			assert.isNotOk(tool.console_panel.querySelector('.uca-maps-image-view'), 'expected no link without ' + missing)
+			assert.isOk(tool.console_panel.querySelector('.uca-maps-image-z-index'), 'expected the rest of the image controls still there')
 		}
 
 		const zero = add_image_carrier()
@@ -8163,7 +8162,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.attach_console()
 		select_carrier(carrier)
 
-		const link = tool.panel_node.querySelector('.uca-maps-image-view')
+		const link = tool.console_panel.querySelector('.uca-maps-image-view')
 		const url = new URL(link.href, window.location.href)
 		assert.equal(url.pathname, new URL(DEDALO_CORE_URL + '/page/', window.location.href).pathname, 'expected the core page, not the media tree')
 		assert.equal(url.searchParams.get('tipo'), IMAGE_DESCRIPTOR.section_tipo)
@@ -8183,7 +8182,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		await await_overlay(carrier)
 		select_carrier(carrier)
 
-		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
+		const slider = tool.console_panel.querySelector('.uca-maps-image-z-index')
 		assert.equal(slider.type, 'range', 'expected a slider, as v6, not a number box')
 		assert.equal(slider.min, '0')
 		assert.equal(slider.max, '1000')
@@ -8214,7 +8213,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		await await_overlay(carrier)
 		select_carrier(carrier)
 
-		const slider = tool.panel_node.querySelector('.uca-maps-image-z-index')
+		const slider = tool.console_panel.querySelector('.uca-maps-image-z-index')
 		assert.equal(slider.value, '1000', 'expected the slider at its top')
 		assert.equal(carrier._uca_maps_overlay.options.zIndex, 1000, 'expected the overlay stacked where the slider says')
 		assert.equal(carrier.feature.properties.uca_maps.image.z_index, 1500, 'expected NO silent rewrite just for showing it')
@@ -8270,7 +8269,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		tool.attach_console()
 		select_carrier(carrier)
 
-		const checkbox = tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit')
+		const checkbox = tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-image-edit')
 		assert.isOk(checkbox, 'expected the "Activar edición" checkbox in the image branch')
 		assert.equal(checkbox.checked, false, 'expected edit mode off for a descriptor that never stored it')
 
@@ -8278,7 +8277,7 @@ describe('TOOL_UCA_MAPS (live map)', function() {
 		select_carrier(carrier)
 
 		assert.equal(
-			tool.panel_node.querySelector('.uca-maps-object-section .uca-maps-image-edit').checked, true,
+			tool.console_panel.querySelector('.uca-maps-object-section .uca-maps-image-edit').checked, true,
 			'expected the re-rendered checkbox to read the stored flag, not a cached one'
 		)
 	})

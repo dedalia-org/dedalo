@@ -13,6 +13,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import { WIN_ANSI_HIGH } from './cp1252.ts';
 import {
 	GAZETTEER_CONFIG_KEY,
 	gazetteerUnavailable,
@@ -22,7 +23,6 @@ import {
 	resolveGazetteerDir,
 } from './gazetteer_store.ts';
 import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
-import { WIN_ANSI_HIGH } from './pdf_writer.ts';
 import { invalidOptions, sourceUnavailable } from './reasons.ts';
 
 /** v6's own result count for all three searches (10 result slots per panel). */

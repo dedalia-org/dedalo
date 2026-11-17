@@ -24,7 +24,7 @@ import {
 	remove_toolbar_panel
 } from './toolbar.js'
 import {render_administrative_units_panel, show_ua_message, clear_ua_message} from './render_administrative_units.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {
 	disable_armed_layer,
 	enable_armed_layer,

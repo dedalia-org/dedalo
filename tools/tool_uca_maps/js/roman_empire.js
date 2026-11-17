@@ -27,7 +27,7 @@ import {
 	remove_toolbar_panel,
 	set_toolbar_panel_visible
 } from './toolbar.js'
-import {report_client_error} from './object_console.js'
+import {report_client_error} from './client_error.js'
 import {
 	focus_first_roman_field,
 	refresh_roman_sources,

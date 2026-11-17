@@ -23,6 +23,11 @@ import {IMAGE_UPLOAD_EXTENSIONS, VECTOR_UPLOAD_EXTENSIONS, accept_attribute} fro
 
 const EPSG_IO_URL = 'https://epsg.io/'
 
+/** How long a transient line stays: long enough to read a one-line
+ * confirmation; the map itself is the lasting proof. */
+// exported for the client gate
+export const UPLOAD_MESSAGE_MS = 2000
+
 // v6's list, verbatim (`special_tools_upload.js`): GDAL reads every EPSG
 // code, these are just the ones v6 knew without being told
 const DEFAULT_PROJECTIONS = [
@@ -354,11 +359,6 @@ const render_upload_message = function(parent) {
 }//end render_upload_message
 
 
-
-/** How long a transient line stays: long enough to read a one-line
- * confirmation; the map itself is the lasting proof. */
-// exported for the client gate
-export const UPLOAD_MESSAGE_MS = 2000
 
 /**
 * SHOW_UPLOAD_MESSAGE

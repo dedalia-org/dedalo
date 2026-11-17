@@ -21,7 +21,9 @@ import {data_manager} from '../../../core/common/js/data_manager.js'
 import {process_uploaded_file} from '../../tool_upload/js/tool_upload.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 import {object_to_url_vars} from '../../../core/common/js/utils/util.js'
-import {commit, ensure_properties, ensure_uca_maps, report_client_error, deliver_download} from './object_console.js'
+import {commit, ensure_properties, ensure_uca_maps} from './object_console.js'
+import {report_client_error} from './client_error.js'
+import {deliver_download} from './download_delivery.js'
 import {carrier_image} from './uca_maps_data.js'
 import {DEFAULT_IMAGE_DOWNLOAD_NAME, name_required_text, sanitize_download_name} from './download_filename.js'
 import {hull_bounds, is_image_editing, attach_handles, detach_handles, seal_carrier_from_geoman, attach_carrier_drag, detach_carrier_drag} from './image_edit.js'
@@ -516,9 +518,9 @@ export const upload_image_file = async function(self, file) {
 *
 * @param {Object} self - tool_uca_maps instance
 * @param {Object} image - the descriptor to store under properties.uca_maps.image
-* @returns {Promise<Object>} the carrier layer
+* @returns {Object} the carrier layer
 */
-export const create_image_object = async function(self, image) {
+export const create_image_object = function(self, image) {
 
 	const map = self.geolocation.map
 
