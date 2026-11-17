@@ -107,3 +107,9 @@ every search with a principal already ran.
 
 No parity fixture edited: no fixture holds an internal multi-hop search over a
 cross-table locator.
+
+TODO-013 ("verify multiple left join issues (MDCAT case)") is closed as
+SUPERSEDED by the same ruling: a deep leaf adds no join to the main FROM since
+`WC-2026-09-29-search-deep-leaf-mixed-rule` (semi-joins; the count is
+`count(*)`), and the hop join itself is this entry.
+
