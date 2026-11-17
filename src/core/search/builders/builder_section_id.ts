@@ -84,15 +84,15 @@ export function parseSectionIdBetween(effective: string): {
  */
 function buildBetween(
 	bounds: { low: string | null; high: string | null },
-	columnExpr: string,
+	idColumnSql: string,
 	INT: string,
 ): BuilderResult {
 	const predicates: BuilderResult[] = [];
 	if (bounds.low !== null) {
-		predicates.push(fragment(`${columnExpr} >= _Q1_${INT}`, { _Q1_: bounds.low }));
+		predicates.push(fragment(`${idColumnSql} >= _Q1_${INT}`, { _Q1_: bounds.low }));
 	}
 	if (bounds.high !== null) {
-		predicates.push(fragment(`${columnExpr} <= _Q1_${INT}`, { _Q1_: bounds.high }));
+		predicates.push(fragment(`${idColumnSql} <= _Q1_${INT}`, { _Q1_: bounds.high }));
 	}
 	if (predicates.length === 2) return compound('$and', predicates);
 	return predicates[0] ?? false;
@@ -108,7 +108,7 @@ export function buildSectionIdFragment(
 	if (op === 'none') {
 		return false;
 	}
-	const columnExpr = `${context.alias}.section_id::integer`;
+	const idColumnSql = `${context.alias}.section_id::integer`;
 	// EVERY bind of a digit string against that integer column must carry its
 	// own cast. Bun.sql sends a JS string as `text`, and Postgres has no
 	// `integer = text` operator, so an uncast placeholder fails the whole query
@@ -118,7 +118,7 @@ export function buildSectionIdFragment(
 	// enforced above, so the cast can never fail at runtime.
 	const INT = '::integer';
 
-	if (op === 'between') return buildBetween(parseSectionIdBetween(effective), columnExpr, INT);
+	if (op === 'between') return buildBetween(parseSectionIdBetween(effective), idColumnSql, INT);
 	// ',' sequence → = ANY('{a,b,c}'::integer[])
 	if (op === 'sequence') {
 		const ids = effective
@@ -126,18 +126,18 @@ export function buildSectionIdFragment(
 			.map(digitsOnly)
 			.filter((id) => id !== '');
 		if (ids.length === 0) return false;
-		return fragment(`${columnExpr} = ANY(_Q1_::integer[])`, { _Q1_: `{${ids.join(',')}}` });
+		return fragment(`${idColumnSql} = ANY(_Q1_::integer[])`, { _Q1_: `{${ids.join(',')}}` });
 	}
 	// Comparison operators, longest first.
 	for (const comparisonOperator of ['!=', '>=', '<=', '>', '<'] as const) {
 		if ((op === 'notEqual' || op === 'compare') && effective.startsWith(comparisonOperator)) {
 			const value = digitsOnly(effective.slice(comparisonOperator.length));
 			if (value === '') return false;
-			return fragment(`${columnExpr} ${comparisonOperator} _Q1_${INT}`, { _Q1_: value });
+			return fragment(`${idColumnSql} ${comparisonOperator} _Q1_${INT}`, { _Q1_: value });
 		}
 	}
 	// Default '='
 	const value = digitsOnly(effective);
 	if (value === '') return false;
-	return fragment(`${columnExpr} = _Q1_${INT}`, { _Q1_: value });
+	return fragment(`${idColumnSql} = _Q1_${INT}`, { _Q1_: value });
 }
