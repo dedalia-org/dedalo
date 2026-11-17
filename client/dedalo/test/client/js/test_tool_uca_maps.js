@@ -8063,7 +8063,6 @@ describe('TOOL_UCA_MAPS OBJECT CONSOLE (live map)', function() {
 			assert.equal(sent.options.file_name, 'image')
 			assert.notProperty(sent.options, 'opacity', 'expected opacity left out: it is how the map shows the picture')
 			assert.equal(transport.timeout, IMAGE_DOWNLOAD_TIMEOUT_MS, 'expected its own timeout, past the default 5 s per attempt')
-			assert.isAtLeast(IMAGE_DOWNLOAD_TIMEOUT_MS, 4 * 60 * 1000, 'expected room for its four GDAL runs of 60 s')
 			assert.isTrue(transport.busy_notice, 'expected the slow-server cue kept, which a long timeout turns off by default')
 		} finally {
 			restore()

@@ -21,8 +21,8 @@
 export const LOOKUP_TIMEOUT_MS = 60 * 1000
 
 /** A GDAL conversion: up to two binary runs of 60 s each (server/gdal.ts), and
-* room for the wait for a converter slot. */
-export const CONVERSION_TIMEOUT_MS = 3 * 60 * 1000
+* the wait for a converter slot (core's queue, 120 s by default). */
+export const CONVERSION_TIMEOUT_MS = 5 * 60 * 1000
 
 /** A vector upload: up to three binary runs (the file's CRS probe, the typed
 * projection's lookup, the conversion itself), each bounded at 60 s. */

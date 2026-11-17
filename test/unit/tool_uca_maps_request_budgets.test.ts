@@ -11,7 +11,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GEO_ORIGINS, GEO_SERVICE_IDS, GEO_SERVICES } from '../../src/core/geo_services/table.ts';
 import { HARVEST_DEFAULT_TIMEOUT_MS } from '../../src/core/harvest/harvest.ts';
-import { INTERACTIVE_MAX_WAIT_MS } from '../../src/core/harvest/interactive_limits.ts';
+import { MIN_INTERVAL_MS } from '../../src/core/harvest/pacing.ts';
+import { MEDIA_KEYS } from '../../src/config/catalog/media.ts';
 import { TOOL_BINARY_TIMEOUT_MS } from '../../tools/tool_uca_maps/server/gdal.ts';
 import { loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 
@@ -189,10 +190,24 @@ async function actionsByModule(): Promise<Map<string, string[]>> {
 	return byModule;
 }
 
-/** Harvests whose client budget lives outside this census, and why. */
-const OWN_HARVEST_BUDGET: Readonly<Record<string, string>> = Object.freeze({
-	stage_external_image: 'a mutating action: its own budget, STAGE_EXTERNAL_IMAGE_TIMEOUT_MS',
-});
+/** `4 * 60 * 1000`, `15_000`: digits, `_` and `*` only; anything else is null. */
+function productMs(expression: string): number | null {
+	if (!/^[0-9_ *]+$/.test(expression.trim())) return null;
+	return expression
+		.split('*')
+		.map((factor) => Number(factor.trim().replaceAll('_', '')))
+		.reduce((product, factor) => product * factor, 1);
+}
+
+/**
+ * One harvest hop at our own pace: robots.txt, the turn at the site (our floor
+ * between two requests), the fetch. A redirect is another hop and a site's
+ * Crawl-delay a longer turn: neither is budgeted, as no lookup could outlast them
+ * and keep data_manager's busy cue.
+ */
+function harvestHopMs(timeoutMs: number): number {
+	return coreRobotsTimeoutMs() + MIN_INTERVAL_MS + timeoutMs;
+}
 
 interface HarvestSite {
 	file: string;
@@ -228,63 +243,134 @@ async function harvestActions(): Promise<Map<string, string[]>> {
 	return new Map([...reaching].map(([file, actions]) => [file, own.get(file) ?? [...actions]]));
 }
 
-/** Every `harvestFetch(` the server makes, its deadline resolved (none named: core's default). */
+/**
+ * Every `harvestFetch(` the server makes, its deadline resolved (none named: core's
+ * default). A call it cannot read — no inline object, a spread, a deadline that is
+ * not a plain number or a module constant of one — is red, never skipped.
+ */
 async function harvestSites(): Promise<HarvestSite[]> {
 	const byModule = await harvestActions();
 	const sites: HarvestSite[] = [];
 	for (const [file, source] of serverSources()) {
-		for (const argument of callArguments(source, 'harvestFetch')) {
-			const named = /\btimeoutMs\s*:\s*([A-Za-z0-9_]+)/.exec(argument)?.[1];
-			let timeoutMs = HARVEST_DEFAULT_TIMEOUT_MS;
-			if (named !== undefined && /^[0-9_]+$/.test(named)) {
-				timeoutMs = Number(named.replaceAll('_', ''));
-			} else if (named !== undefined) {
-				const declared = new RegExp(`const ${named} = ([0-9_]+);`).exec(source)?.[1];
-				expect(declared, `${file}: ${named} is a number declared in the module`).toBeDefined();
-				timeoutMs = Number((declared as string).replaceAll('_', ''));
+		const argumentsRead = callArguments(source, 'harvestFetch');
+		const calls = (source.match(/\bharvestFetch\(/g) ?? []).length;
+		expect(argumentsRead.length, `${file}: every harvestFetch( takes an inline object`).toBe(calls);
+		for (const argument of argumentsRead) {
+			expect(argument, `${file}: a harvestFetch argument without a spread`).not.toContain('...');
+			const value = /\btimeoutMs\s*:\s*([^,\n}]+)/.exec(argument)?.[1]?.trim();
+			let timeoutMs: number | null = HARVEST_DEFAULT_TIMEOUT_MS;
+			if (value !== undefined) {
+				const declared = /^[A-Z][A-Z0-9_]*$/.test(value)
+					? new RegExp(`const ${value} = ([^;\n]+);`).exec(source)?.[1]
+					: value;
+				timeoutMs = declared === undefined ? null : productMs(declared);
 			}
-			sites.push({ file, actions: byModule.get(file) ?? [], timeoutMs });
+			expect(timeoutMs, `${file}: timeoutMs ${String(value)} reads as a number`).not.toBeNull();
+			sites.push({ file, actions: byModule.get(file) ?? [], timeoutMs: timeoutMs as number });
 		}
 	}
 	return sites;
 }
 
-/** A binary run: `runToolBinary(` itself, or a gdal.ts helper that makes exactly one. */
-const BINARY_RUN = /\b(?:runToolBinary|readGdalInfoJson)\(/g;
+/** The GDAL version probe's deadline (capabilities.ts), run before every GDAL binary. */
+function probeTimeoutMs(): number {
+	const source = serverSources().get('capabilities.ts') ?? '';
+	const match = /runBinary\(\[resolved, \.\.\.versionArgs\], \{ timeoutMs: ([0-9_]+)/.exec(source);
+	expect(match, 'the probe names its deadline').not.toBeNull();
+	return Number((match?.[1] ?? '').replaceAll('_', ''));
+}
 
 /**
- * Binary runs each action can make: every run in its handler's module and in the
- * helper modules it imports (gdal.ts, where the runners live, counted at its callers;
- * another handler's module, imported for a helper, lends none — as for harvests).
- * One run per call site: a run inside a loop would need its own bound here.
+ * What can make an action wait on its own server, priced per call site: a binary
+ * run, `readGdalInfoJson` (a probe and a run), `resolveGdalBinary` (a probe), and
+ * a converter slot (core's queue, at its default).
  */
-async function binaryRunsByAction(): Promise<Map<string, number>> {
+function waitPrices(): ReadonlyArray<readonly [RegExp, number]> {
+	const probe = probeTimeoutMs();
+	const queue = Number(MEDIA_KEYS.DEDALO_MEDIA_CONVERT_QUEUE_SECONDS.default) * 1000;
+	return [
+		[/\brunToolBinary\(/g, TOOL_BINARY_TIMEOUT_MS],
+		[/\breadGdalInfoJson\(/g, probe + TOOL_BINARY_TIMEOUT_MS],
+		[/\bresolveGdalBinary\(/g, probe],
+		[/\bwithConverterSlot\(/g, queue],
+	];
+}
+
+/** The `(…)` or `{…}` span that opens at or after `from`, bracket-matched. */
+function bracketSpan(source: string, from: number): [number, number] {
+	const open = source.slice(from).search(/[({]/) + from;
+	const close = source[open] === '(' ? ')' : '}';
+	let depth = 0;
+	for (let at = open; at < source.length; at++) {
+		if (source[at] === source[open]) depth++;
+		else if (source[at] === close && --depth === 0) return [open, at];
+	}
+	return [open, source.length];
+}
+
+/** Spans a priced call repeats in: a loop body, or the callback of an iterating call. */
+function loopSpans(source: string): Array<[number, number]> {
+	const spans: Array<[number, number]> = [];
+	for (const match of source.matchAll(/\b(?:for|while)\s*\(/g)) {
+		const [, head] = bracketSpan(source, match.index);
+		spans.push(bracketSpan(source, head + 1));
+	}
+	for (const match of source.matchAll(/\.(?:map|flatMap|forEach|reduce|all)\(/g)) {
+		spans.push(bracketSpan(source, match.index + 1));
+	}
+	return spans;
+}
+
+/** Priced calls that sit inside a loop: each would need its own bound. */
+function pricedCallsInLoops(): string[] {
+	const found: string[] = [];
+	for (const [file, source] of serverSources()) {
+		if (file === 'gdal.ts' || file === 'capabilities.ts') continue;
+		const spans = loopSpans(source);
+		for (const [pattern] of waitPrices()) {
+			for (const match of source.matchAll(pattern)) {
+				if (spans.some(([open, close]) => match.index > open && match.index < close)) {
+					found.push(`${file}: ${match[0]} at ${String(match.index)}`);
+				}
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * The longest each action can wait on its own server: every priced call in its
+ * handler's module and in the helper modules it imports (gdal.ts, where the
+ * runners live, priced at its callers; another handler's module, imported for a
+ * helper, lends none — as for harvests). One wait per call site: see the loop gate.
+ */
+async function serverWaitByAction(): Promise<Map<string, number>> {
 	const sources = serverSources();
 	const byModule = await actionsByModule();
-	const runsOf = (file: string, seen: Set<string>): number => {
-		if (seen.has(file) || file === 'gdal.ts') return 0;
+	const prices = waitPrices();
+	const waitOf = (file: string, seen: Set<string>): number => {
+		if (seen.has(file) || file === 'gdal.ts' || file === 'capabilities.ts') return 0;
 		if (seen.size > 0 && byModule.has(file)) return 0;
 		seen.add(file);
 		const source = sources.get(file) ?? '';
-		const own = (source.match(BINARY_RUN) ?? []).length;
-		return own + localImports(source).reduce((sum, next) => sum + runsOf(next, seen), 0);
+		const own = prices.reduce(
+			(sum, [pattern, price]) => sum + (source.match(pattern) ?? []).length * price,
+			0,
+		);
+		return own + localImports(source).reduce((sum, next) => sum + waitOf(next, seen), 0);
 	};
-	const runs = new Map<string, number>();
+	const waits = new Map<string, number>();
 	for (const [file, actions] of byModule) {
-		for (const action of actions) runs.set(action, runsOf(file, new Set()));
+		for (const action of actions) waits.set(action, waitOf(file, new Set()));
 	}
-	return runs;
+	return waits;
 }
 
 /** A browser constant's value in ms: `NAME = 4 * 60 * 1000` (digits and `*` only). */
 function browserConstantMs(file: string, name: string): number | null {
 	const source = readFileSync(join(JS_DIR, file), 'utf8');
-	const expression = new RegExp(`const ${name} = ([0-9_ *]+)\\n`).exec(source)?.[1];
-	if (expression === undefined) return null;
-	return expression
-		.split('*')
-		.map((factor) => Number(factor.trim().replaceAll('_', '')))
-		.reduce((product, factor) => product * factor, 1);
+	const expression = new RegExp(`const ${name} = ([^\\n]+)\\n`).exec(source)?.[1];
+	return expression === undefined ? null : productMs(expression);
 }
 
 /** The budget an action's calls name: a shared one, or the constant its call site names. */
@@ -312,7 +398,7 @@ describe("tool_uca_maps request budgets — outlast the server's worst case", ()
 		expect(unlisted).toEqual([]);
 	});
 
-	// each hop counts its wait for a slot (core's limiters) and its own deadline
+	// a geo service counts its wait for a slot (core's limiters) and its own deadline
 	test("a lookup outlasts Catastro's two calls, any one geo service, and a harvest", async () => {
 		const asked = askedGeoServices();
 		expect(asked).toContain('catastro_wfs_parcel');
@@ -326,11 +412,7 @@ describe("tool_uca_maps request budgets — outlast the server's worst case", ()
 			site.actions.some((action) => BUDGET_OF[action] === 'LOOKUP_TIMEOUT_MS'),
 		);
 		expect(lookups.length).toBeGreaterThan(0);
-		const harvest =
-			INTERACTIVE_MAX_WAIT_MS +
-			coreRobotsTimeoutMs() +
-			INTERACTIVE_MAX_WAIT_MS +
-			Math.max(...lookups.map((site) => site.timeoutMs));
+		const harvest = Math.max(...lookups.map((site) => harvestHopMs(site.timeoutMs)));
 		const worst = Math.max(catastro, slowestOne, harvest);
 		expect(budgets.LOOKUP_TIMEOUT_MS).toBeGreaterThanOrEqual(worst + ROOM_MS);
 	});
@@ -345,30 +427,36 @@ describe("tool_uca_maps request budgets — outlast the server's worst case", ()
 		expect(budgets.LOOKUP_TIMEOUT_MS).toBeLessThanOrEqual(Number(match?.[1]));
 	});
 
-	test('every harvest belongs to an action this census budgets, or names its own', async () => {
+	test("every harvest outlasts one hop in each of its actions' budgets", async () => {
 		const sites = await harvestSites();
-		expect(sites.length).toBeGreaterThan(0);
-		const loose = sites
-			.filter((site) => !site.actions.some((a) => a in BUDGET_OF))
-			.filter(
-				(site) => site.actions.length === 0 || !site.actions.every((a) => a in OWN_HARVEST_BUDGET),
-			)
-			.map((site) => `${site.file} (${site.actions.join(', ') || 'no action'})`);
-		expect(loose).toEqual([]);
+		expect(sites.some((site) => site.actions.includes('stage_external_image'))).toBe(true);
+		const short = sites.flatMap((site) =>
+			site.actions.length === 0
+				? [`${site.file}: no action`]
+				: site.actions
+						.map((action) => ({ action, budget: budgetMsOf(action) }))
+						.filter(
+							({ budget }) => budget === null || budget < harvestHopMs(site.timeoutMs) + ROOM_MS,
+						)
+						.map(({ action, budget }) => `${site.file}: ${action}, budget ${String(budget)}`),
+		);
+		expect(short).toEqual([]);
 	});
 
-	test('every action that runs binaries outlasts all its runs', async () => {
-		const runs = await binaryRunsByAction();
-		expect(runs.get('upload_vector_layer') ?? 0).toBeGreaterThan(0);
-		expect(runs.get('image_download') ?? 0).toBeGreaterThan(0);
-		const short = [...runs]
-			.filter(([, count]) => count > 0)
-			.map(([action, count]) => ({ action, count, budget: budgetMsOf(action) }))
-			.filter(
-				({ count, budget }) => budget === null || budget < count * TOOL_BINARY_TIMEOUT_MS + ROOM_MS,
-			)
+	test('no binary run, probe or converter slot repeats inside a loop', () => {
+		expect(pricedCallsInLoops()).toEqual([]);
+	});
+
+	test('every action that waits on its server outlasts all its waits', async () => {
+		const waits = await serverWaitByAction();
+		expect(waits.get('upload_vector_layer') ?? 0).toBeGreaterThan(0);
+		expect(waits.get('image_download') ?? 0).toBeGreaterThan(0);
+		const short = [...waits]
+			.filter(([, wait]) => wait > 0)
+			.map(([action, wait]) => ({ action, wait, budget: budgetMsOf(action) }))
+			.filter(({ wait, budget }) => budget === null || budget < wait + ROOM_MS)
 			.map(
-				({ action, count, budget }) => `${action}: ${String(count)} runs, budget ${String(budget)}`,
+				({ action, wait, budget }) => `${action}: waits ${String(wait)}, budget ${String(budget)}`,
 			);
 		expect(short).toEqual([]);
 	});
