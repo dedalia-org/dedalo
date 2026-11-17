@@ -867,6 +867,32 @@ describe('TOOL_UCA_MAPS (live map: layers)', function() {
 		assert.equal(geolocation.map.hasLayer(layer()), true, 'expected it kept on (the component remembers)')
 	})
 
+	// the component's own save button rebuilds the layers too, and the tool never sees it
+	it('the component\'s save button keeps the session opacity, on the map and when switched on later', async function() {
+
+		tool.attach_wms_services()
+		fake_component_save()
+		await tool.add_wms_layer(wms_layer())
+		await tool.add_wms_layer(wms_layer({name: 'topo:layer2', title: 'Layer Two'}))
+		assert.deepEqual(tool.set_wms_layer_opacity(101, '0.4'), {ok: true})
+		assert.deepEqual(tool.set_wms_layer_opacity(102, '0.2'), {ok: true})
+		assert.deepEqual(tool.toggle_wms_layer(102), {ok: true}, 'expected the second switched off before the save')
+
+		const layer		= (id) => geolocation.source_layers['stored:' + id].layer
+		const before	= layer(101)
+		const save_node	= geolocation.node.querySelector('.button.save')
+		assert.isOk(save_node, 'expected the component\'s save button')
+		geolocation.is_data_changed = true // any edit marks it dirty; the button saves nothing otherwise
+		save_node.click()
+		await until(() => layer(101)!==before)
+
+		assert.equal(geolocation.map.hasLayer(layer(101)), true, 'expected the rebuilt layer kept on')
+		assert.equal(layer(101).options.opacity, 0.4, 'expected the session opacity on the rebuilt layer')
+		assert.equal(geolocation.map.hasLayer(layer(102)), false)
+		layer(102).addTo(geolocation.map) // what the component's layer control does
+		assert.equal(layer(102).options.opacity, 0.2, 'expected the session opacity when switched on after the save')
+	})
+
 	it('delete_wms_layer takes the layer out of the record and saves; the survivor keeps its number', async function() {
 
 		tool.attach_wms_services()

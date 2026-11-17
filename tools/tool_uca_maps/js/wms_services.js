@@ -26,7 +26,8 @@ import {
 import {render_wms_services_panel, populate_wms_layers} from './render_wms_services.js'
 import {report_client_error} from './client_error.js'
 import {LOOKUP_TIMEOUT_MS} from './request_budgets.js'
-import {add_source, delete_source, plain_attribution, reapply_source_opacity, source_layer, stored_sources} from './map_sources.js'
+import {add_source, delete_source, plain_attribution, source_layer, stored_sources} from './map_sources.js'
+import {remove_map_listeners} from './map_listeners.js'
 
 
 
@@ -71,7 +72,32 @@ export const attach_wms_services = function(self) {
 	})
 	render_wms_services_panel(self, self.wms_panel)
 
+	self._wms_layeradd_handler = (event) => apply_session_opacity(self, event.layer)
+	self.geolocation.map.on('layeradd', self._wms_layeradd_handler)
+
 }//end attach_wms_services
+
+
+
+/**
+* APPLY_SESSION_OPACITY
+* `layeradd` handler. Every confirmed save rebuilds the component's source layers at full
+* opacity (`build_source_layers`), the component's own save button included, which the tool
+* never sees: the value this session set goes back on as each layer reaches the map.
+*
+* @param {Object} self
+* @param {Object} layer - the Leaflet layer just added
+* @returns {void}
+*/
+const apply_session_opacity = function(self, layer) {
+
+	for (const [id, opacity] of Object.entries(self._source_opacity || {})) {
+		if (source_layer(self, Number(id))===layer) {
+			layer.setOpacity(opacity)
+			return
+		}
+	}
+}//end apply_session_opacity
 
 
 
@@ -88,7 +114,6 @@ const toggle_wms_panel = function(self) {
 	const next_visible = !is_toolbar_panel_visible(self.wms_panel)
 
 	if (next_visible) {
-		reapply_source_opacity(self)
 		populate_wms_layers(self, self.wms_panel)
 	}
 
@@ -312,10 +337,11 @@ export const add_wms_layer = async function(self, {url, name, title, version, cr
 		return {ok: false, error: self.get_tool_label('wms_error_save') || 'The WMS layer could not be saved.'}
 	}
 
+	// add_source already put it on the map, before it had a session opacity
 	if (result.id && self._source_opacity[result.id]===undefined) {
 		self._source_opacity[result.id] = DEFAULT_WMS_OPACITY
+		source_layer(self, result.id)?.setOpacity(DEFAULT_WMS_OPACITY)
 	}
-	reapply_source_opacity(self)
 
 	return {ok: true}
 }//end add_wms_layer
@@ -368,7 +394,6 @@ export const toggle_wms_layer = function(self, id) {
 		layer.removeFrom(map)
 	} else {
 		layer.addTo(map)
-		layer.setOpacity(self._source_opacity[id] ?? 1)
 	}
 
 	return {ok: true}
@@ -378,8 +403,8 @@ export const toggle_wms_layer = function(self, id) {
 
 /**
 * SET_WMS_LAYER_OPACITY
-* Kept per source for the session: a save rebuilds the component's layers at full opacity,
-* and the panel puts this value back when it shows or toggles the layer.
+* Kept per source for the session, not in the record: `apply_session_opacity` puts it
+* back on the layers a save rebuilds.
 *
 * @param {Object} self
 * @param {number} id - the stored source's number
@@ -437,6 +462,9 @@ export const delete_wms_layer = async function(self, id) {
 */
 export const detach_wms_services = function(self) {
 
+	if (self.geolocation && self.geolocation.map) {
+		remove_map_listeners(self, 'detach_wms_services', [['layeradd', '_wms_layeradd_handler']])
+	}
 	remove_toolbar_button(self, self.wms_control)
 	remove_toolbar_panel(self, self.wms_panel)
 
@@ -444,6 +472,7 @@ export const detach_wms_services = function(self) {
 	self.wms_panel				= null
 	self._wms_search_results	= null
 	self._source_opacity			= null
+	self._wms_layeradd_handler	= null
 
 }//end detach_wms_services
 

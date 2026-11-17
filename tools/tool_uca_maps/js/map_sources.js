@@ -100,27 +100,6 @@ export const source_layer = function(self, id) {
 
 
 /**
-* REAPPLY_SOURCE_OPACITY
-* A save rebuilds every source layer of the component at full opacity
-* (`build_source_layers`): the values this session set (`self._source_opacity`, by source
-* number) go back on.
-*
-* @param {Object} self - tool_uca_maps instance
-* @returns {void}
-*/
-export const reapply_source_opacity = function(self) {
-
-	for (const [id, opacity] of Object.entries(self._source_opacity || {})) {
-		const layer = source_layer(self, Number(id))
-		if (layer) {
-			layer.setOpacity(opacity)
-		}
-	}
-}//end reapply_source_opacity
-
-
-
-/**
 * SAVE_SOURCES
 * Replaces the entry's `sources` with `edit(current)` and saves the component. The save
 * sends the whole entry buffer, so edits pending in it (view, drawings) are committed with
@@ -164,7 +143,6 @@ const save_sources = async function(self, edit) {
 
 	// the whole buffer was committed: nothing left to save
 	geolocation.is_data_changed = false
-	reapply_source_opacity(self)
 
 	const new_ids = stored_sources(self)
 		.map((source) => source.id)

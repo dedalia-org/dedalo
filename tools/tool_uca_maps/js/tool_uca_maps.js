@@ -189,6 +189,7 @@ export const tool_uca_maps = function () {
 	this.wms_panel					= null
 	this._wms_search_results		= null
 	this._source_opacity			= null
+	this._wms_layeradd_handler	= null
 	this.catastro_control			= null
 	this._catastro_tile_layer		= null
 	this._catastro_core_source		= null
