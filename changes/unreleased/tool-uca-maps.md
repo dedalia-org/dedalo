@@ -3,6 +3,7 @@ title: A new tool, UCA Maps, adds cartography tools to the map component.
 type: added
 audience: user
 date: 2026-11-17
+wc: WC-2026-11-17-tool-uca-maps-ts-only
 ---
 The map of a record gains a toolbar of its own. Click any drawn object to read its
 measurements and elevation, restyle it, mark its uncertainty, give it properties,

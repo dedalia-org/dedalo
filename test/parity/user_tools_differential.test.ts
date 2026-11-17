@@ -50,6 +50,7 @@ const POST_HARVEST_TS_TOOLS: ReadonlyMap<string, string> = new Map([
 	['tool_numisdata_acquisition', 'WC-2026-10-07-acquisition-tools-ts-only'],
 	['tool_rag', 'WC-2026-10-01-ai-spend-budget'],
 	['tool_sitebuilder', 'WC-035'],
+	['tool_uca_maps', 'WC-2026-11-17-tool-uca-maps-ts-only'],
 ]);
 
 /**

@@ -111,7 +111,9 @@ function isTsOnlyEntry(entry: ManifestEntry): boolean {
 		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/publication_hosts/') ||
 		// WC-2026-10-07-acquisition-tools-ts-only (TS-native acquisition tools, no PHP twin)
 		entry.url.startsWith('/dedalo/tools/tool_numisdata_acquisition/') ||
-		entry.url.startsWith('/dedalo/tools/tool_bibliography_acquisition/')
+		entry.url.startsWith('/dedalo/tools/tool_bibliography_acquisition/') ||
+		// WC-2026-11-17-tool-uca-maps-ts-only (TS-native map tool, no PHP twin)
+		entry.url.startsWith('/dedalo/tools/tool_uca_maps/')
 	);
 }
 

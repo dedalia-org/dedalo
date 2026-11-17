@@ -32,6 +32,12 @@ Merged since the last release; these ship with the next one.
     needs an administrator to enable it for each map, and format conversions need GDAL on
     the server. See the [user guide](./tools/using_uca_maps.md).
 
+    Wire contract: `WC-2026-11-17-tool-uca-maps-ts-only`.
+
+??? note "Wire contract — 1 entry"
+
+    - `WC-2026-11-17-tool-uca-maps-ts-only`
+
 ## 7.0.0-beta.8 — 2026-11-08
 
 402 commits: `git log --no-merges v7.0.0-beta.7..v7.0.0-beta.8`
