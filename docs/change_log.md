@@ -401,6 +401,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Restoring a version from the Time Machine cleans the value like a normal save**
+
+    Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.
+
+    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry that is not stored as a hash (an entry from before passwords were hashed) — such an entry is never turned back into a working password. A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
+
+    Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
+
 - **Local AI translation no longer reports success when the translation could not be saved**
 
     With the **Local AI translator** engine (in *Translation* and *Translate all languages*), a translation whose save failed — an expired session, a concurrent edit, a server error — still showed *Translation completed* and was counted as done in the *Translate all* summary, although the text never reached the database.
@@ -1875,7 +1883,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 84 entries"
+??? note "Wire contract — 85 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1961,6 +1969,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
+    - `WC-2026-11-17-tm-restore-value-gates`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -30,3 +30,11 @@
   relative `src` as the save door, split and same origin),
   `test/unit/component_value_gate_census_tripwire.test.ts` (every chokepoint writer
   classified; gated writers reach the gate).
+
+## Addendum 2026-11-17 — the Time Machine restore doors are gated too (C58)
+
+Neighbour N1 closed: `tool_time_machine.apply_value` (component restore, whole-record restore,
+dataframe replay) passes its image through the same gates —
+`WC-2026-11-17-tm-restore-value-gates`. The census's `replays_stored_image` verdict is gone. A
+translated value stored raw before this entry is cleaned when a restore replays it; values at
+rest are still not repaired.

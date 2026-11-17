@@ -25,6 +25,23 @@
  *      (the two-lanes contract: only the target lane is written);
  *   A7 a non-`html` model (input_text) stores the provider text verbatim.
  *
+ * THE TIME MACHINE RESTORE DOORS ARE GATED LIKE A SAVE TOO (C58 / T1-14 N1,
+ * WC-2026-11-17-tm-restore-value-gates). `tool_time_machine.apply_value` — the
+ * component restore and the whole-record restore — replayed a history image
+ * past the value gates: a row written before a gate existed put its raw value
+ * back (PHP restored through `component->Save()`, which cleaned). Outcomes:
+ *   R1 a hostile component row restores BYTE-EQUAL to the save-door form; the
+ *      restore's own history row holds the gated value; another language's
+ *      raw live value is not rewritten (the row speaks for its lane only);
+ *   R2 a benign row restores byte-identical (a valid restore is unchanged);
+ *   R3 a whole-record row: the text area gated to the save-door form, a number
+ *      formatted as its node declares, a non-html literal verbatim;
+ *   R4 a credential row that is not a stored hash is REFUSED
+ *      (`tool.snapshot_unrestorable`), nothing written — whether a save would
+ *      refuse it (it breaks the policy) or hash it (it conforms): a replay
+ *      never mints a credential from history bytes; a stored hash replays
+ *      verbatim.
+ *
  * Situation: the suite's `test3` playground (matrix_test) with its translatable
  * `component_text_area` test17 and `component_input_text` test52. Records are
  * minted at runtime through the counter (no reserved ids) and removed — rows,
@@ -39,9 +56,11 @@ import {
 	updateMatrixRecord,
 } from '../../src/core/db/matrix_write.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { recordTimeMachine } from '../../src/core/db/time_machine.ts';
 import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+import type { Principal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
 	babelProvider,
@@ -49,6 +68,8 @@ import {
 	translateAndWrite,
 	translationFailure,
 } from '../../src/core/tools/translation.ts';
+import { toolTimeMachineApplyValue } from '../../tools/tool_time_machine/server/tool_time_machine.ts';
+import { refusalOf } from '../helpers/refusal.ts';
 import { superuserTranslationGrant } from '../helpers/translation_grant.ts';
 
 const SECTION = 'test3';
@@ -254,5 +275,166 @@ describe('A7 — the gate is keyed on the render class, not on the tool', () => 
 		const outcome = await translate(id, INPUT_TEXT, INPUT_TEXT_MODEL, stubReturning(text));
 		expect(outcome.ok).toBe(true);
 		expect(await storedValue(id, INPUT_TEXT, 'lg-spa')).toBe(text);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// C58 — the Time Machine restore doors
+// ---------------------------------------------------------------------------
+
+/** component_number, `properties: {type:'float', precision:4}` → `number` column. */
+const NUMBER = 'test211';
+/** component_password (a credential) → `string` column, lane lg-nolan. */
+const PASSWORD = 'test152';
+const ADMIN: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
+/** A stored credential: the password gate passes an Argon2 PHC string through verbatim. */
+const STORED_HASH =
+	'$argon2id$v=19$m=65536,t=2,p=1$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNo';
+
+let tmClock = 0;
+
+/**
+ * A history row of `tipo` on record `id` written PAST every gate — the row a
+ * door stored before its gate existed. Answers the row's id.
+ */
+async function mintTmRow(id: number, tipo: string, lang: string, data: unknown): Promise<number> {
+	tmClock += 1;
+	await recordTimeMachine(
+		{ sectionTipo: SECTION, sectionId: id, componentTipo: tipo, lang, userId: -1, data },
+		`2017-01-18 10:00:${String(tmClock).padStart(2, '0')}`,
+	);
+	const rows = (await sql`
+		SELECT id FROM matrix_time_machine
+		 WHERE section_tipo = ${SECTION} AND section_id = ${id} AND tipo = ${tipo}
+		 ORDER BY id DESC LIMIT 1
+	`) as { id: number }[];
+	const rowId = Number(rows[0]?.id ?? 0);
+	expect(rowId).toBeGreaterThan(0);
+	return rowId;
+}
+
+function restore(id: number, tipo: string, lang: string, matrixId: number) {
+	return toolTimeMachineApplyValue({
+		principal: ADMIN,
+		userId: ADMIN.userId,
+		options: { section_tipo: SECTION, section_id: id, tipo, lang, matrix_id: matrixId },
+		background: false,
+	} as never);
+}
+
+async function storedColumnItems(
+	id: number,
+	column: 'string' | 'number',
+	tipo: string,
+): Promise<Record<string, unknown>[]> {
+	const record = await readMatrixRecord(table, SECTION, id);
+	const items = ((record?.columns[column] ?? {}) as Record<string, unknown>)[tipo];
+	return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
+describe('R1 — a hostile component history row restores as the save door stores it', () => {
+	test('stored lg-spa byte-equals the save-door form; its history row too; lg-cat untouched', async () => {
+		// lg-cat seeded RAW, past every gate: a lane the lg-spa row does not speak for.
+		const rawCat = '<p onclick="x()">bon dia</p>';
+		const id = await mint(TEXT_AREA, [
+			{ id: 1, lang: 'lg-eng', value: '<p>hello</p>' },
+			{ id: 1, lang: 'lg-cat', value: rawCat },
+		]);
+		const rowId = await mintTmRow(id, TEXT_AREA, 'lg-spa', [
+			{ id: 1, lang: 'lg-spa', value: HOSTILE },
+		]);
+		const answer = (await restore(id, TEXT_AREA, 'lg-spa', rowId)) as { ok?: boolean };
+		expect(answer.ok).toBe(true);
+
+		const stored = await storedValue(id, TEXT_AREA, 'lg-spa');
+		const parity = await saveDoorStored(HOSTILE, 'lg-spa');
+		expect(typeof stored).toBe('string');
+		expect(stored).toBe(parity as string);
+		expect(String(stored)).not.toMatch(/\son\w+\s*=/i);
+		expect(String(stored)).toContain('hola');
+		expect(await storedValue(id, TEXT_AREA, 'lg-cat')).toBe(rawCat);
+		expect(await storedValue(id, TEXT_AREA, 'lg-eng')).toBe('<p>hello</p>');
+
+		// The restore's OWN history row (newer than the replayed one) holds the gated value.
+		const newer = (await sql`
+			SELECT data FROM matrix_time_machine
+			 WHERE section_tipo = ${SECTION} AND section_id = ${id} AND tipo = ${TEXT_AREA}
+			   AND lang = 'lg-spa' AND id > ${rowId}
+		`) as { data: unknown }[];
+		expect(newer).toHaveLength(1);
+		const serialized = JSON.stringify(newer[0]?.data);
+		expect(serialized).not.toMatch(/on(mouseover|error)/i);
+		expect(serialized).toContain(JSON.stringify(stored).slice(1, -1));
+	});
+});
+
+describe('R2 — a valid restore is unchanged', () => {
+	test('benign rich text + Dédalo marks restore byte-identical', async () => {
+		const benign =
+			'<p><strong>hola</strong> <em>mundo</em> [TC_00:00:01.000_TC] [index-n-12-Guerra-data:{"section_tipo":"test3"}:data]</p>';
+		const id = await mint(TEXT_AREA, [{ id: 1, lang: 'lg-spa', value: '<p>ahora</p>' }]);
+		const rowId = await mintTmRow(id, TEXT_AREA, 'lg-spa', [
+			{ id: 1, lang: 'lg-spa', value: benign },
+		]);
+		const answer = (await restore(id, TEXT_AREA, 'lg-spa', rowId)) as { ok?: boolean };
+		expect(answer.ok).toBe(true);
+		expect(await storedItems(id, TEXT_AREA)).toEqual([{ id: 1, lang: 'lg-spa', value: benign }]);
+	});
+});
+
+describe('R3 — a whole-record history row is gated key by key', () => {
+	test('text area as the save door stores it; number formatted; input_text verbatim', async () => {
+		const literal = 'a < b <i>x</i>';
+		const id = await mint(TEXT_AREA, [{ id: 1, lang: 'lg-spa', value: '<p>ahora</p>' }]);
+		const rowId = await mintTmRow(id, SECTION, 'lg-nolan', {
+			string: {
+				[TEXT_AREA]: [{ id: 1, lang: 'lg-spa', value: HOSTILE }],
+				[INPUT_TEXT]: [{ id: 1, lang: 'lg-spa', value: literal }],
+			},
+			number: { [NUMBER]: [{ id: 1, lang: 'lg-nolan', value: 1.23456789 }] },
+		});
+		const answer = (await restore(id, SECTION, 'lg-nolan', rowId)) as { ok?: boolean };
+		expect(answer.ok).toBe(true);
+
+		const stored = await storedValue(id, TEXT_AREA, 'lg-spa');
+		expect(stored).toBe((await saveDoorStored(HOSTILE, 'lg-spa')) as string);
+		expect(String(stored)).not.toMatch(/\son\w+\s*=/i);
+		// test211 declares float / precision 4 — the number a save stores.
+		expect((await storedColumnItems(id, 'number', NUMBER)).map((item) => item.value)).toEqual([
+			1.2346,
+		]);
+		// Not an `html` render class: the client escapes it, the gate leaves it.
+		expect(await storedValue(id, INPUT_TEXT, 'lg-spa')).toBe(literal);
+	});
+});
+
+describe('R4 — a credential row that is not a stored hash is refused, never written', () => {
+	// 'abc' breaks the policy (a save refuses it); the second conforms (a save
+	// would HASH it — a replay must not: it is history bytes, not a new password).
+	for (const plaintext of ['abc', 'Conforming-Passw0rd-2017!']) {
+		test(`a non-hash row ('${plaintext.slice(0, 3)}…') → tool.snapshot_unrestorable, live value unchanged`, async () => {
+			const live = [{ id: 1, lang: 'lg-nolan', value: STORED_HASH }];
+			const id = await mint(PASSWORD, live);
+			const rowId = await mintTmRow(id, PASSWORD, 'lg-nolan', [
+				{ id: 1, lang: 'lg-nolan', value: plaintext },
+			]);
+			const refusal = await refusalOf(restore(id, PASSWORD, 'lg-nolan', rowId));
+			expect(refusal.code).toBe('tool.snapshot_unrestorable');
+			expect(JSON.stringify(refusal.coordinates ?? {})).not.toContain(plaintext);
+			expect(await storedItems(id, PASSWORD)).toEqual(live);
+		});
+	}
+
+	test('a stored hash replays verbatim (never re-hashed)', async () => {
+		const other = `${STORED_HASH}x`;
+		const id = await mint(PASSWORD, [{ id: 1, lang: 'lg-nolan', value: other }]);
+		const rowId = await mintTmRow(id, PASSWORD, 'lg-nolan', [
+			{ id: 1, lang: 'lg-nolan', value: STORED_HASH },
+		]);
+		const answer = (await restore(id, PASSWORD, 'lg-nolan', rowId)) as { ok?: boolean };
+		expect(answer.ok).toBe(true);
+		expect(await storedItems(id, PASSWORD)).toEqual([
+			{ id: 1, lang: 'lg-nolan', value: STORED_HASH },
+		]);
 	});
 });

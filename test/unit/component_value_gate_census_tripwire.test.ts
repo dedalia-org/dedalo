@@ -32,10 +32,14 @@
  *   non_literal          — the keys written carry no user-authored literal
  *                          value (relations, counters, ontology rows, an
  *                          engine-authored label); the reason says which.
- *   replays_stored_image — a Time Machine replay of a stored image; the
- *                          reason says which. NAMED EXEMPTIONS, deliberately
- *                          visible: a TM row written before a gate existed is
- *                          replayed raw (neighbour N1 of T1-14, ledgered).
+ *
+ * NO `replays_stored_image` VERDICT ANY MORE (C58, 2026-11-17,
+ * WC-2026-11-17-tm-restore-value-gates). The two Time Machine restore doors
+ * censused here replayed a stored image raw under that named exemption (N1 of
+ * T1-14): a history row written before a gate existed came back ungated. They
+ * are `gated` now — a replay is a write of a component value like any other —
+ * and the verdict is gone with its last row, so a new replay door cannot take
+ * it. Outcome half: translation_write_gates_native (R1–R4).
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -46,7 +50,7 @@ const CHOKEPOINTS = [`${RECORD_WRITE}#persistRecordKeys`, `${RECORD_WRITE}#persi
 const GATE_FILE = 'src/core/section/record/write_value_gates.ts';
 const GATE = `${GATE_FILE}#applyWriteValueGates`;
 
-type Verdict = 'gated' | 'non_literal' | 'replays_stored_image';
+type Verdict = 'gated' | 'non_literal';
 
 const CENSUS: Readonly<Record<string, { verdict: Verdict; reason: string }>> = {
 	'src/core/section/record/save_component.ts#applySaveComponentData': {
@@ -84,14 +88,14 @@ const CENSUS: Readonly<Record<string, { verdict: Verdict; reason: string }>> = {
 		reason: 'the dd800 revert run record: an engine-authored label',
 	},
 	'tools/tool_time_machine/server/dataframe_restore.ts#applyDataframeRestore': {
-		verdict: 'replays_stored_image',
+		verdict: 'gated',
 		reason:
-			'restores a TM image of dataframe frames (relations) — a replay of stored bytes; N1 of T1-14',
+			'restores a TM image of dataframe frames: each slot value passes gateComponentItems before the write — C58',
 	},
 	'tools/tool_time_machine/server/tool_time_machine.ts#restoreSectionRow': {
-		verdict: 'replays_stored_image',
+		verdict: 'gated',
 		reason:
-			'restores a whole TM section row image (persistRecordColumns) — a replay of stored bytes; N1 of T1-14',
+			'restores a whole TM section row image (persistRecordColumns): every component key passes gateReplayedColumns before the write — C58',
 	},
 };
 
@@ -162,14 +166,14 @@ describe('component value gate census (T1-14)', () => {
 		expect(violations(closure, CENSUS)).toEqual([]);
 	});
 
-	test('anti-vacuity: the two value writers are derived and both are gated', () => {
+	test('anti-vacuity: the value writers (save, translation, the two TM restores) are derived and gated', () => {
 		const derived = deriveCallers(closure);
 		// the walk's floor: the census measured 10 chokepoint writers (2026-11-12)
 		expect(derived.length).toBeGreaterThan(8);
 		const gated = Object.entries(CENSUS)
 			.filter(([, row]) => row.verdict === 'gated')
 			.map(([key]) => key);
-		expect(gated.length).toBeGreaterThanOrEqual(2);
+		expect(gated.length).toBeGreaterThanOrEqual(4);
 		for (const key of gated) expect(derived).toContain(key);
 	});
 });

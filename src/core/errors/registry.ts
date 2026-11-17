@@ -2656,6 +2656,11 @@ export const ERROR_REGISTRY = {
 	 * the stored history, not the request, is what prevents it; the same row is
 	 * refused every time. The offending value rides `coordinates` (log-only):
 	 * it is stored record data.
+	 * ALSO (C58, WC-2026-11-17-tm-restore-value-gates): a CREDENTIAL image that
+	 * is not a stored hash (a legacy v6 ciphertext, a plaintext) — a replay never
+	 * mints a hash from history bytes (write_value_gates.ts gateReplayedValue).
+	 * The value never rides the error. The label's wording is the relation
+	 * case's ("not a valid link"); the rest of it holds for both.
 	 */
 	'tool.snapshot_unrestorable': {
 		category: 'conflict',

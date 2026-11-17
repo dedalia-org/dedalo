@@ -40,6 +40,28 @@ export function isLegacyEncryptedPassword(value: unknown): boolean {
 }
 
 /**
+ * Whether a STORED password value (an item array, or one item) can be replayed
+ * as it is: every value empty or already an Argon2 hash — the PASS-THROUGH
+ * RULE's own domain. Anything else in stored bytes is not a credential a replay
+ * may mint a hash from: a legacy v6 ciphertext (hashed, it would freeze the
+ * ciphertext as the password and end `migrate_v6_passwords`' recovery), or a
+ * plaintext a pre-gate door stored. The restore doors refuse those
+ * (write_value_gates.ts gateReplayedValue).
+ */
+export function isReplayablePasswordValue(value: unknown): boolean {
+	const items = Array.isArray(value) ? value : [value];
+	return items.every((item) => {
+		const stored = storedPasswordOf(item);
+		return typeof stored !== 'string' || stored === '' || isArgon2Hash(stored);
+	});
+}
+
+/** The password an item carries: its `value` (the `{id, value, lang}` shape), or the bare item. */
+function storedPasswordOf(item: unknown): unknown {
+	return item !== null && typeof item === 'object' ? (item as { value?: unknown }).value : item;
+}
+
+/**
  * Hash one incoming password value for storage.
  * - already an Argon2 hash → verbatim (see PASS-THROUGH RULE)
  * - empty / null → verbatim (the caller means "no change"/"no password")
