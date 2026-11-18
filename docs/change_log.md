@@ -450,6 +450,10 @@ Merged since the last release; these ship with the next one.
     had been left open; otherwise the default tree was shown. The term is now always located and
     highlighted.
 
+    The same applies to a thesaurus area configured to open on pinned terms
+    (`hierarchy_terms` in the area's properties): its terms are now always located, whether
+    or not the search panel was left open.
+
 - **The thesaurus picker under a field lines up with it and fits a phone screen.**
 
     The tree that opens under a field to pick terms (the tree button of a relation field) was a

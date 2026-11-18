@@ -197,11 +197,14 @@ render_area_thesaurus.prototype.list = async function(options) {
 		wrapper.content_data = content_data
 
 	// ts_search case
-		// When the server already resolved a search (e.g. page loaded with an
-		// active filter), defer the tree-walk until the 'render_<filter.id>'
-		// event fires, which guarantees the search panel DOM is ready.
+		// A full render carries a server-resolved search only for the ontology
+		// search_tipos deep link or the area's pinned properties.hierarchy_terms
+		// (a panel search re-renders at 'content' level, handled above). The parse
+		// needs neither the search panel nor the filter: the filter is lazily built
+		// (only on panel open), so waiting for its render event lost the result
+		// whenever the panel was closed.
 		if (data.ts_search) {
-			const render_handler = (wrapper_search) => {
+			const render_handler = () => {
 				dd_request_idle_callback(
 					async () => {
 
@@ -230,19 +233,9 @@ render_area_thesaurus.prototype.list = async function(options) {
 					}
 				)
 			}
-			// search_tipos Ontology case (URL deep link). Parse now: the filter is
-			// lazily built (only on panel open), so its render event never fires here
-			// and a forced filter.render() on the unbuilt instance is refused.
-			// Not also subscribed: an open-panel restore would parse a second time.
 			// Waits for the root terms: a root still building has no children_container,
 			// so the search branches could not open under it (no hilite).
-			if (self.model==='area_ontology' && self.search_tipos) {
-				Promise.allSettled(self.root_terms_ready || []).then(render_handler)
-			}else{
-				self.events_tokens.push(
-					event_manager.subscribe('render_'+self.filter.id, render_handler)
-				)
-			}
+			Promise.allSettled(self.root_terms_ready || []).then(render_handler)
 		}
 
 	// event keydown
