@@ -275,6 +275,26 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format');
 	});
 
+	// one byte is no PNG: the upload door refuses it by its signature, before any conversion
+	it('a capture the upload door refuses answers the lead and its reason, and asks no conversion', async function () {
+		const asked = [];
+		stub_tool_request(async function (options) {
+			asked.push(options.action);
+			return real_tool_request(options);
+		});
+
+		let result = null;
+		await with_to_blob_stub(async () => {
+			result = await download_map_image(tool, 'jpg');
+		});
+
+		assert.isFalse(result.ok, 'expected the download refused');
+		const [lead, reason] = result.error.split('\n');
+		assert.equal(lead, 'The map image could not be downloaded.');
+		assert.isOk(reason, "expected the upload door's own reason on its own line");
+		assert.notInclude(asked, 'raster_download', 'expected no conversion asked');
+	});
+
 	/** Random pixels do not compress: a real map's size, past core's 512 KiB cap on `options`. */
 	it("download_map_image('jpg') converts a capture larger than a request's options may carry", async function () {
 		this.timeout(60000);

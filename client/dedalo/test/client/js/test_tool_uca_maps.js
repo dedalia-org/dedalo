@@ -64,6 +64,7 @@ import {
 	capture_download,
 	layer_by_uid,
 	picked_colour,
+	release_map_capture,
 	resolve_token,
 	roman_hit,
 	staged_answer,
@@ -1144,7 +1145,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			transport: false,
 		};
 
-		stub_tool_request(async function () {
+		stub_tool_request(async function (request) {
+			await release_map_capture(request);
 			return { ok: false, error: refusal };
 		});
 		const rows = [
@@ -1262,7 +1264,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		const layer = seeded_layer(1);
 		const carrier = add_image_carrier();
 
-		stub_tool_request(async function () {
+		stub_tool_request(async function (request) {
+			await release_map_capture(request);
 			throw new Error('Boom.');
 		});
 		const restore_image_download = stub_image_download(async () => {

@@ -85,6 +85,23 @@ export const resolve_token = function (parent, token, property = 'background-col
 }; //end resolve_token
 
 /**
+ * A stubbed `raster_download` never reaches the handler that deletes the map capture the
+ * real upload staged: the stub releases it through core's own delete door instead.
+ * A no-op for any other request.
+ */
+export const release_map_capture = async function (request) {
+	const file_data = request && request.options && request.options.file_data;
+	if (!file_data || request.action !== 'raster_download') return;
+	await data_manager.request({
+		body: {
+			dd_api: 'dd_utils_api',
+			action: 'delete_uploaded_file',
+			options: { key_dir: file_data.key_dir, file_name: file_data.tmp_name },
+		},
+	});
+}; //end release_map_capture
+
+/**
  * Runs `fn` with URL.createObjectURL and the anchor's click spied: the Blob a
  * download builds, and the name trigger_blob_download puts on the anchor (the
  * only place a typed name shows on the client-only branches). Stubbing the
