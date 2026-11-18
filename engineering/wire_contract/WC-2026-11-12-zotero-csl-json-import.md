@@ -248,7 +248,8 @@ address by id.
   nothing the record holds; counted neither created nor updated, no `failed` line, the guard
   never asked. A record in scope whose individual FIELDS the importer may not write is
   unchanged: updated, each such field an IGNORED line (every mapped door's posture).
-- **Not decided here (owner):** (a) a call-number is taken as written up to 2147483647 and
+- **Not decided here (owner)** — (a) and (b) RULED the same day, see the next addendum; (c)
+  pending: (a) a call-number is taken as written up to 2147483647 and
   the counter follows it (rule 3) — one mistyped or hostile call-number near the top of int4
   leaves the section no id to allocate; whether an address far above the counter needs a
   bound or a confirmation is not ruled. (b) The Zotero KEY is looked up in the importer's
@@ -261,3 +262,72 @@ address by id.
   `tool_import_zotero_native.test.ts` ("the run's OWN allocations never take an address…" ×3, "the report keeps the FILE order…", "an id TAKEN by
   another writer…" — a real interleave, `pg_blocking_pids`; "rule 7: a record … the importer
   may NOT write"), `import_create_door_native.test.ts` (1c).
+
+### Rulings 2026-11-18 (owner, same day, before release) — the limit and the whole section
+
+Questions (a) and (b) of the review above, ruled. (c) — a key-less record adopted across
+runs — and the key-less item against a keyed record stay open (the owner asked for an
+explanation first).
+
+- **(a) The section_id limit IS the import limit.** No bound below int4 is drawn and no
+  confirmation asked: a call-number is taken as written up to 2147483647 (rule 3 unchanged,
+  the counter follows it). A whole number ABOVE it — the address spelling, any length of
+  digits (`recordNumberAboveLimit`, `src/core/tools/zotero_map.ts`) — was one more "is not a
+  record number" line under `request.invalid_data`. Now the item is refused under its own
+  code, `tool.zotero_call_number_above_limit` (`refused[].code`; the sentence names the
+  value and the limit), and the run WARNS the user (below).
+- **(b) The Zotero key is looked up in the WHOLE section.** `resolveItems` asks
+  `resolveMappedCodesInWholeSection` (`src/core/tools/import_code_lookup.ts`): the same
+  search, exact match, batch law and refusals as `resolveMappedCodes`, run with NO principal
+  — no projects filter, no dd478 allow-list. A key held by a record outside the importer's
+  projects is therefore seen: rule 5 refuses an item whose call-number names another record
+  (`resource.conflict`, both named by `section_id`) where it used to adopt the key at the
+  call-number — one key on two records; and a key held by two records refuses the run
+  whoever may see them. What the lookup answers is a `section_id`, never a stored value, and
+  every match is marked `MappedRecord.unscopedMatch` (new): the executor asks the record
+  door for that record AS A WHOLE inside its transaction, before any field (`matchedTarget`,
+  door `import_execute.match`: section floor 1, level 1, the write scope). Refused → the
+  ITEM is refused with the door's `perm.*` code (`RecordResult.refusal`, in `refused`, no
+  `failed` line, counted neither created nor updated), where the scoped lookup used to find
+  nothing and CREATE a second record with the same key. `RecordRefusal` gains `sectionId`
+  (the record that refused). MARC21 keeps the scoped lookup and never sets the flag. The
+  unscoped lookup is a named exemption: `iri_label_unscoped_lookup_tripwire` allow-lists its
+  one caller with a `'ruling 2026-11-18: …'` reason literal, and an empty reason is refused
+  at runtime.
+- **A record the importer may not change is NAMED.** Both ways an item reaches one — its
+  call-number (already a `perm.*` refused entry), its key (new) — say so in the `refused`
+  sentence: `… names record N, which you may not change (perm.…)` /
+  `this item's Zotero key is held by record N, which you may not change (perm.…)`. The
+  `section_id` only; nothing the record holds, not even whether it holds a key (the
+  call-number case).
+- **Response — envelope `notices` (new on this action).** Besides `data`, the success
+  envelope carries at most one notice of each code, built by `refusalNotices`
+  (`call_number_address.ts`) — registered codes, never thrown, whose labels
+  (`src/core/labels/master.json`, with `lg-spa` / `lg-cat`) are the user-facing text:
+  - `tool.zotero_call_number_above_limit` (`caller`) — `details {count, limit: 2147483647,
+    values, variable}`: `values` lists the first twenty, each cut at 80 characters, then `…`;
+    `variable` is the configured `field_to_section_id`.
+  - `tool.zotero_record_not_writable` (`permission`, public by the ruling) — `details {count,
+    section_ids}`: the references, and the records' ids distinct and ascending (first twenty).
+  A run with nothing to warn of carries no `notices` key. `data.notices` (the report's text
+  lines) is unchanged and unrelated. Client: the request asks for the notices itself
+  (`notices: 'caller'`) and `render_import_warnings` lists them above the report, each as its
+  label filled with its details, as text.
+- **`data.refused[].code`** ∈ `request.invalid_data`, `tool.zotero_call_number_above_limit`,
+  `resource.conflict`, or the record door's `perm.*`.
+- Gates (red before; mutation-proved — the limit reading off by one / never above, the
+  warning dropped, the notices not sent, the matched record's door dropped, the
+  `unscopedMatch` mark dropped, the whole-section search made empty, the alert dropped, the
+  notice list uncapped, the reason literal removed — each red):
+  `tool_import_zotero_native.test.ts` ("the section_id limit IS the import limit…", "a run
+  with nothing to warn about…", "the limit is int4, exactly…", "rule 7: a record the importer
+  may NOT change…", and the describe "the Zotero key is checked in the WHOLE section…" — real
+  non-admin identities of `authz_door_fixture`: rule 5 across scopes, the key's record out of
+  scope, a call-number on a record out of scope, the served twins incl. a global admin),
+  `import_create_door_native.test.ts` (1d: the unscoped match — out of scope refused, in
+  scope written, the unflagged contrast), `csl_json.test.ts` (`recordNumberAboveLimit`),
+  `iri_label_unscoped_lookup_tripwire.test.ts` (the third guarded name, one way in, the
+  mark), client `test_tool_import_zotero.js` (`render_import_warnings`). Docs:
+  `docs/using/tools/using_import_zotero.md`,
+  `docs/development/tools/reference/tool_import_zotero.md`. Fragment
+  `zotero-import-limit-and-whole-section-key`.

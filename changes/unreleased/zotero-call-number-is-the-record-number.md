@@ -22,7 +22,7 @@ Now only a whole number written with digits (1 to 2147483647) is a record number
 A reference is **refused**, and nothing is written for it, when its call number is not a whole
 number, when the record with that number already holds another Zotero key, when its Zotero key
 is already held by a different record, when an earlier reference of the same import carries
-the same call number, or when the record with that number exists and you may not edit it. The
+the same call number, or when the record with that number exists and you may not change it. The
 rest of the export is imported. References that carry a call number are written first, so a
 reference without one never takes a number another reference of the same export names. The report lists separately the
 records created at their call number, the records updated at it, and each refused reference

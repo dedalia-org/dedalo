@@ -398,6 +398,8 @@
 	"error_tool_target_not_found": "The tool target does not exist",
 	"error_tool_too_many_items": "Too many items in one request: ${count} sent, at most ${limit} at a time",
 	"error_tool_unsupported_target": "The tool cannot operate on this target",
+	"error_tool_zotero_call_number_above_limit": "Not imported: ${count} reference(s) carry a ${variable} above ${limit}, the highest record number (section_id) there is: ${values}. Write a lower number in Zotero, or clear the field to match the reference by its Zotero key",
+	"error_tool_zotero_record_not_writable": "Not imported: ${count} reference(s) name a record you may not change (section_id ${section_ids}). Correct the reference in Zotero, or ask for access to that record",
 	"error_translation_empty_result": "The translation service returned no text: it probably does not support this language",
 	"error_translation_not_configured": "The translation service is not configured for this engine",
 	"error_translation_provider_failed": "The translation service reported an error: ${provider_message}",

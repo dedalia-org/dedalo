@@ -1,7 +1,8 @@
 /**
- * CODE → RECORD ADDRESS, for the mapped-import doors (MARC21 and Zotero, through
- * `resolveMappedCodes`; tool_import_rdf's linked terms, matched by their IRI in a
- * component_iri; the Zotero Series links, import_link.ts).
+ * CODE → RECORD ADDRESS, for the mapped-import doors (MARC21 through
+ * `resolveMappedCodes`, Zotero through its whole-section twin; tool_import_rdf's
+ * linked terms, matched by their IRI in a component_iri; the Zotero Series
+ * links, import_link.ts).
  *
  * WHY THIS MODULE EXISTS (audit DATA-08, closed 2026-08-30). An import file
  * carries a FOREIGN identifier: a library control number, a Zotero key, an
@@ -51,6 +52,18 @@
  * every MARC21 identifier: MARC can never address by id (gate
  * marc_identity_native). The exception's own guard reads the record's stored
  * key here ({@link readStoredCodesForUpdate}).
+ *
+ * THE ONE WHOLE-SECTION LOOKUP (owner ruling 2026-11-18). Every lookup above is
+ * the CALLER'S search: it sees the records the importer reaches and no other.
+ * For an identifier that must be unique in the SECTION that is not enough — a
+ * Zotero key held by a record of another project is invisible to it, so the
+ * import wrote the key onto a second record. {@link resolveMappedCodesInWholeSection}
+ * asks the same search as NOBODY (no principal: no projects filter, no dd478
+ * allow-list), for the identity check only: it answers section_ids, never a
+ * stored value, and marks every match `unscopedMatch` so the executor asks the
+ * record door before anything is written (import_execute.ts property 7). A named
+ * exemption — its callers are allow-listed, each with its reason, by
+ * `test/unit/iri_label_unscoped_lookup_tripwire.test.ts`.
  *
  * The heavy edges (the search assembler, the ontology resolver, the matrix
  * reader) are DYNAMIC imports, as they are in this directory's neighbours
@@ -340,13 +353,31 @@ export async function findSectionIdByCode(
 	principal: Principal,
 	options: CodeLookupOptions = {},
 ): Promise<number | null> {
+	return holderOfCode(target, code, (filter, subject) =>
+		candidateIds(target, filter, { principal, options, subject }),
+	);
+}
+
+/**
+ * The narrowing search of ONE lookup: the ids `filter` matches, a full window
+ * refused naming `subject`. Who it asks AS is the closure's — the caller's
+ * principal ({@link candidateIds}) or the whole section
+ * ({@link wholeSectionSearch}); everything a lookup decides after it is shared.
+ */
+type CandidateSearch = (filter: Record<string, unknown>, subject: string) => Promise<number[]>;
+
+/** {@link findSectionIdByCode}'s law over whichever search narrows. */
+async function holderOfCode(
+	target: ImportCodeTarget,
+	code: string,
+	search: CandidateSearch,
+): Promise<number | null> {
 	const wanted = code.trim();
 	if (wanted === '') return null;
 	const query = await codeQueryFor(target.componentTipo, wanted);
-	const candidates = await candidateIds(
-		target,
+	const candidates = await search(
 		{ $and: [codeLeaf(target, query)] },
-		{ principal, options, subject: `The identifier '${wanted}'` },
+		`The identifier '${wanted}'`,
 	);
 	const matches = await byteExactMatches(candidates, target, new Set([wanted]), query.html);
 	if (matches.length === 0) return null;
@@ -469,6 +500,36 @@ async function candidateIds(
 	filter: Record<string, unknown>,
 	scope: CandidateScope,
 ): Promise<number[]> {
+	return candidateWindow(target, filter, scope.subject, {
+		principal: scope.principal,
+		skipProjectsFilter: scope.options.skipProjectsFilter === true,
+	});
+}
+
+/** The whole section: an INTERNAL search — no principal, so no record ACL of any kind. */
+const WHOLE_SECTION = Symbol('whole section');
+
+/** Who a narrowing search asks AS: a principal (the scoped lookups), or nobody. */
+type SearchAs =
+	| { readonly principal: Principal; readonly skipProjectsFilter: boolean }
+	| typeof WHOLE_SECTION;
+
+/**
+ * The narrowing search as NOBODY, for {@link resolveMappedCodesInWholeSection}
+ * alone — the one unscoped door of the code lookups. Same assembler, same
+ * window, same truncation refusal as the scoped search.
+ */
+function wholeSectionSearch(target: ImportCodeTarget): CandidateSearch {
+	return (filter, subject) => candidateWindow(target, filter, subject, WHOLE_SECTION);
+}
+
+/** One narrowing search: the ids `filter` matches as `searchAs`. A full window is REFUSED. */
+async function candidateWindow(
+	target: ImportCodeTarget,
+	filter: Record<string, unknown>,
+	subject: string,
+	searchAs: SearchAs,
+): Promise<number[]> {
 	const { sanitizeClientSqo } = await import('../concepts/sqo.ts');
 	const { buildSearchSql } = await import('../search/sql_assembler.ts');
 	const { runSearch } = await import('../search/search_statement.ts');
@@ -485,8 +546,13 @@ async function candidateIds(
 	// creates a duplicate. Read the number the sanitizer left.
 	const effectiveCap = Number(sqo.limit ?? CANDIDATE_CAP);
 	// Server-only (sanitizeClientSqo strips it from a client SQO): set after it.
-	sqo.skip_projects_filter = scope.options.skipProjectsFilter === true;
-	const built = await buildSearchSql(sqo, { principal: scope.principal, idsOnly: true });
+	sqo.skip_projects_filter = searchAs === WHOLE_SECTION || searchAs.skipProjectsFilter;
+	const built = await buildSearchSql(
+		sqo,
+		searchAs === WHOLE_SECTION
+			? { idsOnly: true }
+			: { principal: searchAs.principal, idsOnly: true },
+	);
 	const rows = (await runSearch(built)) as {
 		section_id: number;
 	}[];
@@ -498,7 +564,7 @@ async function candidateIds(
 	// Both are the defects this module exists to close, so it refuses instead.
 	if (rows.length >= effectiveCap) {
 		const sentence =
-			`${scope.subject} matched the search cap of ${effectiveCap} candidate records ` +
+			`${subject} matched the search cap of ${effectiveCap} candidate records ` +
 			`in section ${target.sectionTipo}, so the result cannot be trusted either way — the ` +
 			`record that truly holds it may lie outside that window. Nothing was imported. This ` +
 			`almost always means ${target.componentTipo} is not an identifier component on this ` +
@@ -550,9 +616,20 @@ export async function findSectionIdByCodes(
 	target: ImportCodeTarget,
 	principal: Principal,
 ): Promise<number | null> {
+	return holderOfCodes(codes, target, (filter, subject) =>
+		candidateIds(target, filter, { principal, options: {}, subject }),
+	);
+}
+
+/** {@link findSectionIdByCodes}'s law over whichever search narrows. */
+async function holderOfCodes(
+	codes: readonly string[],
+	target: ImportCodeTarget,
+	search: CandidateSearch,
+): Promise<number | null> {
 	const found = new Set<number>();
 	for (const code of codes) {
-		const id = await findSectionIdByCode(target, code, principal);
+		const id = await holderOfCode(target, code, search);
 		if (id !== null) found.add(id);
 	}
 	if (found.size > 1) {
@@ -568,8 +645,10 @@ export async function findSectionIdByCodes(
 /**
  * Turn the identifiers a mapped-import batch carries into record ADDRESSES
  * (PHP resolve_target_section / get_section_id_from_code, restored — audit
- * DATA-08), for the WHOLE batch BEFORE its first write. Shared by the MARC21
- * and Zotero doors (the Zotero KEY; its call-number address is the door's own).
+ * DATA-08), for the WHOLE batch BEFORE its first write. The MARC21 door's; the
+ * Zotero KEY goes through the same law asked of the whole section
+ * ({@link resolveMappedCodesInWholeSection}; its call-number address is the
+ * door's own).
  *
  * Per record: no identifier ⇒ `sectionId: null` (the executor creates). An
  * identifier ⇒ the record whose code component (`idTarget`, searched in the
@@ -589,19 +668,67 @@ export async function resolveMappedCodes(
 	principal: Principal,
 	label = 'identifier',
 ): Promise<MappedRecord[]> {
+	const target = idTarget && { sectionTipo, componentTipo: idTarget.componentTipo };
+	const search: CandidateSearch =
+		target === undefined
+			? noSearch
+			: (filter, subject) => candidateIds(target, filter, { principal, options: {}, subject });
+	return resolveBatch(mapped, target, label, search);
+}
+
+/**
+ * {@link resolveMappedCodes} over the WHOLE SECTION (owner ruling 2026-11-18,
+ * the Zotero key): the same batch law, the same exact match, asked as NOBODY —
+ * an identifier held by ANY record of the section is seen, a record outside the
+ * importer's projects included. For an identifier that must be unique in the
+ * section, the caller's own scope is the wrong question: a key it cannot see is
+ * a key the import would write onto a second record.
+ *
+ * (!) UNSCOPED — A NAMED EXEMPTION. `unscopedReason` is REQUIRED and names why
+ * the call site may see past the importer's scope (an empty one is refused);
+ * the callers are allow-listed by
+ * `test/unit/iri_label_unscoped_lookup_tripwire.test.ts`. What leaves this
+ * function is a section_id and nothing a record holds. Every match is marked
+ * `unscopedMatch`: the executor asks the record door for it AS A RECORD before
+ * any field (import_execute.ts property 7), so a record the importer may not
+ * write refuses the item instead of being written into.
+ */
+export async function resolveMappedCodesInWholeSection(
+	mapped: readonly CodedRecord[],
+	sectionTipo: string,
+	idTarget: ImportCodeTarget | undefined,
+	unscopedReason: string,
+	label = 'identifier',
+): Promise<MappedRecord[]> {
+	if (unscopedReason.trim() === '') {
+		throw new DedaloError('internal.invariant', {
+			message: 'resolveMappedCodesInWholeSection: an UNSCOPED lookup needs its named reason',
+			coordinates: { section_tipo: sectionTipo },
+		});
+	}
+	const target = idTarget && { sectionTipo, componentTipo: idTarget.componentTipo };
+	const search = target === undefined ? noSearch : wholeSectionSearch(target);
+	const records = await resolveBatch(mapped, target, label, search);
+	return records.map((record) =>
+		record.sectionId === null ? record : { ...record, unscopedMatch: true as const },
+	);
+}
+
+/** The search of a batch with no code component: never asked (`resolveBatch`). */
+const noSearch: CandidateSearch = async () => [];
+
+/** The batch law of {@link resolveMappedCodes}, over whichever search narrows. */
+async function resolveBatch(
+	mapped: readonly CodedRecord[],
+	target: ImportCodeTarget | undefined,
+	label: string,
+	search: CandidateSearch,
+): Promise<MappedRecord[]> {
 	const records: MappedRecord[] = [];
 	const seen = new Set<string>();
 	for (const record of mapped) {
 		const sectionId =
-			idTarget === undefined
-				? null
-				: await addressForRecord(
-						record,
-						seen,
-						{ sectionTipo, componentTipo: idTarget.componentTipo },
-						principal,
-						label,
-					);
+			target === undefined ? null : await addressForRecord(record, seen, target, label, search);
 		records.push({
 			sectionId,
 			fields: record.fields,
@@ -616,8 +743,8 @@ async function addressForRecord(
 	record: CodedRecord,
 	seen: Set<string>,
 	target: ImportCodeTarget,
-	principal: Principal,
 	label: string,
+	search: CandidateSearch,
 ): Promise<number | null> {
 	if (record.code === null) return null;
 	if (seen.has(record.code)) {
@@ -627,5 +754,5 @@ async function addressForRecord(
 		);
 	}
 	seen.add(record.code);
-	return findSectionIdByCodes([record.code, ...(record.altCodes ?? [])], target, principal);
+	return holderOfCodes([record.code, ...(record.altCodes ?? [])], target, search);
 }

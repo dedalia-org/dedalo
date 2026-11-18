@@ -35,6 +35,11 @@
  * a call-number repeated in the run, or one disagreeing with the key's record
  * refuses THAT ITEM (a `refused` entry), the rest proceeds. The named exception
  * to the DATA-08 code-lookup law, this door only: call_number_address.ts.
+ * Owner rulings 2026-11-18: the section_id limit (int4) IS the import limit — a
+ * call-number above it is refused under its own code; the KEY is looked up in
+ * the WHOLE section (a key is unique in the section, not in a project), and a
+ * record the importer may not change refuses the item. Both WARN the user:
+ * envelope `notices`, coded and labelled (`refusalNotices`).
  *
  * SIZE: an export is read through the ONE ingest door bounded at
  * CSV_INGEST_MAX_BYTES (64 MB — owner C51: the same ceiling as a CSV), after a
@@ -64,13 +69,12 @@ import {
 } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getEffectivePropertiesByTipo } from '../../../src/core/ontology/alias.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
-import type { Principal } from '../../../src/core/security/permissions.ts';
 import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
 import { getToolConfig } from '../../../src/core/tools/config.ts';
 import { parseCslJson } from '../../../src/core/tools/csl_json.ts';
 import {
 	type CodedRecord,
-	resolveMappedCodes,
+	resolveMappedCodesInWholeSection,
 } from '../../../src/core/tools/import_code_lookup.ts';
 import { CSV_INGEST_MAX_BYTES } from '../../../src/core/tools/import_csv.ts';
 import { VALUE_PROPERTY_MODELS } from '../../../src/core/tools/import_data.ts';
@@ -110,7 +114,9 @@ import {
 	type AddressOutcome,
 	addressOutcome,
 	addressRecords,
-	type ItemRefusal,
+	type RefusalLedger,
+	refusalLedger,
+	refusalNotices,
 	screenAddresses,
 } from './call_number_address.ts';
 
@@ -224,8 +230,8 @@ async function targetKinds(cfg: ZoteroConfig): Promise<Map<string, TargetKind>> 
 interface ReadBatch {
 	mapped: ZoteroMappedRecord[];
 	errors: string[];
-	/** Items the run refused (the call-number rules), typed — never a file error. */
-	refused: ItemRefusal[];
+	/** Items the run refused (the call-number rules), typed — never a file error — and what to warn of. */
+	refusals: RefusalLedger;
 	notices: string[];
 	/** The exports read (consumed after the run — PHP unlink :680). */
 	consumed: string[];
@@ -287,9 +293,11 @@ function codedRecord({ mapped }: AddressedItem): CodedRecord {
  *
  *   1. each item's call-number as a record number (call_number_address.ts — a
  *      value that is not one, or one an earlier item carries, refuses THAT item);
- *   2. the Zotero KEY, for the whole batch (`resolveMappedCodes`, the DATA-08
- *      code lookup shared with MARC21 — a key twice in the batch, or held by two
- *      records, refuses the RUN);
+ *   2. the Zotero KEY, for the whole batch (the DATA-08 code lookup MARC21
+ *      shares — a key twice in the batch, or held by two records, refuses the
+ *      RUN), asked of the WHOLE SECTION (owner ruling 2026-11-18): a holder
+ *      outside the importer's projects is seen, named by section_id only, and
+ *      asked of the record door before it is written (`unscopedMatch`);
  *   3. the call-number over the key: an item whose key names another record than
  *      its call-number is refused; one with a call-number is written AT that id.
  *
@@ -299,19 +307,18 @@ async function resolveItems(
 	batch: ReadBatch,
 	cfg: ZoteroConfig,
 	sectionTipo: string,
-	principal: Principal,
 ): Promise<{ items: AddressedItem[]; records: MappedRecord[] }> {
 	const variable = cfg.fieldToSectionId ?? '';
-	const screened = screenAddresses(batch.mapped, variable, batch.refused);
-	const byKey = await resolveMappedCodes(
+	const screened = screenAddresses(batch.mapped, variable, batch.refusals);
+	const byKey = await resolveMappedCodesInWholeSection(
 		screened.map(codedRecord),
 		sectionTipo,
 		cfg.idTarget,
-		principal,
+		'ruling 2026-11-18: a Zotero key identifies ONE record of the section — a holder outside the importer’s projects must be seen, or the import writes the key onto a second record; only its section_id is answered, and the record door is asked before any write',
 		'Zotero item key',
 	);
 	const scope = { variable, idTarget: cfg.idTarget, sectionTipo };
-	return addressRecords(screened, byKey, scope, batch.refused);
+	return addressRecords(screened, byKey, scope, batch.refusals);
 }
 
 /** Every `.json` entry of the batch, read and mapped (PHP: the batch filtered to .json). */
@@ -324,7 +331,7 @@ async function readBatch(
 	const batch: ReadBatch = {
 		mapped: [],
 		errors: [],
-		refused: [],
+		refusals: refusalLedger(),
 		notices: [],
 		consumed: [],
 		names: [],
@@ -642,7 +649,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	const dir = stagingDir(ctx.userId, keyDir);
 
 	const batch = await readBatch(filesData, dir, cfg, kindOf);
-	const { items, records } = await resolveItems(batch, cfg, sectionTipo, ctx.principal);
+	const { items, records } = await resolveItems(batch, cfg, sectionTipo);
 	const report = await importMappedRecords(
 		withFormValues(records, formFields),
 		sectionTipo,
@@ -654,7 +661,8 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			addressDoor: DOOR,
 		},
 	);
-	const atId = addressOutcome(items, report.records, cfg.fieldToSectionId ?? '', batch.refused);
+	const variable = cfg.fieldToSectionId ?? '';
+	const atId = addressOutcome(items, report.records, variable, batch.refusals);
 	const attachments = await importAttachments(
 		{ ctx, cfg, sectionTipo, dir, keyDir, filesData },
 		items.map((item) => item.mapped),
@@ -664,8 +672,12 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	if (report.created + report.updated > 0) await clearForm(ctx.userId);
 	// A per-file, per-item or per-field failure never fails the batch: every list
 	// is PAYLOAD, and the client renders each one (render_tool_import_zotero.js).
+	// What the user must act on beyond the lines — a call-number past the limit, a
+	// record they may not change — is a NOTICE: coded, labelled (owner 2026-11-18).
+	const notices = refusalNotices(batch.refusals, variable);
 	return ok(reportPayload(report, batch, { items, atId, attachments }), {
 		requestId: toolRequestId(ctx),
+		...(notices.length === 0 ? {} : { notices }),
 	});
 }
 
@@ -699,7 +711,7 @@ function reportPayload(
 	batch: ReadBatch,
 	run: { items: readonly AddressedItem[]; atId: AddressOutcome; attachments: string[] },
 ): Record<string, unknown> {
-	const refusedCount = counted(batch.refused.length, 'refused');
+	const refusedCount = counted(batch.refusals.refused.length, 'refused');
 	const failedCount = counted(report.failed.length, 'failed');
 	return {
 		summary: `Zotero import done. Created ${report.created}, updated ${report.updated}${refusedCount}${failedCount}.`,
@@ -707,7 +719,7 @@ function reportPayload(
 		updated: report.updated,
 		created_at_id: run.atId.createdAtId,
 		updated_at_id: run.atId.updatedAtId,
-		refused: batch.refused,
+		refused: batch.refusals.refused,
 		failed: report.failed,
 		errors: batch.errors,
 		notices: runNotices(batch, run.items),

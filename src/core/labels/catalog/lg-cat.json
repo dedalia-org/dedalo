@@ -388,6 +388,8 @@
 	"error_tool_target_not_found": "La destinació de l'eina no existeix",
 	"error_tool_too_many_items": "Massa elements en una sola petició: se n'han enviat ${count}, com a màxim ${limit} alhora",
 	"error_tool_unsupported_target": "L'eina no pot operar sobre aquesta destinació",
+	"error_tool_zotero_call_number_above_limit": "No importat: ${count} referència(es) porten un ${variable} superior a ${limit}, el número de registre (section_id) més alt que existeix: ${values}. Escriviu un número menor a Zotero, o buideu el camp per a identificar la referència per la seua clau de Zotero",
+	"error_tool_zotero_record_not_writable": "No importat: ${count} referència(es) nomenen un registre que no podeu modificar (section_id ${section_ids}). Corregiu la referència a Zotero, o demaneu accés a aquest registre",
 	"error_translation_not_configured": "El servei de traducció no està configurat per a aquest motor",
 	"error_translation_provider_failed": "El servei de traducció ha informat d'un error: ${provider_message}",
 	"error_tree_cycle": "El moviment crearia un cicle a l'arbre",

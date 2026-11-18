@@ -21,7 +21,9 @@ import {
 import {
 	assertConfigSection,
 	mapCslItem,
+	RECORD_NUMBER_LIMIT,
 	readZoteroConfig,
+	recordNumberAboveLimit,
 	recordNumberOf,
 	type TargetKind,
 } from '../../src/core/tools/zotero_map.ts';
@@ -337,6 +339,27 @@ describe('mapCslItem', () => {
 			'true',
 		];
 		for (const text of notNumbers) expect(recordNumberOf(text), text).toBeNull();
+	});
+
+	test('recordNumberAboveLimit: a whole number past the section_id limit is told apart from "not a number" (owner ruling 2026-11-18)', () => {
+		// The limit IS int4: the last address, and the first value past it.
+		expect(RECORD_NUMBER_LIMIT).toBe(2147483647);
+		expect(recordNumberOf(String(RECORD_NUMBER_LIMIT))).toBe(RECORD_NUMBER_LIMIT);
+		expect(recordNumberAboveLimit(String(RECORD_NUMBER_LIMIT))).toBe(false);
+		const above = [
+			'2147483648',
+			'9999999999',
+			'99999999999999999999999999',
+			// Past the float range too: Number() is Infinity, still above.
+			'9'.repeat(400),
+		];
+		for (const text of above) {
+			expect(recordNumberAboveLimit(text), text).toBe(true);
+			expect(recordNumberOf(text), text).toBeNull();
+		}
+		// Only the ADDRESS spelling counts: these are not record numbers at all.
+		const notNumbers = ['', '0', '1', '42', '02147483648', '-2147483648', '2147483648.0', '3e9'];
+		for (const text of notNumbers) expect(recordNumberAboveLimit(text), text).toBe(false);
 	});
 
 	test('unmapped variables are listed; a non-scalar in a scalar slot is refused', () => {

@@ -2555,6 +2555,45 @@ export const ERROR_REGISTRY = {
 		retryable: false,
 		details_keys: ['count', 'limit'],
 	},
+	/**
+	 * NOTICES of tool_import_zotero.import_files, never thrown (owner rulings
+	 * 2026-11-18; WC-2026-11-12-zotero-csl-json-import, addendum "the limit and the
+	 * whole section"). The run succeeded and its report lists every refused item;
+	 * these two say, in the user's language, what they must act on.
+	 *
+	 * `…call_number_above_limit`: the section_id limit (int4) IS the import limit —
+	 * `count` references carry a `variable` (the config's field_to_section_id,
+	 * default `call-number`) above `limit`; `values` quotes them (the first
+	 * twenty, each cut at 80 characters). Also the `code` of each such item's
+	 * `refused` entry. `caller`: the file is wrong, the same file is refused again.
+	 */
+	'tool.zotero_call_number_above_limit': {
+		category: 'caller',
+		status: 400,
+		label_key: 'error_tool_zotero_call_number_above_limit',
+		message: 'A reference names a record number above the highest section_id; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'limit', 'values', 'variable'],
+	},
+	/**
+	 * `…record_not_writable`: `count` references name — by call-number, or by a
+	 * Zotero key that record holds — a record the importer may not change;
+	 * `section_ids` names them (ascending, the first twenty) and NOTHING they hold.
+	 * PUBLIC: the owner ruled the importer is told which record refused them; each
+	 * item's `refused` entry carries the record door's own `perm.*` code.
+	 */
+	'tool.zotero_record_not_writable': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_tool_zotero_record_not_writable',
+		message: 'A reference names a record the importer may not change; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'section_ids'],
+	},
 	// An RDF/XML document past the graph reader's bounds (src/core/tools/rdf_graph.ts:
 	// element nesting deeper than maxDepth, or more than maxTriples statements). A
 	// remote linked-data answer is untrusted input: the bound stops a hostile or

@@ -17,7 +17,10 @@
  * This is the locked client template (layer 1: module-load + construct + wiring).
  */
 
-import { render_import_report } from '../../../tools/tool_import_zotero/js/render_tool_import_zotero.js';
+import {
+	render_import_report,
+	render_import_warnings,
+} from '../../../tools/tool_import_zotero/js/render_tool_import_zotero.js';
 import { tool_import_zotero } from '../../../tools/tool_import_zotero/js/tool_import_zotero.js';
 
 describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
@@ -135,6 +138,53 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		// an empty list renders no group at all
 		assert.equal(parent.querySelector('.import_failed'), null);
 		assert.equal(parent.querySelector('.import_errors'), null);
+	});
+
+	it("the run's warnings (envelope notices) render as labelled TEXT lines, naming the values and the limit", () => {
+		const parent = document.createElement('div');
+		const list = render_import_warnings(
+			[
+				{
+					code: 'tool.zotero_call_number_above_limit',
+					label_key: 'error_tool_zotero_call_number_above_limit',
+					retryable: false,
+					details: {
+						count: 2,
+						limit: 2147483647,
+						values: '2147483648, <b>9</b>',
+						variable: 'call-number',
+					},
+				},
+				{
+					code: 'tool.zotero_record_not_writable',
+					label_key: 'error_tool_zotero_record_not_writable',
+					retryable: false,
+					details: { count: 1, section_ids: '41' },
+				},
+				// not a notice: dropped, never a blank line
+				null,
+			],
+			parent,
+		);
+		assert.ok(list, 'expected a warnings list');
+		const lines = parent.querySelectorAll('.import_warnings li');
+		assert.equal(lines.length, 2);
+		// the label, filled: the limit, the values and the field are all named
+		assert.ok(lines[0].textContent.includes('2147483647'), lines[0].textContent);
+		assert.ok(lines[0].textContent.includes('2147483648, <b>9</b>'), lines[0].textContent);
+		assert.ok(lines[0].textContent.includes('call-number'), lines[0].textContent);
+		assert.ok(!lines[0].textContent.includes('${'), 'expected every placeholder filled');
+		assert.ok(lines[1].textContent.includes('41'), lines[1].textContent);
+		assert.ok(!lines[1].textContent.includes('${'), 'expected every placeholder filled');
+		// a value quoted from the file is text, never markup
+		assert.equal(parent.querySelector('.import_warnings b'), null);
+	});
+
+	it('no warning renders no list', () => {
+		const parent = document.createElement('div');
+		assert.equal(render_import_warnings(undefined, parent), null);
+		assert.equal(render_import_warnings([], parent), null);
+		assert.equal(parent.childNodes.length, 0);
 	});
 
 	it('no report (a refused or background response) renders nothing', () => {

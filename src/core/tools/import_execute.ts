@@ -53,10 +53,19 @@
  *      the run's own counter allocations can never take an id the file names;
  *      the report keeps the input order. A record ALREADY LIVING at an address is asked of the
  *      record door before anything of it is read (`livingRecordRefusal`).
+ *   7. A RECORD MATCHED PAST THE IMPORTER'S SCOPE IS ASKED AS A RECORD FIRST
+ *      (`MappedRecord.unscopedMatch`, owner ruling 2026-11-18 — the Zotero key
+ *      is looked up in the WHOLE section, import_code_lookup.ts
+ *      `resolveMappedCodesInWholeSection`). A scoped lookup can only ever match
+ *      a record the importer reaches; an unscoped one can match any, so the
+ *      record door is asked for the record as a whole before any field: a
+ *      `perm.*` refusal refuses the ITEM (`RecordResult.refusal`, naming the
+ *      record), never "updated" with every field ignored.
  */
 
 import { getImportAppendPolicy, isDerivedModel } from '../components/registry.ts';
 import { BULK_PROCESS_TIPOS } from '../concepts/section.ts';
+import { INT4_MAX } from '../concepts/section_id.ts';
 import { readExistingSectionIds } from '../db/matrix.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
@@ -151,17 +160,18 @@ export interface RecordAddress {
 }
 
 /**
- * Why the record living at an `address` was not written into: the record door's
- * own refusal (`perm.*` — a record outside the importer's scope) or the door's
- * guard (`resource.conflict`, {@link RecordAddress.refusalFor}).
+ * Why an EXISTING record was not written into: the record door's own refusal
+ * (`perm.*` — a record the importer may not write: the one living at an
+ * `address`, or one matched past the importer's scope,
+ * {@link MappedRecord.unscopedMatch}) or the door's guard on an addressed record
+ * (`resource.conflict`, {@link RecordAddress.refusalFor}).
  */
 export interface RecordRefusal {
 	code: ErrorCode;
 	message: string;
+	/** The record that refused the write — its id only, nothing it holds. */
+	sectionId: number;
 }
-
-/** The largest section_id a matrix row can hold (Postgres int4). */
-const MAX_SECTION_ID = 2147483647;
 
 export interface MappedRecord {
 	/** Existing section_id to update, or null to create a new record. */
@@ -172,6 +182,15 @@ export interface MappedRecord {
 	 * `sectionId: null` and a run that names its `addressDoor`.
 	 */
 	address?: RecordAddress;
+	/**
+	 * `sectionId` was matched by a lookup that sees PAST the importer's scope
+	 * (import_code_lookup.ts `resolveMappedCodesInWholeSection`): the record door
+	 * is asked for the record AS A WHOLE, inside its transaction, before any
+	 * field. Refused (`perm.*`) → the record is not written and the refusal is
+	 * reported as `RecordResult.refusal` — which the door that set this MUST
+	 * report (it is not a `failed` line).
+	 */
+	unscopedMatch?: true;
 	fields: MappedField[];
 	/** Links resolved in the record's transaction (absent = none). */
 	links?: LinkField[];
@@ -186,9 +205,10 @@ export interface RecordResult {
 	/** True when the committed record was BORN by this run (false: updated, or rolled back). */
 	created: boolean;
 	/**
-	 * Why the record living at its `address` was not written into — the record
-	 * door's refusal or `RecordAddress.refusalFor`'s; the record rolled back.
-	 * Absent for every other outcome.
+	 * Why the EXISTING record this one names (at its `address`, or its
+	 * `unscopedMatch`) was not written into — the record door's refusal or
+	 * `RecordAddress.refusalFor`'s; the record rolled back. Absent for every
+	 * other outcome.
 	 */
 	refusal?: RecordRefusal;
 }
@@ -324,7 +344,7 @@ interface RecordTarget {
 /** One record's issues, kept OUTSIDE its transaction (a rolled-back record still reports them). */
 interface RecordIssues {
 	failed: ConformFailure[];
-	/** Set when the record living at its address refused the write (`livingRecordRefusal`). */
+	/** Set when the existing record refused the write (`livingRecordRefusal`, `matchedTarget`). */
 	refusal: RecordRefusal | null;
 }
 
@@ -354,7 +374,7 @@ async function recordTargetFor(
 		return addressedTarget(record.address, sectionTipo, principal, bulkProcessId, issues);
 	}
 	if (record.sectionId !== null) {
-		return { sectionId: record.sectionId, matchedId: record.sectionId };
+		return matchedTarget(record, record.sectionId, sectionTipo, principal, issues);
 	}
 	await authorizeCreate(principal, sectionTipo);
 	const sectionId = await createSectionRecord(
@@ -367,6 +387,44 @@ async function recordTargetFor(
 		},
 	);
 	return { sectionId, matchedId: null };
+}
+
+/**
+ * The record a lookup MATCHED. One matched in the importer's own scope is
+ * written as it always was (each field asks the record door). One matched past
+ * that scope (`unscopedMatch`) is asked of the record door AS A RECORD first: a
+ * record the importer may not write refuses the item — the id is named, nothing
+ * of the record is read.
+ */
+async function matchedTarget(
+	record: MappedRecord,
+	sectionId: number,
+	sectionTipo: string,
+	principal: Principal,
+	issues: RecordIssues,
+): Promise<RecordTarget> {
+	if (record.unscopedMatch === true) {
+		const denied = await recordDoorRefusal(principal, sectionTipo, sectionId, MATCH_DOOR);
+		if (denied !== null) throw refusedRecord(denied, sectionTipo, issues);
+	}
+	return { sectionId, matchedId: sectionId };
+}
+
+/**
+ * Note the refusal on the record's issues (it outlives the rollback) and answer
+ * the throw that rolls the record's transaction back.
+ */
+function refusedRecord(
+	refusal: RecordRefusal,
+	sectionTipo: string,
+	issues: RecordIssues,
+): DedaloError {
+	issues.refusal = refusal;
+	return new DedaloError(refusal.code, {
+		message: refusal.message,
+		publicMessage: refusal.message,
+		coordinates: { section_tipo: sectionTipo, section_id: refusal.sectionId },
+	});
 }
 
 /**
@@ -402,15 +460,8 @@ async function addressedTarget(
 		return { sectionId, matchedId: null };
 	}
 	const refusal = await livingRecordRefusal(address, { table, sectionTipo, sectionId }, principal);
-	if (refusal !== null) {
-		issues.refusal = refusal;
-		// Thrown to roll the record's transaction back; reported from `issues`.
-		throw new DedaloError(refusal.code, {
-			message: refusal.message,
-			publicMessage: refusal.message,
-			coordinates: { section_tipo: sectionTipo, section_id: sectionId },
-		});
-	}
+	// Thrown to roll the record's transaction back; reported from `issues`.
+	if (refusal !== null) throw refusedRecord(refusal, sectionTipo, issues);
 	return { sectionId, matchedId: sectionId };
 }
 
@@ -430,28 +481,42 @@ async function livingRecordRefusal(
 	existing: { table: string; sectionTipo: string; sectionId: number },
 	principal: Principal,
 ): Promise<RecordRefusal | null> {
-	const denied = await recordDoorRefusal(principal, existing.sectionTipo, existing.sectionId);
+	const denied = await recordDoorRefusal(
+		principal,
+		existing.sectionTipo,
+		existing.sectionId,
+		ADDRESS_DOOR,
+	);
 	if (denied !== null) return denied;
 	const conflict = (await address.refusalFor?.(existing)) ?? null;
-	return conflict === null ? null : { code: 'resource.conflict', message: conflict };
+	return conflict === null
+		? null
+		: { code: 'resource.conflict', message: conflict, sectionId: existing.sectionId };
 }
 
+/** The record door's name for a record living at an operator-chosen address. */
+const ADDRESS_DOOR = 'import_execute.address';
+/** …and for a record a lookup matched past the importer's scope. */
+const MATCH_DOOR = 'import_execute.match';
+
 /**
- * THE WRITE DOOR for the record at an address, as a whole: the level every
- * field write presupposes (section floor 1 — each field then needs its own
- * pair at 2) and the write scope. Answers the door's `perm.*` refusal, or null;
- * anything else propagates (the record rolls back, the run reports it).
+ * THE WRITE DOOR for an existing record, as a whole (the one at an address, or
+ * one matched past the importer's scope): the level every field write
+ * presupposes (section floor 1 — each field then needs its own pair at 2) and
+ * the write scope. Answers the door's `perm.*` refusal, or null; anything else
+ * propagates (the record rolls back, the run reports it).
  */
 async function recordDoorRefusal(
 	principal: Principal,
 	sectionTipo: string,
 	sectionId: number,
+	door: typeof ADDRESS_DOOR | typeof MATCH_DOOR,
 ): Promise<RecordRefusal | null> {
 	try {
 		await authorizeRecordAccess(
 			principal,
 			{ section_tipo: sectionTipo, section_id: sectionId },
-			{ mode: 'write', level: 1, sectionFloor: 1, door: 'import_execute.address' },
+			{ mode: 'write', level: 1, sectionFloor: 1, door },
 		);
 		return null;
 	} catch (error) {
@@ -459,6 +524,7 @@ async function recordDoorRefusal(
 		return {
 			code: error.code,
 			message: `record ${sectionId} exists and is not writable by the importer (${error.code}) — nothing was written into it`,
+			sectionId,
 		};
 	}
 }
@@ -955,7 +1021,7 @@ function addressOf(record: MappedRecord): number | null {
 
 /** True when `sectionId` can be a matrix row's id: a positive int4. */
 function isRecordNumber(sectionId: number): boolean {
-	return Number.isInteger(sectionId) && sectionId >= 1 && sectionId <= MAX_SECTION_ID;
+	return Number.isInteger(sectionId) && sectionId >= 1 && sectionId <= INT4_MAX;
 }
 
 /**
