@@ -49,6 +49,10 @@
  *      an address from a door whose tool does not DECLARE it
  *      (`ToolServerModule.operatorAddressActions`) refuses the run before the
  *      dd800 mint (assertAddressDoor; gate marc_identity_native).
+ *      ADDRESSED RECORDS ARE WRITTEN FIRST, highest id first (`writeOrder`), so
+ *      the run's own counter allocations can never take an id the file names;
+ *      the report keeps the input order. A record ALREADY LIVING at an address is asked of the
+ *      record door before anything of it is read (`livingRecordRefusal`).
  */
 
 import { getImportAppendPolicy, isDerivedModel } from '../components/registry.ts';
@@ -56,6 +60,8 @@ import { BULK_PROCESS_TIPOS } from '../concepts/section.ts';
 import { readExistingSectionIds } from '../db/matrix.ts';
 import { withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { isDedaloError } from '../errors/index.ts';
+import type { ErrorCode } from '../errors/registry.ts';
 import { resolveDataTipo } from '../ontology/alias.ts';
 import {
 	getMatrixTableFromTipo,
@@ -130,15 +136,28 @@ export interface RecordAddress {
 	sectionId: number;
 	/**
 	 * Asked INSIDE the record's transaction when a record ALREADY LIVES at the
-	 * address (this write did not bear it), before any field is written: the
+	 * address (this write did not bear it), before any field is written — and
+	 * only of a record the importer MAY WRITE (the record door is asked first,
+	 * so this guard never reads a record outside the importer's scope): the
 	 * refusal sentence, or null to write into it. A refusal rolls the record
-	 * back and is reported as `RecordResult.refusal` — not a `failed` line.
+	 * back and is reported as `RecordResult.refusal` (`resource.conflict`) — not
+	 * a `failed` line.
 	 */
 	refusalFor?: (existing: {
 		table: string;
 		sectionTipo: string;
 		sectionId: number;
 	}) => Promise<string | null>;
+}
+
+/**
+ * Why the record living at an `address` was not written into: the record door's
+ * own refusal (`perm.*` — a record outside the importer's scope) or the door's
+ * guard (`resource.conflict`, {@link RecordAddress.refusalFor}).
+ */
+export interface RecordRefusal {
+	code: ErrorCode;
+	message: string;
 }
 
 /** The largest section_id a matrix row can hold (Postgres int4). */
@@ -167,10 +186,11 @@ export interface RecordResult {
 	/** True when the committed record was BORN by this run (false: updated, or rolled back). */
 	created: boolean;
 	/**
-	 * Why the record at its `address` was not written into (`RecordAddress.refusalFor`)
-	 * — the record rolled back. Absent for every other outcome.
+	 * Why the record living at its `address` was not written into — the record
+	 * door's refusal or `RecordAddress.refusalFor`'s; the record rolled back.
+	 * Absent for every other outcome.
 	 */
-	refusal?: string;
+	refusal?: RecordRefusal;
 }
 
 export interface ImportReport {
@@ -304,8 +324,8 @@ interface RecordTarget {
 /** One record's issues, kept OUTSIDE its transaction (a rolled-back record still reports them). */
 interface RecordIssues {
 	failed: ConformFailure[];
-	/** Set when the record's address refused it (`RecordAddress.refusalFor`). */
-	refusal: string | null;
+	/** Set when the record living at its address refused the write (`livingRecordRefusal`). */
+	refusal: RecordRefusal | null;
 }
 
 /** THE WRITE DOOR for a create: the section level, consultation-capped. A refusal throws. */
@@ -358,11 +378,12 @@ async function recordTargetFor(
  *    insert, after the create door. The counter rises with GREATEST; an address
  *    carrying a dead record's history opens a new generation epoch
  *    (createSectionRecord).
- *  - A record there — including one a concurrent writer, or an earlier record
- *    of this run, bore since the door looked (the conflict-tolerant insert is
- *    then a no-op, `bornInCurrentTransaction` says so) → it is asked of
- *    `refusalFor`, then written as a MATCHED record: every field passes the
- *    record door (scope, the dd128-aware pair), never the create grant.
+ *  - A record there — including one a concurrent writer bore since the door
+ *    looked (the conflict-tolerant insert is then a no-op,
+ *    `bornInCurrentTransaction` says so; never an earlier record of THIS run:
+ *    `writeOrder`) → {@link livingRecordRefusal}: the record door, then
+ *    `refusalFor`. Admitted, it is written as a MATCHED record: every field
+ *    passes the record door (scope, the dd128-aware pair), never the create grant.
  */
 async function addressedTarget(
 	address: RecordAddress,
@@ -380,16 +401,66 @@ async function addressedTarget(
 	) {
 		return { sectionId, matchedId: null };
 	}
-	const refusal = (await address.refusalFor?.({ table, sectionTipo, sectionId })) ?? null;
+	const refusal = await livingRecordRefusal(address, { table, sectionTipo, sectionId }, principal);
 	if (refusal !== null) {
 		issues.refusal = refusal;
-		throw new DedaloError('resource.conflict', {
-			message: refusal,
-			publicMessage: refusal,
+		// Thrown to roll the record's transaction back; reported from `issues`.
+		throw new DedaloError(refusal.code, {
+			message: refusal.message,
+			publicMessage: refusal.message,
 			coordinates: { section_tipo: sectionTipo, section_id: sectionId },
 		});
 	}
 	return { sectionId, matchedId: sectionId };
+}
+
+/**
+ * Why the record ALREADY LIVING at an address is not written into, or null.
+ *
+ * THE RECORD DOOR FIRST: an address reaches ANY id of the section — unlike the
+ * code lookup, which only ever finds records in the importer's scope — so the
+ * record is asked as a write target (section floor, the dd128-aware section
+ * pair, the write scope) before the door's guard reads anything of it. A record
+ * the importer may not write is REFUSED as an item — never "updated" with every
+ * field ignored — and the guard's sentence (which tells whether the record
+ * holds a key) is never built for it. Then the door's own guard (`refusalFor`).
+ */
+async function livingRecordRefusal(
+	address: RecordAddress,
+	existing: { table: string; sectionTipo: string; sectionId: number },
+	principal: Principal,
+): Promise<RecordRefusal | null> {
+	const denied = await recordDoorRefusal(principal, existing.sectionTipo, existing.sectionId);
+	if (denied !== null) return denied;
+	const conflict = (await address.refusalFor?.(existing)) ?? null;
+	return conflict === null ? null : { code: 'resource.conflict', message: conflict };
+}
+
+/**
+ * THE WRITE DOOR for the record at an address, as a whole: the level every
+ * field write presupposes (section floor 1 — each field then needs its own
+ * pair at 2) and the write scope. Answers the door's `perm.*` refusal, or null;
+ * anything else propagates (the record rolls back, the run reports it).
+ */
+async function recordDoorRefusal(
+	principal: Principal,
+	sectionTipo: string,
+	sectionId: number,
+): Promise<RecordRefusal | null> {
+	try {
+		await authorizeRecordAccess(
+			principal,
+			{ section_tipo: sectionTipo, section_id: sectionId },
+			{ mode: 'write', level: 1, sectionFloor: 1, door: 'import_execute.address' },
+		);
+		return null;
+	} catch (error) {
+		if (!isDedaloError(error) || !error.code.startsWith('perm.')) throw error;
+		return {
+			code: error.code,
+			message: `record ${sectionId} exists and is not writable by the importer (${error.code}) — nothing was written into it`,
+		};
+	}
 }
 
 /** Create the record AT `sectionId`; true when THIS transaction bore it (false: someone else's). */
@@ -979,6 +1050,79 @@ function reportUnwrittenRecord(
 	reportRolledBackRecord(failed, record, sectionTipo, error, issues.failed);
 }
 
+/** What every record of one run is written with. */
+interface RunScope {
+	sectionTipo: string;
+	principal: Principal;
+	bulkProcessId: number;
+	dataLang: string;
+}
+
+/** One input record as the run left it: its outcome and its report lines. */
+interface WrittenRecord {
+	result: RecordResult;
+	failed: ConformFailure[];
+}
+
+/**
+ * THE ORDER THE RECORDS ARE WRITTEN IN (input indexes): every ADDRESSED record
+ * first, HIGHEST address first, then the rest in input order.
+ *
+ * Whatever the run allocates takes the section counter's next id: an
+ * unaddressed record, and a record a LINK creates when its target is the
+ * section imported into. Written in input order, such a record could be born
+ * at the very id a LATER record of the same file names — an id that was free
+ * when the run began. The later record then found "a record there": refused
+ * when that record held a key (rule 3 says it is created there), and ADOPTED
+ * when it held none — two references merged into one record, reported as an
+ * update. The explicit-id insert raises the counter (GREATEST) to its id, so
+ * once the HIGHEST address is written every allocation of the run lands beyond
+ * every id the file names. A door without addresses (MARC21, RDF) keeps the
+ * input order exactly.
+ *
+ * An addressed record that ROLLS BACK leaves its id free, and a later
+ * allocation may take it: the item is then reported as not written, and no
+ * reference is merged into another.
+ */
+function writeOrder(records: readonly MappedRecord[]): number[] {
+	const addressed: { index: number; sectionId: number }[] = [];
+	const rest: number[] = [];
+	for (const [index, record] of records.entries()) {
+		if (record.address === undefined) rest.push(index);
+		else addressed.push({ index, sectionId: record.address.sectionId });
+	}
+	addressed.sort((a, b) => b.sectionId - a.sectionId);
+	return [...addressed.map((entry) => entry.index), ...rest];
+}
+
+/**
+ * ONE TRANSACTION PER RECORD (the CSV door's posture): a failure part-way
+ * through a record leaves NO half-written record behind, and the run goes on.
+ */
+async function writeInOwnTransaction(
+	record: MappedRecord,
+	index: number,
+	run: RunScope,
+): Promise<WrittenRecord> {
+	// The record's issues, kept OUTSIDE its transaction: a rolled-back record
+	// still reports them next to the rollback line.
+	const issues: RecordIssues = { failed: [], refusal: null };
+	const result: RecordResult = { index, sectionId: null, created: false };
+	const failed: ConformFailure[] = [];
+	const { sectionTipo, principal, bulkProcessId, dataLang } = run;
+	try {
+		const outcome = await withTransaction(() =>
+			writeMappedRecord(record, sectionTipo, principal, bulkProcessId, dataLang, issues),
+		);
+		result.sectionId = outcome.sectionId;
+		result.created = outcome.wasCreated;
+		failed.push(...outcome.failed);
+	} catch (error) {
+		reportUnwrittenRecord(result, failed, { record, sectionTipo, error, issues });
+	}
+	return { result, failed };
+}
+
 /**
  * Execute an import of mapped records into `sectionTipo`. Creates a record per
  * mapped record when sectionId is null. Each field's flat values are conformed
@@ -998,7 +1142,6 @@ export async function importMappedRecords(
 	options: { bulkLabel?: string; sourceFile?: string; addressDoor?: string } = {},
 ): Promise<ImportReport> {
 	const userId = principal.userId;
-	const failed: ConformFailure[] = [];
 
 	// NOTHING TO WRITE, NOTHING TO ATTRIBUTE (P0-7 review). Every caller can reach
 	// here with an empty mapped set — a MARC21 batch whose every staged file
@@ -1006,14 +1149,13 @@ export async function importMappedRecords(
 	// column — and each of them already reports its own parse errors. Minting a
 	// dd800 for that files an event that never happened in the operator's
 	// Processes list, and it is the one dd800 no revert can ever be about.
-	const results: RecordResult[] = [];
 	if (records.length === 0) {
 		return {
 			created: 0,
 			updated: 0,
-			failed,
+			failed: [],
 			createdIds: [],
-			records: results,
+			records: [],
 			bulkProcessId: null,
 		};
 	}
@@ -1032,31 +1174,20 @@ export async function importMappedRecords(
 	// Resolved ONCE for the run, outside the per-record transactions: every row of
 	// one import belongs to one operator's working language, and a mid-run change
 	// would split the file across two language slices.
-	const dataLang = currentDataLang();
+	const run: RunScope = { sectionTipo, principal, bulkProcessId, dataLang: currentDataLang() };
 
 	// The run is held in the active-run registry while it writes: a revert of it
 	// is refused until it ends (decision D5).
+	const written = new Map<number, WrittenRecord>();
 	await withLiveBulkRun(bulkProcessId, async () => {
-		for (const [index, record] of records.entries()) {
-			// The record's issues, kept OUTSIDE its transaction: a rolled-back record
-			// still reports them next to the rollback line.
-			const issues: RecordIssues = { failed: [], refusal: null };
-			const result: RecordResult = { index, sectionId: null, created: false };
-			results.push(result);
-			try {
-				// ONE TRANSACTION PER RECORD (the CSV door's posture): a failure part-way
-				// through a record leaves NO half-written record behind.
-				const outcome = await withTransaction(() =>
-					writeMappedRecord(record, sectionTipo, principal, bulkProcessId, dataLang, issues),
-				);
-				result.sectionId = outcome.sectionId;
-				result.created = outcome.wasCreated;
-				failed.push(...outcome.failed);
-			} catch (error) {
-				reportUnwrittenRecord(result, failed, { record, sectionTipo, error, issues });
-			}
+		for (const index of writeOrder(records)) {
+			written.set(index, await writeInOwnTransaction(records[index] as MappedRecord, index, run));
 		}
 	});
+	// THE REPORT IS IN INPUT ORDER, whatever order the records were written in.
+	const inInputOrder = records.map((_, index) => written.get(index) as WrittenRecord);
+	const results = inInputOrder.map((record) => record.result);
+	const failed = inInputOrder.flatMap((record) => record.failed);
 	const createdIds = results
 		.filter((result) => result.created)
 		.map((result) => result.sectionId as number);

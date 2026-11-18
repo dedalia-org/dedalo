@@ -654,7 +654,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			addressDoor: DOOR,
 		},
 	);
-	const atId = addressOutcome(items, report.records, batch.refused);
+	const atId = addressOutcome(items, report.records, cfg.fieldToSectionId ?? '', batch.refused);
 	const attachments = await importAttachments(
 		{ ctx, cfg, sectionTipo, dir, keyDir, filesData },
 		items.map((item) => item.mapped),

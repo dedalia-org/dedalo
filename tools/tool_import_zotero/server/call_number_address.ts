@@ -29,7 +29,15 @@
  * by the executor INSIDE the record's transaction (import_execute.ts
  * `addressedTarget`), on what is true when the record is written — this module
  * hands it the guard (`refusalFor`) and reads the outcome back for the report.
- * The write door and the create permission apply as to any import.
+ * The write door and the create permission apply as to any import: a record
+ * living at the id that the importer may NOT write refuses the item (`perm.*`)
+ * before its key is read — an address reaches any id of the section, the key
+ * lookup only the importer's own scope.
+ *
+ * The executor writes the ADDRESSED items first, highest call-number first
+ * (import_execute.ts `writeOrder`): whatever the run allocates — an item without
+ * a call-number, a linked record — takes the counter's next id, and must never
+ * take one an item of the same export names.
  */
 
 import {
@@ -39,14 +47,20 @@ import {
 import type {
 	MappedRecord,
 	RecordAddress,
+	RecordRefusal,
 	RecordResult,
 } from '../../../src/core/tools/import_execute.ts';
 import { recordNumberOf, type ZoteroMappedRecord } from '../../../src/core/tools/zotero_map.ts';
 
-/** One item the run refused: which, the refusal's code, and its sentence (the operator's own file). */
+/**
+ * One item the run refused: which, the refusal's code, and its sentence (the
+ * operator's own file). `request.invalid_data` (rules 1, 6), `resource.conflict`
+ * (rules 2, 5), or the record door's `perm.*` code (a record the importer may
+ * not write).
+ */
 export interface ItemRefusal {
 	item: string;
-	code: 'request.invalid_data' | 'resource.conflict';
+	code: RecordRefusal['code'];
 	message: string;
 }
 
@@ -196,11 +210,13 @@ export interface AddressOutcome {
 /**
  * The run read back: of the items that carried an address, which were created
  * at it, which updated the record there, and which the executor refused when it
- * came to write them (rule 2 — added to `refused`).
+ * came to write them (rule 2, or a record the importer may not write — added to
+ * `refused`).
  */
 export function addressOutcome(
 	items: readonly AddressedItem[],
 	results: readonly RecordResult[],
+	variable: string,
 	refused: ItemRefusal[],
 ): AddressOutcome {
 	const outcome: AddressOutcome = { createdAtId: [], updatedAtId: [] };
@@ -208,9 +224,30 @@ export function addressOutcome(
 		const item = items[result.index];
 		if (item === undefined || item.address === null) continue;
 		if (result.refusal === undefined) settleAddressed(result, outcome);
-		else refused.push({ item: item.who, code: 'resource.conflict', message: result.refusal });
+		else refused.push(writeRefusal(item, item.address, variable, result.refusal));
 	}
 	return outcome;
+}
+
+/**
+ * The executor's refusal as the report's line. The guard's sentence (rule 2) is
+ * this door's own; the record door's is said in the operator's terms — and says
+ * nothing of what the record holds.
+ */
+function writeRefusal(
+	item: AddressedItem,
+	sectionId: number,
+	variable: string,
+	refusal: RecordRefusal,
+): ItemRefusal {
+	if (refusal.code === 'resource.conflict') {
+		return { item: item.who, code: refusal.code, message: refusal.message };
+	}
+	return {
+		item: item.who,
+		code: refusal.code,
+		message: `${variable} '${sectionId}' names record ${sectionId}, which you may not edit (${refusal.code}) — the item was not imported. Correct the ${variable}, or ask for access to that record.`,
+	};
 }
 
 /** One addressed record that was not refused: created at its id, updated there, or rolled back (neither). */

@@ -184,21 +184,24 @@ address by id.
   INSIDE the record's transaction (`addressedTarget`). No record at the id — never one, or
   DELETED — → the create door, then `createSectionRecord` at the explicit id
   (`insertMatrixRecordWithExplicitId`; counter GREATEST; a reborn address opens a generation
-  epoch). A record there, including one born since the door looked (an earlier record of the
-  run, a concurrent writer) → its stored key is read under the row lock
-  (`readStoredCodesForUpdate`): none → adopted; the item's own key or full URI → updated; any
-  other, or a key against an item that carries none → refused (`resource.conflict`, the
-  record rolled back, reported once as `RecordResult.refusal`, never a `failed` line). Its
-  fields pass the RECORD door, as for any matched record. `importMappedRecords` takes
+  epoch). A record there, including one a concurrent writer bore since the door looked → asked
+  of the record door AS A RECORD first (`livingRecordRefusal`, door `import_execute.address`:
+  section floor 1 and the write scope — review 2026-11-18, below), then its stored key is read
+  under the row lock (`readStoredCodesForUpdate`): none → adopted; the item's own key or full
+  URI → updated; any other, or a key against an item that carries none → refused
+  (`resource.conflict`, the record rolled back, reported once as `RecordResult.refusal`, never
+  a `failed` line). Its fields pass the RECORD door, as for any matched record. `importMappedRecords` takes
   `options.addressDoor` (`<tool>.<action>`): a record carrying an address refuses the RUN
   (`internal.invariant`, before the dd800 mint) unless that tool DECLARES the action in
   `ToolServerModule.operatorAddressActions` (new, loader-validated: a key that is no action
   of the tool, or an empty reason, refuses the tool — `tool_import_zotero` → `import_files`
   only; core names no tool), the address is a positive int4 and the record names no other
-  id. `RecordResult` gains `created` and `refusal?`;
+  id. `RecordResult` gains `created` and `refusal?: {code, message}`;
   `CodedRecord.resolvedSectionId` is removed.
 - **Response `data`:** new `created_at_id: number[]`, `updated_at_id: number[]`,
-  `refused: {item, code, message}[]` (`code` ∈ `request.invalid_data`, `resource.conflict`).
+  `refused: {item, code, message}[]` (`code` ∈ `request.invalid_data`, `resource.conflict`,
+  or the record door's `perm.*` code — `perm.out_of_scope`, `perm.denied` — for a record the
+  importer may not write).
   `errors` is the per-FILE list again (the C18 item lines no longer land there). `summary`:
   `Zotero import done. Created N, updated N[, R refused][, F failed].` The client renders the
   three lists as text (`render_import_report`).
@@ -206,14 +209,55 @@ address by id.
   record that holds a key is refused (nothing says it is that reference) — the conservative
   reading of rule 2. A record holding no key (created by hand) is adopted, as ruled.
 - Gates: `tool_import_zotero_native.test.ts` ("call-number: the operator-chosen record
-  ADDRESS" — rules 1–7, the deleted id, the batch duplicate, an id taken during the run; "the
+  ADDRESS" — rules 1–7, the deleted id, the batch duplicate, the run's own allocations, an
+  id taken by a concurrent writer, the report order; "the
   SHIPPED default" — rule 6), `csl_json.test.ts` (`recordNumberOf`, the address text, the
   config), `marc_identity_native.test.ts` ("an ADDRESS is the Zotero door's alone" — the
   executor's refusal for every other door, the declaring set derived from the loaded tools,
   the positive control), `tools_loader.test.ts` (the declaration's validation),
-  `import_create_door_native.test.ts` (1c: create permission and the record door on an
-  addressed record), client `test_tool_import_zotero.js`. Mutation-proved: the create door,
+  `import_create_door_native.test.ts` (1c: create permission, the record door on an
+  addressed record before its guard, the write order), client `test_tool_import_zotero.js`. Mutation-proved: the create door,
   the matched/created split, the allow-list assertion, a `parseInt` reader, the key guard,
   rule 5, the batch duplicate, the absent-id create — each red. Docs:
   `docs/using/tools/using_import_zotero.md`, `docs/development/tools/reference/tool_import_zotero.md`.
   Fragment `zotero-call-number-is-the-record-number`.
+
+### Review 2026-11-18 (same day, before release) — two defects of the addendum above, fixed
+
+- **The run's own allocations took addresses.** Records were written in file order, so an
+  item WITHOUT a call-number — or a record a LINK creates, when a configuration links into
+  the section imported into — could be born at the counter's next id: the very id a LATER
+  item of the same export named, free when the run began. That item then found "a record
+  there": refused when the record held a key (against rule 3), and ADOPTED when it held none
+  (an item with no `id`, or one whose key field was refused) — two references merged into one
+  record, reported as one created and one updated. Now `importMappedRecords` writes every
+  ADDRESSED record first, HIGHEST address first (`writeOrder`; the rest in input order): the
+  explicit-id insert raises the counter to its id, so once the highest address is written
+  every allocation of the run lands beyond every id the file names. `ImportReport.records`, `createdIds` and `failed` stay in INPUT order. A door
+  without addresses keeps its order exactly. Residual, by construction: an addressed record
+  that ROLLS BACK (a create refusal, an engine fault) leaves its id free and a later
+  allocation may take it — the item is reported not written, nothing is merged.
+- **A record outside the importer's scope was reported updated.** The key lookup is
+  principal-scoped; an address is not — it reaches any id of the section. Such a record was
+  handed to the key guard (whose sentence told whether it holds a Zotero key) and then
+  "updated" with every field refused by the record door: `updated: 1`, listed in
+  `updated_at_id`, nothing written. Now the record is asked of the record door as a whole
+  BEFORE the guard (`authorizeRecordAccess` write, section floor 1, level 1 on the section
+  pair, the write scope): a `perm.*` refusal refuses the ITEM — `RecordResult.refusal
+  {code, message}`, in `refused` with that code and a sentence that names the call-number and
+  nothing the record holds; counted neither created nor updated, no `failed` line, the guard
+  never asked. A record in scope whose individual FIELDS the importer may not write is
+  unchanged: updated, each such field an IGNORED line (every mapped door's posture).
+- **Not decided here (owner):** (a) a call-number is taken as written up to 2147483647 and
+  the counter follows it (rule 3) — one mistyped or hostile call-number near the top of int4
+  leaves the section no id to allocate; whether an address far above the counter needs a
+  bound or a confirmation is not ruled. (b) The Zotero KEY is looked up in the importer's
+  scope only, so rule 5 cannot see a key held by a record outside it: such an item is
+  written at its call-number and the key then lives on two records. (c) Across runs a
+  key-less record is adopted whoever made it (rule 2) — including a record an earlier import
+  left key-less because its key field was refused.
+- Gates (red before; mutation-proved — order → identity, highest-first → lowest-first, report
+  in write order, the record door dropped, the guard asked first):
+  `tool_import_zotero_native.test.ts` ("the run's OWN allocations never take an address…" ×3, "the report keeps the FILE order…", "an id TAKEN by
+  another writer…" — a real interleave, `pg_blocking_pids`; "rule 7: a record … the importer
+  may NOT write"), `import_create_door_native.test.ts` (1c).

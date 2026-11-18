@@ -58,6 +58,11 @@ import { lockLinkNames } from '../../src/core/tools/import_link.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
+import {
+	type AddressedItem,
+	addressOutcome,
+	type ItemRefusal,
+} from '../../tools/tool_import_zotero/server/call_number_address.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
@@ -241,6 +246,24 @@ async function freeId(): Promise<number> {
 	await sweepRecord(sectionId);
 	addressedIds.add(sectionId);
 	return sectionId;
+}
+
+/**
+ * Poll until some backend waits on a lock HELD BY `pid` — identity, not a sleep
+ * (import_create_door_native's idiom): `pg_blocking_pids` names the blocker.
+ */
+async function waitUntilBlockedBy(pid: number, timeoutMs: number): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const rows = (await sql.unsafe(
+			`SELECT count(*)::int AS n FROM pg_stat_activity
+			 WHERE wait_event_type = 'Lock' AND $1::int = ANY(pg_blocking_pids(pid))`,
+			[String(pid)],
+		)) as { n: number }[];
+		if ((rows[0]?.n ?? 0) > 0) return true;
+		await Bun.sleep(25);
+	}
+	return false;
 }
 
 /** Does a test3 record live at this id? */
@@ -648,25 +671,204 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(await recordsWithCode(key('BT2'))).toEqual([]);
 	});
 
-	test('an id TAKEN during the run (an earlier item was born there) is judged when it is written: its key differs → refused', async () => {
-		// The counter stands at `base`, so the first item — no call-number — is born
-		// at base + 1; the second item names that id. It was free when the run began.
-		const base = await freeId();
-		const taken = base + 1;
-		addressedIds.add(taken);
+	/** The id the NEXT counter allocation of test3 would take, when the counter stands at `base`. */
+	async function nextAllocationAfter(base: number): Promise<number> {
+		const rows = (await sql.unsafe(`SELECT value FROM matrix_counter WHERE tipo = 'test3'`)) as {
+			value: number;
+		}[];
+		// The situation is the one the gates below claim: the counter stands AT `base`.
+		expect(rows.map((row) => Number(row.value))).toEqual([base]);
+		return base + 1;
+	}
+
+	test("the run's OWN allocations never take an address the export names: the item is created AT its call-number, the key-less sibling elsewhere", async () => {
+		// The counter stands at `base`: the first item — no call-number — would be
+		// born at base + 1, the very id the second item names. Written in file order
+		// (RED before the addressed-first order) the second item found "a record
+		// there": a keyed sibling refused it, a key-less one was ADOPTED — two
+		// references merged into one record, reported as an update.
+		const named = await nextAllocationAfter(await freeId());
+		addressedIds.add(named);
 		const report = await run({
-			files_data: stage('cn-race.json', [
-				{ id: uri('RC1'), title: `${RUN} RC1` },
-				{ id: uri('RC2'), 'call-number': String(taken), title: `${RUN} RC2` },
+			files_data: stage('cn-own.json', [
+				// No `id`: the item has no Zotero key, so it leaves no key on its record.
+				{ title: `${RUN} NK1` },
+				{ id: uri('NK2'), 'call-number': String(named), title: `${RUN} NK2` },
 			]),
 		});
-		// The situation is the one this gate claims: the first item WAS born there.
-		expect(await recordsWithCode(key('RC1'))).toEqual([taken]);
-		expect(report.created).toBe(1);
+		expect(report.refused).toEqual([]);
+		expect(report.failed).toEqual([]);
+		expect({ created: report.created, updated: report.updated }).toEqual({
+			created: 2,
+			updated: 0,
+		});
+		expect(report.created_at_id).toEqual([named]);
+		expect(report.updated_at_id).toEqual([]);
+		// Two references, two records: the addressed one AT its id, alone there.
+		expect(await recordsWithCode(key('NK2'))).toEqual([named]);
+		expect((await itemsOf(named, 'string', 'test52')).map((i) => i.value)).toEqual([`${RUN} NK2`]);
+		const sibling = await recordsNamed(`${RUN} NK1`);
+		expect(sibling).toHaveLength(1);
+		expect(sibling[0]).toBeGreaterThan(named);
+		expect(await itemsOf(sibling[0] as number, 'string', 'test162')).toEqual([]);
+	});
+
+	test("the run's OWN allocations never take an address the export names: a KEYED sibling first in the file does not refuse it (rule 3)", async () => {
+		const named = await nextAllocationAfter(await freeId());
+		addressedIds.add(named);
+		const report = await run({
+			files_data: stage('cn-own-keyed.json', [
+				{ id: uri('RC1'), title: `${RUN} RC1` },
+				{ id: uri('RC2'), 'call-number': String(named), title: `${RUN} RC2` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.created).toBe(2);
+		expect(report.created_at_id).toEqual([named]);
+		expect(await recordsWithCode(key('RC2'))).toEqual([named]);
+		const [first] = await recordsWithCode(key('RC1'));
+		expect(first).toBeGreaterThan(named);
+	});
+
+	test("the run's OWN allocations never take an address the export names: a record a LINK creates in the same section (the Series) lands beyond every call-number", async () => {
+		// This configuration links the Series INTO test3 — the section imported
+		// into — so the Series record takes test3's next counter id. With the
+		// addressed items written in file order the first one's Series was born at
+		// the second one's call-number, and the second item ADOPTED the Series
+		// record (it holds no key). Written highest address first, the counter
+		// stands past every call-number before anything else is allocated.
+		const base = await freeId();
+		const low = await nextAllocationAfter(base);
+		const high = low + 1;
+		addressedIds.add(low);
+		addressedIds.add(high);
+		const series = `${RUN} Own Series`;
+		const report = await run({
+			files_data: stage('cn-own-link.json', [
+				{
+					id: uri('LK1'),
+					'call-number': String(low),
+					title: `${RUN} LK1`,
+					'container-title': series,
+				},
+				{ id: uri('LK2'), 'call-number': String(high), title: `${RUN} LK2` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.failed).toEqual([]);
+		// In FILE order, whatever order they were written in.
+		expect(report.created_at_id).toEqual([low, high]);
+		expect(report.updated_at_id).toEqual([]);
+		expect(await recordsWithCode(key('LK2'))).toEqual([high]);
+		expect((await itemsOf(high, 'string', 'test52')).map((i) => i.value)).toEqual([`${RUN} LK2`]);
+		// The Series is its own record, beyond both call-numbers, linked from LK1.
+		const named = await recordsNamed(series);
+		expect(named).toHaveLength(1);
+		expect(named[0]).toBeGreaterThan(high);
+		expect((await itemsOf(low, 'relation', 'test80')).map((l) => l.section_id)).toEqual(named);
+	});
+
+	test('the report keeps the FILE order whatever the write order: failed lines and the per-item outcome', async () => {
+		const named = await nextAllocationAfter(await freeId());
+		addressedIds.add(named);
+		const report = await run({
+			files_data: stage('cn-order.json', [
+				// An unknown CSL type is a `failed` line on each record; the first item
+				// of the file carries no call-number, so it is WRITTEN last.
+				{ id: uri('OR1'), title: `${RUN} OR1`, type: 'no-such-type' },
+				{ id: uri('OR2'), 'call-number': String(named), title: `${RUN} OR2`, type: 'nor-this' },
+			]),
+		});
+		expect(report.created_at_id).toEqual([named]);
+		const [first] = await recordsWithCode(key('OR1'));
+		expect(report.failed.map((line) => line.section_id)).toEqual([first as number, named]);
+	});
+
+	test('an id TAKEN by another writer after the run looked (its create commits while the item waits on it) is judged when it is written: its key differs → refused', async () => {
+		const sectionId = await freeId();
+		let releaseCreator: () => void = () => {};
+		const creatorHold = new Promise<void>((resolveHold) => {
+			releaseCreator = resolveHold;
+		});
+		let creatorWrote: () => void = () => {};
+		const written = new Promise<void>((resolveWritten) => {
+			creatorWrote = resolveWritten;
+		});
+		let creatorPid = 0;
+		// Another writer's record AT the id, keyed, written but NOT committed when the
+		// import starts: the key lookup and the existence read both miss it.
+		const creator = withTransaction(async () => {
+			const pidRows = (await sql.unsafe('SELECT pg_backend_pid() AS pid')) as { pid: number }[];
+			creatorPid = Number(pidRows[0]?.pid ?? 0);
+			await createSectionRecord('test3', -1, new Date(), sectionId);
+			const saved = await saveComponentData({
+				componentTipo: 'test162',
+				sectionTipo: 'test3',
+				sectionId,
+				lang: 'lg-nolan',
+				changedData: [{ action: 'set_data', id: null, value: [{ value: `${RUN}-other-writer` }] }],
+				userId: -1,
+			});
+			expect(saved.ok).toBe(true);
+			creatorWrote();
+			await creatorHold;
+		});
+		await written;
+		expect(creatorPid).toBeGreaterThan(0);
+		const importing = run({
+			files_data: stage('cn-race.json', [
+				{ id: uri('RA1'), 'call-number': String(sectionId), title: `${RUN} RA1` },
+			]),
+		});
+		// Identity, not a sleep: the import really waits on the uncommitted create.
+		const blocked = await waitUntilBlockedBy(creatorPid, 15_000);
+		releaseCreator();
+		await creator;
+		const report = await importing;
+		expect(blocked).toBe(true);
+		expect(report.created + report.updated).toBe(0);
 		expect(report.created_at_id).toEqual([]);
-		expect(refusedItem(report, 'RC2')?.code).toBe('resource.conflict');
-		expect(await recordsWithCode(key('RC2'))).toEqual([]);
-		expect((await itemsOf(taken, 'string', 'test52')).map((i) => i.value)).toEqual([`${RUN} RC1`]);
+		expect(refusedItem(report, 'RA1')?.code).toBe('resource.conflict');
+		expect(await recordsWithCode(key('RA1'))).toEqual([]);
+		expect(await recordsWithCode(`${RUN}-other-writer`)).toEqual([sectionId]);
+		expect(await itemsOf(sectionId, 'string', 'test52')).toEqual([]);
+	});
+
+	test("rule 7: a record at the call-number that the importer may NOT write is a REFUSED item (the record door's code), never listed updated — and its line says nothing of what the record holds", () => {
+		// The executor's half is gated on real identities in import_create_door_native
+		// (1c: out of scope → `refusal: perm.out_of_scope`, the guard never asked).
+		// This is the door's half: how that outcome reaches the report.
+		const item = (who: string, address: number): AddressedItem => ({
+			who,
+			address,
+			mapped: { code: who, url: null, address: String(address), fields: [], links: [] } as never,
+		});
+		const refused: ItemRefusal[] = [];
+		const outcome = addressOutcome(
+			[item('FOREIGN', 41), item('MINE', 42)],
+			[
+				{
+					index: 0,
+					sectionId: null,
+					created: false,
+					refusal: { code: 'perm.out_of_scope', message: 'record 41 exists and is not writable' },
+				},
+				{ index: 1, sectionId: 42, created: false },
+			],
+			'call-number',
+			refused,
+		);
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42] });
+		expect(refused).toEqual([
+			{
+				item: 'FOREIGN',
+				code: 'perm.out_of_scope',
+				message: expect.stringContaining(
+					"call-number '41' names record 41, which you may not edit",
+				),
+			},
+		]);
+		expect(refused[0]?.message).not.toContain('Zotero key');
 	});
 
 	test('rule 7: one run reports created-at-id, updated and refused SEPARATELY', async () => {
