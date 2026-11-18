@@ -673,7 +673,8 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	// A per-file, per-item or per-field failure never fails the batch: every list
 	// is PAYLOAD, and the client renders each one (render_tool_import_zotero.js).
 	// What the user must act on beyond the lines — a call-number past the limit, a
-	// record they may not change — is a NOTICE: coded, labelled (owner 2026-11-18).
+	// record they may not change, a key-less item against a keyed record — is a
+	// NOTICE: coded, labelled (owner 2026-11-18).
 	const notices = refusalNotices(batch.refusals, variable);
 	return ok(reportPayload(report, batch, { items, atId, attachments }), {
 		requestId: toolRequestId(ctx),
@@ -702,23 +703,30 @@ function counted(count: number, what: string): string {
 
 /**
  * The run's report — the wire payload (WC-2026-11-12-zotero-csl-json-import).
- * `created_at_id` / `updated_at_id` / `refused` list what the call-number
- * addresses came to, SEPARATELY (owner ruling 2026-11-17, rule 7); `errors`
- * stays the per-FILE list.
+ * `created_at_id` / `updated_at_id` / `taken_over_at_id` / `refused` list what
+ * the call-number addresses came to, SEPARATELY (owner ruling 2026-11-17, rule
+ * 7); `errors` stays the per-FILE list. A record TAKEN OVER (it had no Zotero
+ * key and holds the item's now — owner ruling 2026-11-18, c) is counted in
+ * `taken_over`, never in `updated`: the three counts are disjoint.
  */
 function reportPayload(
 	report: ImportReport,
 	batch: ReadBatch,
 	run: { items: readonly AddressedItem[]; atId: AddressOutcome; attachments: string[] },
 ): Record<string, unknown> {
+	const takenOver = run.atId.takenOverAtId.length;
+	const updated = report.updated - takenOver;
+	const takenOverCount = counted(takenOver, 'taken over');
 	const refusedCount = counted(batch.refusals.refused.length, 'refused');
 	const failedCount = counted(report.failed.length, 'failed');
 	return {
-		summary: `Zotero import done. Created ${report.created}, updated ${report.updated}${refusedCount}${failedCount}.`,
+		summary: `Zotero import done. Created ${report.created}, updated ${updated}${takenOverCount}${refusedCount}${failedCount}.`,
 		created: report.created,
-		updated: report.updated,
+		updated,
+		taken_over: takenOver,
 		created_at_id: run.atId.createdAtId,
 		updated_at_id: run.atId.updatedAtId,
+		taken_over_at_id: run.atId.takenOverAtId,
 		refused: batch.refusals.refused,
 		failed: report.failed,
 		errors: batch.errors,

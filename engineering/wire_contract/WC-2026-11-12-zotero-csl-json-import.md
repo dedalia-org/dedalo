@@ -331,3 +331,63 @@ explanation first).
   `docs/using/tools/using_import_zotero.md`,
   `docs/development/tools/reference/tool_import_zotero.md`. Fragment
   `zotero-import-limit-and-whole-section-key`.
+
+### Rulings 2026-11-18, second set (owner, same day, before release) — taken over, the key-less item, the scope
+
+(c) and the key-less item, left open above, ruled; plus the scope of every rule of this door.
+
+- **(c) A key-less record is still adopted — and REPORTED APART.** Rule 2 is unchanged: a
+  record living at the call-number with no Zotero key is written and holds the item's key
+  from then on. What changes is the report: such a record was TAKEN OVER, not merely
+  updated. Rule 2's guard notes what it found under the row lock (`AddressedItem.found =
+  'keyless_record'`, only when the item carries a key to leave there) and `addressOutcome`
+  settles it once the record's own result is known (a rolled-back record is listed nowhere).
+  - **Response `data`:** new `taken_over_at_id: number[]` and `taken_over: number`. A
+    taken-over record is NOT in `updated_at_id` and NOT counted in `updated` (before: both)
+    — `created`, `updated`, `taken_over` are disjoint. `summary` gains `, N taken over`
+    (after `updated`, before `refused`; absent when 0).
+  - A key-less ITEM on a key-less record takes nothing over (no key is left there): it stays
+    an `updated_at_id` entry.
+  - Client: `render_import_report` lists `taken_over_at_id` under its own heading
+    (`ul.import_taken_over_at_id`), the label `zotero_taken_over_at_id`
+    (`src/core/labels/master.json` + every catalog; literal fallback).
+- **(d) A key-less item against a keyed record is still refused — WITH THE EXPLANATION.**
+  The item carries no Zotero key and its call-number names a record that holds one: nothing
+  says it is that reference. Before: `refused[].code = resource.conflict` and the re-key
+  sentence ("already holds a Zotero key that is not this item's"). Now its own code,
+  `tool.zotero_item_without_key` (`conflict`, 409, public, never thrown), a sentence that
+  says why (the record already belongs to a Zotero reference; without a key the import
+  cannot tell whether it is the same one) and what to do (export again from Zotero so the
+  item carries its key, or remove the call-number to create a new record), and one envelope
+  notice per run of that code — `details {count, section_ids, variable}` (distinct,
+  ascending, the first twenty), label `error_tool_zotero_item_without_key` (`lg-spa` /
+  `lg-cat` too). The record's number only: never the key it holds, nor anything else of it —
+  and only a record the importer may write is ever named (the record door is asked before
+  the key is read). An item WITH a key against another key keeps `resource.conflict` and
+  raises no notice. The executor is untouched: `RecordRefusal.code` stays
+  `resource.conflict`; the door recodes its own guard's finding (`noteWriteRefusal`).
+- **`data.refused[].code`** ∈ `request.invalid_data`, `tool.zotero_call_number_above_limit`,
+  `resource.conflict`, `tool.zotero_item_without_key`, or the record door's `perm.*`.
+- **SCOPE: every limit, refusal and warning of the call-number is the Zotero door's ONLY —
+  never the CSV import's.** Nothing here moved into a piece the two imports share
+  (`parseRecordIdCell`, `readExistingSectionIds`, `createSectionRecord`). The CSV
+  `section_id` column behaves as at 123d88b48d, pinned by measurement: a cell above
+  2147483647 fails the FILE on the id as written (`value "2147483648" is out of range for
+  type integer`, nothing written — no per-row refusal, no Zotero code or wording); a digit
+  run too long for an exact integer is the DATA-22 row skip; a free id is created at it; a
+  record holding a code and one holding none are both updated in place — no key guard, no
+  take-over bucket, no notice.
+- Gates (red before = the mutation that restores the previous behaviour; all red):
+  `tool_import_zotero_native.test.ts` — "rule 2 + ruling (c)…", "ruling (c): a key-less item
+  on a key-less record…", "ruling (c): a taken-over record whose write ROLLS BACK…", "ruling
+  (d): an item with NO Zotero key…", "ruling (d) is the key-less item's only…", "rule 7: one
+  run reports created-at-id, updated, taken over and refused SEPARATELY" (10 mutations: taken
+  over listed as updated, count not disjoint, key-less item takes over, rolled-back listed,
+  own code dropped, notice dropped, explanation replaced by the re-key sentence, a keyed item
+  treated as key-less, summary without the count, the list not sent);
+  `import_csv_execute.test.ts` — "the Zotero import's record-number rules are ZOTERO's…" (2
+  mutations: the int4 bound moved into `parseRecordIdCell`; into `readExistingSectionIds`);
+  client `test_tool_import_zotero.js` (the taken-over list and heading, the third warning).
+  Docs: `docs/using/tools/using_import_zotero.md`,
+  `docs/development/tools/reference/tool_import_zotero.md`. Fragment
+  `zotero-taken-over-and-keyless-reference`.

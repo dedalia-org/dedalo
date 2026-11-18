@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, assert */
+/*global it, describe, assert, get_label */
 /*eslint no-undef: "error"*/
 
 /**
@@ -99,13 +99,14 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		assert.ok(parent.querySelector('.import_failed li').textContent.includes('<b>x</b>'));
 	});
 
-	it('the call-number addresses are three separate lists, every line TEXT', () => {
+	it('the call-number addresses are four separate lists, every line TEXT', () => {
 		const parent = document.createElement('div');
 		render_import_report(
 			{
-				summary: 'Zotero import done. Created 2, updated 1, 1 refused.',
+				summary: 'Zotero import done. Created 2, updated 1, 2 taken over, 1 refused.',
 				created_at_id: [12, 15],
 				updated_at_id: [9],
+				taken_over_at_id: [21, 22],
 				refused: [
 					{
 						item: 'K<i>9</i>',
@@ -128,6 +129,19 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 			parent.querySelector('.import_updated_at_id li').textContent,
 			'Updated at their call-number id: 9',
 		);
+		// taken over (the record had no Zotero key): its OWN heading and list —
+		// never a line of the updated list. The heading is the label
+		// `zotero_taken_over_at_id` (the user's language), with a literal fallback.
+		const taken_over = parent.querySelectorAll('.import_taken_over_at_id li');
+		assert.equal(taken_over.length, 1);
+		const heading =
+			get_label.zotero_taken_over_at_id ||
+			'Taken over at their call-number id — the record had no Zotero key: ';
+		assert.equal(taken_over[0].textContent, `${heading}21, 22`);
+		assert.ok(
+			!parent.querySelector('.import_updated_at_id').textContent.includes('21'),
+			'expected a taken-over record out of the updated list',
+		);
 		const refused = parent.querySelectorAll('.import_refused li');
 		assert.equal(refused.length, 1);
 		assert.equal(
@@ -138,6 +152,20 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		// an empty list renders no group at all
 		assert.equal(parent.querySelector('.import_failed'), null);
 		assert.equal(parent.querySelector('.import_errors'), null);
+	});
+
+	it('a run that took nothing over renders no taken-over heading', () => {
+		const parent = document.createElement('div');
+		render_import_report(
+			{
+				summary: 'Zotero import done. Created 0, updated 1.',
+				updated_at_id: [9],
+				taken_over_at_id: [],
+			},
+			parent,
+		);
+		assert.equal(parent.querySelector('.import_taken_over_at_id'), null);
+		assert.ok(parent.querySelector('.import_updated_at_id'));
 	});
 
 	it("the run's warnings (envelope notices) render as labelled TEXT lines, naming the values and the limit", () => {
@@ -161,6 +189,12 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 					retryable: false,
 					details: { count: 1, section_ids: '41' },
 				},
+				{
+					code: 'tool.zotero_item_without_key',
+					label_key: 'error_tool_zotero_item_without_key',
+					retryable: false,
+					details: { count: 1, section_ids: '57', variable: 'call-number' },
+				},
 				// not a notice: dropped, never a blank line
 				null,
 			],
@@ -168,7 +202,7 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		);
 		assert.ok(list, 'expected a warnings list');
 		const lines = parent.querySelectorAll('.import_warnings li');
-		assert.equal(lines.length, 2);
+		assert.equal(lines.length, 3);
 		// the label, filled: the limit, the values and the field are all named
 		assert.ok(lines[0].textContent.includes('2147483647'), lines[0].textContent);
 		assert.ok(lines[0].textContent.includes('2147483648, <b>9</b>'), lines[0].textContent);
@@ -176,6 +210,10 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		assert.ok(!lines[0].textContent.includes('${'), 'expected every placeholder filled');
 		assert.ok(lines[1].textContent.includes('41'), lines[1].textContent);
 		assert.ok(!lines[1].textContent.includes('${'), 'expected every placeholder filled');
+		// the key-less reference: the record number and the field to remove are named
+		assert.ok(lines[2].textContent.includes('57'), lines[2].textContent);
+		assert.ok(lines[2].textContent.includes('call-number'), lines[2].textContent);
+		assert.ok(!lines[2].textContent.includes('${'), 'expected every placeholder filled');
 		// a value quoted from the file is text, never markup
 		assert.equal(parent.querySelector('.import_warnings b'), null);
 	});

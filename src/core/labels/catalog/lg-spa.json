@@ -389,6 +389,7 @@
 	"error_tool_too_many_items": "Demasiados elementos en una sola petición: se enviaron ${count}, como máximo ${limit} a la vez",
 	"error_tool_unsupported_target": "La herramienta no puede operar sobre este destino",
 	"error_tool_zotero_call_number_above_limit": "No importado: ${count} referencia(s) llevan un ${variable} superior a ${limit}, el número de registro (section_id) más alto que existe: ${values}. Escriba un número menor en Zotero, o vacíe el campo para identificar la referencia por su clave de Zotero",
+	"error_tool_zotero_item_without_key": "No importado: ${count} referencia(s) sin clave de Zotero nombran un registro que ya pertenece a una referencia de Zotero (section_id ${section_ids}). Sin clave, la importación no puede saber si es la misma referencia, por lo que el registro no se ha modificado. Exporte de nuevo la referencia desde Zotero para que lleve su clave, o elimine su ${variable} para crear un registro nuevo",
 	"error_tool_zotero_record_not_writable": "No importado: ${count} referencia(s) nombran un registro que usted no puede modificar (section_id ${section_ids}). Corrija la referencia en Zotero, o solicite acceso a ese registro",
 	"error_translation_not_configured": "El servicio de traducción no está configurado para este motor",
 	"error_translation_provider_failed": "El servicio de traducción informó de un error: ${provider_message}",
@@ -1296,5 +1297,6 @@
 	"year": "año",
 	"years": "años",
 	"yes": "si",
-	"zoom": "Zoom"
+	"zoom": "Zoom",
+	"zotero_taken_over_at_id": "Asumidos en su número de registro (call-number) — el registro no tenía clave de Zotero: "
 }

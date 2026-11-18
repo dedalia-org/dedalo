@@ -323,7 +323,9 @@ const get_content_data_edit = async function(self) {
 *
 * Report keys (WC-2026-11-12-zotero-csl-json-import): summary, failed[{msg}],
 * errors[], notices[], attachments[], and what the call-number addresses came
-* to, each in its own list: created_at_id[], updated_at_id[] (record ids) and
+* to, each in its own list: created_at_id[], updated_at_id[], taken_over_at_id[]
+* (record ids — taken over: the record had no Zotero key and holds the
+* reference's now; its heading is the label `zotero_taken_over_at_id`) and
 * refused[{item, code, message}]. (`data.notices` are the report's own text
 * lines; the ENVELOPE's `notices` are the run's coded warnings —
 * render_import_warnings.)
@@ -360,6 +362,12 @@ export const render_import_report = function(data, parent) {
 	const groups = [
 		['import_created_at_id', id_list_lines('Created at their call-number id: ', data.created_at_id)],
 		['import_updated_at_id', id_list_lines('Updated at their call-number id: ', data.updated_at_id)],
+		// its OWN heading (owner ruling 2026-11-18): a record that existed with no
+		// Zotero key and holds the reference's now was TAKEN OVER, not just updated
+		['import_taken_over_at_id', id_list_lines(
+			get_label.zotero_taken_over_at_id || 'Taken over at their call-number id — the record had no Zotero key: ',
+			data.taken_over_at_id
+		)],
 		['import_refused', refused_lines],
 		['import_failed', failed_lines],
 		['import_errors', Array.isArray(data.errors) ? data.errors : []],
@@ -395,7 +403,9 @@ export const render_import_report = function(data, parent) {
 * Renders the run's WARNINGS — the success envelope's `notices[]` — as a list
 * above the report: a call-number above the section_id limit
 * (`tool.zotero_call_number_above_limit`), a record the importer may not change
-* (`tool.zotero_record_not_writable`). Each line is the notice's LABEL in the
+* (`tool.zotero_record_not_writable`), a reference without a Zotero key whose
+* call-number names a record that already holds one
+* (`tool.zotero_item_without_key` — why it was refused and what to do). Each line is the notice's LABEL in the
 * user's language with its details filled in (`error_text`: label → message →
 * code), as TEXT (DS-1: the details quote values from the imported file).
 *

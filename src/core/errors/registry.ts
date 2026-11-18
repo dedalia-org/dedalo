@@ -2559,7 +2559,7 @@ export const ERROR_REGISTRY = {
 	 * NOTICES of tool_import_zotero.import_files, never thrown (owner rulings
 	 * 2026-11-18; WC-2026-11-12-zotero-csl-json-import, addendum "the limit and the
 	 * whole section"). The run succeeded and its report lists every refused item;
-	 * these two say, in the user's language, what they must act on.
+	 * these say, in the user's language, what they must act on.
 	 *
 	 * `…call_number_above_limit`: the section_id limit (int4) IS the import limit —
 	 * `count` references carry a `variable` (the config's field_to_section_id,
@@ -2593,6 +2593,28 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 		details_keys: ['count', 'section_ids'],
+	},
+	/**
+	 * `…item_without_key` (owner ruling 2026-11-18, d): `count` references carry
+	 * NO Zotero key and name — by `variable` (the call-number) — a record that
+	 * already holds one. Refused, the record untouched: nothing says the item is
+	 * that reference. The label is the explanation the owner asked for — why, and
+	 * what to do (re-export with the key, or remove the `variable` to create a
+	 * new record). `section_ids` names the records (ascending, the first twenty)
+	 * and nothing they hold; only a record the importer may WRITE is ever named
+	 * (the record door is asked before the key is read). Also the `code` of each
+	 * such item's `refused` entry.
+	 */
+	'tool.zotero_item_without_key': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_zotero_item_without_key',
+		message:
+			'A reference without a Zotero key names a record that already holds one; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'section_ids', 'variable'],
 	},
 	// An RDF/XML document past the graph reader's bounds (src/core/tools/rdf_graph.ts:
 	// element nesting deeper than maxDepth, or more than maxTriples statements). A

@@ -1294,5 +1294,6 @@
 	"year": "год",
 	"years": "лет",
 	"yes": "да",
-	"zoom": "Масштаб"
+	"zoom": "Масштаб",
+	"zotero_taken_over_at_id": "Приняты по номеру записи (call-number) — у записи не было ключа Zotero: "
 }

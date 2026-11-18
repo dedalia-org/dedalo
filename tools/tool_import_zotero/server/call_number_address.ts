@@ -19,7 +19,13 @@
  *      ABOVE it is refused under its own code and the run WARNS the user.
  *   2. A record lives at the id → it is UPDATED. If it already holds a Zotero
  *      key that is not the item's → refused (`resource.conflict`): an import
- *      never re-keys a record. No key yet → adopted (the key is written).
+ *      never re-keys a record. No key yet → adopted (the key is written), and
+ *      REPORTED APART (owner ruling 2026-11-18, c): a record that had no Zotero
+ *      key and now holds the item's was TAKEN OVER — `taken_over_at_id`, never
+ *      `updated_at_id`. An item that carries NO key against a record that holds
+ *      one stays refused (ruling d) under its own code,
+ *      `tool.zotero_item_without_key`, whose sentence and labelled notice say
+ *      why and what to do.
  *   3. No record at the id → CREATED there (the engine's explicit-id insert; the
  *      counter rises with GREATEST) — also when the id is free because its
  *      record was DELETED: re-importing after a detected error is legitimate.
@@ -44,7 +50,12 @@
  *
  * THE RUN'S WARNINGS are envelope notices (`refusalNotices`): registered codes
  * whose labels are the user's language, never report text —
- * `tool.zotero_call_number_above_limit`, `tool.zotero_record_not_writable`.
+ * `tool.zotero_call_number_above_limit`, `tool.zotero_record_not_writable`,
+ * `tool.zotero_item_without_key`.
+ *
+ * ALL OF IT IS THIS DOOR'S (owner ruling 2026-11-18, scope): no limit, refusal
+ * or warning here reaches another import — the CSV section_id column is read
+ * and written as before (gate: test/unit/import_csv_execute.test.ts).
  *
  * The executor writes the ADDRESSED items first, highest call-number first
  * (import_execute.ts `writeOrder`): whatever the run allocates — an item without
@@ -74,13 +85,20 @@ import {
 const ABOVE_LIMIT = 'tool.zotero_call_number_above_limit';
 /** The code of the run's alert naming the records the importer may not change. */
 const NOT_WRITABLE = 'tool.zotero_record_not_writable';
+/**
+ * The code of an item that carries NO Zotero key and whose call-number names a
+ * record that already holds one (owner ruling 2026-11-18, d) — and of the
+ * run's notice explaining it.
+ */
+const ITEM_WITHOUT_KEY = 'tool.zotero_item_without_key';
 
 /**
  * One item the run refused: which, the refusal's code, and its sentence (the
  * operator's own file). `request.invalid_data` (rules 1, 6),
  * `tool.zotero_call_number_above_limit` (rule 1, past the limit),
- * `resource.conflict` (rules 2, 5), or the record door's `perm.*` code (a record
- * the importer may not change).
+ * `resource.conflict` (rules 2, 5), `tool.zotero_item_without_key` (rule 2, an
+ * item with no key against a keyed record), or the record door's `perm.*` code
+ * (a record the importer may not change).
  */
 export interface ItemRefusal {
 	item: string;
@@ -99,12 +117,24 @@ export interface RefusalLedger {
 	aboveLimit: string[];
 	/** The section_id of each record an item named that the importer may not change. */
 	notWritable: number[];
+	/** The section_id of each keyed record a key-less item named by its call-number. */
+	withoutKey: number[];
 }
 
 /** An empty ledger. */
 export function refusalLedger(): RefusalLedger {
-	return { refused: [], aboveLimit: [], notWritable: [] };
+	return { refused: [], aboveLimit: [], notWritable: [], withoutKey: [] };
 }
+
+/**
+ * What rule 2's guard FOUND at an item's address, under the row lock — the two
+ * findings the report names apart (owner rulings 2026-11-18, c and d):
+ *  - `keyless_record`: the record held no Zotero key and the item carries one —
+ *    written, the record is TAKEN OVER (it holds the item's key from then on);
+ *  - `item_without_key`: the record holds a key and the item carries none —
+ *    refused, nothing says it is that reference.
+ */
+export type AddressFinding = 'keyless_record' | 'item_without_key';
 
 /** One item of the batch, past the call-number screen. */
 export interface AddressedItem {
@@ -113,6 +143,13 @@ export interface AddressedItem {
 	mapped: ZoteroMappedRecord;
 	/** The record number its call-number names (null = none: the key decides). */
 	address: number | null;
+	/**
+	 * Set by rule 2's guard when it is asked for this item (`keyGuard`), inside
+	 * the record's transaction; read back by {@link addressOutcome} once the
+	 * record's own result is known — a finding counts only for what was committed
+	 * or refused. Null: no record lived at the address, or neither finding.
+	 */
+	found: AddressFinding | null;
 }
 
 /** What the address rules need of the run. */
@@ -189,7 +226,7 @@ export function screenAddresses(
 			ledger.refused.push({ item: who, ...screened.refusal });
 			if (screened.refusal.code === ABOVE_LIMIT)
 				ledger.aboveLimit.push(shown(record.address ?? ''));
-		} else kept.push({ who, mapped: record, address: screened.sectionId });
+		} else kept.push({ who, mapped: record, address: screened.sectionId, found: null });
 	}
 	return kept;
 }
@@ -197,23 +234,41 @@ export function screenAddresses(
 /**
  * Rule 2's guard, asked by the executor inside the record's transaction when a
  * record already lives at the address: its stored key(s), read under the row
- * lock. None → adopt. The item's own key (or its full URI, the other spelling a
- * stored code may hold) → the same reference. Anything else → refused; so is an
- * item that carries NO key against a record that holds one (nothing says it is
- * that reference). The stored value is never quoted: the importer may not be
- * able to read that record.
+ * lock. None → adopt (TAKEN OVER when the item carries a key to leave there —
+ * `found`). The item's own key (or its full URI, the other spelling a stored
+ * code may hold) → the same reference. Anything else → refused; so is an item
+ * that carries NO key against a record that holds one (nothing says it is that
+ * reference — `found`, its own sentence). The stored value is never quoted.
  */
 function keyGuard(item: AddressedItem, scope: AddressScope): RecordAddress['refusalFor'] {
 	const own = new Set([item.mapped.code, item.mapped.url].filter((code) => code !== null));
 	return async ({ sectionId }) => {
+		// Asked afresh each time the record is written: a finding is this attempt's.
+		item.found = null;
 		if (scope.idTarget === undefined) return null;
 		const target = { sectionTipo: scope.sectionTipo, componentTipo: scope.idTarget.componentTipo };
 		const held = ((await readStoredCodesForUpdate(target, sectionId)) ?? []).filter(
 			(code) => code !== '',
 		);
-		if (held.length === 0 || held.some((code) => own.has(code))) return null;
+		if (held.length === 0) {
+			if (item.mapped.code !== null) item.found = 'keyless_record';
+			return null;
+		}
+		if (held.some((code) => own.has(code))) return null;
+		if (own.size === 0) {
+			item.found = 'item_without_key';
+			return withoutKeySentence(scope.variable, sectionId);
+		}
 		return `${scope.variable} '${sectionId}' names record ${sectionId}, which already holds a Zotero key that is not this item's — an import never re-keys a record, so the item was not imported. Correct the ${scope.variable}, or clear that record's code first.`;
 	};
+}
+
+/**
+ * Ruling (d)'s explanation, as the report's line: WHY the item was refused and
+ * WHAT TO DO — naming the record by its number only, nothing it holds.
+ */
+function withoutKeySentence(variable: string, sectionId: number): string {
+	return `${variable} '${sectionId}' names record ${sectionId}, which already belongs to a Zotero reference (it holds a Zotero key), and this item carries no Zotero key — the import cannot tell whether it is the same reference, so the item was not imported and the record was not changed. Export the reference from Zotero again so that it carries its key, or remove its ${variable} to create a new record.`;
 }
 
 /** One item's record with its address applied (rule 5), or why it is refused. */
@@ -275,8 +330,14 @@ export function addressRecords(
 export interface AddressOutcome {
 	/** Records created AT their call-number id. */
 	createdAtId: number[];
-	/** Records updated at their call-number id. */
+	/** Records updated at their call-number id (they held the item's key, or the item carries none). */
 	updatedAtId: number[];
+	/**
+	 * Records TAKEN OVER at their call-number id (owner ruling 2026-11-18, c):
+	 * they existed with NO Zotero key and now hold the item's. Never also in
+	 * `updatedAtId`.
+	 */
+	takenOverAtId: number[];
 }
 
 /**
@@ -292,12 +353,12 @@ export function addressOutcome(
 	variable: string,
 	ledger: RefusalLedger,
 ): AddressOutcome {
-	const outcome: AddressOutcome = { createdAtId: [], updatedAtId: [] };
+	const outcome: AddressOutcome = { createdAtId: [], updatedAtId: [], takenOverAtId: [] };
 	for (const result of results) {
 		const item = items[result.index];
 		if (item === undefined) continue;
 		if (result.refusal !== undefined) noteWriteRefusal(item, variable, result.refusal, ledger);
-		else if (item.address !== null) settleAddressed(result, outcome);
+		else if (item.address !== null) settleAddressed(item, result, outcome);
 	}
 	return outcome;
 }
@@ -314,7 +375,15 @@ function noteWriteRefusal(
 	ledger: RefusalLedger,
 ): void {
 	if (refusal.code === 'resource.conflict') {
-		ledger.refused.push({ item: item.who, code: refusal.code, message: refusal.message });
+		// The guard's own refusal. A key-less item against a keyed record has its
+		// own code — and its record goes to the run's notice (ruling d).
+		const withoutKey = item.found === 'item_without_key';
+		ledger.refused.push({
+			item: item.who,
+			code: withoutKey ? ITEM_WITHOUT_KEY : refusal.code,
+			message: refusal.message,
+		});
+		if (withoutKey) ledger.withoutKey.push(refusal.sectionId);
 		return;
 	}
 	const sectionId = refusal.sectionId;
@@ -326,10 +395,16 @@ function noteWriteRefusal(
 	ledger.notWritable.push(sectionId);
 }
 
-/** One addressed record that was not refused: created at its id, updated there, or rolled back (neither). */
-function settleAddressed(result: RecordResult, outcome: AddressOutcome): void {
+/**
+ * One addressed record that was not refused: created at its id, TAKEN OVER there
+ * (it had no Zotero key and holds the item's now), updated there, or rolled
+ * back (none of them).
+ */
+function settleAddressed(item: AddressedItem, result: RecordResult, outcome: AddressOutcome): void {
 	if (result.sectionId === null) return;
-	(result.created ? outcome.createdAtId : outcome.updatedAtId).push(result.sectionId);
+	if (result.created) outcome.createdAtId.push(result.sectionId);
+	else if (item.found === 'keyless_record') outcome.takenOverAtId.push(result.sectionId);
+	else outcome.updatedAtId.push(result.sectionId);
 }
 
 /** How many values one notice lists (the report's `refused` list carries every one). */
@@ -354,7 +429,10 @@ function noticeOf(code: ErrorCode, details: NonNullable<ApiNotice['details']>): 
  *
  *  - call-numbers above the limit: how many references, the values, the limit;
  *  - records the importer may not change: how many references, and the records'
- *    section_ids (distinct, ascending) — never anything a record holds.
+ *    section_ids (distinct, ascending) — never anything a record holds;
+ *  - key-less items against keyed records (ruling d): how many references, the
+ *    records' section_ids, and the variable to remove — the label says why the
+ *    import refused them and what to do.
  *
  * None when the run has nothing to warn of.
  */
@@ -376,6 +454,16 @@ export function refusalNotices(ledger: RefusalLedger, variable: string): ApiNoti
 			noticeOf(NOT_WRITABLE, {
 				count: ledger.notWritable.length,
 				section_ids: listed(records),
+			}),
+		);
+	}
+	if (ledger.withoutKey.length > 0) {
+		const records = [...new Set(ledger.withoutKey)].sort((a, b) => a - b);
+		notices.push(
+			noticeOf(ITEM_WITHOUT_KEY, {
+				count: ledger.withoutKey.length,
+				section_ids: listed(records),
+				variable,
 			}),
 		);
 	}

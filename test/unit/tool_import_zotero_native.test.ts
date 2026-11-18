@@ -159,6 +159,10 @@ interface Report {
 	created_at_id: number[];
 	/** Records updated at their call-number id. */
 	updated_at_id: number[];
+	/** How many records were TAKEN OVER (never also counted in `updated`). */
+	taken_over: number;
+	/** Records taken over at their call-number id: they had no Zotero key and hold the item's now. */
+	taken_over_at_id: number[];
 	/** Items the run refused, typed: the item, the refusal's code, its sentence. */
 	refused: { item: string; code: string; message: string }[];
 }
@@ -664,7 +668,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(next).toBeGreaterThan(createdAt);
 	});
 
-	test('rule 2: an existing record with NO key is updated and ADOPTS the key (a JSON-number call-number too)', async () => {
+	test('rule 2 + ruling (c): an existing record with NO key ADOPTS the key and is reported TAKEN OVER — its own list and count, never "updated" (a JSON-number call-number too)', async () => {
 		const existing = await createSectionRecord('test3', -1);
 		addressedIds.add(existing);
 		expect(await itemsOf(existing, 'string', 'test162')).toEqual([]);
@@ -674,14 +678,148 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			]),
 		});
 		expect(report.refused).toEqual([]);
-		expect(report.created).toBe(0);
-		expect(report.updated).toBe(1);
-		expect(report.created_at_id).toEqual([]);
-		expect(report.updated_at_id).toEqual([existing]);
+		expect(report.failed).toEqual([]);
+		// Adopted as ruled: the record holds the item's key and its values.
 		expect(await recordsWithCode(key('AD2'))).toEqual([existing]);
 		expect((await itemsOf(existing, 'string', 'test52')).map((i) => i.value)).toEqual([
 			`${RUN} AD2`,
 		]);
+		// …and REPORTED APART (RED before ruling c: it was one more `updated_at_id`).
+		expect(report.taken_over_at_id).toEqual([existing]);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.created_at_id).toEqual([]);
+		expect({
+			created: report.created,
+			updated: report.updated,
+			taken_over: report.taken_over,
+		}).toEqual({ created: 0, updated: 0, taken_over: 1 });
+		expect(report.summary).toBe('Zotero import done. Created 0, updated 0, 1 taken over.');
+
+		// The SAME reference again: the record holds its key now — a plain update.
+		const again = await run({
+			files_data: stage('cn-adopt-again.json', [
+				{ id: uri('AD2'), 'call-number': existing, title: `${RUN} AD2 again` },
+			]),
+		});
+		expect(again.taken_over_at_id).toEqual([]);
+		expect(again.updated_at_id).toEqual([existing]);
+		expect({ updated: again.updated, taken_over: again.taken_over }).toEqual({
+			updated: 1,
+			taken_over: 0,
+		});
+		expect(again.summary).toBe('Zotero import done. Created 0, updated 1.');
+	});
+
+	test('ruling (c): a key-less item on a key-less record takes nothing over — no key is left there, it is an update', async () => {
+		const existing = await createSectionRecord('test3', -1);
+		addressedIds.add(existing);
+		const report = await run({
+			files_data: stage('cn-nokey-nokey.json', [
+				{ 'call-number': String(existing), title: `${RUN} NN1` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([existing]);
+		expect(report.taken_over).toBe(0);
+		expect(await itemsOf(existing, 'string', 'test162')).toEqual([]);
+		expect((await itemsOf(existing, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} NN1`,
+		]);
+	});
+
+	test('ruling (c): a taken-over record whose write ROLLS BACK is not listed taken over (the finding counts only for what was committed)', () => {
+		const item = (who: string, found?: 'keyless_record' | 'item_without_key') =>
+			({ who, address: 50, mapped: { code: who }, found: found ?? null }) as never;
+		const ledger = refusalLedger();
+		const outcome = addressOutcome(
+			[item('ROLLED', 'keyless_record'), item('TAKEN', 'keyless_record'), item('SAME')],
+			[
+				{ index: 0, sectionId: null, created: false },
+				{ index: 1, sectionId: 51, created: false },
+				{ index: 2, sectionId: 52, created: false },
+			],
+			'call-number',
+			ledger,
+		);
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [52], takenOverAtId: [51] });
+		expect(ledger.refused).toEqual([]);
+	});
+
+	test('ruling (d): an item with NO Zotero key whose call-number names a record that HOLDS one is refused under its own code, with the explanation — why, and what to do — in its line and in a labelled notice; the record number only, the record untouched', async () => {
+		const codeBefore = await itemsOf(createdAt, 'string', 'test162');
+		const titleBefore = await itemsOf(createdAt, 'string', 'test52');
+		expect(codeBefore.map((i) => i.value)).toEqual([key('AD1')]);
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-nokey-keyed.json', [
+				// No `id`: Zotero exported the item without its key.
+				{ 'call-number': String(createdAt), title: `${RUN} NOKEY` },
+				{ id: uri('NK9'), title: `${RUN} NK9` },
+			]),
+		});
+		// Still refused, as ruled; the rest of the export is imported.
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.failed).toEqual([]);
+		expect(report.refused).toHaveLength(1);
+		const refused = report.refused[0];
+		expect(refused?.item).toBe('item #1');
+		// Its OWN code (RED before ruling d: the generic `resource.conflict`).
+		expect(refused?.code).toBe('tool.zotero_item_without_key');
+		// WHY…
+		expect(refused?.message).toContain(`call-number '${createdAt}' names record ${createdAt}`);
+		expect(refused?.message).toContain('already belongs to a Zotero reference');
+		expect(refused?.message).toContain('this item carries no Zotero key');
+		expect(refused?.message).toContain('cannot tell whether it is the same reference');
+		// …and WHAT TO DO: both ways out.
+		expect(refused?.message).toContain('Export the reference from Zotero again');
+		expect(refused?.message).toContain('remove its call-number to create a new record');
+		// The record number only — never the key it holds, nor its title.
+		expect(refused?.message).not.toContain(key('AD1'));
+		expect(refused?.message).not.toContain(String(titleBefore[0]?.value));
+
+		// The notice: coded, labelled, the user's language.
+		expect(notices).toEqual([
+			{
+				code: 'tool.zotero_item_without_key',
+				label_key: 'error_tool_zotero_item_without_key',
+				retryable: false,
+				details: { count: 1, section_ids: String(createdAt), variable: 'call-number' },
+			},
+		]);
+		const text = await noticeText(notices[0] as ApiNotice);
+		expect(text).toContain('1 reference(s) without a Zotero key');
+		expect(text).toContain(`section_id ${createdAt}`);
+		expect(text).toContain('cannot tell whether it is the same reference');
+		expect(text).toContain('Export the reference from Zotero again');
+		expect(text).toContain('remove its call-number to create a new record');
+		expect(text).not.toContain('${');
+		expect(text).not.toContain(key('AD1'));
+		// Translated where the sibling warnings are.
+		for (const lang of ['lg-spa', 'lg-cat']) {
+			const translated = (await getLabels(lang)).error_tool_zotero_item_without_key ?? '';
+			expect(translated).not.toBe((await getLabels('lg-eng')).error_tool_zotero_item_without_key);
+			for (const name of ['count', 'section_ids', 'variable'])
+				expect(translated).toContain(`\${${name}}`);
+		}
+
+		// Untouched.
+		expect(await itemsOf(createdAt, 'string', 'test162')).toEqual(codeBefore);
+		expect(await itemsOf(createdAt, 'string', 'test52')).toEqual(titleBefore);
+		expect(await recordsNamed(`${RUN} NOKEY`)).toEqual([]);
+	});
+
+	test("ruling (d) is the key-less item's only: an item WITH a key against another key stays `resource.conflict`, and raises no key-less notice", async () => {
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-rekey-notice.json', [
+				{ id: uri('AD11'), 'call-number': String(createdAt), title: `${RUN} AD11` },
+			]),
+		});
+		expect(report.refused.map((entry) => entry.code)).toEqual(['resource.conflict']);
+		expect(report.refused[0]?.message).not.toContain('carries no Zotero key');
+		expect(notices).toEqual([]);
 	});
 
 	test('rule 2: a record holding the SAME key is updated at its call-number', async () => {
@@ -962,6 +1100,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		const item = (who: string, address: number | null): AddressedItem => ({
 			who,
 			address,
+			found: null,
 			mapped: { code: who, url: null, address: null, fields: [], links: [] } as never,
 		});
 		const ledger = refusalLedger();
@@ -982,7 +1121,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			'call-number',
 			ledger,
 		);
-		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42] });
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42], takenOverAtId: [] });
 		expect(ledger.refused).toEqual([
 			{
 				item: 'FOREIGN',
@@ -1023,7 +1162,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		const atLimit = refusalLedger();
 		const kept = screenAddresses([mapped(String(INT4_MAX))], 'call-number', atLimit);
 		expect(kept.map((item) => item.address)).toEqual([INT4_MAX]);
-		expect(atLimit).toEqual({ refused: [], aboveLimit: [], notWritable: [] });
+		expect(atLimit).toEqual({ refused: [], aboveLimit: [], notWritable: [], withoutKey: [] });
 		expect(refusalNotices(atLimit, 'call-number')).toEqual([]);
 
 		const past = refusalLedger();
@@ -1044,22 +1183,29 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(values.at(-1)).toBe('…');
 	});
 
-	test('rule 7: one run reports created-at-id, updated and refused SEPARATELY', async () => {
+	test('rule 7: one run reports created-at-id, updated, taken over and refused SEPARATELY', async () => {
 		const fresh = await freeId();
+		const keyless = await createSectionRecord('test3', -1);
+		addressedIds.add(keyless);
 		const report = await run({
 			files_data: stage('cn-report.json', [
 				{ id: uri('RP1'), 'call-number': String(fresh), title: `${RUN} RP1` },
 				{ id: uri('AD1'), 'call-number': String(createdAt), title: `${RUN} AD1 report` },
 				{ id: uri('RP3'), 'call-number': 'shelf 3', title: `${RUN} RP3` },
 				{ id: uri('RP4'), title: `${RUN} RP4` },
+				{ id: uri('RP5'), 'call-number': String(keyless), title: `${RUN} RP5` },
 			]),
 		});
 		expect(report.created).toBe(2);
 		expect(report.updated).toBe(1);
+		expect(report.taken_over).toBe(1);
 		expect(report.created_at_id).toEqual([fresh]);
 		expect(report.updated_at_id).toEqual([createdAt]);
+		expect(report.taken_over_at_id).toEqual([keyless]);
 		expect(report.refused.map((entry) => entry.item)).toEqual([key('RP3')]);
-		expect(report.summary).toBe('Zotero import done. Created 2, updated 1, 1 refused.');
+		expect(report.summary).toBe(
+			'Zotero import done. Created 2, updated 1, 1 taken over, 1 refused.',
+		);
 	});
 });
 
