@@ -44,7 +44,7 @@ import {
 	numberFormatOf,
 } from '../../components/component_number/number_format.ts';
 import { getComponentModel, getRenderClass } from '../../components/registry.ts';
-import { DedaloError } from '../../errors/index.ts';
+import { DedaloError, isDedaloError } from '../../errors/index.ts';
 import {
 	getColumnNameByModel,
 	getModelByTipo,
@@ -125,10 +125,11 @@ export async function gateComponentItems(
  * typed error where a save is refused (a malformed number node). A value every
  * gate already saw comes back byte-identical.
  *
- * ONE RULE IS STRICTER THAN A SAVE'S: a credential ({@link
+ * ONE RULE DIFFERS FROM A SAVE'S: a credential ({@link
  * assertReplayableCredential}). A save takes a non-hash password as a NEW
- * plaintext and hashes it; a replay never carries a new password, so a non-hash
- * credential image is refused instead of minted into a hash.
+ * plaintext and hashes it; a replay never carries a new password, so a
+ * credential image is never hashed: it is put back VERBATIM when it is stored
+ * bytes a replay may carry (a hash, a legacy v6 ciphertext), refused otherwise.
  *
  * `value` is whatever the image holds under the key — an item array, or one
  * item; an absent / null image (the key is removed) has nothing to gate.
@@ -139,29 +140,54 @@ export async function gateReplayedValue(
 	value: unknown,
 ): Promise<unknown> {
 	if (value === null || value === undefined) return value;
-	await assertReplayableCredential(model, componentTipo, value);
+	if (model === 'component_password') {
+		await assertReplayableCredential(componentTipo, value);
+		return value;
+	}
 	const [gated] = await applyWriteValueGates(model, componentTipo, [{ value }]);
 	return (gated as { value: unknown }).value;
 }
 
 /**
- * A `component_password` image must already be a stored hash (or empty) —
- * else `tool.snapshot_unrestorable`, nothing written. Stored bytes that are not
- * a hash are a legacy v6 ciphertext or a plaintext a pre-gate door stored
- * (security/password_hash.ts isReplayablePasswordValue): hashing either would
- * turn history bytes into a working credential, and writing either raw is what
- * this gate exists to stop. The value never rides the error.
+ * What a replay of `value` WOULD store — for a door that must JUDGE a stored
+ * value against it before deciding to write (the bulk revert: is the key
+ * already at what the revert leaves?). A value the gates REFUSE is judged as
+ * recorded: the refusal belongs to the WRITE ({@link gateReplayedValue}), which
+ * a judgement that finds nothing to write never reaches.
  */
-async function assertReplayableCredential(
+export async function judgeReplayedValue(
 	model: string,
 	componentTipo: string,
 	value: unknown,
-): Promise<void> {
-	if (model !== 'component_password') return;
+): Promise<unknown> {
+	try {
+		return await gateReplayedValue(model, componentTipo, value);
+	} catch (error) {
+		if (isDedaloError(error)) return value;
+		throw error;
+	}
+}
+
+/**
+ * A `component_password` image must be stored bytes a replay may carry — empty,
+ * an Argon2 hash, or a LEGACY v6 CIPHERTEXT (owner ruling 2026-11-18: replayed
+ * verbatim, so a user record from before the upgrade restores and
+ * `scripts/migrate_v6_passwords.ts` still converts it; `auth.ts` accepts only
+ * Argon2id, so it is no working credential) — else `tool.snapshot_unrestorable`,
+ * nothing written. What is refused is a plaintext a pre-gate door stored
+ * (security/password_hash.ts isReplayablePasswordValue — the v6 format is the
+ * discriminator, its residual stated there): hashing it would turn history
+ * bytes into a working credential, and writing it raw is what this gate exists
+ * to stop. The value never rides the error.
+ */
+async function assertReplayableCredential(componentTipo: string, value: unknown): Promise<void> {
 	const { isReplayablePasswordValue } = await import('../../security/password_hash.ts');
 	if (isReplayablePasswordValue(value)) return;
 	throw new DedaloError('tool.snapshot_unrestorable', {
-		coordinates: { tipo: componentTipo, reason: 'the credential image is not a stored hash' },
+		coordinates: {
+			tipo: componentTipo,
+			reason: 'the credential image is neither a stored hash nor a legacy v6 ciphertext',
+		},
 	});
 }
 

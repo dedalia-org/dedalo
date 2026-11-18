@@ -19,10 +19,20 @@ import { maskSecretItems, SECRET_MASK } from '../../src/core/resolve/component_d
 import { routeSectionRead } from '../../src/core/section/read_facade.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
+	gateReplayedValue,
+	judgeReplayedValue,
+} from '../../src/core/section/record/write_value_gates.ts';
+import {
+	DEFAULT_INFORMATION,
+	decryptLegacyPassword,
+	encryptLegacyPasswordForTest,
+} from '../../src/core/security/legacy_password.ts';
+import {
 	hashPasswordChanges,
 	hashPasswordForStorage,
 	isArgon2Hash,
 	isLegacyEncryptedPassword,
+	isReplayablePasswordValue,
 } from '../../src/core/security/password_hash.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 
@@ -85,6 +95,106 @@ describe('password hashing (pure)', () => {
 		const legacy = 'ZHdKVDU5Y0FsOTZYTGZudkw4Y1ZVQTUxTHNMY0tna2JST2hORHRFMTRCUT0=';
 		expect(isLegacyEncryptedPassword(legacy)).toBe(true);
 		expect(isArgon2Hash(legacy)).toBe(false);
+	});
+});
+
+/**
+ * THE v6 DISCRIMINATOR IS THE STORAGE FORMAT (C58, owner ruling 2026-11-18): a
+ * replay puts a legacy ciphertext back VERBATIM, so the test that recognises
+ * one must not also recognise a plaintext a pre-gate door stored — "a non-empty
+ * string that is no hash" recognised both.
+ */
+describe('isLegacyEncryptedPassword — the v6 storage format, nothing looser', () => {
+	const material = { information: DEFAULT_INFORMATION, infoKey: 'some_entity' };
+	const b64 = (bytes: Buffer | string): string => Buffer.from(bytes).toString('base64');
+
+	test('every v6 ciphertext is recognised — short, long, multi-byte passwords', () => {
+		const passwords = [
+			'',
+			'a',
+			'hunter2',
+			'Conforming-Passw0rd-2017!',
+			'contraseña-ñ-日本語',
+			'x'.repeat(200),
+		];
+		for (const password of passwords) {
+			const stored = encryptLegacyPasswordForTest(password, material);
+			expect(isLegacyEncryptedPassword(stored), password).toBe(true);
+			// …and it is what the migration can still convert
+			expect(decryptLegacyPassword(stored, material), password).toBe(password);
+		}
+	});
+
+	test('a plaintext is never one — whatever it looks like', () => {
+		const plaintexts = [
+			'abc',
+			'password',
+			'Conforming-Passw0rd-2017!',
+			'correct horse battery staple',
+			'0123456789abcdef0123456789abcdef', // 32 chars of the base64 alphabet
+			'QUJDREVGR0hJSktMTU5PUA==', // base64 of 16 plain bytes — ONE layer
+			b64(Buffer.alloc(32, 7)), // one layer over an AES-sized body
+			b64(b64(Buffer.alloc(20, 7))), // two layers, the body no whole number of blocks
+			b64(b64(Buffer.alloc(0))), // two layers over nothing
+			`${b64(b64(Buffer.alloc(16, 7)))}\n`, // a v6 shape with a trailing newline: not canonical
+			b64(b64(Buffer.alloc(32, 7))).replace(/=+$/, ''), // padding stripped: not canonical
+			b64(b64(Buffer.alloc(16, 0xfb)).replaceAll('+', '-').replaceAll('/', '_')), // url-safe inner alphabet
+		];
+		// FLOOR: the two shape-mutated cases really differ from a recognised shape.
+		expect(b64(b64(Buffer.alloc(32, 7)))).toMatch(/=$/);
+		expect(b64(Buffer.alloc(16, 0xfb))).toMatch(/[+/]/);
+		expect(isLegacyEncryptedPassword(b64(b64(Buffer.alloc(32, 7))))).toBe(true);
+		for (const plaintext of plaintexts) {
+			expect(isLegacyEncryptedPassword(plaintext), JSON.stringify(plaintext)).toBe(false);
+		}
+	});
+
+	test('neither is a hash, an empty value or a non-string', async () => {
+		const hash = await Bun.password.hash('x', { algorithm: 'argon2id' });
+		for (const value of [hash, '$2y$10$abcdefghijklmnopqrstuv', '', null, undefined, 42, {}, []]) {
+			expect(isLegacyEncryptedPassword(value)).toBe(false);
+		}
+	});
+
+	test('a stored value is replayable when every item is empty, a hash or a v6 ciphertext — and only then', async () => {
+		const hash = await Bun.password.hash('x', { algorithm: 'argon2id' });
+		const cipher = encryptLegacyPasswordForTest('hunter2', material);
+		const item = (value: unknown) => ({ id: 1, lang: 'lg-nolan', value });
+		expect(isReplayablePasswordValue([item(hash), item(cipher), item(''), item(null)])).toBe(true);
+		expect(isReplayablePasswordValue(item(cipher))).toBe(true);
+		expect(isReplayablePasswordValue(cipher)).toBe(true);
+		expect(isReplayablePasswordValue([item(hash), item('hunter2')])).toBe(false);
+		expect(isReplayablePasswordValue('hunter2')).toBe(false);
+	});
+});
+
+/** The REPLAY gate of a credential (write_value_gates.ts gateReplayedValue). */
+describe('a replayed credential is never hashed and never a plaintext', () => {
+	const material = { information: DEFAULT_INFORMATION, infoKey: 'some_entity' };
+	const item = (value: unknown) => ({ id: 1, lang: 'lg-nolan', value });
+
+	test('a hash and a v6 ciphertext come back the SAME bytes', async () => {
+		const hash = await Bun.password.hash('x', { algorithm: 'argon2id' });
+		const cipher = encryptLegacyPasswordForTest('hunter2', material);
+		const image = [item(hash), item(cipher)];
+		expect(await gateReplayedValue('component_password', PASSWORD_TIPO, image)).toEqual(image);
+		expect(await judgeReplayedValue('component_password', PASSWORD_TIPO, image)).toEqual(image);
+	});
+
+	test('a plaintext is refused, its value never on the error; a JUDGEMENT reads it as recorded', async () => {
+		const image = [item('Conforming-Passw0rd-2017!')];
+		let refusal: unknown = null;
+		try {
+			await gateReplayedValue('component_password', PASSWORD_TIPO, image);
+		} catch (error) {
+			refusal = error;
+		}
+		expect(isDedaloError(refusal)).toBe(true);
+		expect((refusal as DedaloError).code).toBe('tool.snapshot_unrestorable');
+		expect(JSON.stringify((refusal as DedaloError).coordinates ?? {})).not.toContain('Conforming');
+		expect((refusal as DedaloError).message).not.toContain('Conforming');
+		// judging never mints a hash either: the recorded value, untouched
+		expect(await judgeReplayedValue('component_password', PASSWORD_TIPO, image)).toBe(image);
 	});
 });
 
