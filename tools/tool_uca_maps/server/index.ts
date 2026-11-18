@@ -43,8 +43,8 @@ export const tool: ToolServerModule = {
 			minLevel: 1,
 			handler: vectorDownload,
 		},
-		// not readOnly: it deletes the staged capture it reads, so a resend must be
-		// replayed from the ledger, never run again on a capture already gone
+		// not readOnly: it deletes the staged capture it reads, so it is a write
+		// (the client sends it once, `retries: 1`: nothing resends it)
 		raster_download: {
 			permission: 'record_tipo',
 			minLevel: 1,

@@ -1,8 +1,8 @@
 /**
- * utf8_file — a file this tool or its own client wrote, read as the UTF-8 it
- * always is. The decode is strict: a byte that is not UTF-8 answers null, where
- * `Bun.file().text()` would turn it into U+FFFD without a word. A user's own
- * upload goes through core's `decodeIngestBytes` instead (convert or refuse).
+ * utf8_file — a file read as UTF-8, strictly: a byte that is not UTF-8 answers
+ * null, where `Bun.file().text()` would turn it into U+FFFD without a word. For
+ * text whose encoding the tool controls; one whose encoding it does not is
+ * decoded by core's `decodeIngestBytes` (convert or refuse).
  */
 
 /** The file's text, or null when it is not UTF-8. A failed read throws its own error. */

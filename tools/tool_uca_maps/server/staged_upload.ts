@@ -54,7 +54,7 @@ function resolveStagedUpload(
  * network dropped after the upload): a live action takes seconds to minutes. */
 export const ORPHAN_UPLOAD_AGE_MS = 60 * 60 * 1000;
 
-/** The tool's own key_dirs: every action that reads one deletes what it read. */
+/** The key_dirs whose stale files `claimStagedUpload` sweeps before each claim. */
 const CONSUMED_KEY_DIRS: readonly string[] = [
 	MAP_IMAGE_KEY_DIR,
 	OBJECT_GEOJSON_KEY_DIR,
