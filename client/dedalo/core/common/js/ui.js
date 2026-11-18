@@ -957,34 +957,52 @@ export const ui = {
 					// tab_lifted. The label (frame legend) and the tool tab share the
 					// frame's top edge (layout.less `.active`). A narrow field cannot hold
 					// both: lift the tab clear of the label instead of truncating the
-					// label to a few letters. Measured once here: the layout was already
-					// forced by getBoundingClientRect above.
-					const label	= wrapper.querySelector(':scope>.label')
-					const tab	= wrapper.querySelector(':scope>.buttons_container')
-					if (label && tab && tab.childElementCount > 0) {
-						const label_end = label.getBoundingClientRect().left - el_rect.left + label.scrollWidth
-						// the buttons' own span (+ the strip's side padding), not the container:
-						// a style may stretch the container across the field (Lift's header band)
-						const buttons	= tab.querySelectorAll('.button')
-						const tools_width = buttons.length > 0
-							? buttons[buttons.length-1].getBoundingClientRect().right - buttons[0].getBoundingClientRect().left + 24
-							: tab.offsetWidth
-						const fits = label_end + 8 <= el_rect.width - tools_width
-						wrapper.classList.toggle('tab_lifted', !fits)
-						// for the styles that keep the tools on the label row (core/page/css/active_styles)
-						wrapper.style.setProperty('--tools_width', tools_width + 'px')
-						wrapper.style.setProperty('--tools_count', buttons.length || tab.childElementCount)
-						// no_side_room: the space just right of the field (the Margin style's
-						// tool rail) must be the field's own container, empty. Another field,
-						// the inspector or the viewport edge (no hit) says no.
-						// (the field's own rail may already be painted there: look under it)
-						const hit = document.elementsFromPoint(el_rect.right + 24, el_rect.top + 12)
-							.find(el => !wrapper.contains(el))
-						// (the viewport is checked first: a page that overflows sideways, e.g. on
-						// a phone, still answers a hit beyond the visible edge)
-						const off_screen = el_rect.right + 48 > document.documentElement.clientWidth
-						wrapper.classList.toggle('no_side_room', off_screen || !hit || !hit.contains(wrapper))
+					// label to a few letters. Measured here (the layout was already forced
+					// by getBoundingClientRect above), and re-measured while active when the field's WIDTH changes (a resized
+					// modal or window), released on deactivate.
+					const measure_fit = (el_rect) => {
+						const label	= wrapper.querySelector(':scope>.label')
+						const tab	= wrapper.querySelector(':scope>.buttons_container')
+						if (label && tab && tab.childElementCount > 0) {
+							// the TEXT's end, not the label box's: a style may stretch the label
+							// across the field (Lift, Margin), where scrollWidth is the box
+							const range = document.createRange()
+							range.selectNodeContents(label)
+							const label_end = range.getBoundingClientRect().right - el_rect.left
+								+ parseFloat(getComputedStyle(label).paddingRight || 0)
+							// the buttons' own span (+ the strip's side padding), not the container:
+							// a style may stretch the container across the field (Lift's header band)
+							const buttons	= tab.querySelectorAll('.button')
+							const tools_width = buttons.length > 0
+								? buttons[buttons.length-1].getBoundingClientRect().right - buttons[0].getBoundingClientRect().left + 24
+								: tab.offsetWidth
+							const fits = label_end + 8 <= el_rect.width - tools_width
+							wrapper.classList.toggle('tab_lifted', !fits)
+							// for the styles that keep the tools on the label row (core/page/css/active_styles)
+							wrapper.style.setProperty('--tools_width', tools_width + 'px')
+							wrapper.style.setProperty('--tools_count', buttons.length || tab.childElementCount)
+							// no_side_room: the space just right of the field (the Margin style's
+							// tool rail) must be the field's own container, empty. Another field,
+							// the inspector or the viewport edge (no hit) says no.
+							// (the field's own rail may already be painted there: look under it)
+							const hit = document.elementsFromPoint(el_rect.right + 24, el_rect.top + 12)
+								.find(el => !wrapper.contains(el))
+							// (the viewport is checked first: a page that overflows sideways, e.g. on
+							// a phone, still answers a hit beyond the visible edge)
+							const off_screen = el_rect.right + 48 > document.documentElement.clientWidth
+							wrapper.classList.toggle('no_side_room', off_screen || !hit || !hit.contains(wrapper))
+						}
 					}
+					measure_fit(el_rect)
+					let fit_width = el_rect.width
+					component.fit_observer?.disconnect()
+					component.fit_observer = new ResizeObserver(() => {
+						const rect = wrapper.getBoundingClientRect()
+						if (rect.width === fit_width || !wrapper.classList.contains('active')) return
+						fit_width = rect.width
+						measure_fit(rect)
+					})
+					component.fit_observer.observe(wrapper)
 				}
 
 			// scroll_into_view
@@ -1153,6 +1171,8 @@ export const ui = {
 				if(component.node && component.node.classList.contains('active')) {
 					component.node.classList.remove('active', 'tab_lifted', 'no_side_room')
 				}
+				component.fit_observer?.disconnect()
+				component.fit_observer = null
 
 			// changed_data check. This action saves changed_data
 			// and reset component changed_data to empty array []
@@ -4905,7 +4925,6 @@ export const ui = {
 			if(node) {
 				body.appendChild(node)
 			}
-			ui.component.activate(instance)
 
 		// footer
 			const footer = ui.create_dom_element({
@@ -4928,12 +4947,17 @@ export const ui = {
 				dd_modal.modal_content.classList.add('center')
 				dd_modal.modal_content.style.width = '30rem'
 
+				// activate once attached and sized: activation measures the field
+				// (tab_lifted, --tools_width); detached, every rect is 0 and the
+				// label never "fits" (Lift then drew its two-row band)
+				ui.component.activate(instance)
+
 				if (callback) {
 					callback(dd_modal)
 				}
 			},
 			size : 'normal', // string size: big|normal|small
-			// the component's activation (above) places the focus: its first
+			// the component's activation (callback) places the focus: its first
 			// input, or none (a portal) — never the first row button
 			focus_content : false
 		})

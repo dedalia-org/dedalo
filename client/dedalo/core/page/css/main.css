@@ -30765,6 +30765,10 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   max-width: calc(100% - var(--tools_width, 8rem) - 2 * var(--field_inset_x));
   transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
 }
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area:not(.view_line) > .content_data > .content_value > .toolbar_container {
+  margin-left: 1px;
+  margin-right: 1px;
+}
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(:where(.component_section_id)).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) > .label {
   max-width: 100%;
   transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
@@ -30774,6 +30778,26 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
   height: calc(var(--lift_band_height) + var(--component_label_height));
   align-items: flex-start;
   padding-top: 0.5rem;
+}
+:root[data-active_style="lift"] dd-modal > .body.content > .wrapper_component.edit.active:not(.hilite_element) {
+  --lift_modal_room: calc(1rem - 3rem);
+}
+:root[data-active_style="lift"] dd-modal > .body.content > .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*),
+:root[data-active_style="lift"] dd-modal > .body.content > .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) {
+  margin-top: max(0px, calc(var(--lift_band_height) + var(--lift_modal_room)));
+}
+:root[data-active_style="lift"] dd-modal > .body.content > .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+  margin-top: max(0px, calc(var(--lift_band_height) + var(--component_label_height) + var(--lift_modal_room)));
+}
+:root[data-active_style="lift"] .wrap_ts_object .data_container > .wrapper_component.edit.active:not(.hilite_element):not(.tab_lifted):not(.component_text_area) {
+  margin-top: calc(0.5rem + var(--lift_headroom) + var(--lift_label_gap));
+}
+:root[data-active_style="lift"] .wrap_ts_object .data_container > .wrapper_component.edit.active:not(.hilite_element).tab_lifted:has(>.buttons_container>*),
+:root[data-active_style="lift"] .wrap_ts_object .data_container > .wrapper_component.edit.active:not(.hilite_element).component_text_area:not(.view_line):has(>.buttons_container>*) {
+  margin-top: calc(0.5rem + var(--lift_band_height));
+}
+:root[data-active_style="lift"] .wrap_ts_object .data_container > .wrapper_component.edit.active:not(.hilite_element).component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+  margin-top: calc(0.5rem + var(--lift_band_height) + var(--component_label_height));
 }
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) {
   top: 100%;

@@ -169,6 +169,12 @@
 		// text line centre (~0.95rem into the label box) onto the band's centre
 		transform: translateY(calc(-1 * (var(--lift_band_height) / 2 + 0.95rem)));
 	}
+	// the editor toolbar spans the card inside its 1px side edges (full width it
+	// painted over them)
+	&.component_text_area:not(.view_line)>.content_data>.content_value>.toolbar_container {
+		margin-left: 1px;
+		margin-right: 1px;
+	}
 	// narrow text_area: a two-row band, tools on top, the label under them
 	&.component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
 		>.label {
@@ -181,6 +187,37 @@
 			align-items: flex-start;
 			padding-top: 0.5rem;
 		}
+	}
+}
+
+// a modal body (ui.render_edit_modal, layout.less `.body.content`) keeps 3rem
+// above the field for the floating tool pill; the band is taller than that and
+// slid under the modal header. Room = the band's height less that padding, with
+// the band ending 1rem below the header (where the other styles' tools sit).
+:root[data-active_style="lift"] dd-modal > .body.content > .wrapper_component.edit.active:not(.hilite_element) {
+	--lift_modal_room: calc(1rem - 3rem); // band top air − body padding-top
+	&.tab_lifted:has(>.buttons_container>*),
+	&.component_text_area:not(.view_line):has(>.buttons_container>*) {
+		margin-top: max(0px, calc(var(--lift_band_height) + var(--lift_modal_room)));
+	}
+	&.component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+		margin-top: max(0px, calc(var(--lift_band_height) + var(--component_label_height) + var(--lift_modal_room)));
+	}
+}
+
+// the ontology/thesaurus tree (ts_object.less .data_container) opens a field
+// 0.5rem under its node row: the card's raised surface (headroom + label gap)
+// or band climbed over the row's buttons. The field steps down by that rise.
+:root[data-active_style="lift"] .wrap_ts_object .data_container > .wrapper_component.edit.active:not(.hilite_element) {
+	&:not(.tab_lifted):not(.component_text_area) {
+		margin-top: calc(0.5rem + var(--lift_headroom) + var(--lift_label_gap));
+	}
+	&.tab_lifted:has(>.buttons_container>*),
+	&.component_text_area:not(.view_line):has(>.buttons_container>*) {
+		margin-top: calc(0.5rem + var(--lift_band_height));
+	}
+	&.component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+		margin-top: calc(0.5rem + var(--lift_band_height) + var(--component_label_height));
 	}
 }
 
