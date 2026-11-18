@@ -226,6 +226,10 @@ render_area_thesaurus.prototype.list = async function(options) {
 							is_ontology				: self.model === 'area_ontology'
 						})
 
+						// register in the area destroy cascade (as the content path does)
+						if (self.ar_instances && !self.ar_instances.includes(ts_object_instance)) {
+							self.ar_instances.push(ts_object_instance)
+						}
 						await ts_object_instance.parse_search_result(
 							data.ts_search.result,
 							data.ts_search.found
