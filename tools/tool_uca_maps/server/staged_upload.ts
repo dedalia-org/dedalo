@@ -5,10 +5,11 @@
  * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`).
  */
 
-import { existsSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { DedaloError } from '../../../src/core/errors/index.ts';
-import { sanitizeSegment } from '../../../src/core/media/ingest/add_file.ts';
+import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
+import { deleteStagedFile, listStagedFiles } from '../../../src/core/media/ingest/staged_files.ts';
 import { uploadStagingBase } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
 
@@ -37,4 +38,29 @@ export function resolveStagedUpload(
 		});
 	}
 	return staged;
+}
+
+/** A capture this old was left by a request that never reached its handler (the
+ * network dropped after the upload): a live download takes seconds to minutes. */
+export const ORPHAN_CAPTURE_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * Deletes the caller's own completed files under `keyDir` older than
+ * `ORPHAN_CAPTURE_AGE_MS`. Only for a key_dir whose one reader deletes what it
+ * reads: core collects abandoned transfers, never a completed file.
+ */
+export function sweepOrphanCaptures(userId: number, keyDir: string): void {
+	const now = Date.now();
+	const dir = stagingDir(userId, keyDir);
+	for (const file of listStagedFiles(userId, keyDir)) {
+		let modified: number;
+		try {
+			modified = statSync(resolve(dir, file.name)).mtimeMs;
+		} catch {
+			continue; // raced with another download's delete: already gone
+		}
+		if (now - modified > ORPHAN_CAPTURE_AGE_MS) {
+			deleteStagedFile(userId, keyDir, file.name);
+		}
+	}
 }

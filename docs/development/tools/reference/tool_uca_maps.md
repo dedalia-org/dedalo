@@ -22,10 +22,11 @@ point.
 
 Key behaviours to know:
 
-- **No action writes section data.** Seventeen of the eighteen actions are `readOnly` and write only
+- **No action writes section data.** Sixteen of the eighteen actions are `readOnly` and write only
   a private scratch directory. The map's data is written by the component's own save path, never by
-  a tool action. The one exception, `stage_external_image`, stages a downloaded file for the
-  standard image ingest and is gated at write level.
+  a tool action. `raster_download` also deletes the map capture it was sent through the upload
+  door, so it is not `readOnly`. `stage_external_image` stages a downloaded file for the standard
+  image ingest and is gated at write level.
 - **Nothing is saved on pan, zoom or a drawing gesture.** A gesture marks the component dirty and the
   component's save button commits it. Adding or deleting an XYZ/WMS layer is itself the commit
   ("Add and save"): the tile proxy can only serve a source the server has numbered, and that save
@@ -73,9 +74,11 @@ orphaned scratch directories idle for an hour, at boot and then hourly. GDAL is 
   the input is Leaflet's WGS84 GeoJSON, labelled `EPSG:4326` with `-a_srs` (an assignment, no
   reprojection). A GeoJSON `crs` that GDAL would fetch is refused first (`assertOfflineGeoJsonCrs`).
 - `raster_download`: the map image as JPG, GIF or WebP (ImageMagick) or GeoTIFF (GDAL). PNG is
-  produced in the browser. The browser sends its PNG capture and, for a GeoTIFF, the view's corners
-  already in EPSG:3857 metres, so `gdal_translate -a_srs EPSG:3857 -a_ullr` georeferences without
-  a resampling `gdalwarp`.
+  produced in the browser. The browser stages its PNG capture through the upload door (key_dir
+  `uca_maps_map_image`: a real map is larger than a request's options may carry) and sends, for a
+  GeoTIFF, the view's corners already in EPSG:3857 metres, so `gdal_translate -a_srs EPSG:3857
+  -a_ullr` georeferences without a resampling `gdalwarp`. The action deletes the capture it read
+  (and the caller's captures over an hour old), so it is not `readOnly`.
 - `image_download`: an uploaded image in its current placement, without the display opacity, as
   GeoTIFF, PNG or JPG. The served file is warped into EPSG:3857 with its three corners as control
   points; `width` is a quality factor over the on-screen size. A CMYK source is refused with a reason.
@@ -210,7 +213,7 @@ whose media path they disclose.
 | --- | --- | --- | --- |
 | `get_capabilities` | `record_tipo`, `minLevel: 1`, `readOnly` | — | `{gdal, ogr2ogr, gdalTranslate, imagemagick, gazetteers, externalImages}` |
 | `vector_download` | `record_tipo`, `minLevel: 1`, `readOnly` | `format` (`shp`/`kml`), `geojson` | `{content_base64, filename, mime}` |
-| `raster_download` | `record_tipo`, `minLevel: 1`, `readOnly` | `format` (`jpg`/`gif`/`webp`/`geotiff`), `image_base64`, `bounds` (geotiff, EPSG:3857), `file_name` | `{content_base64, filename, mime}` |
+| `raster_download` | `record_tipo`, `minLevel: 1` | `format` (`jpg`/`gif`/`webp`/`geotiff`), `file_data` (`key_dir`, `tmp_name`), `bounds` (geotiff, EPSG:3857), `file_name` | `{content_base64, filename, mime}` |
 | `image_download` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `format` (`geotiff`/`png`/`jpg`), `corners`, `width`, `file_name`, `file_path` | `{content_base64, filename, mime}` |
 | `object_pdf_report` | `record_tipo`, `minLevel: 1`, `readOnly`; each image re-gated | `geojson`, `elevation`, `images` (record identities, max 30), `labels` | `{content_base64, filename, mime}` |
 | `upload_vector_layer` | `record_tipo`, `minLevel: 1`, `readOnly` | `file_data` (`key_dir`, `tmp_name`, `extension`), `epsg`, `zone`, `band` | `{geojson, feature_count}` |

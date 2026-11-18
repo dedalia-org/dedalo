@@ -45,7 +45,8 @@ const READ = { permission: 'record_tipo', minLevel: 1, readOnly: true } as const
 const GATES: Readonly<Record<string, Gate>> = {
 	get_capabilities: { ...READ, handler: getCapabilities },
 	vector_download: { ...READ, handler: vectorDownload },
-	raster_download: { ...READ, handler: rasterDownload },
+	// consumes its staged capture: ledgered, so a resend is replayed, not run on nothing
+	raster_download: { permission: 'record_tipo', minLevel: 1, handler: rasterDownload },
 	get_wms_layers: { ...READ, handler: getWmsLayers },
 	get_catastro_parcel: { ...READ, handler: getCatastroParcel },
 	get_administrative_unit: { ...READ, handler: getAdministrativeUnit },

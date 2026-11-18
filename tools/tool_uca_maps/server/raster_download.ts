@@ -27,7 +27,7 @@ import {
 	withScratchDir,
 } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
-import { resolveStagedUpload } from './staged_upload.ts';
+import { resolveStagedUpload, sweepOrphanCaptures } from './staged_upload.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -131,6 +131,7 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 	if (fileData.key_dir !== MAP_IMAGE_KEY_DIR) {
 		throw invalidOptions(`The map capture must be staged under '${MAP_IMAGE_KEY_DIR}'`);
 	}
+	sweepOrphanCaptures(ctx.userId, MAP_IMAGE_KEY_DIR);
 	const tmpName = String(fileData.tmp_name ?? '');
 	const staged = resolveStagedUpload(
 		ctx.userId,

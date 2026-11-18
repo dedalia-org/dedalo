@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { converterAdmission } from '../../src/core/media/engine/admission.ts';
@@ -16,6 +16,7 @@ import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { MAP_IMAGE_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { resolveMagickBinary, withScratchDir } from '../../tools/tool_uca_maps/server/gdal.ts';
+import { ORPHAN_CAPTURE_AGE_MS } from '../../tools/tool_uca_maps/server/staged_upload.ts';
 import {
 	contextOf,
 	dataOf,
@@ -94,6 +95,28 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 			);
 		await expect(call('')).rejects.toThrow(/Missing staged file/);
 		expectCode(await failureOf(call('never_staged.png')), 'tool.target_not_found');
+	});
+
+	// a request lost after its upload never reaches the handler that deletes the capture
+	test("the next download sweeps the caller's captures over an hour old, and nothing else", async () => {
+		const action = await loadAction('raster_download');
+		const past = (Date.now() - ORPHAN_CAPTURE_AGE_MS - 60_000) / 1000;
+		const stale = staged(SAMPLE_PNG_BASE64);
+		utimesSync(resolve(CAPTURES, stale.tmp_name), past, past);
+		const recent = staged(SAMPLE_PNG_BASE64);
+		stageFile(-1, 'old_other.png', 'x', 'image');
+		const other = resolve(stagingOf(-1), 'image', 'old_other.png');
+		utimesSync(other, past, past);
+		try {
+			await expect(
+				action.handler(contextOf({ format: 'bmp', file_data: staged(SAMPLE_PNG_BASE64) })),
+			).rejects.toThrow(/Unsupported raster format/);
+			expect(existsSync(resolve(CAPTURES, stale.tmp_name))).toBe(false);
+			expect(existsSync(resolve(CAPTURES, recent.tmp_name))).toBe(true);
+			expect(existsSync(other)).toBe(true);
+		} finally {
+			rmSync(other, { force: true });
+		}
 	});
 
 	test('a refused request still deletes its staged capture', async () => {
