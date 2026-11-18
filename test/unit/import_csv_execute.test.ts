@@ -830,7 +830,10 @@ describe("the Zotero import's record-number rules are ZOTERO's; the CSV section_
 	});
 
 	test('validate_import names the over-limit row too: the preflight says what the import will skip', async () => {
-		writeFileSync(resolve(dir, CSV), `section_id;${TEXT}\n2147483648;"above"\n`);
+		writeFileSync(
+			resolve(dir, CSV),
+			`section_id;${TEXT}\n2147483648;"above"\n99999999999999999999;"far above"\n`,
+		);
 		const loaded = await getLoadedTool('tool_import_dedalo_csv');
 		const res = (await mustGet(
 			loaded!.module.apiActions.validate_import,
@@ -850,10 +853,14 @@ describe("the Zotero import's record-number rules are ZOTERO's; the CSV section_
 				2,
 				"the row would be SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)",
 			],
+			[
+				3,
+				"the row would be SKIPPED — the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
+			],
 		]);
 	});
 
-	test('the limit is EXACT, in the planner: 2147483647 is a record number, 2147483648 is refused with the limit sentence, a digit run past an exact integer keeps the DATA-22 sentence', async () => {
+	test('the limit is EXACT, in the planner: 2147483647 is a record number, 2147483648 is refused with the limit sentence — and so is EVERY whole number above it, also a digit run past an exact integer; only a cell that is not a whole number keeps the DATA-22 sentence', async () => {
 		// Pure — the plan only (no record is created at the top of the range: an
 		// explicit id raises the section counter, and the suite's must stay usable).
 		const keyOnly = [
@@ -865,7 +872,17 @@ describe("the Zotero import's record-number rules are ZOTERO's; the CSV section_
 			},
 		];
 		const plan = await planCsvImport(
-			[['2147483647'], ['2147483648'], ['99999999999999999999'], ['12abc']],
+			[
+				['2147483647'],
+				['2147483648'],
+				['99999999999999999999'],
+				['12abc'],
+				['9007199254740991'],
+				['9007199254740993'],
+				['00000000000000000000000000000000000007'],
+				['00000000000000000000'],
+				['1e20'],
+			],
 			keyOnly as Parameters<typeof planCsvImport>[1],
 			SECTION,
 		);
@@ -876,20 +893,47 @@ describe("the Zotero import's record-number rules are ZOTERO's; the CSV section_
 				null,
 				"the section_id cell is '2147483648', which is above the highest record number (2147483647)",
 			],
-			[4, null, "the section_id cell is '99999999999999999999', which is not a record id"],
+			// DELIBERATE EDIT (review of 5628134342): this row pinned the DATA-22
+			// sentence. The ruling is "any whole number above 2147483647" — a digit
+			// run too long for an exact JS integer is one, and is told the limit.
+			[
+				4,
+				null,
+				"the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
+			],
 			[5, null, "the section_id cell is '12abc', which is not a record id"],
+			// The last exact integer, and the first digit run past it: one sentence.
+			[
+				6,
+				null,
+				"the section_id cell is '9007199254740991', which is above the highest record number (2147483647)",
+			],
+			[
+				7,
+				null,
+				"the section_id cell is '9007199254740993', which is above the highest record number (2147483647)",
+			],
+			// LENGTH is not magnitude: a long run of leading zeros is still record 7,
+			// and zero is not a record id — neither is "above the limit".
+			[8, 7, null],
+			[9, null, "the section_id cell is '00000000000000000000', which is not a record id"],
+			// Not the digit grammar, whatever Number() makes of it.
+			[10, null, "the section_id cell is '1e20', which is not a record id"],
 		]);
 	});
 
-	test('a digit run too long for an exact integer is still the CSV row skip (DATA-22), never the Zotero limit', async () => {
+	test("a digit run too long for an exact integer is the CSV row skip with the LIMIT sentence — the CSV door's own, never the Zotero limit", async () => {
 		const report = await importCsv(`section_id;${TEXT}\n99999999999999999999;"huge"\n`, [
 			KEY_COLUMN,
 			TEXT_COLUMN,
 		]);
 		expect(report.ok).toBe(true);
 		expect(report.errors).toEqual([
-			"Row 2: SKIPPED — the section_id cell is '99999999999999999999', which is not a record id",
+			"Row 2: SKIPPED — the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
 		]);
+		expect(report.created).toEqual([]);
+		expect(report.updated).toEqual([]);
+		expect(JSON.stringify(report)).not.toContain('zotero');
 	});
 
 	test('a free section_id is CREATED at it; a record holding a code, and one holding none, are UPDATED in place — no key guard, no take-over bucket, no refusal, no notice', async () => {

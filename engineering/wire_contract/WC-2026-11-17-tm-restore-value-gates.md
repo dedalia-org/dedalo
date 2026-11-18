@@ -112,8 +112,11 @@ above where they differ.
     `data.skipped[] += {reason: 'failed', code: '<the gate's code>', section_tipo, tipo,
     section_id, lang?}` — a unit's key (rolled back whole), or the RECORD (tipo = section_tipo)
     of a standalone cascade group whose wiped keys were being put back (the group rolls back).
-    The existing rule holds: `code` rides a LOCATED `failed` entry only, and it is the ONE
-    converter's (`toDedaloError(error).code`). Unlocated (reason alone, SEC-16): a unit OF the
+    The existing rule holds: ~~`code` rides a LOCATED `failed` entry only~~ (SUPERSEDED
+    2026-11-18 — the bare `code` rides an UNLOCATED `failed` entry too: addendum "the bare
+    `code` rides an UNLOCATED `failed` entry" at the end), and it is the ONE
+    converter's (`toDedaloError(error).code`). Unlocated (~~reason alone~~ reason + `code`
+    since that addendum, never a coordinate; SEC-16): a unit OF the
     record being restored (its record's scope is judged in the prelude the refusal
     interrupts). (The undelete of a MISSING row refused by a gate was listed here too —
     superseded the same day, review addendum below: its scope is judged first.) A unit whose prelude restore is refused

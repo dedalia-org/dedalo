@@ -71,6 +71,121 @@ const RAW_EXCEPTION_TEXT =
 const DEDALO_ERROR_LOG_FIELD =
 	/instanceof DedaloError\s*(?:\)\s*)?(?:\?|return)\s*(?:error|err)\.message/;
 
+/**
+ * Two views of a source, same length as it: `code` with every comment blanked,
+ * `structure` with every string / template TEXT blanked as well (the code
+ * inside a template's `${…}` stays). Brackets and commas found in `structure`
+ * are therefore the program's own — never a `;` or a `)` inside a log sentence.
+ */
+function sourceViews(source: string): { code: string; structure: string } {
+	const code = source.split('');
+	const structure = source.split('');
+	const blank = (index: number, both: boolean): void => {
+		if (source[index] === '\n') return;
+		structure[index] = ' ';
+		if (both) code[index] = ' ';
+	};
+	// One frame per open template: the `{` depth of the `${…}` being read, or -1
+	// while reading the template's own text.
+	const templates: number[] = [];
+	let i = 0;
+	while (i < source.length) {
+		const char = source[i];
+		const inText = templates.length > 0 && templates[templates.length - 1] === -1;
+		if (inText) {
+			if (char === '\\') {
+				blank(i, false);
+				blank(i + 1, false);
+				i += 2;
+			} else if (char === '`') {
+				templates.pop();
+				i++;
+			} else if (char === '$' && source[i + 1] === '{') {
+				templates[templates.length - 1] = 0;
+				i += 2;
+			} else {
+				blank(i, false);
+				i++;
+			}
+			continue;
+		}
+		if (char === '/' && source[i + 1] === '/') {
+			while (i < source.length && source[i] !== '\n') blank(i++, true);
+		} else if (char === '/' && source[i + 1] === '*') {
+			const end = source.indexOf('*/', i + 2);
+			const stop = end === -1 ? source.length : end + 2;
+			while (i < stop) blank(i++, true);
+		} else if (char === "'" || char === '"') {
+			i++;
+			while (i < source.length && source[i] !== char && source[i] !== '\n') {
+				if (source[i] === '\\') blank(i++, false);
+				blank(i++, false);
+			}
+			i++;
+		} else if (char === '`') {
+			templates.push(-1);
+			i++;
+		} else {
+			if (templates.length > 0) {
+				const top = templates.length - 1;
+				if (char === '{') templates[top] = (templates[top] ?? 0) + 1;
+				else if (char === '}') {
+					if (templates[top] === 0) templates[top] = -1;
+					else templates[top] = (templates[top] ?? 0) - 1;
+				}
+			}
+			i++;
+		}
+	}
+	return { code: code.join(''), structure: structure.join('') };
+}
+
+/**
+ * The arguments of EVERY call of `callee` in a source — `callee(…)` and
+ * `x.callee(…)` alike — each argument as written (comments blanked, trimmed).
+ * Bracket-matched on the structure view, so a call is found whatever follows
+ * it and whatever its arguments hold (a `;` in a sentence, a nested call).
+ */
+function callArguments(source: string, callee: string): string[][] {
+	const { code, structure } = sourceViews(source);
+	const calls: string[][] = [];
+	for (const match of structure.matchAll(new RegExp(`\\b${callee}\\(`, 'g'))) {
+		const open = (match.index ?? 0) + match[0].length;
+		const parts: string[] = [];
+		let depth = 1;
+		let start = open;
+		let at = open;
+		for (; at < structure.length && depth > 0; at++) {
+			const char = structure[at];
+			if (char === '(' || char === '[' || char === '{') depth++;
+			else if (char === ')' || char === ']' || char === '}') depth--;
+			else if (char === ',' && depth === 1) {
+				parts.push(code.slice(start, at).trim());
+				start = at + 1;
+			}
+		}
+		if (depth !== 0) throw new Error(`unbalanced ${callee}( call at offset ${open}`);
+		const last = code.slice(start, at - 1).trim();
+		if (last !== '') parts.push(last); // a trailing comma leaves nothing
+		calls.push(parts);
+	}
+	return calls;
+}
+
+/**
+ * THE OUTCOME the bulk-revert skip calls are held to (SEC-16): a wire `code`
+ * is handed over ONLY beside the literal `'failed'` reason. Measured on what a
+ * call PASSES, not on how a denial is spelled: a reason that is not that
+ * literal — `'out_of_scope'`, or an expression such as `outcome.kind` /
+ * `error.reason` that can evaluate to it — with a code argument is the
+ * violation, whatever the expression is. Returns the offending calls.
+ */
+function codeBesideNonFailedReason(calls: readonly string[][]): string[] {
+	return calls
+		.filter((parts) => parts.length >= 6 && parts[5] !== 'undefined' && parts[1] !== "'failed'")
+		.map((parts) => `skip(${parts.join(', ')})`);
+}
+
 describe('no raw exception text reaches the caller', () => {
 	test('bulk_revert: a denied row is COUNTED, never LOCATED; no refusal text rides skipped[] (SEC-16)', () => {
 		const source = read('tools/tool_time_machine/server/bulk_revert.ts');
@@ -138,20 +253,46 @@ describe('no raw exception text reaches the caller', () => {
 		// Where `code` comes from: every skip() call that passes a sixth argument
 		// passes the converter's code — `failureCodeOf(error)` or a record outcome's
 		// `outcome.code` — and both are `toDedaloError(error).code`, nothing else.
-		const skipCalls = [...source.matchAll(/\bskip\(([^;]*?)\);/g)].map((m) => m[1] ?? '');
-		const codeArguments = skipCalls
-			.map((args) => args.split(/,(?![^()]*\))/).map((arg) => arg.trim()))
-			.filter((args) => args.length >= 6 && args[5] !== '')
-			.map((args) => args[5]);
+		const skipCalls = callArguments(source, 'skip');
+		// Floored: a scan that found no call would make every loop below green.
+		expect(skipCalls.length).toBeGreaterThanOrEqual(12);
+		for (const parts of skipCalls) expect(parts.length).toBeGreaterThanOrEqual(4);
+		const codeArguments = skipCalls.filter((parts) => parts.length >= 6).map((parts) => parts[5]);
 		expect(codeArguments.length).toBeGreaterThanOrEqual(4);
 		for (const argument of codeArguments) {
 			expect(['failureCodeOf(error)', 'outcome.code', 'failure.code']).toContain(argument ?? '');
 		}
-		// A code is only ever handed over for a `failed` skip — never beside a denial.
-		for (const args of skipCalls) {
-			const parts = args.split(/,(?![^()]*\))/).map((arg) => arg.trim());
-			if (parts.length >= 6 && parts[5] !== '') expect(parts[1]).toBe("'failed'");
-			if (parts[1] === "'out_of_scope'") expect(parts.length).toBeLessThanOrEqual(4);
+		// A code is only ever handed over beside the LITERAL 'failed' reason — never
+		// beside a denial, and never beside a reason the call does not spell out
+		// (`outcome.kind`, `error.reason`: an expression that can BE the denial).
+		expect(codeBesideNonFailedReason(skipCalls)).toEqual([]);
+		// …and at least one call really is of each kind the rule separates.
+		expect(skipCalls.filter((parts) => parts[1] === "'out_of_scope'").length).toBe(1);
+		expect(
+			skipCalls.filter((parts) => !/^'[a-z_]+'$/.test(parts[1] ?? '')).length,
+		).toBeGreaterThanOrEqual(3);
+		// POSITIVE CONTROLS — the measure reds on each shape of the violation, also
+		// the ones a spelling match misses: a non-literal reason, a call that is
+		// not a statement, a sentence holding `;` and `)`, a nested template.
+		const violations = [
+			"report.skip(row, outcome.kind, false, null, 'error', outcome.code);",
+			"if (x) skip(locateKey(error.key), error.reason, located, error.message, 'warn', failureCodeOf(error));",
+			"const done = skip(row, 'out_of_scope', false, 'a; b) c', 'error', failure.code) ?? null;",
+			"skip(\n\trow, // 'failed',\n\tdenied ? 'out_of_scope' : 'failed',\n\tfalse,\n\t`x ${f(`y ${z}`, 1)}; )`,\n\t'error',\n\tfailureCodeOf(error),\n);",
+		];
+		for (const violation of violations) {
+			expect(codeBesideNonFailedReason(callArguments(violation, 'skip')), violation).toHaveLength(
+				1,
+			);
+		}
+		const lawful = [
+			'report.skip(row, outcome.kind, false, null);',
+			"skip(row, 'failed', inScope, 'a, b; c)', 'error', failureCodeOf(error));",
+			"skip(row, error.reason, located, `${a}, ${b}`, 'warn', undefined);",
+			"// skip(row, outcome.kind, false, null, 'error', outcome.code);",
+		];
+		for (const call of lawful) {
+			expect(codeBesideNonFailedReason(callArguments(call, 'skip')), call).toEqual([]);
 		}
 		expect(source).toMatch(
 			/function failureCodeOf\(error: unknown\): string \{\s*return toDedaloError\(error\)\.code;\s*\}/,

@@ -249,6 +249,20 @@ the exact bound in the planner. It replaces the test that pinned the previous ou
 defect awaiting this ruling. RED before; mutations red: `>` → `>=`, the bound one higher, the
 DATA-22 sentence reused, a file failure instead of the row skip.
 
+**Review, same day — a digit run past an exact integer is above the limit too.** The first cut
+read "above the limit" off `parseRecordIdCell`'s answer, which is `null` for a digit run too long
+to be an exact JS integer (`9007199254740993`, `99999999999999999999`): those rows were skipped
+with the point-3 sentence (`… which is not a record id`), against the ruling's "any whole number
+above 2147483647". Now the CSV planner asks the CELL (`isAboveRecordLimit`: the digit grammar and
+its magnitude, never its length — `0000…0007` is still record 7, `000…0` still not a record id),
+and every such row reads `… which is above the highest record number (2147483647)`, in `errors`
+and in `validate_import`'s `failed[]` alike. Still a row skip, still no key/code/notice;
+`parseRecordIdCell`, `readExistingSectionIds` and the Zotero door untouched. Gate: the planner's
+"limit is EXACT" case (its pinned row edited deliberately, + `9007199254740991` /
+`9007199254740993` / leading zeros / zero / `1e20`), the served row skip and the preflight — RED
+before; mutations red (the previous `parsed !== null` test, digit COUNT for magnitude, the
+grammar dropped, safe integers only, unsafe integers only).
+
 **Still open (measured 2026-11-18, not ruled):** an id above int4 INSIDE a cell — a relation
 locator's `section_id`, a `component_iri` item's `label_id` — rolls its row back as
 `failed[].msg: 'IGNORED: the row was rolled back — value "2147483648" is out of range for type
