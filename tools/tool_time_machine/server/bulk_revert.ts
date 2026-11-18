@@ -157,13 +157,15 @@ export type BulkRevertSkipReason =
 
 /**
  * One `skipped[]` entry. Coordinates are present ONLY for a unit the caller
- * was entitled to see (it passed the scope gate); an `out_of_scope` entry, or
- * a `failed` one from before the gate, carries the reason alone. `lang` names
- * the language region of a lang-sliced key. `code` rides a LOCATED `failed`
- * entry only: the converter's wire code of the error that failed the unit
- * (`tree.cycle` for a revert that would close a loop in a hierarchy;
- * `internal.unexpected` for an untyped throw) — a code, never the words
- * (WC-2026-10-11-parent-link-cycle-every-door).
+ * was entitled to see (it passed the scope gate); an `out_of_scope` entry
+ * carries the reason alone, and a `failed` one from before the gate carries no
+ * coordinates. `lang` names the language region of a lang-sliced key. `code`
+ * rides a `failed` entry only — located or not (owner ruling 2026-11-18,
+ * WC-2026-11-17-tm-restore-value-gates addendum): the converter's wire code of
+ * the error that failed the unit (`tree.cycle` for a revert that would close a
+ * loop in a hierarchy; `internal.unexpected` for an untyped throw) — a code,
+ * never the words (WC-2026-10-11-parent-link-cycle-every-door), and on an
+ * unlocated entry the ONLY thing beside the reason.
  */
 export interface BulkRevertSkipped {
 	reason: BulkRevertSkipReason;
@@ -172,6 +174,17 @@ export interface BulkRevertSkipped {
 	section_id?: number;
 	lang?: string;
 	code?: string;
+}
+
+/**
+ * An entry that names NO record (SEC-16): the reason, and — for `failed` only —
+ * the bare wire code of the error that failed it (owner ruling 2026-11-18: it
+ * tells the operator WHY, never WHICH record). Never a coordinate key. Every
+ * other reason carries nothing else, `out_of_scope` above all: a code beside it
+ * would tell a principal who may not see the record why its revert stopped.
+ */
+function unlocatedEntry(reason: BulkRevertSkipReason, code?: string): BulkRevertSkipped {
+	return reason === 'failed' && code !== undefined ? { reason, code } : { reason };
 }
 
 /** The wire code of the error that failed a unit (the ONE converter classifies it). */
@@ -369,9 +382,9 @@ function createReporter(requestId: string, bulkProcessId: number) {
 	const inexact: BulkRevertInexact[] = [];
 	const tally = { counter: 0, unchanged: 0, exactDone: 0 };
 	/**
-	 * Refuse a unit or record: the code goes on the wire, the coordinates (and
-	 * a `failed` unit's error code) only when it has passed the scope gate, and
-	 * the words (if any) to the log.
+	 * Refuse a unit or record: the reason goes on the wire, the coordinates only
+	 * when it has passed the scope gate, a `failed` one's error code either way
+	 * (unlocatedEntry), and the words (if any) to the log.
 	 */
 	const skip = (
 		row: Located,
@@ -391,7 +404,7 @@ function createReporter(requestId: string, bulkProcessId: number) {
 						lang: row.lang,
 						...(code === undefined ? {} : { code }),
 					}
-				: { reason },
+				: unlocatedEntry(reason, code),
 		);
 		const line = `[tool_time_machine/bulk_revert] request ${requestId}: bulk ${bulkProcessId} ${row.section_tipo}/${row.tipo}#${row.section_id} skipped (${reason})${detail === null ? '' : `: ${detail}`}`;
 		if (level === 'error') console.error(line);
@@ -477,7 +490,7 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 	const blocked = new Set<string>();
 	for (const failure of run.plan.unplanned) {
 		const row = { section_tipo: failure.sectionTipo, section_id: failure.sectionId, tipo: '' };
-		skip(row, 'failed', false, failure.detail, 'error');
+		skip(row, 'failed', false, failure.detail, 'error', failure.code);
 		blocked.add(recordAddress(failure.sectionTipo, failure.sectionId));
 	}
 	const unitContext = {
@@ -720,7 +733,7 @@ function reportGroupFailure(
 		reportRecord(report, error.marker, error.outcome, 'cascade_undelete');
 	} else {
 		const detail = error instanceof Error ? error.message : String(error);
-		report.skip(locateRecord(refused), 'failed', false, detail, 'error');
+		report.skip(locateRecord(refused), 'failed', false, detail, 'error', failureCodeOf(error));
 	}
 	for (const marker of group) {
 		if (marker === refused) continue;

@@ -92,7 +92,16 @@ describe('no raw exception text reaches the caller', () => {
 		expect(source).toMatch(/'failed'/);
 		// …the entry carries `reason:`, and the coordinates are gated on the scope flag.
 		expect(body).toMatch(/inScope\s*\?\s*\{\s*reason,\s*section_tipo:/);
-		expect(body).toMatch(/:\s*\{\s*reason\s*\}/);
+		// The UNLOCATED entry is built by ONE function, and it is the whole of what
+		// such an entry may be (owner ruling 2026-11-18, WC-2026-11-17 addendum):
+		// the reason, plus — for `failed` ONLY — the bare wire code. No coordinate
+		// key, no words; `out_of_scope` (and every other reason) is the reason
+		// alone, so a principal who may not see a record never learns why.
+		expect(body).toMatch(/:\s*unlocatedEntry\(reason, code\),/);
+		expect(source).toMatch(
+			/function unlocatedEntry\(reason: BulkRevertSkipReason, code\?: string\): BulkRevertSkipped \{\s*return reason === 'failed' && code !== undefined \? \{ reason, code \} : \{ reason \};\s*\}/,
+		);
+		expect(source.match(/unlocatedEntry\(/g) ?? []).toHaveLength(2); // the definition + the one call
 		// The located entry names ONLY the coordinate keys — the four, plus `lang`
 		// (the language region of a lang-sliced key, since the undo-log revert
 		// works per region: WC-2026-09-27-bulk-revert-undo-log) — and no `detail`
@@ -115,8 +124,9 @@ describe('no raw exception text reaches the caller', () => {
 		// ONE optional key besides the coordinates: the failed unit's registry `code`
 		// (2026-10-12, owner decision A; WC-2026-10-11-parent-link-cycle-every-door,
 		// 238feca0e4). A closed wire code (`tree.cycle`), never words — pinned below
-		// to the ONE converter. It rides the located entry only, so a denied row
-		// still carries nothing but `{ reason }`.
+		// to the ONE converter. Since 2026-11-18 it rides an UNLOCATED `failed`
+		// entry too (unlocatedEntry, above) — a denied row still carries nothing
+		// but `{ reason }`.
 		const CODE_SPREAD = /\.\.\.\(code === undefined \? \{\} : \{ code \}\),?/;
 		expect(entryText.match(new RegExp(CODE_SPREAD.source, 'g')) ?? []).toHaveLength(1);
 		const coordinates = entryText.replace(CODE_SPREAD, '');
@@ -133,9 +143,15 @@ describe('no raw exception text reaches the caller', () => {
 			.map((args) => args.split(/,(?![^()]*\))/).map((arg) => arg.trim()))
 			.filter((args) => args.length >= 6 && args[5] !== '')
 			.map((args) => args[5]);
-		expect(codeArguments.length).toBeGreaterThanOrEqual(2);
+		expect(codeArguments.length).toBeGreaterThanOrEqual(4);
 		for (const argument of codeArguments) {
-			expect(['failureCodeOf(error)', 'outcome.code']).toContain(argument ?? '');
+			expect(['failureCodeOf(error)', 'outcome.code', 'failure.code']).toContain(argument ?? '');
+		}
+		// A code is only ever handed over for a `failed` skip — never beside a denial.
+		for (const args of skipCalls) {
+			const parts = args.split(/,(?![^()]*\))/).map((arg) => arg.trim());
+			if (parts.length >= 6 && parts[5] !== '') expect(parts[1]).toBe("'failed'");
+			if (parts[1] === "'out_of_scope'") expect(parts.length).toBeLessThanOrEqual(4);
 		}
 		expect(source).toMatch(
 			/function failureCodeOf\(error: unknown\): string \{\s*return toDedaloError\(error\)\.code;\s*\}/,
@@ -146,6 +162,16 @@ describe('no raw exception text reaches the caller', () => {
 		for (const value of codeValues) {
 			if (value === 'string') continue; // the outcome TYPE's `code: string` field
 			expect(value).toBe('toDedaloError(error).code');
+		}
+		// `failure.code` — a key the PLAN could not place (bulk_revert_plan.ts): the
+		// same converter, kept beside the log text; `model.code` only relays it.
+		const plan = read('tools/tool_time_machine/server/bulk_revert_plan.ts');
+		const planCodes = [...plan.matchAll(/\bcode:\s*([^,}\n]+)/g)].map((m) =>
+			(m[1] ?? '').trim().replace(/;$/, ''),
+		);
+		expect(planCodes.filter((value) => value === 'toDedaloError(error).code')).toHaveLength(2);
+		for (const value of planCodes) {
+			expect(['string', 'toDedaloError(error).code', 'model.code']).toContain(value);
 		}
 		// The gate sets the flag AFTER both halves pass, and the denial passes `false`.
 		expect(body).toMatch(/skip\(row, 'out_of_scope', false, null\)/);

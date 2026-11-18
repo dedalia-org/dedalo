@@ -54,6 +54,7 @@
 import { AUDIT_TIPOS } from '../../../src/core/concepts/section.ts';
 import type { MatrixJsonbColumn } from '../../../src/core/db/matrix.ts';
 import { TM_ROLE } from '../../../src/core/db/time_machine.ts';
+import { toDedaloError } from '../../../src/core/errors/index.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
 	resolveDataframeSlotTipos,
@@ -204,6 +205,18 @@ export interface Unplanned {
 	sectionTipo: string;
 	sectionId: number;
 	detail: string;
+	/**
+	 * The wire code of the error that kept it out of the plan (the ONE
+	 * converter's) — absent for a structural refusal nothing threw. It rides the
+	 * unlocated `failed` entry: why, never which record.
+	 */
+	code?: string;
+}
+
+/** A model lookup that THREW, kept per tipo: its text for the log, its code for the entry. */
+interface FailedModel {
+	failed: string;
+	code: string;
 }
 
 /** The text of a thrown value, for the LOG. */
@@ -213,14 +226,14 @@ function errorText(error: unknown): string {
 
 /** The model of a tipo, memoized per plan; a throw is kept as its text. */
 async function modelOf(
-	models: Map<string, string | null | { failed: string }>,
+	models: Map<string, string | null | FailedModel>,
 	tipo: string,
-): Promise<string | null | { failed: string }> {
+): Promise<string | null | FailedModel> {
 	if (!models.has(tipo)) {
 		try {
 			models.set(tipo, await getModelByTipo(tipo));
 		} catch (error) {
-			models.set(tipo, { failed: errorText(error) });
+			models.set(tipo, { failed: errorText(error), code: toDedaloError(error).code });
 		}
 	}
 	return models.get(tipo) ?? null;
@@ -228,7 +241,7 @@ async function modelOf(
 
 /** Group the component rows into keys (see the header). */
 async function groupKeys(rows: readonly RunRow[], unplanned: Unplanned[]): Promise<RevertKey[]> {
-	const models = new Map<string, string | null | { failed: string }>();
+	const models = new Map<string, string | null | FailedModel>();
 	const keys = new Map<string, RevertKey>();
 	const failed = new Set<string>();
 	for (const row of rows) {
@@ -241,6 +254,7 @@ async function groupKeys(rows: readonly RunRow[], unplanned: Unplanned[]): Promi
 					sectionTipo: row.section_tipo,
 					sectionId: row.section_id,
 					detail: model.failed,
+					code: model.code,
 				});
 			}
 			continue;
@@ -366,6 +380,7 @@ async function attachSlots(unit: RevertUnit, unplanned: Unplanned[]): Promise<bo
 			sectionTipo: key.sectionTipo,
 			sectionId: key.sectionId,
 			detail: errorText(error),
+			code: toDedaloError(error).code,
 		});
 		return false;
 	}

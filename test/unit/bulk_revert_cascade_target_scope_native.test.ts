@@ -432,7 +432,7 @@ describe('a missing target’s SCOPE is asked before its image is: the reason ne
 		}, 60_000);
 	}
 
-	test('a typed throw from INSIDE the scope verdict locates nothing: `failed`, reason alone — located only once the verdict PASSED', async () => {
+	test('a typed throw from INSIDE the scope verdict locates nothing: `failed` with the bare code, no coordinates — located only once the verdict PASSED', async () => {
 		// The record's coordinates (and the refusal's code) ride a `failed` entry
 		// only when its scope gate had passed by the time it threw. Here the
 		// verdict itself throws a TYPED error for the restored row: nothing was
@@ -451,7 +451,8 @@ describe('a missing target’s SCOPE is asked before its image is: the reason ne
 		console.error = () => {};
 		try {
 			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
-			expect(data.skipped).toEqual([{ reason: 'failed' }]);
+			// The bare code says why (owner ruling 2026-11-18); nothing says which record.
+			expect(data.skipped).toEqual([{ reason: 'failed', code: 'internal.invariant' }]);
 		} finally {
 			console.error = quiet;
 		}

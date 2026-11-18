@@ -232,7 +232,10 @@ describe('bulk_revert_process — DB drive', () => {
 			mintedBulkIds.push(batch.bulk_process_id);
 			expect(batch.counter).toBe(0);
 			expect(batch.skipped.length).toBe(BATCH_KEYS);
-			for (const entry of batch.skipped) expect(entry).toEqual({ reason: 'failed' });
+			// Unlocated: the reason and the converter's bare code (an untyped throw
+			// is `internal.unexpected`) — why, never which record (owner ruling 2026-11-18).
+			for (const entry of batch.skipped)
+				expect(entry).toEqual({ reason: 'failed', code: 'internal.unexpected' });
 			const wire = JSON.stringify(response);
 			expect(wire).not.toContain('SENTINEL-');
 			expect(wire).not.toContain('/srv/secret');

@@ -985,10 +985,14 @@ describe('B — the bulk revert writes its images gated like a save', () => {
 		const report = await revert(bulk);
 		// The unit failed, and its record stayed wiped. Neither entry is located:
 		// a unit of the wiped record judges that record's scope in the very
-		// prelude the refusal interrupted (SEC-16 — reason alone).
-		expect(report.skipped.map((entry) => entry.reason).sort()).toEqual([
-			'cascade_delete_not_reverted',
-			'failed',
+		// prelude the refusal interrupted (SEC-16). The `failed` one says WHY —
+		// the gate's bare code (owner ruling 2026-11-18) — and names no record;
+		// the other carries the reason alone. EXACT shapes: no coordinate key.
+		expect(
+			[...report.skipped].sort((a, b) => a.reason.localeCompare(b.reason)) as unknown[],
+		).toEqual([
+			{ reason: 'cascade_delete_not_reverted' },
+			{ reason: 'failed', code: 'tool.snapshot_credential_unrestorable' },
 		]);
 		expect(report.counter).toBe(0);
 		expect(JSON.stringify(report)).not.toContain(PLAINTEXT);

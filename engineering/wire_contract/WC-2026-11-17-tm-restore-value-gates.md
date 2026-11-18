@@ -135,7 +135,7 @@ above where they differ.
   both restore doors; look-alikes refused) and B1–B6 (each bulk-revert writer: gated outcome,
   repeat revert unchanged / present, typed refusal, revert of the revert) — RED before;
   `password_hash_on_save` (the discriminator, the replay gate).
-- **Owner question left open:** a gate refusal reported UNLOCATED (a unit of the record being
+- **Owner question — RULED 2026-11-18 (the code rides; addendum at the end):** a gate refusal reported UNLOCATED (a unit of the record being
   restored) is `{reason: 'failed'}` with no `code` — unlocated entries
   carry the reason alone (SEC-16). Letting the bare error code ride an unlocated entry would
   tell the operator WHY without naming a record; it widens a security-reviewed channel, so it
@@ -188,3 +188,41 @@ Two corrections to the addendum above, same day, nothing released between them.
   the refused key written raw into the row that is rolled back — is equivalent by outcome);
   `password_hash_on_save` (the code, and that the message and the label a user reads name a
   password, never a link); `translation_write_gates_native` R4/R5/B3/B5/B6 on the new code.
+
+## Addendum 2026-11-18 — the bare `code` rides an UNLOCATED `failed` entry (owner ruling, TM Q1)
+
+The question left open above is ruled: yes. An unlocated `failed` entry says WHY; it still never
+says WHICH record.
+
+- **Before:** `data.skipped[] += {reason: 'failed'}` for every `failed` entry that had not passed
+  the scope gate — the `code` rode a LOCATED entry only.
+- **Now:** `{reason: 'failed', code: '<registry code>'}` — the ONE converter's
+  (`toDedaloError(error).code`), exactly the two keys. Never `section_tipo`, `section_id`,
+  `tipo` or `lang`; never words. Where it appears:
+  - a unit OF the record being restored whose prelude a gate refuses (B5:
+    `tool.snapshot_credential_unrestorable`) — the principal's scope over the record was judged
+    and passed inside the prelude the refusal interrupts; out of scope is answered
+    `out_of_scope` before any image is judged (previous addendum), so the code is never an
+    answer about a record the caller may not see;
+  - a record's door that threw before its scope verdict passed (the verdict itself included):
+    the code of that throw (`internal.invariant`, `internal.unexpected`, …);
+  - an untyped throw in a standalone cascade group outside a member's own door;
+  - a key the PLAN could not place because a lookup threw (`bulk_revert_plan.ts`: the model
+    lookup, the slot resolution) — `Unplanned.code`.
+- **Unchanged:** `{reason: 'out_of_scope'}` is the reason alone — no code is ever handed to that
+  skip (a principal who may not see a record does not learn why its revert stopped). Every other
+  reason, located or not, carries no `code`. A `failed` entry nothing THREW for has none either:
+  a key the plan refuses by its shape (`unplaceable`), a typed `RevertRefusal('failed')` (an undo
+  log that is not B/A pairs, a recorded frame naming no slot) — there is no error to classify.
+  Located `failed` entries are as before.
+- **One builder:** `bulk_revert.ts unlocatedEntry(reason, code)` is the whole of what an
+  unlocated entry may be.
+- **Client effect:** none — the summary counts `skipped[]` per `reason`
+  (`bulk_revert_summary_message`); `code` is for the caller reading the response.
+- **Gates:** `wire_disclosure_tripwire` (the pinned shape, edited deliberately: the unlocated
+  builder's exact body, a code handed to `failed` skips only, never beside `out_of_scope`, every
+  code the converter's — records and plan); `translation_write_gates_native` B5,
+  `bulk_revert_cascade_target_scope_native` (typed throw inside the verdict; the
+  `out_of_scope` cases stay exact `{reason}`), `tm_bulk_revert` (throw from before the gate) —
+  RED before; mutations red: no code on unlocated, code for any reason, a code handed to an
+  `out_of_scope` skip, the group failure's code dropped, the plan's code dropped.
