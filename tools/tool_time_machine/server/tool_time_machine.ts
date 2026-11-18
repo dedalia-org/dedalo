@@ -94,8 +94,10 @@ import {
 } from '../../../src/core/relations/dataframe_slots.ts';
 import { NOLAN } from '../../../src/core/relations/main_lanes.ts';
 import {
+	gateOrCollect,
 	gateReplayedColumns,
 	gateReplayedValue,
+	REFUSED_KEY,
 } from '../../../src/core/section/record/write_value_gates.ts';
 import {
 	type ChangedKeysDoor,
@@ -253,8 +255,13 @@ export async function restoreSectionRow(
  * bulk revert's undelete included; WC-2026-11-17-tm-restore-value-gates): the
  * image passes {@link gateReplayedColumns} like {@link restoreSectionRow}'s —
  * every component key cleaned as a save cleans it, a value the gates refuse
- * refusing the WHOLE row (typed, before the insert). A record that every gate
- * already saw comes back byte-identical.
+ * refusing the WHOLE row (typed). A record that every gate already saw comes
+ * back byte-identical.
+ *
+ * `judgeRestoredRow` — a verdict the caller must reach ON THE RESTORED ROW (the
+ * bulk revert's record-scope check). Without it a refused image throws before
+ * the insert. With it the verdict comes FIRST and the refusal after, in one
+ * transaction that either rolls back ({@link judgedInsert}).
  *
  * ONE insert through the chokepoint's birth entry (persistRecordBirth): the
  * covered observer slots left out and recomputed from truth, the `_hi` index
@@ -269,20 +276,61 @@ export async function restoreAbsentSectionRow(
 	sectionId: number,
 	stamp: { userId: number } | false,
 	actor: number,
+	judgeRestoredRow?: () => Promise<void>,
 ): Promise<Partial<Record<MatrixJsonbColumn, unknown>> | null> {
-	const image = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId);
-	const columns = await gateReplayedColumns(image.columns);
-	return (await persistRecordBirth({ table: image.table, sectionTipo, sectionId }, columns, stamp, {
-		actor,
-	})) as Partial<Record<MatrixJsonbColumn, unknown>> | null;
+	const insert = async (refusals?: DedaloError[]) => {
+		const image = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId, refusals);
+		const columns = await gateReplayedColumns(image.columns, refusals);
+		return (await persistRecordBirth(
+			{ table: image.table, sectionTipo, sectionId },
+			columns,
+			stamp,
+			{ actor },
+		)) as Partial<Record<MatrixJsonbColumn, unknown>> | null;
+	};
+	if (judgeRestoredRow === undefined) return insert();
+	// ONE transaction (the caller's, when it has one): the row judged below may
+	// lack the keys the gates refused, and must never outlive the refusal.
+	return withTransaction(() => judgedInsert(insert, judgeRestoredRow));
 }
 
-/** A TM section snapshot's jsonb columns (section ids converged), and its table. */
+/**
+ * {@link restoreAbsentSectionRow} for a caller with a VERDICT to reach on the
+ * restored row — the record-scope check of the bulk revert's undelete, which
+ * has nothing to search until the row exists. THE ORDER IS THE POINT: the
+ * verdict is asked BEFORE a value refusal surfaces, so what the caller is told
+ * about a record it may not see never depends on what that record's image
+ * holds (a refusal thrown at the gate answered `failed` where the scope check
+ * would have answered `out_of_scope`). So the refused keys are collected, the
+ * row is inserted WITHOUT them — every key written still passed the gates —
+ * `judge` is asked (it throws its own refusal), and only then is the first
+ * collected refusal thrown. Either throw rolls the row back: nothing of a
+ * refused image is ever committed. An address taken since answers `null`
+ * before either — no row of ours was there to judge.
+ */
+async function judgedInsert<R>(
+	insert: (refusals: DedaloError[]) => Promise<R | null>,
+	judge: () => Promise<void>,
+): Promise<R | null> {
+	const refusals: DedaloError[] = [];
+	const written = await insert(refusals);
+	if (written === null) return null;
+	await judge();
+	const [refusal] = refusals;
+	if (refusal !== undefined) throw refusal;
+	return written;
+}
+
+/**
+ * A TM section snapshot's jsonb columns (section ids converged), and its table.
+ * `refusals`: see {@link restorableRelationColumn}.
+ */
 async function snapshotColumns(
 	snapshot: unknown,
 	tmId: number,
 	sectionTipo: string,
 	sectionId: number,
+	refusals?: DedaloError[],
 ): Promise<{ table: string; columns: Partial<Record<MatrixJsonbColumn, unknown>> }> {
 	const table = await getMatrixTableFromTipo(sectionTipo);
 	if (table === null) {
@@ -310,7 +358,11 @@ async function snapshotColumns(
 	// restores CONVERGE on the canonical form instead of undoing the sweep.
 	await normalizeRestoredSectionIds(columns);
 	if (columns.relation !== undefined) {
-		columns.relation = restorableRelationColumn(columns.relation, tmId, sectionTipo, sectionId);
+		columns.relation = await restorableRelationColumn(
+			columns.relation,
+			{ tm_id: tmId, section_tipo: sectionTipo, section_id: sectionId },
+			refusals,
+		);
 	}
 	return { table, columns };
 }
@@ -321,24 +373,24 @@ async function snapshotColumns(
  * refuses the WHOLE restore (`tool.snapshot_unrestorable`) before anything is
  * written — never a live relation key holding a non-locator. A single locator
  * object is written as `[locator]`. Absent / non-object column → verbatim.
+ * With `refusals` (the judged undelete — write_value_gates.ts gateOrCollect) a
+ * refused key is left out and its error collected instead of thrown.
  */
-function restorableRelationColumn(
+async function restorableRelationColumn(
 	relation: unknown,
-	tmId: number,
-	sectionTipo: string,
-	sectionId: number,
-): unknown {
+	row: { tm_id: number; section_tipo: string; section_id: number },
+	refusals: DedaloError[] | undefined,
+): Promise<unknown> {
 	if (relation === null || typeof relation !== 'object' || Array.isArray(relation)) {
 		return relation;
 	}
 	const restored: Record<string, unknown> = {};
 	for (const [tipo, value] of Object.entries(relation as Record<string, unknown>)) {
-		restored[tipo] = restorableRelationValue(value, {
-			tm_id: tmId,
-			section_tipo: sectionTipo,
-			section_id: sectionId,
-			tipo,
-		});
+		const locators = await gateOrCollect(
+			() => restorableRelationValue(value, { ...row, tipo }),
+			refusals,
+		);
+		if (locators !== REFUSED_KEY) restored[tipo] = locators;
 	}
 	return restored;
 }

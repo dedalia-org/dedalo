@@ -273,11 +273,12 @@ export function undeleteCascadeRecord(
 
 /**
  * {@link undeleteCascadeRecord} for a member of a STANDALONE cascade group
- * (bulk_revert.ts undeleteStandaloneGroup): a typed refusal of a LIVE row's
- * restore is that record's `failed` outcome ({@link failedOnTypedRefusal}) —
- * located, with the refusal's code — instead of a throw the group could only
- * report without coordinates. A unit's prelude keeps the throwing door: its
- * own catch reports the refusal, located by the unit's own scope gate.
+ * (bulk_revert.ts undeleteStandaloneGroup): a typed refusal of the record's
+ * restore — a LIVE row's or a MISSING row's — is that record's `failed`
+ * outcome ({@link failedOnTypedRefusal}), with the refusal's code and located
+ * once its scope was judged, instead of a throw the group could only pin on
+ * its first member. A unit's prelude keeps the throwing door: its own catch
+ * reports the refusal, located by the unit's own scope gate.
  */
 export function undeleteStandaloneRecord(
 	marker: RecordMarker,
@@ -287,13 +288,24 @@ export function undeleteStandaloneRecord(
 }
 
 /**
- * The undelete of one role-4 marker (see undeleteCascadeRecord). `onLiveRow`
- * runs the restore of a row that EXISTS — after its own scope gate passed.
+ * How an undelete runs its restore. `scopeJudged` answers — when asked, after
+ * the restore threw — whether the record's own scope gate had PASSED by then.
+ */
+type RestoreRunner<F> = (
+	restore: () => Promise<RecordOutcome>,
+	scopeJudged: () => boolean,
+) => Promise<RecordOutcome | F>;
+
+/**
+ * The undelete of one role-4 marker (see undeleteCascadeRecord). `runRestore`
+ * runs the restore itself: of a row that EXISTS — its scope gate (mayUndelete)
+ * passed before — or of a MISSING one, whose scope is judged on the restored
+ * row, inside the restore (restoreDeletedRecord).
  */
 async function undeleteRecord<F>(
 	marker: RecordMarker,
 	context: RecordContext,
-	onLiveRow: (restore: () => Promise<RecordOutcome>) => Promise<RecordOutcome | F>,
+	runRestore: RestoreRunner<F>,
 ): Promise<RecordOutcome | F> {
 	const table = await getMatrixTableFromTipo(marker.sectionTipo);
 	const snapshot = decodeTmImage(marker.row.data, marker.row.data_absent);
@@ -309,24 +321,31 @@ async function undeleteRecord<F>(
 	if (live !== null) {
 		// The row is there: a SOFT cascade (delete_target) wiped it, or the address
 		// was taken again. restoreWipedRecord tells the two apart.
-		return onLiveRow(() =>
-			restoreWipedRecord(marker, table, snapshot as Record<string, unknown>, context),
+		return runRestore(
+			() => restoreWipedRecord(marker, table, snapshot as Record<string, unknown>, context),
+			() => true,
 		);
 	}
-	return restoreDeletedRecord(marker, snapshot, context);
+	const scope = { judged: false };
+	return runRestore(
+		() => restoreDeletedRecord(marker, snapshot, context, scope),
+		() => scope.judged,
+	);
 }
 
 /**
- * A restore of a LIVE row that a typed engine refusal stops — the value gates'
- * above all: `tool.snapshot_credential_unrestorable` for a credential image that is
+ * A restore that a typed engine refusal stops — the value gates' above all:
+ * `tool.snapshot_credential_unrestorable` for a credential image that is
  * neither a hash nor a v6 ciphertext, `ontology.invalid_node` for a number
- * under a malformed format node — is that record's `failed` outcome, with the
- * refusal's code — nothing of it is kept. LOCATED — the row exists, so its own
- * scope gate (mayUndelete) passed before the restore ran. A missing row's
- * undelete never comes here: its scope is judged on the restored row, which a
- * refused image never produces, so its refusal propagates and is reported
- * unlocated. Anything that is not a typed refusal propagates as the failure
- * it is.
+ * under a malformed format node, `tool.snapshot_unrestorable` for a relation
+ * key that is no locator array — is that record's `failed` outcome, with the
+ * refusal's code — nothing of it is kept. LOCATED exactly when the record's
+ * own scope gate had passed (`scopeJudged`): always for a LIVE row (mayUndelete
+ * ran before the restore); for a MISSING row once the restored row was judged
+ * — which a refused image no longer prevents (tool_time_machine.ts
+ * judgedInsert asks the scope BEFORE it throws the refusal, so a principal who
+ * may not see the record is answered `out_of_scope`, never `failed`). Anything
+ * that is not a typed refusal propagates as the failure it is.
  *
  * (!) The restore may have WRITTEN keys before the refusing one, into a
  * transaction it only JOINED (the cascade group's). The caller therefore turns
@@ -336,12 +355,13 @@ async function undeleteRecord<F>(
  */
 async function failedOnTypedRefusal(
 	restore: () => Promise<RecordOutcome>,
+	scopeJudged: () => boolean,
 ): Promise<RecordOutcome | FailedOutcome> {
 	try {
 		return await restore();
 	} catch (error) {
 		if (!isDedaloError(error)) throw error;
-		return failedOutcomeOf(error, true);
+		return failedOutcomeOf(error, scopeJudged());
 	}
 }
 
@@ -363,11 +383,19 @@ class UndeleteOutOfScope extends Error {}
  * row back without its marker could never be deleted again by reverting the
  * revert). Inside a unit's transaction all of it joins that one, and a scope
  * refusal refuses the unit, which rolls the row back with it.
+ *
+ * SCOPE BEFORE THE IMAGE'S OWN REFUSAL (SEC-16): the scope check is handed to
+ * the restore as its verdict on the restored row, so an image the value gates
+ * refuse is still judged for scope first — `out_of_scope` for a principal who
+ * may not see the record, whatever its history holds; the gate's typed
+ * refusal (thrown, the row rolled back) only for one who may. `scope.judged`
+ * tells the caller which it was.
  */
 async function restoreDeletedRecord(
 	marker: RecordMarker,
 	snapshot: unknown,
 	context: RecordContext,
+	scope: { judged: boolean },
 ): Promise<RecordOutcome> {
 	let columns: Awaited<ReturnType<typeof restoreAbsentSectionRow>>;
 	try {
@@ -384,13 +412,20 @@ async function restoreDeletedRecord(
 				marker.sectionId,
 				false,
 				context.userId,
+				async () => {
+					if (
+						!(await principalCanAccessRecord(
+							marker.sectionTipo,
+							marker.sectionId,
+							context.principal,
+						))
+					) {
+						throw new UndeleteOutOfScope();
+					}
+					scope.judged = true;
+				},
 			);
 			if (restored === null) return null;
-			if (
-				!(await principalCanAccessRecord(marker.sectionTipo, marker.sectionId, context.principal))
-			) {
-				throw new UndeleteOutOfScope();
-			}
 			await recordBulkBirth({
 				sectionTipo: marker.sectionTipo,
 				sectionId: marker.sectionId,

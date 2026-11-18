@@ -113,10 +113,10 @@ above where they differ.
     section_id, lang?}` — a unit's key (rolled back whole), or the RECORD (tipo = section_tipo)
     of a standalone cascade group whose wiped keys were being put back (the group rolls back).
     The existing rule holds: `code` rides a LOCATED `failed` entry only, and it is the ONE
-    converter's (`toDedaloError(error).code`). Unlocated (reason alone, SEC-16): the undelete
-    of a MISSING row refused by a gate — its scope is judged on the restored row, which a
-    refused image never produces — and a unit OF the record being restored (its record's scope
-    is judged in the prelude the refusal interrupts). A unit whose prelude restore is refused
+    converter's (`toDedaloError(error).code`). Unlocated (reason alone, SEC-16): a unit OF the
+    record being restored (its record's scope is judged in the prelude the refusal
+    interrupts). (The undelete of a MISSING row refused by a gate was listed here too —
+    superseded the same day, review addendum below: its scope is judged first.) A unit whose prelude restore is refused
     rolls back with it, and the record it could not bring back is counted
     `cascade_delete_not_reverted` as for any refused unit.
   - *Client effect:* `skipped[]` entries of a kind the client already renders (`failed` + `code`,
@@ -135,15 +135,15 @@ above where they differ.
   both restore doors; look-alikes refused) and B1–B6 (each bulk-revert writer: gated outcome,
   repeat revert unchanged / present, typed refusal, revert of the revert) — RED before;
   `password_hash_on_save` (the discriminator, the replay gate).
-- **Owner question left open:** a gate refusal reported UNLOCATED (a MISSING row's undelete; a
-  unit of the record being restored) is `{reason: 'failed'}` with no `code` — unlocated entries
+- **Owner question left open:** a gate refusal reported UNLOCATED (a unit of the record being
+  restored) is `{reason: 'failed'}` with no `code` — unlocated entries
   carry the reason alone (SEC-16). Letting the bare error code ride an unlocated entry would
   tell the operator WHY without naming a record; it widens a security-reviewed channel, so it
   is not done here. The words are in the server log, with the request id.
 
-## Addendum 2026-11-18 (review of 123d88b48d..39f6bd7622) — the credential refusal's own code
+## Addendum 2026-11-18 (review of 123d88b48d..39f6bd7622) — the credential refusal's own code; scope before the image
 
-A correction to the addendum above, same day, nothing released between them.
+Two corrections to the addendum above, same day, nothing released between them.
 
 - **(L1) A refused credential image has its own code.**
   - *Before:* `409 tool.snapshot_unrestorable` — the malformed-relation refusal
@@ -156,6 +156,35 @@ A correction to the addendum above, same day, nothing released between them.
     door: `apply_value` on a component row and on a whole-record row, the bulk revert's
     `skipped[].code`. `tool.snapshot_unrestorable` is again the relation refusal only. Same
     status, same category, same client policy (default) — only the code and its sentence.
-- **Gates:** `password_hash_on_save` (the code, and that the message and the label a user reads
-  name a password, never a link); `translation_write_gates_native` R4/R5/B3/B5/B6 on the new
-  code — RED before.
+- **(L2) An undelete judges the record's SCOPE before its image's refusal** (bulk revert, a
+  MISSING row: `bulk_revert_records.ts restoreDeletedRecord` → `tool_time_machine.ts
+  restoreAbsentSectionRow(…, judgeRestoredRow)`).
+  - *Before:* a missing row's scope is judged on the restored row, and a refused image — a
+    credential the value gates refuse (this entry), a relation key that is no locator array
+    (WC-2026-10-24) — threw before any row existed. So a principal who may NOT see the record
+    was answered `failed` instead of `out_of_scope`: at the in-scope unit that re-links it,
+    located and with the gate's `code`; `{reason: 'failed'}` for a standalone target. The
+    reason told them what an out-of-scope record's history holds. And a standalone target's
+    refusal was never located, in scope or not (a typed refusal of a nested member was logged
+    against the group's first member).
+  - *After:* the refused keys are collected (`write_value_gates.ts gateOrCollect`), the row is
+    inserted WITHOUT them inside the undelete's transaction, the scope is judged on it, and only
+    then is the first refusal thrown — either answer rolls the row back; nothing of a refused
+    image is committed, every key written passed the gates.
+    - out of scope → `{reason: 'out_of_scope'}`, reason alone, exactly as for a restorable
+      image;
+    - in scope → `failed` with the gate's `code`: located at the UNIT that re-links the target
+      (unchanged), or — a STANDALONE cascade target — at the record itself
+      (`section_tipo`, `tipo` = `section_tipo`, `section_id`), as a wiped record's refusal
+      already was. A typed throw from before the scope verdict (the verdict itself included)
+      still locates nothing.
+  - An address taken since the unlocked read still answers `cascade_delete_not_reverted`
+    before either. A unit OF the record being restored stays unlocated (its `inScope` is set
+    when its prelude returns). An untyped throw in a standalone group is logged against the
+    member being undeleted, no longer the group's first (log only; the wire entry is unlocated).
+- **Gates:** `bulk_revert_cascade_target_scope_native` (re-linked and standalone × out of scope
+  / in scope × credential / malformed relation; a typed throw inside the verdict locates
+  nothing; a restorable standalone control) — RED before, 9 of 10 mutations red (the tenth —
+  the refused key written raw into the row that is rolled back — is equivalent by outcome);
+  `password_hash_on_save` (the code, and that the message and the label a user reads name a
+  password, never a link); `translation_write_gates_native` R4/R5/B3/B5/B6 on the new code.

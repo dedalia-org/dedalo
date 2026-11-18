@@ -196,6 +196,38 @@ async function assertReplayableCredential(componentTipo: string, value: unknown)
 	});
 }
 
+/** What {@link gateOrCollect} answers for a key whose refusal went to the sink. */
+export const REFUSED_KEY: unique symbol = Symbol('a key the gates refused');
+
+/**
+ * Run the gate of ONE key of a whole-record image. Without a sink its refusal
+ * is THROWN — every door but one. With a sink, a TYPED refusal is pushed onto
+ * it and the key answered {@link REFUSED_KEY}: the caller leaves that key OUT
+ * of the image it writes.
+ *
+ * The sink exists for the one door that must ask something of the WRITTEN row
+ * before a refusal may surface — the undelete of a missing record, whose
+ * record scope is judged on the restored row (tool_time_machine.ts
+ * restoreAbsentSectionRow): throwing at the gate answered "this image is
+ * refused" to a principal the scope check had not judged yet. (!) A door that
+ * passes a sink owes the throw: an image missing a refused key is written only
+ * inside a transaction that the first collected refusal — or the verdict it
+ * waited for — rolls back. Anything untyped propagates either way.
+ */
+export async function gateOrCollect<T>(
+	gate: () => T | Promise<T>,
+	refusals: DedaloError[] | undefined,
+): Promise<T | typeof REFUSED_KEY> {
+	if (refusals === undefined) return gate();
+	try {
+		return await gate();
+	} catch (error) {
+		if (!isDedaloError(error)) throw error;
+		refusals.push(error);
+		return REFUSED_KEY;
+	}
+}
+
 /**
  * Gate a WHOLE-RECORD image (matrix jsonb column → key → value) — the
  * whole-record restore door. Every key that is a component storing in THAT
@@ -203,24 +235,36 @@ async function assertReplayableCredential(componentTipo: string, value: unknown)
  * section metadata, counters, the derived `relation_search` index, a tipo the
  * ontology no longer knows, a column that is not a key map. Returns new
  * containers in the image's own key order; the input is never mutated.
+ *
+ * `refusals` (see {@link gateOrCollect}): absent, the first key the gates
+ * refuse throws; given, every refused key is left out and its error collected.
  */
 export async function gateReplayedColumns<C extends string>(
 	columns: Readonly<Partial<Record<C, unknown>>>,
+	refusals?: DedaloError[],
 ): Promise<Partial<Record<C, unknown>>> {
 	const gated: Partial<Record<C, unknown>> = {};
 	for (const [column, keys] of Object.entries(columns) as [C, unknown][]) {
-		gated[column] = await gateReplayedColumn(column, keys);
+		gated[column] = await gateReplayedColumn(column, keys, refusals);
 	}
 	return gated;
 }
 
 /** One column of a whole-record image (see {@link gateReplayedColumns}). */
-async function gateReplayedColumn(column: string, keys: unknown): Promise<unknown> {
+async function gateReplayedColumn(
+	column: string,
+	keys: unknown,
+	refusals: DedaloError[] | undefined,
+): Promise<unknown> {
 	if (!isKeyMap(keys)) return keys;
 	const gated: Record<string, unknown> = {};
 	for (const [tipo, value] of Object.entries(keys)) {
 		const model = await componentStoredIn(column, tipo);
-		gated[tipo] = model === null ? value : await gateReplayedValue(model, tipo, value);
+		const stored =
+			model === null
+				? value
+				: await gateOrCollect(() => gateReplayedValue(model, tipo, value), refusals);
+		if (stored !== REFUSED_KEY) gated[tipo] = stored;
 	}
 	return gated;
 }

@@ -654,8 +654,10 @@ class GroupRefused extends Error {
  * the whole group lands, or none of it does (a child that cannot come back
  * would leave the parent's restored frames pointing at a missing record; a
  * child back without its parent is an orphan). The refusing member is
- * reported by its own outcome, the rest `cascade_delete_not_reverted`; the
- * file halves of the landed members run after COMMIT.
+ * reported by its own outcome — or, for a throw that is no typed refusal, as
+ * the member that was being undeleted (`at`), never the group's first by
+ * default — the rest `cascade_delete_not_reverted`; the file halves of the
+ * landed members run after COMMIT.
  */
 async function undeleteStandaloneGroup(
 	group: readonly RecordMarker[],
@@ -664,10 +666,13 @@ async function undeleteStandaloneGroup(
 	activity: ActivitySink,
 ): Promise<void> {
 	let landed: Relinked[];
+	// The member being undeleted: who an untyped throw is reported against.
+	let at = group[0] as RecordMarker;
 	try {
 		landed = await withTransaction(async () => {
 			const members: Relinked[] = [];
 			for (const marker of group) {
+				at = marker;
 				const outcome = await undeleteStandaloneRecord(marker, context);
 				if (!isHandled(outcome)) throw new GroupRefused(marker, outcome);
 				members.push(relinkedOf(marker, outcome));
@@ -675,7 +680,7 @@ async function undeleteStandaloneGroup(
 			return members;
 		});
 	} catch (error) {
-		reportGroupFailure(group, error, report);
+		reportGroupFailure(group, error, at, report);
 		return;
 	}
 	for (const member of landed) await reportLanded(member, report, activity);
@@ -700,13 +705,17 @@ function relinkedOf(
 	};
 }
 
-/** Report a standalone group that rolled back: the cause, then every other member. */
+/**
+ * Report a standalone group that rolled back: the cause, then every other
+ * member. `at` is the member that was being undeleted when it threw.
+ */
 function reportGroupFailure(
 	group: readonly RecordMarker[],
 	error: unknown,
+	at: RecordMarker,
 	report: Reporter,
 ): void {
-	const refused = error instanceof GroupRefused ? error.marker : (group[0] as RecordMarker);
+	const refused = error instanceof GroupRefused ? error.marker : at;
 	if (error instanceof GroupRefused) {
 		reportRecord(report, error.marker, error.outcome, 'cascade_undelete');
 	} else {
