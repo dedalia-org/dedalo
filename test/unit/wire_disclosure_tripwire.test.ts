@@ -186,6 +186,28 @@ function codeBesideNonFailedReason(calls: readonly string[][]): string[] {
 		.map((parts) => `skip(${parts.join(', ')})`);
 }
 
+/**
+ * THE SECOND OUTCOME (owner ruling 2026-11-18, TM Q3): a code reaches a skip
+ * call ONLY from a site that knows the principal's scope verdict PASSED. Closed
+ * list, anything else is the violation: `codeAfterVerdict(error, <flag>)` with a
+ * flag a verdict sets (never a literal, never a flag of another kind), or a
+ * record outcome's `outcome.code` (which its source only fills after the
+ * verdict — pinned separately). A plan failure's code, a bare converter call, a
+ * code under a literal `true`: red. Returns the offending calls.
+ */
+const VERDICT_FLAGS = ['verdictPassed(verdict)', 'atJudged'];
+function codeFromBeforeVerdict(calls: readonly string[][]): string[] {
+	return calls
+		.filter((parts) => parts.length >= 6 && parts[5] !== 'undefined' && parts[5] !== 'outcome.code')
+		.filter((parts) => {
+			const [call] = callArguments(parts[5] ?? '', 'codeAfterVerdict');
+			// The WHOLE argument is that one call — nothing chained after it.
+			const whole = parts[5] === `codeAfterVerdict(${(call ?? []).join(', ')})`;
+			return !(whole && call?.length === 2 && VERDICT_FLAGS.includes(call[1] ?? ''));
+		})
+		.map((parts) => `skip(${parts.join(', ')})`);
+}
+
 describe('no raw exception text reaches the caller', () => {
 	test('bulk_revert: a denied row is COUNTED, never LOCATED; no refusal text rides skipped[] (SEC-16)', () => {
 		const source = read('tools/tool_time_machine/server/bulk_revert.ts');
@@ -250,18 +272,62 @@ describe('no raw exception text reaches the caller', () => {
 		);
 		expect(entryKeys.sort()).toEqual(['lang', 'reason', 'section_id', 'section_tipo', 'tipo']);
 		expect(coordinates).not.toMatch(/detail|\.\.\.|[{}]/);
-		// Where `code` comes from: every skip() call that passes a sixth argument
-		// passes the converter's code — `failureCodeOf(error)` or a record outcome's
-		// `outcome.code` — and both are `toDedaloError(error).code`, nothing else.
+		// Where `code` comes from, and WHEN (owner ruling 2026-11-18, TM Q3 — edited
+		// deliberately: was four code-passing calls, one of them the plan's
+		// `failure.code`, all unconditional): every skip() call that passes a sixth
+		// argument passes the converter's code ONLY for a failure after the scope
+		// verdict passed — `codeAfterVerdict(error, <verdict flag>)` or a record
+		// outcome's `outcome.code`. A plan failure passes none.
 		const skipCalls = callArguments(source, 'skip');
 		// Floored: a scan that found no call would make every loop below green.
 		expect(skipCalls.length).toBeGreaterThanOrEqual(12);
 		for (const parts of skipCalls) expect(parts.length).toBeGreaterThanOrEqual(4);
 		const codeArguments = skipCalls.filter((parts) => parts.length >= 6).map((parts) => parts[5]);
-		expect(codeArguments.length).toBeGreaterThanOrEqual(4);
-		for (const argument of codeArguments) {
-			expect(['failureCodeOf(error)', 'outcome.code', 'failure.code']).toContain(argument ?? '');
+		// EXACTLY three: the unit loop's catch, the cascade group's catch, a record outcome.
+		expect([...codeArguments].sort()).toEqual([
+			'codeAfterVerdict(error, atJudged)',
+			'codeAfterVerdict(error, verdictPassed(verdict))',
+			'outcome.code',
+		]);
+		expect(codeFromBeforeVerdict(skipCalls)).toEqual([]);
+		// POSITIVE CONTROLS — each pre-verdict shape is red, the lawful ones are not.
+		const preVerdict = [
+			"skip(row, 'failed', false, failure.detail, 'error', failure.code);",
+			"skip(row, 'failed', inScope, detail, 'error', failureCodeOf(error));",
+			"skip(row, 'failed', false, detail, 'error', toDedaloError(error).code);",
+			"skip(row, 'failed', false, detail, 'error', codeAfterVerdict(error, true));",
+			"skip(row, 'failed', false, detail, 'error', codeAfterVerdict(error, inScope || true));",
+			"skip(row, 'failed', false, detail, 'error', codeAfterVerdict(error, atJudged) ?? failure.code);",
+			"skip(row, 'failed', false, detail, 'error', codeAfterVerdict(error, atJudged) ?? failureCodeOf(error));",
+		];
+		for (const violation of preVerdict) {
+			expect(codeFromBeforeVerdict(callArguments(violation, 'skip')), violation).toHaveLength(1);
 		}
+		for (const call of [
+			"skip(row, 'failed', false, failure.detail, 'error');",
+			"skip(row, 'failed', inScope, detail, 'error', codeAfterVerdict(error, verdictPassed(verdict)));",
+			"report.skip(row, 'failed', outcome.located, outcome.detail, 'error', outcome.code);",
+		]) {
+			expect(codeFromBeforeVerdict(callArguments(call, 'skip')), call).toEqual([]);
+		}
+		// The plan's failures are reported with NO sixth argument…
+		expect(
+			skipCalls.filter((parts) => parts[3] === 'failure.detail').map((parts) => parts.length),
+		).toEqual([5]);
+		// …the verdict flags are set by a verdict, never to a literal `true` up front:
+		// `atJudged` only inside the record door's callback, `verdict.own` from the
+		// gate's own answer or after the prelude judged the restored row.
+		expect(source.match(/\batJudged = true;/g) ?? []).toHaveLength(1);
+		expect(source).toMatch(
+			/undeleteStandaloneRecord\(marker, context, \(\) => \{\s*atJudged = true;\s*\}\)/,
+		);
+		expect(source).toMatch(/let atJudged = false;/);
+		expect(source).toMatch(/const verdict: UnitVerdict = \{ own: false, memberOpen: false \};/);
+		expect(source).toMatch(
+			/function verdictPassed\(verdict: UnitVerdict\): boolean \{\s*return verdict\.own && !verdict\.memberOpen;\s*\}/,
+		);
+		// (That the unit's flag is still unset while its gate runs is driven, not
+		// read: tm_bulk_revert, a throw from INSIDE the scope gate.)
 		// A code is only ever handed over beside the LITERAL 'failed' reason — never
 		// beside a denial, and never beside a reason the call does not spell out
 		// (`outcome.kind`, `error.reason`: an expression that can BE the denial).
@@ -294,26 +360,38 @@ describe('no raw exception text reaches the caller', () => {
 		for (const call of lawful) {
 			expect(codeBesideNonFailedReason(callArguments(call, 'skip')), call).toEqual([]);
 		}
+		// The ONE place this file turns an error into a code is conditional on the verdict.
 		expect(source).toMatch(
-			/function failureCodeOf\(error: unknown\): string \{\s*return toDedaloError\(error\)\.code;\s*\}/,
+			/function codeAfterVerdict\(error: unknown, verdictPassed: boolean\): string \| undefined \{\s*return verdictPassed \? toDedaloError\(error\)\.code : undefined;\s*\}/,
 		);
+		expect(sourceViews(source).code.match(/toDedaloError\(/g) ?? []).toHaveLength(1);
+		expect(source).not.toMatch(/failureCodeOf/);
+		// A record outcome's code: the same converter, ONCE, and only in the branch
+		// its scope verdict passed (`located`) — the other branch has no `code` key.
 		const records = read('tools/tool_time_machine/server/bulk_revert_records.ts');
-		const codeValues = [...records.matchAll(/\bcode:\s*([^,}\n]+)/g)].map((m) => m[1]?.trim());
-		expect(codeValues.length).toBeGreaterThanOrEqual(1);
-		for (const value of codeValues) {
-			if (value === 'string') continue; // the outcome TYPE's `code: string` field
-			expect(value).toBe('toDedaloError(error).code');
-		}
-		// `failure.code` — a key the PLAN could not place (bulk_revert_plan.ts): the
-		// same converter, kept beside the log text; `model.code` only relays it.
-		const plan = read('tools/tool_time_machine/server/bulk_revert_plan.ts');
-		const planCodes = [...plan.matchAll(/\bcode:\s*([^,}\n]+)/g)].map((m) =>
-			(m[1] ?? '').trim().replace(/;$/, ''),
+		const keyValues = (text: string): string[] =>
+			[...sourceViews(text).code.matchAll(/\bcode\??:\s*([^,}\n]+)/g)].map((m) =>
+				(m[1] ?? '').trim().replace(/;$/, ''),
+			);
+		expect(keyValues(records).filter((value) => value !== 'string')).toEqual([
+			'toDedaloError(error).code',
+		]);
+		expect(sourceViews(records).code.match(/toDedaloError\(/g) ?? []).toHaveLength(1);
+		expect(records).toMatch(
+			/return located\s*\? \{ kind: 'failed', detail, located, code: toDedaloError\(error\)\.code \}\s*: \{ kind: 'failed', detail, located \};/,
 		);
-		expect(planCodes.filter((value) => value === 'toDedaloError(error).code')).toHaveLength(2);
-		for (const value of planCodes) {
-			expect(['string', 'toDedaloError(error).code', 'model.code']).toContain(value);
-		}
+		// A key the PLAN could not place (bulk_revert_plan.ts) keeps NO code: the
+		// plan runs before any scope gate (edited deliberately — it held two
+		// converter calls and relayed them as `failure.code`).
+		const plan = read('tools/tool_time_machine/server/bulk_revert_plan.ts');
+		expect(plan).toMatch(/export interface Unplanned \{/);
+		expect(keyValues(plan)).toEqual([]);
+		expect(sourceViews(plan).code).not.toMatch(/toDedaloError|\.code\b/);
+		// (control: the measure sees a code key when there is one)
+		expect(keyValues('x.push({ detail, code: toDedaloError(error).code });')).toEqual([
+			'toDedaloError(error).code',
+		]);
+		expect(keyValues('interface U { code?: string }')).toEqual(['string']);
 		// The gate sets the flag AFTER both halves pass, and the denial passes `false`.
 		expect(body).toMatch(/skip\(row, 'out_of_scope', false, null\)/);
 		expect(body).toMatch(/inScope = true;/);

@@ -128,7 +128,13 @@ let bulkTable = '';
 interface RevertData {
 	counter: number;
 	bulk_process_id: number;
-	skipped: { reason: string; code?: string; section_tipo?: string; section_id?: number }[];
+	skipped: {
+		reason: string;
+		code?: string;
+		section_tipo?: string;
+		tipo?: string;
+		section_id?: number;
+	}[];
 }
 
 async function mint(): Promise<number> {
@@ -432,16 +438,58 @@ describe('a missing target’s SCOPE is asked before its image is: the reason ne
 		}, 60_000);
 	}
 
-	test('a typed throw from INSIDE the scope verdict locates nothing: `failed` with the bare code, no coordinates — located only once the verdict PASSED', async () => {
-		// The record's coordinates (and the refusal's code) ride a `failed` entry
-		// only when its scope gate had passed by the time it threw. Here the
-		// verdict itself throws a TYPED error for the restored row: nothing was
-		// judged, so nothing is located — typed or not.
-		const { target, revertId } = await deletedStandaloneIn(ACL_PROJECT_ID);
+	// The record's coordinates AND the error's code ride a `failed` entry only
+	// when its scope verdict had PASSED by the time it threw (owner ruling
+	// 2026-11-18, TM Q3). Here the verdict itself throws for the restored row:
+	// nothing was judged, so the entry is the reason ALONE — typed (the record
+	// door's typed-refusal outcome) or untyped (the cascade group's own catch).
+	const PLANTED = {
+		typed: () => new DedaloError('internal.invariant', { message: 'planted in the scope verdict' }),
+		untyped: () => new TypeError('planted in the scope verdict'),
+	};
+	for (const kind of Object.keys(PLANTED) as (keyof typeof PLANTED)[]) {
+		test(`a ${kind} throw from INSIDE the scope verdict: \`failed\` and nothing else — no coordinates, NO CODE (both ride only once the verdict PASSED)`, async () => {
+			const { target, revertId } = await deletedStandaloneIn(ACL_PROJECT_ID);
+			let thrown = 0;
+			mock.module(RECORD_SCOPE, () => ({
+				...REAL_RECORD_SCOPE,
+				principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
+					if (sectionTipo === FSECTION && sectionId === target) {
+						thrown += 1;
+						throw PLANTED[kind]();
+					}
+					return REAL_RECORD_SCOPE.principalCanAccessRecord(sectionTipo, sectionId, who);
+				},
+			}));
+			const quiet = console.error;
+			console.error = () => {};
+			try {
+				const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+				// EXACT: the reason alone. A code here would tell a principal no verdict
+				// has cleared for this record why its revert stopped.
+				expect(data.skipped).toEqual([{ reason: 'failed' }]);
+				// The planted throw is what failed it (not a refusal further up).
+				expect(thrown).toBeGreaterThanOrEqual(1);
+			} finally {
+				console.error = quiet;
+			}
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		}, 60_000);
+	}
+
+	test('RE-LINKED: a throw from INSIDE the target’s scope verdict fails the in-scope unit at ITS coordinates with NO CODE — the unit’s verdict passed, the target’s had not', async () => {
+		// The unit's own record (the host) passed its gate, so the entry is located
+		// there; but the error comes from inside the verdict over the cascade
+		// TARGET, which has not passed — its code is not the caller's to learn
+		// (owner ruling 2026-11-18, TM Q3). The CONTROL above (a value gate
+		// refusing AFTER the target's verdict passed) keeps its code.
+		const { host, target, revertId } = await deletedTargetIn(ACL_PROJECT_ID);
+		let thrown = 0;
 		mock.module(RECORD_SCOPE, () => ({
 			...REAL_RECORD_SCOPE,
 			principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
 				if (sectionTipo === FSECTION && sectionId === target) {
+					thrown += 1;
 					throw new DedaloError('internal.invariant', { message: 'planted in the scope verdict' });
 				}
 				return REAL_RECORD_SCOPE.principalCanAccessRecord(sectionTipo, sectionId, who);
@@ -451,12 +499,19 @@ describe('a missing target’s SCOPE is asked before its image is: the reason ne
 		console.error = () => {};
 		try {
 			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
-			// The bare code says why (owner ruling 2026-11-18); nothing says which record.
-			expect(data.skipped).toEqual([{ reason: 'failed', code: 'internal.invariant' }]);
+			expect(thrown).toBeGreaterThanOrEqual(1);
+			// EXACT: the unit, located and codeless; the target it could not bring
+			// back, the reason alone.
+			expect(data.skipped).toEqual([
+				{ reason: 'failed', section_tipo: SECTION, tipo: HMAIN, section_id: host },
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+			expect(JSON.stringify(data)).not.toContain('internal.');
 		} finally {
 			console.error = quiet;
 		}
 		expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(frameTargets(await stored(SECTION, host, 'relation', HSLOT))).toEqual([]);
 	}, 60_000);
 
 	test('CONTROL — a STANDALONE target with a restorable image: outside → out_of_scope, inside → it comes back', async () => {

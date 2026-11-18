@@ -206,12 +206,16 @@ says WHICH record.
     `tool.snapshot_credential_unrestorable`) — the principal's scope over the record was judged
     and passed inside the prelude the refusal interrupts; out of scope is answered
     `out_of_scope` before any image is judged (previous addendum), so the code is never an
-    answer about a record the caller may not see;
-  - a record's door that threw before its scope verdict passed (the verdict itself included):
-    the code of that throw (`internal.invariant`, `internal.unexpected`, …);
-  - an untyped throw in a standalone cascade group outside a member's own door;
-  - a key the PLAN could not place because a lookup threw (`bulk_revert_plan.ts`: the model
-    lookup, the slot resolution) — `Unplanned.code`.
+    answer about a record the caller may not see. **This bullet's claim holds for THIS case
+    only** — a failure AFTER the verdict passed; it never covered the three below (scoped
+    2026-11-18, TM Q3 addendum at the end);
+  - ~~a record's door that threw before its scope verdict passed (the verdict itself included):
+    the code of that throw (`internal.invariant`, `internal.unexpected`, …);~~
+  - ~~an untyped throw in a standalone cascade group outside a member's own door;~~
+  - ~~a key the PLAN could not place because a lookup threw (`bulk_revert_plan.ts`: the model
+    lookup, the slot resolution) — `Unplanned.code`.~~
+    (the three struck: SUPERSEDED 2026-11-18 by the TM Q3 addendum at the end — a failure from
+    before or inside the verdict carries NO code; history kept.)
 - **Unchanged:** `{reason: 'out_of_scope'}` is the reason alone — no code is ever handed to that
   skip (a principal who may not see a record does not learn why its revert stopped). Every other
   reason, located or not, carries no `code`. A `failed` entry nothing THREW for has none either:
@@ -229,3 +233,45 @@ says WHICH record.
   `out_of_scope` cases stay exact `{reason}`), `tm_bulk_revert` (throw from before the gate) —
   RED before; mutations red: no code on unlocated, code for any reason, a code handed to an
   `out_of_scope` skip, the group failure's code dropped, the plan's code dropped.
+
+## Addendum 2026-11-18 — the `code` rides an UNLOCATED `failed` entry ONLY after the scope verdict passed (owner ruling, TM Q3)
+
+Owner ruling 2026-11-18 (TM Q3, "Only after access check"), narrowing the TM Q1 addendum above:
+the bare `code` tells the caller WHY a revert stopped, and that is the caller's to learn only once
+the principal's scope verdict over that unit / record has PASSED.
+
+- **Before (b29c313652):** every unlocated `failed` entry something threw for was
+  `{reason: 'failed', code}` — also a failure from before any scope gate.
+- **Now:** `{reason: 'failed'}` — the reason ALONE — when the failure happened before or inside
+  the verdict:
+  - a key the PLAN could not place because a lookup threw (`bulk_revert_plan.ts`: the model
+    lookup, the slot resolution). The plan runs before any gate; `Unplanned` keeps no code;
+  - a throw from the unit's gate itself (`unitInScope`: the grant read, `principalCanAccessRecord`);
+  - a throw from a record door before or inside its verdict (`mayUndelete`, the restored row's
+    `principalCanAccessRecord`, the born-record gate) — typed or untyped;
+  - a throw in a unit's prelude while a cascade target's own verdict has not passed yet — the
+    entry is LOCATED at the unit (its own record passed its gate) and still carries no code: the
+    error is about the target, whose verdict has not passed.
+- **Unchanged — `{reason: 'failed', code}`** for a failure AFTER the verdict passed that the
+  report still does not locate: a unit OF the record being restored whose prelude a value gate
+  refuses once that record's scope was judged (B5: `tool.snapshot_credential_unrestorable`), and
+  an untyped throw in a standalone cascade group after the member's verdict passed. Located
+  `failed` entries, `out_of_scope` (reason alone, always) and every other reason: as before.
+- **How it is threaded:** one conditional converter call, `bulk_revert.ts
+  codeAfterVerdict(error, verdictPassed)`; the unit loop's `UnitVerdict` (`own` — the unit's
+  record verdict passed, at the gate or on the restored row in the prelude; `memberOpen` — a
+  prelude target's verdict still pending); the record doors report their verdict through
+  `onScopePassed` (the existing `scope.judged`), also when the restore then throws; a record
+  outcome's `code` exists only when `located` (`bulk_revert_records.ts failedOutcomeOf`).
+- **Client effect:** none (the summary counts per `reason`).
+- **Gates:** `bulk_revert_cascade_target_scope_native` (a typed AND an untyped throw inside the
+  verdict → exactly `{reason: 'failed'}`; a re-linked target's verdict throwing → the unit's
+  located entry without `code`), `tm_bulk_revert` (a throw before the gate — the plan —
+  and inside the unit's gate → exactly `{reason: 'failed'}`; after the gate → located with code),
+  `translation_write_gates_native` B5 (exact, WITH code), `wire_disclosure_tripwire` (pinned
+  shape edited deliberately: exactly three code-passing skip calls, each
+  `codeAfterVerdict(error, <verdict flag>)` or a record outcome's code; a plan code, a bare
+  converter call or a literal flag is red — positive controls; the plan file holds no code).
+  RED before; mutations red: code always, code never (unit/group; record outcome), the plan's
+  code kept, the unit's verdict pre-passed, the group member's verdict pre-passed, the prelude member's
+  pending verdict ignored.

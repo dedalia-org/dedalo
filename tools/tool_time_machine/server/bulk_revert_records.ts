@@ -204,9 +204,11 @@ export type RecordOutcome =
 /**
  * A record's door THREW for it. `located`: the record's scope gate had passed
  * before the throw (SEC-16). Its code is the error registry's, by the ONE
- * converter (failedOutcomeOf) — wire_disclosure_tripwire pins that.
+ * converter (failedOutcomeOf) — and it is there ONLY when that gate had passed
+ * (owner ruling 2026-11-18, TM Q3): a throw before or inside the verdict keeps
+ * nothing of the error but the log's text. wire_disclosure_tripwire pins both.
  */
-export type FailedOutcome = { kind: 'failed'; detail: string; located: boolean; code: string };
+export type FailedOutcome = { kind: 'failed'; detail: string; located: boolean; code?: string };
 
 /** A born record's D2 outcome: a RecordOutcome, or the delete door THREW for it. */
 export type BornOutcome = RecordOutcome | FailedOutcome;
@@ -263,12 +265,16 @@ async function mayUndelete(
  * record by reference passed ITS record's gate, which says nothing about this
  * one's. Inside a unit's transaction the row half joins it and the file half
  * is handed back as `afterCommit`; standalone, the whole undelete runs now.
+ * `onScopePassed` is told when the record's own scope verdict PASSED — also
+ * when the restore then throws: the caller's catch reads it to decide whether
+ * the error's code may ride the report (owner ruling 2026-11-18, TM Q3).
  */
 export function undeleteCascadeRecord(
 	marker: RecordMarker,
 	context: RecordContext,
+	onScopePassed?: () => void,
 ): Promise<RecordOutcome> {
-	return undeleteRecord(marker, context, (restore) => restore());
+	return undeleteRecord(marker, context, (restore) => restore(), onScopePassed);
 }
 
 /**
@@ -283,8 +289,9 @@ export function undeleteCascadeRecord(
 export function undeleteStandaloneRecord(
 	marker: RecordMarker,
 	context: RecordContext,
+	onScopePassed?: () => void,
 ): Promise<RecordOutcome | FailedOutcome> {
-	return undeleteRecord(marker, context, failedOnTypedRefusal);
+	return undeleteRecord(marker, context, failedOnTypedRefusal, onScopePassed);
 }
 
 /**
@@ -306,7 +313,17 @@ async function undeleteRecord<F>(
 	marker: RecordMarker,
 	context: RecordContext,
 	runRestore: RestoreRunner<F>,
+	onScopePassed?: () => void,
 ): Promise<RecordOutcome | F> {
+	// Whatever the restore does — return, refuse, throw — the caller learns
+	// whether the record's scope verdict had passed by then.
+	const run = async (restore: () => Promise<RecordOutcome>, scopeJudged: () => boolean) => {
+		try {
+			return await runRestore(restore, scopeJudged);
+		} finally {
+			if (scopeJudged()) onScopePassed?.();
+		}
+	};
 	const table = await getMatrixTableFromTipo(marker.sectionTipo);
 	const snapshot = decodeTmImage(marker.row.data, marker.row.data_absent);
 	const live =
@@ -321,13 +338,13 @@ async function undeleteRecord<F>(
 	if (live !== null) {
 		// The row is there: a SOFT cascade (delete_target) wiped it, or the address
 		// was taken again. restoreWipedRecord tells the two apart.
-		return runRestore(
+		return run(
 			() => restoreWipedRecord(marker, table, snapshot as Record<string, unknown>, context),
 			() => true,
 		);
 	}
 	const scope = { judged: false };
-	return runRestore(
+	return run(
 		() => restoreDeletedRecord(marker, snapshot, context, scope),
 		() => scope.judged,
 	);
@@ -365,10 +382,17 @@ async function failedOnTypedRefusal(
 	}
 }
 
-/** The `failed` outcome of a thrown error: `detail` is the LOG's, `code` the ONE converter's. */
+/**
+ * The `failed` outcome of a thrown error: `detail` is the LOG's, `code` the ONE
+ * converter's — kept only when the record's scope verdict had PASSED before the
+ * throw (`located`): a throw before or inside the verdict tells the caller
+ * nothing but that it failed (owner ruling 2026-11-18, TM Q3).
+ */
 function failedOutcomeOf(error: unknown, located: boolean): FailedOutcome {
 	const detail = error instanceof Error ? error.message : String(error);
-	return { kind: 'failed', detail, located, code: toDedaloError(error).code };
+	return located
+		? { kind: 'failed', detail, located, code: toDedaloError(error).code }
+		: { kind: 'failed', detail, located };
 }
 
 /** Thrown inside an undelete's transaction to roll back a row the caller may not see. */

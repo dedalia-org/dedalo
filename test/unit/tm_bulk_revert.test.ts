@@ -205,7 +205,48 @@ describe('bulk_revert_process — DB drive', () => {
 		}
 	});
 
-	test('a throw from BEFORE the scope gate is a `failed` entry with neither coordinates nor the exception text', async () => {
+	test('a throw from INSIDE the scope gate is a `failed` entry and nothing else: no coordinates, no code, no exception text', async () => {
+		// The unit's record verdict itself throws: no verdict over the record has
+		// passed, so the entry is the reason alone (owner ruling 2026-11-18, TM Q3)
+		// — neither which record nor why.
+		const sentinel = 'SENTINEL-/srv/secret/relation "matrix_private" does not exist';
+		let thrown = 0;
+		mock.module('../../src/core/security/record_scope.ts', () => ({
+			...REAL_RECORD_SCOPE,
+			principalCanAccessRecord: async () => {
+				thrown += 1;
+				throw new Error(sentinel);
+			},
+		}));
+		const quiet = console.error;
+		console.error = () => {};
+		try {
+			const before = await liveValues();
+			const response = await toolTimeMachineBulkRevert(
+				contextOf({ section_tipo: SECTION_TIPO, bulk_process_id: BATCH_BULK_ID }),
+			);
+			const batch = response.data as {
+				counter: number;
+				bulk_process_id: number;
+				skipped: BulkRevertSkipped[];
+			};
+			mintedBulkIds.push(batch.bulk_process_id);
+			expect(batch.counter).toBe(0);
+			expect(batch.skipped.length).toBe(BATCH_KEYS);
+			expect(thrown).toBeGreaterThanOrEqual(BATCH_KEYS);
+			for (const entry of batch.skipped) expect(entry).toEqual({ reason: 'failed' });
+			const wire = JSON.stringify(response);
+			expect(wire).not.toContain('SENTINEL-');
+			expect(wire).not.toContain('internal.');
+			for (const id of [...IDS, NO_PRE_ID]) expect(wire).not.toContain(String(id));
+			expect(await liveValues()).toEqual(before);
+		} finally {
+			console.error = quiet;
+			mock.module('../../src/core/security/record_scope.ts', () => REAL_RECORD_SCOPE);
+		}
+	});
+
+	test('a throw from BEFORE the scope gate is a `failed` entry with neither coordinates, nor a code, nor the exception text', async () => {
 		// getModelByTipo runs first in the loop, ahead of the gate: a throw there
 		// must locate nothing (the row may be another tenant's) and must not
 		// carry what threw (Postgres/fs text — here a path-shaped sentinel).
@@ -232,11 +273,12 @@ describe('bulk_revert_process — DB drive', () => {
 			mintedBulkIds.push(batch.bulk_process_id);
 			expect(batch.counter).toBe(0);
 			expect(batch.skipped.length).toBe(BATCH_KEYS);
-			// Unlocated: the reason and the converter's bare code (an untyped throw
-			// is `internal.unexpected`) — why, never which record (owner ruling 2026-11-18).
-			for (const entry of batch.skipped)
-				expect(entry).toEqual({ reason: 'failed', code: 'internal.unexpected' });
+			// The plan runs before any scope gate: no verdict has passed, so the entry
+			// is the reason ALONE — no coordinates and no code (owner ruling
+			// 2026-11-18, TM Q3: the code rides only after the verdict passed).
+			for (const entry of batch.skipped) expect(entry).toEqual({ reason: 'failed' });
 			const wire = JSON.stringify(response);
+			expect(wire).not.toContain('internal.');
 			expect(wire).not.toContain('SENTINEL-');
 			expect(wire).not.toContain('/srv/secret');
 			for (const id of [...IDS, NO_PRE_ID]) expect(wire).not.toContain(String(id));

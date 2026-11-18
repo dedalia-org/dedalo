@@ -54,7 +54,6 @@
 import { AUDIT_TIPOS } from '../../../src/core/concepts/section.ts';
 import type { MatrixJsonbColumn } from '../../../src/core/db/matrix.ts';
 import { TM_ROLE } from '../../../src/core/db/time_machine.ts';
-import { toDedaloError } from '../../../src/core/errors/index.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
 	resolveDataframeSlotTipos,
@@ -198,25 +197,20 @@ function legacyRowLang(row: RunRow): string {
 
 /**
  * A row, or a key, the plan could not place (its model or its dataframe slots
- * failed to resolve). Reported `failed` WITHOUT coordinates — nothing about it
- * has passed a scope gate — and the text goes to the log only.
+ * failed to resolve). Reported `failed` with the reason ALONE — no coordinates
+ * and no error code: the plan runs before any scope gate, so no verdict over
+ * its record has passed (owner ruling 2026-11-18, TM Q3) — and the text goes
+ * to the log only. It therefore keeps nothing of the error but that text.
  */
 export interface Unplanned {
 	sectionTipo: string;
 	sectionId: number;
 	detail: string;
-	/**
-	 * The wire code of the error that kept it out of the plan (the ONE
-	 * converter's) — absent for a structural refusal nothing threw. It rides the
-	 * unlocated `failed` entry: why, never which record.
-	 */
-	code?: string;
 }
 
-/** A model lookup that THREW, kept per tipo: its text for the log, its code for the entry. */
+/** A model lookup that THREW, kept per tipo: its text, for the log. */
 interface FailedModel {
 	failed: string;
-	code: string;
 }
 
 /** The text of a thrown value, for the LOG. */
@@ -233,7 +227,7 @@ async function modelOf(
 		try {
 			models.set(tipo, await getModelByTipo(tipo));
 		} catch (error) {
-			models.set(tipo, { failed: errorText(error), code: toDedaloError(error).code });
+			models.set(tipo, { failed: errorText(error) });
 		}
 	}
 	return models.get(tipo) ?? null;
@@ -254,7 +248,6 @@ async function groupKeys(rows: readonly RunRow[], unplanned: Unplanned[]): Promi
 					sectionTipo: row.section_tipo,
 					sectionId: row.section_id,
 					detail: model.failed,
-					code: model.code,
 				});
 			}
 			continue;
@@ -380,7 +373,6 @@ async function attachSlots(unit: RevertUnit, unplanned: Unplanned[]): Promise<bo
 			sectionTipo: key.sectionTipo,
 			sectionId: key.sectionId,
 			detail: errorText(error),
-			code: toDedaloError(error).code,
 		});
 		return false;
 	}
