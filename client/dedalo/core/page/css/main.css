@@ -5893,6 +5893,7 @@ dd-modal.dd_presets::part(content) {
   left: 0px !important;
   width: 100% !important;
   height: 100% !important;
+  margin: 0 !important;
   z-index: 10 !important;
   max-height: unset !important;
   background-color: var(--color_white) !important;

@@ -415,6 +415,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A field opened in fullscreen from the ontology or thesaurus tree fills the screen again.**
+
+    A field shown under a tree node and switched to fullscreen kept the tree's spacing above it:
+    the panel started below the top of the screen, showed the page behind it and ran off the
+    bottom. It now fills the screen exactly, in every active-field style.
+
 - **Fullscreen fields show their tools in every active-field style; Lift joins a portal's search bar to its card.**
 
     In fullscreen, a field's tools were drawn above the screen (Background, Frame, Margin) or

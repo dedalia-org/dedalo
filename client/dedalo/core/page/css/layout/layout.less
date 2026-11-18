@@ -1274,6 +1274,9 @@ dd-modal.dd_presets {
 	left: 0px !important;
 	width: 100% !important;
 	height: 100% !important;
+	// the viewport IS the box: a host's margins (the ontology tree's 0.5rem, lift's
+	// step-down there) pushed the panel down and out past the bottom
+	margin: 0 !important;
 	z-index: 10 !important;
 	max-height: unset !important;
 	background-color: @color_white !important;
