@@ -1283,6 +1283,50 @@ dd-modal.dd_presets {
 		right: 0px !important;
 	}
 
+	// a FIELD's tools: the orange pill on the top line, beside the fixed
+	// .exit_button and centred on it (exit: 1.5rem at top 0.25rem), in EVERY
+	// active style — their floating strips (base pill above the field, frame's
+	// docked tab, lift's raised row, margin's side rail) sat above the viewport
+	// or under the exit button. `!important` like this block: the active-style
+	// rules it must beat are (1,10,0)+. Its own full-screen button is the exit
+	// button's twin: hidden while fullscreen.
+	&.wrapper_component>.buttons_container {
+		display: flex !important;
+		flex-direction: row !important;
+		align-items: center;
+		position: absolute !important;
+		top: 0.1rem !important;
+		right: 2.5rem !important;
+		left: auto !important;
+		width: auto !important;
+		height: auto !important;
+		max-height: 2rem !important;
+		margin: 0 !important;
+		padding: 0 0.85rem 0 0.25rem !important; // ends padded on the pill: the last child (full_screen) is hidden
+		background-color: @color_orange_dedalo !important;
+		border-radius: var(--radius-pill) !important;
+		box-shadow: none !important;
+		z-index: 4 !important; // over a sticky editor toolbar on the same line (text_area: z 3)
+
+		// the fold must not be fixed to the viewport (the &.fullscreen rule in the
+		// wrapper block): that left the pill empty behind its icons
+		.buttons_fold {
+			position: static !important;
+			display: flex !important;
+			flex-direction: row !important;
+			align-items: center;
+		}
+		.button {
+			background-color: @color_white !important; // lift / margin grey their icons
+		}
+		span {
+			margin: 0.45rem 0 0.45rem 0.6rem !important;
+		}
+		.button.full_screen {
+			display: none !important;
+		}
+	}
+
 	.content_data {
 		padding-right: 1rem !important;
 		max-height: unset !important;

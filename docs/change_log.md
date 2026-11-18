@@ -415,6 +415,17 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Fullscreen fields show their tools in every active-field style; Lift joins a portal's search bar to its card.**
+
+    In fullscreen, a field's tools were drawn above the screen (Background, Frame, Margin) or
+    on top of the exit button (Lift), and a text area's editor toolbar covered them. Every
+    style now shows them as the orange pill beside the exit button, on the same line as the
+    label; the text area's toolbar stops before it. Frame no longer cuts the label in half at
+    the top of the screen.
+
+    With **Lift**, a portal's search bar now joins its card as one surface: square corners
+    where they meet, the same width, and one line between them.
+
 - **The Lift active-field style no longer hides its tools or overlaps the ontology tree.**
 
     With **Lift** chosen as the active-field style, a text field opened from a list cell in its

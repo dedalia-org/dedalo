@@ -70,7 +70,7 @@
 	// opening a gap over the field's content, and the surface is extended UP by
 	// headroom + gap with outer shadows — outside the box only, nothing reflows.
 	// The first layer (surface) hides the box's own rounded top edge line.
-	&:not(.tab_lifted):not(.component_text_area) {
+	&:not(.tab_lifted):not(.component_text_area):not(.fullscreen) {
 		--lift_rise: calc(var(--lift_headroom) + var(--lift_label_gap));
 		box-shadow:
 			0 calc(-1 * var(--lift_rise)) 0 0 var(--bg_elevated),
@@ -129,8 +129,8 @@
 
 	// THE HEADER BAND (only where the label row cannot hold the tools): the card
 	// grows up; the tools container stretches across it, joined to the card's top
-	&.tab_lifted:has(>.buttons_container>*),
-	&.component_text_area:not(.view_line):has(>.buttons_container>*) {
+	&.tab_lifted:not(.fullscreen):has(>.buttons_container>*),
+	&.component_text_area:not(.view_line):not(.fullscreen):has(>.buttons_container>*) {
 		border-top-left-radius: 0;
 		border-top-right-radius: 0;
 		// edge on sides + bottom only: the band carries the top
@@ -161,7 +161,7 @@
 
 	// text_area: the label rides up into the band, left, on the tools' line,
 	// at the same size as every field (the default shrinks it into a legend)
-	&.component_text_area:not(.view_line):has(>.buttons_container>*)>.label {
+	&.component_text_area:not(.view_line):not(.fullscreen):has(>.buttons_container>*)>.label {
 		position: relative;
 		z-index: 3; // over the band (z 2)
 		font-size: inherit;
@@ -176,7 +176,7 @@
 		margin-right: 1px;
 	}
 	// narrow text_area: a two-row band, tools on top, the label under them
-	&.component_text_area.tab_lifted:not(.view_line):has(>.buttons_container>*) {
+	&.component_text_area.tab_lifted:not(.view_line):not(.fullscreen):has(>.buttons_container>*) {
 		>.label {
 			max-width: 100%;
 			transform: translateY(calc(-1 * var(--component_label_height) - 1rem));
@@ -187,6 +187,26 @@
 			align-items: flex-start;
 			padding-top: 0.5rem;
 		}
+	}
+
+	// the autocomplete bar docks under the card as its bottom section (below):
+	// square bottom corners, so card and bar read as one surface
+	&:has(>.wrapper_service_autocomplete.active:not(.search)) {
+		border-bottom-left-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+
+	// FULLSCREEN (layout.less .fullscreen): the field IS the viewport, pinned at
+	// its top — nothing to lift above (the rise and the band are excluded above,
+	// or they went off screen). The label keeps the plain label row; the tools
+	// are the generic fullscreen pill beside the exit button (layout.less).
+	&.fullscreen {
+		border-radius: 0;
+		box-shadow: none;
+		// the label row is the top line, shared with the tools and the exit button
+		// (a component's own fullscreen top padding, e.g. component_filter's 1rem,
+		// dropped the label below them)
+		padding-top: 0;
 	}
 }
 
@@ -229,12 +249,23 @@
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) {
 	top: 100%;
 	background-color: var(--bg_elevated);
-	box-shadow: inset 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+	// edge on sides + bottom: the card's own bottom edge is the one seam line
+	box-shadow:
+		inset 1px 0 0 var(--lift_edge),
+		inset -1px 0 0 var(--lift_edge),
+		inset 0 -1px 0 var(--lift_edge),
+		var(--lift_shadow);
 	border-radius: 0 0 10px 10px;
 
 	>.button_options {
 		background-color: @color_grey_5;
 	}
+}
+// the RISEN card (no band) draws its edge as an OUTER 1px ring (see the headroom
+// block): an inset bar edge stood 1px inside it on each side and hid the card's
+// bottom ring. The bar takes the same outer ring; its top side is the seam line.
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area):not(.fullscreen) > .wrapper_service_autocomplete:not(.search) {
+	box-shadow: 0 0 0 1px var(--lift_edge), var(--lift_shadow);
 }
 
 // ---------------------------------------------------------------------------

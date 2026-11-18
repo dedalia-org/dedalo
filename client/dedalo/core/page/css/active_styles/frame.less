@@ -75,6 +75,14 @@
 		background: linear-gradient(var(--color_white), var(--color_white)) top / 100% 1lh no-repeat;
 		transform: translateY(-50%);
 	}
+	// fullscreen (layout.less .fullscreen): the frame's top edge IS the viewport's,
+	// so a legend set into it was cut in half — the label stays in its row
+	// (the row's own top padding too: text_area's toolbar, glued 4px under the
+	// top, covers the label row — a padding-less legend peeked out above it)
+	&.fullscreen:not(.hilite_element)>.label {
+		transform: none;
+		padding-top: 0.4rem;
+	}
 	// the legend shares the top edge with the tool tab: leave the tab its
 	// room (ellipsis), never below 40% so phones keep a readable label
 	&:not(.hilite_element):has(>.buttons_container>*)>.label {
