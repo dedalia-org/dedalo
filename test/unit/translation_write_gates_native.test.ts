@@ -38,7 +38,8 @@
  *      formatted as its node declares, a non-html literal verbatim; the
  *      recover's own whole-record history row holds the gated values;
  *   R4 a credential row that is not a stored hash is REFUSED
- *      (`tool.snapshot_unrestorable`), nothing written — whether a save would
+ *      (`tool.snapshot_credential_unrestorable` — the credential's own code,
+ *      not the malformed-link one), nothing written — whether a save would
  *      refuse it (it breaks the policy) or hash it (it conforms): a replay
  *      never mints a credential from history bytes; a stored hash replays
  *      verbatim. On the WHOLE-RECORD door the image is refused WHOLE: its
@@ -59,7 +60,8 @@
  *      the revert of the revert chains;
  *   B2 a number is formatted as its node declares;
  *   B3 a credential image that is neither a hash nor a v6 ciphertext refuses
- *      ITS unit — `skipped[{reason:'failed', code:'tool.snapshot_unrestorable'}]`,
+ *      ITS unit —
+ *      `skipped[{reason:'failed', code:'tool.snapshot_credential_unrestorable'}]`,
  *      located, nothing written, the run's other units still reverted; a v6
  *      ciphertext image is put back verbatim;
  *   B4 a COMPOSED unit (a main with a dataframe slot) writes its main gated;
@@ -473,14 +475,14 @@ describe('R4 — a credential row that is not a stored hash is refused, never wr
 	// 'abc' breaks the policy (a save refuses it); the second conforms (a save
 	// would HASH it — a replay must not: it is history bytes, not a new password).
 	for (const plaintext of ['abc', 'Conforming-Passw0rd-2017!']) {
-		test(`a non-hash row ('${plaintext.slice(0, 3)}…') → tool.snapshot_unrestorable, live value unchanged`, async () => {
+		test(`a non-hash row ('${plaintext.slice(0, 3)}…') → tool.snapshot_credential_unrestorable, live value unchanged`, async () => {
 			const live = [{ id: 1, lang: 'lg-nolan', value: STORED_HASH }];
 			const id = await mint(PASSWORD, live);
 			const rowId = await mintTmRow(id, PASSWORD, 'lg-nolan', [
 				{ id: 1, lang: 'lg-nolan', value: plaintext },
 			]);
 			const refusal = await refusalOf(restore(id, PASSWORD, 'lg-nolan', rowId));
-			expect(refusal.code).toBe('tool.snapshot_unrestorable');
+			expect(refusal.code).toBe('tool.snapshot_credential_unrestorable');
 			expect(JSON.stringify(refusal.coordinates ?? {})).not.toContain(plaintext);
 			expect(await storedItems(id, PASSWORD)).toEqual(live);
 		});
@@ -504,7 +506,7 @@ describe('R4 — a credential row that is not a stored hash is refused, never wr
 			},
 		});
 		const refusal = await refusalOf(restore(id, SECTION, 'lg-nolan', rowId));
-		expect(refusal.code).toBe('tool.snapshot_unrestorable');
+		expect(refusal.code).toBe('tool.snapshot_credential_unrestorable');
 		expect(JSON.stringify(refusal.coordinates ?? {})).not.toContain(plaintext);
 		expect(await storedItems(id, TEXT_AREA)).toEqual(liveText);
 		expect(await storedItems(id, PASSWORD)).toEqual(liveHash);
@@ -589,7 +591,7 @@ describe('R5 — a legacy v6 ciphertext credential replays VERBATIM (owner rulin
 				{ id: 1, lang: 'lg-nolan', value: lookalike },
 			]);
 			const refusal = await refusalOf(restore(id, PASSWORD, 'lg-nolan', rowId));
-			expect(refusal.code).toBe('tool.snapshot_unrestorable');
+			expect(refusal.code).toBe('tool.snapshot_credential_unrestorable');
 			expect(await storedItems(id, PASSWORD)).toEqual(live);
 		});
 	}
@@ -844,7 +846,7 @@ describe('B — the bulk revert writes its images gated like a save', () => {
 		expect(report.skipped).toHaveLength(1);
 		expect(report.skipped[0]).toMatchObject({
 			reason: 'failed',
-			code: 'tool.snapshot_unrestorable',
+			code: 'tool.snapshot_credential_unrestorable',
 			section_tipo: GSECTION,
 			section_id: id,
 			tipo: GPASS,
@@ -961,7 +963,7 @@ describe('B — the bulk revert writes its images gated like a save', () => {
 		expect(report.skipped).toHaveLength(1);
 		expect(report.skipped[0]).toMatchObject({
 			reason: 'failed',
-			code: 'tool.snapshot_unrestorable',
+			code: 'tool.snapshot_credential_unrestorable',
 			section_tipo: GSECTION,
 			section_id: id,
 		});
@@ -1022,7 +1024,7 @@ describe('B — the bulk revert writes its images gated like a save', () => {
 		const refusal = await refusalOf(
 			restoreAbsentSectionRow(snapshot(PLAINTEXT), 0, GSECTION, refusedId, false, -1),
 		);
-		expect(refusal.code).toBe('tool.snapshot_unrestorable');
+		expect(refusal.code).toBe('tool.snapshot_credential_unrestorable');
 		expect(await stored(refusedId, 'string', GTEXT)).toBe('NO-RECORD');
 	});
 });

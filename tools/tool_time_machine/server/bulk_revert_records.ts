@@ -318,7 +318,7 @@ async function undeleteRecord<F>(
 
 /**
  * A restore of a LIVE row that a typed engine refusal stops — the value gates'
- * above all: `tool.snapshot_unrestorable` for a credential image that is
+ * above all: `tool.snapshot_credential_unrestorable` for a credential image that is
  * neither a hash nor a v6 ciphertext, `ontology.invalid_node` for a number
  * under a malformed format node — is that record's `failed` outcome, with the
  * refusal's code — nothing of it is kept. LOCATED — the row exists, so its own

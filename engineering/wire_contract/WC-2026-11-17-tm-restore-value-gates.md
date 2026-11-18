@@ -38,8 +38,9 @@
   a malformed relation key, WC-2026-10-24). Hashing it would turn history bytes into a working
   credential and end `scripts/migrate_v6_passwords.ts`' recovery of a ciphertext; writing it raw
   is the defect. A stored hash replays verbatim. The value never rides the error
-  (`coordinates.reason` names the cause only). Known wart: the code's label says "not a valid
-  link" (the relation case's wording).
+  (`coordinates.reason` names the cause only). ~~Known wart: the code's label says "not a valid
+  link" (the relation case's wording).~~ Resolved 2026-11-18 (review addendum below): the
+  credential refusal has its own code, `409 tool.snapshot_credential_unrestorable`.
 - **RULED 2026-11-18 (was: open owner question, 2026-11-17 review) — a v6 ciphertext image.**
   See the addendum below: a legacy v6 ciphertext is replayed VERBATIM; the refusal that blocked a
   pre-upgrade user record's restore / undelete is gone.
@@ -140,3 +141,21 @@ above where they differ.
   tell the operator WHY without naming a record; it widens a security-reviewed channel, so it
   is not done here. The words are in the server log, with the request id.
 
+## Addendum 2026-11-18 (review of 123d88b48d..39f6bd7622) — the credential refusal's own code
+
+A correction to the addendum above, same day, nothing released between them.
+
+- **(L1) A refused credential image has its own code.**
+  - *Before:* `409 tool.snapshot_unrestorable` — the malformed-relation refusal
+    (WC-2026-10-24), whose registry message and label say the stored value "is not a valid
+    link". A user restoring a user record whose history holds a plaintext credential was told a
+    link is malformed.
+  - *After:* `409 tool.snapshot_credential_unrestorable` (`conflict`, public, not retryable,
+    label `error_tool_snapshot_credential_unrestorable`: the entry stores a password that was
+    not saved in a protected form; nothing was changed; set a new password instead). Every
+    door: `apply_value` on a component row and on a whole-record row, the bulk revert's
+    `skipped[].code`. `tool.snapshot_unrestorable` is again the relation refusal only. Same
+    status, same category, same client policy (default) — only the code and its sentence.
+- **Gates:** `password_hash_on_save` (the code, and that the message and the label a user reads
+  name a password, never a link); `translation_write_gates_native` R4/R5/B3/B5/B6 on the new
+  code — RED before.

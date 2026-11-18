@@ -2656,17 +2656,37 @@ export const ERROR_REGISTRY = {
 	 * the stored history, not the request, is what prevents it; the same row is
 	 * refused every time. The offending value rides `coordinates` (log-only):
 	 * it is stored record data.
-	 * ALSO (C58, WC-2026-11-17-tm-restore-value-gates): a CREDENTIAL image that
-	 * is not a stored hash (a legacy v6 ciphertext, a plaintext) — a replay never
-	 * mints a hash from history bytes (write_value_gates.ts gateReplayedValue).
-	 * The value never rides the error. The label's wording is the relation
-	 * case's ("not a valid link"); the rest of it holds for both.
+	 * A credential image a replay refuses is NOT this code: it has its own
+	 * (`tool.snapshot_credential_unrestorable`) — another cause, another remedy.
 	 */
 	'tool.snapshot_unrestorable': {
 		category: 'conflict',
 		status: 409,
 		label_key: 'error_tool_snapshot_unrestorable',
 		message: 'The history entry stores a value that is not a valid link and cannot be restored',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
+	/**
+	 * A history replay (tool_time_machine.apply_value on either door, the bulk
+	 * revert's writers and its undelete) refused because the image holds a
+	 * CREDENTIAL that is not stored bytes a replay may carry — neither empty, an
+	 * Argon2 hash, nor a legacy v6 ciphertext: a plaintext a pre-gate door stored
+	 * (write_value_gates.ts assertReplayableCredential; C58,
+	 * WC-2026-11-17-tm-restore-value-gates). A replay never mints a hash from
+	 * history bytes and never writes them raw, so nothing is written. Its own
+	 * code, not `tool.snapshot_unrestorable`: that one tells the user a LINK is
+	 * malformed; here the remedy is to set a new password. `conflict`: the stored
+	 * history is what prevents it; the same row is refused every time. The value
+	 * never rides the error (`coordinates.reason` names the cause only).
+	 */
+	'tool.snapshot_credential_unrestorable': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_snapshot_credential_unrestorable',
+		message:
+			'The history entry stores a password that is neither hashed nor a legacy encrypted value and cannot be restored',
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,

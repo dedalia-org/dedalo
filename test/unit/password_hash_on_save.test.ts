@@ -14,7 +14,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { type DedaloError, isDedaloError } from '../../src/core/errors/index.ts';
+import { type DedaloError, isDedaloError, toErrorBody } from '../../src/core/errors/index.ts';
+import { getLabels, MASTER_SOURCE_LANG } from '../../src/core/labels/catalog.ts';
 import { maskSecretItems, SECRET_MASK } from '../../src/core/resolve/component_data.ts';
 import { routeSectionRead } from '../../src/core/section/read_facade.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
@@ -190,7 +191,15 @@ describe('a replayed credential is never hashed and never a plaintext', () => {
 			refusal = error;
 		}
 		expect(isDedaloError(refusal)).toBe(true);
-		expect((refusal as DedaloError).code).toBe('tool.snapshot_unrestorable');
+		expect((refusal as DedaloError).code).toBe('tool.snapshot_credential_unrestorable');
+		// WHAT THE USER READS names the credential — its own code, never the
+		// malformed-LINK sentence of `tool.snapshot_unrestorable` (review L1).
+		const body = toErrorBody(refusal as DedaloError);
+		const label = (await getLabels(MASTER_SOURCE_LANG))[body.label_key] ?? '';
+		for (const sentence of [body.message, label]) {
+			expect(sentence).toMatch(/password/i);
+			expect(sentence).not.toMatch(/link/i);
+		}
 		expect(JSON.stringify((refusal as DedaloError).coordinates ?? {})).not.toContain('Conforming');
 		expect((refusal as DedaloError).message).not.toContain('Conforming');
 		// judging never mints a hash either: the recorded value, untouched

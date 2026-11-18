@@ -176,17 +176,19 @@ export async function judgeReplayedValue(
  * an Argon2 hash, or a LEGACY v6 CIPHERTEXT (owner ruling 2026-11-18: replayed
  * verbatim, so a user record from before the upgrade restores and
  * `scripts/migrate_v6_passwords.ts` still converts it; `auth.ts` accepts only
- * Argon2id, so it is no working credential) — else `tool.snapshot_unrestorable`,
- * nothing written. What is refused is a plaintext a pre-gate door stored
- * (security/password_hash.ts isReplayablePasswordValue — the v6 format is the
- * discriminator, its residual stated there): hashing it would turn history
- * bytes into a working credential, and writing it raw is what this gate exists
- * to stop. The value never rides the error.
+ * Argon2id, so it is no working credential) — else
+ * `tool.snapshot_credential_unrestorable`, nothing written. What is refused is
+ * a plaintext a pre-gate door stored (security/password_hash.ts
+ * isReplayablePasswordValue — the v6 format is the discriminator, its residual
+ * stated there): hashing it would turn history bytes into a working
+ * credential, and writing it raw is what this gate exists to stop. The value
+ * never rides the error; the code is the credential's own, so the user is told
+ * to set a new password, not that a link is malformed.
  */
 async function assertReplayableCredential(componentTipo: string, value: unknown): Promise<void> {
 	const { isReplayablePasswordValue } = await import('../../security/password_hash.ts');
 	if (isReplayablePasswordValue(value)) return;
-	throw new DedaloError('tool.snapshot_unrestorable', {
+	throw new DedaloError('tool.snapshot_credential_unrestorable', {
 		coordinates: {
 			tipo: componentTipo,
 			reason: 'the credential image is neither a stored hash nor a legacy v6 ciphertext',
