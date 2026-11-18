@@ -6319,6 +6319,151 @@
 			"skipped": 0,
 			"assertions": 50
 		},
+		"test/unit/tool_uca_maps_action_gates.test.ts": {
+			"tests": 19,
+			"skipped": 0,
+			"assertions": 109
+		},
+		"test/unit/tool_uca_maps_click_params.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 11
+		},
+		"test/unit/tool_uca_maps_core_limits.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 301
+		},
+		"test/unit/tool_uca_maps_download_filename.test.ts": {
+			"tests": 16,
+			"skipped": 0,
+			"assertions": 29
+		},
+		"test/unit/tool_uca_maps_error_disclosure.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 15
+		},
+		"test/unit/tool_uca_maps_external_image.test.ts": {
+			"tests": 24,
+			"skipped": 0,
+			"assertions": 74
+		},
+		"test/unit/tool_uca_maps_gazetteer_store.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 14
+		},
+		"test/unit/tool_uca_maps_gdal_offline.test.ts": {
+			"tests": 25,
+			"skipped": 5,
+			"assertions": 141
+		},
+		"test/unit/tool_uca_maps_get_capabilities.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 48
+		},
+		"test/unit/tool_uca_maps_get_catastro_parcel.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 41
+		},
+		"test/unit/tool_uca_maps_get_elevation.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 8
+		},
+		"test/unit/tool_uca_maps_get_image_file.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 15
+		},
+		"test/unit/tool_uca_maps_get_wms_layers.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 28
+		},
+		"test/unit/tool_uca_maps_harvest_doors.test.ts": {
+			"tests": 18,
+			"skipped": 0,
+			"assertions": 59
+		},
+		"test/unit/tool_uca_maps_image_download.test.ts": {
+			"tests": 38,
+			"skipped": 9,
+			"assertions": 31
+		},
+		"test/unit/tool_uca_maps_image_overlay.test.ts": {
+			"tests": 13,
+			"skipped": 2,
+			"assertions": 28
+		},
+		"test/unit/tool_uca_maps_object_pdf_report.test.ts": {
+			"tests": 27,
+			"skipped": 0,
+			"assertions": 2310
+		},
+		"test/unit/tool_uca_maps_raster_download.test.ts": {
+			"tests": 25,
+			"skipped": 1,
+			"assertions": 78
+		},
+		"test/unit/tool_uca_maps_register.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 14
+		},
+		"test/unit/tool_uca_maps_request_budgets.test.ts": {
+			"tests": 10,
+			"skipped": 0,
+			"assertions": 196
+		},
+		"test/unit/tool_uca_maps_roman_empire.test.ts": {
+			"tests": 21,
+			"skipped": 0,
+			"assertions": 54
+		},
+		"test/unit/tool_uca_maps_rotated_overlay.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 40
+		},
+		"test/unit/tool_uca_maps_scratch.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 27
+		},
+		"test/unit/tool_uca_maps_search_places.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 17
+		},
+		"test/unit/tool_uca_maps_service_handlers.test.ts": {
+			"tests": 61,
+			"skipped": 0,
+			"assertions": 220
+		},
+		"test/unit/tool_uca_maps_spawn_census.test.ts": {
+			"tests": 27,
+			"skipped": 0,
+			"assertions": 37
+		},
+		"test/unit/tool_uca_maps_upload_vector_layer.test.ts": {
+			"tests": 52,
+			"skipped": 9,
+			"assertions": 179
+		},
+		"test/unit/tool_uca_maps_vector_download.test.ts": {
+			"tests": 12,
+			"skipped": 3,
+			"assertions": 22
+		},
+		"test/unit/tool_uca_maps_zip_inflated_size.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 51
+		},
 		"test/unit/tool_update_cache.test.ts": {
 			"tests": 11,
 			"skipped": 0,
