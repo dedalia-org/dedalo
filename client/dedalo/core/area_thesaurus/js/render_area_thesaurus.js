@@ -230,13 +230,18 @@ render_area_thesaurus.prototype.list = async function(options) {
 					}
 				)
 			}
-			self.events_tokens.push(
-				event_manager.subscribe('render_'+self.filter.id, render_handler)
-			)
-			// search_tipos Ontology case
-			// force filter render to fire the render event that parse the search result
+			// search_tipos Ontology case (URL deep link). Parse now: the filter is
+			// lazily built (only on panel open), so its render event never fires here
+			// and a forced filter.render() on the unbuilt instance is refused.
+			// Not also subscribed: an open-panel restore would parse a second time.
+			// Waits for the root terms: a root still building has no children_container,
+			// so the search branches could not open under it (no hilite).
 			if (self.model==='area_ontology' && self.search_tipos) {
-				self.filter.render()
+				Promise.allSettled(self.root_terms_ready || []).then(render_handler)
+			}else{
+				self.events_tokens.push(
+					event_manager.subscribe('render_'+self.filter.id, render_handler)
+				)
 			}
 		}
 
@@ -328,6 +333,10 @@ const render_content_data = function(self) {
 			class_name		: 'thesaurus_list_wrapper',
 			parent			: fragment
 		})
+
+	// root_terms_ready. One promise per root build+render (filled by render_root_term);
+	// a deep-link search parse must wait for them (@see list ts_search case)
+		self.root_terms_ready = []
 
 	// elements
 		const data				= self.data.find(item => item.tipo==='dd100' || item.tipo==='dd5') || {}
@@ -522,7 +531,7 @@ export const render_root_term = function (options) {
 	// ts_object_instance
 	// Note that we do NOT wait here, we return the placeholder_wrapper
 	// and, when the ts_object if fully rendered, the placeholder is replaced.
-	ts_object.get_instance({
+	const ready = ts_object.get_instance({
 		// key_parts
 		section_tipo		: section_tipo,
 		section_id			: section_id,
@@ -556,6 +565,7 @@ export const render_root_term = function (options) {
 			}
 		);
 	})
+	self.root_terms_ready?.push(ready)
 
 
 	return placeholder_wrapper

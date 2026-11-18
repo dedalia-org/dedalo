@@ -443,6 +443,13 @@ Merged since the last release; these ship with the next one.
     and it is measured again when the window is resized. **Frame** also stops lifting its tool
     tab above the label on fields wide enough for both.
 
+- **The ontology window opened from a Children/Parent row now always shows and highlights the term.**
+
+    Opening the ontology tree from the tree button of a related-term row (for example in the
+    Children list of an ontology node) only found and highlighted the term when the search panel
+    had been left open; otherwise the default tree was shown. The term is now always located and
+    highlighted.
+
 - **The thesaurus picker under a field lines up with it and fits a phone screen.**
 
     The tree that opens under a field to pick terms (the tree button of a relation field) was a
