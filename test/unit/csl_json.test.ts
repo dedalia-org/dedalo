@@ -22,6 +22,7 @@ import {
 	assertConfigSection,
 	mapCslItem,
 	readZoteroConfig,
+	recordNumberOf,
 	type TargetKind,
 } from '../../src/core/tools/zotero_map.ts';
 import { refusalOfSync } from '../helpers/refusal.ts';
@@ -129,7 +130,6 @@ const RAW_CONFIG = {
 		{ name: 'ISSN', ddo_map: [{ tipo: 'test17', section_tipo: 'test3' }] },
 		{ name: 'DOI', ddo_map: [{ tipo: 'test140', section_tipo: 'test3' }] },
 		{ name: 'archive', ddo_map: [{ tipo: 'test85', section_tipo: 'test3' }] },
-		{ name: 'call-number', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
 		{
 			name: 'container-title',
 			ddo_map: [
@@ -174,9 +174,9 @@ describe('readZoteroConfig', () => {
 		const cfg = readZoteroConfig(RAW_CONFIG);
 		expect(cfg.idTarget).toEqual({ sectionTipo: 'test3', componentTipo: 'test162' });
 		expect(cfg.standardNumberTipo).toBe('test88');
+		// The address variable names a Zotero FIELD: the map binds no component to it.
 		expect(cfg.fieldToSectionId).toBe('call-number');
-		// C18: the identifier is looked up in the component the map binds it to.
-		expect(cfg.identifierTarget).toEqual({ sectionTipo: 'test3', componentTipo: 'test162' });
+		expect(cfg.entries.some((e) => e.name === 'call-number')).toBe(false);
 		expect(cfg.entries.find((e) => e.name === 'container-title')?.link).toEqual({
 			sectionTipo: 'test3',
 			componentTipo: 'test52',
@@ -198,30 +198,23 @@ describe('readZoteroConfig', () => {
 		).toContain("no 'id' entry");
 	});
 
-	test('field_to_section_id must be a mapped, non-link variable (C18)', () => {
-		const unbound = {
+	test("field_to_section_id names a Zotero field (no map entry needed); 'id' is refused, blank is none", () => {
+		const withValue = (value: string) => ({
 			...RAW_CONFIG,
-			map: RAW_CONFIG.map.filter((entry) => entry.name !== 'call-number'),
-		};
-		const refusal = refusalOfSync(() => readZoteroConfig(unbound));
+			main: RAW_CONFIG.main.map((entry) =>
+				entry.name === 'field_to_section_id' ? { ...entry, value } : entry,
+			),
+		});
+		// Any CSL field may carry the address — it needs no component.
+		expect(readZoteroConfig(withValue('archive_location')).fieldToSectionId).toBe(
+			'archive_location',
+		);
+		expect(readZoteroConfig(withValue('  ')).fieldToSectionId).toBeUndefined();
+		// The Zotero key is LOOKED UP (DATA-08): never a record number.
+		const refusal = refusalOfSync(() => readZoteroConfig(withValue('id')));
 		expect(refusal.code).toBe('request.invalid_options');
-		expect(refusal.publicMessage).toContain("'call-number'");
-		expect(refusal.publicMessage).toContain('no entry');
-		const asLink = {
-			...RAW_CONFIG,
-			main: RAW_CONFIG.main.map((entry) =>
-				entry.name === 'field_to_section_id' ? { ...entry, value: 'container-title' } : entry,
-			),
-		};
-		expect(refusalOfSync(() => readZoteroConfig(asLink)).publicMessage).toContain('LINK');
-		// `id` as the variable is the key's own law: no identifier target.
-		const asId = {
-			...RAW_CONFIG,
-			main: RAW_CONFIG.main.map((entry) =>
-				entry.name === 'field_to_section_id' ? { ...entry, value: 'id' } : entry,
-			),
-		};
-		expect(readZoteroConfig(asId).identifierTarget).toBeUndefined();
+		expect(refusal.publicMessage).toContain('field_to_section_id');
+		expect(refusal.publicMessage).toContain("'id'");
 	});
 
 	test('an entry or main.section of another section is refused before any read', () => {
@@ -295,18 +288,55 @@ describe('mapCslItem', () => {
 		expect(record.fields.some((f) => f.component_tipo === 'test85')).toBe(false);
 	});
 
-	test('call-number (C18) is the item IDENTIFIER: written trimmed into its component, carried as a string, never an address', () => {
+	test('call-number is carried as the ADDRESS text the file holds — never a field, never unmapped, never yet a number', () => {
 		const record = map({ id: 'K6', 'call-number': ' 42 ' });
 		expect(record.code).toBe('K6');
-		expect(record.identifier).toBe('42');
-		expect(valuesOf(record, 'test162')).toEqual([[{ value: 'K6' }], [{ value: '42' }]]);
+		expect(record.address).toBe('42');
+		// No component holds it: the only field written is the key.
+		expect(valuesOf(record, 'test162')).toEqual([[{ value: 'K6' }]]);
+		expect(record.unmapped).toEqual([]);
 		expect('sectionId' in record).toBe(false);
 		expect(record.notices).toEqual([]);
-		// Blank → no identifier, nothing written; a non-text → a refused field.
-		expect(map({ id: 'K6', 'call-number': '  ' }).identifier).toBeNull();
-		const refused = map({ id: 'K6', 'call-number': { shelf: 1 } });
-		expect(refused.identifier).toBeNull();
-		expect(refused.fields.find((f) => f.refusal !== undefined)?.refusal).toContain('call-number');
+		// A JSON number is its digits; blank and null are NO address.
+		expect(map({ id: 'K6', 'call-number': 42 }).address).toBe('42');
+		expect(map({ id: 'K6', 'call-number': '  ' }).address).toBeNull();
+		expect(map({ id: 'K6', 'call-number': null }).address).toBeNull();
+		expect(map({ id: 'K6' }).address).toBeNull();
+		// Anything else is carried AS IT IS, so the door's refusal can name it.
+		expect(map({ id: 'K6', 'call-number': '12abc' }).address).toBe('12abc');
+		expect(map({ id: 'K6', 'call-number': { shelf: 1 } }).address).toBe('{"shelf":1}');
+		expect(map({ id: 'K6', 'call-number': true }).address).toBe('true');
+	});
+
+	test('recordNumberOf: only a canonical positive int4 is a record number (rule 1)', () => {
+		const numbers: [string, number][] = [
+			['1', 1],
+			['42', 42],
+			['900323', 900323],
+			['2147483647', 2147483647],
+		];
+		for (const [text, sectionId] of numbers) expect(recordNumberOf(text), text).toBe(sectionId);
+		const notNumbers = [
+			'',
+			'0',
+			'007',
+			'-5',
+			'+5',
+			'1.0',
+			'1e3',
+			'12abc',
+			'abc12',
+			' 12',
+			'12 ',
+			'1 2',
+			'0x10',
+			'٣',
+			'2147483648',
+			'99999999999999999999999999',
+			'{"shelf":1}',
+			'true',
+		];
+		for (const text of notNumbers) expect(recordNumberOf(text), text).toBeNull();
 	});
 
 	test('unmapped variables are listed; a non-scalar in a scalar slot is refused', () => {

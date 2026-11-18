@@ -81,4 +81,25 @@ describe('tool loader', () => {
 			expect(() => validateToolModule(mod(bad), 'tool_zzcfg')).toThrow(/configFrom/);
 		}
 	});
+
+	test('operatorAddressActions: each key is one of the tool actions and carries its reason — else the tool is refused', () => {
+		const mod = (operatorAddressActions: unknown) => ({
+			tool: {
+				name: 'tool_zzaddr',
+				apiActions: { import_files: { permission: null, handler: async () => ({}) } },
+				operatorAddressActions,
+			},
+		});
+		const declared = { import_files: 'the ruling that allows it' };
+		expect(validateToolModule(mod(declared), 'tool_zzaddr').operatorAddressActions).toEqual(
+			declared,
+		);
+		// An action the tool does not have, a reason that is no sentence, a non-object.
+		const bad = [{ other_action: 'a reason' }, { import_files: '  ' }, { import_files: 1 }, 'x'];
+		for (const declaration of bad) {
+			expect(() => validateToolModule(mod(declaration), 'tool_zzaddr')).toThrow(
+				/operatorAddressActions/,
+			);
+		}
+	});
 });

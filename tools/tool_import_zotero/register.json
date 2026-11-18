@@ -71,32 +71,32 @@
       {
         "id": 1,
         "lang": "lg-cat",
-        "value": "<p>Exporti el format JSON de Zotero per a importar. Cada referència s'identifica per la seua clau de Zotero (desada al camp Codi); per a identificar els registres amb un altre camp de Zotero, vincule'l a la configuració de l'eina ('field_to_section_id' i la seua entrada del mapa). Si vol importar fitxers PDF, utilitze el camp 'archive' de Zotero amb el nom del PDF, i adjunti els fitxers PDF al mateix temps que el fitxer de Zotero.</p>"
+        "value": "<p>Exporti el format JSON de Zotero per a importar. Si vol controlar l'id, indiqui'l a Zotero en el camp 'call-number': un nombre enter allà és el section_id del registre (aquest registre s'actualitza, o es crea amb aquest id); sense ell, la referència s'identifica per la seva clau de Zotero. Si vol importar fitxers PDF, utilitze el camp 'archive' de Zotero amb el nom del PDF, i adjunti els fitxers PDF al mateix temps que el fitxer de Zotero.</p>"
       },
       {
         "id": 1,
         "lang": "lg-deu",
-        "value": "<p>Exportieren Sie das JSON-Format aus Zotero zum Importieren. Jede Referenz wird über ihren Zotero-Schlüssel identifiziert (im Feld Code gespeichert); um Datensätze über ein anderes Zotero-Feld zu identifizieren, binden Sie dieses Feld in der Konfiguration des Werkzeugs ('field_to_section_id' und sein Map-Eintrag). Wenn Sie PDF-Dateien importieren möchten, verwenden Sie das Feld „Zotero-Archiv“, um den Namen der PDF-Datei einzugeben, und laden Sie die PDF-Dateien gleichzeitig mit der Zotero-Datei hoch.</p>"
+        "value": "<p>Exportieren Sie das JSON-Format aus Zotero zum Importieren. Wenn Sie die ID steuern möchten, legen Sie sie im Zotero-Feld 'call-number' (Signatur) fest: eine ganze Zahl dort ist die section_id des Datensatzes (dieser Datensatz wird aktualisiert oder mit dieser ID angelegt); ohne sie wird die Referenz über ihren Zotero-Schlüssel identifiziert. Wenn Sie PDF-Dateien importieren möchten, verwenden Sie das Feld „Zotero-Archiv“, um den Namen der PDF-Datei einzugeben, und laden Sie die PDF-Dateien gleichzeitig mit der Zotero-Datei hoch.</p>"
       },
       {
         "id": 1,
         "lang": "lg-ell",
-        "value": "<p>Εξαγωγή μορφής JSON από το Zotero για εισαγωγή. Κάθε αναφορά αναγνωρίζεται από το κλειδί Zotero της (αποθηκεύεται στο πεδίο Κώδικας)· για να αναγνωρίζονται οι εγγραφές από άλλο πεδίο Zotero, συνδέστε το στη διαμόρφωση του εργαλείου ('field_to_section_id' και η καταχώρισή του στον χάρτη). Εάν θέλετε να εισαγάγετε αρχεία PDF, χρησιμοποιήστε το πεδίο Zotero Archive για να εισαγάγετε το όνομα του PDF και μεταφορτώστε τα αρχεία PDF ταυτόχρονα με το αρχείο Zotero.</p>"
+        "value": "<p>Εξαγωγή μορφής JSON από το Zotero για εισαγωγή. Εάν θέλετε να ελέγξετε το αναγνωριστικό, ορίστε το στο πεδίο 'call-number' του Zotero: ένας ακέραιος αριθμός εκεί είναι το section_id της εγγραφής (η εγγραφή αυτή ενημερώνεται ή δημιουργείται με αυτό το αναγνωριστικό)· χωρίς αυτό, η αναφορά αναγνωρίζεται από το κλειδί Zotero της. Εάν θέλετε να εισαγάγετε αρχεία PDF, χρησιμοποιήστε το πεδίο Zotero Archive για να εισαγάγετε το όνομα του PDF και μεταφορτώστε τα αρχεία PDF ταυτόχρονα με το αρχείο Zotero.</p>"
       },
       {
         "id": 1,
         "lang": "lg-eng",
-        "value": "<p>Export JSON format from Zotero to import. Each reference is identified by its Zotero key (stored in the Code field); to identify records by another Zotero field, bind that field in the tool's configuration ('field_to_section_id' and its map entry). If you want to import PDF files, use the Zotero Archive field to introduce the name of the PDF, and upload the PDF files at the same time than Zotero file.</p>"
+        "value": "<p>Export JSON format from Zotero to import. If you want to control the id, set it in the Zotero 'call-number' field: a whole number there is the record's section_id (that record is updated, or created with that id); without it, the reference is matched by its Zotero key. If you want to import PDF files, use the Zotero Archive field to introduce the name of the PDF, and upload the PDF files at the same time than Zotero file.</p>"
       },
       {
         "id": 1,
         "lang": "lg-nep",
-        "value": "<p>आयात गर्न Zotero बाट JSON ढाँचा निर्यात गर्नुहोस्। प्रत्येक सन्दर्भ यसको Zotero कुञ्जीले पहिचान हुन्छ (कोड फिल्डमा भण्डारण गरिएको); अर्को Zotero फिल्डले रेकर्ड पहिचान गर्न, त्यो फिल्ड उपकरणको कन्फिगरेसनमा बाँध्नुहोस् ('field_to_section_id' र यसको म्याप प्रविष्टि)। यदि तपाइँ PDF फाइलहरू आयात गर्न चाहनुहुन्छ भने, Zotero Archive फिल्ड प्रयोग गर्नुहोस् PDF को नाम परिचय गर्न, र Zotero फाइल भन्दा एकै समयमा PDF फाइलहरू अपलोड गर्नुहोस्।</p>"
+        "value": "<p>आयात गर्न Zotero बाट JSON ढाँचा निर्यात गर्नुहोस्। यदि तपाइँ आईडी नियन्त्रण गर्न चाहनुहुन्छ भने, यसलाई Zotero को 'call-number' फिल्डमा सेट गर्नुहोस्: त्यहाँको पूर्ण संख्या नै रेकर्डको section_id हो (त्यो रेकर्ड अद्यावधिक हुन्छ, वा त्यही आईडीमा सिर्जना हुन्छ); यो नभएमा सन्दर्भ यसको Zotero कुञ्जीले पहिचान हुन्छ। यदि तपाइँ PDF फाइलहरू आयात गर्न चाहनुहुन्छ भने, Zotero Archive फिल्ड प्रयोग गर्नुहोस् PDF को नाम परिचय गर्न, र Zotero फाइल भन्दा एकै समयमा PDF फाइलहरू अपलोड गर्नुहोस्।</p>"
       },
       {
         "id": 1,
         "lang": "lg-spa",
-        "value": "<p>Exporte el formato JSON de Zotero para importar. Cada referencia se identifica por su clave de Zotero (guardada en el campo Código); para identificar los registros por otro campo de Zotero, vincúlelo en la configuración de la herramienta ('field_to_section_id' y su entrada del mapa). Si quiere importar ficheros PDF, use el campo 'archive' de Zotero con el nombre del PDF, y adjunte los ficheros PDF al mismo tiempo que el fichero de Zotero.</p>"
+        "value": "<p>Exporte el formato JSON de Zotero para importar. Si quiere controlar el id, póngalo en Zotero en el campo 'call-number': un número entero ahí es el section_id del registro (ese registro se actualiza, o se crea con ese id); sin él, la referencia se identifica por su clave de Zotero. Si quiere importar ficheros PDF, use el campo 'archive' de Zotero con el nombre del PDF, y adjunte los ficheros PDF al mismo tiempo que el fichero de Zotero.</p>"
       }
     ],
     "dd799": [
@@ -162,7 +162,7 @@
       {
         "id": 1,
         "lang": "lg-nolan",
-        "value": "2.0.3"
+        "value": "2.0.4"
       }
     ],
     "dd1328": [
@@ -176,7 +176,7 @@
       {
         "id": 1,
         "lang": "lg-nolan",
-        "value": "<p>Use the JSON version exported by Zotero to import into Publications section: rsc205</p><p>The config of the tool defines the map between Zotero and Dédalo.</p><p> </p><p>Identity of the records:</p><p> </p><p>Each reference is identified by its Zotero key (the last part of its Zotero URI), stored in the component the map's 'id' entry names (Code, rsc137): a re-import updates the record that holds the key, a new key creates a record. A second identifier is optional: name a Zotero field in \"field_to_section_id\" and bind that field, in the map, to a code component of the section (a text or IRI component, never a record number); the import then first looks for the record holding that value. The shipped configuration names none: the Publications section ships no call-number component. To change the configuration, create a specific config in \"Development->tools->Tool configuration\" section; you can see the default config in the register tool or in 'sample_config.json'. Specific configuration need to be a full configuration, not only the property changed.</p><p> </p><p>Upload PDF files:</p><p> </p><p>It is possible to upload PDF files with the Zotero records. By default the tool uses Zotero 'archive' field set with the full name of the PDF file.</p><p> </p><p>\"archive\" : \"my_pdf_file.pdf\"</p><p> </p><p>Add the PDF files with the Zotero json file in the tool, upload all and import.</p>"
+        "value": "<p>Use the JSON version exported by Zotero to import into Publications section: rsc205</p><p>The config of the tool defines the map between Zotero and Dédalo.</p><p> </p><p>Control of section_id with a Zotero field:</p><p> </p><p>By default, the tool uses the Zotero field 'call-number' to define the section_id of the record: Zotero has no editable id, so write the record number there. When the call-number is a whole number (1 to 2147483647, digits only), Dédalo updates the record with that section_id, or creates it at that id when it does not exist (also when it was deleted). An item whose call-number is anything else is not imported, and the report names it. A record that already holds a different Zotero key is never overwritten: that item is refused, and so is an item whose Zotero key is held by another record than its call-number names, or a call-number repeated in the same import. Without a call-number, the reference is matched by its Zotero key (the last part of its Zotero URI), stored in the component the map's 'id' entry names (Code, rsc137): a re-import updates the record that holds the key, a new key creates a record. It's possible to set another field to control the section_id with the Zotero file. To do that, create a specific config in \"Development->tools->Tool configuration\" section and change \"field_to_section_id\" to the name of the Zotero field with the section_id (it names a Zotero field, no component is bound to it). You can see the default config in the register tool or in 'sample_config.json'. Specific configuration need to be a full configuration, not only the property changed.</p><p> </p><p>Upload PDF files:</p><p> </p><p>It is possible to upload PDF files with the Zotero records. By default the tool uses Zotero 'archive' field set with the full name of the PDF file.</p><p> </p><p>\"archive\" : \"my_pdf_file.pdf\"</p><p> </p><p>Add the PDF files with the Zotero json file in the tool, upload all and import.</p>"
       }
     ],
     "dd1644": [
@@ -721,6 +721,10 @@
             {
               "name": "field_standard_number",
               "tipo": "rsc249"
+            },
+            {
+              "name": "field_to_section_id",
+              "value": "call-number"
             }
           ],
           "client": false,

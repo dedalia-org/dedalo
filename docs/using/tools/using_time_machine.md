@@ -74,6 +74,9 @@ When it finishes, a summary lists how many fields (or field groups, such as a fi
 !!! warning "Restoring overwrites the current value"
     **Apply and save** and **Revert the bulk process** overwrite live data. Both are reversible (each restore is itself logged as new history). **Apply and save** replaces the restored language (or the whole field, for a field without languages) and its frames as they stood at that entry; a batch revert skips, and reports, every field edited after the run. Reverting a batch and applying a component restore both need write permission on the record; reverting a batch needs an administrator role, and reverting a field with a dataframe also needs write permission on the dataframe.
 
+!!! note "A restored value is checked like a saved one"
+    **Apply and save** passes the selected entry through the same checks as a normal save: rich text is cleaned of scripts and event handlers, a number is formatted as its field declares, and an entry the engine cannot store safely — such as a password entry from before passwords were stored as hashes — is refused, leaving the current value as it is. An entry recorded long ago can therefore land slightly cleaner than the preview shows it; the history entry itself is never modified.
+
 !!! info "How batch undo links up"
     A batch tool stamps every write in one run with the same id, and records with each write the value it replaced. That id is what the time machine's **Revert the bulk process** follows to find and roll back every affected record — so a single mistaken [propagation](using_propagate_component_data.md) is undone as one unit, not record by record.
 

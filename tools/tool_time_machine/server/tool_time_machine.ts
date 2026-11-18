@@ -94,6 +94,10 @@ import {
 } from '../../../src/core/relations/dataframe_slots.ts';
 import { NOLAN } from '../../../src/core/relations/main_lanes.ts';
 import {
+	gateReplayedColumns,
+	gateReplayedValue,
+} from '../../../src/core/section/record/write_value_gates.ts';
+import {
 	type ChangedKeysDoor,
 	persistRecordBirth,
 	persistRecordColumns,
@@ -101,7 +105,11 @@ import {
 } from '../../../src/core/section_record/index.ts';
 import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
 import { authorizeRecordAccess, type FrameOf } from '../../../src/core/security/write_door.ts';
-import { readRowLaneState, restoredLaneValue } from '../../../src/core/tm_record/lane_state.ts';
+import {
+	type RowLaneState,
+	readRowLaneState,
+	restoredLaneValue,
+} from '../../../src/core/tm_record/lane_state.ts';
 import { restorableRelationValue } from '../../../src/core/tm_record/relation_snapshot_shape.ts';
 import {
 	type ToolActionContext,
@@ -192,6 +200,8 @@ async function recordRecoverRow(
  * THEN), and the observer cascade of every key it replaces — its before-image
  * read under the row lock. An absent row makes it an undelete (a birth at the
  * address). CORE-1 was this door writing the row and remembering none of it.
+ * The image passes the save door's VALUE gates first (write_value_gates.ts
+ * gateReplayedColumns): a history row is not proof its values ever saw them.
  * Joins an ambient transaction — the bulk revert undeletes a cascade target
  * (a record a revert's D2 deleted) inside the transaction of the unit that re-links it, so a refused unit rolls
  * the undelete back with it. The FILE half ({@link restoreSectionMedia}) must
@@ -205,9 +215,14 @@ export async function restoreSectionRow(
 	userId: number,
 	door?: ChangedKeysDoor,
 ): Promise<Partial<Record<MatrixJsonbColumn, unknown>>> {
-	const { table, columns } = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId);
+	const image = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId);
+	// THE VALUE GATES (C58, WC-2026-11-17-tm-restore-value-gates): every component
+	// key of the image passes the gates a save of it passes — a value they refuse
+	// refuses the WHOLE restore (typed, before anything is written), a value they
+	// clean is written cleaned, never raw.
+	const columns = await gateReplayedColumns(image.columns);
 	await persistRecordColumns(
-		{ table, sectionTipo, sectionId },
+		{ table: image.table, sectionTipo, sectionId },
 		columns,
 		{ userId },
 		{ actor: userId },
@@ -437,6 +452,24 @@ async function rowFrameSlice(
 			known.add(id);
 	}
 	return { survivorIds: new Set(), otherLangIds: known, heldIds: heldItemIds(restoredValue) };
+}
+
+/**
+ * A row's lane state with its OWN lane value through the save door's value
+ * gates (C58, WC-2026-11-17-tm-restore-value-gates; write_value_gates.ts
+ * gateReplayedValue). ONLY the lane the row speaks for: the live other
+ * languages it is merged over (restoredLaneValue) are not this restore's to
+ * rewrite, and the frames are the slots' own values (dataframe_restore.ts
+ * gates them). A row that restores no value has none to gate.
+ */
+async function gatedLaneState(
+	state: RowLaneState,
+	model: string,
+	tipo: string,
+): Promise<RowLaneState> {
+	if (!state.own.recorded) return state;
+	const value = await gateReplayedValue(model, tipo, state.own.value);
+	return { ...state, own: { ...state.own, value } };
 }
 
 /**
@@ -671,12 +704,18 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// the row (the row itself when it is one — an lg-nolan row, a PHP row
 		// carrying frames — else the newest frame-state row below it: lg-nolan,
 		// or a v6 row carrying frames).
-		const state = await readRowLaneState({
-			coords: { sectionTipo, sectionId, componentTipo: tipo },
-			row: canonicalRow,
-			law: identity,
-			fallbackLang,
-		});
+		// THE VALUE GATES (C58): the row's OWN lane value passes the gates a save
+		// of it passes, before anything is written — refused or cleaned, never raw.
+		const state = await gatedLaneState(
+			await readRowLaneState({
+				coords: { sectionTipo, sectionId, componentTipo: tipo },
+				row: canonicalRow,
+				law: identity,
+				fallbackLang,
+			}),
+			model,
+			tipo,
+		);
 		// The FRAME half (PHP apply_value :277-333), planned behind the lock and
 		// before anything is written, so an unplaceable frame refuses the whole
 		// restore instead of leaving the record half-restored.

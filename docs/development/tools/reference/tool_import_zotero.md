@@ -1,6 +1,6 @@
 # tool_import_zotero
 
-Imports a Zotero **CSL JSON** export into a Dédalo Publications section (rsc205): one record per reference, matched by its Zotero key; the reference's PDF and its first-page cover attached.
+Imports a Zotero **CSL JSON** export into a Dédalo Publications section (rsc205): one record per reference, addressed by its call number when it carries one, else matched by its Zotero key; the reference's PDF and its first-page cover attached.
 
 ## What it does / why & when to use it
 
@@ -26,9 +26,17 @@ Use it for bulk ingest and re-ingest of references curated in Zotero. For Dédal
     - CSL **date** variables (issued, accessed, original-date…) → `{start, end?}`: the end kept only for a `date_mode: range` component, a clock-time `season` as the time; a text date (`raw`/`literal`, no `date-parts`) is refused, never stored empty.
     - `DOI` → `https://www.doi.org/<doi>` unless already a URL; any other variable → its text in the component's shape (an IRI component gets `{iri}`, an HTML one a paragraph).
     - `archive` → the attachment request (never a field).
-    - the `main.field_to_section_id` variable (e.g. `call-number`; the shipped default names none) → its text, trimmed only, into the component the map binds it to — and the item's second **identifier** (below). It is never a record number.
-5. **Identity.** First the identifier, per item (`resolveIdentifiers`): the `field_to_section_id` value is looked up EXACTLY (`findSectionIdByCode`, `src/core/tools/import_code_lookup.ts`) in the component the map binds its variable to, in the imported section, scoped to the importer. Found → that record (the key is written onto it too); absent → the key decides, else the record is created holding it; held by two records, or carried by an earlier item of the same export, or naming a record other than the one the item's key is held by → **that item** is refused (an `errors` line) and the rest of the export proceeds. Then the key, for the whole batch (`resolveMappedCodes`, shared with MARC21), before any write: the key — or the full URI — matched EXACTLY in the code component; none → create. A key twice in one batch, or held by two records, refuses the run. The read itself is bounded: an export over 64 MB (the CSV ceiling) is refused by its size on disk, listed in `errors`, and never opened.
-6. **Execute.** `importMappedRecords` (`src/core/tools/import_execute.ts`): one dd800 run, one transaction per record, the write door per field, the Values form appended to every record. A link (`MappedRecord.links`, `src/core/tools/import_link.ts`) is resolved inside the record's transaction: its name advisory-locked before the record's first write, found by exact name, else created with the run's birth marker and named; a name held by two records refuses the link only.
+    - the `main.field_to_section_id` variable (default `call-number`) → the record's **address** (below), carried as the text the file holds (`ZoteroMappedRecord.address`). It names a Zotero field: no component is bound to it and nothing is written for it (a map entry of the same name, if an install adds one, is written by its ordinary handler); it is never listed as unmapped.
+5. **Identity.** Decided once, before any write (`resolveItems`), in three steps:
+    1. **The call number, per item** (`screenAddresses`, `tools/tool_import_zotero/server/call_number_address.ts`). `recordNumberOf` reads it: only a canonical positive int4 — digits, no sign, no leading zero, no fraction, at most 2147483647 — is a record number. Anything else, or a number an earlier item of the run carries, refuses **that item** (`request.invalid_data`).
+    2. **The Zotero key, for the whole batch** (`resolveMappedCodes`, shared with MARC21): the key — or the full URI — matched EXACTLY in the code component, scoped to the importer; none → create. A key twice in one batch, or held by two records, refuses the run.
+    3. **The call number over the key** (`addressRecords`). No call number → the key's answer stands. A call number while the key is held by another record → the item is refused (`resource.conflict`). Otherwise the record is handed to the executor with `MappedRecord.address`.
+
+    The read itself is bounded: an export over 64 MB (the CSV ceiling) is refused by its size on disk, listed in `errors`, and never opened.
+
+    !!! note "The call number is the one address an import may choose"
+        Every other imported identifier — the Zotero key, a MARC21 control number — is a code looked up in a component (`src/core/tools/import_code_lookup.ts`): an external string never chooses a `section_id`. The call number is the named exception, because the operator writes it for that purpose. The executor accepts `MappedRecord.address` only from an action its tool declares in `operatorAddressActions` (see [Server contract](../server_contract.md#the-module)) — this tool's `import_files`, and no other — and refuses the run otherwise. Gates: `test/unit/tool_import_zotero_native.test.ts`, `test/unit/marc_identity_native.test.ts`.
+6. **Execute.** `importMappedRecords` (`src/core/tools/import_execute.ts`): one dd800 run, one transaction per record, the write door per field, the Values form appended to every record. An addressed record is settled inside its transaction (`addressedTarget`), on what is true when it is written: no record at the id — never one, or deleted — → the create door, then the explicit-id insert (the counter rises to the id; an id that carries a deleted record's history opens a new generation); a record there → it is first asked of the record door as a whole (`livingRecordRefusal`: section floor and write scope — a record the importer may not write refuses the item with the door's `perm.*` code, and its key is never read), then its stored key is read under the row lock (`readStoredCodesForUpdate`): none is adopted, the item's own is the same reference, any other refuses the item (`resource.conflict`, the record rolled back), and every field is asked of the record door as for a matched record. Addressed records are written before the others, highest id first (`writeOrder`), so the counter id an unaddressed record or a linked record takes is never one the same export names; the report stays in input order. A link (`MappedRecord.links`, `src/core/tools/import_link.ts`) is resolved inside the record's transaction: its name advisory-locked before the record's first write, found by exact name, else created with the run's birth marker and named; a name held by two records refuses the link only.
 7. **Attachments.** For each committed record with an `archive`: the file must be an entry of the same upload, staged and confined; `processUploadedFile` + `persistUploadedMedia` into `main.pdf`, then the PDF ingest's rendered cover into `main.identifying_image`. A failure is a report line; the record stays.
 8. The consumed `.json` files are deleted; the staging form is cleared when the run wrote something.
 
@@ -36,7 +44,7 @@ Use it for bulk ingest and re-ingest of references curated in Zotero. For Dédal
 
 ### Client
 
-`tools/tool_import_zotero/js/` — `service_upload` (multi-file drop zone: the export and its PDFs) and `service_tmp_section` (the Values form, ddo_map role `input_component`). The IMPORT button posts the request below and `render_import_report` renders the report — summary, refused fields, file errors, attachments, notices — as text under the outcome label.
+`tools/tool_import_zotero/js/` — `service_upload` (multi-file drop zone: the export and its PDFs) and `service_tmp_section` (the Values form, ddo_map role `input_component`). The IMPORT button posts the request below and `render_import_report` renders the report — summary, the records created and updated at their call-number id, refused references, refused fields, file errors, attachments, notices — as text under the outcome label.
 
 ## Actions & options
 
@@ -44,7 +52,7 @@ Use it for bulk ingest and re-ingest of references curated in Zotero. For Dédal
 | --- | --- | --- |
 | `import_files` | `targets`, level 2: caller pair + Values form fields | `section_tipo` (required), `tipo`, `section_id`, `tool_config` (its `ddo_map` only), `files_data` (`{name, tmp_name}` per staged file), `components_temp_data` (the Values form), `key_dir` |
 
-The response `data`: `summary`, `created`, `updated`, `failed` (`{section_id, component_tipo, data, msg}` per refused field or rolled-back record), `errors` (per file), `notices`, `attachments`, `bulk_process_id`.
+The response `data`: `summary`, `created`, `updated`, `created_at_id` and `updated_at_id` (the `section_id`s created / updated at their call number), `refused` (`{item, code, message}` per reference the call-number rules refused — `code` is `request.invalid_data`, `resource.conflict`, or the record door's `perm.*` code for a record the importer may not edit), `failed` (`{section_id, component_tipo, data, msg}` per refused field or rolled-back record), `errors` (per file), `notices`, `attachments`, `bulk_process_id`.
 
 ## Configuration
 
@@ -63,7 +71,8 @@ The shipped default (register dd1633, mirrored in `sample_config.json`) maps CSL
     { "name": "section", "tipo": "rsc205" },
     { "name": "pdf", "tipo": "rsc209" },
     { "name": "identifying_image", "tipo": "rsc228" },
-    { "name": "field_standard_number", "tipo": "rsc249" }
+    { "name": "field_standard_number", "tipo": "rsc249" },
+    { "name": "field_to_section_id", "value": "call-number" }
   ],
   "typology": [{ "name": "book", "value": [{ "section_id": 1, "section_tipo": "dd810" }] }],
   "standard_type": [{ "name": "ISBN", "value": [{ "section_id": 1, "section_tipo": "dd292" }] }]
@@ -74,7 +83,7 @@ The shipped default (register dd1633, mirrored in `sample_config.json`) maps CSL
 | --- | --- |
 | `map[].name` | The CSL variable. `id` is required: it names the code component a re-import matches on. |
 | `map[].ddo_map` | `[0]` the component written (must be in the imported section). A `[1]` whose `parent` is `[0].tipo` makes a link: the text names a record of `[1].section_tipo` by its `[1].tipo` component. |
-| `main` | `section`, `pdf`, `identifying_image`, `field_standard_number`, `field_to_section_id` — the CSL variable whose value is the item's second identifier; it must have a `map` entry (the component it is looked up in: a text or IRI component — one that holds a code), and that entry may not be a link. The shipped default names none: Publications (`rsc205`) has no call-number component (the earlier default bound `call-number` to `dd176`, a label node, which refused every item carrying one). Gate: `tool_import_zotero_native` "the SHIPPED default". |
+| `main` | `section`, `pdf`, `identifying_image`, `field_standard_number`, `field_to_section_id` — the CSL variable whose value is the record's `section_id` (shipped: `call-number`). It names a Zotero field, so it needs no `map` entry. `id` is refused there (the key is looked up, never a record number); leaving the setting out makes the Zotero key the only identity. Gate: `tool_import_zotero_native` "the SHIPPED default". |
 | `typology` / `standard_type` | CSL type / number kind → the list locators stored. |
 
 Do not edit dd1633: copy the full configuration into the Tools configuration (dd996) and edit it there — every key you set there replaces the register's key of the same name.
@@ -85,5 +94,5 @@ Do not edit dd1633: copy the full configuration into the Tools configuration (dd
 - [tool_import_files](tool_import_files.md) — media ingest without bibliographic data.
 - [tool_import_dedalo_csv](tool_import_dedalo_csv.md) · [tool_import_rdf](tool_import_rdf.md) — the other importers.
 - [Importing data](../../../using/importing_data.md) — the per-component import-data contract.
-- Source: `tools/tool_import_zotero/server/index.ts`; reader `src/core/tools/csl_json.ts`; mapper `src/core/tools/zotero_map.ts`; links `src/core/tools/import_link.ts`; executor `src/core/tools/import_execute.ts`.
+- Source: `tools/tool_import_zotero/server/index.ts`; the call-number rules `tools/tool_import_zotero/server/call_number_address.ts`; reader `src/core/tools/csl_json.ts`; mapper `src/core/tools/zotero_map.ts`; links `src/core/tools/import_link.ts`; executor `src/core/tools/import_execute.ts`.
 - [Creating new tools](../creating_tools.md), [Server contract](../server_contract.md), [register.json reference](../register_json.md), [Security](../security.md)

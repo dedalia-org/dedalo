@@ -43,6 +43,11 @@
  *            (measured on mdcat 2026-09-24, '!*' 177 s reversed vs 0.23 s).
  *            The two shapes see the same record set: the reversed one only ever
  *            reaches real, ACL-visible target records, which is exactly R(m).
+ *            The index carries no table, so every INTERMEDIATE record is
+ *            joined back to its row in the hop's step table (hopSourceJoin),
+ *            hop ACL or not — the row the forward join reads. Without it a
+ *            locator naming a record of another table matched through that
+ *            record's own index rows (TODO-012, owner decision 20).
  */
 
 import type { BuilderResult } from './builders/types.ts';
@@ -218,12 +223,7 @@ function reverseShell(plan: DeepChainPlan): { open: string; close: string } {
 	for (let index = hops.length - 1; index >= 0; index--) {
 		const hop = hops[index] as JoinHop;
 		const ri = `ri_${hop.alias}`;
-		const source = index === 0 ? undefined : (hops[index - 1] as JoinHop);
-		const sourceJoin =
-			source === undefined || source.acl === ''
-				? ''
-				: ` JOIN ${source.table} AS ${source.alias} ON ${source.alias}.section_tipo = ${ri}.section_tipo ` +
-					`AND ${source.alias}.section_id = ${ri}.section_id AND (${source.acl})`;
+		const sourceJoin = index === 0 ? '' : hopSourceJoin(hops[index - 1] as JoinHop, ri);
 		open =
 			`SELECT ${ri}.section_tipo, ${ri}.section_id FROM matrix_relation_index AS ${ri}${sourceJoin} ` +
 			`WHERE ${ri}.from_component_tipo = '${hop.hopDataTipo}' ` +
@@ -234,4 +234,19 @@ function reverseShell(plan: DeepChainPlan): { open: string; close: string } {
 		open: `(${plan.mainAlias}.section_tipo, ${plan.mainAlias}.section_id) IN (${open}`,
 		close: `${close})`,
 	};
+}
+
+/**
+ * The SOURCE record of a walked-back hop, as the forward join reads it: the row
+ * of the hop's step table at the address the index names (section_tipo +
+ * section_id), under the hop ACL when there is one. ALWAYS emitted — an index
+ * row says a record somewhere holds the locator, never that it is a record of
+ * this table. (The main row needs none: the outer IN binds the main alias.)
+ */
+function hopSourceJoin(source: JoinHop, ri: string): string {
+	const acl = source.acl === '' ? '' : ` AND (${source.acl})`;
+	return (
+		` JOIN ${source.table} AS ${source.alias} ON ${source.alias}.section_tipo = ${ri}.section_tipo ` +
+		`AND ${source.alias}.section_id = ${ri}.section_id${acl}`
+	);
 }

@@ -361,6 +361,19 @@ export interface ToolServerModule {
 	 */
 	backgroundLanes?: Readonly<Record<string, JobLane>>;
 	/**
+	 * The actions whose mapped import may ADDRESS a record by an OPERATOR-CHOSEN
+	 * section_id (import_execute.ts `MappedRecord.address`), each with the reason
+	 * it may: `{ import_files: '<the ruling that allows it>' }`. THE NAMED
+	 * EXCEPTION to the law that an imported identifier is a code, never an
+	 * address (audit DATA-08, import_code_lookup.ts): the executor refuses an
+	 * address from any action that does not declare itself here. Every key must
+	 * be one of `apiActions` and every reason a non-empty sentence (the loader
+	 * refuses the tool otherwise). The declaring set is pinned by
+	 * test/unit/marc_identity_native.test.ts — one tool, and never MARC21. Absent
+	 * = the tool addresses no record by id.
+	 */
+	operatorAddressActions?: Readonly<Record<string, string>>;
+	/**
 	 * The tool whose CONFIG this one uses (dd996/dd1633 by that name), for a tool
 	 * that is another's alternate UI and owns no config of its own — tool_lang_multi
 	 * → tool_lang. ONE source for both halves: the client-visible `config` in this

@@ -31,6 +31,15 @@
  * tool tree for the doors that feed the shared executor, so a THIRD mapped door
  * added tomorrow reddens this file rather than quietly inheriting nothing.
  *
+ * THE ONE NAMED EXCEPTION (owner ruling 2026-11-17). The Zotero door's
+ * call-number IS a record address — an operator-chosen section_id, Zotero having
+ * no editable id — handed to the executor as `MappedRecord.address`. This file
+ * gates the exception's EDGE: the executor accepts an address only from a door
+ * whose tool DECLARES the capability (`ToolServerModule.operatorAddressActions`
+ * — exactly the Zotero one), and the MARC21 door can therefore never address a
+ * record by id. The exception's own rules are
+ * gated in tool_import_zotero_native.
+ *
  * WHAT THIS FILE BUILDS: its own records in the generic `test` TLD's test3
  * playground, its own codes, its own staged .mrc bytes. It reads no record it
  * did not create, and sweeps every row (records, TM, dd800 runs) it caused.
@@ -45,13 +54,19 @@ import { createSectionRecord } from '../../src/core/section/record/create_record
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { findSectionIdByCode } from '../../src/core/tools/import_code_lookup.ts';
-import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import { importMappedRecords, type MappedRecord } from '../../src/core/tools/import_execute.ts';
+import { getLoadedTool, loadToolModules } from '../../src/core/tools/loader.ts';
 import { applyMarcMap, type MarcRecord } from '../../src/core/tools/marc21.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { mapCslItem, readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
+import { mapCslItem, readZoteroConfig, recordNumberOf } from '../../src/core/tools/zotero_map.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
+import {
+	REPO_ROOT,
+	WRITE_PATH_CORPUS_FLOOR,
+	writePathSourceFiles,
+} from '../helpers/write_path_corpus.ts';
 
 // ---------------------------------------------------------------------------
 // The situation this file builds.
@@ -92,6 +107,11 @@ const NUMERIC_VICTIM_ID = 900324; // the record the purely-numeric identifier us
 const LOOKALIGN_ID = 900325; // carries the accented code a look-alike must NOT match
 const DUP_A_ID = 900326;
 const DUP_B_ID = 900327; // …and its twin: one code, two records
+
+/** NO record lives here: the id an address from a refused door must not create. */
+const ADDRESS_ABSENT_ID = 900328;
+/** NO record lives here either, until the Zotero door's address creates it (the positive control). */
+const ADDRESS_CONTROL_ID = 900329;
 
 const SCRATCH_IDS = [
 	CURATED_ID,
@@ -377,7 +397,7 @@ afterAll(async () => {
 	for (const code of [TRUNCATING_A, TRUNCATING_B, NUMERIC_CODE, LOOKALIKE_CODE, UNMATCHED_CODE]) {
 		for (const id of await recordsWithCode(code)) if (!SCRATCH_IDS.includes(id)) created.add(id);
 	}
-	for (const id of [...SCRATCH_IDS, ...created]) {
+	for (const id of [...SCRATCH_IDS, ADDRESS_ABSENT_ID, ADDRESS_CONTROL_ID, ...created]) {
 		await sql.unsafe(`DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`, [
 			SECTION,
 			id,
@@ -439,26 +459,21 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 	});
 
 	/**
-	 * The Zotero door (T1-7) carries its identifiers the same way: the item's
-	 * Zotero KEY is a CODE, resolved through the code component by the shared
-	 * `resolveMappedCodes`, and PHP's second address — `field_to_section_id`
-	 * (default `call-number`), which it CAST to a section_id — is a second
-	 * IDENTIFIER (owner C18): written into the component the map binds it to and
-	 * carried as `identifier` for the door's code lookup. The mapper yields no
-	 * address at all. This pins the half that matters to DATA-08: no
-	 * identifier-shaped value, however numeric, comes back from that mapper as an
-	 * address.
+	 * The Zotero door (T1-7): the item's Zotero KEY is a CODE, resolved through
+	 * the code component by the shared `resolveMappedCodes` — DATA-08's law. Its
+	 * `field_to_section_id` variable (default `call-number`) is the NAMED
+	 * EXCEPTION (owner ruling 2026-11-17): an operator-chosen address. The mapper
+	 * still casts nothing: it carries the value as the TEXT the file holds, and
+	 * only `recordNumberOf` — canonical positive int4, no cast — reads a number
+	 * out of it. This pins both halves: no key, however numeric, is an address;
+	 * and no call-number that merely STARTS with digits is one either.
 	 */
-	test('the Zotero mapper yields no address for any identifier-shaped value', () => {
+	test('the Zotero mapper casts nothing: the key is a code, the call-number is text until it is canonically a number', () => {
 		const idish = ['42', String(NUMERIC_VICTIM_ID), '007', '.b12345678', '900323abc', '0'];
 		const cfg = readZoteroConfig({
-			map: [
-				{ name: 'id', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
-				{ name: 'call-number', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] },
-			],
+			map: [{ name: 'id', ddo_map: [{ tipo: CODE_COMPONENT, section_tipo: 'test3' }] }],
 			main: [{ name: 'field_to_section_id', value: 'call-number' }],
 		});
-		expect(cfg.identifierTarget).toEqual({ sectionTipo: 'test3', componentTipo: CODE_COMPONENT });
 		const kindOf = new Map([[CODE_COMPONENT, 'text' as const]]);
 		const mapped = idish.map((value) =>
 			mapCslItem(
@@ -467,17 +482,155 @@ describe('the mapped-import doors (census, derived from the tool tree)', () => {
 				{ kindOf },
 			),
 		);
+		// THE KEY: every shape is a code, written into the code component only.
 		expect(mapped.map((record) => record.code)).toEqual(idish);
 		for (const record of mapped) {
 			expect('sectionId' in record).toBe(false);
-			expect('resolvedSectionId' in record).toBe(false);
-			// The call-number is a VALUE of its component (trimmed only) and the
-			// identifier the door looks up — a string, never a number.
-			expect(record.identifier).toBe(`${record.code}x`);
 			expect(record.fields.map((field) => field.values)).toEqual([
-				[JSON.stringify([{ value: record.code }]), JSON.stringify([{ value: `${record.code}x` }])],
+				[JSON.stringify([{ value: record.code }])],
 			]);
+			// THE CALL-NUMBER: carried verbatim (trimmed), and '<digits>x' is no number.
+			expect(record.address).toBe(`${record.code}x`);
+			expect(recordNumberOf(record.address as string)).toBeNull();
 		}
+		// Only the canonical spelling of a positive int4 is a record number.
+		expect(idish.map(recordNumberOf)).toEqual([42, NUMERIC_VICTIM_ID, null, null, null, null]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 1b. The named exception's edge: an ADDRESS is the Zotero door's alone.
+// ---------------------------------------------------------------------------
+
+describe("an ADDRESS is the Zotero door's alone (owner ruling 2026-11-17)", () => {
+	const OVERWRITE = 'written through an address';
+
+	/** One record that names its own id, as the Zotero door builds it. */
+	function addressed(sectionId: number): MappedRecord[] {
+		return [
+			{
+				sectionId: null,
+				address: { sectionId },
+				fields: [{ component_tipo: TITLE_COMPONENT, values: [OVERWRITE], literal: true }],
+			},
+		];
+	}
+
+	async function bulkRunCount(): Promise<number> {
+		const rows = (await sql.unsafe(
+			`SELECT count(*)::int AS n FROM matrix_notes WHERE section_tipo = 'dd800'`,
+		)) as { n: number }[];
+		return rows[0]?.n ?? 0;
+	}
+
+	async function recordExists(sectionId: number): Promise<boolean> {
+		const rows = (await sql.unsafe(
+			`SELECT 1 AS found FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, sectionId],
+		)) as unknown[];
+		return rows.length > 0;
+	}
+
+	/**
+	 * DERIVED from the loaded tool registry, never listed: the capability is a
+	 * declaration in a tool's own module, so a second tool that declares it
+	 * tomorrow reddens this — it needs its own ruling first.
+	 */
+	test('exactly ONE tool declares the address capability, for ONE action — and it is not MARC21', async () => {
+		const tools = await loadToolModules();
+		expect(tools.size).toBeGreaterThan(20);
+		const declaring = [...tools]
+			.filter(([, loaded]) => loaded.module.operatorAddressActions !== undefined)
+			.map(([name, loaded]) => [name, Object.keys(loaded.module.operatorAddressActions ?? {})]);
+		expect(declaring).toEqual([['tool_import_zotero', ['import_files']]]);
+		expect(tools.get('tool_import_marc21')?.module.operatorAddressActions).toBeUndefined();
+	});
+
+	test('MARC can never address by id: the executor refuses an address from any other door — no write, no create, no run filed', async () => {
+		const principal = await resolvePrincipal(-1);
+		const runsBefore = await bulkRunCount();
+		const doors = [
+			undefined,
+			'tool_import_marc21.import_files',
+			'tool_import_rdf.import_files',
+			// The declaring tool, an action it did not declare — and a name that is no door.
+			'tool_import_zotero.other_action',
+			'tool_import_zotero',
+			'tool_not_here.import_files',
+		];
+		for (const addressDoor of doors) {
+			for (const sectionId of [NUMERIC_VICTIM_ID, ADDRESS_ABSENT_ID]) {
+				const refusal = await refusalOf(
+					importMappedRecords(addressed(sectionId), SECTION, principal, {
+						bulkLabel: 'marc identity address gate',
+						...(addressDoor === undefined ? {} : { addressDoor }),
+					}),
+				);
+				expect(refusal.code, String(addressDoor)).toBe('internal.invariant');
+			}
+		}
+		// The existing record keeps its curated title; the absent id stays absent.
+		expect(await valuesOf(NUMERIC_VICTIM_ID, TITLE_COMPONENT)).toEqual([CURATED_TITLE]);
+		expect(await recordExists(ADDRESS_ABSENT_ID)).toBe(false);
+		// Refused BEFORE the dd800 mint: no run was filed for any of them.
+		expect(await bulkRunCount()).toBe(runsBefore);
+	});
+
+	test('the control: the SAME record through the Zotero door IS written at its id (the refusal above is not vacuous)', async () => {
+		expect(await recordExists(ADDRESS_CONTROL_ID)).toBe(false);
+		const report = await importMappedRecords(
+			addressed(ADDRESS_CONTROL_ID),
+			SECTION,
+			await resolvePrincipal(-1),
+			{
+				bulkLabel: 'marc identity address gate',
+				addressDoor: 'tool_import_zotero.import_files',
+			},
+		);
+		expect(report.failed).toEqual([]);
+		expect(report.createdIds).toEqual([ADDRESS_CONTROL_ID]);
+		expect(await valuesOf(ADDRESS_CONTROL_ID, TITLE_COMPONENT)).toEqual([OVERWRITE]);
+	});
+
+	test('a malformed address is refused whatever the door: not a positive int4, or beside another id', async () => {
+		const principal = await resolvePrincipal(-1);
+		const options = { addressDoor: 'tool_import_zotero.import_files' };
+		const malformed: MappedRecord[][] = [
+			[{ sectionId: null, address: { sectionId: 0 }, fields: [] }],
+			[{ sectionId: null, address: { sectionId: -3 }, fields: [] }],
+			[{ sectionId: null, address: { sectionId: 12.5 }, fields: [] }],
+			[{ sectionId: null, address: { sectionId: 2147483648 }, fields: [] }],
+			[{ sectionId: CURATED_ID, address: { sectionId: NUMERIC_VICTIM_ID }, fields: [] }],
+		];
+		for (const records of malformed) {
+			const refusal = await refusalOf(importMappedRecords(records, SECTION, principal, options));
+			expect(refusal.code).toBe('internal.invariant');
+		}
+	});
+
+	/**
+	 * The census half, derived from the engine's own corpus (the shared
+	 * write-path lister — src, tools, scripts): the option that unlocks an
+	 * address is named by ONE door's source beside the executor that defines it,
+	 * and the MARC door's sources name neither it nor the address type. Source
+	 * text only — the behavioural guards are the executor's refusal above (it
+	 * holds whatever a door's source says) and the mapper case below
+	 * (`applyMarcMap` yields no `address`).
+	 */
+	test('only the Zotero door names the address option; the MARC door names neither it nor the address type', () => {
+		const corpus = writePathSourceFiles();
+		expect(corpus.length).toBeGreaterThanOrEqual(WRITE_PATH_CORPUS_FLOOR);
+		const sourceOf = (file: string) => readFileSync(resolve(REPO_ROOT, file), 'utf8');
+		const naming = corpus.filter((file) => sourceOf(file).includes('addressDoor'));
+		expect(naming).toEqual([
+			'src/core/tools/import_execute.ts',
+			'tools/tool_import_zotero/server/index.ts',
+		]);
+		const marc = corpus.filter(
+			(file) => file.includes('tool_import_marc21/') || file.endsWith('/marc21.ts'),
+		);
+		expect(marc.length).toBeGreaterThanOrEqual(2);
+		for (const file of marc) expect(sourceOf(file).includes('RecordAddress'), file).toBe(false);
 	});
 });
 
@@ -507,6 +660,8 @@ describe('applyMarcMap carries the identifier verbatim', () => {
 			const mapped = applyMarcMap(record(code), [], ID_SPEC);
 			expect(mapped.code, code).toBe(code);
 			expect('sectionId' in mapped, `sectionId leaked for ${code}`).toBe(false);
+			// …nor the Zotero door's named exception: the MARC mapper builds no address.
+			expect('address' in mapped, `address built for ${code}`).toBe(false);
 		}
 	});
 

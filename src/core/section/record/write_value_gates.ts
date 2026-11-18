@@ -31,10 +31,12 @@
  * every writer that KNOWS it is storing a component value: the save door
  * (`saveComponentData` → `applySaveComponentData`) and the whole-value writers
  * that bypass it (`translateAndWrite`, T1-14 / OX7 — PHP sanitized there through
- * `component_text_area::save`). That claim is censused, not prose:
+ * `component_text_area::save`; the Time Machine restore doors, C58 — PHP
+ * restored through `component->Save()`; see {@link gateReplayedValue}). That
+ * claim is censused, not prose:
  * `test/unit/component_value_gate_census_tripwire.test.ts` derives every caller
- * of the chokepoint and requires each to reach this gate or carry a named,
- * reasoned exemption.
+ * of the chokepoint's key / column / replay entries and requires each to reach
+ * this gate or carry a named, reasoned exemption.
  */
 
 import {
@@ -42,7 +44,12 @@ import {
 	numberFormatOf,
 } from '../../components/component_number/number_format.ts';
 import { getComponentModel, getRenderClass } from '../../components/registry.ts';
-import { getColumnNameByModel, getPropertiesByTipo } from '../../ontology/resolver.ts';
+import { DedaloError } from '../../errors/index.ts';
+import {
+	getColumnNameByModel,
+	getModelByTipo,
+	getPropertiesByTipo,
+} from '../../ontology/resolver.ts';
 
 /**
  * Gate a list of changes (each carrying a `value`: one item or an item array)
@@ -105,4 +112,95 @@ export async function gateComponentItems(
 ): Promise<unknown[]> {
 	const [gated] = await applyWriteValueGates(model, componentTipo, [{ value: [...items] }]);
 	return (gated?.value ?? []) as unknown[];
+}
+
+/**
+ * Gate a value REPLAYED FROM HISTORY — a Time Machine image a restore door
+ * writes back (C58 / T1-14 N1, WC-2026-11-17-tm-restore-value-gates). A history
+ * row is stored bytes, but not bytes every gate has seen: a row written before
+ * a gate existed (or by a door that bypassed it) holds the raw value, and a
+ * replay would store it raw again. So a replay passes the SAME gates as a save:
+ * cleaned exactly as a save cleans it (rich text sanitized, a number formatted
+ * as its node declares, a stored hash verbatim), refused with the gate's own
+ * typed error where a save is refused (a malformed number node). A value every
+ * gate already saw comes back byte-identical.
+ *
+ * ONE RULE IS STRICTER THAN A SAVE'S: a credential ({@link
+ * assertReplayableCredential}). A save takes a non-hash password as a NEW
+ * plaintext and hashes it; a replay never carries a new password, so a non-hash
+ * credential image is refused instead of minted into a hash.
+ *
+ * `value` is whatever the image holds under the key — an item array, or one
+ * item; an absent / null image (the key is removed) has nothing to gate.
+ */
+export async function gateReplayedValue(
+	model: string,
+	componentTipo: string,
+	value: unknown,
+): Promise<unknown> {
+	if (value === null || value === undefined) return value;
+	await assertReplayableCredential(model, componentTipo, value);
+	const [gated] = await applyWriteValueGates(model, componentTipo, [{ value }]);
+	return (gated as { value: unknown }).value;
+}
+
+/**
+ * A `component_password` image must already be a stored hash (or empty) —
+ * else `tool.snapshot_unrestorable`, nothing written. Stored bytes that are not
+ * a hash are a legacy v6 ciphertext or a plaintext a pre-gate door stored
+ * (security/password_hash.ts isReplayablePasswordValue): hashing either would
+ * turn history bytes into a working credential, and writing either raw is what
+ * this gate exists to stop. The value never rides the error.
+ */
+async function assertReplayableCredential(
+	model: string,
+	componentTipo: string,
+	value: unknown,
+): Promise<void> {
+	if (model !== 'component_password') return;
+	const { isReplayablePasswordValue } = await import('../../security/password_hash.ts');
+	if (isReplayablePasswordValue(value)) return;
+	throw new DedaloError('tool.snapshot_unrestorable', {
+		coordinates: { tipo: componentTipo, reason: 'the credential image is not a stored hash' },
+	});
+}
+
+/**
+ * Gate a WHOLE-RECORD image (matrix jsonb column → key → value) — the
+ * whole-record restore door. Every key that is a component storing in THAT
+ * column passes {@link gateReplayedValue}; anything else is returned verbatim:
+ * section metadata, counters, the derived `relation_search` index, a tipo the
+ * ontology no longer knows, a column that is not a key map. Returns new
+ * containers in the image's own key order; the input is never mutated.
+ */
+export async function gateReplayedColumns<C extends string>(
+	columns: Readonly<Partial<Record<C, unknown>>>,
+): Promise<Partial<Record<C, unknown>>> {
+	const gated: Partial<Record<C, unknown>> = {};
+	for (const [column, keys] of Object.entries(columns) as [C, unknown][]) {
+		gated[column] = await gateReplayedColumn(column, keys);
+	}
+	return gated;
+}
+
+/** One column of a whole-record image (see {@link gateReplayedColumns}). */
+async function gateReplayedColumn(column: string, keys: unknown): Promise<unknown> {
+	if (!isKeyMap(keys)) return keys;
+	const gated: Record<string, unknown> = {};
+	for (const [tipo, value] of Object.entries(keys)) {
+		const model = await componentStoredIn(column, tipo);
+		gated[tipo] = model === null ? value : await gateReplayedValue(model, tipo, value);
+	}
+	return gated;
+}
+
+/** A column image that is a key → value map (never null, a scalar or an array). */
+function isKeyMap(keys: unknown): keys is Record<string, unknown> {
+	return keys !== null && typeof keys === 'object' && !Array.isArray(keys);
+}
+
+/** The model of `tipo` when it is a component whose values live in `column`; else null. */
+async function componentStoredIn(column: string, tipo: string): Promise<string | null> {
+	const model = await getModelByTipo(tipo);
+	return model !== null && getColumnNameByModel(model) === column ? model : null;
 }

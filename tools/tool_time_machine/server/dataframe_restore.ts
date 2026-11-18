@@ -92,6 +92,7 @@ import {
 	restoreSlot,
 	splitComposed,
 } from '../../../src/core/relations/dataframe_slots.ts';
+import { gateComponentItems } from '../../../src/core/section/record/write_value_gates.ts';
 import {
 	persistRecordKeys,
 	type RecordWriteTarget,
@@ -359,8 +360,13 @@ export async function applyDataframeRestore(
 	const writes = await plannedSlotWrites(target, mainTipo, plan, slice);
 	for (const { slotTipo } of writes) await authorizeSlot(slotTipo);
 	for (const { slotTipo, next, written } of writes) {
+		// THE VALUE GATES (C58): a slot's frames pass the gates a save of the slot
+		// passes — today none keys on a dataframe, so the frames come back as they
+		// are; the door is here so a future gate is never bypassed by a replay.
 		// null REMOVES the key (PHP's emptied slot), never '[]'.
-		await persistRecordKeys(target, [{ column, key: slotTipo, value: next }], false, { actor });
+		const value =
+			next === null ? null : await gateComponentItems('component_dataframe', slotTipo, next);
+		await persistRecordKeys(target, [{ column, key: slotTipo, value }], false, { actor });
 		// The restored frames carry explicit ids; raise the slot's counter so a
 		// later insert cannot mint a duplicate (PHP raises on every set_data).
 		// A duplicate id here would break the id_key pairing itself.

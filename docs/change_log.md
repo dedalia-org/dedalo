@@ -177,6 +177,41 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **"Zotero import: a whole-number call number is the record number — checked, and refused when it would overwrite another reference."**
+
+    Zotero has no identifier you can edit, so the record number of a reference is read from its
+    **Call Number** field (the `field_to_section_id` setting of the tool's configuration, shipped
+    as `call-number`). Earlier versions cast whatever was there to a number — `12abc` wrote record
+    12 — and overwrote the record without a check.
+
+    Now only a whole number written with digits (1 to 2147483647) is a record number:
+
+    - a record with that number exists → it is updated, and takes the reference's Zotero key if it
+      held none;
+    - no record has that number → it is created with exactly that number — also when the record
+      was deleted, so a reference imported by mistake can be deleted and imported again at the same
+      number;
+    - no call number → the reference is matched by its Zotero key, as before.
+
+    A reference is **refused**, and nothing is written for it, when its call number is not a whole
+    number, when the record with that number already holds another Zotero key, when its Zotero key
+    is already held by a different record, when an earlier reference of the same import carries
+    the same call number, or when the record with that number exists and you may not edit it. The
+    rest of the export is imported. References that carry a call number are written first, so a
+    reference without one never takes a number another reference of the same export names. The report lists separately the
+    records created at their call number, the records updated at it, and each refused reference
+    with its reason. Permissions apply as to any import: creating a record needs the permission to
+    create in the section.
+
+    **Action needed:** none for the shipped configuration — but check the call numbers of a library
+    before importing it: a call number is the record that is written, and a record created by hand
+    that holds no Zotero key is updated by a reference carrying its number. A Tools configuration
+    whose `field_to_section_id` names `id` now stops the import with a message; name the Zotero
+    field that holds the record number, or remove the setting to match by Zotero key only. Details:
+    [Zotero import](./using/tools/using_import_zotero.md#choosing-the-record-number-the-call-number).
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
+
 - **Exported text cells no longer carry the editor's tag marks.**
 
     A text with indexation, time-code, person or note tags exported its raw tag marks inside the
@@ -248,34 +283,13 @@ Merged since the last release; these ship with the next one.
 
     The Local AI translator returns to **Translate all languages** once its model revision is pinned.
 
-- **"Zotero import: the call number identifies the record instead of numbering it, and an export over 64 MB is refused."**
-
-    The Zotero **call number** (the `field_to_section_id` variable of the tool's configuration)
-    was a record number in earlier versions — a typo overwrote an unrelated record — and since the
-    import was restored it was neither stored nor applied, with a notice per reference.
-
-    Now it is an identifier, when the configuration names one: it is stored in the field the
-    configuration binds it to, and a re-import first looks for the record that already holds it. Found → that record is updated
-    (and now also carries the Zotero key); not found → the Zotero key decides, or a new record is
-    created holding both. A call number held by two records, repeated on two references of one
-    export, or pointing at a different record than the reference's key refuses **that reference
-    only**, listed under the file errors; the rest of the export is imported.
+- **"Zotero import: an export over 64 MB is refused."**
 
     An export larger than 64 MB — the same limit as a CSV import — is refused when the import
     runs, with a line naming the file, its size and the limit, and is left where it was staged.
     Export the library in parts.
 
-    The configuration shipped with Dédalo now names **no** such identifier: the Publications
-    section has no call-number field to hold one (the earlier default pointed the call number at a
-    node that is not a field, so every reference carrying one was refused), and the Zotero key alone
-    identifies a reference. A call number in the export is listed once under notices.
-
-    **Action needed:** none for the shipped configuration. A Tools configuration whose
-    `field_to_section_id` names a Zotero field the map does not bind, or binds to a field that holds
-    no text, now stops the import (or refuses that reference) with a message naming it — bind the
-    field to a text or URL field of the section.
-
-    Wire contract: `WC-2026-11-12-zotero-csl-json-import`, `WC-2026-11-13-csv-ingest-size-ceiling`.
+    Wire contract: `WC-2026-11-13-csv-ingest-size-ceiling`.
 
 - **Media versions: the thumb opens in the tool's preview, like the other qualities.**
 
@@ -400,6 +414,14 @@ Merged since the last release; these ship with the next one.
     from leaving the record. The reload and add-point icons now explain themselves on hover.
 
 #### Fixed
+
+- **Restoring a version from the Time Machine cleans the value like a normal save**
+
+    Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.
+
+    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry that is not stored as a hash (an entry from before passwords were hashed) — such an entry is never turned back into a working password. A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
+
+    Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
 
 - **Local AI translation no longer reports success when the translation could not be saved**
 
@@ -819,8 +841,9 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** none for the shipped field map. A date written only as text ("circa 1900")
     or an item type the configuration does not list is now refused for that record and listed,
-    instead of emptying the stored value. A numeric call number is no longer used as the record
-    number — that rule is under review; each reference that carries one says so in the report.
+    instead of emptying the stored value. A reference's **Call Number** chooses its record number
+    only when it is a whole number, and never overwrites another reference's record — see the
+    call-number note of this release.
 
     Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
 
@@ -1496,6 +1519,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A system search across two or more linked sections no longer matches through a record stored in another table.**
+
+    A search can follow links through several sections — a record, the record it links, and the
+    record that one links. Searches a signed-in user runs were already exact. A search the system
+    runs on its own (no user behind it) could, for a positive condition, also return a record whose
+    link in the middle named a record of a section stored in a different table than the one the
+    search path goes through: that record's own links were followed although the search cannot
+    read it. The same search written as a negation did not, so the two answers disagreed. Now
+    every record in the middle of the path must be a record of the table the path names, for
+    every search.
+
+    Wire contract: `WC-2026-11-12-search-hop-join-record-address`.
+
 - **Published bibliography columns that read from Zenon now carry their values.**
 
     A publication column whose source reaches a Zenon field (for example the bibliography
@@ -1866,7 +1902,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 84 entries"
+??? note "Wire contract — 85 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -1952,6 +1988,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-tags-widget-original-lang`
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
+    - `WC-2026-11-17-tm-restore-value-gates`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

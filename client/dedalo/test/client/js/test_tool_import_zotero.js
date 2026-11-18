@@ -96,6 +96,47 @@ describe('TOOL_IMPORT_ZOTERO CLIENT TEST', function () {
 		assert.ok(parent.querySelector('.import_failed li').textContent.includes('<b>x</b>'));
 	});
 
+	it('the call-number addresses are three separate lists, every line TEXT', () => {
+		const parent = document.createElement('div');
+		render_import_report(
+			{
+				summary: 'Zotero import done. Created 2, updated 1, 1 refused.',
+				created_at_id: [12, 15],
+				updated_at_id: [9],
+				refused: [
+					{
+						item: 'K<i>9</i>',
+						code: 'request.invalid_data',
+						message: "call-number '<b>x</b>' is not a record number",
+					},
+				],
+				failed: [],
+				errors: [],
+				attachments: [],
+				notices: [],
+			},
+			parent,
+		);
+		assert.equal(
+			parent.querySelector('.import_created_at_id li').textContent,
+			'Created at their call-number id: 12, 15',
+		);
+		assert.equal(
+			parent.querySelector('.import_updated_at_id li').textContent,
+			'Updated at their call-number id: 9',
+		);
+		const refused = parent.querySelectorAll('.import_refused li');
+		assert.equal(refused.length, 1);
+		assert.equal(
+			refused[0].textContent,
+			"K<i>9</i>: call-number '<b>x</b>' is not a record number",
+		);
+		assert.equal(parent.querySelector('.import_refused b, .import_refused i'), null);
+		// an empty list renders no group at all
+		assert.equal(parent.querySelector('.import_failed'), null);
+		assert.equal(parent.querySelector('.import_errors'), null);
+	});
+
 	it('no report (a refused or background response) renders nothing', () => {
 		const parent = document.createElement('div');
 		assert.equal(render_import_report(null, parent), null);

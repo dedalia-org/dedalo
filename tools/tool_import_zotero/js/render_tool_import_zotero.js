@@ -315,7 +315,9 @@ const get_content_data_edit = async function(self) {
 * partially failed run as a success.
 *
 * Report keys (WC-2026-11-12-zotero-csl-json-import): summary, failed[{msg}],
-* errors[], notices[], attachments[].
+* errors[], notices[], attachments[], and what the call-number addresses came
+* to, each in its own list: created_at_id[], updated_at_id[] (record ids) and
+* refused[{item, code, message}].
 *
 * @param {Object|null} data - The response data (the report)
 * @param {HTMLElement} parent - The node the report is appended to
@@ -343,7 +345,13 @@ export const render_import_report = function(data, parent) {
 		const where = item && item.section_id ? item.section_id + ' ' + (item.component_tipo || '') + ': ' : ''
 		return where + ((item && item.msg) || '')
 	})
+	const refused_lines = (Array.isArray(data.refused) ? data.refused : []).map(item => {
+		return ((item && item.item) || '') + ': ' + ((item && item.message) || '')
+	})
 	const groups = [
+		['import_created_at_id', id_list_lines('Created at their call-number id: ', data.created_at_id)],
+		['import_updated_at_id', id_list_lines('Updated at their call-number id: ', data.updated_at_id)],
+		['import_refused', refused_lines],
 		['import_failed', failed_lines],
 		['import_errors', Array.isArray(data.errors) ? data.errors : []],
 		['import_attachments', Array.isArray(data.attachments) ? data.attachments : []],
@@ -370,6 +378,24 @@ export const render_import_report = function(data, parent) {
 
 	return report_node
 }//end render_import_report
+
+
+
+/**
+* ID_LIST_LINES
+* One report line for a list of record ids ('<label>12, 15'), none when the
+* list is empty or missing.
+*
+* @param {string} label - The line's lead text
+* @param {Array<number>|undefined} ids - The record ids
+* @returns {Array<string>} Zero or one line
+*/
+const id_list_lines = function(label, ids) {
+
+	return Array.isArray(ids) && ids.length>0
+		? [label + ids.join(', ')]
+		: []
+}//end id_list_lines
 
 
 

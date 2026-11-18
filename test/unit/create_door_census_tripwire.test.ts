@@ -287,7 +287,21 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 		},
 
 		// --- TOOL-GATED ---------------------------------------------------------
-		'src/core/tools/import_execute.ts#recordIdFor': {
+		'src/core/tools/import_execute.ts#createAtAddress': {
+			verdict: 'tool-gated',
+			binding: 'derived',
+			sectionArgs: ['sectionTipo'],
+			evidence: [
+				{
+					file: 'test/unit/import_create_door_native.test.ts',
+					contains:
+						'MAPPED, ADDRESS at a free id, section READ-only (LEVEL_1): refused — no record at the id',
+				},
+			],
+			reason:
+				'the mapped importer’s record created AT an operator-chosen id (MappedRecord.address — the Zotero call-number, owner ruling 2026-11-17; accepted only from a door whose tool declares operatorAddressActions, gate marc_identity_native), in the same DERIVED import section: the same authorizeSectionTarget (section level 2) ask as recordTargetFor, before the explicit-id insert. A record already living at the id is no create — its fields pass the record door. NOTE: section ≥ 2 only — not the button_new half of the create predicate.',
+		},
+		'src/core/tools/import_execute.ts#recordTargetFor': {
 			verdict: 'tool-gated',
 			binding: 'derived',
 			sectionArgs: ['sectionTipo'],

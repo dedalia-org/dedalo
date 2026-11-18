@@ -17,6 +17,7 @@ Concrete scenario: a museum's research department keeps the bibliography of an e
 
 - You have references curated in Zotero and want them in a Dédalo Publications section.
 - You want to re-import later: a second import of the same references **updates** the records the first one created, instead of duplicating them.
+- You want to decide which record number a reference gets: write it in Zotero's **Call Number** field (see [Choosing the record number](#choosing-the-record-number-the-call-number)).
 
 When NOT to use it:
 
@@ -45,7 +46,9 @@ The tool attaches to **sections** and surfaces on Publications-style sections on
 The import never stops at the first problem: a reference it can read is written, and everything it could not do is listed.
 
 - **Refused fields** — a value the record could not take, named with the record and field. The record keeps its stored value for that field. Examples: a date written as text ("circa 1900"), a Zotero item type the configuration's typology list does not know, a journal name held by two Series records.
-- **File errors** — an export that is not CSL JSON, or not valid JSON, or larger than 64 MB (split the library and import the parts); and a reference whose second identifier (a call number, when the configuration names one) could not identify one record (see below).
+- **Created at / updated at their call-number id** — the record numbers of the references whose call number chose their record: the ones created at that number, and the ones that updated the record already there.
+- **Refused references** — a reference that was not imported because of its call number, named by its Zotero key with the reason (see [Choosing the record number](#choosing-the-record-number-the-call-number)). The rest of the export is imported.
+- **File errors** — an export that is not CSL JSON, or not valid JSON, or larger than 64 MB (split the library and import the parts).
 - **Attachments** — a PDF that was not uploaded with the export, or whose cover could not be rendered.
 - **Notices** — what was not imported and why: Zotero fields the map does not name (listed once), the end of a date range when the target date is not a range, a Zotero "season" that is not a time of day.
 
@@ -53,12 +56,29 @@ The import never stops at the first problem: a reference it can read is written,
 
 A reference is matched by its **Zotero key** (the last part of its Zotero URI, stored in the code field): found → that record is updated; not found → a new record is created. If two references of one import carry the same key, or two records already hold it, nothing is imported and the report says so — fix the file or the duplicate codes first.
 
-A configuration may name a **second identifier** — a Zotero field such as the **call number**, bound in the map to a code field of the section. It is stored in that field, and before the import looks at the key it looks for the record that already holds that value: found → that record is updated (and now also holds the Zotero key); not found → the key decides, or a new record is created holding both. A value held by two records, repeated on two references of one export, or pointing at a different record than the reference's key, refuses **that reference only** — it is listed under file errors and the rest of the export is imported.
+## Choosing the record number: the call number
 
-The configuration shipped with Dédalo names **no** second identifier: the Publications section has no call-number field to hold one, so the Zotero key alone identifies a reference and a `call-number` in the export is reported once under notices as a field the map does not name. To use one, bind the Zotero field to a text or URL field of the section in the tool's configuration (`field_to_section_id` and its map entry).
+Zotero has no field for an identifier you can edit, so Dédalo reads the record number from Zotero's **Call Number** field (`call-number` in the export). Write there the number of the Dédalo record the reference belongs to:
 
-!!! warning "The call number is not a record number"
-    Earlier versions used a numeric Zotero **call number** as the Dédalo record number, so a typo overwrote an unrelated record. An identifier is now looked up, never a number that chooses a record.
+- **A record with that number exists** → it is updated, and from then on it holds the reference's Zotero key.
+- **No record has that number** → a record is created with exactly that number. This is also what happens when the record was deleted: import the reference again and it comes back at the same number.
+- **No call number** → the Zotero key decides, as described above.
+
+The call number must be a whole number written with digits only, from 1 to 2147483647 — `42`, not `042`, `42a`, `4.2` or `B-42`. A reference whose call number is anything else is **not imported** and is listed under refused references with the value it carried; correct it in Zotero, or clear it to let the Zotero key decide.
+
+A reference is also refused, and the record left untouched, when:
+
+- the record with that number already holds **another** Zotero key — an import never turns one reference's record into another's;
+- the reference's Zotero key is already held by a **different** record than the one its call number names — the import cannot tell which one you mean;
+- an earlier reference of the same import carries the same call number;
+- the record with that number exists and you may not edit it — the reference is listed as refused, never as updated.
+
+!!! warning "A call number is a record number: check it before importing"
+    The number you write is the record that is written. The import refuses to overwrite a record that belongs to another Zotero reference, but a record that holds no Zotero key yet — one created by hand — is updated with the reference's values. The usual permissions apply: a reference whose record you may not edit is refused, and creating a record needs the permission to create in the section.
+
+A record created at a number above the section's last one moves the section's counter up to it: the next record created by hand continues from there. Within one import the references that carry a call number are written first, so a reference without one never takes a number another reference of the same export names — whatever their order in the file. The report keeps the file's order.
+
+To read the record number from another Zotero field, an administrator changes `field_to_section_id` in the tool's configuration to that field's name; removing the setting leaves the Zotero key as the only identity.
 
 ## Undoing an import
 
