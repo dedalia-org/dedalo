@@ -107,6 +107,13 @@ const COSTS = loadCostModel(FILES);
 const CENSUS = buildTestComponentCensus();
 const BINS = partition(FILES, 4, FOOTPRINTS, COSTS);
 
+/**
+ * A test that calls partition()/planBins() several times pays one census scan
+ * of the whole suite per call; the cost grows with the suite, so it gets its
+ * own budget instead of bun's 5 s default.
+ */
+const CENSUS_HEAVY_TIMEOUT_MS = 60_000;
+
 /** bin index for a file, over a computed partition. -1 = not scheduled. */
 function binOf(bins: readonly Bin[], file: string): number {
 	for (const bin of bins) if (bin.files.includes(file)) return bin.index;
@@ -141,20 +148,26 @@ describe("shard partition — totality and disjointness against bun's own discov
 		}
 	});
 
-	test('every discovered file lands in EXACTLY one bin — for several bin counts', () => {
-		// A file in no bin is a test the composite run silently never runs (the
-		// "never silently narrow scope" hard rule); a file in two bins runs twice
-		// against fixtures that assume single ownership.
-		for (const binCount of [1, 2, 4, 12]) {
-			const bins = partition(FILES, binCount, FOOTPRINTS, COSTS);
-			const placed = bins.flatMap((bin) => bin.files);
-			expect(
-				placed.length,
-				`bin count ${binCount}: ${placed.length} placements over ${FILES.length} files — a file is dropped or duplicated`,
-			).toBe(FILES.length);
-			expect([...placed].sort()).toEqual([...FILES].sort());
-		}
-	});
+	test(
+		'every discovered file lands in EXACTLY one bin — for several bin counts',
+		() => {
+			// A file in no bin is a test the composite run silently never runs (the
+			// "never silently narrow scope" hard rule); a file in two bins runs twice
+			// against fixtures that assume single ownership.
+			for (const binCount of [1, 2, 4, 12]) {
+				const bins = partition(FILES, binCount, FOOTPRINTS, COSTS);
+				const placed = bins.flatMap((bin) => bin.files);
+				expect(
+					placed.length,
+					`bin count ${binCount}: ${placed.length} placements over ${FILES.length} files — a file is dropped or duplicated`,
+				).toBe(FILES.length);
+				expect([...placed].sort()).toEqual([...FILES].sort());
+			}
+			// Each partition() rebuilds the component census from disk (~1.9 s over
+			// the suite, measured 2026-11-18): four of them outgrew bun's 5 s default.
+		},
+		CENSUS_HEAVY_TIMEOUT_MS,
+	);
 });
 
 describe('shard partition — component closure', () => {
@@ -226,24 +239,28 @@ describe('shard partition — the classifier is pinned by name (positive control
 		expect([...placed].sort()).toEqual([...FILES].sort());
 	});
 
-	test('a plan that collapses to ONE bin is never sealed — it would run on the sealed template', () => {
-		// partition() drops empty bins: two files welded into one census component
-		// fill one bin of a --bins=2 request. A sealed one-bin plan would give that
-		// bin a clone name the runner never applies (runBins repoints only
-		// multi-bin runs) and run it on the template it just sealed. MEASURED by the
-		// 2026-10-31 review of the seal; the plan must fall back to serial.
-		const welded = CENSUS.components.find((c) => c.files.length >= 2);
-		expect(welded, 'the census holds a multi-file component').toBeDefined();
-		const pair = (welded as { files: string[] }).files.slice(0, 2);
-		const plan = planBins(pair, 2, FOOTPRINTS, COSTS);
-		expect(plan.bins.length).toBe(1);
-		expect(plan.sealed).toBe(false);
-		expect(plan.bins[0]?.shard).toBeNull();
-		// …and a real multi-bin plan IS sealed, every bin on a clone.
-		const full = planBins(FILES, 4, FOOTPRINTS, COSTS);
-		expect(full.sealed).toBe(true);
-		expect(full.bins.every((b) => b.shard !== null)).toBe(true);
-	});
+	test(
+		'a plan that collapses to ONE bin is never sealed — it would run on the sealed template',
+		() => {
+			// partition() drops empty bins: two files welded into one census component
+			// fill one bin of a --bins=2 request. A sealed one-bin plan would give that
+			// bin a clone name the runner never applies (runBins repoints only
+			// multi-bin runs) and run it on the template it just sealed. MEASURED by the
+			// 2026-10-31 review of the seal; the plan must fall back to serial.
+			const welded = CENSUS.components.find((c) => c.files.length >= 2);
+			expect(welded, 'the census holds a multi-file component').toBeDefined();
+			const pair = (welded as { files: string[] }).files.slice(0, 2);
+			const plan = planBins(pair, 2, FOOTPRINTS, COSTS);
+			expect(plan.bins.length).toBe(1);
+			expect(plan.sealed).toBe(false);
+			expect(plan.bins[0]?.shard).toBeNull();
+			// …and a real multi-bin plan IS sealed, every bin on a clone.
+			const full = planBins(FILES, 4, FOOTPRINTS, COSTS);
+			expect(full.sealed).toBe(true);
+			expect(full.bins.every((b) => b.shard !== null)).toBe(true);
+		},
+		CENSUS_HEAVY_TIMEOUT_MS,
+	);
 
 	test('the template media fingerprint sees a write, a create-then-delete, and a created root', () => {
 		// The DB seal cannot cover the filesystem; this fingerprint is the run's
