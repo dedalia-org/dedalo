@@ -105,6 +105,22 @@ describe('tool_uca_maps vector_download — caller-fault validation (no binary n
 		);
 		expect(existsSync(resolve(OBJECTS, 'broken.geojson'))).toBe(false);
 	});
+
+	// the console stages JSON.stringify's UTF-8: anything else was damaged, never decoded loosely
+	test('a staged payload that is not UTF-8 is refused, and deleted', async () => {
+		const action = await loadAction('vector_download');
+		stageFile(
+			-1,
+			'latin1.geojson',
+			Buffer.from('{"name":"Ripollès"}', 'latin1'),
+			OBJECT_GEOJSON_KEY_DIR,
+		);
+		const file_data = { key_dir: OBJECT_GEOJSON_KEY_DIR, tmp_name: 'latin1.geojson' };
+		const error = await failureOf(action.handler(contextOf({ format: 'kml', file_data })));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/not UTF-8/);
+		expect(existsSync(resolve(OBJECTS, 'latin1.geojson'))).toBe(false);
+	});
 });
 
 describe.skipIf(!HAVE_GDAL)(

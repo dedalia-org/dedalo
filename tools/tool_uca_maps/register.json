@@ -1,7 +1,7 @@
 {
 	"$schema": "../../src/core/tools/register.schema.json",
 	"name": "tool_uca_maps",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"label": {
 		"lg-eng": "UCA Maps",
 		"lg-spa": "Mapas UCA"
@@ -432,6 +432,9 @@
 		{ "lang": "lg-eng", "name": "upload_success_message", "value": "File uploaded successfully." },
 		{ "lang": "lg-spa", "name": "upload_success_message", "value": "Archivo subido correctamente." },
 
+		{ "lang": "lg-eng", "name": "upload_encoding_converted", "value": "It was not in UTF-8 and was read as Windows-1252: check the objects' texts." },
+		{ "lang": "lg-spa", "name": "upload_encoding_converted", "value": "No estaba en UTF-8 y se ha leído como Windows-1252: revisa los textos de los objetos." },
+
 		{ "lang": "lg-eng", "name": "upload_no_features", "value": "No objects could be read from this file." },
 		{ "lang": "lg-spa", "name": "upload_no_features", "value": "No se ha podido leer ningún objeto de este archivo." },
 
@@ -658,6 +661,8 @@
 
 		{ "lang": "lg-eng", "name": "reason_geojson_not_strict", "value": "This GeoJSON is not strict JSON: save it as strict JSON." },
 		{ "lang": "lg-spa", "name": "reason_geojson_not_strict", "value": "Este GeoJSON no es JSON estricto: guárdalo como JSON estricto." },
+		{ "lang": "lg-eng", "name": "reason_upload_text_unreadable", "value": "The file is not readable text, or already holds damaged characters: save it as UTF-8 and upload it again." },
+		{ "lang": "lg-spa", "name": "reason_upload_text_unreadable", "value": "El fichero no es texto legible o ya trae caracteres dañados: guárdalo en UTF-8 y vuelve a subirlo." },
 
 		{ "lang": "lg-eng", "name": "reason_geojson_crs_link", "value": "This GeoJSON's crs is a link, which is never followed: name its projection instead (for example \"EPSG:25830\")." },
 		{ "lang": "lg-spa", "name": "reason_geojson_crs_link", "value": "El crs de este GeoJSON es un enlace, que nunca se sigue: indica su proyección por nombre (por ejemplo, \"EPSG:25830\")." },

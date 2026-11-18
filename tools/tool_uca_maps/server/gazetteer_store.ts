@@ -7,9 +7,10 @@
  */
 
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, resolve, sep } from 'node:path';
+import { basename, isAbsolute, resolve, sep } from 'node:path';
 import { DedaloError } from '../../../src/core/errors/index.ts';
 import { getToolConfigValue } from '../../../src/core/tools/config.ts';
+import { readUtf8File } from './utf8_file.ts';
 
 /** The tool-config option naming the directory that holds the data files. */
 export const GAZETTEER_CONFIG_KEY = 'gazetteer_data_path';
@@ -46,6 +47,16 @@ const PELAGIOS_SUBDIR = 'pelagios';
  */
 export function gazetteerUnavailable(message: string): DedaloError {
 	return new DedaloError('tool.dependency_unavailable', { message });
+}
+
+/** A store file's text. A file that is not UTF-8 was damaged where it was
+ * installed: unavailable, never searched with its names turned into U+FFFD. */
+export async function readGazetteerFile(path: string): Promise<string> {
+	const text = await readUtf8File(path);
+	if (text === null) {
+		throw gazetteerUnavailable(`The gazetteer file ${basename(path)} is not UTF-8.`);
+	}
+	return text;
 }
 
 /**

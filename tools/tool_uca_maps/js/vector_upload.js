@@ -90,7 +90,8 @@ const toggle_upload_panel = function (self) {
  * @param {File} file - the browser File object chosen by the user
  * @param {{epsg?: string, zone?: string, band?: string}} [projection] - v6's
  *	manual UTM projection, all three or none (checked server-side)
- * @returns {Promise<{ok: boolean, error?: string, feature_count?: number}>}
+ * @returns {Promise<{ok: boolean, error?: string, feature_count?: number, read_as?: string}>}
+ *	`read_as`: the encoding a GeoJSON that was not UTF-8 was read as, for the user to check
  */
 export const upload_vector_file = async function (self, file, projection = {}) {
 	if (self._upload_busy) {
@@ -158,7 +159,7 @@ export const upload_vector_file = async function (self, file, projection = {}) {
 		const data = response_data(response);
 		const feature_count = create_features_from_geojson(self, data && data.geojson);
 
-		return { ok: true, feature_count };
+		return { ok: true, feature_count, read_as: (data && data.read_as) || undefined };
 	} catch (error) {
 		console.error('tool_uca_maps: upload_vector_file failed unexpectedly', error);
 		report_client_error((error && error.message) || 'Vector file upload failed');

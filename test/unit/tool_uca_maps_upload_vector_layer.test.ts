@@ -600,6 +600,24 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 	});
 });
 
+// a byte that is not UTF-8 is converted (core's ingest decoder) or refused,
+// never turned into U+FFFD: these refusals come before any GDAL call
+describe('tool_uca_maps upload_vector_layer — the uploaded text is never substituted', () => {
+	const SCRATCH_USER = 987688;
+	afterEach(() => rmSync(stagingOf(SCRATCH_USER), { recursive: true, force: true }));
+
+	test.each([
+		['a binary file (NUL bytes)', new Uint8Array([0x7b, 0x00, 0x7d])],
+		['a file already carrying U+FFFD', new TextEncoder().encode('{"name":"Ripoll\uFFFDs"}')],
+	] as const)('%s is refused with a key the user reads', async (_, bytes) => {
+		stageUpload(SCRATCH_USER, 'damaged.geojson', bytes);
+		const error = await failureOf(uploadStaged(SCRATCH_USER, 'damaged.geojson'));
+		expectCode(error, 'request.invalid_options');
+		expect((error as DedaloError).details).toEqual({ reason_key: 'upload_text_unreadable' });
+		expect(existsSync(uploadPath(SCRATCH_USER, 'damaged.geojson'))).toBe(false);
+	});
+});
+
 // what ogr2ogr wrote, checked without GDAL: the GeoJSON and KML inputs say
 // whether they declare a projection without any binary
 describe("tool_uca_maps upload_vector_layer — ogr2ogr's output, checked before it is answered", () => {
@@ -768,9 +786,13 @@ describe.skipIf(!HAVE_GDAL)(
 		interface UploadedLayer {
 			geojson: {
 				type: string;
-				features: { geometry: { type: string; coordinates: [number, number] } }[];
+				features: {
+					properties: Record<string, unknown>;
+					geometry: { type: string; coordinates: [number, number] };
+				}[];
 			};
 			feature_count: number;
+			read_as?: string;
 		}
 
 		test('a plain WGS84 .geojson round-trips unchanged', async () => {
@@ -783,6 +805,17 @@ describe.skipIf(!HAVE_GDAL)(
 			expect(data.geojson.type).toBe('FeatureCollection');
 			const feature = mustGet(data.geojson.features[0], 'features[0]');
 			expect(feature.geometry.coordinates).toEqual([-0.375, 39.47]);
+			expect(data.read_as).toBeUndefined();
+		});
+
+		// what older software writes: every byte maps, so it converts, and the user is told
+		test('a windows-1252 .geojson converts and says it was read as such', async () => {
+			const text = SOURCE_GEOJSON.replace('"name":"a"', '"name":"Ripollès"');
+			expect(text).toContain('Ripollès');
+			stageUpload(SCRATCH_USER, 'legacy.geojson', Buffer.from(text, 'latin1'));
+			const data = dataOf<UploadedLayer>(await uploadStaged(SCRATCH_USER, 'legacy.geojson'));
+			expect(data.read_as).toBe('windows-1252');
+			expect(mustGet(data.geojson.features[0], 'features[0]').properties.name).toBe('Ripollès');
 		});
 
 		test('a .kml round-trips to WGS84 GeoJSON', async () => {

@@ -25,6 +25,8 @@ export const REASON_KEYS = {
 	upload_too_large: 'The file is larger than 10 MB.',
 	converted_layer_too_large: 'The converted layer is too large: upload a smaller file.',
 	geojson_not_strict: 'This GeoJSON is not strict JSON: save it as strict JSON.',
+	upload_text_unreadable:
+		'The file is not readable text, or already holds damaged characters: save it as UTF-8 and upload it again.',
 	geojson_crs_link:
 		'This GeoJSON\'s crs is a link, which is never followed: name its projection instead (for example "EPSG:25830").',
 	zip_unreadable: 'The zip archive is corrupt or is not a zip archive.',

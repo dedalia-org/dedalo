@@ -21,6 +21,7 @@ import {
 } from '../js/upload_formats.js';
 import { uploadStagingBase } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
+import { readUtf8File } from './utf8_file.ts';
 
 /** The staged file's absolute path; `door` names the caller to the media-root guard. */
 function resolveStagedUpload(
@@ -129,7 +130,10 @@ export async function takeStagedJson(
 				`The staged payload (${size} bytes) exceeds the ${MAX_STAGED_JSON_BYTES}-byte limit`,
 			);
 		}
-		text = await Bun.file(claimed.path).text();
+		// the tool's own client staged it with JSON.stringify: UTF-8, or damaged in transit
+		const decoded = await readUtf8File(claimed.path);
+		if (decoded === null) throw invalidOptions('The staged payload is not UTF-8');
+		text = decoded;
 	} finally {
 		claimed.release();
 	}

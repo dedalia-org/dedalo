@@ -20,6 +20,7 @@ import {
 	PELAGIOS_DATASETS,
 	pelagiosDatasetPath,
 	pleiadesIndexPath,
+	readGazetteerFile,
 	resolveGazetteerDir,
 } from './gazetteer_store.ts';
 import { askGeoService, geoData, geoParamAccepts } from './geo_call.ts';
@@ -334,7 +335,7 @@ export async function searchPleiades(ctx: ToolActionContext): Promise<ToolRespon
 		throw gazetteerUnavailable('The Pleiades index is missing from the gazetteer data directory.');
 	}
 
-	const text = await Bun.file(path).text();
+	const text = await readGazetteerFile(path);
 	return ok({ results: matchPleiadesIndex(text, type, value) }, { requestId: toolRequestId(ctx) });
 }
 
@@ -417,7 +418,7 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 		if (path === null) {
 			continue; // an absent layer is not an error: capabilities already said so
 		}
-		const text = await Bun.file(path).text();
+		const text = await readGazetteerFile(path);
 		// cheap pre-filter: a 4 MB layer with no textual match anywhere is
 		// never worth parsing (v6 json_decodes every selected file, always)
 		if (!text.toLowerCase().includes(query.toLowerCase())) {

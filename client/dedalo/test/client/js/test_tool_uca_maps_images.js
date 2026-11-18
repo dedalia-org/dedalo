@@ -1992,6 +1992,54 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			before_layer_count + 1,
 			'expected one new object added to the active FeatureGroup via pm:create',
 		);
+		assert.isUndefined(result.read_as, 'expected no encoding warning for a UTF-8 file');
+	});
+
+	// older software saves a GeoJSON in the system code page: converted, never U+FFFD
+	it('upload_vector_file (real round trip) reads a windows-1252 .geojson as such and says so (skipped without GDAL)', async function () {
+		tool.attach_file_upload();
+
+		let response = null;
+		stub_tool_request(async function (options) {
+			response = await real_tool_request(options);
+			return response;
+		});
+
+		const text = JSON.stringify({
+			type: 'FeatureCollection',
+			features: [{ ...SAMPLE_UPLOAD_GEOJSON.features[0], properties: { name: 'Ripollès' } }],
+		});
+		// every character is below U+0100 and outside C1: its code is its windows-1252 byte
+		const bytes = Uint8Array.from(text, (character) => character.charCodeAt(0));
+		const result = await tool.upload_vector_file(
+			new File([bytes], 'legacy.geojson', { type: 'application/geo+json' }),
+			{},
+		);
+		await settle_map(geolocation.map);
+
+		if (response && response.ok !== true) {
+			assert.equal(
+				response.error?.code,
+				'tool.dependency_unavailable',
+				`expected the only acceptable failure to be a missing GDAL binary — full response: ${JSON.stringify(response)}`,
+			);
+			this.skip();
+		}
+
+		assert.isTrue(
+			result.ok,
+			`expected the upload to succeed — full result: ${JSON.stringify(result)}`,
+		);
+		assert.equal(
+			result.read_as,
+			'windows-1252',
+			'expected the guessed encoding handed to the panel',
+		);
+		assert.equal(
+			response.data.geojson.features[0].properties.name,
+			'Ripollès',
+			'expected the accent converted, not replaced',
+		);
 	});
 
 	it('upload_vector_file (real round trip) brings a malformed EPSG code back as request.invalid_options, with no GDAL needed', async function () {
@@ -2434,6 +2482,20 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 				type: 'ok',
 				hides: true,
 				// only a success empties the picker: a failure keeps the file for the retry
+				check: () =>
+					assert.equal(vector_picker.value, '', 'expected the picker emptied after a success'),
+			},
+			{
+				half: 'vector',
+				answer: { ok: true, feature_count: 2, read_as: 'windows-1252' },
+				text:
+					(tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') +
+					' (2) ' +
+					(tool.get_tool_label('upload_encoding_converted') ||
+						"It was not in UTF-8 and was read as Windows-1252: check the objects' texts."),
+				// read while checking the objects' texts: it stays
+				type: 'warning',
+				hides: false,
 				check: () =>
 					assert.equal(vector_picker.value, '', 'expected the picker emptied after a success'),
 			},

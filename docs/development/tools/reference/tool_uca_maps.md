@@ -98,7 +98,10 @@ download name is sanitized on the server by the same rule the browser runs
 upload door (`file_data.tmp_name` under key_dir `uca_maps_vector`, resolved inside the caller's own
 staging directory) and deletes it, converted or refused, with the caller's uploads over an hour old.
 It accepts `.zip` (shapefile), `.geojson` and `.kml` up to 10 MB, checks a zip's inflated size
-before GDAL opens it (200 MB), and parses a GeoJSON as strict JSON (a lenient file is refused). One
+before GDAL opens it (200 MB), and parses a GeoJSON as strict JSON (a lenient file is refused). A
+GeoJSON's bytes go through core's ingest decoder (`decodeIngestBytes`): one that is not UTF-8 is read
+as windows-1252 and the answer says so (`read_as`, which the panel shows as a warning to check the
+texts); a binary file, or one already carrying U+FFFD, is refused. One
 `ogr2ogr` reprojects to WGS84 GeoJSON. A file without a CRS of its own takes the user's EPSG (and,
 for a UTM code, its zone and band, checked against the code's own PROJ string); a file that declares
 one refuses the fields; a GeoJSON `crs` link is never followed. The output is checked to be
@@ -219,7 +222,7 @@ whose media path they disclose.
 | `raster_download` | `record_tipo`, `minLevel: 1` | `format` (`jpg`/`gif`/`webp`/`geotiff`), `file_data` (`key_dir`, `tmp_name`), `bounds` (geotiff, EPSG:3857), `file_name` | `{content_base64, filename, mime}` |
 | `image_download` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `format` (`geotiff`/`png`/`jpg`), `corners`, `width`, `file_name`, `file_path` | `{content_base64, filename, mime}` |
 | `object_pdf_report` | `record_tipo`, `minLevel: 1`; each image re-gated | `file_data` (as `vector_download`), `elevation`, `images` (record identities, max 30), `labels` | `{content_base64, filename, mime}` |
-| `upload_vector_layer` | `record_tipo`, `minLevel: 1` | `file_data` (staged under `uca_maps_vector`: `key_dir`, `tmp_name`, `extension`), `epsg`, `zone`, `band` | `{geojson, feature_count}` |
+| `upload_vector_layer` | `record_tipo`, `minLevel: 1` | `file_data` (staged under `uca_maps_vector`: `key_dir`, `tmp_name`, `extension`), `epsg`, `zone`, `band` | `{geojson, feature_count, read_as?}` |
 | `get_image_overlay` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `section_tipo`, `section_id`, `tipo` | `{file_path, quality, georeferenced, georeference_unavailable, corners}` |
 | `get_image_file` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `section_tipo`, `section_id`, `tipo` | `{file_path, quality}` |
 | `stage_external_image` | `record_tipo`, `minLevel: 2` (not `readOnly`) | `url` | `{file_data}` for the standard ingest |

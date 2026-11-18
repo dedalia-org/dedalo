@@ -316,15 +316,25 @@ const bind_vector_upload = function (self, file_input, submit_button, message, p
 		}
 
 		file_input.value = '';
-		show_upload_message(
-			message,
+		const uploaded =
 			(self.get_tool_label('upload_success_message') || 'File uploaded successfully.') +
-				' (' +
-				result.feature_count +
-				')',
-			UPLOAD_MESSAGE_MS,
-			'ok',
-		);
+			' (' +
+			result.feature_count +
+			')';
+		// a guessed encoding is read while checking the objects' texts: it stays
+		if (result.read_as) {
+			show_upload_message(
+				message,
+				uploaded +
+					' ' +
+					(self.get_tool_label('upload_encoding_converted') ||
+						"It was not in UTF-8 and was read as Windows-1252: check the objects' texts."),
+				undefined,
+				'warning',
+			);
+			return;
+		}
+		show_upload_message(message, uploaded, UPLOAD_MESSAGE_MS, 'ok');
 	});
 }; //end bind_vector_upload
 

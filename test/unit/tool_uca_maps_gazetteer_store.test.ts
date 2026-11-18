@@ -8,12 +8,14 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import { PELAGIOS_DATASETS as PROVISIONED_DATASETS } from '../../tools/tool_uca_maps/gazetteers/provision.ts';
 import {
 	gazetteerFilePath,
 	PELAGIOS_DATASETS,
 	pelagiosDatasetPath,
 	pleiadesIndexPath,
+	readGazetteerFile,
 } from '../../tools/tool_uca_maps/server/gazetteer_store.ts';
 
 /**
@@ -67,6 +69,18 @@ describe('gazetteer store paths', () => {
 	test('a SYMLINK pointing out of the store is refused too', () => {
 		symlinkSync(outside, join(store, 'pelagios', 'roads_low.geojson'));
 		expect(pelagiosDatasetPath(store, 'roads_low')).toBeNull();
+	});
+
+	// a file damaged where it was installed is unavailable, never searched as U+FFFD
+	test('a store file is read as UTF-8, and one that is not is unavailable', async () => {
+		const index = join(store, 'pleiades.json');
+		writeFileSync(index, '[["Ripollès","1"]]');
+		expect(await readGazetteerFile(index)).toBe('[["Ripollès","1"]]');
+		writeFileSync(index, Buffer.from('[["Ripollès","1"]]', 'latin1'));
+		const error = await readGazetteerFile(index).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(DedaloError);
+		expect((error as DedaloError).code).toBe('tool.dependency_unavailable');
+		expect((error as DedaloError).message).toMatch(/pleiades\.json is not UTF-8/);
 	});
 });
 

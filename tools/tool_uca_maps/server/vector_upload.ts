@@ -9,6 +9,10 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import {
+	type DecodedIngestText,
+	decodeIngestBytes,
+} from '../../../src/core/tools/ingest_encoding.ts';
+import {
 	type ToolActionContext,
 	type ToolResponse,
 	toolRequestId,
@@ -23,6 +27,7 @@ import {
 } from './gdal.ts';
 import { invalidOptions, tooLarge } from './reasons.ts';
 import { claimStagedUpload } from './staged_upload.ts';
+import { readUtf8File } from './utf8_file.ts';
 import { assertZipInflatesWithin } from './zip_inflated_size.ts';
 
 // client extension -> the scratch-file extension ogr2ogr needs and the only
@@ -197,7 +202,14 @@ export async function declaresOwnCrs(
 ): Promise<boolean> {
 	if (extension === 'kml') return true; // WGS84 by definition
 	if (extension === 'geojson') {
-		const parsed = parseStrictGeoJson(await Bun.file(inputFile).text());
+		// the scratch copy this action wrote with JSON.stringify: always UTF-8
+		const text = await readUtf8File(inputFile);
+		if (text === null) {
+			throw new DedaloError('internal.invariant', {
+				message: 'vector_upload: its own scratch GeoJSON is not UTF-8',
+			});
+		}
+		const parsed = parseStrictGeoJson(text);
 		// any case: GDAL matches member names case-insensitively
 		return Object.entries((parsed ?? {}) as object).some(
 			([key, value]) => key.toLowerCase() === 'crs' && typeof value === 'object' && value !== null,
@@ -424,15 +436,21 @@ async function convertUpload(ctx: ToolActionContext, staged: string): Promise<To
 		);
 	}
 
+	// a GeoJSON is UTF-8 by its standard, but older software writes the system code
+	// page: core converts what it can (windows-1252 is a guess the user must check)
+	// and refuses what it cannot, never substituting U+FFFD
+	const decoded =
+		extension === 'geojson'
+			? decodeUploadedText(new Uint8Array(await Bun.file(staged).arrayBuffer()))
+			: null;
+
 	const geojson = await withScratchDir(async (dir) => {
 		// distinct names: for a .geojson they would collide, and ogr2ogr refuses
 		// "Source and destination datasets must be different"
 		const inputFile = join(dir, `uca_maps_upload_in.${format.scratchExtension}`);
 		await Bun.write(
 			inputFile,
-			extension === 'geojson'
-				? JSON.stringify(parseStrictGeoJson(await Bun.file(staged).text()))
-				: Bun.file(staged),
+			decoded !== null ? JSON.stringify(parseStrictGeoJson(decoded.text)) : Bun.file(staged),
 		);
 		const outputFile = join(dir, 'uca_maps_upload_out.geojson');
 
@@ -486,5 +504,25 @@ async function convertUpload(ctx: ToolActionContext, staged: string): Promise<To
 		return readConvertedLayer(dir, outputFile, inputFile, extension, projection);
 	});
 
-	return ok({ geojson, feature_count: geojson.features.length }, { requestId: toolRequestId(ctx) });
+	return ok(
+		{
+			geojson,
+			feature_count: geojson.features.length,
+			...(decoded?.encoding === 'windows-1252' ? { read_as: decoded.encoding } : {}),
+		},
+		{ requestId: toolRequestId(ctx) },
+	);
+}
+
+/** The uploaded GeoJSON's text, through core's ingest decoder; its refusals
+ * (a binary file, or one already carrying U+FFFD) keyed for the user's language. */
+function decodeUploadedText(bytes: Uint8Array): DecodedIngestText {
+	try {
+		return decodeIngestBytes(bytes, 'GeoJSON');
+	} catch (error) {
+		if (error instanceof DedaloError && error.code === 'request.invalid_data') {
+			throw invalidOptions(error.message, 'upload_text_unreadable', error);
+		}
+		throw error;
+	}
 }
