@@ -28,10 +28,9 @@ import {
 	remove_toolbar_panel,
 	set_toolbar_panel_visible,
 } from './toolbar.js';
-import { VECTOR_UPLOAD_EXTENSIONS } from './upload_formats.js';
+import { VECTOR_UPLOAD_EXTENSIONS, VECTOR_UPLOAD_KEY_DIR } from './upload_formats.js';
 
 const VECTOR_UPLOAD_MAX_BYTES = 10_000_000; // v6/server parity, see vector_upload.ts
-const VECTOR_UPLOAD_KEY_DIR = 'uca_maps_vector';
 
 /**
  * ATTACH_FILE_UPLOAD

@@ -4,7 +4,8 @@
  * the caller's own staging dir, rebuilt from the authenticated user id (the
  * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`). A payload too
  * big for a request's `options` (core caps them at 512 KiB, `scalar_bounds.ts`)
- * travels this way: the map capture, an object's GeoJSON.
+ * travels this way: the map capture, an object's GeoJSON; so does the user's
+ * vector file.
  */
 
 import { existsSync, statSync } from 'node:fs';
@@ -13,12 +14,16 @@ import { DedaloError } from '../../../src/core/errors/index.ts';
 import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import { deleteStagedFile, listStagedFiles } from '../../../src/core/media/ingest/staged_files.ts';
 import type { ToolActionContext } from '../../../src/core/tools/module.ts';
-import { MAP_IMAGE_KEY_DIR, OBJECT_GEOJSON_KEY_DIR } from '../js/upload_formats.js';
+import {
+	MAP_IMAGE_KEY_DIR,
+	OBJECT_GEOJSON_KEY_DIR,
+	VECTOR_UPLOAD_KEY_DIR,
+} from '../js/upload_formats.js';
 import { uploadStagingBase } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
 
 /** The staged file's absolute path; `door` names the caller to the media-root guard. */
-export function resolveStagedUpload(
+function resolveStagedUpload(
 	userId: number,
 	rawKeyDir: string,
 	rawTmpName: string,
@@ -45,11 +50,15 @@ export function resolveStagedUpload(
 }
 
 /** A payload this old was left by a request that never reached its handler (the
- * network dropped after the upload): a live download takes seconds to minutes. */
+ * network dropped after the upload): a live action takes seconds to minutes. */
 export const ORPHAN_UPLOAD_AGE_MS = 60 * 60 * 1000;
 
 /** The tool's own key_dirs: every action that reads one deletes what it read. */
-const CONSUMED_KEY_DIRS: readonly string[] = [MAP_IMAGE_KEY_DIR, OBJECT_GEOJSON_KEY_DIR];
+const CONSUMED_KEY_DIRS: readonly string[] = [
+	MAP_IMAGE_KEY_DIR,
+	OBJECT_GEOJSON_KEY_DIR,
+	VECTOR_UPLOAD_KEY_DIR,
+];
 
 /**
  * Deletes the caller's own completed files under `keyDir` older than
@@ -81,7 +90,7 @@ export interface ClaimedUpload {
  * The file `options.file_data` names, for an action that reads `keyDir`. Pinned
  * to it, because the action deletes what it read: no other staged file of the
  * caller may be named here. The caller's orphans in every consumed key_dir go
- * first, so one left by any download is collected by the next of any kind.
+ * first, so one left by any action is collected by the next of any kind.
  */
 export function claimStagedUpload(
 	ctx: ToolActionContext,

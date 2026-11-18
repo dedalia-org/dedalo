@@ -6,16 +6,18 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, truncateSync, utimesSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { openZipStream } from '../../src/core/files/zip.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
+import { VECTOR_UPLOAD_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import {
 	resolveGdalBinary,
 	runToolBinary,
 	withScratchDir,
 } from '../../tools/tool_uca_maps/server/gdal.ts';
+import { ORPHAN_UPLOAD_AGE_MS } from '../../tools/tool_uca_maps/server/staged_upload.ts';
 import {
 	assertProjectionMatches,
 	classifyProjectionLookupError,
@@ -46,31 +48,46 @@ async function callUpload(userId: number, options: Record<string, unknown>): Pro
 	return (await loadAction('upload_vector_layer')).handler(contextOf(options, userId));
 }
 
+/** What each scratch uploader staged: the action deletes the file it converts,
+ * so the client uploads it again for every attempt, and so does each call here. */
+const STAGED = new Map<string, string | Uint8Array>();
+// a call replays only what its own test staged
+afterEach(() => STAGED.clear());
+
+/** `bytes` staged as `name` for `userId`, where the client's upload leaves it. */
+function stageUpload(userId: number, name: string, bytes: string | Uint8Array): void {
+	STAGED.set(`${userId}/${name}`, bytes);
+	stageFile(userId, name, bytes, VECTOR_UPLOAD_KEY_DIR);
+}
+
+/** The path `stageUpload` writes `name` to. */
+function uploadPath(userId: number, name: string): string {
+	return resolve(stagingOf(userId), VECTOR_UPLOAD_KEY_DIR, name);
+}
+
 /** The upload of what `userId` staged as `tmpName`, the extension read off the name. */
 async function uploadStaged(
 	userId: number,
 	tmpName: string,
 	fields: Record<string, string> = {},
 ): Promise<ToolResponse> {
+	const bytes = STAGED.get(`${userId}/${tmpName}`);
+	if (bytes !== undefined) stageFile(userId, tmpName, bytes, VECTOR_UPLOAD_KEY_DIR);
 	return callUpload(userId, {
-		file_data: { key_dir: '', tmp_name: tmpName, extension: tmpName.split('.').pop() },
+		file_data: {
+			key_dir: VECTOR_UPLOAD_KEY_DIR,
+			tmp_name: tmpName,
+			extension: tmpName.split('.').pop(),
+		},
 		...fields,
 	});
 }
 
 describe('tool_uca_maps upload_vector_layer — caller-fault validation (no GDAL/file needed)', () => {
-	test('an unsupported extension is refused', async () => {
-		const error = await failureOf(
-			callUpload(-1, { file_data: { key_dir: '', tmp_name: 'x', extension: 'exe' } }),
-		);
-		expectCode(error, 'request.invalid_options');
-		expect(error.message).toMatch(/Unsupported vector file extension 'exe'/);
-	});
-
-	test('a missing tmp_name is refused before touching the filesystem', async () => {
-		await expect(callUpload(-1, { file_data: { extension: 'geojson' } })).rejects.toThrow(
-			/Missing staged file/,
-		);
+	test('a missing tmp_name is refused', async () => {
+		await expect(
+			callUpload(-1, { file_data: { key_dir: VECTOR_UPLOAD_KEY_DIR, extension: 'geojson' } }),
+		).rejects.toThrow(/Missing staged file/);
 	});
 });
 
@@ -89,7 +106,7 @@ describe('tool_uca_maps upload_vector_layer — the fields are judged after the 
 		bytes: string,
 		fields: Record<string, string>,
 	): Promise<ToolResponse> {
-		stageFile(SCRATCH_USER, tmpName, bytes);
+		stageUpload(SCRATCH_USER, tmpName, bytes);
 		return uploadStaged(SCRATCH_USER, tmpName, fields);
 	}
 
@@ -468,35 +485,52 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 		}
 	});
 
-	// each segment is refused as unsafe on its own, before any path is joined
+	// the key_dir is pinned; a tmp_name is refused as unsafe before any path is joined
 	test('a tmp_name/key_dir escaping the upload root is refused', async () => {
-		for (const file_data of [
-			{ key_dir: '', tmp_name: '../../../../../etc/passwd', extension: 'geojson' },
-			{ key_dir: '', tmp_name: '/etc/passwd', extension: 'geojson' },
-			{ key_dir: '../../../../../etc', tmp_name: 'passwd', extension: 'geojson' },
-		]) {
+		for (const tmp_name of ['../../../../../etc/passwd', '/etc/passwd']) {
+			const file_data = { key_dir: VECTOR_UPLOAD_KEY_DIR, tmp_name, extension: 'geojson' };
 			expectCode(await failureOf(callUpload(SCRATCH_USER, { file_data })), 'media.invalid_path');
 		}
+		const file_data = { key_dir: '../../../../../etc', tmp_name: 'passwd', extension: 'geojson' };
+		expectCode(await failureOf(callUpload(SCRATCH_USER, { file_data })), 'request.invalid_options');
 	});
 
 	// the victim's file exists: a refusal for any other reason would hide a read
+	// (or, since the action deletes what it reads, a delete)
 	test("another user's staged upload is refused, through key_dir or tmp_name", async () => {
-		stageFile(VICTIM, 'victim.geojson', '{"type":"FeatureCollection","features":[]}');
-		for (const file_data of [
-			{ key_dir: `../${VICTIM}`, tmp_name: 'victim.geojson', extension: 'geojson' },
-			{ key_dir: '', tmp_name: `../${VICTIM}/victim.geojson`, extension: 'geojson' },
-		]) {
-			expectCode(await failureOf(callUpload(SCRATCH_USER, { file_data })), 'media.invalid_path');
-		}
+		stageFile(
+			VICTIM,
+			'victim.geojson',
+			'{"type":"FeatureCollection","features":[]}',
+			VECTOR_UPLOAD_KEY_DIR,
+		);
+		const traversal = `../../${VICTIM}/${VECTOR_UPLOAD_KEY_DIR}/victim.geojson`;
+		expectCode(
+			await failureOf(
+				callUpload(SCRATCH_USER, {
+					file_data: { key_dir: VECTOR_UPLOAD_KEY_DIR, tmp_name: traversal, extension: 'geojson' },
+				}),
+			),
+			'media.invalid_path',
+		);
+		expectCode(
+			await failureOf(
+				callUpload(SCRATCH_USER, {
+					file_data: {
+						key_dir: `../${VICTIM}/${VECTOR_UPLOAD_KEY_DIR}`,
+						tmp_name: 'victim.geojson',
+						extension: 'geojson',
+					},
+				}),
+			),
+			'request.invalid_options',
+		);
+		expect(existsSync(uploadPath(VICTIM, 'victim.geojson'))).toBe(true);
 	});
 
 	test('a staged file over the 10 MB cap is refused before any conversion runs', async () => {
-		stageFile(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
-		await expect(
-			callUpload(SCRATCH_USER, {
-				file_data: { key_dir: '', tmp_name: 'big.geojson', extension: 'geojson' },
-			}),
-		).rejects.toThrow(/exceeds the .* limit/);
+		stageUpload(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
+		await expect(uploadStaged(SCRATCH_USER, 'big.geojson')).rejects.toThrow(/exceeds the .* limit/);
 	});
 
 	test('a zip under the 10 MB cap that inflates past 200 MB is refused before GDAL opens it', async () => {
@@ -510,17 +544,59 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 			})(),
 		);
 		await writer.finish();
-		stageFile(SCRATCH_USER, 'bomb.zip', Buffer.concat(chunks));
+		stageUpload(SCRATCH_USER, 'bomb.zip', Buffer.concat(chunks));
 		const error = await failureOf(
-			callUpload(SCRATCH_USER, {
-				file_data: { key_dir: '', tmp_name: 'bomb.zip', extension: 'zip' },
-				epsg: '25830',
-				zone: '30',
-				band: 'N',
-			}),
+			uploadStaged(SCRATCH_USER, 'bomb.zip', { epsg: '25830', zone: '30', band: 'N' }),
 		);
 		expectCode(error, 'media.too_large');
 		expect(error.message).toMatch(/inflates to more than 200000000 bytes/);
+	});
+});
+
+// core collects abandoned transfers, never a completed file: each conversion
+// deletes what it read, and only what was staged for it
+describe('tool_uca_maps upload_vector_layer — the staged file is consumed', () => {
+	const SCRATCH_USER = 987687;
+	afterEach(() => rmSync(stagingOf(SCRATCH_USER), { recursive: true, force: true }));
+
+	test('a refused upload still deletes its staged file', async () => {
+		stageUpload(SCRATCH_USER, 'layer.exe', 'MZ');
+		const error = await failureOf(uploadStaged(SCRATCH_USER, 'layer.exe'));
+		expectCode(error, 'request.invalid_options');
+		expect(error.message).toMatch(/Unsupported vector file extension 'exe'/);
+		expect(existsSync(uploadPath(SCRATCH_USER, 'layer.exe'))).toBe(false);
+
+		stageUpload(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
+		await expect(uploadStaged(SCRATCH_USER, 'big.geojson')).rejects.toThrow(/exceeds/);
+		expect(existsSync(uploadPath(SCRATCH_USER, 'big.geojson'))).toBe(false);
+	});
+
+	// the image ingest reads its file back from `image`: this action must not take it
+	test('a file staged under another key_dir is refused and kept', async () => {
+		stageFile(SCRATCH_USER, 'photo.geojson', '{}', 'image');
+		const error = await failureOf(
+			callUpload(SCRATCH_USER, {
+				file_data: { key_dir: 'image', tmp_name: 'photo.geojson', extension: 'geojson' },
+			}),
+		);
+		expectCode(error, 'request.invalid_options');
+		expect(existsSync(resolve(stagingOf(SCRATCH_USER), 'image', 'photo.geojson'))).toBe(true);
+	});
+
+	// a request lost after its upload never reaches the handler that deletes the file
+	test("the next upload sweeps the caller's uploads over an hour old, and nothing else", async () => {
+		const past = (Date.now() - ORPHAN_UPLOAD_AGE_MS - 60_000) / 1000;
+		stageUpload(SCRATCH_USER, 'stale.geojson', '{}');
+		utimesSync(uploadPath(SCRATCH_USER, 'stale.geojson'), past, past);
+		stageUpload(SCRATCH_USER, 'recent.geojson', '{}');
+		stageFile(SCRATCH_USER, 'old_photo.png', 'x', 'image');
+		const photo = resolve(stagingOf(SCRATCH_USER), 'image', 'old_photo.png');
+		utimesSync(photo, past, past);
+		stageUpload(SCRATCH_USER, 'layer.exe', 'MZ');
+		await expect(uploadStaged(SCRATCH_USER, 'layer.exe')).rejects.toThrow(/Unsupported/);
+		expect(existsSync(uploadPath(SCRATCH_USER, 'stale.geojson'))).toBe(false);
+		expect(existsSync(uploadPath(SCRATCH_USER, 'recent.geojson'))).toBe(true);
+		expect(existsSync(photo)).toBe(true);
 	});
 });
 
@@ -698,8 +774,9 @@ describe.skipIf(!HAVE_GDAL)(
 		}
 
 		test('a plain WGS84 .geojson round-trips unchanged', async () => {
-			stageFile(SCRATCH_USER, 'plain.geojson', SOURCE_GEOJSON);
+			stageUpload(SCRATCH_USER, 'plain.geojson', SOURCE_GEOJSON);
 			const response = await uploadStaged(SCRATCH_USER, 'plain.geojson');
+			expect(existsSync(uploadPath(SCRATCH_USER, 'plain.geojson'))).toBe(false);
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
 			expect(data.feature_count).toBe(1);
@@ -712,7 +789,7 @@ describe.skipIf(!HAVE_GDAL)(
 			const kmlBytes = await withScratchDir(async (dir) =>
 				Bun.file(await ogrFixture(dir, 'src.kml', ['-f', 'KML'])).text(),
 			);
-			stageFile(SCRATCH_USER, 'plain.kml', kmlBytes);
+			stageUpload(SCRATCH_USER, 'plain.kml', kmlBytes);
 			const response = await uploadStaged(SCRATCH_USER, 'plain.kml');
 			expect(response.ok).toBe(true);
 			expect(dataOf<UploadedLayer>(response).feature_count).toBe(1);
@@ -726,7 +803,7 @@ describe.skipIf(!HAVE_GDAL)(
 				'<Placemark><name>mix</name><MultiGeometry>' +
 				`${point(-0.4)}<LineString><coordinates>-0.4,39.4 -0.42,39.42</coordinates></LineString>` +
 				'</MultiGeometry></Placemark></Document></kml>';
-			stageFile(SCRATCH_USER, 'multi.kml', kml);
+			stageUpload(SCRATCH_USER, 'multi.kml', kml);
 			const response = await uploadStaged(SCRATCH_USER, 'multi.kml');
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
@@ -754,7 +831,7 @@ describe.skipIf(!HAVE_GDAL)(
 			// staged upload's real name never carries a meaningful extension (an
 			// opaque tmp_name) — the client-declared 'zip' extension is what routes
 			// this through the '.shp.zip' scratch-name branch.
-			stageFile(SCRATCH_USER, 'plain.zip', new Uint8Array(zipBytes));
+			stageUpload(SCRATCH_USER, 'plain.zip', new Uint8Array(zipBytes));
 			const response = await uploadStaged(SCRATCH_USER, 'plain.zip');
 			expect(response.ok).toBe(true);
 			const data = dataOf<UploadedLayer>(response);
@@ -811,7 +888,7 @@ describe.skipIf(!HAVE_GDAL)(
 				);
 				return Bun.file(out).arrayBuffer();
 			});
-			stageFile(SCRATCH_USER, 'noprj.zip', new Uint8Array(zipBytes));
+			stageUpload(SCRATCH_USER, 'noprj.zip', new Uint8Array(zipBytes));
 			await expect(uploadStaged(SCRATCH_USER, 'noprj.zip')).rejects.toThrow(
 				/no embedded coordinate system/,
 			);
@@ -853,7 +930,7 @@ describe.skipIf(!HAVE_GDAL)(
 				);
 				return Bun.file(out).arrayBuffer();
 			});
-			stageFile(SCRATCH_USER, 'lonlat.zip', new Uint8Array(zipBytes));
+			stageUpload(SCRATCH_USER, 'lonlat.zip', new Uint8Array(zipBytes));
 			const response = await uploadStaged(SCRATCH_USER, 'lonlat.zip', { epsg: '4326' });
 			expect(response.ok).toBe(true);
 			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
@@ -876,8 +953,8 @@ describe.skipIf(!HAVE_GDAL)(
 			});
 			expect(declared.crs).toBeDefined();
 			const { crs: _crs, ...legacy } = declared;
-			stageFile(SCRATCH_USER, 'declared.geojson', JSON.stringify(declared));
-			stageFile(SCRATCH_USER, 'legacy.geojson', JSON.stringify(legacy));
+			stageUpload(SCRATCH_USER, 'declared.geojson', JSON.stringify(declared));
+			stageUpload(SCRATCH_USER, 'legacy.geojson', JSON.stringify(legacy));
 			const fields = { epsg: '25830', zone: '30', band: 'N' };
 			await expect(uploadStaged(SCRATCH_USER, 'declared.geojson', fields)).rejects.toThrow(
 				/already declares its own projection/,
@@ -893,8 +970,8 @@ describe.skipIf(!HAVE_GDAL)(
 		test('coordinates ogr2ogr leaves as no longitude/latitude are refused, the right fields fix them', async () => {
 			const features =
 				'"features":[{"type":"Feature","properties":{"name":"a"},"geometry":{"type":"Point","coordinates":[725695.71,4372210.14]}}]';
-			stageFile(SCRATCH_USER, 'undeclared.geojson', `{"type":"FeatureCollection",${features}}`);
-			stageFile(
+			stageUpload(SCRATCH_USER, 'undeclared.geojson', `{"type":"FeatureCollection",${features}}`);
+			stageUpload(
 				SCRATCH_USER,
 				'declared.geojson',
 				`{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::4326"}},${features}}`,

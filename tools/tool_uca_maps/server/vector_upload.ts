@@ -13,6 +13,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import { VECTOR_UPLOAD_KEY_DIR } from '../js/upload_formats.js';
 import {
 	assertOfflineGeoJsonCrs,
 	inputDrivers,
@@ -21,7 +22,7 @@ import {
 	withScratchDir,
 } from './gdal.ts';
 import { invalidOptions, tooLarge } from './reasons.ts';
-import { resolveStagedUpload } from './staged_upload.ts';
+import { claimStagedUpload } from './staged_upload.ts';
 import { assertZipInflatesWithin } from './zip_inflated_size.ts';
 
 // client extension -> the scratch-file extension ogr2ogr needs and the only
@@ -383,11 +384,18 @@ export async function readConvertedLayer(
 }
 
 export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolResponse> {
-	const fileData = (ctx.options.file_data ?? {}) as {
-		key_dir?: unknown;
-		tmp_name?: unknown;
-		extension?: unknown;
-	};
+	const upload = claimStagedUpload(ctx, VECTOR_UPLOAD_KEY_DIR, 'tool_uca_maps.vectorUpload');
+	try {
+		return await convertUpload(ctx, upload.path);
+	} finally {
+		// one staged file per conversion, refused or not: core keeps a completed staged file
+		upload.release();
+	}
+}
+
+/** The staged file at `staged`, converted to WGS84 GeoJSON. */
+async function convertUpload(ctx: ToolActionContext, staged: string): Promise<ToolResponse> {
+	const fileData = (ctx.options.file_data ?? {}) as { extension?: unknown };
 	const extension = String(fileData.extension ?? '')
 		.toLowerCase()
 		.replace(/^\./, '');
@@ -401,12 +409,6 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 
 	const typed = typesManualProjection(ctx.options);
 
-	const staged = resolveStagedUpload(
-		ctx.userId,
-		String(fileData.key_dir ?? ''),
-		String(fileData.tmp_name ?? ''),
-		'tool_uca_maps.vectorUpload',
-	);
 	const size = statSync(staged).size;
 	if (size > MAX_UPLOAD_BYTES) {
 		throw tooLarge(

@@ -51,7 +51,7 @@ const GATES: Readonly<Record<string, Gate>> = {
 	get_wms_layers: { ...READ, handler: getWmsLayers },
 	get_catastro_parcel: { ...READ, handler: getCatastroParcel },
 	get_administrative_unit: { ...READ, handler: getAdministrativeUnit },
-	upload_vector_layer: { ...READ, handler: uploadVectorLayer },
+	upload_vector_layer: { ...CONSUMES, handler: uploadVectorLayer },
 	// these three name the IMAGE record, whose media path the answer discloses
 	get_image_overlay: { ...READ, handler: getImageOverlay },
 	image_download: { ...READ, handler: imageDownload },

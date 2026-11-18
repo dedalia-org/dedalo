@@ -68,10 +68,10 @@ export const tool: ToolServerModule = {
 			readOnly: true,
 			handler: getAdministrativeUnit,
 		},
+		// not readOnly: it deletes the staged file it converts (see raster_download)
 		upload_vector_layer: {
 			permission: 'record_tipo',
 			minLevel: 1,
-			readOnly: true,
 			handler: uploadVectorLayer,
 		},
 		get_image_overlay: {

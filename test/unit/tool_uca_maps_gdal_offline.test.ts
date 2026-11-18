@@ -15,6 +15,7 @@ import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import {
 	MAP_IMAGE_KEY_DIR,
 	OBJECT_GEOJSON_KEY_DIR,
+	VECTOR_UPLOAD_KEY_DIR,
 } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { meetsGdalMinVersion } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import {
@@ -297,10 +298,13 @@ describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDA
 			staged[`${shape}.geojson`] = JSON.stringify(geojson);
 		}
 		for (const [name, text] of Object.entries(staged)) {
-			stageFile(UPLOADER, name, text);
+			stageFile(UPLOADER, name, text, VECTOR_UPLOAD_KEY_DIR);
 			const error = await failureOf(
 				action.handler(
-					contextOf({ file_data: { key_dir: '', tmp_name: name, extension: 'geojson' } }, UPLOADER),
+					contextOf(
+						{ file_data: { key_dir: VECTOR_UPLOAD_KEY_DIR, tmp_name: name, extension: 'geojson' } },
+						UPLOADER,
+					),
 				),
 			);
 			expectCode(error, 'request.invalid_options');
@@ -435,11 +439,17 @@ describe.skipIf(!HAVE_GDAL)(
 					['remote.kml', vectorVrt(`/vsicurl/http://${base}/v.csv`)],
 				];
 				for (const [name, text] of staged) {
-					stageFile(UPLOADER, name, text);
+					stageFile(UPLOADER, name, text, VECTOR_UPLOAD_KEY_DIR);
 					const error = await failureOf(
 						action.handler(
 							contextOf(
-								{ file_data: { key_dir: '', tmp_name: name, extension: name.split('.').pop() } },
+								{
+									file_data: {
+										key_dir: VECTOR_UPLOAD_KEY_DIR,
+										tmp_name: name,
+										extension: name.split('.').pop(),
+									},
+								},
 								UPLOADER,
 							),
 						),

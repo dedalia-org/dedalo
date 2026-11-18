@@ -21,6 +21,10 @@ export const MAP_IMAGE_KEY_DIR = 'uca_maps_map_image';
  * `vector_download` and `object_pdf_report` read (and delete) only what is here. */
 export const OBJECT_GEOJSON_KEY_DIR = 'uca_maps_object';
 
+/** Where "Upload file to map" stages the user's file; `upload_vector_layer`
+ * reads (and deletes) only what is staged here. */
+export const VECTOR_UPLOAD_KEY_DIR = 'uca_maps_vector';
+
 /**
  * ACCEPT_ATTRIBUTE
  * A file input's `accept` for a list of extensions: '.zip,.geojson,.kml'.
