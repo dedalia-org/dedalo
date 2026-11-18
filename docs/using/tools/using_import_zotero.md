@@ -70,12 +70,13 @@ A reference is also refused, and the record left untouched, when:
 
 - the record with that number already holds **another** Zotero key — an import never turns one reference's record into another's;
 - the reference's Zotero key is already held by a **different** record than the one its call number names — the import cannot tell which one you mean;
-- an earlier reference of the same import carries the same call number.
+- an earlier reference of the same import carries the same call number;
+- the record with that number exists and you may not edit it — the reference is listed as refused, never as updated.
 
 !!! warning "A call number is a record number: check it before importing"
-    The number you write is the record that is written. The import refuses to overwrite a record that belongs to another Zotero reference, but a record that holds no Zotero key yet — one created by hand — is updated with the reference's values. The usual permissions apply: a record you may not edit is not written, and creating a record needs the permission to create in the section.
+    The number you write is the record that is written. The import refuses to overwrite a record that belongs to another Zotero reference, but a record that holds no Zotero key yet — one created by hand — is updated with the reference's values. The usual permissions apply: a reference whose record you may not edit is refused, and creating a record needs the permission to create in the section.
 
-A record created at a number above the section's last one moves the section's counter up to it: the next record created by hand continues from there.
+A record created at a number above the section's last one moves the section's counter up to it: the next record created by hand continues from there. Within one import the references that carry a call number are written first, so a reference without one never takes a number another reference of the same export names — whatever their order in the file. The report keeps the file's order.
 
 To read the record number from another Zotero field, an administrator changes `field_to_section_id` in the tool's configuration to that field's name; removing the setting leaves the Zotero key as the only identity.
 
