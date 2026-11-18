@@ -15,11 +15,12 @@
  *          Series).
  *   main:  [{name, tipo} | {name: 'field_to_section_id', value}] — `section`,
  *          `pdf`, `identifying_image`, `field_standard_number`, and the CSL
- *          variable (default `call-number`) whose value is the item's
- *          IDENTIFIER in the component the map binds it to (owner C18): a
- *          re-import finds the record holding it exactly, else creates one;
- *          the door refuses the ITEM when two records hold it. Never a
- *          section_id (PHP cast it to one — audit DATA-08).
+ *          variable (default `call-number`) whose value is the record's
+ *          ADDRESS (owner ruling 2026-11-17, superseding C18): the operator
+ *          writes the section_id there, Zotero having no editable id. It names
+ *          a Zotero FIELD — no component is bound to it. Only a canonical
+ *          positive int4 is a record number (`recordNumberOf`); the door
+ *          refuses the ITEM otherwise, and decides update / create-at-id.
  *   typology / standard_type: [{name, value: [locator…]}] — the CSL `type` and
  *          the ISBN/ISSN kind as list locators.
  *
@@ -67,14 +68,12 @@ export interface ZoteroConfig {
 	standardType: ReadonlyMap<string, unknown[]>;
 	/** main.field_standard_number — the ISBN/ISSN kind (locators). */
 	standardNumberTipo?: string;
-	/** main.field_to_section_id — the CSL variable whose value is a second identifier (C18). */
-	fieldToSectionId?: string;
 	/**
-	 * WHERE that identifier is looked up: the component the map binds
-	 * `fieldToSectionId` to (its entry's first ddo). Set exactly when
-	 * `fieldToSectionId` names a mapped variable other than `id`.
+	 * main.field_to_section_id — the CSL variable whose value is the record's
+	 * ADDRESS (default `call-number`; owner ruling 2026-11-17). Absent = the
+	 * Zotero key alone identifies a record.
 	 */
-	identifierTarget?: ImportCodeTarget;
+	fieldToSectionId?: string;
 	/** main.section — must be the imported section. */
 	mainSectionTipo?: string;
 	/** main.pdf — the component_pdf the `archive` attachment goes to. */
@@ -102,11 +101,12 @@ export interface ZoteroMappedRecord {
 	/** The raw `id` URI when it is not the key itself (the full-URL match leg). */
 	url: string | null;
 	/**
-	 * The `field_to_section_id` variable's value (trimmed), or null without one —
-	 * the item's identifier in `ZoteroConfig.identifierTarget`, resolved by the
-	 * door through the code lookup (C18). Also written into that component.
+	 * The `field_to_section_id` variable's value AS THE FILE CARRIES IT — a text
+	 * trimmed, a number as its digits, anything else as its JSON — or null without
+	 * one (absent, null, blank). NOT yet a record number: the door asks
+	 * {@link recordNumberOf} and refuses the item whose value is not one.
 	 */
-	identifier: string | null;
+	address: string | null;
 	fields: MappedField[];
 	links: LinkField[];
 	/** The `archive` file name (a PDF staged in the same upload), or null. */
@@ -256,8 +256,7 @@ export function readZoteroConfig(raw: Record<string, unknown>): ZoteroConfig {
 		typology: parseNamedLists(raw.typology, 'typology'),
 		standardType: parseNamedLists(raw.standard_type, 'standard_type'),
 		...mainSetting(main, 'field_standard_number', 'standardNumberTipo'),
-		...mainSetting(main, 'field_to_section_id', 'fieldToSectionId'),
-		...identifierTargetOf(entries, main.get('field_to_section_id')),
+		...addressVariableOf(main.get('field_to_section_id')),
 		...mainSetting(main, 'section', 'mainSectionTipo'),
 		...mainSetting(main, 'pdf', 'pdfTipo'),
 		...mainSetting(main, 'identifying_image', 'imageTipo'),
@@ -265,31 +264,35 @@ export function readZoteroConfig(raw: Record<string, unknown>): ZoteroConfig {
 }
 
 /**
- * The component `main.field_to_section_id` is looked up in (C18): the map entry
- * of that variable. REFUSES a variable the map does not bind (there is no
- * component to search, so the identifier could only have been cast to an
- * address — the DATA-08 defect) or binds as a LINK (a name, not a code). `id`
- * itself is the key's own law; naming it here adds nothing.
+ * `main.field_to_section_id`: the CSL variable that carries the record's
+ * ADDRESS (none / blank = no such variable). REFUSES `id`: the Zotero key is an
+ * identifier LOOKED UP in its code component (import_code_lookup.ts) and is
+ * never a record number — naming it here would be the DATA-08 cast.
  */
-function identifierTargetOf(
-	entries: readonly ZoteroMapEntry[],
-	variable: string | undefined,
-): Partial<ZoteroConfig> {
-	if (variable === undefined || variable === 'id') return {};
-	const entry = entries.find((candidate) => candidate.name === variable);
-	if (entry === undefined) {
+function addressVariableOf(variable: string | undefined): Partial<ZoteroConfig> {
+	if (variable === undefined || variable.trim() === '') return {};
+	if (variable === 'id') {
 		throw configRefusal(
 			`'main' field_to_section_id`,
-			`names the CSL variable '${variable}', but the 'map' has no entry for it: add the entry whose component the identifier is looked up in`,
+			`names 'id' — the Zotero key identifies a record by lookup and is never a record number; name the Zotero field the operator writes the section_id in (default 'call-number'), or remove the setting`,
 		);
 	}
-	if (entry.link !== undefined) {
-		throw configRefusal(
-			`'main' field_to_section_id`,
-			`names '${variable}', a LINK entry — an identifier is looked up in a code component, not in a linked record's name`,
-		);
-	}
-	return { identifierTarget: { sectionTipo: entry.sectionTipo, componentTipo: entry.tipo } };
+	return { fieldToSectionId: variable };
+}
+
+/** The largest section_id a matrix row can hold (Postgres int4). */
+const MAX_SECTION_ID = 2147483647;
+
+/**
+ * THE ONE READING OF AN ADDRESS (owner ruling 2026-11-17, rule 1): `text` as a
+ * record number, or null when it is not one. Canonical only — digits, no sign,
+ * no leading zero, no fraction, no exponent, within int4 — so no cast ever
+ * decides (`'12abc'` is not 12, `'007'` is not 7; PHP's `(int)` made both).
+ */
+export function recordNumberOf(text: string): number | null {
+	if (!/^[1-9]\d*$/.test(text)) return null;
+	const number = Number(text);
+	return number <= MAX_SECTION_ID ? number : null;
 }
 
 /**
@@ -488,31 +491,42 @@ function handlerFor(entry: ZoteroMapEntry): VariableHandler {
 }
 
 /**
- * The `field_to_section_id` variable (default `call-number`) — PHP's record
- * ADDRESS, cast to a section_id. Owner C18 (2026-11-13): its value is an
- * IDENTIFIER. It is written, TRIMMED ONLY, into the component the map binds it
- * to (`identifierTarget` — the same value the lookup searches, as the MARC `id`
- * entry), and carried as `record.identifier` for the door to resolve through
- * `findSectionIdByCode`. Never a section_id. Answers true when `name` is that
- * variable (and not `id`, whose own handler owns the key).
+ * The `field_to_section_id` variable's value as the door will judge it (see
+ * `ZoteroMappedRecord.address`): a scalar as its trimmed text, null / blank as
+ * NO address, anything else as its JSON — so the door's refusal can NAME what
+ * the file carried instead of a silent skip.
  */
-function mapIdentifierVariable(
+function addressText(value: unknown): string | null {
+	if (value === null || value === undefined) return null;
+	const text = (cslScalar(value) ?? JSON.stringify(value)).trim();
+	return text === '' ? null : text;
+}
+
+/**
+ * Carry the record's ADDRESS (owner ruling 2026-11-17): true when `name` is the
+ * configured `field_to_section_id` variable. Never written by this step — the
+ * variable names a Zotero field, not a component; a map entry of the same name
+ * (an install's choice) is written by its ordinary handler, as text.
+ */
+function carryAddress(scope: ItemScope, name: string, value: unknown): boolean {
+	if (name !== scope.cfg.fieldToSectionId) return false;
+	scope.record.address = addressText(value);
+	return true;
+}
+
+/** One CSL variable of the item: the address, the attachment, a mapped field — or unmapped. */
+function mapVariable(
 	scope: ItemScope,
-	entry: ZoteroMapEntry,
+	byName: ReadonlyMap<string, ZoteroMapEntry>,
 	name: string,
 	value: unknown,
-): boolean {
-	if (name !== scope.cfg.fieldToSectionId || name === 'id') return false;
-	const text = cslScalar(value);
-	if (text === null) {
-		scope.fields.refuse(entry.tipo, value, `'${name}' (the record identifier) is not a text value`);
-		return true;
-	}
-	const identifier = text.trim();
-	if (identifier === '') return true;
-	scope.record.identifier = identifier;
-	addTexts(scope, entry.tipo, [identifier], value);
-	return true;
+): void {
+	const isAddress = carryAddress(scope, name, value);
+	const entry = byName.get(name);
+	if (entry === undefined) {
+		if (!isAddress) scope.record.unmapped.push(name);
+	} else if (name === 'archive') mapArchive(scope, value);
+	else handlerFor(entry)(scope, entry, value);
 }
 
 /** `archive` is the PDF attachment, imported after the record commits — never a field. */
@@ -530,7 +544,7 @@ export function mapCslItem(
 	const record: ZoteroMappedRecord = {
 		code: null,
 		url: null,
-		identifier: null,
+		address: null,
 		fields: [],
 		links: [],
 		archive: null,
@@ -539,13 +553,7 @@ export function mapCslItem(
 	};
 	const scope: ItemScope = { cfg, ctx, fields: new FieldSet(), record };
 	const byName = new Map(cfg.entries.map((entry) => [entry.name, entry]));
-	for (const [name, value] of Object.entries(item)) {
-		const entry = byName.get(name);
-		if (entry === undefined) record.unmapped.push(name);
-		else if (mapIdentifierVariable(scope, entry, name, value)) continue;
-		else if (name === 'archive') mapArchive(scope, value);
-		else handlerFor(entry)(scope, entry, value);
-	}
+	for (const [name, value] of Object.entries(item)) mapVariable(scope, byName, name, value);
 	record.fields = scope.fields.all();
 	return record;
 }

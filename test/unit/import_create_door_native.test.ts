@@ -26,6 +26,12 @@
  *      interleave (the concurrent create holds its insert open until the
  *      importer is provably waiting on it — pg_blocking_pids, never a sleep).
  *
+ *   5. the mapped importer's ADDRESSED record (`MappedRecord.address`, the
+ *      Zotero call-number — owner ruling 2026-11-17, rule 7): an absent id is a
+ *      CREATE, asked of the same 'import_execute.create' door before the
+ *      explicit-id insert; a record already living at the id is a MATCHED
+ *      record, every field asked of the record door — never the create grant.
+ *
  * THE IDENTITIES are authz_door_fixture's, asserted through the real resolver
  * first: LEVEL_1 (test3 at 1 — read, never write), READ_COMPONENT (test3 at 2,
  * test52 at 0), CONTROL (test3 + test52 at 2, test60 — the dataframe slot — at
@@ -115,6 +121,24 @@ async function importNew(principal: Principal) {
 	);
 	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
 	for (const id of report.createdIds) importedIds.add(id);
+	return report;
+}
+
+/** The mapped engine on ONE record ADDRESSED by id (the Zotero door's named exception). */
+async function importAddressed(principal: Principal, sectionId: number, value: string) {
+	const report = await importMappedRecords(
+		[
+			{
+				sectionId: null,
+				address: { sectionId },
+				fields: [{ component_tipo: AUTHZ_TEXT, values: [value] }],
+			},
+		],
+		AUTHZ_SECTION,
+		principal,
+		{ bulkLabel: 'import address door gate', addressDoor: 'tool_import_zotero.import_files' },
+	);
+	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
 	return report;
 }
 
@@ -359,6 +383,63 @@ describe.if(DB_READY)(
 				[AUTHZ_SECTION, created],
 			)) as { l: unknown; s: unknown }[];
 			expect(JSON.stringify(linked[0])).toContain(String(named[0]));
+		});
+
+		// --- 1c. an ADDRESSED record (MappedRecord.address — the Zotero call-number) --
+
+		test('MAPPED, ADDRESS at a free id, section READ-only (LEVEL_1): refused — no record at the id', async () => {
+			const sectionId = await freshId();
+			importedIds.add(sectionId); // swept whatever the importer reports
+			const report = await importAddressed(ids.level1, sectionId, 'zzaddress create refused');
+			expect({ created: report.created, createdIds: report.createdIds }).toEqual({
+				created: 0,
+				createdIds: [],
+			});
+			expect(report.failed.map((failure) => String(failure.msg))).toEqual([
+				expect.stringContaining('the record was not written'),
+			]);
+			expect(await recordColumns(sectionId)).toBeNull();
+		});
+
+		test('MAPPED, ADDRESS at a free id, the served twin (CONTROL): created AT the id, its field written', async () => {
+			const sectionId = await freshId();
+			importedIds.add(sectionId);
+			const report = await importAddressed(ids.control, sectionId, 'zzaddress create served');
+			expect(report.failed).toEqual([]);
+			expect(report.createdIds).toEqual([sectionId]);
+			expect(report.records).toEqual([{ index: 0, sectionId, created: true }]);
+			expect(JSON.stringify((await recordColumns(sectionId))?.text)).toContain(
+				'zzaddress create served',
+			);
+		});
+
+		test('MAPPED, ADDRESS at an EXISTING record OUT of her scope: a matched record — the field refused by the record door, the record untouched, nothing created', async () => {
+			const sectionId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_Q);
+			const before = await rowCount();
+			const report = await importAddressed(ids.control, sectionId, 'zzaddress foreign');
+			// Not a create: the create grant CONTROL holds never reaches a living record.
+			expect({ created: report.created, updated: report.updated }).toEqual({
+				created: 0,
+				updated: 1,
+			});
+			expect(report.failed).toEqual([
+				expect.objectContaining({
+					component_tipo: AUTHZ_TEXT,
+					msg: expect.stringMatching(REFUSED),
+				}),
+			]);
+			expect(await rowCount()).toBe(before);
+			expect((await recordColumns(sectionId))?.text ?? null).toBeNull();
+		});
+
+		test('MAPPED, ADDRESS at an EXISTING record IN her scope (the served twin): updated, the field written', async () => {
+			const sectionId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_P);
+			const report = await importAddressed(ids.control, sectionId, 'zzaddress in scope');
+			expect(report.failed).toEqual([]);
+			expect(report.records).toEqual([{ index: 0, sectionId, created: false }]);
+			expect(JSON.stringify((await recordColumns(sectionId))?.text)).toContain(
+				'zzaddress in scope',
+			);
 		});
 
 		// --- 2. the CSV importer: the create, and a column of a CREATED row ---------

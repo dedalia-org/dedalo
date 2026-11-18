@@ -9,7 +9,8 @@
 			{ "name": "transcription_review", "tipo": "rsc260" },
 			{ "name": "pdf", "tipo": "rsc209" },
 			{ "name": "identifying_image", "tipo": "rsc228" },
-			{ "name": "field_standard_number", "tipo": "rsc249" }
+			{ "name": "field_standard_number", "tipo": "rsc249" },
+			{ "name": "field_to_section_id", "value": "call-number" }
 		],
 		"map": [
 			{ "name": "id", "ddo_map": [{ "tipo": "rsc137", "section_tipo": "rsc205" }] },

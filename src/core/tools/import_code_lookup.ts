@@ -39,6 +39,19 @@
  *
  * SELECT-ONLY: this module resolves an address and never writes one.
  *
+ * THE ONE NAMED EXCEPTION (owner ruling 2026-11-17). The Zotero door's
+ * `field_to_section_id` variable (`call-number`) IS a record address: Zotero has
+ * no editable id, so the cataloguer writes the section_id there, by hand, on
+ * purpose. It is not an external identifier that happens to be numeric — the
+ * distinction this module exists for — and it never passes through a lookup:
+ * the door hands it to the executor as `MappedRecord.address`
+ * (import_execute.ts), which accepts one only from a door whose tool declares
+ * it (`ToolServerModule.operatorAddressActions`). The Zotero KEY keeps this
+ * module's law, and so does
+ * every MARC21 identifier: MARC can never address by id (gate
+ * marc_identity_native). The exception's own guard reads the record's stored
+ * key here ({@link readStoredCodesForUpdate}).
+ *
  * The heavy edges (the search assembler, the ontology resolver, the matrix
  * reader) are DYNAMIC imports, as they are in this directory's neighbours
  * (import_conform.ts, import_csv.ts): the tools layer sits above core, and the
@@ -46,6 +59,7 @@
  * an unrelated module below fails to parse.
  */
 
+import type { MatrixJsonbColumn } from '../db/matrix.ts';
 import { DedaloError } from '../errors/index.ts';
 import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import type { Principal } from '../security/permissions.ts';
@@ -240,6 +254,57 @@ async function byteExactMatches(
 		if (values.some((value) => wanted.has(value))) matches.push(sectionId);
 	}
 	return matches;
+}
+
+/**
+ * The codes ONE record holds in `target`'s component — as the lookup compares
+ * them (`itemAsText`) — read under the record's row lock, or null when no such
+ * record exists. For the Zotero door's address guard: a record addressed by its
+ * call-number may be written only if it holds no key, or the item's own; the
+ * lock holds that answer to COMMIT, so two imports addressing one record cannot
+ * both read "no key" and each write theirs. MUST run inside a transaction
+ * (`readMatrixKeyForUpdate` refuses otherwise). Unscoped by design: it answers
+ * a fact about the record being WRITTEN, and its values never leave the guard.
+ */
+export async function readStoredCodesForUpdate(
+	target: ImportCodeTarget,
+	sectionId: number,
+): Promise<string[] | null> {
+	const { readMatrixKeyForUpdate } = await import('../db/matrix_write.ts');
+	const stored = await storedKeyOf(target);
+	const items = await readMatrixKeyForUpdate(
+		stored.table,
+		target.sectionTipo,
+		sectionId,
+		stored.column,
+		stored.dataTipo,
+	);
+	if (items === null) return null;
+	return items.map((item) => itemAsText(item, stored.html)).filter((text) => text !== null);
+}
+
+/** Where one component's items are stored: table, column, key — and whether they are markup. */
+async function storedKeyOf(
+	target: ImportCodeTarget,
+): Promise<{ table: string; column: MatrixJsonbColumn; dataTipo: string; html: boolean }> {
+	const { getColumnNameByModel, getMatrixTableFromTipo, getModelByTipo } = await import(
+		'../ontology/resolver.ts'
+	);
+	const { resolveDataTipo } = await import('../ontology/alias.ts');
+	const { getComponentModel } = await import('../components/registry.ts');
+	const table = await getMatrixTableFromTipo(target.sectionTipo);
+	// The DATA tipo's model: a component_alias stores under its target's key and column.
+	const dataTipo = await resolveDataTipo(target.componentTipo);
+	const model = (await getModelByTipo(dataTipo)) ?? '';
+	const column = getColumnNameByModel(model);
+	if (table === null || column === null) {
+		throw new DedaloError('internal.invariant', {
+			message: `readStoredCodesForUpdate: ${target.sectionTipo}/${target.componentTipo} is not a stored component of a matrix section`,
+			coordinates: { section_tipo: target.sectionTipo, component_tipo: target.componentTipo },
+		});
+	}
+	const html = getComponentModel(model)?.render === 'html';
+	return { table, column: column as MatrixJsonbColumn, dataTipo, html };
 }
 
 /** How a lookup is scoped beyond the principal's section grant. */
@@ -465,15 +530,6 @@ export interface CodedRecord {
 	 * name two different records name neither.
 	 */
 	altCodes?: readonly string[];
-	/**
-	 * The record the DOOR already resolved this item to through ANOTHER
-	 * identifier's code lookup — Zotero's `field_to_section_id` value
-	 * (`call-number`, owner C18), searched by `findSectionIdByCode` in the
-	 * component the map binds it to. NEVER a value read from the file: the only
-	 * producers are this module's lookups. The code is still checked for batch
-	 * duplicates, and must name this record or none (two records → refusal).
-	 */
-	resolvedSectionId?: number;
 	fields: MappedField[];
 	links?: LinkField[];
 }
@@ -513,7 +569,7 @@ export async function findSectionIdByCodes(
  * Turn the identifiers a mapped-import batch carries into record ADDRESSES
  * (PHP resolve_target_section / get_section_id_from_code, restored — audit
  * DATA-08), for the WHOLE batch BEFORE its first write. Shared by the MARC21
- * and Zotero doors.
+ * and Zotero doors (the Zotero KEY; its call-number address is the door's own).
  *
  * Per record: no identifier ⇒ `sectionId: null` (the executor creates). An
  * identifier ⇒ the record whose code component (`idTarget`, searched in the
@@ -563,7 +619,7 @@ async function addressForRecord(
 	principal: Principal,
 	label: string,
 ): Promise<number | null> {
-	if (record.code === null) return record.resolvedSectionId ?? null;
+	if (record.code === null) return null;
 	if (seen.has(record.code)) {
 		throw batchRefusal(
 			`The ${label} '${record.code}' is carried by more than one record of this import, ` +
@@ -571,32 +627,5 @@ async function addressForRecord(
 		);
 	}
 	seen.add(record.code);
-	const byCode = await findSectionIdByCodes(
-		[record.code, ...(record.altCodes ?? [])],
-		target,
-		principal,
-	);
-	if (record.resolvedSectionId === undefined) return byCode;
-	assertKeyAgreesWithIdentifier(record.code, byCode, record.resolvedSectionId, target, label);
-	return record.resolvedSectionId;
-}
-
-/**
- * The batch invariant when a record carries BOTH a key and an identifier
- * (C18): the key's record, when there is one, is the identifier's record —
- * two different records cannot be told apart, so the whole batch is refused.
- */
-function assertKeyAgreesWithIdentifier(
-	code: string,
-	byCode: number | null,
-	resolvedSectionId: number | null,
-	target: ImportCodeTarget,
-	label: string,
-): void {
-	if (byCode === null || byCode === resolvedSectionId) return;
-	throw batchRefusal(
-		`The ${label} '${code}' is held by record ${byCode} of section ${target.sectionTipo}, ` +
-			`while the record's other identifier names record ${resolvedSectionId}, so the import cannot tell which one it means. ` +
-			`Nothing was imported — resolve the two records first.`,
-	);
+	return findSectionIdByCodes([record.code, ...(record.altCodes ?? [])], target, principal);
 }

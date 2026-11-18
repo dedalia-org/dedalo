@@ -20,5 +20,6 @@ records it created.
 
 **Action needed:** none for the shipped field map. A date written only as text ("circa 1900")
 or an item type the configuration does not list is now refused for that record and listed,
-instead of emptying the stored value. A numeric call number is no longer used as the record
-number — that rule is under review; each reference that carries one says so in the report.
+instead of emptying the stored value. A reference's **Call Number** chooses its record number
+only when it is a whole number, and never overwrites another reference's record — see the
+call-number note of this release.

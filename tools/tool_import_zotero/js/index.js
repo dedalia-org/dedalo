@@ -25,12 +25,13 @@
 *   5. The server action 'import_files' is dispatched through dd_tools_api and
 *      may run as a long-running background task; the client waits up to one hour.
 *
-* Identity:
-*   A reference is matched by its Zotero key, stored in the component the
-*   map's 'id' entry names. A second identifier is optional: the tool_config
-*   property 'field_to_section_id' names a Zotero field the map binds to a code
-*   component (never a record number — C18); the shipped default names none
-*   (see sample_config.json and register.json → dd1633).
+* Section-id control:
+*   By default the tool reads Zotero's 'call-number' field as the target
+*   section_id: a whole number there addresses that record (updated, or
+*   created at that id); anything else refuses the item. Without it a
+*   reference is matched by its Zotero key, stored in the component the map's
+*   'id' entry names. The field is configurable via the tool_config property
+*   'field_to_section_id' (see sample_config.json and register.json → dd1633).
 *
 * PDF attachment:
 *   Set the Zotero 'archive' field to the PDF filename and upload the PDF

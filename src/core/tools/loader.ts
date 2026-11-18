@@ -69,8 +69,37 @@ export function validateToolModule(imported: unknown, expectedName: string): Too
 	validateModuleName(module, expectedName);
 	validateApiActions(module);
 	validateReasonKeys(module);
+	validateOperatorAddressActions(module);
 	validateBootAndRoutes(module);
 	return module;
+}
+
+/**
+ * The optional `operatorAddressActions` declaration (module.ts): every key one of
+ * the tool's own actions, every reason a non-empty sentence — a capability that
+ * lets an import write AT a record id is never granted by a typo or an empty word.
+ */
+function validateOperatorAddressActions(module: ToolServerModule): void {
+	const declared = module.operatorAddressActions;
+	if (declared === undefined) return;
+	if (typeof declared !== 'object' || declared === null) {
+		throw invalidToolModule('tool.operatorAddressActions must be an object of action → reason');
+	}
+	for (const [action, reason] of Object.entries(declared)) {
+		const problem = operatorAddressProblem(module, action, reason);
+		if (problem !== null) throw invalidToolModule(`operatorAddressActions.${action} ${problem}`);
+	}
+}
+
+/** What is wrong with one `operatorAddressActions` entry, or null. */
+function operatorAddressProblem(
+	module: ToolServerModule,
+	action: string,
+	reason: unknown,
+): string | null {
+	if (!Object.hasOwn(module.apiActions, action)) return 'names no action of the tool';
+	if (typeof reason !== 'string' || reason.trim() === '') return 'needs its reason (a sentence)';
+	return null;
 }
 
 /**

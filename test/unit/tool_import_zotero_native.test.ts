@@ -18,10 +18,14 @@
  *   test17 text_area (ISBN/ISSN) · test140 iri (DOI) · test80 portal→test3 (Series link)
  *   test85 pdf · test99 image.
  *
- * The `field_to_section_id` variable (`call-number`) is an IDENTIFIER looked up
- * through the component the map binds it to (owner C18, 2026-11-13): found →
- * that record, absent → created, held by two records → the ITEM is refused.
- * WC-2026-11-12-zotero-csl-json-import (+ addendum 2026-11-13).
+ * The `field_to_section_id` variable (`call-number`) is the record's ADDRESS
+ * (owner ruling 2026-11-17 — the named exception to the DATA-08 code-lookup
+ * law, this door only): a canonical positive int4 is the section_id — the
+ * record there is updated (its key adopted, a DIFFERENT key refused), an absent
+ * one (never there, or deleted) is created AT it; anything else refuses THAT
+ * item. No call-number → the Zotero key decides. The config binds NO component
+ * to the variable, as the shipped default (dd1633) does not.
+ * WC-2026-11-12-zotero-csl-json-import (+ addendum 2026-11-18).
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
@@ -38,13 +42,14 @@ import {
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
-import { getComponentModel } from '../../src/core/components/registry.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
+import { ensureRecordGenerationTable } from '../../src/core/db/record_generation.ts';
 import { ghostscriptAvailable } from '../../src/core/media/engine/ghostscript.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
@@ -87,7 +92,6 @@ const SERVER_CONFIG = {
 		{ name: 'ISSN', ddo_map: [{ tipo: 'test17', section_tipo: 'test3' }] },
 		{ name: 'DOI', ddo_map: [{ tipo: 'test140', section_tipo: 'test3' }] },
 		{ name: 'archive', ddo_map: [{ tipo: 'test85', section_tipo: 'test3' }] },
-		{ name: 'call-number', ddo_map: [{ tipo: 'test162', section_tipo: 'test3' }] },
 		{
 			name: 'container-title',
 			ddo_map: [
@@ -122,6 +126,12 @@ interface Report {
 	notices: string[];
 	attachments: string[];
 	bulk_process_id: number | null;
+	/** Records created AT their call-number id. */
+	created_at_id: number[];
+	/** Records updated at their call-number id. */
+	updated_at_id: number[];
+	/** Items the run refused, typed: the item, the refusal's code, its sentence. */
+	refused: { item: string; code: string; message: string }[];
 }
 
 const runs: number[] = [];
@@ -199,8 +209,48 @@ async function recordsNamed(name: string): Promise<number[]> {
 
 const key = (k: string) => `${RUN}${k}`;
 const uri = (k: string) => `http://zotero.org/users/1/items/${key(k)}`;
-/** A call-number (the `field_to_section_id` identifier) of this run. */
-const cn = (k: string) => `${RUN}-cn-${k}`;
+
+/** test3 ids this file ADDRESSED by call-number — swept with their history, whatever they hold. */
+const addressedIds = new Set<number>();
+
+/** Remove one test3 record and its Time Machine rows (this file's own scratch). */
+async function sweepRecord(sectionId: number): Promise<void> {
+	await sql.unsafe(`DELETE FROM ${TABLE} WHERE section_tipo = 'test3' AND section_id = $1`, [
+		sectionId,
+	]);
+	await sql.unsafe(
+		`DELETE FROM matrix_time_machine WHERE section_tipo = 'test3' AND section_id = $1`,
+		[sectionId],
+	);
+	// A record born where a deleted one lived opened a generation epoch there.
+	await ensureRecordGenerationTable();
+	await sql.unsafe(
+		`DELETE FROM dedalo_ts_record_generation WHERE section_tipo = 'test3' AND section_id = $1`,
+		[sectionId],
+	);
+}
+
+/**
+ * An id NO test3 record holds: a counter allocation whose row is removed again.
+ * The counter is a high-water mark and stays AT it, so no later allocation of
+ * this suite lands there — the id is free until a call-number names it. (No id
+ * band: the address is whatever the suite database's counter says is next.)
+ */
+async function freeId(): Promise<number> {
+	const sectionId = await createSectionRecord('test3', -1);
+	await sweepRecord(sectionId);
+	addressedIds.add(sectionId);
+	return sectionId;
+}
+
+/** Does a test3 record live at this id? */
+async function recordExists(sectionId: number): Promise<boolean> {
+	const rows = (await sql.unsafe(
+		`SELECT 1 AS found FROM ${TABLE} WHERE section_tipo = 'test3' AND section_id = $1`,
+		[sectionId],
+	)) as unknown[];
+	return rows.length > 0;
+}
 
 beforeAll(async () => {
 	await assertTestDatabase('tool_import_zotero_native');
@@ -215,6 +265,7 @@ afterAll(async () => {
 		[`%${RUN}%`],
 	)) as { section_id: number }[];
 	const ids = tagged.map((row) => Number(row.section_id));
+	for (const sectionId of addressedIds) await sweepRecord(sectionId);
 	if (ids.length > 0) {
 		await sql.unsafe(
 			`DELETE FROM ${TABLE} WHERE section_tipo = 'test3' AND section_id = ANY($1::int[])`,
@@ -246,7 +297,6 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 			author: [{ given: 'Jane', family: 'Smith' }, { literal: `${RUN} Museum` }],
 			issued: { 'date-parts': [[2014, 12, 30]] },
 			DOI: '10.1000/xyz',
-			'call-number': cn('A'),
 			publisher: 'Unmapped House',
 		},
 		{
@@ -298,107 +348,15 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 		expect(existsSync(resolve(stagedDir, 'library.json'))).toBe(false);
 	});
 
-	test('notices: unmapped variables once, a range end on a single date; the call-number is a VALUE of its component', async () => {
+	test('notices: unmapped variables once, a range end on a single date', async () => {
 		const report = await run({ files_data: stage('library.json', exportItems) });
-		expect(report.notices.filter((n) => n.includes('call-number'))).toEqual([]);
 		expect(report.notices.filter((n) => n.includes('Not in the Zotero map'))).toHaveLength(1);
 		expect(report.notices.some((n) => n.includes('publisher'))).toBe(true);
 		expect(report.notices.some((n) => n.startsWith(`${key('B')}: accessed:`))).toBe(true);
-		// C18: the call-number is written into the component the map binds it to
-		// (the same record the key names) — never cast to a record number.
-		const byKey = await recordsWithCode(key('A'));
-		expect(byKey).toHaveLength(1);
-		expect(await recordsWithCode(cn('A'))).toEqual(byKey);
-		expect(await recordsWithCode('42')).toEqual([]);
-	});
-
-	test('C18 found: a call-number held by ONE record resolves the item to it; the key is written there too', async () => {
-		// A record known only by its call-number (an item without a Zotero id).
-		const seeded = await run({
-			files_data: stage('cn-f0.json', [{ 'call-number': cn('F'), title: `${RUN} F0` }]),
-		});
-		expect(seeded.created).toBe(1);
-		const [found] = await recordsWithCode(cn('F'));
-		expect(found).toBeDefined();
-		const report = await run({
-			files_data: stage('cn-f1.json', [
-				{ id: uri('IF'), 'call-number': cn('F'), title: `${RUN} F1` },
-			]),
-		});
-		expect(report.errors).toEqual([]);
-		expect(report.created).toBe(0);
-		expect(report.updated).toBe(1);
-		expect(await recordsWithCode(key('IF'))).toEqual([found as number]);
-		expect(await recordsWithCode(cn('F'))).toEqual([found as number]);
-		expect((await itemsOf(found as number, 'string', 'test52')).map((i) => i.value)).toEqual([
-			`${RUN} F1`,
-		]);
-	});
-
-	test('C18 two: a call-number held by TWO records refuses THAT item; the other items are written', async () => {
-		// Two records, then both made to hold the same call-number (a duplicate in
-		// the data: an import cannot produce it — the second item resolves to the first).
-		await run({
-			files_data: stage('cn-t1.json', [{ 'call-number': cn('T1'), title: `${RUN} T1` }]),
-		});
-		await run({
-			files_data: stage('cn-t2.json', [{ 'call-number': cn('T2'), title: `${RUN} T2` }]),
-		});
-		const twins = [...(await recordsWithCode(cn('T1'))), ...(await recordsWithCode(cn('T2')))];
-		expect(twins).toHaveLength(2);
-		await sql.unsafe(
-			`UPDATE ${TABLE} SET string = jsonb_set(string, '{test162}', $1::text::jsonb) WHERE section_tipo = 'test3' AND section_id = ANY($2::int[])`,
-			[JSON.stringify([{ id: 1, lang: 'lg-nolan', value: cn('T') }]), twins],
-		);
-		expect(await recordsWithCode(cn('T'))).toHaveLength(2);
-		const report = await run({
-			files_data: stage('cn-t3.json', [
-				{ id: uri('IT'), 'call-number': cn('T'), title: `${RUN} T3` },
-				{ id: uri('IT4'), title: `${RUN} T4` },
-			]),
-		});
-		expect(report.created).toBe(1);
-		expect(report.updated).toBe(0);
-		expect(report.errors).toHaveLength(1);
-		expect(report.errors[0]).toContain(key('IT'));
-		expect(report.errors[0]).toContain(cn('T'));
-		expect(report.errors[0]).toContain('more than one record');
-		expect(await recordsWithCode(key('IT'))).toEqual([]);
-		expect(await recordsNamed(`${RUN} T3`)).toEqual([]);
-		expect(await recordsWithCode(key('IT4'))).toHaveLength(1);
-	});
-
-	test('C18 disagreement: the key names one record and the call-number another — the item is refused', async () => {
-		await run({
-			files_data: stage('cn-g0.json', [{ 'call-number': cn('G'), title: `${RUN} G0` }]),
-		});
-		const [a] = await recordsWithCode(key('A'));
-		const titleBefore = await itemsOf(a as number, 'string', 'test52');
-		const report = await run({
-			files_data: stage('cn-g1.json', [
-				{ id: uri('A'), 'call-number': cn('G'), title: `${RUN} G1` },
-			]),
-		});
-		expect(report.created + report.updated).toBe(0);
-		expect(report.errors).toHaveLength(1);
-		expect(report.errors[0]).toContain(cn('G'));
-		expect(report.errors[0]).toContain(key('A'));
-		expect(await itemsOf(a as number, 'string', 'test52')).toEqual(titleBefore);
-		expect(await recordsNamed(`${RUN} G1`)).toEqual([]);
-	});
-
-	test('C18 batch: the same call-number on two items of one export — the second item is refused', async () => {
-		const report = await run({
-			files_data: stage('cn-h.json', [
-				{ id: uri('IH1'), 'call-number': cn('H'), title: `${RUN} H1` },
-				{ id: uri('IH2'), 'call-number': cn('H'), title: `${RUN} H2` },
-			]),
-		});
-		expect(report.created).toBe(1);
-		expect(report.errors).toHaveLength(1);
-		expect(report.errors[0]).toContain(key('IH2'));
-		expect(await recordsWithCode(key('IH1'))).toHaveLength(1);
-		expect(await recordsWithCode(key('IH2'))).toEqual([]);
+		// Rule 4: no call-number on the items — the key decided, no address was used.
+		expect(report.created_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.refused).toEqual([]);
 	});
 
 	test('C51: an export over the 64 MB ingest ceiling is refused at the door — nothing read, the file stays staged', async () => {
@@ -474,6 +432,259 @@ describe('tool_import_zotero: a CSL-JSON export through the server map', () => {
 		expect((await itemsOf(t as number, 'string', 'test52')).map((i) => i.value)).toEqual([
 			`${RUN} Typeless`,
 		]);
+	});
+});
+
+describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-17)', () => {
+	/** The record rule 3 creates at its call-number; rules 2, 4 and 5 are judged against it. */
+	let createdAt = 0;
+
+	/** One refused item of a report, by its Zotero key. */
+	function refusedItem(report: Report, k: string) {
+		return report.refused.find((entry) => entry.item === key(k));
+	}
+
+	test('rule 1: only a canonical positive int4 is an address — anything else refuses THAT item, naming the value', async () => {
+		// PHP cast the value (`(int)'12abc'` = 12, '007' = 7) or skipped the item in
+		// silence. Nothing but a whole number written with digits reaches a record.
+		const notNumbers: unknown[] = [
+			'007',
+			'12abc',
+			'0',
+			'-5',
+			'1.0',
+			'1e3',
+			'2147483648',
+			2147483648,
+			12.5,
+			{ shelf: 1 },
+			true,
+		];
+		const report = await run({
+			files_data: stage('cn-bad.json', [
+				...notNumbers.map((value, index) => ({
+					id: uri(`BAD${index}`),
+					'call-number': value,
+					title: `${RUN} bad ${index}`,
+				})),
+				{ id: uri('SIB'), title: `${RUN} sibling` },
+			]),
+		});
+		// The rest of the export is imported.
+		expect(report.created).toBe(1);
+		expect(await recordsWithCode(key('SIB'))).toHaveLength(1);
+		expect(report.errors).toEqual([]);
+		expect(report.created_at_id).toEqual([]);
+		expect(report.refused).toHaveLength(notNumbers.length);
+		for (const [index, value] of notNumbers.entries()) {
+			const refused = refusedItem(report, `BAD${index}`);
+			expect(refused?.code, String(value)).toBe('request.invalid_data');
+			const shown = typeof value === 'string' ? value : JSON.stringify(value);
+			expect(refused?.message, String(value)).toContain(`'${shown}'`);
+			expect(refused?.message).toContain('call-number');
+			expect(await recordsWithCode(key(`BAD${index}`))).toEqual([]);
+			expect(await recordsNamed(`${RUN} bad ${index}`)).toEqual([]);
+		}
+		expect(report.summary).toContain(`${notNumbers.length} refused`);
+	});
+
+	test('rule 3: an absent id is CREATED at that id, attributed to the run, and the counter never re-mints it', async () => {
+		createdAt = await freeId();
+		expect(await recordExists(createdAt)).toBe(false);
+		const report = await run({
+			files_data: stage('cn-create.json', [
+				// Padding is transmission noise, not part of the number.
+				{ id: uri('AD1'), 'call-number': ` ${createdAt} `, title: `${RUN} AD1` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.failed).toEqual([]);
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(report.created_at_id).toEqual([createdAt]);
+		expect(report.updated_at_id).toEqual([]);
+		expect(await recordsWithCode(key('AD1'))).toEqual([createdAt]);
+		expect((await itemsOf(createdAt, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} AD1`,
+		]);
+		// The call-number is not an unmapped variable, and no component holds it.
+		expect(report.notices.filter((n) => n.includes('call-number'))).toEqual([]);
+		const tm = (await sql.unsafe(
+			`SELECT DISTINCT bulk_process_id FROM matrix_time_machine WHERE section_tipo = 'test3' AND section_id = $1`,
+			[createdAt],
+		)) as { bulk_process_id: number | null }[];
+		expect(tm.map((row) => row.bulk_process_id)).toEqual([report.bulk_process_id]);
+		// The counter stands at or above the chosen id: the next allocation is beyond it.
+		const next = await createSectionRecord('test3', -1);
+		addressedIds.add(next);
+		expect(next).toBeGreaterThan(createdAt);
+	});
+
+	test('rule 2: an existing record with NO key is updated and ADOPTS the key (a JSON-number call-number too)', async () => {
+		const existing = await createSectionRecord('test3', -1);
+		addressedIds.add(existing);
+		expect(await itemsOf(existing, 'string', 'test162')).toEqual([]);
+		const report = await run({
+			files_data: stage('cn-adopt.json', [
+				{ id: uri('AD2'), 'call-number': existing, title: `${RUN} AD2` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.created).toBe(0);
+		expect(report.updated).toBe(1);
+		expect(report.created_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([existing]);
+		expect(await recordsWithCode(key('AD2'))).toEqual([existing]);
+		expect((await itemsOf(existing, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} AD2`,
+		]);
+	});
+
+	test('rule 2: a record holding the SAME key is updated at its call-number', async () => {
+		const report = await run({
+			files_data: stage('cn-same.json', [
+				{ id: uri('AD1'), 'call-number': String(createdAt), title: `${RUN} AD1 again` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.updated).toBe(1);
+		expect(report.updated_at_id).toEqual([createdAt]);
+		expect((await itemsOf(createdAt, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} AD1 again`,
+		]);
+	});
+
+	test('rule 2: a record holding a DIFFERENT key refuses the item (resource.conflict) — the record untouched, the rest imported', async () => {
+		const codeBefore = await itemsOf(createdAt, 'string', 'test162');
+		const titleBefore = await itemsOf(createdAt, 'string', 'test52');
+		const report = await run({
+			files_data: stage('cn-rekey.json', [
+				{ id: uri('AD9'), 'call-number': String(createdAt), title: `${RUN} AD9` },
+				{ id: uri('AD10'), title: `${RUN} AD10` },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.refused).toHaveLength(1);
+		const refused = refusedItem(report, 'AD9');
+		expect(refused?.code).toBe('resource.conflict');
+		expect(refused?.message).toContain(`'${createdAt}'`);
+		expect(refused?.message).toContain('Zotero key');
+		// Refused ONCE: the item is not also a `failed` line.
+		expect(report.failed).toEqual([]);
+		expect(await itemsOf(createdAt, 'string', 'test162')).toEqual(codeBefore);
+		expect(await itemsOf(createdAt, 'string', 'test52')).toEqual(titleBefore);
+		expect(await recordsWithCode(key('AD9'))).toEqual([]);
+		expect(await recordsWithCode(key('AD10'))).toHaveLength(1);
+	});
+
+	test('rule 4: no call-number on the item — the Zotero key finds the record created at an id', async () => {
+		const report = await run({
+			files_data: stage('cn-bykey.json', [{ id: uri('AD1'), title: `${RUN} AD1 by key` }]),
+		});
+		expect(report.created).toBe(0);
+		expect(report.updated).toBe(1);
+		expect(report.created_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([]);
+		expect((await itemsOf(createdAt, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} AD1 by key`,
+		]);
+	});
+
+	test('rule 5: the key names record A and the call-number names B — refused (resource.conflict), A untouched, B not created', async () => {
+		const other = await freeId();
+		const titleBefore = await itemsOf(createdAt, 'string', 'test52');
+		const report = await run({
+			files_data: stage('cn-disagree.json', [
+				{ id: uri('AD1'), 'call-number': String(other), title: `${RUN} disagree` },
+			]),
+		});
+		expect(report.created + report.updated).toBe(0);
+		expect(report.refused).toHaveLength(1);
+		const refused = refusedItem(report, 'AD1');
+		expect(refused?.code).toBe('resource.conflict');
+		expect(refused?.message).toContain(`'${other}'`);
+		expect(refused?.message).toContain(`record ${createdAt}`);
+		expect(await recordExists(other)).toBe(false);
+		expect(await itemsOf(createdAt, 'string', 'test52')).toEqual(titleBefore);
+		expect(await recordsNamed(`${RUN} disagree`)).toEqual([]);
+	});
+
+	test('rule 3: an id absent because its record was DELETED is created again at that id', async () => {
+		const sectionId = await freeId();
+		const item = { id: uri('DL1'), 'call-number': String(sectionId), title: `${RUN} DL1` };
+		const first = await run({ files_data: stage('cn-del1.json', [item]) });
+		expect(first.created_at_id).toEqual([sectionId]);
+		const deleted = await deleteSectionRecord('test3', sectionId, -1);
+		expect(deleted.removed).toBe(true);
+		expect(await recordExists(sectionId)).toBe(false);
+		// The re-import after a detected error: the same address, no refusal.
+		const again = await run({ files_data: stage('cn-del2.json', [item]) });
+		expect(again.refused).toEqual([]);
+		expect(again.failed).toEqual([]);
+		expect(again.created).toBe(1);
+		expect(again.created_at_id).toEqual([sectionId]);
+		expect(await recordsWithCode(key('DL1'))).toEqual([sectionId]);
+		expect((await itemsOf(sectionId, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} DL1`,
+		]);
+	});
+
+	test('one call-number on two items of one run: the SECOND is refused, the first is written at the id', async () => {
+		const sectionId = await freeId();
+		const report = await run({
+			files_data: stage('cn-twice.json', [
+				{ id: uri('BT1'), 'call-number': String(sectionId), title: `${RUN} BT1` },
+				{ id: uri('BT2'), 'call-number': String(sectionId), title: `${RUN} BT2` },
+			]),
+		});
+		expect(report.created).toBe(1);
+		expect(report.created_at_id).toEqual([sectionId]);
+		expect(report.refused).toHaveLength(1);
+		expect(refusedItem(report, 'BT2')?.code).toBe('request.invalid_data');
+		expect(refusedItem(report, 'BT2')?.message).toContain(`'${sectionId}'`);
+		expect(await recordsWithCode(key('BT1'))).toEqual([sectionId]);
+		expect(await recordsWithCode(key('BT2'))).toEqual([]);
+	});
+
+	test('an id TAKEN during the run (an earlier item was born there) is judged when it is written: its key differs → refused', async () => {
+		// The counter stands at `base`, so the first item — no call-number — is born
+		// at base + 1; the second item names that id. It was free when the run began.
+		const base = await freeId();
+		const taken = base + 1;
+		addressedIds.add(taken);
+		const report = await run({
+			files_data: stage('cn-race.json', [
+				{ id: uri('RC1'), title: `${RUN} RC1` },
+				{ id: uri('RC2'), 'call-number': String(taken), title: `${RUN} RC2` },
+			]),
+		});
+		// The situation is the one this gate claims: the first item WAS born there.
+		expect(await recordsWithCode(key('RC1'))).toEqual([taken]);
+		expect(report.created).toBe(1);
+		expect(report.created_at_id).toEqual([]);
+		expect(refusedItem(report, 'RC2')?.code).toBe('resource.conflict');
+		expect(await recordsWithCode(key('RC2'))).toEqual([]);
+		expect((await itemsOf(taken, 'string', 'test52')).map((i) => i.value)).toEqual([`${RUN} RC1`]);
+	});
+
+	test('rule 7: one run reports created-at-id, updated and refused SEPARATELY', async () => {
+		const fresh = await freeId();
+		const report = await run({
+			files_data: stage('cn-report.json', [
+				{ id: uri('RP1'), 'call-number': String(fresh), title: `${RUN} RP1` },
+				{ id: uri('AD1'), 'call-number': String(createdAt), title: `${RUN} AD1 report` },
+				{ id: uri('RP3'), 'call-number': 'shelf 3', title: `${RUN} RP3` },
+				{ id: uri('RP4'), title: `${RUN} RP4` },
+			]),
+		});
+		expect(report.created).toBe(2);
+		expect(report.updated).toBe(1);
+		expect(report.created_at_id).toEqual([fresh]);
+		expect(report.updated_at_id).toEqual([createdAt]);
+		expect(report.refused.map((entry) => entry.item)).toEqual([key('RP3')]);
+		expect(report.summary).toBe('Zotero import done. Created 2, updated 1, 1 refused.');
 	});
 });
 
@@ -744,41 +955,44 @@ describe('the door: server config, sections, form values, files', () => {
 		expect(existsSync(resolve(stagedDir, 'foreign.json'))).toBe(true);
 	});
 
-	test('C18: field_to_section_id bound to a component that holds no text — the item is refused naming it; unbound → the run is refused', async () => {
-		// Bound to a number component (test22): no code can be looked up there.
-		const numberBound = {
+	test("field_to_section_id naming 'id' refuses the run: the Zotero key is looked up, never a record number", async () => {
+		await installScratchToolConfig('tool_import_zotero', {
 			...SERVER_CONFIG,
-			map: SERVER_CONFIG.map.map((entry) =>
-				entry.name === 'call-number'
-					? { name: 'call-number', ddo_map: [{ tipo: 'test22', section_tipo: 'test3' }] }
-					: entry,
+			main: SERVER_CONFIG.main.map((entry) =>
+				entry.name === 'field_to_section_id' ? { ...entry, value: 'id' } : entry,
 			),
-		};
-		await installScratchToolConfig('tool_import_zotero', numberBound);
+		});
 		try {
-			const report = await run({
-				files_data: stage('cn-bound.json', [
-					{ id: uri('IN1'), 'call-number': cn('N'), title: `${RUN} N1` },
-					{ id: uri('IN2'), title: `${RUN} N2` },
-				]),
-			});
-			expect(report.created).toBe(1);
-			expect(report.errors).toHaveLength(1);
-			expect(report.errors[0]).toContain(key('IN1'));
-			expect(report.errors[0]).toContain('test22');
-			expect(report.errors[0]).toContain('not a text component');
-			expect(await recordsWithCode(key('IN1'))).toEqual([]);
-			expect(await recordsWithCode(key('IN2'))).toHaveLength(1);
-			// Not bound at all: there is no component to look the identifier up in.
-			await installScratchToolConfig('tool_import_zotero', {
-				...SERVER_CONFIG,
-				map: SERVER_CONFIG.map.filter((entry) => entry.name !== 'call-number'),
-			});
-			const files = stage('cn-unbound.json', [{ id: uri('IN3'), title: `${RUN} N3` }]);
+			const files = stage('cn-id.json', [{ id: uri('IN3'), title: `${RUN} N3` }]);
 			const refusal = await refusalOf(runRaw({ files_data: files }));
 			expect(refusal.code).toBe('request.invalid_options');
-			expect(refusal.publicMessage).toContain("'call-number'");
+			expect(refusal.publicMessage).toContain('field_to_section_id');
 			expect(await recordsWithCode(key('IN3'))).toEqual([]);
+		} finally {
+			teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
+		}
+	});
+
+	test('a call-number the map ALSO binds to a component is written there as text, and is still the address', async () => {
+		// test166 (input_text): the map may store the call-number; nothing requires it.
+		await installScratchToolConfig('tool_import_zotero', {
+			...SERVER_CONFIG,
+			map: [
+				...SERVER_CONFIG.map.filter((entry) => entry.name !== 'author'),
+				{ name: 'call-number', ddo_map: [{ tipo: 'test166', section_tipo: 'test3' }] },
+			],
+		});
+		try {
+			const sectionId = await freeId();
+			const report = await run({
+				files_data: stage('cn-bound.json', [
+					{ id: uri('BND'), 'call-number': String(sectionId), title: `${RUN} bound` },
+				]),
+			});
+			expect(report.created_at_id).toEqual([sectionId]);
+			expect((await itemsOf(sectionId, 'string', 'test166')).map((i) => i.value)).toEqual([
+				String(sectionId),
+			]);
 		} finally {
 			teardownConfig = await installScratchToolConfig('tool_import_zotero', SERVER_CONFIG);
 		}
@@ -836,7 +1050,7 @@ describe('the door: server config, sections, form values, files', () => {
 	});
 });
 
-describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 review gap', () => {
+describe('the SHIPPED default (register dd1633 ≡ sample_config.json)', () => {
 	/** The register's dd1633 default and the sample mirror, without the sample's `info` note. */
 	function shippedConfigs(): {
 		register: Record<string, unknown>;
@@ -862,7 +1076,7 @@ describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 r
 		for (const key of CONFIG_KEYS) expect(register[key], key).toEqual(sample[key]);
 	});
 
-	test('every component the shipped map names IS a component of the suite ontology, and an identifier (if any) binds to a component that holds a code — RED before: call-number → dd176, a label', async () => {
+	test('every component the shipped map names IS a component of the suite ontology — RED before 3f043906b8: call-number → dd176, a label', async () => {
 		const { register } = shippedConfigs();
 		const cfg = readZoteroConfig(register);
 		// The key's component is in the imported section (named by the config, not by this gate —
@@ -883,25 +1097,44 @@ describe('the SHIPPED default (register dd1633 ≡ sample_config.json) — C18 r
 		for (const tipo of tipos) models.set(tipo, await getModelByTipo(tipo));
 		const notComponents = [...models].filter(([, model]) => !model?.startsWith('component_'));
 		expect(notComponents, 'nodes the shipped map writes that are not components').toEqual([]);
-		// The second identifier, when the default names one, must be LOOKUPABLE
-		// (a string-column component or an IRI): a label or a number component
-		// would refuse every item carrying the value (identifierLookupable).
-		if (cfg.identifierTarget !== undefined) {
-			const model = await getModelByTipo(cfg.identifierTarget.componentTipo);
-			const lookupable =
-				model === 'component_iri' ||
-				(model !== null && getComponentModel(model)?.column === 'string');
-			expect(
-				lookupable,
-				`identifier bound to ${cfg.identifierTarget.componentTipo} (${model})`,
-			).toBe(true);
-			expect(cfg.identifierTarget.componentTipo).not.toBe(cfg.idTarget?.componentTipo);
-		} else {
-			// The shipped default names NO second identifier (owner question open:
-			// Publications has no call-number component to bind one to).
-			expect(cfg.fieldToSectionId).toBeUndefined();
+	});
+
+	test("rule 6: the shipped default names 'call-number' as the record ADDRESS and binds it to NO component", () => {
+		const { register, sample } = shippedConfigs();
+		for (const shipped of [register, sample]) {
+			const cfg = readZoteroConfig(shipped);
+			expect(cfg.fieldToSectionId).toBe('call-number');
+			// The variable names a Zotero field; no component holds it (the label
+			// binding 3f043906b8 removed stays gone).
 			expect(cfg.entries.find((entry) => entry.name === 'call-number')).toBeUndefined();
 		}
+	});
+
+	test('rule 6: the help texts (dd612 every language, dd1362) say a numeric call-number is the section_id', () => {
+		const root = resolve(import.meta.dir, '..', '..', 'tools', 'tool_import_zotero');
+		const register = JSON.parse(readFileSync(resolve(root, 'register.json'), 'utf8')) as {
+			string: Record<string, { lang: string; value: string }[]>;
+		};
+		const help = mustGet(register.string.dd612, 'dd612');
+		expect(help.map((entry) => entry.lang).sort()).toEqual([
+			'lg-cat',
+			'lg-deu',
+			'lg-ell',
+			'lg-eng',
+			'lg-nep',
+			'lg-spa',
+		]);
+		for (const entry of help) {
+			expect(entry.value, entry.lang).toContain("'call-number'");
+			expect(entry.value, entry.lang).toContain('section_id');
+			// 3f043906b8's identifier wording is gone: the field is no lookup binding.
+			expect(entry.value, entry.lang).not.toContain('field_to_section_id');
+		}
+		const [developer] = mustGet(register.string.dd1362, 'dd1362');
+		expect(developer?.value).toContain("'call-number'");
+		expect(developer?.value).toContain('section_id of the record');
+		expect(developer?.value).toContain('2147483647');
+		expect(developer?.value).not.toContain('never a record number');
 	});
 });
 
