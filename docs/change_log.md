@@ -383,6 +383,11 @@ Merged since the last release; these ship with the next one.
     that scroll to each found term in tree order, marking the current one. The bar wraps around at
     both ends and closes with its × button or the Escape key.
 
+    The bar also has a **Max** field: the maximum number of terms the search returns (30 by
+    default). Changing it repeats the same search with the new limit and updates the search
+    panel's own Max field. The bar stays visible when a search fills its limit, even with a single
+    result, so the limit can be raised.
+
 - **A field's search options now explain the search operators, with a sample for each and what it finds.**
 
     Open a field's search options (the gear next to the search box) and, below Max, a folded

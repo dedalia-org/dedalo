@@ -25,7 +25,7 @@
 	import {ApiError, CLIENT_ERROR, request_failed, response_data} from '../../common/js/api_error.js'
 	import {handle_api_error} from '../../common/js/error_dispatch.js'
 	import {error_text, render_build_failure} from '../../common/js/render_api_error.js'
-	import {request_complete} from '../../common/js/sqo_limit.js'
+	import {request_complete, max_page_limit} from '../../common/js/sqo_limit.js'
 	import {escape_html} from '../../common/js/utils/render_escape.js'
 
 
@@ -2414,7 +2414,7 @@ ts_object.prototype.parse_search_result = async function( data, to_hilite ) {
 	// (!) Awaited on purpose: the 'loading' state of the calling navigate()
 	// stays visible until the hilite is painted and the scroll decision is
 	// taken, instead of disappearing before the user sees any result.
-	await hilite_search_results(node_info, hilite_set, to_hilite.length, self.caller?.node)
+	await hilite_search_results(node_info, hilite_set, to_hilite.length, self.caller)
 
 	// debug
 	if(SHOW_DEBUG===true) {
@@ -2681,7 +2681,7 @@ const open_search_branches = async function(node_info, to_open) {
 * @param {number} total_found - Total number of search matches (for notification).
 * @returns {Promise<boolean>} true once the hilite is committed.
 */
-const hilite_search_results = function(node_info, hilite_set, total_found, area_node) {
+const hilite_search_results = function(node_info, hilite_set, total_found, area) {
 
 	return new Promise((resolve) => {
 
@@ -2740,7 +2740,7 @@ const hilite_search_results = function(node_info, hilite_set, total_found, area_
 			})
 
 			// jump between results when more than one term was found
-			render_search_navigator(area_node, hilited_nodes, node_to_scroll)
+			render_search_navigator(area, hilited_nodes, node_to_scroll, total_found)
 
 			} catch (error) {
 				console.error('[hilite_search_results]', error);
@@ -2755,19 +2755,24 @@ const hilite_search_results = function(node_info, hilite_set, total_found, area_
 
 /**
 * RENDER_SEARCH_NAVIGATOR
-* Floating 'prev | n / total | next | close' bar to jump between the hilited
+* Floating 'prev | n / total | next | max | close' bar to jump between the hilited
 * search results. Replaces any previous bar of the same area; renders nothing
-* for 0-1 results. Lives inside the area's content_data, so a content swap
+* for 0-1 results, unless the search filled its limit (so 'max' can raise it).
+* 'max' = the search limit (rqo.sqo.limit, default 30): a change re-runs the same
+* search; only shown for a client search (a pinned hierarchy_terms search is
+* built server-side with its own limit). Lives inside the area's content_data, so a content swap
 * (show all, a search without results) takes it away with the tree it points at.
 * Nodes are walked in document (visual) order, not server order; steps skip
 * results that are not reachable (inside a collapsed branch, or re-rendered away).
-* @param {HTMLElement|undefined} area_node - Area wrapper (ts_object.caller.node).
+* @param {Object|undefined} area - Area instance (ts_object.caller): node, rqo, filter, navigate.
 * @param {Array<HTMLElement>} nodes - Hilited term nodes.
 * @param {HTMLElement|null} [start_node] - The node the search scrolled to (current at start).
+* @param {number} [total_found=0] - Records the search returned.
 * @returns {HTMLElement|null} The navigator node, or null when not rendered.
 */
-export const render_search_navigator = function(area_node, nodes, start_node=null) {
+export const render_search_navigator = function(area, nodes, start_node=null, total_found=0) {
 
+	const area_node = area?.node
 	if (!area_node) {
 		return null
 	}
@@ -2779,7 +2784,10 @@ export const render_search_navigator = function(area_node, nodes, start_node=nul
 
 	const items = nodes.filter(el => el.isConnected)
 		.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1)
-	if (items.length < 2) {
+	const sqo = area.rqo?.sqo
+	const can_set_limit = area.rqo?.source?.search_action==='search' && !!sqo && typeof area.navigate==='function'
+	const limit_reached = can_set_limit && total_found >= sqo.limit
+	if (items.length===0 || (items.length < 2 && !limit_reached)) {
 		return null
 	}
 
@@ -2812,6 +2820,51 @@ export const render_search_navigator = function(area_node, nodes, start_node=nul
 	})
 	counter.setAttribute('aria-live', 'polite')
 	const next_button	= make_button('nav_next', '&#8250;', get_label.next || 'Next')
+
+	// max. Search limit; a change re-runs the same search with it
+	if (can_set_limit) {
+		const max_label = get_label.max || 'Max'
+		const limit_label = ui.create_dom_element({
+			element_type	: 'label',
+			class_name		: 'limit',
+			inner_html		: max_label,
+			parent			: navigator
+		})
+		const limit_input = ui.create_dom_element({
+			element_type	: 'input',
+			type			: 'number',
+			value			: sqo.limit,
+			parent			: limit_label
+		})
+		limit_input.min = 1
+		limit_input.max = max_page_limit()
+		limit_input.addEventListener('change', () => {
+			// clamp into 1..max (not bound_sqo_limit: it maps out-of-range to max, typed 0 → 1000)
+			const typed = limit_input.value==='' ? NaN : Math.trunc(Number(limit_input.value)) // empty = keep
+			const limit = Number.isFinite(typed)
+				? Math.min(Math.max(typed, 1), max_page_limit())
+				: sqo.limit
+			limit_input.value = limit
+			if (limit===sqo.limit) {
+				return
+			}
+			sqo.limit = limit
+			if (area.request_config_object?.sqo) {
+				area.request_config_object.sqo.limit = limit // mirrored as search.js update_caller does
+			}
+			// the search panel reads its own limit (and persists it): keep it in step,
+			// or the next panel search falls back to the old one
+			if (area.filter?.pagination_id) {
+				area.filter.limit = limit
+				area.filter.update_local_db_pagination()
+				if (area.filter.max_input) {
+					area.filter.max_input.value = limit // the panel's own 'Max' field
+				}
+			}
+			area.navigate({ callback : null, navigation_history : false })
+		})
+	}
+
 	const close_button	= make_button('nav_close', '&times;', get_label.close || 'Close')
 
 	const is_reachable = (node) => node.isConnected && node.getBoundingClientRect().height > 0
@@ -2844,7 +2897,7 @@ export const render_search_navigator = function(area_node, nodes, start_node=nul
 		navigator.remove()
 	})
 	navigator.addEventListener('keydown', (e) => {
-		if (e.key === 'Escape') {
+		if (e.key === 'Escape' && e.target.tagName !== 'INPUT') { // Esc in 'max' would drop the typed value
 			close_button.click()
 		}
 	})

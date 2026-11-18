@@ -22887,6 +22887,23 @@ body.inspector_resizing {
   box-shadow: var(--shadow-2);
   font-size: 1rem;
 }
+.ts_search_navigator .limit {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.25rem;
+  font-size: 0.86rem;
+}
+.ts_search_navigator .limit input {
+  width: 4rem;
+  height: 1.75rem;
+  padding: 0 0.25rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--bg_input);
+  color: var(--fg_default);
+  font-size: 0.86rem;
+}
 .ts_search_navigator .counter {
   min-width: 4.5rem;
   text-align: center;
