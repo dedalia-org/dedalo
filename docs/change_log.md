@@ -451,6 +451,13 @@ Merged since the last release; these ship with the next one.
     grows wider than the screen, and with the **Lift** style it joins the field's card as its
     bottom section.
 
+- **Parent and Children columns in lists read as one line again.**
+
+    In list views, the Parent and Children columns (for example in the ontology and thesaurus
+    lists) scattered each value and its `|` separators across a grid, wrapping parts like the
+    model onto a second, misaligned line. Each related record now reads as one wrapped line,
+    such as `Tesauro | dd | 100 | area_thesaurus`.
+
 - **Restoring a version from the Time Machine cleans the value like a normal save**
 
     Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.

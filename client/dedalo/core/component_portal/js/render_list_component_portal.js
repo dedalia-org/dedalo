@@ -97,6 +97,9 @@ render_list_component_portal.prototype.list = async function(options) {
 	switch(view) {
 
 		case 'line':
+		// 'tree' (relation parent/children) rows are view_text inline runs: the
+		// default view's column grid would scatter their values and separators
+		case 'tree':
 			return view_line_list_portal.render(self, options)
 
 		case 'mini':
