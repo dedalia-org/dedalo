@@ -64,7 +64,7 @@ The key is looked for in the **whole section**, not only among the records of yo
 
 Zotero has no field for an identifier you can edit, so Dédalo reads the record number from Zotero's **Call Number** field (`call-number` in the export). Write there the number of the Dédalo record the reference belongs to:
 
-- **A record with that number exists** → it is updated, and from then on it holds the reference's Zotero key. If the record held no Zotero key before, the report lists it under **Taken over — the record had no Zotero key** instead of under the updated records.
+- **A record with that number exists** → it is updated, and from then on it holds the reference's Zotero key. If the record held no Zotero key before and the reference carries a key, the report lists it under **Taken over — the record had no Zotero key** instead of under the updated records. If the key could not be written — you may not edit the field that holds it, or the value was refused — the record holds no key: it is listed as updated, and the key's field appears under the refused fields.
 - **No record has that number** → a record is created with exactly that number. This is also what happens when the record was deleted: import the reference again and it comes back at the same number.
 - **No call number** → the Zotero key decides, as described above.
 

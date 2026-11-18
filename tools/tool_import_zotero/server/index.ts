@@ -661,8 +661,8 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			addressDoor: DOOR,
 		},
 	);
-	const variable = cfg.fieldToSectionId ?? '';
-	const atId = addressOutcome(items, report.records, variable, batch.refusals);
+	const scope = { variable: cfg.fieldToSectionId ?? '', idTarget: cfg.idTarget };
+	const atId = addressOutcome(items, report, scope, batch.refusals);
 	const attachments = await importAttachments(
 		{ ctx, cfg, sectionTipo, dir, keyDir, filesData },
 		items.map((item) => item.mapped),
@@ -675,7 +675,7 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 	// What the user must act on beyond the lines — a call-number past the limit, a
 	// record they may not change, a key-less item against a keyed record — is a
 	// NOTICE: coded, labelled (owner 2026-11-18).
-	const notices = refusalNotices(batch.refusals, variable);
+	const notices = refusalNotices(batch.refusals, scope.variable);
 	return ok(reportPayload(report, batch, { items, atId, attachments }), {
 		requestId: toolRequestId(ctx),
 		...(notices.length === 0 ? {} : { notices }),

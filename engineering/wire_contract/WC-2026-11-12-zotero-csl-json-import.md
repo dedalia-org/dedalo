@@ -348,6 +348,16 @@ explanation first).
     (after `updated`, before `refused`; absent when 0).
   - A key-less ITEM on a key-less record takes nothing over (no key is left there): it stays
     an `updated_at_id` entry.
+  - **HOLDS is what was written (review of dc35ce349f, same day, before release).** The key
+    is one more field of the record, written through the per-field write door. When it was
+    NOT written — the importer may not write the key's component, or the value was refused:
+    a `failed` line on that component for that record — the record holds no key and took
+    nothing over: it is an `updated_at_id` entry, counted in `updated` (dc35ce349f listed it
+    `taken_over_at_id` on the guard's finding alone). `addressOutcome` reads the run's
+    `failed` lines. Gates `tool_import_zotero_native` — "ruling (c), HOLDS is what was
+    written…" (a real identity with no write on the key component, and the served twin) and
+    "a key-less record whose KEY FIELD was not written…" (3 mutations red: the finding
+    alone; any failed line of the record; a key line of any record).
   - Client: `render_import_report` lists `taken_over_at_id` under its own heading
     (`ul.import_taken_over_at_id`), the label `zotero_taken_over_at_id`
     (`src/core/labels/master.json` + every catalog; literal fallback).

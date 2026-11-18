@@ -63,7 +63,11 @@ import { getMatrixTableFromTipo, getModelByTipo } from '../../src/core/ontology/
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
-import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
+import {
+	getPermissions,
+	type Principal,
+	resolvePrincipal,
+} from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { CSV_INGEST_MAX_BYTES } from '../../src/core/tools/import_csv.ts';
 import { lockLinkNames } from '../../src/core/tools/import_link.ts';
@@ -83,6 +87,7 @@ import {
 	AUTHZ_CONTROL_USER_ID,
 	AUTHZ_PROJECT_P,
 	AUTHZ_PROJECT_Q,
+	AUTHZ_TEXT_ONLY_USER_ID,
 	type AuthzIdentities,
 	assertAuthzDoorContrast,
 	createDoorRecord,
@@ -734,16 +739,45 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		const ledger = refusalLedger();
 		const outcome = addressOutcome(
 			[item('ROLLED', 'keyless_record'), item('TAKEN', 'keyless_record'), item('SAME')],
-			[
-				{ index: 0, sectionId: null, created: false },
-				{ index: 1, sectionId: 51, created: false },
-				{ index: 2, sectionId: 52, created: false },
-			],
-			'call-number',
+			{
+				records: [
+					{ index: 0, sectionId: null, created: false },
+					{ index: 1, sectionId: 51, created: false },
+					{ index: 2, sectionId: 52, created: false },
+				],
+				failed: [],
+			},
+			{ variable: 'call-number', idTarget: undefined },
 			ledger,
 		);
 		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [52], takenOverAtId: [51] });
 		expect(ledger.refused).toEqual([]);
+	});
+
+	test('ruling (c): a key-less record whose KEY FIELD was not written (a failed line on the key component) took nothing over — updated; a failed line on another field, or on another record, changes nothing', () => {
+		const item = (who: string) =>
+			({ who, address: 50, mapped: { code: who }, found: 'keyless_record' }) as never;
+		const line = (section_id: number, component_tipo: string) => ({
+			section_id,
+			component_tipo,
+			data: '',
+			msg: 'IGNORED',
+		});
+		const outcome = addressOutcome(
+			[item('NOKEY'), item('OTHERFIELD'), item('CLEAN')],
+			{
+				records: [
+					{ index: 0, sectionId: 61, created: false },
+					{ index: 1, sectionId: 62, created: false },
+					{ index: 2, sectionId: 63, created: false },
+				],
+				// 61: its key field failed. 62: another field failed. 999: not of this run's addresses.
+				failed: [line(61, 'test162'), line(62, 'test52'), line(999, 'test162')],
+			},
+			{ variable: 'call-number', idTarget: { componentTipo: 'test162' } as never },
+			refusalLedger(),
+		);
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [61], takenOverAtId: [62, 63] });
 	});
 
 	test('ruling (d): an item with NO Zotero key whose call-number names a record that HOLDS one is refused under its own code, with the explanation — why, and what to do — in its line and in a labelled notice; the record number only, the record untouched', async () => {
@@ -1111,14 +1145,17 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		});
 		const outcome = addressOutcome(
 			[item('FOREIGN', 41), item('MINE', 42), item('BYKEY', null), item('PLAIN', null)],
-			[
-				{ index: 0, sectionId: null, created: false, refusal: denied(41) },
-				{ index: 1, sectionId: 42, created: false },
-				// No call-number: the item's KEY is held by record 7, not hers.
-				{ index: 2, sectionId: null, created: false, refusal: denied(7) },
-				{ index: 3, sectionId: 43, created: true },
-			],
-			'call-number',
+			{
+				records: [
+					{ index: 0, sectionId: null, created: false, refusal: denied(41) },
+					{ index: 1, sectionId: 42, created: false },
+					// No call-number: the item's KEY is held by record 7, not hers.
+					{ index: 2, sectionId: null, created: false, refusal: denied(7) },
+					{ index: 3, sectionId: 43, created: true },
+				],
+				failed: [],
+			},
+			{ variable: 'call-number', idTarget: undefined },
 			ledger,
 		);
 		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42], takenOverAtId: [] });
@@ -1239,6 +1276,7 @@ describe('the Zotero key is checked in the WHOLE section; a record the importer 
 
 	afterAll(async () => {
 		rmSync(stagingRootOf(AUTHZ_CONTROL_USER_ID), { recursive: true, force: true });
+		rmSync(stagingRootOf(AUTHZ_TEXT_ONLY_USER_ID), { recursive: true, force: true });
 		await removeAuthzDoorFixture();
 	});
 
@@ -1379,6 +1417,65 @@ describe('the Zotero key is checked in the WHOLE section; a record the importer 
 		expect(await recordsWithCode(key('GK3'))).toEqual([]);
 		expect(await titlesOf(keyless)).toEqual([`${RUN} keyless foreign`]);
 		expect(await itemsOf(keyless, 'string', 'test162')).toEqual([]);
+	});
+
+	test('ruling (c), HOLDS is what was written: an importer who may write the record but NOT the key component leaves no key there — the record is listed UPDATED with the key field failed, never taken over', async () => {
+		// RED before (dc35ce349f): the guard's finding alone decided, so the record
+		// was listed `taken_over_at_id` — "holds the reference's key from now on" —
+		// while its key field was a `failed` line and the record held no key.
+		// TEXT_ONLY: test3 at 2, the text area (test17, the ISBN) at 2, the key
+		// component (test162) not granted — project P, as the record.
+		const textOnly = { principal: ids.textOnly, userId: AUTHZ_TEXT_ONLY_USER_ID };
+		expect(await getPermissions(ids.textOnly, 'test3', 'test3')).toBe(2);
+		expect(await getPermissions(ids.textOnly, 'test3', 'test17')).toBe(2);
+		expect(await getPermissions(ids.textOnly, 'test3', 'test162')).toBeLessThan(2);
+		const mine = await createDoorRecord('test3', AUTHZ_PROJECT_P, [title(`${RUN} TK1 before`)]);
+		const { report } = await runEnvelope(
+			{
+				files_data: stage(
+					'tk-nokeywrite.json',
+					[{ id: uri('TK1'), 'call-number': String(mine), ISBN: '978-84-0000-001-1' }],
+					[],
+					textOnly.userId,
+				),
+			},
+			textOnly,
+		);
+		expect(report.refused).toEqual([]);
+		// The record WAS written (the field she may write)…
+		expect(JSON.stringify(await itemsOf(mine, 'string', 'test17'))).toContain('978-84-0000-001-1');
+		// …the key was NOT: its field is a failed line, and the record holds none.
+		expect(
+			report.failed.filter((line) => line.component_tipo === 'test162' && line.section_id === mine),
+		).toHaveLength(1);
+		expect(await itemsOf(mine, 'string', 'test162')).toEqual([]);
+		expect(await recordsWithCode(key('TK1'))).toEqual([]);
+		// So nothing was taken over: an update, counted as one.
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([mine]);
+		expect({
+			created: report.created,
+			updated: report.updated,
+			taken_over: report.taken_over,
+		}).toEqual({ created: 0, updated: 1, taken_over: 0 });
+		expect(report.summary).not.toContain('taken over');
+
+		// The served twin: CONTROL may write the key — the SAME record is taken over.
+		const served = await runEnvelope(
+			{
+				files_data: stage(
+					'tk-keywrite.json',
+					[{ id: uri('TK1'), 'call-number': String(mine), title: `${RUN} TK1 after` }],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect(served.report.failed).toEqual([]);
+		expect(served.report.taken_over_at_id).toEqual([mine]);
+		expect(served.report.updated_at_id).toEqual([]);
+		expect(await recordsWithCode(key('TK1'))).toEqual([mine]);
 	});
 
 	test('the served twins: a key held by a record IN her scope is updated; a global admin updates the record of ANY project — no refusal, no alert', async () => {

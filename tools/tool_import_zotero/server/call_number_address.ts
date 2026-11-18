@@ -22,7 +22,11 @@
  *      never re-keys a record. No key yet → adopted (the key is written), and
  *      REPORTED APART (owner ruling 2026-11-18, c): a record that had no Zotero
  *      key and now holds the item's was TAKEN OVER — `taken_over_at_id`, never
- *      `updated_at_id`. An item that carries NO key against a record that holds
+ *      `updated_at_id`. HOLDS is what was written, not what was meant: the key
+ *      goes through the per-field write door like any value, so when the key's
+ *      field was NOT written (the importer may not write that component, or the
+ *      value was refused — a `failed` line) the record took nothing over and is
+ *      listed `updated_at_id`. An item that carries NO key against a record that holds
  *      one stays refused (ruling d) under its own code,
  *      `tool.zotero_item_without_key`, whose sentence and labelled notice say
  *      why and what to do.
@@ -69,6 +73,7 @@ import {
 	readStoredCodesForUpdate,
 } from '../../../src/core/tools/import_code_lookup.ts';
 import type {
+	ImportReport,
 	MappedRecord,
 	RecordAddress,
 	RecordRefusal,
@@ -147,7 +152,9 @@ export interface AddressedItem {
 	 * Set by rule 2's guard when it is asked for this item (`keyGuard`), inside
 	 * the record's transaction; read back by {@link addressOutcome} once the
 	 * record's own result is known — a finding counts only for what was committed
-	 * or refused. Null: no record lived at the address, or neither finding.
+	 * or refused, and `keyless_record` is only what the guard SAW before the
+	 * write: whether the key then landed is the run's `failed` lines' to say
+	 * ({@link addressOutcome}). Null: no record lived at the address, or neither finding.
 	 */
 	found: AddressFinding | null;
 }
@@ -330,12 +337,16 @@ export function addressRecords(
 export interface AddressOutcome {
 	/** Records created AT their call-number id. */
 	createdAtId: number[];
-	/** Records updated at their call-number id (they held the item's key, or the item carries none). */
+	/**
+	 * Records updated at their call-number id: they held the item's key, the item
+	 * carries none, or the record had no key and the item's could NOT be written.
+	 */
 	updatedAtId: number[];
 	/**
 	 * Records TAKEN OVER at their call-number id (owner ruling 2026-11-18, c):
-	 * they existed with NO Zotero key and now hold the item's. Never also in
-	 * `updatedAtId`.
+	 * they existed with NO Zotero key and now hold the item's — the key's field
+	 * was WRITTEN (a record whose key field is a `failed` line is in
+	 * `updatedAtId`). Never also in `updatedAtId`.
 	 */
 	takenOverAtId: number[];
 }
@@ -346,19 +357,29 @@ export interface AddressOutcome {
  * when it came to write it — rule 2's guard, or a record the importer may not
  * change (the one at the call-number, or the one holding the item's key): its
  * line goes to the ledger, and the record to the run's alert.
+ *
+ * `report.failed` decides TAKEN OVER with the guard's finding: the Zotero key
+ * is one more field of the record, written through the per-field door, so a
+ * record whose key field was not written (a `failed` line on the key's
+ * component) holds no key and took nothing over.
  */
 export function addressOutcome(
 	items: readonly AddressedItem[],
-	results: readonly RecordResult[],
-	variable: string,
+	report: Pick<ImportReport, 'records' | 'failed'>,
+	scope: Pick<AddressScope, 'variable' | 'idTarget'>,
 	ledger: RefusalLedger,
 ): AddressOutcome {
 	const outcome: AddressOutcome = { createdAtId: [], updatedAtId: [], takenOverAtId: [] };
-	for (const result of results) {
+	const keyTipo = scope.idTarget?.componentTipo;
+	const keyNotWritten = new Set(
+		report.failed.filter((line) => line.component_tipo === keyTipo).map((line) => line.section_id),
+	);
+	for (const result of report.records) {
 		const item = items[result.index];
 		if (item === undefined) continue;
-		if (result.refusal !== undefined) noteWriteRefusal(item, variable, result.refusal, ledger);
-		else if (item.address !== null) settleAddressed(item, result, outcome);
+		if (result.refusal !== undefined) {
+			noteWriteRefusal(item, scope.variable, result.refusal, ledger);
+		} else if (item.address !== null) settleAddressed(item, result, outcome, keyNotWritten);
 	}
 	return outcome;
 }
@@ -397,14 +418,21 @@ function noteWriteRefusal(
 
 /**
  * One addressed record that was not refused: created at its id, TAKEN OVER there
- * (it had no Zotero key and holds the item's now), updated there, or rolled
- * back (none of them).
+ * (it had no Zotero key and holds the item's now — its key field was written),
+ * updated there, or rolled back (none of them).
  */
-function settleAddressed(item: AddressedItem, result: RecordResult, outcome: AddressOutcome): void {
-	if (result.sectionId === null) return;
-	if (result.created) outcome.createdAtId.push(result.sectionId);
-	else if (item.found === 'keyless_record') outcome.takenOverAtId.push(result.sectionId);
-	else outcome.updatedAtId.push(result.sectionId);
+function settleAddressed(
+	item: AddressedItem,
+	result: RecordResult,
+	outcome: AddressOutcome,
+	keyNotWritten: ReadonlySet<number>,
+): void {
+	const sectionId = result.sectionId;
+	if (sectionId === null) return;
+	if (result.created) outcome.createdAtId.push(sectionId);
+	else if (item.found === 'keyless_record' && !keyNotWritten.has(sectionId)) {
+		outcome.takenOverAtId.push(sectionId);
+	} else outcome.updatedAtId.push(sectionId);
 }
 
 /** How many values one notice lists (the report's `refused` list carries every one). */

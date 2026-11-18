@@ -12,7 +12,9 @@ Two things change in the report of the Zotero import. What the import writes doe
   instance), the record is written with the reference's values and holds its Zotero key from
   then on — as before. The report now lists these records under their own heading, apart from
   the records created and the records updated, and the summary counts them apart ("1 taken
-  over"), so you can check that each one is the record you meant.
+  over"), so you can check that each one is the record you meant. A record whose key could
+  not be written (you may not edit the field that holds it) is listed as updated, with the
+  key's field among the refused fields.
 - **A reference without a Zotero key.** A reference that carries no Zotero key and whose call
   number names a record that already belongs to a Zotero reference is still not imported —
   the import cannot tell whether it is the same reference. It is now explained: the refused

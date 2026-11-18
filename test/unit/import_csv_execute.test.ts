@@ -786,7 +786,15 @@ describe("the Zotero import's record-number rules are ZOTERO's: the CSV section_
 		return (rows[0]?.items ?? []).map((item) => item.value);
 	};
 
-	test('a section_id above 2147483647 keeps the CSV outcome: the FILE fails on the id as written — no Zotero code, no per-row refusal, no row written', async () => {
+	// PINNED KNOWN DEFECT — AWAITING OWNER RULING. What this test asserts is NOT
+	// a contract anyone chose: a section_id above int4 reaches the database as
+	// written (tools/tool_import_dedalo_csv/server/index.ts, the existing-id
+	// read), so the WHOLE FILE fails with the raw Postgres range message — no
+	// per-row skip, no wording of its own. It predates the Zotero rulings and is
+	// pinned here only so that those rulings cannot move it by accident (owner
+	// scope ruling 2026-11-18); the assertion changes when the owner rules on the
+	// CSV door itself. Ledgered: rewrite/LEDGER.md → Known-open gaps.
+	test('PINNED KNOWN DEFECT (awaiting owner ruling): a section_id above 2147483647 keeps the CSV outcome — the FILE fails on the id as written (the raw database range error); no Zotero code, no per-row refusal, no row written', async () => {
 		const report = await importCsv(
 			`section_id;${TEXT}\n${ZOTERO_FREE_ID};"written before the limit row?"\n2147483648;"above the limit"\n`,
 			[KEY_COLUMN, TEXT_COLUMN],
