@@ -38,6 +38,23 @@
  *     other-language items plus the recorded region; an ABSENT recorded key
  *     is removed, not emptied. Every region is cut with the capture's lane
  *     law (main_lanes.ts laneRegion), never a looser one.
+ *
+ * THE VALUE GATES (C58, owner ruling 2026-11-18: every save is done the same
+ * way, no exceptions — WC-2026-11-17-tm-restore-value-gates). An undo-log image
+ * is stored bytes, not proof they ever saw the save's gates (a BEFORE row holds
+ * whatever the key held when the run met it). So this file's two writers —
+ * writeRevertedKey, writeComposedUnit — pass every lane they RESTORE through
+ * the gates a save of it passes (gatedLanes → write_value_gates.ts
+ * gateReplayedValue) before the chokepoint: cleaned as a save cleans it, and a
+ * value the gates REFUSE throws the gate's typed error, which rolls the unit
+ * back and is reported `failed` with that code. A lane the revert leaves as it
+ * is (the other languages of a sliced key) is not a value it writes and is not
+ * rewritten. So "exact" means: the pre-run value AS A SAVE STORES IT. The
+ * JUDGEMENTS follow the write: a key is `unchanged` when its live lane equals
+ * the earliest BEFORE as recorded OR as gated (judgeReplayedValue), so a key a
+ * revert cleaned is not a phantom `changed_since_run` on the next revert. The
+ * conflict check stays strict against the last AFTER image — bytes re-read
+ * from the row, which differ from the live value only when something wrote it.
  */
 
 import { canonicalJson } from '../../../src/core/concepts/canonical_json.ts';
@@ -76,6 +93,11 @@ import {
 	setRecordMetadata,
 } from '../../../src/core/section/record/record_metadata.ts';
 import {
+	gateComponentItems,
+	gateReplayedValue,
+	judgeReplayedValue,
+} from '../../../src/core/section/record/write_value_gates.ts';
+import {
 	persistRestoredKeys,
 	type RecordWriteTarget,
 } from '../../../src/core/section_record/index.ts';
@@ -96,6 +118,8 @@ import {
 	runOwnsRecordStamps,
 } from './bulk_revert_plan.ts';
 import { applyDataframeRestore } from './dataframe_restore.ts';
+
+const DATAFRAME_MODEL = 'component_dataframe';
 
 /** The context a unit's revert runs in. */
 export interface UnitContext {
@@ -206,13 +230,20 @@ function assertChained(
  * The key is cut with the CAPTURE's lane law (main_lanes.ts laneRegion /
  * restoreLane — recordMainPairs' own cut): the lg-nolan lane of a translatable
  * sliced main is strictly its lg-nolan-tagged items, never a lang-less orphan.
+ *
+ * "At its pre-run value" is the earliest BEFORE as recorded OR as the write
+ * stores it (the value gates, see the header): a key an earlier revert put back
+ * cleaned holds the second, and is unchanged all the same. The plan carries the
+ * RECORDED region; writeRevertedKey gates it at the write.
  */
-export function planExactKey(key: RevertKey, live: unknown, law: LaneLaw): KeyPlan {
+export async function planExactKey(key: RevertKey, live: unknown, law: LaneLaw): Promise<KeyPlan> {
 	const pairs = pairsOf(key);
 	const lane = key.lang === '' ? NOLAN : key.lang;
 	const liveRegion = canonicalJson(laneRegion(live, lane, law));
 	const earliest = pairs[0]?.before;
 	if (liveRegion === canonicalJson(earliest)) return { kind: 'unchanged' };
+	const asWritten = await judgeReplayedValue(key.model, key.tipo, earliest);
+	if (liveRegion === canonicalJson(asWritten)) return { kind: 'unchanged' };
 	assertChained(key, pairs);
 	if (liveRegion !== canonicalJson(pairs.at(-1)?.after)) {
 		throw new RevertRefusal('changed_since_run', key, `${describeKey(key)} changed after the run`);
@@ -240,6 +271,9 @@ export interface ProducedKey {
 	same: (live: unknown, produced: unknown) => boolean;
 }
 
+/** Where a producer starts from: a key of the record image the units are placed over. */
+export type ProducedStart = (column: MatrixJsonbColumn, tipo: string) => unknown | Promise<unknown>;
+
 /** Strict stored-value equality — planExactKey's. */
 function sameCanonical(left: unknown, right: unknown): boolean {
 	return canonicalJson(left) === canonicalJson(right);
@@ -257,11 +291,14 @@ function sameCanonical(left: unknown, right: unknown): boolean {
  * Used by the cascade-record judgement (bulk_revert_records.ts
  * producedStateOf): a record the revert undeletes or un-wipes is at "the
  * state the revert produces" when its keys equal the snapshot WITH every
- * unit's restore applied.
+ * unit's restore applied. `asWritten`: each restored region as the WRITE
+ * stores it (the value gates — judgeReplayedValue), `false` = as recorded; the
+ * judgement asks both (see the header).
  */
 export async function exactUnitProduces(
 	unit: RevertUnit,
-	start: (column: MatrixJsonbColumn, tipo: string) => unknown,
+	start: ProducedStart,
+	asWritten: boolean,
 ): Promise<ProducedKey[] | null> {
 	if (unit.composed !== null || unit.keys.some((key) => !key.exact)) return null;
 	const produced: ProducedKey[] = [];
@@ -277,10 +314,12 @@ export async function exactUnitProduces(
 			if (error instanceof RevertRefusal) return null; // a malformed log: undecided
 			throw error;
 		}
+		const region = asWritten ? await judgeReplayedValue(key.model, key.tipo, earliest) : earliest;
+		const from = await start(column as MatrixJsonbColumn, key.tipo);
 		produced.push({
 			column: column as MatrixJsonbColumn,
 			tipo: key.tipo,
-			value: restoreLane(start(column as MatrixJsonbColumn, key.tipo), lane, earliest, law),
+			value: restoreLane(from, lane, region, law),
 			same: sameCanonical,
 		});
 	}
@@ -330,6 +369,80 @@ export function runOwnsModifiedStamps(key: RevertKey, context: UnitContext): boo
 		MODIFIED_STAMPS.includes(key.tipo) ||
 		runOwnsRecordStamps(context.keyAddresses, key.sectionTipo, key.sectionId)
 	);
+}
+
+/**
+ * THE VALUE GATES AT THE WRITE (see the header): `value` with every lane in
+ * `lanes` — the lanes the revert RESTORES — through the gates a save of it
+ * passes (write_value_gates.ts gateReplayedValue). Throws the gate's own typed
+ * refusal (a credential image that is neither a hash nor a v6 ciphertext, a
+ * number under a malformed format node): the unit rolls back. Every other lane
+ * of the key is returned as it is.
+ */
+async function gatedLanes(
+	component: { model: string; tipo: string },
+	value: unknown,
+	lanes: readonly string[],
+	law: LaneLaw,
+): Promise<unknown> {
+	let gated = value;
+	for (const lane of lanes) {
+		const region = laneRegion(gated, lane, law);
+		const stored = await gateReplayedValue(component.model, component.tipo, region);
+		gated = withRegion(gated, { lane, region, stored }, law);
+	}
+	return gated;
+}
+
+/**
+ * `value` with one lane's `region` replaced by what the gates store for it —
+ * item for item IN PLACE (every gate maps a value item to one item), so no
+ * item changes position; a gate that answered another shape is put back by the
+ * lane law itself (restoreLane). Untouched when the gates changed nothing.
+ */
+function withRegion(
+	value: unknown,
+	cut: { lane: string; region: unknown; stored: unknown },
+	law: LaneLaw,
+): unknown {
+	const { lane, region, stored } = cut;
+	if (sameCanonical(region, stored)) return value;
+	const storedOf = Array.isArray(value) ? itemwise(region, stored) : null;
+	if (storedOf === null) return restoreLane(value, lane, stored, law);
+	return (value as unknown[]).map((item) => (storedOf.has(item) ? storedOf.get(item) : item));
+}
+
+/** Each region item → the item the gates stored for it; null when the answer is not item for item. */
+function itemwise(region: unknown, stored: unknown): Map<unknown, unknown> | null {
+	if (!Array.isArray(region) || !Array.isArray(stored)) return null;
+	if (region.length !== stored.length) return null;
+	return new Map(region.map((item, index) => [item, stored[index]]));
+}
+
+/**
+ * A key's value AS THE WRITE STORES IT: its own lane through the value gates —
+ * unless the write leaves that lane as it stands on the live key (a legacy
+ * frames-only key keeps the main live): a lane the revert does not restore is
+ * not a value it writes.
+ */
+async function gatedKeyValue(key: RevertKey, live: unknown, value: unknown): Promise<unknown> {
+	const law = await keyLaneLaw(key);
+	const lane = key.lang === '' ? NOLAN : key.lang;
+	if (sameCanonical(laneRegion(value, lane, law), laneRegion(live, lane, law))) return value;
+	return gatedLanes(key, value, [lane], law);
+}
+
+/**
+ * {@link gatedKeyValue} for a JUDGEMENT (the legacy plan's `unchanged` test): a
+ * value the gates refuse is judged as planned — the write is what refuses it.
+ */
+async function judgedKeyValue(key: RevertKey, live: unknown, value: unknown): Promise<unknown> {
+	try {
+		return await gatedKeyValue(key, live, value);
+	} catch (error) {
+		if (isDedaloError(error)) return value;
+		throw error;
+	}
 }
 
 /** One written key's history, held back until its whole unit is written (a legacy framed unit). */
@@ -386,10 +499,13 @@ async function writeRevertedKey(
 	// the unit's COMMIT, never on the run's image of it (record_write §3e) —
 	// with the key write's stamp posture.
 	const stamp = runOwnsModifiedStamps(key, context) ? false : { userId: context.userId };
+	// THE VALUE GATES (see the header): the lane this key restores, as a save
+	// stores it — a refusal throws here and rolls the unit back.
+	const value = await gatedKeyValue(key, live, plan.value);
 	await persistRestoredKeys(
 		writeTarget,
 		// null REMOVES the key (updateMatrixKeysData), which is what an absent image restores.
-		[{ column: target.column, key: key.tipo, value: plan.value === undefined ? null : plan.value }],
+		[{ column: target.column, key: key.tipo, value: value === undefined ? null : value }],
 		stamp,
 		{ actor: context.userId },
 	);
@@ -400,7 +516,7 @@ async function writeRevertedKey(
 		key.sectionTipo,
 		key.sectionId,
 		key.tipo,
-		asItems(plan.value),
+		asItems(value),
 	);
 	const history = { key, target: writeTarget, before: { value: live, slots: slotsBefore } };
 	if (deferred !== null) deferred.push({ ...history, column: target.column });
@@ -496,6 +612,8 @@ export interface ComposedHistory {
 	liveSlots: SlotImages;
 	/** The door lane of the revert's own pairs (the unit's newest lane). */
 	lang: string;
+	/** The lanes of the MAIN the unit restores a value of — what the write gates (gatedLanes). */
+	valueLanes: readonly string[];
 }
 
 /**
@@ -523,10 +641,13 @@ export async function writeComposedUnit(
 		await authorizeKeyWrite(scope.key, target.sectionTipo, target.sectionId, write.tipo, context);
 	}
 	if (writes.length > 0) {
+		// THE VALUE GATES (see the header): the main's restored lanes and every
+		// slot, as a save stores them — a refusal throws and rolls the unit back.
+		const stored = await gatedComposedWrites(writes, history.valueLanes, scope);
 		await persistRestoredKeys(
 			target,
 			// null REMOVES the key (updateMatrixKeysData), which is what an absent image restores.
-			writes.map((write) => ({
+			stored.map((write) => ({
 				column: write.column,
 				key: write.tipo,
 				value: write.after ?? null,
@@ -555,6 +676,37 @@ export async function writeComposedUnit(
 		{ before: { value: history.live, slots: history.liveSlots }, column: scope.column },
 		context,
 	);
+}
+
+/**
+ * A composed unit's writes as the chokepoint stores them: the MAIN's restored
+ * lanes through the value gates (gatedLanes), each SLOT through its model's
+ * (gateComponentItems — no gate keys on `component_dataframe` today; the door
+ * exists so a future one is not bypassed, as dataframe_restore.ts's).
+ */
+async function gatedComposedWrites(
+	writes: readonly ComposedKeyWrite[],
+	valueLanes: readonly string[],
+	scope: ComposedWriteScope,
+): Promise<ComposedKeyWrite[]> {
+	const law = await keyLaneLaw(scope.key);
+	const stored: ComposedKeyWrite[] = [];
+	for (const write of writes) {
+		stored.push({ ...write, after: await gatedComposedValue(write, valueLanes, scope.key, law) });
+	}
+	return stored;
+}
+
+/** One composed write's value through its gates (an absent value — a removal — has none). */
+async function gatedComposedValue(
+	write: ComposedKeyWrite,
+	valueLanes: readonly string[],
+	main: RevertKey,
+	law: LaneLaw,
+): Promise<unknown> {
+	if (write.after === undefined) return undefined;
+	if (write.tipo === main.tipo) return gatedLanes(main, write.after, valueLanes, law);
+	return gateComponentItems(DATAFRAME_MODEL, write.tipo, asItems(write.after));
 }
 
 /** A record as read behind the unit's lock. */
@@ -673,7 +825,7 @@ async function revertKey(
 	if (record === null) return null;
 	const live = rawKeyValue(record, target, key.tipo);
 	const plan = key.exact
-		? planExactKey(key, live, await keyLaneLaw(key))
+		? await planExactKey(key, live, await keyLaneLaw(key))
 		: await planLegacyKey(key, live, {
 				target,
 				recordCreatedDate: createdDateOf(record),
@@ -681,6 +833,7 @@ async function revertKey(
 				bulkId: context.bulkId,
 				frameUnit,
 				principal: context.principal,
+				asWritten: (value) => judgedKeyValue(key, live, value),
 			});
 	if (plan.kind === 'unchanged') return null;
 	// THE WRITE DOOR for the key and every slot its frame plan restores (req 10).

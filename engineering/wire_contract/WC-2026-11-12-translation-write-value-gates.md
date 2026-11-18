@@ -38,3 +38,12 @@ dataframe replay) passes its image through the same gates —
 `WC-2026-11-17-tm-restore-value-gates`. The census's `replays_stored_image` verdict is gone. A
 translated value stored raw before this entry is cleaned when a restore replays it; values at
 rest are still not repaired.
+
+## Addendum 2026-11-18 — the bulk revert is gated too; every chokepoint entry is censused (C58)
+
+Owner ruling 2026-11-18 ("every save the same way, no exceptions"): the bulk revert's four
+writers pass the same gates, and the census's `exact_revert` verdict is gone —
+`WC-2026-11-17-tm-restore-value-gates`, addendum 2026-11-18. The census now derives its entry
+list from `record_write.ts` (every exported `persist*`), so no chokepoint entry is "named, not
+derived" any more; the vocabulary is `gated` / `non_literal`, shrink-only.
+

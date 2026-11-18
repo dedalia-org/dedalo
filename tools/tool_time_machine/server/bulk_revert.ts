@@ -118,6 +118,7 @@ import {
 	type RecordContext,
 	type RecordOutcome,
 	undeleteCascadeRecord,
+	undeleteStandaloneRecord,
 } from './bulk_revert_records.ts';
 import { revertUnit, type UnitResult } from './bulk_revert_undo.ts';
 
@@ -641,7 +642,7 @@ function reportUnlinkedTargets(
 class GroupRefused extends Error {
 	constructor(
 		readonly marker: RecordMarker,
-		readonly outcome: RecordOutcome,
+		readonly outcome: BornOutcome,
 	) {
 		super(`cascade group member ${describeRecord(marker)} did not come back`);
 	}
@@ -667,7 +668,7 @@ async function undeleteStandaloneGroup(
 		landed = await withTransaction(async () => {
 			const members: Relinked[] = [];
 			for (const marker of group) {
-				const outcome = await undeleteCascadeRecord(marker, context);
+				const outcome = await undeleteStandaloneRecord(marker, context);
 				if (!isHandled(outcome)) throw new GroupRefused(marker, outcome);
 				members.push(relinkedOf(marker, outcome));
 			}
@@ -682,7 +683,7 @@ async function undeleteStandaloneGroup(
 
 /** An undelete outcome that leaves the record there as the run's referrers expect. */
 function isHandled(
-	outcome: RecordOutcome,
+	outcome: BornOutcome,
 ): outcome is Extract<RecordOutcome, { kind: 'done' | 'present' | 'kept' }> {
 	return outcome.kind === 'done' || outcome.kind === 'present' || outcome.kind === 'kept';
 }

@@ -240,13 +240,21 @@ export async function restoreSectionRow(
  * lock), so there is no window between a check and the write. The bulk
  * revert's cascade undelete.
  *
- * `stamp: false` writes the snapshot VERBATIM — no dd197/dd201 stamp. The bulk
+ * `stamp: false` writes the snapshot with ITS OWN stamps — no dd197/dd201 stamp
+ * of now. The bulk
  * revert's undeletes pass it: the snapshot carries its own stamps, and a run
  * may own them (a CSV import carrying dd197/dd201 columns has undo pairs on
  * those keys). Stamping "now" there made every stamp unit of the undeleted
  * record refuse `changed_since_run`, so reverting a revert was not exact.
- * `actor` is who the undelete's observer recomputes are attributed to — a
- * verbatim row still has an actor.
+ * `actor` is who the undelete's observer recomputes are attributed to — an
+ * unstamped row still has an actor.
+ *
+ * THE VALUE GATES (C58, owner ruling 2026-11-18 — every save the same way, the
+ * bulk revert's undelete included; WC-2026-11-17-tm-restore-value-gates): the
+ * image passes {@link gateReplayedColumns} like {@link restoreSectionRow}'s —
+ * every component key cleaned as a save cleans it, a value the gates refuse
+ * refusing the WHOLE row (typed, before the insert). A record that every gate
+ * already saw comes back byte-identical.
  *
  * ONE insert through the chokepoint's birth entry (persistRecordBirth): the
  * covered observer slots left out and recomputed from truth, the `_hi` index
@@ -262,8 +270,9 @@ export async function restoreAbsentSectionRow(
 	stamp: { userId: number } | false,
 	actor: number,
 ): Promise<Partial<Record<MatrixJsonbColumn, unknown>> | null> {
-	const { table, columns } = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId);
-	return (await persistRecordBirth({ table, sectionTipo, sectionId }, columns, stamp, {
+	const image = await snapshotColumns(snapshot, tmId, sectionTipo, sectionId);
+	const columns = await gateReplayedColumns(image.columns);
+	return (await persistRecordBirth({ table: image.table, sectionTipo, sectionId }, columns, stamp, {
 		actor,
 	})) as Partial<Record<MatrixJsonbColumn, unknown>> | null;
 }

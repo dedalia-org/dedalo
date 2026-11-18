@@ -31,12 +31,14 @@
  * every writer that KNOWS it is storing a component value: the save door
  * (`saveComponentData` → `applySaveComponentData`) and the whole-value writers
  * that bypass it (`translateAndWrite`, T1-14 / OX7 — PHP sanitized there through
- * `component_text_area::save`; the Time Machine restore doors, C58 — PHP
- * restored through `component->Save()`; see {@link gateReplayedValue}). That
- * claim is censused, not prose:
+ * `component_text_area::save`; the Time Machine restore doors and the bulk
+ * revert's writers, C58 — PHP restored through `component->Save()`; see
+ * {@link gateReplayedValue}). Every save is done the same way (owner ruling
+ * 2026-11-18): no door replays a stored image past the gates. That claim is
+ * censused, not prose:
  * `test/unit/component_value_gate_census_tripwire.test.ts` derives every caller
- * of the chokepoint's key / column / replay entries and requires each to reach
- * this gate or carry a named, reasoned exemption.
+ * of EVERY chokepoint entry and requires each to reach this gate in its own
+ * file, or carry the named `non_literal` exemption with its mechanism.
  */
 
 import {
@@ -116,7 +118,8 @@ export async function gateComponentItems(
 
 /**
  * Gate a value REPLAYED FROM HISTORY — a Time Machine image a restore door
- * writes back (C58 / T1-14 N1, WC-2026-11-17-tm-restore-value-gates). A history
+ * writes back, an undo-log or snapshot image the bulk revert writes back
+ * (C58 / T1-14 N1, WC-2026-11-17-tm-restore-value-gates). A history
  * row is stored bytes, but not bytes every gate has seen: a row written before
  * a gate existed (or by a door that bypassed it) holds the raw value, and a
  * replay would store it raw again. So a replay passes the SAME gates as a save:

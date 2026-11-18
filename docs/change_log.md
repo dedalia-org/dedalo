@@ -415,11 +415,21 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Reverting a batch run cleans the values it puts back like a normal save**
+
+    **Revert the bulk process** put each value back exactly as the run had found it. A value from before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers, and a number in a format its field no longer uses. The same was true of a record the revert restored whole — one a run had emptied or deleted.
+
+    Now every value a revert puts back passes the same checks as a normal save, like a single restore from the Time Machine. Rich text is cleaned, a number is formatted as its field declares, and a password entry stored as plain text is never written back: that field (or that record) is left as it is and listed as skipped (*failed*), while the rest of the run is still reverted. A password entry from a Dédalo v6 installation is put back as recorded. A value that was already clean is restored exactly as before, and the other languages of a translated field are not touched.
+
+    Reverting the same run again finds those fields *already at the pre-run value* — a value the first revert cleaned is not reported as edited since.
+
+    Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
+
 - **Restoring a version from the Time Machine cleans the value like a normal save**
 
     Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.
 
-    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry that is not stored as a hash (an entry from before passwords were hashed) — such an entry is never turned back into a working password. A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
+    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry stored as plain text — such an entry is never written back and never turned into a working password. A password entry from a Dédalo v6 installation (stored encrypted, before passwords were hashed) is put back exactly as recorded, so a user record from before the upgrade can still be restored and its password [converted](./install/migrating_from_v6.md). A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
 
     Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
 
