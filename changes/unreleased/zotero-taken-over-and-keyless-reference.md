@@ -23,7 +23,7 @@ Two things change in the report of the Zotero import. What the import writes doe
   call number to create a new record. Nothing the record holds is shown.
 
 These rules, like the call-number limit, belong to the Zotero import only: the CSV import
-reads and writes its `section_id` column exactly as before.
+keeps its own rules for its `section_id` column.
 
 **Action needed:** none. Details:
 [Zotero import](./using/tools/using_import_zotero.md#a-reference-without-a-zotero-key).

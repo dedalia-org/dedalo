@@ -8,6 +8,7 @@
  * (import_csv_execute.ts) is a pure "apply the plan" step.
  */
 
+import { INT4_MAX } from '../concepts/section_id.ts';
 import { DedaloError } from '../errors/index.ts';
 import { type ConformResult, conformImportData, unwrapDedaloData } from './import_data.ts';
 
@@ -458,11 +459,27 @@ function resolveRowKey(
 	const raw = column === -1 ? '' : phpTrim(row[column] ?? '');
 	if (raw === '') return { sectionId: null, keyError: null };
 	const sectionId = parseRecordIdCell(raw);
-	if (sectionId !== null) return { sectionId, keyError: null };
-	return {
-		sectionId: null,
-		keyError: `the section_id cell is '${raw}', which is not a record id`,
-	};
+	if (sectionId !== null && sectionId <= INT4_MAX) return { sectionId, keyError: null };
+	return { sectionId: null, keyError: unusableKeySentence(raw, sectionId) };
+}
+
+/**
+ * Why a present `section_id` cell names no record — the row's own sentence.
+ *
+ * THE HIGHEST RECORD NUMBER (owner ruling 2026-11-18). A digit run that IS an
+ * exact integer (`parsed` not null) but lies above the `section_id` columns'
+ * range names no record the database can hold. It used to reach the
+ * existing-id read as written and fail the WHOLE FILE with the database's own
+ * range message; it is this row's refusal, with its own sentence (the value and
+ * the limit), and the rest of the file imports. The bound lives on the CSV
+ * column's key (resolveRowKey), not in `parseRecordIdCell`: the grammar stays
+ * the grammar, and the Zotero door keeps its own limit rule and code
+ * (zotero_map.ts).
+ */
+function unusableKeySentence(raw: string, parsed: number | null): string {
+	return parsed === null
+		? `the section_id cell is '${raw}', which is not a record id`
+		: `the section_id cell is '${raw}', which is above the highest record number (${INT4_MAX})`;
 }
 
 export async function planCsvImport(

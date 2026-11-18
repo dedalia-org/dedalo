@@ -387,6 +387,10 @@ explanation first).
   run too long for an exact integer is the DATA-22 row skip; a free id is created at it; a
   record holding a code and one holding none are both updated in place — no key guard, no
   take-over bucket, no notice.
+  *(2026-11-18, later the same day: the owner ruled on the CSV door itself — the over-limit
+  cell is now a row skip with the CSV import's own sentence,
+  WC-2026-08-27-csv-ingest-refusals addendum. Still nothing shared moved: the bound is the
+  CSV planner's, and no Zotero code or wording is on the CSV wire.)*
 - Gates (red before = the mutation that restores the previous behaviour; all red):
   `tool_import_zotero_native.test.ts` — "rule 2 + ruling (c)…", "ruling (c): a key-less item
   on a key-less record…", "ruling (c): a taken-over record whose write ROLLS BACK…", "ruling

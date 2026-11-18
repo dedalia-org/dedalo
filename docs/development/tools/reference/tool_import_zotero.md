@@ -62,7 +62,7 @@ The success envelope's own `notices` (beside `data`, [error system](../../../cor
 | `tool.zotero_record_not_writable` | references that name — by call number or by Zotero key — a record the importer may not change | `count`, `section_ids` (distinct, ascending, the first twenty) |
 | `tool.zotero_item_without_key` | references that carry no Zotero key and whose call number names a record that already holds one — refused; the label explains why and what to do (export again with the key, or remove the call number to create a new record) | `count`, `section_ids` (distinct, ascending, the first twenty), `variable` (the configured field) |
 
-These rules are this tool's only. No limit, refusal or warning of the call number reaches another import: the CSV import reads and writes its `section_id` column as before (gate: `test/unit/import_csv_execute.test.ts`).
+These rules are this tool's only. No limit, refusal or warning of the call number reaches another import: the CSV import has its own rule for its `section_id` column — a row skip with its own sentence, see [CSV import](tool_import_dedalo_csv.md) (gate: `test/unit/import_csv_execute.test.ts`).
 
 The client asks for them itself (`notices: 'caller'`) and renders them above the report (`render_import_warnings`).
 
