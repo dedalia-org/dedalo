@@ -6,9 +6,8 @@
  */
 
 import { existsSync, statSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
-import { sanitizeSegment } from '../../../src/core/media/ingest/add_file.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -19,10 +18,10 @@ import {
 	inputDrivers,
 	resolveGdalBinary,
 	runToolBinary,
-	uploadStagingBase,
 	withScratchDir,
 } from './gdal.ts';
 import { invalidOptions, tooLarge } from './reasons.ts';
+import { resolveStagedUpload } from './staged_upload.ts';
 import { assertZipInflatesWithin } from './zip_inflated_size.ts';
 
 // client extension -> the scratch-file extension ogr2ogr needs and the only
@@ -218,32 +217,6 @@ export async function declaresOwnCrs(
 	);
 }
 
-/**
- * The staged upload, never a client path: two sanitized names under the
- * caller's own staging dir, rebuilt from the authenticated user id (the
- * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`).
- */
-function resolveStagedUpload(userId: number, rawKeyDir: string, rawTmpName: string): string {
-	if (rawTmpName === '') throw invalidOptions('Missing staged file (tmp_name)');
-	const keyDir = rawKeyDir === '' ? '' : sanitizeSegment(rawKeyDir);
-	const tmpName = sanitizeSegment(rawTmpName);
-	const userStaging = join(uploadStagingBase('tool_uca_maps.vectorUpload'), String(userId));
-	const staged = join(userStaging, keyDir, tmpName);
-	// the caller's own dir, not the staging base: a sibling user's dir is under the base too
-	if (!staged.startsWith(userStaging + sep)) {
-		throw new DedaloError('internal.invariant', {
-			message: "staged path escapes the caller's upload dir",
-		});
-	}
-	if (!existsSync(staged)) {
-		throw new DedaloError('tool.target_not_found', {
-			coordinates: { tool: 'tool_uca_maps' },
-			message: 'staged file not found',
-		});
-	}
-	return staged;
-}
-
 /** A parsed GeoJSON FeatureCollection, loosely typed — the client is the one
  * that walks `features` to build Leaflet layers. */
 export interface GeoJsonFeatureCollection {
@@ -432,6 +405,7 @@ export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolRes
 		ctx.userId,
 		String(fileData.key_dir ?? ''),
 		String(fileData.tmp_name ?? ''),
+		'tool_uca_maps.vectorUpload',
 	);
 	const size = statSync(staged).size;
 	if (size > MAX_UPLOAD_BYTES) {

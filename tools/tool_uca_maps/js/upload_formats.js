@@ -13,6 +13,10 @@
 export const VECTOR_UPLOAD_EXTENSIONS = ['zip', 'geojson', 'kml'];
 export const IMAGE_UPLOAD_EXTENSIONS = ['tif', 'tiff', 'jpg', 'jpeg', 'png'];
 
+/** Where "Download map as image" stages its PNG capture; `raster_download`
+ * reads (and deletes) only what is staged here. */
+export const MAP_IMAGE_KEY_DIR = 'uca_maps_map_image';
+
 /**
  * ACCEPT_ATTRIBUTE
  * A file input's `accept` for a list of extensions: '.zip,.geojson,.kml'.

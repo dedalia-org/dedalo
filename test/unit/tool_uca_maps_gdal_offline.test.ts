@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
+import { MAP_IMAGE_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { meetsGdalMinVersion } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import {
 	assertOfflineGeoJsonCrs,
@@ -464,14 +465,18 @@ describe.skipIf(!HAVE_GDAL)(
 
 				for (const source of [canary, `/vsicurl/http://${base}/r.tif`]) {
 					const vrt = rasterVrt(source);
+					stageFile(UPLOADER, 'capture.png', vrt, MAP_IMAGE_KEY_DIR);
 					expectCode(
 						await failureOf(
 							rasterDownload.handler(
-								contextOf({
-									format: 'geotiff',
-									image_base64: Buffer.from(vrt).toString('base64'),
-									bounds: { west: -1, south: 39, east: 0, north: 40 },
-								}),
+								contextOf(
+									{
+										format: 'geotiff',
+										file_data: { key_dir: MAP_IMAGE_KEY_DIR, tmp_name: 'capture.png' },
+										bounds: { west: -1, south: 39, east: 0, north: 40 },
+									},
+									UPLOADER,
+								),
 							),
 						),
 						'tool.action_failed',

@@ -3,6 +3,8 @@
  * is client-side): jpg/gif/webp via ImageMagick, GeoTIFF via GDAL. `bounds`
  * arrive already in EPSG:3857 metres, the grid Leaflet's pixels are uniform
  * in, so `-a_srs EPSG:3857 -a_ullr` georeferences with no `gdalwarp` resample.
+ * The PNG capture arrives staged by core's upload door: a real map is MB, and
+ * the request's `options` are capped far below that (`scalar_bounds.ts`).
  */
 
 import { join } from 'node:path';
@@ -11,8 +13,10 @@ import {
 	magickPolicyEnv,
 	magickResourceLimitArgs,
 } from '../../../src/core/media/engine/binaries.ts';
+import { deleteStagedFile } from '../../../src/core/media/ingest/staged_files.ts';
 import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { DEFAULT_MAP_IMAGE_NAME, with_extension } from '../js/download_filename.js';
+import { MAP_IMAGE_KEY_DIR } from '../js/upload_formats.js';
 import { downloadAnswer, downloadBaseName } from './download_answer.ts';
 import {
 	inputDrivers,
@@ -21,9 +25,9 @@ import {
 	resolveMagickBinary,
 	runToolBinary,
 	withScratchDir,
-	writeFileBase64,
 } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
+import { resolveStagedUpload } from './staged_upload.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -122,29 +126,43 @@ async function convertToGeotiff(
 }
 
 export async function rasterDownload(ctx: ToolActionContext): Promise<ToolResponse> {
-	const format = String(ctx.options.format ?? '');
-	const spec = Object.hasOwn(RASTER_FORMATS, format) ? RASTER_FORMATS[format] : undefined;
-	if (spec === undefined) {
-		throw invalidOptions(
-			`Unsupported raster format '${format}' (expected 'jpg', 'gif', 'webp' or 'geotiff')`,
-		);
+	const fileData = (ctx.options.file_data ?? {}) as { key_dir?: unknown; tmp_name?: unknown };
+	// pinned: the capture is deleted below, so no other staged file may be named here
+	if (fileData.key_dir !== MAP_IMAGE_KEY_DIR) {
+		throw invalidOptions(`The map capture must be staged under '${MAP_IMAGE_KEY_DIR}'`);
 	}
-	const imageBase64 = ctx.options.image_base64;
-	if (typeof imageBase64 !== 'string' || imageBase64 === '') {
-		throw invalidOptions('Missing image_base64');
+	const tmpName = String(fileData.tmp_name ?? '');
+	const staged = resolveStagedUpload(
+		ctx.userId,
+		MAP_IMAGE_KEY_DIR,
+		tmpName,
+		'tool_uca_maps.rasterDownload',
+	);
+
+	try {
+		const format = String(ctx.options.format ?? '');
+		const spec = Object.hasOwn(RASTER_FORMATS, format) ? RASTER_FORMATS[format] : undefined;
+		if (spec === undefined) {
+			throw invalidOptions(
+				`Unsupported raster format '${format}' (expected 'jpg', 'gif', 'webp' or 'geotiff')`,
+			);
+		}
+		// Validated BEFORE the capture is copied: a bad bounds object should never
+		// spend a GDAL invocation to discover it was invalid.
+		const bounds = format === 'geotiff' ? parseBounds(ctx.options.bounds) : null;
+		const baseName = downloadBaseName(ctx.options.file_name, DEFAULT_MAP_IMAGE_NAME);
+
+		const content = await withScratchDir(async (dir) => {
+			const inputFile = join(dir, 'uca_maps_map.png');
+			await Bun.write(inputFile, Bun.file(staged));
+			return bounds === null
+				? convertWithImageMagick(dir, inputFile, format)
+				: convertToGeotiff(dir, inputFile, bounds);
+		});
+
+		return downloadAnswer(ctx, content, with_extension(baseName, spec.extension), spec.mime);
+	} finally {
+		// one capture per download, refused or not: core keeps a completed staged file
+		deleteStagedFile(ctx.userId, MAP_IMAGE_KEY_DIR, tmpName);
 	}
-	// Validated BEFORE any file touches disk: a bad bounds object should never
-	// spend a GDAL invocation to discover it was invalid.
-	const bounds = format === 'geotiff' ? parseBounds(ctx.options.bounds) : null;
-	const baseName = downloadBaseName(ctx.options.file_name, DEFAULT_MAP_IMAGE_NAME);
-
-	const content = await withScratchDir(async (dir) => {
-		const inputFile = join(dir, 'uca_maps_map.png');
-		await writeFileBase64(inputFile, imageBase64);
-		return bounds === null
-			? convertWithImageMagick(dir, inputFile, format)
-			: convertToGeotiff(dir, inputFile, bounds);
-	});
-
-	return downloadAnswer(ctx, content, with_extension(baseName, spec.extension), spec.mime);
 }

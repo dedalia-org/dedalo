@@ -90,10 +90,15 @@ export function stagingOf(userId: number): string {
 	return resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
 }
 
-/** `bytes` staged as `name` for `userId`, where the upload door leaves a file. */
-export function stageFile(userId: number, name: string, bytes: string | Uint8Array): void {
+/** `bytes` staged as `name` for `userId` (under `keyDir`), where the upload door leaves a file. */
+export function stageFile(
+	userId: number,
+	name: string,
+	bytes: string | Uint8Array,
+	keyDir = '',
+): void {
 	requireTestMediaRoot(config.media.rootPath ?? '', 'tool_uca_maps staged upload');
-	const staging = stagingOf(userId);
+	const staging = resolve(stagingOf(userId), keyDir);
 	mkdirSync(staging, { recursive: true });
 	writeFileSync(resolve(staging, name), bytes);
 }

@@ -381,9 +381,3 @@ export async function readFileBase64(path: string): Promise<string> {
 	const bytes = await Bun.file(path).arrayBuffer();
 	return Buffer.from(bytes).toString('base64');
 }
-
-/** The write side of `readFileBase64`: a caller-supplied payload (the map
- * screenshot) decoded straight to a scratch file. */
-export async function writeFileBase64(path: string, base64: string): Promise<void> {
-	await Bun.write(path, Buffer.from(base64, 'base64'));
-}

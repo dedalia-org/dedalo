@@ -52,6 +52,7 @@ import {
 import { UPLOAD_MESSAGE_MS } from '../../../tools/tool_uca_maps/js/render_file_upload.js';
 import { rotated_image_overlay } from '../../../tools/tool_uca_maps/js/rotated_image_overlay.js';
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js';
+import { MAP_IMAGE_KEY_DIR } from '../../../tools/tool_uca_maps/js/upload_formats.js';
 import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js';
 import {
 	capture_download,
@@ -70,12 +71,12 @@ import {
 } from './tool_uca_maps_fixture.js';
 
 /**
- * Runs `fn` with domtoimage.toBlob stubbed to answer a 1-byte PNG Blob, and puts
- * the library back exactly as found, loaded or not: only the capture options are
- * under test. Returns the node and options toBlob saw, null if it never ran.
+ * Runs `fn` with domtoimage.toBlob stubbed to answer `capture` (a 1-byte PNG Blob
+ * by default), and puts the library back exactly as found, loaded or not. Returns
+ * the node and options toBlob saw, null if it never ran.
  * @returns {Promise<{node: Element, options: object}|null>}
  */
-const with_to_blob_stub = async function (fn) {
+const with_to_blob_stub = async function (fn, capture = new Blob(['x'], { type: 'image/png' })) {
 	const had_library = Object.hasOwn(window, 'domtoimage');
 	if (!had_library) window.domtoimage = {};
 	const library = window.domtoimage;
@@ -84,7 +85,7 @@ const with_to_blob_stub = async function (fn) {
 	let seen = null;
 	library.toBlob = async function (node, options) {
 		seen = { node, options };
-		return new Blob(['x'], { type: 'image/png' });
+		return capture;
 	};
 	try {
 		await fn();
@@ -272,6 +273,43 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			'expected the default base name when the caller passes nothing',
 		);
 		assert.equal(tool_request_called, false, 'expected NO server round-trip for the PNG format');
+	});
+
+	/** Random pixels do not compress: a real map's size, past core's 512 KiB cap on `options`. */
+	it("download_map_image('jpg') converts a capture larger than a request's options may carry", async function () {
+		this.timeout(60000);
+		const side = 512;
+		const canvas = document.createElement('canvas');
+		canvas.width = side;
+		canvas.height = side;
+		const context = canvas.getContext('2d');
+		const pixels = context.createImageData(side, side);
+		for (let i = 0; i < pixels.data.length; i++) {
+			pixels.data[i] = i % 4 === 3 ? 255 : Math.floor(Math.random() * 256);
+		}
+		context.putImageData(pixels, 0, 0);
+		const capture = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+		assert.isAbove(capture.size, 512 * 1024, 'expected a capture over the options cap');
+
+		const sent = [];
+		stub_tool_request(async function (options) {
+			sent.push(options.options);
+			return real_tool_request(options);
+		});
+
+		let result = null;
+		const captured = await capture_download(() =>
+			with_to_blob_stub(async () => {
+				result = await download_map_image(tool, 'jpg');
+			}, capture),
+		);
+
+		assert.deepEqual(result, { ok: true }, 'expected the server conversion to succeed');
+		assert.equal(captured.blob.type, 'image/jpeg', 'expected the converted JPEG');
+		assert.equal(captured.name, `${DEFAULT_MAP_IMAGE_NAME}.jpg`);
+		assert.lengthOf(sent, 1, 'expected one raster_download request');
+		assert.notProperty(sent[0], 'image_base64', 'expected the capture staged, not inlined');
+		assert.equal(sent[0].file_data.key_dir, MAP_IMAGE_KEY_DIR);
 	});
 
 	it('the download panel warns, by origin, of an active layer the image cannot include, and follows the map while it is open', function () {
