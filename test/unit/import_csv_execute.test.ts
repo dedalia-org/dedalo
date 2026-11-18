@@ -47,6 +47,8 @@ const MIXED_ID = 914120; // the mixed-mode envelope gate's own scratch record
 const STAMP_ID = 914200; // the envelope-frames-keep-the-stamp gate's own scratch record
 const BAD_SLOT_ID = 914210; // the non-dataframe-slot warning gate's own scratch record
 const STAMPS_ID = 914220; // the four-stamp round-trip gate's own scratch record
+const ZOTERO_FREE_ID = 914230; // the Zotero-limit scope gate: a record the CSV creates, then holds a code
+const ZOTERO_KEYLESS_ID = 914231; // …and one that holds none
 /** A component_portal of test3 (→ test3): an APPEND main distinct from TEXT. */
 const PORTAL = 'test80';
 /** A component_dataframe of the test3 family (parent test45). */
@@ -79,6 +81,8 @@ afterAll(async () => {
 		STAMP_ID,
 		BAD_SLOT_ID,
 		STAMPS_ID,
+		ZOTERO_FREE_ID,
+		ZOTERO_KEYLESS_ID,
 	]) {
 		await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
 			SECTION,
@@ -763,4 +767,100 @@ describe('append mode (import_mode: append)', () => {
 		)) as { items: Record<string, unknown>[] | null }[];
 		return rows[0]?.items ?? [];
 	}
+});
+
+describe("the Zotero import's record-number rules are ZOTERO's: the CSV section_id column is unchanged (owner ruling 2026-11-18)", () => {
+	// The Zotero door refuses a call-number above int4 under its own code, adopts
+	// or refuses by the record's Zotero key, and warns in envelope notices
+	// (tools/tool_import_zotero/server/call_number_address.ts). NONE of that is
+	// the CSV door's: its section_id column is read by `parseRecordIdCell` and
+	// written as at 123d88b48d. Every assertion below is the outcome MEASURED
+	// there — a limit moved into anything the two doors share turns one red.
+	const TEXT_COLUMN = { tipo: TEXT, model: 'component_input_text', checked: true, map_to: TEXT };
+	const CODE = 'test162';
+	const titleOf = async (id: number): Promise<unknown[]> => {
+		const rows = (await sql.unsafe(
+			`SELECT string -> '${TEXT}' AS items FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, id],
+		)) as { items: { value?: unknown }[] | null }[];
+		return (rows[0]?.items ?? []).map((item) => item.value);
+	};
+
+	test('a section_id above 2147483647 keeps the CSV outcome: the FILE fails on the id as written — no Zotero code, no per-row refusal, no row written', async () => {
+		const report = await importCsv(
+			`section_id;${TEXT}\n${ZOTERO_FREE_ID};"written before the limit row?"\n2147483648;"above the limit"\n`,
+			[KEY_COLUMN, TEXT_COLUMN],
+		);
+		expect(report.ok).toBe(false);
+		expect(report.created).toEqual([]);
+		expect(report.updated).toEqual([]);
+		expect(report.failed).toEqual([]);
+		// The id reaches the database as the file wrote it: no door of the CSV
+		// path reads it as "not a record id", and none words it as the Zotero limit.
+		expect(report.errors).toEqual(['value "2147483648" is out of range for type integer']);
+		expect(JSON.stringify(report)).not.toContain('zotero');
+		expect(JSON.stringify(report)).not.toContain('call-number');
+		expect(report).not.toHaveProperty('refused');
+		expect(report).not.toHaveProperty('taken_over_at_id');
+		// The file is one unit here: the row before the limit row was not written either.
+		expect(await titleOf(ZOTERO_FREE_ID)).toEqual([]);
+	});
+
+	test('a digit run too long for an exact integer is still the CSV row skip (DATA-22), never the Zotero limit', async () => {
+		const report = await importCsv(`section_id;${TEXT}\n99999999999999999999;"huge"\n`, [
+			KEY_COLUMN,
+			TEXT_COLUMN,
+		]);
+		expect(report.ok).toBe(true);
+		expect(report.errors).toEqual([
+			"Row 2: SKIPPED — the section_id cell is '99999999999999999999', which is not a record id",
+		]);
+	});
+
+	test('a free section_id is CREATED at it; a record holding a code, and one holding none, are UPDATED in place — no key guard, no take-over bucket, no refusal, no notice', async () => {
+		const born = await importCsv(
+			`section_id;${TEXT};${CODE}\n${ZOTERO_FREE_ID};"csv born";"ZKEY${ZOTERO_FREE_ID}"\n${ZOTERO_KEYLESS_ID};"csv keyless";""\n`,
+			[
+				KEY_COLUMN,
+				TEXT_COLUMN,
+				{ tipo: CODE, model: 'component_input_text', checked: true, map_to: CODE },
+			],
+		);
+		expect(born.errors).toEqual([]);
+		expect(born.failed).toEqual([]);
+		expect(born.created).toEqual([ZOTERO_FREE_ID, ZOTERO_KEYLESS_ID]);
+		expect(born.updated).toEqual([]);
+
+		// The same ids again: one record now HOLDS a code (a Zotero key, to the
+		// Zotero door), the other holds none. The CSV door asks neither question.
+		const again = await importCsv(
+			`section_id;${TEXT}\n${ZOTERO_FREE_ID};"csv keyed, updated"\n${ZOTERO_KEYLESS_ID};"csv keyless, updated"\n`,
+			[KEY_COLUMN, TEXT_COLUMN],
+		);
+		expect(again.ok).toBe(true);
+		expect(again.errors).toEqual([]);
+		expect(again.failed).toEqual([]);
+		expect(again.created).toEqual([]);
+		expect(again.updated).toEqual([ZOTERO_FREE_ID, ZOTERO_KEYLESS_ID]);
+		expect(again).not.toHaveProperty('refused');
+		expect(again).not.toHaveProperty('taken_over_at_id');
+		expect(await titleOf(ZOTERO_FREE_ID)).toEqual(['csv keyed, updated']);
+		expect(await titleOf(ZOTERO_KEYLESS_ID)).toEqual(['csv keyless, updated']);
+	});
+
+	test('the CSV envelope carries no notice: the Zotero warnings are not ambient', async () => {
+		writeFileSync(resolve(dir, CSV), `section_id;${TEXT}\n2147483648;"above"\n`);
+		const loaded = await getLoadedTool('tool_import_dedalo_csv');
+		const res = (await mustGet(loaded!.module.apiActions.import_files, 'import_files').handler({
+			principal: await resolvePrincipal(-1),
+			userId: USER,
+			background: false,
+			options: {
+				files: [{ file: CSV, section_tipo: SECTION, ar_columns_map: [KEY_COLUMN, TEXT_COLUMN] }],
+			},
+		})) as { notices?: unknown[]; data: { files: ImportFileReport[] } };
+		const id = res.data.files[0]?.bulk_process_id ?? null;
+		if (id !== null) bulkProcessIds.push(id);
+		expect(res.notices ?? []).toEqual([]);
+	});
 });
