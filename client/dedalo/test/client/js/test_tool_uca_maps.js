@@ -58,13 +58,14 @@ import {
 	create_toolbar_panel,
 	remove_toolbar_panel,
 } from '../../../tools/tool_uca_maps/js/toolbar.js';
+import { OBJECT_GEOJSON_KEY_DIR } from '../../../tools/tool_uca_maps/js/upload_formats.js';
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js';
 import { detach_xyz_basemaps } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js';
 import {
 	capture_download,
 	layer_by_uid,
 	picked_colour,
-	release_map_capture,
+	release_staged_payload,
 	resolve_token,
 	roman_hit,
 	staged_answer,
@@ -1105,6 +1106,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		let asked = null;
 		stub_tool_request(async function (options) {
 			asked = options;
+			await release_staged_payload(options);
 			// a real, minimal PDF so the blob path runs for real
 			return {
 				ok: true,
@@ -1119,7 +1121,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		await download_object_pdf(tool, layer);
 
 		assert.equal(asked.action, 'object_pdf_report', 'expected the pdf action');
-		assert.isOk(asked.options.geojson, 'expected the object as geojson');
+		assert.notProperty(asked.options, 'geojson', 'expected the object staged, not inlined');
+		assert.equal(asked.options.file_data.key_dir, OBJECT_GEOJSON_KEY_DIR, 'expected it staged');
 		assert.equal(asked.options.images.length, 1, 'expected the associated image listed');
 
 		const sent = asked.options.images[0];
@@ -1146,7 +1149,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		};
 
 		stub_tool_request(async function (request) {
-			await release_map_capture(request);
+			await release_staged_payload(request);
 			return { ok: false, error: refusal };
 		});
 		const rows = [
@@ -1159,7 +1162,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		}
 
 		// an answer without an envelope error still says what failed
-		stub_tool_request(async function () {
+		stub_tool_request(async function (request) {
+			await release_staged_payload(request);
 			return { ok: false };
 		});
 		assert.deepEqual(await download_vector(tool, layer, 'kml'), {
@@ -1265,7 +1269,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		const carrier = add_image_carrier();
 
 		stub_tool_request(async function (request) {
-			await release_map_capture(request);
+			await release_staged_payload(request);
 			throw new Error('Boom.');
 		});
 		const restore_image_download = stub_image_download(async () => {
@@ -1889,6 +1893,42 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			},
 		},
 	];
+	// a detailed object outgrew a request's options (core caps them at 512 KiB): it is staged
+	it("download_vector('kml') converts an object larger than a request's options may carry", async function () {
+		this.timeout(60000);
+		const ring = [];
+		for (let i = 0; i < 40000; i++) {
+			const angle = (2 * Math.PI * i) / 40000;
+			ring.push([40.45 + 0.04 * Math.sin(angle), -3.65 + 0.05 * Math.cos(angle)]);
+		}
+		const layer = L.polygon(ring);
+		assert.isAbove(JSON.stringify(layer.toGeoJSON()).length, 512 * 1024, 'expected a big object');
+
+		let asked = null;
+		let response = null;
+		stub_tool_request(async function (options) {
+			asked = options.options;
+			response = await real_tool_request(options);
+			return response;
+		});
+
+		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'kml'))).blob;
+
+		if (response && response.ok !== true) {
+			assert.equal(
+				response.error && response.error.code,
+				'tool.dependency_unavailable',
+				'expected the only acceptable failure to be a missing GDAL binary — full response: ' +
+					JSON.stringify(response),
+			);
+			this.skip();
+		}
+		assert.notProperty(asked, 'geojson', 'expected the object staged, not inlined');
+		assert.isOk(captured_blob, 'expected the KML delivered');
+		const vertices = (await captured_blob.text()).split(' ').length;
+		assert.isAtLeast(vertices, 40000, 'expected every vertex in the KML');
+	});
+
 	for (const row of server_vector_rows) {
 		it(row.title, async function () {
 			const layer = seeded_layer(1);

@@ -13,7 +13,6 @@ import {
 	magickPolicyEnv,
 	magickResourceLimitArgs,
 } from '../../../src/core/media/engine/binaries.ts';
-import { deleteStagedFile } from '../../../src/core/media/ingest/staged_files.ts';
 import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { DEFAULT_MAP_IMAGE_NAME, with_extension } from '../js/download_filename.js';
 import { MAP_IMAGE_KEY_DIR } from '../js/upload_formats.js';
@@ -27,7 +26,7 @@ import {
 	withScratchDir,
 } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
-import { resolveStagedUpload, sweepOrphanCaptures } from './staged_upload.ts';
+import { claimStagedUpload } from './staged_upload.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const RASTER_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -126,20 +125,7 @@ async function convertToGeotiff(
 }
 
 export async function rasterDownload(ctx: ToolActionContext): Promise<ToolResponse> {
-	const fileData = (ctx.options.file_data ?? {}) as { key_dir?: unknown; tmp_name?: unknown };
-	// pinned: the capture is deleted below, so no other staged file may be named here
-	if (fileData.key_dir !== MAP_IMAGE_KEY_DIR) {
-		throw invalidOptions(`The map capture must be staged under '${MAP_IMAGE_KEY_DIR}'`);
-	}
-	sweepOrphanCaptures(ctx.userId, MAP_IMAGE_KEY_DIR);
-	const tmpName = String(fileData.tmp_name ?? '');
-	const staged = resolveStagedUpload(
-		ctx.userId,
-		MAP_IMAGE_KEY_DIR,
-		tmpName,
-		'tool_uca_maps.rasterDownload',
-	);
-
+	const capture = claimStagedUpload(ctx, MAP_IMAGE_KEY_DIR, 'tool_uca_maps.rasterDownload');
 	try {
 		const format = String(ctx.options.format ?? '');
 		const spec = Object.hasOwn(RASTER_FORMATS, format) ? RASTER_FORMATS[format] : undefined;
@@ -155,7 +141,7 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 
 		const content = await withScratchDir(async (dir) => {
 			const inputFile = join(dir, 'uca_maps_map.png');
-			await Bun.write(inputFile, Bun.file(staged));
+			await Bun.write(inputFile, Bun.file(capture.path));
 			return bounds === null
 				? convertWithImageMagick(dir, inputFile, format)
 				: convertToGeotiff(dir, inputFile, bounds);
@@ -164,6 +150,6 @@ export async function rasterDownload(ctx: ToolActionContext): Promise<ToolRespon
 		return downloadAnswer(ctx, content, with_extension(baseName, spec.extension), spec.mime);
 	} finally {
 		// one capture per download, refused or not: core keeps a completed staged file
-		deleteStagedFile(ctx.userId, MAP_IMAGE_KEY_DIR, tmpName);
+		capture.release();
 	}
 }

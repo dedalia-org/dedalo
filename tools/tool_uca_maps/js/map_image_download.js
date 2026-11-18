@@ -10,8 +10,6 @@
  * MB, and a request's `options` are capped far below that.
  */
 
-import { response_data } from '../../../core/common/js/api_error.js';
-import { upload } from '../../../core/services/service_upload/js/service_upload.js';
 import { report_client_error } from './client_error.js';
 import { deliver_download, trigger_blob_download } from './download_delivery.js';
 import {
@@ -20,9 +18,10 @@ import {
 	sanitize_download_name,
 	with_extension,
 } from './download_filename.js';
-import { exception_text, upload_refusal_text } from './panel_error_text.js';
+import { exception_text } from './panel_error_text.js';
 import { render_map_image_download_panel } from './render_map_image_download.js';
 import { CONVERSION_TIMEOUT_MS } from './request_budgets.js';
+import { stage_payload } from './staged_payload.js';
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -324,15 +323,14 @@ export const download_map_image = async function (
 		// JPG/GIF/WebP/GeoTIFF all need the server (ImageMagick/GDAL are not a
 		// browser capability) — one PNG capture feeds every one of them.
 		const capture = await domtoimage.toBlob(container, capture_options);
-		const upload_response = await upload({
-			id: self.id,
-			file: new File([capture], 'uca_maps_map.png', { type: 'image/png' }),
-			key_dir: MAP_IMAGE_KEY_DIR,
-			allowed_extensions: ['png'],
-			tipo: self.geolocation.tipo,
-		});
-		if (!response_data(upload_response)) {
-			return { ok: false, error: upload_refusal_text(upload_response.error, failed) };
+		const staged = await stage_payload(
+			self,
+			new File([capture], 'uca_maps_map.png', { type: 'image/png' }),
+			MAP_IMAGE_KEY_DIR,
+			failed,
+		);
+		if (staged.error !== null) {
+			return { ok: false, error: staged.error };
 		}
 
 		const response = await self.tool_request({
@@ -346,7 +344,7 @@ export const download_map_image = async function (
 				section_tipo: self.geolocation.section_tipo,
 				format: format,
 				file_name: base_name,
-				file_data: upload_response.file_data,
+				file_data: staged.file_data,
 				bounds: format === 'geotiff' ? projected_bounds(self.geolocation.map) : undefined,
 			},
 		});

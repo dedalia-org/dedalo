@@ -18,6 +18,10 @@ import { get_instance } from '../../../core/common/js/instances.js';
 import { ui } from '../../../core/common/js/ui.js';
 import { populate_roman_results } from '../../../tools/tool_uca_maps/js/render_roman_empire.js';
 import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js';
+import {
+	MAP_IMAGE_KEY_DIR,
+	OBJECT_GEOJSON_KEY_DIR,
+} from '../../../tools/tool_uca_maps/js/upload_formats.js';
 import { elements, uca_maps_section_id } from './elements.js';
 
 /** The colour a cataloguer picks in the style field: the tool's own hue
@@ -85,13 +89,16 @@ export const resolve_token = function (parent, token, property = 'background-col
 }; //end resolve_token
 
 /**
- * A stubbed `raster_download` never reaches the handler that deletes the map capture the
- * real upload staged: the stub releases it through core's own delete door instead.
+ * A stubbed `raster_download`, `vector_download` or `object_pdf_report` never reaches
+ * the handler that deletes the payload the real upload staged (the map capture, the
+ * object's GeoJSON): the stub releases it through core's own delete door instead.
  * A no-op for any other request.
  */
-export const release_map_capture = async function (request) {
+export const release_staged_payload = async function (request) {
 	const file_data = request && request.options && request.options.file_data;
-	if (!file_data || request.action !== 'raster_download') return;
+	if (!file_data || ![MAP_IMAGE_KEY_DIR, OBJECT_GEOJSON_KEY_DIR].includes(file_data.key_dir)) {
+		return;
+	}
 	await data_manager.request({
 		body: {
 			dd_api: 'dd_utils_api',
@@ -99,7 +106,7 @@ export const release_map_capture = async function (request) {
 			options: { key_dir: file_data.key_dir, file_name: file_data.tmp_name },
 		},
 	});
-}; //end release_map_capture
+}; //end release_staged_payload
 
 /**
  * Runs `fn` with URL.createObjectURL and the anchor's click spied: the Blob a

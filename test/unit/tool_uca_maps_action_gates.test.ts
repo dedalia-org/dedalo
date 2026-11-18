@@ -41,12 +41,13 @@ interface Gate {
 }
 
 const READ = { permission: 'record_tipo', minLevel: 1, readOnly: true } as const;
+/** Deletes the payload it was staged: ledgered, so a resend is replayed, not run on nothing. */
+const CONSUMES = { permission: 'record_tipo', minLevel: 1 } as const;
 
 const GATES: Readonly<Record<string, Gate>> = {
 	get_capabilities: { ...READ, handler: getCapabilities },
-	vector_download: { ...READ, handler: vectorDownload },
-	// consumes its staged capture: ledgered, so a resend is replayed, not run on nothing
-	raster_download: { permission: 'record_tipo', minLevel: 1, handler: rasterDownload },
+	vector_download: { ...CONSUMES, handler: vectorDownload },
+	raster_download: { ...CONSUMES, handler: rasterDownload },
 	get_wms_layers: { ...READ, handler: getWmsLayers },
 	get_catastro_parcel: { ...READ, handler: getCatastroParcel },
 	get_administrative_unit: { ...READ, handler: getAdministrativeUnit },
@@ -59,7 +60,7 @@ const GATES: Readonly<Record<string, Gate>> = {
 	get_elevation: { ...READ, handler: getElevation },
 	// the one write: it exists only to change the map record
 	stage_external_image: { permission: 'record_tipo', minLevel: 2, handler: stageExternalImage },
-	object_pdf_report: { ...READ, handler: objectPdfReport },
+	object_pdf_report: { ...CONSUMES, handler: objectPdfReport },
 	search_pleiades: { ...READ, handler: searchPleiades },
 	get_pleiades_place: { ...READ, handler: getPleiadesPlace },
 	search_pelagios: { ...READ, handler: searchPelagios },

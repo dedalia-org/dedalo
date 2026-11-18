@@ -16,7 +16,7 @@ import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { MAP_IMAGE_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { resolveMagickBinary, withScratchDir } from '../../tools/tool_uca_maps/server/gdal.ts';
-import { ORPHAN_CAPTURE_AGE_MS } from '../../tools/tool_uca_maps/server/staged_upload.ts';
+import { ORPHAN_UPLOAD_AGE_MS } from '../../tools/tool_uca_maps/server/staged_upload.ts';
 import {
 	contextOf,
 	dataOf,
@@ -100,7 +100,7 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	// a request lost after its upload never reaches the handler that deletes the capture
 	test("the next download sweeps the caller's captures over an hour old, and nothing else", async () => {
 		const action = await loadAction('raster_download');
-		const past = (Date.now() - ORPHAN_CAPTURE_AGE_MS - 60_000) / 1000;
+		const past = (Date.now() - ORPHAN_UPLOAD_AGE_MS - 60_000) / 1000;
 		const stale = staged(SAMPLE_PNG_BASE64);
 		utimesSync(resolve(CAPTURES, stale.tmp_name), past, past);
 		const recent = staged(SAMPLE_PNG_BASE64);

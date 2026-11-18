@@ -2,8 +2,10 @@
  * tool_uca_maps — port of v6 `tool_leaflet_special_tools`. Every action is
  * `record_tipo` at read level: none writes section data. The image actions name
  * the IMAGE record, whose media path they disclose; `stage_external_image` is
- * the one write-level gate, since it exists only to change the map record, and
- * the one action not readOnly (it stages a file). The rest write only scratch.
+ * the one write-level gate, since it exists only to change the map record. Not
+ * readOnly: it and the three that delete the payload they were staged
+ * (`raster_download`, `vector_download`, `object_pdf_report`). The rest write
+ * only scratch.
  */
 
 import type { ToolServerModule } from '../../../src/core/tools/module.ts';
@@ -35,10 +37,10 @@ export const tool: ToolServerModule = {
 			readOnly: true,
 			handler: getCapabilities,
 		},
+		// not readOnly: it deletes the staged GeoJSON it reads (see raster_download)
 		vector_download: {
 			permission: 'record_tipo',
 			minLevel: 1,
-			readOnly: true,
 			handler: vectorDownload,
 		},
 		// not readOnly: it deletes the staged capture it reads, so a resend must be
@@ -104,10 +106,10 @@ export const tool: ToolServerModule = {
 			handler: getImageFile,
 		},
 		stage_external_image: { permission: 'record_tipo', minLevel: 2, handler: stageExternalImage },
+		// not readOnly: it deletes the staged GeoJSON it reads (see raster_download)
 		object_pdf_report: {
 			permission: 'record_tipo',
 			minLevel: 1,
-			readOnly: true,
 			handler: objectPdfReport,
 		},
 		search_pleiades: {

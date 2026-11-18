@@ -12,7 +12,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
-import { MAP_IMAGE_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
+import {
+	MAP_IMAGE_KEY_DIR,
+	OBJECT_GEOJSON_KEY_DIR,
+} from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { meetsGdalMinVersion } from '../../tools/tool_uca_maps/server/capabilities.ts';
 import {
 	assertOfflineGeoJsonCrs,
@@ -40,6 +43,7 @@ import {
 	failureOf,
 	haveGdal,
 	loadAction,
+	stagedJson,
 	stageFile,
 	stagingOf,
 	thrownBy,
@@ -274,7 +278,10 @@ describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDA
 	test("vector_download refuses the client's linked crs, wherever it sits", async () => {
 		const action = await loadAction('vector_download');
 		for (const geojson of Object.values(LINKED_CRS_SHAPES)) {
-			const error = await failureOf(action.handler(contextOf({ format: 'kml', geojson })));
+			const file_data = stagedJson(OBJECT_GEOJSON_KEY_DIR, geojson, UPLOADER);
+			const error = await failureOf(
+				action.handler(contextOf({ format: 'kml', file_data }, UPLOADER)),
+			);
 			expectCode(error, 'request.invalid_options');
 		}
 	});

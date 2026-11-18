@@ -22,10 +22,11 @@ point.
 
 Key behaviours to know:
 
-- **No action writes section data.** Sixteen of the eighteen actions are `readOnly` and write only
+- **No action writes section data.** Fourteen of the eighteen actions are `readOnly` and write only
   a private scratch directory. The map's data is written by the component's own save path, never by
-  a tool action. `raster_download` also deletes the map capture it was sent through the upload
-  door, so it is not `readOnly`. `stage_external_image` stages a downloaded file for the standard
+  a tool action. `raster_download`, `vector_download` and `object_pdf_report` also delete the payload
+  they were sent through the upload door (the map capture, the object's GeoJSON: a real one outgrows
+  a request's options), so they are not `readOnly`. `stage_external_image` stages a downloaded file for the standard
   image ingest and is gated at write level.
 - **Nothing is saved on pan, zoom or a drawing gesture.** A gesture marks the component dirty and the
   component's save button commits it. Adding or deleting an XYZ/WMS layer is itself the commit
@@ -212,10 +213,10 @@ whose media path they disclose.
 | Action | Permission gate | Key options it reads | Returns |
 | --- | --- | --- | --- |
 | `get_capabilities` | `record_tipo`, `minLevel: 1`, `readOnly` | — | `{gdal, ogr2ogr, gdalTranslate, imagemagick, gazetteers, externalImages}` |
-| `vector_download` | `record_tipo`, `minLevel: 1`, `readOnly` | `format` (`shp`/`kml`), `geojson` | `{content_base64, filename, mime}` |
+| `vector_download` | `record_tipo`, `minLevel: 1` | `format` (`shp`/`kml`), `file_data` (the object's GeoJSON, staged under `uca_maps_object`) | `{content_base64, filename, mime}` |
 | `raster_download` | `record_tipo`, `minLevel: 1` | `format` (`jpg`/`gif`/`webp`/`geotiff`), `file_data` (`key_dir`, `tmp_name`), `bounds` (geotiff, EPSG:3857), `file_name` | `{content_base64, filename, mime}` |
 | `image_download` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `format` (`geotiff`/`png`/`jpg`), `corners`, `width`, `file_name`, `file_path` | `{content_base64, filename, mime}` |
-| `object_pdf_report` | `record_tipo`, `minLevel: 1`, `readOnly`; each image re-gated | `geojson`, `elevation`, `images` (record identities, max 30), `labels` | `{content_base64, filename, mime}` |
+| `object_pdf_report` | `record_tipo`, `minLevel: 1`; each image re-gated | `file_data` (as `vector_download`), `elevation`, `images` (record identities, max 30), `labels` | `{content_base64, filename, mime}` |
 | `upload_vector_layer` | `record_tipo`, `minLevel: 1`, `readOnly` | `file_data` (`key_dir`, `tmp_name`, `extension`), `epsg`, `zone`, `band` | `{geojson, feature_count}` |
 | `get_image_overlay` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `section_tipo`, `section_id`, `tipo` | `{file_path, quality, georeferenced, georeference_unavailable, corners}` |
 | `get_image_file` | `record_tipo`, `minLevel: 1`, `readOnly` (image record) | `section_tipo`, `section_id`, `tipo` | `{file_path, quality}` |

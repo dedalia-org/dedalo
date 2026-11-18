@@ -17,6 +17,10 @@ export const IMAGE_UPLOAD_EXTENSIONS = ['tif', 'tiff', 'jpg', 'jpeg', 'png'];
  * reads (and deletes) only what is staged here. */
 export const MAP_IMAGE_KEY_DIR = 'uca_maps_map_image';
 
+/** Where the object console stages an object's GeoJSON for its SHP/KML and PDF;
+ * `vector_download` and `object_pdf_report` read (and delete) only what is here. */
+export const OBJECT_GEOJSON_KEY_DIR = 'uca_maps_object';
+
 /**
  * ACCEPT_ATTRIBUTE
  * A file input's `accept` for a list of extensions: '.zip,.geojson,.kml'.

@@ -1,12 +1,33 @@
 /**
- * tool_uca_maps — `vector_download`: one object as SHP or KML. The caller
- * faults are refused before any binary; the conversion runs where ogr2ogr is
- * installed and labels the data EPSG:4326, never v6's forced EPSG:3857.
+ * tool_uca_maps — `vector_download`: one object as SHP or KML. The object
+ * arrives staged under its own key_dir and is deleted whatever the outcome. The
+ * caller faults are refused before any binary; the conversion runs where ogr2ogr
+ * is installed and labels the data EPSG:4326, never v6's forced EPSG:3857.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { existsSync, rmSync, truncateSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { contextOf, dataOf, haveGdal, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
+import { MAX_STAGED_JSON_BYTES } from '../../tools/tool_uca_maps/server/staged_upload.ts';
+import {
+	contextOf,
+	dataOf,
+	expectCode,
+	failureOf,
+	haveGdal,
+	loadAction,
+	stagedJson,
+	stageFile,
+	stagingOf,
+} from './fixtures/tool_uca_maps/helpers.ts';
+
+/** contextOf's caller; only the object key_dir is swept, never the rest of its staging. */
+const OBJECTS = resolve(stagingOf(-1), OBJECT_GEOJSON_KEY_DIR);
+afterEach(() => rmSync(OBJECTS, { recursive: true, force: true }));
+
+const staged = (value: unknown) => stagedJson(OBJECT_GEOJSON_KEY_DIR, value);
 
 const HAVE_GDAL = haveGdal('ogr2ogr');
 
@@ -33,27 +54,56 @@ const SAMPLE_GEOJSON = {
 describe('tool_uca_maps vector_download — caller-fault validation (no binary needed)', () => {
 	// a key every object inherits is no format: the format table is read by own keys only
 	test.each(['xlsx', 'toString', 'constructor', '__proto__'])(
-		"an unsupported format ('%s') is refused",
+		"an unsupported format ('%s') is refused, and the staged object deleted",
 		async (format) => {
 			const action = await loadAction('vector_download');
-			await expect(
-				action.handler(contextOf({ format, geojson: SAMPLE_GEOJSON })),
-			).rejects.toMatchObject({
+			const file_data = staged(SAMPLE_GEOJSON);
+			await expect(action.handler(contextOf({ format, file_data }))).rejects.toMatchObject({
 				code: 'request.invalid_options',
 				message: expect.stringMatching(/^Unsupported vector format/),
 			});
+			expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
 		},
 	);
 
-	test.each([
-		['missing', { format: 'shp' }],
-		['not an object', { format: 'kml', geojson: 'not-an-object' }],
-	])('a geojson %s is refused', async (_, options) => {
+	// read whole into the one server process: core's own upload ceiling is no bound
+	test('a staged object over the size limit is refused before it is read, and deleted', async () => {
 		const action = await loadAction('vector_download');
-		await expect(action.handler(contextOf(options))).rejects.toMatchObject({
+		stageFile(-1, 'huge.json', '{}', OBJECT_GEOJSON_KEY_DIR);
+		truncateSync(resolve(OBJECTS, 'huge.json'), MAX_STAGED_JSON_BYTES + 1);
+		const file_data = { key_dir: OBJECT_GEOJSON_KEY_DIR, tmp_name: 'huge.json' };
+		await expect(action.handler(contextOf({ format: 'kml', file_data }))).rejects.toThrow(
+			/exceeds the .*-byte limit/,
+		);
+		expect(existsSync(resolve(OBJECTS, 'huge.json'))).toBe(false);
+	});
+
+	test('an object not staged under its own key_dir is refused', async () => {
+		const action = await loadAction('vector_download');
+		await expect(action.handler(contextOf({ format: 'shp' }))).rejects.toThrow(
+			/must be staged under 'uca_maps_object'/,
+		);
+	});
+
+	test('a staged geojson that is not an object is refused, and deleted', async () => {
+		const action = await loadAction('vector_download');
+		const file_data = staged('not-an-object');
+		await expect(action.handler(contextOf({ format: 'kml', file_data }))).rejects.toMatchObject({
 			code: 'request.invalid_options',
 			message: 'Missing or invalid geojson',
 		});
+		expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
+	});
+
+	test('a staged payload that is not JSON is refused, and deleted', async () => {
+		const action = await loadAction('vector_download');
+		stageFile(-1, 'broken.geojson', '{"type":', OBJECT_GEOJSON_KEY_DIR);
+		const file_data = { key_dir: OBJECT_GEOJSON_KEY_DIR, tmp_name: 'broken.geojson' };
+		expectCode(
+			await failureOf(action.handler(contextOf({ format: 'kml', file_data }))),
+			'request.invalid_options',
+		);
+		expect(existsSync(resolve(OBJECTS, 'broken.geojson'))).toBe(false);
 	});
 });
 
@@ -62,12 +112,13 @@ describe.skipIf(!HAVE_GDAL)(
 	() => {
 		test('shp: returns a zip (PK magic bytes), envelope v2, no result mirror', async () => {
 			const action = await loadAction('vector_download');
-			const response: ToolResponse = await action.handler(
-				contextOf({ format: 'shp', geojson: SAMPLE_GEOJSON }),
-			);
+			const file_data = staged(SAMPLE_GEOJSON);
+			const response: ToolResponse = await action.handler(contextOf({ format: 'shp', file_data }));
 
 			const data = dataOf(response);
 			expect('result' in response).toBe(false); // forbidden PHP-era mirror key
+			// one object per download: core keeps a completed staged file forever
+			expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
 
 			expect(data.filename).toBe('uca_maps_object.shp.zip');
 			expect(data.mime).toBe('application/zip');
@@ -82,7 +133,7 @@ describe.skipIf(!HAVE_GDAL)(
 		test("kml: returns a WGS84 (EPSG:4326) KML, never v6's forced EPSG:3857", async () => {
 			const action = await loadAction('vector_download');
 			const response: ToolResponse = await action.handler(
-				contextOf({ format: 'kml', geojson: SAMPLE_GEOJSON }),
+				contextOf({ format: 'kml', file_data: staged(SAMPLE_GEOJSON) }),
 			);
 
 			const data = dataOf(response);
@@ -101,7 +152,7 @@ describe.skipIf(!HAVE_GDAL)(
 		test('an unparsable geojson fails the conversion as tool.action_failed, not a silent empty file', async () => {
 			const action = await loadAction('vector_download');
 			await expect(
-				action.handler(contextOf({ format: 'shp', geojson: { not: 'geojson' } })),
+				action.handler(contextOf({ format: 'shp', file_data: staged({ not: 'geojson' }) })),
 			).rejects.toMatchObject({ code: 'tool.action_failed' });
 		});
 	},

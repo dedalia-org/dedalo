@@ -103,6 +103,18 @@ export function stageFile(
 	writeFileSync(resolve(staging, name), bytes);
 }
 
+/** `value` staged as JSON under `keyDir` for `userId` (contextOf's caller by
+ * default): the `file_data` the action that reads that key_dir takes. */
+export function stagedJson(
+	keyDir: string,
+	value: unknown,
+	userId = -1,
+): { key_dir: string; tmp_name: string } {
+	const tmp_name = `payload_${crypto.randomUUID()}.geojson`;
+	stageFile(userId, tmp_name, JSON.stringify(value), keyDir);
+	return { key_dir: keyDir, tmp_name };
+}
+
 /**
  * A fixture binary run to exit 0, its stdout answered. The env is spread as
  * `spawn.ts` does: Bun.spawn's default misses a change made at run time.

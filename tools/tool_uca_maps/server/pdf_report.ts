@@ -8,10 +8,12 @@
 
 import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
 import { assertActionPermission } from '../../../src/core/tools/security.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../js/upload_formats.js';
 import { downloadAnswer } from './download_answer.ts';
 import { type EmbedRefusal, getImageFile, resolveEmbeddableImage } from './image_media.ts';
 import { PdfDocument } from './pdf_writer.ts';
 import { invalidOptions } from './reasons.ts';
+import { takeStagedJson } from './staged_upload.ts';
 
 /** v6's own cap for the same document ("Imágenes asociadas (Max. 30)"). */
 const MAX_IMAGES = 30;
@@ -118,7 +120,12 @@ export function readRequestedImages(raw: unknown): RequestedImage[] {
 
 export async function objectPdfReport(ctx: ToolActionContext): Promise<ToolResponse> {
 	const options = ctx.options;
-	const geojson = options.geojson as Record<string, unknown> | undefined;
+	// staged, not in options: a detailed object outgrows them, and the sheet prints every vertex
+	const geojson = (await takeStagedJson(
+		ctx,
+		OBJECT_GEOJSON_KEY_DIR,
+		'tool_uca_maps.objectPdfReport',
+	)) as Record<string, unknown> | null;
 	if (typeof geojson !== 'object' || geojson === null) {
 		throw invalidOptions('tool_uca_maps: object_pdf_report needs the object as GeoJSON');
 	}

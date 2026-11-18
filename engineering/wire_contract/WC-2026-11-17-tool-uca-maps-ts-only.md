@@ -10,8 +10,9 @@
 - **Shape after (TS):** a new tool package in the TS-owned `tools/` tree,
   `tools/tool_uca_maps/`: a component tool (`affected_models: ["component_geolocation"]`,
   `show_in_component`, active, not always_active, `isAvailable` on a geolocation caller), with
-  a `server/` half of eighteen `record_tipo` actions (sixteen `readOnly`;
-  `raster_download` consumes its staged capture, `stage_external_image` writes). Its `dd1324` row is written by the TS *Register
+  a `server/` half of eighteen `record_tipo` actions (fourteen `readOnly`;
+  `raster_download`, `vector_download` and `object_pdf_report` consume the payload they were
+  staged, `stage_external_image` writes). Its `dd1324` row is written by the TS *Register
   tools* door like any tool's (WC-2026-10-30-tools-registry-import-switch-retired). The
   component's own samples (`samples/context.json`, client and server twins) name it as the
   map's tool in place of the old ghost row.

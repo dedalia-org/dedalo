@@ -2,11 +2,13 @@
  * vector_download — SHP and KML of one object (GeoJSON is client-side). GDAL's
  * `.shp.zip` writes the zip itself (`/vsizip/` cannot: the driver patches its
  * header in place). `layer.toGeoJSON()` is WGS84, so `-a_srs EPSG:4326` labels
- * it where v6 forced EPSG:3857: an assignment, no reprojection.
+ * it where v6 forced EPSG:3857: an assignment, no reprojection. The object arrives
+ * staged by core's upload door: a detailed one outgrows a request's `options`.
  */
 
 import { join } from 'node:path';
 import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../js/upload_formats.js';
 import { downloadAnswer } from './download_answer.ts';
 import {
 	assertOfflineGeoJsonCrs,
@@ -17,6 +19,7 @@ import {
 	withScratchDir,
 } from './gdal.ts';
 import { invalidOptions } from './reasons.ts';
+import { takeStagedJson } from './staged_upload.ts';
 
 /** Each format's OGR driver, download name and MIME. */
 const VECTOR_FORMATS: Readonly<Record<string, { driver: string; fileName: string; mime: string }>> =
@@ -56,12 +59,13 @@ async function convertWithOgr2Ogr(
 }
 
 export async function vectorDownload(ctx: ToolActionContext): Promise<ToolResponse> {
+	// taken first: it is released whatever the outcome, a refusal below included
+	const geojson = await takeStagedJson(ctx, OBJECT_GEOJSON_KEY_DIR, 'tool_uca_maps.vectorDownload');
 	const format = String(ctx.options.format ?? '');
 	const spec = Object.hasOwn(VECTOR_FORMATS, format) ? VECTOR_FORMATS[format] : undefined;
 	if (spec === undefined) {
 		throw invalidOptions(`Unsupported vector format '${format}' (expected 'shp' or 'kml')`);
 	}
-	const geojson = ctx.options.geojson;
 	if (geojson === null || typeof geojson !== 'object') {
 		throw invalidOptions('Missing or invalid geojson');
 	}

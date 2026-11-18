@@ -5,12 +5,13 @@
  * stream lengths or WinAnsi encoding only show when a real reader opens the file.
  */
 
-import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
 import { unguarded } from '../../src/core/tools/reason_keys.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import {
 	IMAGE_READ_GATE,
 	objectPdfReport,
@@ -26,8 +27,24 @@ import {
 	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
-import { contextOf, expectCode, loadAction, thrownBy } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	contextOf,
+	expectCode,
+	loadAction,
+	stagedJson,
+	stagingOf,
+	thrownBy,
+} from './fixtures/tool_uca_maps/helpers.ts';
 import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
+
+/** The object the console stages; only that key_dir of each caller used here is swept. */
+const staged = (value: unknown) => stagedJson(OBJECT_GEOJSON_KEY_DIR, value);
+const OBJECTS = resolve(stagingOf(-1), OBJECT_GEOJSON_KEY_DIR);
+afterEach(() => {
+	for (const userId of [-1, 7]) {
+		rmSync(resolve(stagingOf(userId), OBJECT_GEOJSON_KEY_DIR), { recursive: true, force: true });
+	}
+});
 
 const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -346,22 +363,22 @@ describe('objectPdfReport — the whole document', () => {
 		await expect(objectPdfReport(contextOf({}))).rejects.toMatchObject({
 			code: 'request.invalid_options',
 		});
-		await expect(objectPdfReport(contextOf({ geojson: 'texto' }))).rejects.toMatchObject({
+		const texto = staged('texto');
+		await expect(objectPdfReport(contextOf({ file_data: texto }))).rejects.toMatchObject({
 			code: 'request.invalid_options',
 		});
+		expect(existsSync(resolve(OBJECTS, texto.tmp_name))).toBe(false);
 	});
 
 	test('builds a readable report from an object with properties and a geometry', async () => {
-		const response = await objectPdfReport(
-			contextOf({
-				elevation: 412,
-				geojson: {
-					type: 'Feature',
-					properties: { name: 'Muralla', área: '1.240 m²' },
-					geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
-				},
-			}),
-		);
+		const file_data = staged({
+			type: 'Feature',
+			properties: { name: 'Muralla', área: '1.240 m²' },
+			geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
+		});
+		const response = await objectPdfReport(contextOf({ elevation: 412, file_data }));
+		// one object per sheet: core keeps a completed staged file forever
+		expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
 
 		const data = response.data as { content_base64: string; filename: string; mime: string };
 		expect(data.mime).toBe('application/pdf');
@@ -390,11 +407,11 @@ describe('objectPdfReport — the whole document', () => {
 		const response = await objectPdfReport(
 			contextOf(
 				{
-					geojson: {
-						type: 'Feature',
-						properties: {},
-						geometry: { type: 'Point', coordinates: [0, 0] },
-					},
+					file_data: stagedJson(
+						OBJECT_GEOJSON_KEY_DIR,
+						{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [0, 0] } },
+						userId,
+					),
 					images: [{ ...IMAGE, name: 'secreta.jpg' }],
 				},
 				userId,

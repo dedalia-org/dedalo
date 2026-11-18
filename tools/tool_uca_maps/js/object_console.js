@@ -21,6 +21,7 @@ import {
 	render_selected_object,
 } from './render_object_console.js';
 import { CONVERSION_TIMEOUT_MS } from './request_budgets.js';
+import { stage_payload } from './staged_payload.js';
 import {
 	create_toolbar_button,
 	create_toolbar_panel,
@@ -30,6 +31,7 @@ import {
 	set_toolbar_panel_visible,
 } from './toolbar.js';
 import { is_onexone_rectangle, read_uca_maps } from './uca_maps_data.js';
+import { OBJECT_GEOJSON_KEY_DIR } from './upload_formats.js';
 
 /** Keys the custom-properties editor never offers: v6's own filter
  * (`special_tools.js` `modal_properties`: `color`, `layer_id`) plus this tool's
@@ -775,6 +777,24 @@ export const delete_property = function (self, layer, key) {
 }; //end delete_property
 
 /**
+ * STAGE_OBJECT
+ * The object's GeoJSON for its SHP/KML or PDF, staged: a detailed object outgrows
+ * a request's `options`, and both actions need every vertex.
+ *
+ * @param {Object} self - tool_uca_maps instance
+ * @param {Object} geojson - `layer.toGeoJSON()`
+ * @param {string} lead - the section's sentence for a refusal
+ * @returns {Promise<{file_data: Object|null, error: string|null}>}
+ */
+const stage_object = function (self, geojson, lead) {
+	// `.json`, not `.geojson`: core's sniff reads a property named "asset" as glTF, which
+	// only `.json` passes; DEL escaped, as JSON allows, so the text sniff accepts it
+	const text = JSON.stringify(geojson).replace(/\u007f/g, '\\u007f');
+	const file = new File([text], 'uca_maps_object.json', { type: 'application/json' });
+	return stage_payload(self, file, OBJECT_GEOJSON_KEY_DIR, lead);
+}; //end stage_object
+
+/**
  * DOWNLOAD_VECTOR
  * GeoJSON is built in the browser; SHP/KML go through the server's
  * `vector_download` (ogr2ogr). No reprojection: v6's `turf.toMercator` broke RFC
@@ -800,6 +820,11 @@ export const download_vector = async function (self, layer, format) {
 			return { ok: true };
 		}
 
+		const staged = await stage_object(self, geojson, failed);
+		if (staged.error !== null) {
+			return { ok: false, error: staged.error };
+		}
+
 		const response = await self.tool_request({
 			action: 'vector_download',
 			retries: 1,
@@ -810,7 +835,7 @@ export const download_vector = async function (self, layer, format) {
 				section_id: self.geolocation.section_id,
 				section_tipo: self.geolocation.section_tipo,
 				format: format,
-				geojson: geojson,
+				file_data: staged.file_data,
 			},
 		});
 
@@ -854,6 +879,11 @@ export const download_object_pdf = async function (self, layer) {
 			};
 		});
 
+		const staged = await stage_object(self, geojson, failed);
+		if (staged.error !== null) {
+			return { ok: false, error: staged.error };
+		}
+
 		const response = await self.tool_request({
 			action: 'object_pdf_report',
 			retries: 1,
@@ -863,7 +893,7 @@ export const download_object_pdf = async function (self, layer) {
 				tipo: self.geolocation.tipo,
 				section_id: self.geolocation.section_id,
 				section_tipo: self.geolocation.section_tipo,
-				geojson: geojson,
+				file_data: staged.file_data,
 				images: images,
 				elevation: elevation,
 				labels: {
