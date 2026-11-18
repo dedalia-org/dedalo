@@ -366,7 +366,8 @@ explanation first).
   says it is that reference. Before: `refused[].code = resource.conflict` and the re-key
   sentence ("already holds a Zotero key that is not this item's"). Now its own code,
   `tool.zotero_item_without_key` (`conflict`, 409, public, never thrown), a sentence that
-  says why (the record already belongs to a Zotero reference; without a key the import
+  says why (the record already belongs to another Zotero reference — wording ruled
+  2026-11-18, addendum below; without a key the import
   cannot tell whether it is the same one) and what to do (export again from Zotero so the
   item carries its key, or remove the call-number to create a new record), and one envelope
   notice per run of that code — `details {count, section_ids, variable}` (distinct,
@@ -405,3 +406,16 @@ explanation first).
   Docs: `docs/using/tools/using_import_zotero.md`,
   `docs/development/tools/reference/tool_import_zotero.md`. Fragment
   `zotero-taken-over-and-keyless-reference`.
+
+## Addendum 2026-11-18 — ruling (d) wording: "already belongs to ANOTHER Zotero reference" (owner, follow-up Q4)
+
+Wording only; code, status, notice shape, details and what is written are unchanged.
+
+- `refused[].message` (code `tool.zotero_item_without_key`): "… names record N, which already
+  belongs to **another** Zotero reference (it holds a Zotero key), and this item carries no
+  Zotero key — …" (was "to a Zotero reference").
+- The notice label `error_tool_zotero_item_without_key`: master "… a record that already
+  belongs to another Zotero reference (section_id …)"; `lg-spa` "… ya pertenece a otra
+  referencia de Zotero …"; `lg-cat` "… ja pertany a una altra referència de Zotero …".
+- Gate: `tool_import_zotero_native` ruling (d) — the sentence and the three label texts (RED
+  before; mutation: any one of the four reverted → red).

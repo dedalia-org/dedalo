@@ -253,7 +253,7 @@ Merged since the last release; these ship with the next one.
       not be written (you may not edit the field that holds it) is listed as updated, with the
       key's field among the refused fields.
     - **A reference without a Zotero key.** A reference that carries no Zotero key and whose call
-      number names a record that already belongs to a Zotero reference is still not imported —
+      number names a record that already belongs to another Zotero reference is still not imported —
       the import cannot tell whether it is the same reference. It is now explained: the refused
       line and a warning, in your language, name the record by its number, say why, and say what
       to do — export the reference from Zotero again so that it carries its key, or remove its

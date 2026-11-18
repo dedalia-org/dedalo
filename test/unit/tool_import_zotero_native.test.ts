@@ -804,7 +804,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(refused?.code).toBe('tool.zotero_item_without_key');
 		// WHY…
 		expect(refused?.message).toContain(`call-number '${createdAt}' names record ${createdAt}`);
-		expect(refused?.message).toContain('already belongs to a Zotero reference');
+		expect(refused?.message).toContain('already belongs to another Zotero reference');
 		expect(refused?.message).toContain('this item carries no Zotero key');
 		expect(refused?.message).toContain('cannot tell whether it is the same reference');
 		// …and WHAT TO DO: both ways out.
@@ -826,6 +826,8 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		const text = await noticeText(notices[0] as ApiNotice);
 		expect(text).toContain('1 reference(s) without a Zotero key');
 		expect(text).toContain(`section_id ${createdAt}`);
+		// The wording the owner ruled (2026-11-18, Q4): ANOTHER Zotero reference.
+		expect(text).toContain('a record that already belongs to another Zotero reference');
 		expect(text).toContain('cannot tell whether it is the same reference');
 		expect(text).toContain('Export the reference from Zotero again');
 		expect(text).toContain('remove its call-number to create a new record');
@@ -838,6 +840,12 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			for (const name of ['count', 'section_ids', 'variable'])
 				expect(translated).toContain(`\${${name}}`);
 		}
+		expect((await getLabels('lg-spa')).error_tool_zotero_item_without_key).toContain(
+			'ya pertenece a otra referencia de Zotero',
+		);
+		expect((await getLabels('lg-cat')).error_tool_zotero_item_without_key).toContain(
+			'ja pertany a una altra referència de Zotero',
+		);
 
 		// Untouched.
 		expect(await itemsOf(createdAt, 'string', 'test162')).toEqual(codeBefore);

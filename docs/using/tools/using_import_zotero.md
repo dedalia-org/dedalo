@@ -48,7 +48,7 @@ The import never stops at the first problem: a reference it can read is written,
 - **Refused fields** — a value the record could not take, named with the record and field. The record keeps its stored value for that field. Examples: a date written as text ("circa 1900"), a Zotero item type the configuration's typology list does not know, a journal name held by two Series records.
 - **Created at / updated at their call-number id** — the record numbers of the references whose call number chose their record: the ones created at that number, and the ones that updated the record already there.
 - **Taken over — the record had no Zotero key** — the record numbers of the references whose call number named a record that existed but did not belong to any Zotero reference yet (one created by hand, for instance). The record was written with the reference's values and holds its Zotero key from now on. They are listed apart from the updated records, and counted apart in the summary, so you can check that each one is the record you meant.
-- **Warnings** — shown first, in your language, when you have to act: a call number above the highest record number there is, a reference that names a record you may not change, or a reference without a Zotero key whose call number names a record that already belongs to a Zotero reference (see [Choosing the record number](#choosing-the-record-number-the-call-number)). Each one says how many references it concerns and which values or record numbers.
+- **Warnings** — shown first, in your language, when you have to act: a call number above the highest record number there is, a reference that names a record you may not change, or a reference without a Zotero key whose call number names a record that already belongs to another Zotero reference (see [Choosing the record number](#choosing-the-record-number-the-call-number)). Each one says how many references it concerns and which values or record numbers.
 - **Refused references** — a reference that was not imported because of its call number or of the record it names, listed by its Zotero key with the reason. The rest of the export is imported.
 - **File errors** — an export that is not CSL JSON, or not valid JSON, or larger than 64 MB (split the library and import the parts).
 - **Attachments** — a PDF that was not uploaded with the export, or whose cover could not be rendered.
@@ -75,7 +75,7 @@ The call number must be a whole number written with digits only, from 1 to 21474
 A reference is also refused, and the record left untouched, when:
 
 - the record with that number already holds **another** Zotero key — an import never turns one reference's record into another's;
-- the reference carries **no Zotero key** and the record with that number already belongs to a Zotero reference — see [A reference without a Zotero key](#a-reference-without-a-zotero-key);
+- the reference carries **no Zotero key** and the record with that number already belongs to another Zotero reference — see [A reference without a Zotero key](#a-reference-without-a-zotero-key);
 - the reference's Zotero key is already held by a **different** record than the one its call number names — the import cannot tell which one you mean. This holds for any record of the section, including one outside your projects: the report names it by its number;
 - an earlier reference of the same import carries the same call number;
 - the record with that number exists and you may not change it — the reference is listed as refused, never as updated, and a warning names the record.
@@ -85,7 +85,7 @@ A reference is also refused, and the record left untouched, when:
 
 ### A reference without a Zotero key
 
-A reference normally carries its Zotero key in the export (the `id` of the item). If one does not, and its call number names a record that already belongs to a Zotero reference, the import cannot tell whether it is the same reference or a different one — writing it would silently replace another reference's record. So the reference is **not imported**, the record is left untouched, and the report says so twice: a line under refused references and a warning that names the record by its number.
+A reference normally carries its Zotero key in the export (the `id` of the item). If one does not, and its call number names a record that already belongs to another Zotero reference, the import cannot tell whether it is the same reference or a different one — writing it would silently replace another reference's record. So the reference is **not imported**, the record is left untouched, and the report says so twice: a line under refused references and a warning that names the record by its number.
 
 What to do:
 

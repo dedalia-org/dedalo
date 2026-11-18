@@ -275,7 +275,7 @@ function keyGuard(item: AddressedItem, scope: AddressScope): RecordAddress['refu
  * WHAT TO DO — naming the record by its number only, nothing it holds.
  */
 function withoutKeySentence(variable: string, sectionId: number): string {
-	return `${variable} '${sectionId}' names record ${sectionId}, which already belongs to a Zotero reference (it holds a Zotero key), and this item carries no Zotero key — the import cannot tell whether it is the same reference, so the item was not imported and the record was not changed. Export the reference from Zotero again so that it carries its key, or remove its ${variable} to create a new record.`;
+	return `${variable} '${sectionId}' names record ${sectionId}, which already belongs to another Zotero reference (it holds a Zotero key), and this item carries no Zotero key — the import cannot tell whether it is the same reference, so the item was not imported and the record was not changed. Export the reference from Zotero again so that it carries its key, or remove its ${variable} to create a new record.`;
 }
 
 /** One item's record with its address applied (rule 5), or why it is refused. */
