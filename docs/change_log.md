@@ -443,6 +443,14 @@ Merged since the last release; these ship with the next one.
     and it is measured again when the window is resized. **Frame** also stops lifting its tool
     tab above the label on fields wide enough for both.
 
+- **The thesaurus picker under a field lines up with it and fits a phone screen.**
+
+    The tree that opens under a field to pick terms (the tree button of a relation field) was a
+    pixel narrower than the field and offset from it, and on a phone it was wider than the
+    screen and ran off its left edge. It now has exactly the field's width and edges, never
+    grows wider than the screen, and with the **Lift** style it joins the field's card as its
+    bottom section.
+
 - **Restoring a version from the Time Machine cleans the value like a normal save**
 
     Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.

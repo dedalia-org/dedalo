@@ -268,6 +268,25 @@
 	box-shadow: 0 0 0 1px var(--lift_edge), var(--lift_shadow);
 }
 
+// the thesaurus picker pane (area_thesaurus.less .thesaurus_pane, on <body>,
+// placed under the field by component_portal position_thesaurus_pane) is the
+// card's bottom section, like the autocomplete bar: the same width (the risen
+// card's outer ring is declared to the positioner), edge, corners and shadow,
+// one seam line at the top, and the card squares its bottom corners meanwhile
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area):not(.fullscreen) {
+	--pane_edge_outset: 1px;
+}
+:root[data-active_style="lift"] .thesaurus_pane {
+	border-color: var(--lift_edge);
+	border-top: 1px solid var(--lift_edge);
+	border-radius: 0 0 10px 10px;
+	box-shadow: var(--lift_shadow);
+}
+:root[data-active_style="lift"]:has(body > .thesaurus_pane:not(.hide)) .wrapper_component.edit.active.component_portal:not(.hilite_element):not(.wrapper_tool *) {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
 // ---------------------------------------------------------------------------
 // INSIDE A TOOL PANE — the refined variant (see the header note).
 //

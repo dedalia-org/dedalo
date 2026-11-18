@@ -20702,10 +20702,16 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   border-bottom-left-radius: 5px;
   border-bottom-right-radius: 5px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  min-width: min(50vh, calc(100vw - 1rem));
   max-width: 100vw;
 }
 .thesaurus_pane.hide {
   display: none;
+}
+@media screen and (max-width: 600px) {
+  .thesaurus_pane {
+    min-width: 0;
+  }
 }
 .thesaurus_pane > .area_thesaurus,
 .thesaurus_pane > .area_ontology {
@@ -30824,6 +30830,19 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 }
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area):not(.fullscreen) > .wrapper_service_autocomplete:not(.search) {
   box-shadow: 0 0 0 1px var(--lift_edge), var(--lift_shadow);
+}
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area):not(.fullscreen) {
+  --pane_edge_outset: 1px;
+}
+:root[data-active_style="lift"] .thesaurus_pane {
+  border-color: var(--lift_edge);
+  border-top: 1px solid var(--lift_edge);
+  border-radius: 0 0 10px 10px;
+  box-shadow: var(--lift_shadow);
+}
+:root[data-active_style="lift"]:has(body > .thesaurus_pane:not(.hide)) .wrapper_component.edit.active.component_portal:not(.hilite_element):not(.wrapper_tool *) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 :root[data-active_style="lift"] .wrapper_tool > .content_data .wrapper_component.edit.active:not(.hilite_element) {
   background-color: var(--bg_elevated);
