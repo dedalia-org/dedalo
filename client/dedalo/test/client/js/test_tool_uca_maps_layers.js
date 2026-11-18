@@ -1704,6 +1704,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		tool.attach_catastro();
 		const days = days_around(() => tool.catastro_control.getContainer().click());
 
+		assert.equal(is_catastro_enabled(tool), true, 'expected the click to arm Catastro');
 		assert_credited_day(
 			geolocation.map.attributionControl.getContainer().textContent,
 			'Dirección General del Catastro (Spain), ',
