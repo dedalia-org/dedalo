@@ -601,6 +601,10 @@ HERMETIC_TRIPWIRES=(
 	# --- 2026-11-19 (T2 S09-a, session-read confinement). DB-free: a source scan of src/ and
 	#     tools/ plus planted strings (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
 	test/unit/session_read_confinement_tripwire.test.ts
+	# --- 2026-11-19 (T2 S10-a, no dynamic code in the client). DB-free: a source scan of
+	#     client/dedalo and tools plus planted strings (verified with DB_HOST=127.0.0.1
+	#     DB_PORT=59999).
+	test/unit/client_no_dynamic_code_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

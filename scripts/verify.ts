@@ -477,6 +477,8 @@ const TRIPWIRES = [
 	'test/unit/boot_marker_native.test.ts',
 	// T2 S09-a — the session store is asked by the gate, never by a route (2026-11-19).
 	'test/unit/session_read_confinement_tripwire.test.ts',
+	// T2 S10-a — the client builds no code from strings (2026-11-19).
+	'test/unit/client_no_dynamic_code_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

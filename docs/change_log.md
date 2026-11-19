@@ -1980,6 +1980,16 @@ Merged since the last release; these ship with the next one.
 
 ### For developers
 
+#### Security
+
+- **A tool's window size and position are read as data, never run as code**
+
+    A tool's registration can say where and how large it opens (`properties.windowFeatures`). A value written as `"return screen.width -760"` used to be run as JavaScript in the page of every user who opened the tool, so anyone able to edit a tool's registration could run script there.
+
+    The value is now read against a fixed grammar and nothing in it is executed. A window accepts `left`, `top`, `width` and `height` as a number or as that same relative form — one screen or window dimension, plus or minus a whole number — and a modal accepts its size properties (`width`, `maxWidth`, …). Every tool shipped with Dédalo opens exactly as before. A registration that uses anything else no longer opens: the browser console names the key to correct. The accepted forms are listed in [register.json](./development/tools/register_json.md#propertieswindowfeatures).
+
+    Wire contract: `WC-2026-11-19-window-features-grammar`.
+
 #### Changed
 
 - **A field with no sortable value (links, IRIs, media, access rules, passwords) can no longer be used to sort a list.**
@@ -1993,7 +2003,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 86 entries"
+??? note "Wire contract — 87 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2081,6 +2091,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
     - `WC-2026-11-19-external-api-url-unpublished`
+    - `WC-2026-11-19-window-features-grammar`
 
 ## 7.0.0-beta.8 — 2026-11-08
 
