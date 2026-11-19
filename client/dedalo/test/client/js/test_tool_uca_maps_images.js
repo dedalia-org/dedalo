@@ -3221,7 +3221,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		);
 		try {
 			const first = import_linked_images(tool, layer);
-			await until(() => stage);
+			assert.isOk(await until(() => stage), 'expected the first run to start downloading');
 
 			const second = await import_linked_images(tool, layer);
 			assert.deepEqual(
@@ -3897,7 +3897,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		}
 	});
 
-	it('"Download image" refused: its line stays empty, core\'s notice says why', async function () {
+	it('"Download image" refused: its line stays empty', async function () {
 		const carrier = add_image_carrier();
 		tool.attach_console();
 		select_carrier(carrier);

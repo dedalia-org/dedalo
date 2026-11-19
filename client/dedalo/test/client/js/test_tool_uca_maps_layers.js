@@ -1278,7 +1278,10 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		assert.isOk(save_node, "expected the component's save button");
 		geolocation.is_data_changed = true; // any edit marks it dirty; the button saves nothing otherwise
 		save_node.click();
-		await until(() => layer(101) !== before);
+		assert.isTrue(
+			await until(() => layer(101) !== before),
+			'expected the save to rebuild the layers',
+		);
 
 		assert.equal(geolocation.map.hasLayer(layer(101)), true, 'expected the rebuilt layer kept on');
 		assert.equal(

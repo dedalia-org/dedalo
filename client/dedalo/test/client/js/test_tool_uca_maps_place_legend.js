@@ -1283,7 +1283,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 			}
 			assert.isOk(picker, 'expected the upload button to open a file picker');
 			pick_file(picker, file);
-			await until(done);
+			assert.isOk(await until(done), 'expected the pick to show its outcome');
 		};
 
 		await pick(new File(['x'], 'note.txt', { type: 'text/plain' }), () => !message.hidden);

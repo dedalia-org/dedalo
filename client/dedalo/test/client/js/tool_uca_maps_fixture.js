@@ -42,11 +42,12 @@ export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms)
 export const two_frames = () =>
 	new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-/** Polls until `done()` holds or the tries run out; the caller asserts what it waited for. */
+/** Polls until `done()` holds or the tries run out, and returns its last value to assert. */
 export const until = async function (done, tries = 200, ms = 10) {
 	for (let i = 0; i < tries && !done(); i++) {
 		await tick(ms);
 	}
+	return done();
 };
 
 /**
