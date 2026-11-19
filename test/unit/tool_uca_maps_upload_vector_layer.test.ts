@@ -37,6 +37,7 @@ import {
 	failureOf,
 	haveGdal,
 	loadAction,
+	refusal,
 	stageFile,
 	stagingOf,
 	thrownBy,
@@ -112,12 +113,14 @@ describe('tool_uca_maps upload_vector_layer — the fields are judged after the 
 
 	// v6 drops a partial set without a word
 	test.each([
-		['a malformed EPSG code', { epsg: 'EPSG:4326', zone: '30', band: 'N' }, /Invalid EPSG code/],
-		['zone and band without their EPSG', { zone: '30', band: 'N' }, /fill in the EPSG too/],
-	] as const)('on a file without its own projection, %s is refused', async (_, fields, pattern) => {
-		const error = await failureOf(upload('undeclared.geojson', UNDECLARED, fields));
-		expectCode(error, 'request.invalid_options');
-		expect(error.message).toMatch(pattern);
+		['a malformed EPSG code', { epsg: 'EPSG:4326', zone: '30', band: 'N' }, 'epsg_invalid'],
+		['zone and band without their EPSG', { zone: '30', band: 'N' }, 'projection_epsg_missing'],
+	] as const)('on a file without its own projection, %s is refused', async (_, fields, reason) => {
+		await refusal(
+			upload('undeclared.geojson', UNDECLARED, fields),
+			'request.invalid_options',
+			reason,
+		);
 	});
 
 	test('a declaring file (a crs member, or any KML) refuses the fields, well-formed or not', async () => {
@@ -129,12 +132,16 @@ describe('tool_uca_maps upload_vector_layer — the fields are judged after the 
 			{ epsg: '25830', zone: '30', band: 'N' },
 		];
 		for (const fields of fieldSets) {
-			await expect(upload('declared.geojson', DECLARED, fields)).rejects.toThrow(
-				/already declares its own projection/,
-			);
-			await expect(upload('plain.kml', '<?xml version="1.0"?><kml/>', fields)).rejects.toThrow(
-				/already declares its own projection/,
-			);
+			for (const [name, text] of [
+				['declared.geojson', DECLARED],
+				['plain.kml', '<?xml version="1.0"?><kml/>'],
+			] as const) {
+				await refusal(
+					upload(name, text, fields),
+					'request.invalid_options',
+					'projection_already_declared',
+				);
+			}
 		}
 	});
 
@@ -147,9 +154,11 @@ describe('tool_uca_maps upload_vector_layer — the fields are judged after the 
 			{ epsg: '25831', zone: '31', band: 'N' },
 		];
 		for (const fields of fieldSets) {
-			const error = await failureOf(upload('lenient.geojson', lenient, fields));
-			expectCode(error, 'request.invalid_options');
-			expect(error.message).toMatch(/not strict JSON/);
+			await refusal(
+				upload('lenient.geojson', lenient, fields),
+				'request.invalid_options',
+				'geojson_not_strict',
+			);
 		}
 	});
 });
@@ -322,11 +331,13 @@ describe('tool_uca_maps explodeToSingleParts (pure)', () => {
 });
 
 describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', () => {
-	test('an EPSG that is not 4 to 6 digits is refused', () => {
+	test('an EPSG that is not 4 to 6 digits is refused', async () => {
 		for (const epsg of ['EPSG:4326', '432', '1234567', '43 26']) {
-			const error = thrownBy(() => parseManualProjection({ epsg }));
-			expectCode(error, 'request.invalid_options');
-			expect((error as DedaloError).message).toMatch(/Invalid EPSG code/);
+			await refusal(
+				() => parseManualProjection({ epsg }),
+				'request.invalid_options',
+				'epsg_invalid',
+			);
 		}
 	});
 
@@ -339,15 +350,23 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 		expect(parseManualProjection({ epsg: '4326' })).toEqual({ epsg: '4326', utm: null });
 	});
 
-	test('zone or band without the EPSG, or one without the other, is refused', () => {
+	test('zone or band without the EPSG, or one without the other, is refused', async () => {
 		for (const options of [{ zone: '30' }, { band: 'N' }, { zone: '30', band: 'N' }]) {
-			expect(() => parseManualProjection(options)).toThrow(/fill in the EPSG too/);
+			await refusal(
+				() => parseManualProjection(options),
+				'request.invalid_options',
+				'projection_epsg_missing',
+			);
 		}
 		for (const options of [
 			{ epsg: '25830', zone: '30' },
 			{ epsg: '25830', band: 'N' },
 		]) {
-			expect(() => parseManualProjection(options)).toThrow(/fill in both, or neither/);
+			await refusal(
+				() => parseManualProjection(options),
+				'request.invalid_options',
+				'projection_zone_band_pair',
+			);
 		}
 	});
 
@@ -360,15 +379,19 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 		expect(parseManualProjection({ epsg: '25830', zone: '30', band: 'S' })?.utm?.south).toBe(false);
 	});
 
-	test('a zone outside 1..60 or a letter that is no MGRS band is refused', () => {
+	test('a zone outside 1..60 or a letter that is no MGRS band is refused', async () => {
 		for (const zone of ['0', '61', '3a', '-1']) {
-			expect(() => parseManualProjection({ epsg: '25830', zone, band: 'N' })).toThrow(
-				/Invalid UTM zone/,
+			await refusal(
+				() => parseManualProjection({ epsg: '25830', zone, band: 'N' }),
+				'request.invalid_options',
+				'utm_zone_invalid',
 			);
 		}
 		for (const band of ['I', 'O', 'A', 'Y', 'NN']) {
-			expect(() => parseManualProjection({ epsg: '25830', zone: '30', band })).toThrow(
-				/Invalid UTM band/,
+			await refusal(
+				() => parseManualProjection({ epsg: '25830', zone: '30', band }),
+				'request.invalid_options',
+				'utm_band_invalid',
 			);
 		}
 	});
@@ -389,11 +412,18 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 		expect(() => assertProjectionMatches({ epsg: '4326', utm: null }, LONLAT)).not.toThrow();
 	});
 
-	test('a zone or hemisphere the EPSG contradicts is refused', () => {
-		expect(() => assertProjectionMatches({ epsg: '25830', utm: utm(19, false) }, UTM_30N)).toThrow(
+	// the message names both zones for the log; the user reads the key
+	test('a zone or hemisphere the EPSG contradicts is refused', async () => {
+		const mismatch = (projection: Parameters<typeof assertProjectionMatches>[0], proj: string) =>
+			refusal(
+				() => assertProjectionMatches(projection, proj),
+				'request.invalid_options',
+				'epsg_zone_band_mismatch',
+			);
+		expect((await mismatch({ epsg: '25830', utm: utm(19, false) }, UTM_30N)).message).toMatch(
 			/UTM zone 30, northern hemisphere \(band N to X\), not the zone and band given \(zone 19, northern/,
 		);
-		expect(() => assertProjectionMatches({ epsg: '32719', utm: utm(19, false) }, UTM_19S)).toThrow(
+		expect((await mismatch({ epsg: '32719', utm: utm(19, false) }, UTM_19S)).message).toMatch(
 			/UTM zone 19, southern hemisphere \(band C to M\), not the zone and band given \(zone 19, northern/,
 		);
 	});
@@ -416,6 +446,7 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 			'99999',
 		);
 		expectCode(unknown, 'request.invalid_options');
+		expect((unknown as DedaloError).details?.reason_key).toBe('epsg_unknown');
 
 		for (const message of [
 			'vector_upload (projection lookup): TIMED OUT — the wall-clock budget was spent (killed with SIGKILL)',
@@ -426,12 +457,17 @@ describe('tool_uca_maps upload_vector_layer — v6 manual projection (pure)', ()
 		}
 	});
 
-	test('a UTM code needs its zone and band; a non-UTM one refuses them', () => {
-		expect(() => assertProjectionMatches({ epsg: '25830', utm: null }, UTM_30N)).toThrow(
-			/UTM zone 30, northern hemisphere \(band N to X\): fill in its zone and band too/,
+	test('a UTM code needs its zone and band; a non-UTM one refuses them', async () => {
+		const needs = await refusal(
+			() => assertProjectionMatches({ epsg: '25830', utm: null }, UTM_30N),
+			'request.invalid_options',
+			'epsg_needs_zone_band',
 		);
-		expect(() => assertProjectionMatches({ epsg: '4326', utm: utm(30, false) }, LONLAT)).toThrow(
-			/is not a UTM projection: leave zone and band empty/,
+		expect(needs.message).toMatch(/UTM zone 30, northern hemisphere \(band N to X\)/);
+		await refusal(
+			() => assertProjectionMatches({ epsg: '4326', utm: utm(30, false) }, LONLAT),
+			'request.invalid_options',
+			'epsg_not_utm',
 		);
 	});
 });
@@ -468,11 +504,11 @@ describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
 	});
 
 	test('a GeoJSON that is not strict JSON is refused, never read as undeclared', async () => {
-		const error = await probe('loose.geojson', '{"type":"FeatureCollection","features":[],}').catch(
-			(caught: unknown) => caught,
+		await refusal(
+			probe('loose.geojson', '{"type":"FeatureCollection","features":[],}'),
+			'request.invalid_options',
+			'geojson_not_strict',
 		);
-		expectCode(error, 'request.invalid_options');
-		expect((error as DedaloError).message).toMatch(/not strict JSON/);
 	});
 });
 
@@ -530,7 +566,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 
 	test('a staged file over the 10 MB cap is refused before any conversion runs', async () => {
 		stageUpload(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
-		await expect(uploadStaged(SCRATCH_USER, 'big.geojson')).rejects.toThrow(/exceeds the .* limit/);
+		await refusal(uploadStaged(SCRATCH_USER, 'big.geojson'), 'media.too_large', 'upload_too_large');
 	});
 
 	test('a zip under the 10 MB cap that inflates past 200 MB is refused before GDAL opens it', async () => {
@@ -545,10 +581,11 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 		);
 		await writer.finish();
 		stageUpload(SCRATCH_USER, 'bomb.zip', Buffer.concat(chunks));
-		const error = await failureOf(
+		const error = await refusal(
 			uploadStaged(SCRATCH_USER, 'bomb.zip', { epsg: '25830', zone: '30', band: 'N' }),
+			'media.too_large',
+			'zip_too_large',
 		);
-		expectCode(error, 'media.too_large');
 		expect(error.message).toMatch(/inflates to more than 200000000 bytes/);
 	});
 });
@@ -561,13 +598,15 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 
 	test('a refused upload still deletes its staged file', async () => {
 		stageUpload(SCRATCH_USER, 'layer.exe', 'MZ');
-		const error = await failureOf(uploadStaged(SCRATCH_USER, 'layer.exe'));
-		expectCode(error, 'request.invalid_options');
-		expect(error.message).toMatch(/Unsupported vector file extension 'exe'/);
+		await refusal(
+			uploadStaged(SCRATCH_USER, 'layer.exe'),
+			'request.invalid_options',
+			'upload_extension_unsupported',
+		);
 		expect(existsSync(uploadPath(SCRATCH_USER, 'layer.exe'))).toBe(false);
 
 		stageUpload(SCRATCH_USER, 'big.geojson', Buffer.alloc(10_000_001));
-		await expect(uploadStaged(SCRATCH_USER, 'big.geojson')).rejects.toThrow(/exceeds/);
+		await refusal(uploadStaged(SCRATCH_USER, 'big.geojson'), 'media.too_large', 'upload_too_large');
 		expect(existsSync(uploadPath(SCRATCH_USER, 'big.geojson'))).toBe(false);
 	});
 
@@ -593,7 +632,11 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 		const photo = resolve(stagingOf(SCRATCH_USER), 'image', 'old_photo.png');
 		utimesSync(photo, past, past);
 		stageUpload(SCRATCH_USER, 'layer.exe', 'MZ');
-		await expect(uploadStaged(SCRATCH_USER, 'layer.exe')).rejects.toThrow(/Unsupported/);
+		await refusal(
+			uploadStaged(SCRATCH_USER, 'layer.exe'),
+			'request.invalid_options',
+			'upload_extension_unsupported',
+		);
 		expect(existsSync(uploadPath(SCRATCH_USER, 'stale.geojson'))).toBe(false);
 		expect(existsSync(uploadPath(SCRATCH_USER, 'recent.geojson'))).toBe(true);
 		expect(existsSync(photo)).toBe(true);
@@ -719,6 +762,7 @@ describe("tool_uca_maps upload_vector_layer — ogr2ogr's output, checked before
 			}),
 		);
 		expectCode(refusal, 'media.too_large');
+		expect(refusal.details?.reason_key).toBe('converted_layer_too_large');
 		expect(refusal.message).toMatch(/converted layer \(200000001 bytes\) exceeds/);
 	});
 
@@ -875,9 +919,11 @@ describe.skipIf(!HAVE_GDAL)(
 
 			// the file's own .prj wins, as in v6: even fields that agree with it are
 			// refused rather than handed to -s_srs, which would override it silently
-			await expect(
+			await refusal(
 				uploadStaged(SCRATCH_USER, 'plain.zip', { epsg: '25830', zone: '30', band: 'N' }),
-			).rejects.toThrow(/already declares its own projection/);
+				'request.invalid_options',
+				'projection_already_declared',
+			);
 
 			// checked BEFORE the EPSG lookup: a UTM code without zone/band, or a
 			// wrong zone, must not first send the user to fill in more fields
@@ -886,8 +932,10 @@ describe.skipIf(!HAVE_GDAL)(
 				{ epsg: '25830', zone: '19', band: 'N' },
 			];
 			for (const fields of partialOrWrong) {
-				await expect(uploadStaged(SCRATCH_USER, 'plain.zip', fields)).rejects.toThrow(
-					/already declares its own projection/,
+				await refusal(
+					uploadStaged(SCRATCH_USER, 'plain.zip', fields),
+					'request.invalid_options',
+					'projection_already_declared',
 				);
 			}
 		});
@@ -922,20 +970,24 @@ describe.skipIf(!HAVE_GDAL)(
 				return Bun.file(out).arrayBuffer();
 			});
 			stageUpload(SCRATCH_USER, 'noprj.zip', new Uint8Array(zipBytes));
-			await expect(uploadStaged(SCRATCH_USER, 'noprj.zip')).rejects.toThrow(
-				/no embedded coordinate system/,
+			await refusal(
+				uploadStaged(SCRATCH_USER, 'noprj.zip'),
+				'request.invalid_options',
+				'no_coordinate_system',
 			);
 
 			// PROJ, not a regex, says what 25830 is: a zone it contradicts and a
 			// code it does not know are both refused before ogr2ogr runs
-			await expect(
+			await refusal(
 				uploadStaged(SCRATCH_USER, 'noprj.zip', { epsg: '25830', zone: '19', band: 'N' }),
-			).rejects.toThrow(
-				/UTM zone 30, northern hemisphere \(band N to X\), not the zone and band given \(zone 19, northern/,
+				'request.invalid_options',
+				'epsg_zone_band_mismatch',
 			);
-			await expect(
+			await refusal(
 				uploadStaged(SCRATCH_USER, 'noprj.zip', { epsg: '99999', zone: '30', band: 'N' }),
-			).rejects.toThrow(/Unknown EPSG code/);
+				'request.invalid_options',
+				'epsg_unknown',
+			);
 
 			// S is an MGRS band of the north (Spain lies in S and T)
 			const response = await uploadStaged(SCRATCH_USER, 'noprj.zip', {
@@ -989,8 +1041,10 @@ describe.skipIf(!HAVE_GDAL)(
 			stageUpload(SCRATCH_USER, 'declared.geojson', JSON.stringify(declared));
 			stageUpload(SCRATCH_USER, 'legacy.geojson', JSON.stringify(legacy));
 			const fields = { epsg: '25830', zone: '30', band: 'N' };
-			await expect(uploadStaged(SCRATCH_USER, 'declared.geojson', fields)).rejects.toThrow(
-				/already declares its own projection/,
+			await refusal(
+				uploadStaged(SCRATCH_USER, 'declared.geojson', fields),
+				'request.invalid_options',
+				'projection_already_declared',
 			);
 
 			const response = await uploadStaged(SCRATCH_USER, 'legacy.geojson', fields);

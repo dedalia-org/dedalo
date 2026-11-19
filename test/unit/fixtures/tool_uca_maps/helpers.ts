@@ -17,6 +17,7 @@ import type {
 	ToolActionSpec,
 	ToolServerModule,
 } from '../../../../src/core/tools/module.ts';
+import type { ReasonKey } from '../../../../tools/tool_uca_maps/server/reasons.ts';
 import { mustGet } from '../../../helpers/assert.ts';
 
 /** The map record every map-bound action names: test2's component_geolocation. */
@@ -72,6 +73,22 @@ export function thrownBy(run: () => unknown): unknown {
 export function expectCode(error: unknown, code: DedaloError['code']): void {
 	expect(error).toBeInstanceOf(DedaloError);
 	expect((error as DedaloError).code).toBe(code);
+}
+
+/**
+ * A refusal the user reads: its code, and the reason_key the browser turns into
+ * the sentence they see (the message only goes to the log). `run` is a promise
+ * expected to reject or a function expected to throw.
+ */
+export async function refusal(
+	run: Promise<unknown> | (() => unknown),
+	code: DedaloError['code'],
+	reason: ReasonKey,
+): Promise<DedaloError> {
+	const error = typeof run === 'function' ? thrownBy(run) : await failureOf(run);
+	expectCode(error, code);
+	expect((error as DedaloError).details?.reason_key).toBe(reason);
+	return error as DedaloError;
 }
 
 /** The envelope's `data` of a response that must be a success. */

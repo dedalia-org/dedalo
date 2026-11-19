@@ -31,6 +31,7 @@ import {
 	dataOf,
 	expectCode,
 	failureOf,
+	refusal,
 	thrownBy,
 } from './fixtures/tool_uca_maps/helpers.ts';
 import { scriptedSite } from './fixtures/tool_uca_maps/scripted_site.ts';
@@ -262,11 +263,13 @@ describe('searchPelagios: the dataset list the client sends is filtered, not tru
 		contextOf({ query: 'Baetica', datasets }, -1, { record: false });
 
 	test('a name outside the closed list is dropped, and dropping them all is refused', async () => {
-		await expect(searchPelagios(searching(['../../etc/passwd', 'places_secret']))).rejects.toThrow(
-			/at least one dataset/,
-		);
-		await expect(searchPelagios(searching([]))).rejects.toThrow(/at least one dataset/);
-		await expect(searchPelagios(searching(undefined))).rejects.toThrow(/at least one dataset/);
+		for (const datasets of [['../../etc/passwd', 'places_secret'], [], undefined]) {
+			await refusal(
+				searchPelagios(searching(datasets)),
+				'request.invalid_options',
+				'no_dataset_selected',
+			);
+		}
 	});
 });
 

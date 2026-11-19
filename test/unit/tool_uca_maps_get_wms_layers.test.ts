@@ -12,12 +12,19 @@ import {
 	normalizeWmsBaseUrl,
 	wmsCapabilitiesUrl,
 } from '../../tools/tool_uca_maps/server/wms.ts';
-import { contextOf, expectCode, failureOf, loadAction } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	contextOf,
+	expectCode,
+	failureOf,
+	loadAction,
+	refusal,
+} from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
 	test('an empty/missing url is refused as request.invalid_options, before the door', async () => {
-		expect(() => normalizeWmsBaseUrl('')).toThrow(/URL is required/);
-		expect(() => normalizeWmsBaseUrl('   ')).toThrow(/URL is required/);
+		for (const url of ['', '   ']) {
+			await refusal(() => normalizeWmsBaseUrl(url), 'request.invalid_options', 'wms_url_required');
+		}
 
 		// a scripted site, so a lost guard cannot reach a real one
 		const sent: string[] = [];
@@ -27,9 +34,7 @@ describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
 				throw new Error('no site here');
 			},
 		};
-		const error = await failureOf(getWmsLayers(contextOf({}), site));
-		expectCode(error, 'request.invalid_options');
-		expect(error.message).toMatch(/URL is required/);
+		await refusal(getWmsLayers(contextOf({}), site), 'request.invalid_options', 'wms_url_required');
 		expect(sent).toEqual([]);
 
 		// the positive control: a valid url does reach the scripted site
@@ -37,10 +42,10 @@ describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
 		expect(sent.length).toBeGreaterThan(0);
 	});
 
-	test('a non-absolute or non-http(s) url is refused', () => {
-		expect(() => normalizeWmsBaseUrl('geoserver/wms')).toThrow(/valid URL/);
-		expect(() => normalizeWmsBaseUrl('ftp://example.com/wms')).toThrow(/valid URL/);
-		expect(() => normalizeWmsBaseUrl('javascript:alert(1)')).toThrow(/valid URL/);
+	test('a non-absolute or non-http(s) url is refused', async () => {
+		for (const url of ['geoserver/wms', 'ftp://example.com/wms', 'javascript:alert(1)']) {
+			await refusal(() => normalizeWmsBaseUrl(url), 'request.invalid_options', 'wms_url_invalid');
+		}
 	});
 
 	test('query and fragment are stripped — v6 parity (it discards whatever the user typed after "?")', () => {

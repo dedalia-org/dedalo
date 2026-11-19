@@ -25,6 +25,7 @@ import {
 	failureOf,
 	haveGdal,
 	loadAction,
+	refusal,
 	runFixtureBinary,
 	withTempDir,
 } from './fixtures/tool_uca_maps/helpers.ts';
@@ -91,6 +92,16 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 			});
 		});
 	}
+
+	// the one refusal here the user can fix: the browser explains it by its key
+	test('a name that sanitizes to nothing is refused with the key the user reads', async () => {
+		const action = await loadAction('image_download');
+		await refusal(
+			action.handler(contextOf({ ...VALID, file_name: '///' }, 1, { record: false })),
+			'request.invalid_options',
+			'file_name_unusable',
+		);
+	});
 
 	// a key every object inherits is no format: the format table is read by own keys only
 	test.each(['toString', 'constructor', '__proto__'])(
