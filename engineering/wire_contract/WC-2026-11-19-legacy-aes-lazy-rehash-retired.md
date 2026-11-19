@@ -30,7 +30,11 @@ an Argon2id hash — an account upgraded itself the next time its owner logged i
   (`auth.ts countLegacyPasswordAccounts` → `update/boot_state.ts
   refreshLegacyPasswordNotice`); `/health` carries the notice
   `notices: ['legacy_password_accounts']` — never red, never the number (the
-  probe answers anyone).
+  probe answers anyone). The notice FOLLOWS the condition: `/health` re-takes
+  the count with the boot's counter at most once per
+  `LEGACY_PASSWORD_RECOUNT_MS` (60 s; single-flight, never one query per call),
+  so it is withdrawn within a minute of the out-of-process migration and
+  returns within a minute of an account put back on a legacy value — no restart.
 
 ## Reason
 
@@ -49,4 +53,7 @@ the oracle). Native gate: the refusal's log line names the command and no PHP,
 the wire answer equals a wrong password's; the count (legacy +1, Argon2id / empty
 +0); the boot notice (number + command; silence at 0; an unreadable count is
 said, recorded as not counted); `/health` (notice, 200, no number) through the
-real route. RED before (the line named PHP). Mutations red ×7. No re-harvest.
+real route; the notice withdrawn / returned across the recount window with the
+query count pinned (1 per window, 20 concurrent callers share one); the REAL
+server spawned on the suite database (boot line on stderr, notice on `/health`).
+RED before (the line named PHP). Mutations red ×7. No re-harvest.

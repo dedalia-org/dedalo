@@ -14,16 +14,28 @@
  * names the command; /health carries a notice, never red and never a number
  * (it answers anyone).
  *
+ * And (T2 B1 review, S3-2 / S3-5 / S3-7): the notice FOLLOWS the condition —
+ * the fix runs in another process, so /health re-takes the count at most once
+ * per LEGACY_PASSWORD_RECOUNT_MS (never per call) and the notice goes, or comes,
+ * without a restart; and the REAL server's boot is what counts: spawned on the
+ * suite database with a legacy account planted, its stderr carries the boot
+ * line and its /health the notice.
+ *
  * The legacy value is planted on the ACL identity fixture's reader (a scratch
  * dd128 record the fixture owns and removes) — never on an installed account.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { anonymousHealthView, buildHealthPayload } from '../../src/core/api/health_payload.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { countLegacyPasswordAccounts, login } from '../../src/core/security/auth.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
+	currentLegacyPasswordAccounts,
+	LEGACY_PASSWORD_RECOUNT_MS,
 	legacyPasswordAccounts,
 	refreshLegacyPasswordNotice,
 	resetBootStateForTest,
@@ -35,6 +47,7 @@ import {
 	removeAclIdentityFixture,
 } from '../helpers/acl_identity_fixture.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
+import { markProcessesDir } from '../helpers/test_media_root.ts';
 
 registerSessionCleanup();
 
@@ -82,6 +95,7 @@ beforeAll(async () => {
 
 afterEach(() => {
 	resetBootStateForTest();
+	setSystemTime();
 });
 
 afterAll(async () => {
@@ -187,4 +201,147 @@ describe('/health', () => {
 		);
 		expect('notices' in ((await clean.json()) as Record<string, unknown>)).toBe(false);
 	});
+});
+
+async function healthNotices(): Promise<unknown> {
+	const response = await handleRequest(
+		new Request('http://localhost/health'),
+		createRequestContext(),
+	);
+	expect(response.status).toBe(200);
+	return ((await response.json()) as Record<string, unknown>).notices;
+}
+
+describe('/health follows the condition without a restart', () => {
+	/** The real reader, counted: how many queries the probe cost. */
+	function countedReader(): { count: () => Promise<number>; calls: () => number } {
+		let calls = 0;
+		return {
+			count: async () => {
+				calls += 1;
+				return countLegacyPasswordAccounts();
+			},
+			calls: () => calls,
+		};
+	}
+
+	test('migrated in another process → the notice is gone after the window; put back → it returns; never one query per call', async () => {
+		// FLOOR: the suite database holds no legacy account of its own, so the
+		// planted one is the whole condition.
+		await setStoredPassword(null);
+		expect(await countLegacyPasswordAccounts()).toBe(0);
+
+		await setStoredPassword(LEGACY_VALUE);
+		const reader = countedReader();
+		const bootAt = Date.now();
+		// the boot's step, exactly as server.ts takes it
+		await captured(() => refreshLegacyPasswordNotice(reader.count));
+		expect(reader.calls()).toBe(1);
+		expect(await healthNotices()).toEqual(['legacy_password_accounts']);
+
+		// what `bun run dedalo:migrate-passwords` leaves: an Argon2id hash
+		await setStoredPassword(await Bun.password.hash('Conforming-Passw0rd-2017!', 'argon2id'));
+
+		// inside the window the probe costs NO query, however often it is asked
+		for (let call = 0; call < 25; call += 1) await healthNotices();
+		expect(reader.calls()).toBe(1);
+
+		// past the window: ONE recount, shared by concurrent callers; the notice is gone
+		setSystemTime(new Date(bootAt + LEGACY_PASSWORD_RECOUNT_MS + 1_000));
+		const lines = await captured(async () => {
+			const answers = await Promise.all(Array.from({ length: 20 }, () => healthNotices()));
+			expect(answers.every((notices) => notices === undefined)).toBe(true);
+		});
+		expect(reader.calls()).toBe(2);
+		expect(legacyPasswordAccounts()).toBe(0);
+		// the change is said once, with no command left to run
+		expect(lines.filter((line) => line.includes('LEGACY PASSWORDS'))).toHaveLength(1);
+		for (let call = 0; call < 25; call += 1) await healthNotices();
+		expect(reader.calls()).toBe(2);
+
+		// the reverse: an account put back on a legacy value after boot is noticed
+		await setStoredPassword(LEGACY_VALUE);
+		setSystemTime(new Date(bootAt + 2 * LEGACY_PASSWORD_RECOUNT_MS + 2_000));
+		const back = await captured(async () => {
+			expect(await healthNotices()).toEqual(['legacy_password_accounts']);
+		});
+		expect(reader.calls()).toBe(3);
+		expect(back.join('\n')).toContain(COMMAND);
+	});
+
+	test('a recount that fails is said and served as not counted; a process whose boot never counted asks nothing', async () => {
+		let fail = false;
+		const lines = await captured(async () => {
+			await refreshLegacyPasswordNotice(async () => {
+				if (fail) throw new Error('db down');
+				return 4;
+			}, 1_000);
+			fail = true;
+			expect(await currentLegacyPasswordAccounts(1_000 + LEGACY_PASSWORD_RECOUNT_MS)).toBeNull();
+		});
+		expect(lines.some((line) => line.includes('could not be counted'))).toBe(true);
+		resetBootStateForTest();
+		expect(await currentLegacyPasswordAccounts(Number.MAX_SAFE_INTEGER)).toBeNull();
+	});
+
+	test('the window is a minute or less (the doc says "within a minute") and not zero', () => {
+		expect(LEGACY_PASSWORD_RECOUNT_MS).toBeGreaterThanOrEqual(10_000);
+		expect(LEGACY_PASSWORD_RECOUNT_MS).toBeLessThanOrEqual(60_000);
+	});
+});
+
+describe('the REAL server boot counts (the wiring in startServer)', () => {
+	const ROOT = resolve(import.meta.dir, '../..');
+	// Short: macOS caps a unix socket path at 104 bytes.
+	const scratch = mkdtempSync(join(tmpdir(), 'zzlp_'));
+	afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+	test('spawned on the suite database with a legacy account planted: the boot line on stderr, the notice on /health', async () => {
+		await setStoredPassword(LEGACY_VALUE);
+		const socket = join(scratch, 's.sock');
+		const server = Bun.spawn([process.execPath, 'run', 'src/server.ts'], {
+			cwd: ROOT,
+			env: {
+				...(process.env as Record<string, string>),
+				SERVER_UNIX_SOCKET: socket,
+				SERVER_TCP_PORT: '',
+				SERVER_TCP_TLS_CERT_FILE: '',
+				SERVER_TCP_TLS_KEY_FILE: '',
+				DEDALO_DIFFUSION_SCHEDULER_ENABLED: 'false',
+				DEDALO_MEDIA_PROCESSES_DIR: markProcessesDir(join(scratch, 'processes')),
+			},
+			stdout: 'ignore',
+			stderr: 'pipe',
+		});
+		const stderr = new Response(server.stderr as ReadableStream).text();
+		let health: { status: number; body: Record<string, unknown> } | null = null;
+		try {
+			const deadline = Date.now() + 60_000;
+			while (Date.now() < deadline && health === null) {
+				if (server.exitCode !== null) break;
+				try {
+					const response = await fetch('http://localhost/health', { unix: socket });
+					health = {
+						status: response.status,
+						body: (await response.json()) as Record<string, unknown>,
+					};
+				} catch {
+					await Bun.sleep(100);
+				}
+			}
+		} finally {
+			server.kill('SIGTERM');
+			await server.exited;
+		}
+		const log = await stderr;
+		expect(
+			health,
+			`the server never answered /health; stderr:\n${log.slice(-2000)}`,
+		).not.toBeNull();
+		expect(health?.status).toBe(200);
+		expect(health?.body.notices).toEqual(['legacy_password_accounts']);
+		const line = log.split('\n').find((entry) => entry.includes('[boot] LEGACY PASSWORDS')) ?? '';
+		expect(line).toContain('1 account(s)');
+		expect(line).toContain(COMMAND);
+	}, 90_000);
 });

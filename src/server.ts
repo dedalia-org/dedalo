@@ -120,6 +120,7 @@ import {
 	bootSchemaMoved,
 	bootSchemaStateName,
 	bootSchemaVerdict,
+	currentLegacyPasswordAccounts,
 	dataVersionState,
 	legacyPasswordAccounts,
 	recordBootSchemaVerdict,
@@ -1037,7 +1038,11 @@ export async function handleRequest(request: Request, context: RequestContext): 
 			// The update run in flight (design §3.5) — red only for an ordered code rollback.
 			updateRun: updateRunFacts(),
 			// Accounts still on a v6 password value (T2 D08-a) — a notice, never red.
-			legacyPasswordAccounts: legacyPasswordAccounts(),
+			// Re-counted at most once a minute (boot_state.ts), so it follows the
+			// out-of-process fix without a restart; never asked of a database that is down.
+			legacyPasswordAccounts: dbOk
+				? await currentLegacyPasswordAccounts()
+				: legacyPasswordAccounts(),
 		});
 		return jsonResponse(anonymousHealthView(payload), payload.result === 'ok' ? 200 : 503);
 	}

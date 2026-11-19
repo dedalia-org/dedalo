@@ -193,7 +193,8 @@ algorithm and no "try the old scheme" branch.
     The server tells you when accounts are waiting. At start it counts the
     accounts whose stored password is not Argon2id and logs one warning with the
     number and the command (`[boot] LEGACY PASSWORDS: …`); `/health` then carries
-    `"notices": ["legacy_password_accounts"]` — a notice, the probe stays green —
+    `"notices": ["legacy_password_accounts"]` — a notice, the probe stays green,
+    and it goes within a minute of the migration, without a restart —
     and the refusal of each such login names the command in the server log. See
     [Migrate the passwords](../../install/migrating_from_v6.md#62-migrate-the-passwords).
 

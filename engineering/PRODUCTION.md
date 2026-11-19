@@ -1723,7 +1723,10 @@ against the code's declared data version): `pending` is reported, not red (run
 — a database of an older major than any rung of the update catalog starts from
 (a Dédalo v6 database: its migration runs on v6) — is red too. `notices` lists
 what an operator should act on without the probe going red
-(`legacy_password_accounts`: run `bun run dedalo:migrate-passwords`).
+(`legacy_password_accounts`: run `bun run dedalo:migrate-passwords`). That
+notice is not a boot snapshot: the count is taken at boot and again by `/health`
+at most once a minute (`boot_state.ts LEGACY_PASSWORD_RECOUNT_MS` — never per
+call), so it goes within a minute of the migration, with no restart.
 A pending, unconfirmed sentinel is the machine-readable fact "the last update
 never proved itself". Because it is written pre-swap, the `backupDir` it names
 may not exist yet — the rollback script handles that state explicitly (below).

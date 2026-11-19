@@ -390,7 +390,7 @@ Nothing asks you to install, either: there is no install page. A migrated instan
      WHERE "string"->'dd133'->0->>'value' NOT LIKE '$argon2%';
     ```
 
-The server counts them for you too: every start logs `[boot] LEGACY PASSWORDS: <n> account(s) still hold a Dédalo v6 password value …` while any remain, `/health` carries `"notices": ["legacy_password_accounts"]`, and each refused login of such an account is logged with the command below.
+The server counts them for you too: every start logs `[boot] LEGACY PASSWORDS: <n> account(s) still hold a Dédalo v6 password value …` while any remain, `/health` carries `"notices": ["legacy_password_accounts"]` (re-checked about once a minute, so it disappears shortly after the command below ran — no restart needed), and each refused login of such an account is logged with the command below.
 
 **Nobody has to choose a new password.** Because the old storage is reversible, the tool decrypts each legacy value once and re-hashes it with Argon2id. Users log in afterwards with the passwords they already have, and are never told anything happened.
 

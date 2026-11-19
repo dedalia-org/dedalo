@@ -72,6 +72,12 @@ interface BootStateFacts {
 	run: UpdateRunFacts | null;
 	/** Accounts on a non-Argon2 stored password; null = not counted (or unreadable). */
 	legacyPasswords: number | null;
+	/** When that count was taken (ms epoch); 0 = never. */
+	legacyPasswordsAt: number;
+	/** The boot's counter, kept so the count can be taken again; null = no boot count. */
+	legacyPasswordCounter: (() => Promise<number>) | null;
+	/** The recount in flight (single-flight), or null. */
+	legacyPasswordRecount: Promise<number | null> | null;
 }
 
 const bootState: BootStateFacts = {
@@ -79,6 +85,9 @@ const bootState: BootStateFacts = {
 	data: null,
 	run: null,
 	legacyPasswords: null,
+	legacyPasswordsAt: 0,
+	legacyPasswordCounter: null,
+	legacyPasswordRecount: null,
 };
 
 /** Record the update run's facts (the boot's journal read, then every executor step). */
@@ -221,19 +230,19 @@ export function dataVersionState(): DataVersionState | null {
  * (never red: the engine is healthy; never the number: the probe answers anyone).
  * A count that cannot be read is said and recorded as null — never guessed.
  * `count` is injected by the boot (auth.ts countLegacyPasswordAccounts): this
- * module reads no database.
+ * module reads no database. The counter is KEPT: the fix runs in another process
+ * (`bun run dedalo:migrate-passwords`), so /health re-takes the count through
+ * {@link currentLegacyPasswordAccounts} — the notice must not outlive the
+ * condition until the next restart.
  */
 export async function refreshLegacyPasswordNotice(
 	count: () => Promise<number>,
+	now: number = Date.now(),
 ): Promise<number | null> {
-	let accounts: number | null;
-	try {
-		accounts = await count();
-	} catch (error) {
-		console.error('[boot] legacy password accounts could not be counted:', error);
-		accounts = null;
-	}
+	bootState.legacyPasswordCounter = count;
+	const accounts = await countLegacyPasswords(count, '[boot]');
 	bootState.legacyPasswords = accounts;
+	bootState.legacyPasswordsAt = now;
 	if (accounts !== null && accounts > 0) {
 		console.warn(
 			`[boot] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (not Argon2id) and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database (docs/install/migrating_from_v6.md, "Migrate the passwords"); nobody has to choose a new password`,
@@ -242,9 +251,68 @@ export async function refreshLegacyPasswordNotice(
 	return accounts;
 }
 
+/** One count; a failure is said and answered as null (not counted) — never a guess. */
+async function countLegacyPasswords(
+	count: () => Promise<number>,
+	tag: string,
+): Promise<number | null> {
+	try {
+		return await count();
+	} catch (error) {
+		console.error(`${tag} legacy password accounts could not be counted:`, error);
+		return null;
+	}
+}
+
 /** The last counted legacy-password accounts, or null when not counted. */
 export function legacyPasswordAccounts(): number | null {
 	return bootState.legacyPasswords;
+}
+
+/**
+ * How long a legacy-password count is served before /health takes it again. The
+ * probe answers anyone, so the count is NOT taken per call: at most one query
+ * per window, whatever the traffic.
+ */
+export const LEGACY_PASSWORD_RECOUNT_MS = 60_000;
+
+/**
+ * The legacy-password count /health serves (T2 B1 review, S3-5/7): the boot's
+ * count while it is younger than {@link LEGACY_PASSWORD_RECOUNT_MS}, else taken
+ * again with the boot's own counter — one recount in flight at a time, shared by
+ * every caller that arrives meanwhile. So the notice goes away within a minute
+ * of `bun run dedalo:migrate-passwords` (another process: nothing can tell this
+ * one), and appears within a minute of an account being put back on a legacy
+ * value — no restart either way. A process whose boot never counted (a smoke
+ * boot) has no counter and answers what is recorded. A change is logged once.
+ */
+export async function currentLegacyPasswordAccounts(
+	now: number = Date.now(),
+): Promise<number | null> {
+	const count = bootState.legacyPasswordCounter;
+	if (count === null) return bootState.legacyPasswords;
+	if (now - bootState.legacyPasswordsAt < LEGACY_PASSWORD_RECOUNT_MS) {
+		return bootState.legacyPasswords;
+	}
+	bootState.legacyPasswordRecount ??= (async () => {
+		try {
+			const accounts = await countLegacyPasswords(count, '[health]');
+			const before = bootState.legacyPasswords;
+			bootState.legacyPasswords = accounts;
+			bootState.legacyPasswordsAt = now;
+			if (accounts !== null && before !== null && accounts !== before) {
+				console.warn(
+					accounts === 0
+						? `[health] LEGACY PASSWORDS: none left (was ${before}) — the /health notice is withdrawn`
+						: `[health] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (was ${before}) — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database`,
+				);
+			}
+			return accounts;
+		} finally {
+			bootState.legacyPasswordRecount = null;
+		}
+	})();
+	return bootState.legacyPasswordRecount;
 }
 
 /** TEST-ONLY: forget every fact (the state is process-global by design). */
@@ -253,4 +321,7 @@ export function resetBootStateForTest(): void {
 	bootState.data = null;
 	bootState.run = null;
 	bootState.legacyPasswords = null;
+	bootState.legacyPasswordsAt = 0;
+	bootState.legacyPasswordCounter = null;
+	bootState.legacyPasswordRecount = null;
 }
