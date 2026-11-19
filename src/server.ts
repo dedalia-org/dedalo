@@ -121,9 +121,11 @@ import {
 	bootSchemaStateName,
 	bootSchemaVerdict,
 	dataVersionState,
+	legacyPasswordAccounts,
 	recordBootSchemaVerdict,
 	recordUpdateRunFacts,
 	refreshDataVersionState,
+	refreshLegacyPasswordNotice,
 	updateRunFacts,
 } from './core/update/boot_state.ts';
 import { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from './core/update/build_stamp.ts';
@@ -1034,6 +1036,8 @@ export async function handleRequest(request: Request, context: RequestContext): 
 			dataVersion: dataVersionState(),
 			// The update run in flight (design §3.5) — red only for an ordered code rollback.
 			updateRun: updateRunFacts(),
+			// Accounts still on a v6 password value (T2 D08-a) — a notice, never red.
+			legacyPasswordAccounts: legacyPasswordAccounts(),
 		});
 		return jsonResponse(anonymousHealthView(payload), payload.result === 'ok' ? 200 : 503);
 	}
@@ -1942,6 +1946,13 @@ export async function startServer() {
 	// writers). A box whose database is not the install's yet never gets here:
 	// the fail-closed check at the top of startServer refused it.
 	if (!smokeBoot) {
+		// Accounts still on a v6 password value cannot log in (T2 D08-a): counted and
+		// said NOW, not discovered through the first user who is refused. Never
+		// fatal — an unreadable count is logged and reported as not counted.
+		{
+			const { countLegacyPasswordAccounts } = await import('./core/security/auth.ts');
+			await refreshLegacyPasswordNotice(countLegacyPasswordAccounts);
+		}
 		// Register the RAG save/delete → index-queue hook (no-op when
 		// DEDALO_RAG_ENABLED is off). Must run before serving so writes are captured.
 		initRagHooks();

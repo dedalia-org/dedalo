@@ -2,7 +2,7 @@
  * BOOT STATE — what this process learned about its own schema and data at boot
  * (update audit 2026-10-29, U-01 / U-04).
  *
- * Three facts, all request-INDEPENDENT process-lifecycle state (same class as
+ * Four facts, all request-INDEPENDENT process-lifecycle state (same class as
  * process_health.ts's poison latch — module_state_tripwire allowlist):
  *
  *  - the BOOT SCHEMA verdict: did this boot's migration run succeed? A failed
@@ -16,6 +16,13 @@
  *    `pending` = the database is BEHIND the code (an "Update data" is due);
  *    `ahead` = the database is NEWER than the code (old code restored over a
  *    migrated database — VERSIONING_SPEC S7: needs a human, never served green).
+ *    `unreachable` = the database is of an OLDER MAJOR than any rung of the
+ *    catalog starts at (a Dédalo v6 database): no "Update data" of this engine
+ *    can move it — its migration runs on the engine that owns it. Red (T2 D08-b).
+ *
+ *  - the LEGACY PASSWORD count (T2 D08-a): accounts whose stored password is not
+ *    Argon2id — they cannot log in until `bun run dedalo:migrate-passwords` ran.
+ *    A boot warning and a /health notice; never red.
  *
  *  - the UPDATE RUN facts (design §3.5): the run in flight and whether it owns
  *    this boot — /health carries them, and a run applying pending schema/data
@@ -26,10 +33,12 @@
  */
 
 import type { BootSchemaVerdict } from '../../../install/db/migrate.ts';
+import { MIGRATE_PASSWORDS_COMMAND } from '../security/password_hash.ts';
+import { lowestReachableFrom } from './catalog.ts';
 import { compareVersionArrays, DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 
 /** Installed data version vs the code's declared one. */
-export type DataVersionStateName = 'ok' | 'pending' | 'ahead' | 'unknown';
+export type DataVersionStateName = 'ok' | 'pending' | 'ahead' | 'unreachable' | 'unknown';
 
 export interface DataVersionState {
 	state: DataVersionStateName;
@@ -61,12 +70,15 @@ interface BootStateFacts {
 	schema: BootSchemaVerdict | null;
 	data: DataVersionState | null;
 	run: UpdateRunFacts | null;
+	/** Accounts on a non-Argon2 stored password; null = not counted (or unreadable). */
+	legacyPasswords: number | null;
 }
 
 const bootState: BootStateFacts = {
 	schema: null,
 	data: null,
 	run: null,
+	legacyPasswords: null,
 };
 
 /** Record the update run's facts (the boot's journal read, then every executor step). */
@@ -106,21 +118,46 @@ export function bootSchemaMoved(): boolean | null | undefined {
  * Classify an installed data version against the code's. `installed` null = it
  * could not be read (unknown); `[]` = no version row (a database that never
  * recorded one — reported as unknown, never as ok).
+ *
+ * `unreachable` is CATALOG-DERIVED: the installed MAJOR is below the major of
+ * `lowestFrom`, the lowest from-version any rung starts at (catalog.ts
+ * lowestReachableFrom) — behind the code like `pending`, but no rung of this
+ * engine will ever move it. Judged on the major only: inside a reachable major
+ * the rung walk decides, as before.
  */
 export function classifyDataVersion(
 	installed: readonly number[] | null,
 	code: readonly number[],
+	lowestFrom: readonly number[] = lowestReachableFrom(),
 ): DataVersionState {
 	const codeText = formatVersion(code);
 	if (installed === null || installed.length === 0) {
 		return { state: 'unknown', installed: null, code: codeText };
 	}
 	const order = compareVersionArrays(installed, code);
+	if (order < 0 && (installed[0] ?? 0) < (lowestFrom[0] ?? 0)) {
+		return { state: 'unreachable', installed: formatVersion(installed), code: codeText };
+	}
 	return {
 		state: order === 0 ? 'ok' : order < 0 ? 'pending' : 'ahead',
 		installed: formatVersion(installed),
 		code: codeText,
 	};
+}
+
+/** Where the migration of a database of an older major is documented (the manual, in the repo). */
+const OLDER_MAJOR_MIGRATION_DOC = 'docs/install/migrating_from_v6.md';
+
+/**
+ * What to do about a database this engine cannot update — ONE sentence, the same
+ * on the boot line, the code-update door and the Update-data panel; null for
+ * every other state (each has its own wording where it is reported).
+ */
+export function dataVersionAdvice(state: DataVersionState): string | null {
+	if (state.state !== 'unreachable') return null;
+	const installedMajor = String(state.installed).split('.')[0];
+	const codeMajor = state.code.split('.')[0];
+	return `the database is on data version ${state.installed}, a Dédalo v${installedMajor} database: this engine (${state.code}) has no update that starts from it — run the v${installedMajor} → v${codeMajor} migration on the v${installedMajor} installation first (${OLDER_MAJOR_MIGRATION_DOC})`;
 }
 
 /**
@@ -146,6 +183,10 @@ export async function refreshDataVersionState(
 		console.warn(
 			`[boot] DATA UPDATE PENDING: the database is on data version ${state.installed}, this code declares ${state.code} — run "Update data" in the maintenance area before using the new version`,
 		);
+	} else if (state.state === 'unreachable') {
+		console.error(
+			`[boot] DATABASE NOT MIGRATED: ${dataVersionAdvice(state)} (/health is red until then)`,
+		);
 	} else if (state.state === 'ahead') {
 		console.error(
 			`[boot] DATA VERSION AHEAD OF CODE: the database is on data version ${state.installed}, this code declares ${state.code} — older code over a newer database; restore a compatible backup or install the matching code (/health is red until then)`,
@@ -159,9 +200,44 @@ export function dataVersionState(): DataVersionState | null {
 	return bootState.data;
 }
 
+/**
+ * Count the accounts whose stored password is not an Argon2id hash and tell the
+ * operator at boot (T2 D08-a): those accounts cannot log in — the PHP engine's
+ * upgrade-on-next-login is retired (WC-2026-11-19-legacy-aes-lazy-rehash-retired)
+ * — and the fix is one command. Recorded for /health, which carries a NOTICE
+ * (never red: the engine is healthy; never the number: the probe answers anyone).
+ * A count that cannot be read is said and recorded as null — never guessed.
+ * `count` is injected by the boot (auth.ts countLegacyPasswordAccounts): this
+ * module reads no database.
+ */
+export async function refreshLegacyPasswordNotice(
+	count: () => Promise<number>,
+): Promise<number | null> {
+	let accounts: number | null;
+	try {
+		accounts = await count();
+	} catch (error) {
+		console.error('[boot] legacy password accounts could not be counted:', error);
+		accounts = null;
+	}
+	bootState.legacyPasswords = accounts;
+	if (accounts !== null && accounts > 0) {
+		console.warn(
+			`[boot] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (not Argon2id) and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database (docs/install/migrating_from_v6.md, "Migrate the passwords"); nobody has to choose a new password`,
+		);
+	}
+	return accounts;
+}
+
+/** The last counted legacy-password accounts, or null when not counted. */
+export function legacyPasswordAccounts(): number | null {
+	return bootState.legacyPasswords;
+}
+
 /** TEST-ONLY: forget every fact (the state is process-global by design). */
 export function resetBootStateForTest(): void {
 	bootState.schema = null;
 	bootState.data = null;
 	bootState.run = null;
+	bootState.legacyPasswords = null;
 }

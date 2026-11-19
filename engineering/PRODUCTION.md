@@ -1712,9 +1712,13 @@ flips it to `"needs_restore"` — the old code cannot be trusted on that schema,
 so the watchdog does NOT roll back or restart, logs "needs a human", and the
 operator restores the pre-update database backup together with the tree
 (automatic rollback stays within one data model, owner decision D-2).
-`/health` also reports `data_version` (`ok|pending|ahead|unknown` against the
-code's declared data version): `pending` is reported, not red (run "Update
-data"); `ahead` — old code over a newer database — is red.
+`/health` also reports `data_version` (`ok|pending|ahead|unreachable|unknown`
+against the code's declared data version): `pending` is reported, not red (run
+"Update data"); `ahead` — old code over a newer database — is red; `unreachable`
+— a database of an older major than any rung of the update catalog starts from
+(a Dédalo v6 database: its migration runs on v6) — is red too. `notices` lists
+what an operator should act on without the probe going red
+(`legacy_password_accounts`: run `bun run dedalo:migrate-passwords`).
 A pending, unconfirmed sentinel is the machine-readable fact "the last update
 never proved itself". Because it is written pre-swap, the `backupDir` it names
 may not exist yet — the rollback script handles that state explicitly (below).

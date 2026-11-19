@@ -626,7 +626,7 @@ describe('full swap chain against a synthetic release (mocked gate, temp tree)',
 
 	// Probed at definition time so a zip-less machine SKIPS by name, never a silent pass.
 	test.skipIf(!ZIP_AT_DEFINITION)(
-		'a PENDING data version refuses before anything is fetched: no swap, no sentinel, no restart (U-04) [skipped without a zip binary]',
+		'a data version BEHIND the code refuses before anything is fetched: no swap, no sentinel, no restart (U-04) [skipped without a zip binary]',
 		async () => {
 			// A VALID release (real zip, its true sha): the data-version gate is the
 			// only thing between this request and a completed swap — delete the
@@ -669,7 +669,10 @@ describe('full swap chain against a synthetic release (mocked gate, temp tree)',
 					),
 				);
 				expect(refusal.code).toBe('update.refused');
-				expect(refusal.coordinates?.rule).toBe('data_version_pending');
+				// 6.9.0 under this engine: behind the code AND of an older major — the
+				// door names it `unreachable` (T2 D08-b); a same-major `pending` cannot be
+				// staged here (the code's data version is the line start).
+				expect(refusal.coordinates?.rule).toBe('data_version_unreachable');
 				expect(fetched).toBe(0);
 				expect(restarted).toBe(false);
 				expect(treeDigest(targetRoot)).toBe(before);

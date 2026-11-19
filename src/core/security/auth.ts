@@ -19,16 +19,22 @@
  *   `login()`, and recorded as
  *   `engineering/wire_contract/WC-2026-08-28-login-active-account.md`.
  *
- * UNCOVERED SCOPE (denied loudly, never silently): legacy pre-Argon2 hashes
- * (base64 AES values still present on non-migrated accounts) — verifying them
- * requires the PHP-side legacy key material; those accounts must log into the
- * PHP server once (lazy rehash) before the TS server accepts them. SAML and
- * maintenance-mode gating are Phase 5 continuation.
+ * REFUSED, loudly (never silently): a stored password that is not Argon2id —
+ * above all v6's reversible AES values, still present on an account nobody
+ * migrated. Login never verifies one: that needs the v6 key material
+ * (DEDALO_INFORMATION / DEDALO_INFO_KEY), which v7 deliberately does not carry,
+ * and the PHP engine's rehash-on-next-login is RETIRED
+ * (engineering/wire_contract/WC-2026-11-19-legacy-aes-lazy-rehash-retired.md).
+ * The operator runs `bun run dedalo:migrate-passwords` once
+ * (scripts/migrate_v6_passwords.ts); the boot counts the accounts still waiting
+ * (countLegacyPasswordAccounts → update/boot_state.ts). SAML is Phase 5
+ * continuation.
  */
 
 import { config } from '../../config/config.ts';
 import { sql } from '../db/postgres.ts';
 import { ARGON2_OPTIONS, needsPasswordRehash } from './argon2_params.ts';
+import { MIGRATE_PASSWORDS_COMMAND } from './password_hash.ts';
 import { resolvePrincipal } from './permissions.ts';
 import { runWithoutAccountRevocation } from './revocation.ts';
 import { endUserSessions } from './session_media.ts';
@@ -265,6 +271,25 @@ async function findUserByUsername(username: string): Promise<{
 }
 
 /**
+ * How many accounts hold a stored password that is NOT an Argon2id hash — the
+ * accounts `login()` refuses as legacy (above all v6's reversible AES values,
+ * which `bun run dedalo:migrate-passwords` converts). An account with no
+ * password at all is not one of them. Read at boot for the operator's notice
+ * (update/boot_state.ts refreshLegacyPasswordNotice): they should learn of a
+ * locked-out user base from the log, not from the first user who cannot get in.
+ */
+export async function countLegacyPasswordAccounts(): Promise<number> {
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM matrix_users
+		 WHERE section_tipo = $1
+		   AND COALESCE(string->$2->0->>'value', '') <> ''
+		   AND string->$2->0->>'value' NOT LIKE '$argon2%'`,
+		[USERS_SECTION_TIPO, PASSWORD_COMPONENT],
+	)) as { n: number }[];
+	return Number(rows[0]?.n ?? 0);
+}
+
+/**
  * THE dd131 STATE OF ONE ACCOUNT, BY ID — for the surfaces that hold a user id rather
  * than a username, and that outlive a single request.
  *
@@ -417,10 +442,10 @@ async function resolveLoginCandidate(
 	}
 
 	if (!user.passwordHash.startsWith('$argon2')) {
-		// Legacy AES hash — uncovered scope (see module header). Deny loudly
-		// in the server log, ambiguously on the wire.
+		// A v6 password value — refused (see module header). Deny loudly in the
+		// server log, naming the fix; ambiguously on the wire.
 		console.error(
-			`auth: user '${username}' still has a legacy (pre-Argon2) password hash — log into the PHP server once to upgrade it.`,
+			`auth: user '${username}' still has a legacy (pre-Argon2) password value and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database (docs/install/migrating_from_v6.md, "Migrate the passwords").`,
 		);
 		await normalizeTiming(password); // AUTHZ-03: no fast-path timing tell
 		recordFailure();

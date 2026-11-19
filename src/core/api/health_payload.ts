@@ -60,6 +60,8 @@ export interface HealthPayload {
 	 * Installed data version vs this code's (U-04). `pending`: an "Update data"
 	 * is due — reported, not red (it is the normal state between a code update
 	 * and its data update). `ahead`: older code over a newer database — red.
+	 * `unreachable`: a database of an older major no rung of this engine's
+	 * catalog starts from (a v6 database) — red (T2 D08-b).
 	 */
 	data_version?: DataVersionState;
 	/**
@@ -78,7 +80,18 @@ export interface HealthPayload {
 	 * makes the supervisor's watchdog put the previous tree back.
 	 */
 	update_run?: UpdateRunFacts;
+	/**
+	 * Things an operator should act on that do NOT make the probe red. Today one:
+	 * `legacy_password_accounts` — some accounts still hold a v6 password value
+	 * and cannot log in until `bun run dedalo:migrate-passwords` ran (T2 D08-a).
+	 * A closed list of names, never a number: the probe answers anyone, and the
+	 * count is the boot log's. Absent when there is nothing to say.
+	 */
+	notices?: HealthNotice[];
 }
+
+/** The closed vocabulary of {@link HealthPayload.notices}. */
+export type HealthNotice = 'legacy_password_accounts';
 
 /** Whether the boot facts make the probe red (see the field comments above). */
 function bootFactsRed(
@@ -86,7 +99,12 @@ function bootFactsRed(
 	dataVersion: DataVersionState | null | undefined,
 	rollbackOrdered: boolean,
 ): boolean {
-	return bootSchema === 'failed' || dataVersion?.state === 'ahead' || rollbackOrdered;
+	return (
+		bootSchema === 'failed' ||
+		dataVersion?.state === 'ahead' ||
+		dataVersion?.state === 'unreachable' ||
+		rollbackOrdered
+	);
 }
 
 /** Green: the database answers and no boot fact is red. */
@@ -118,8 +136,14 @@ export function buildHealthPayload(options: {
 	bootSchemaMoved?: boolean | null;
 	dataVersion?: DataVersionState | null;
 	updateRun?: UpdateRunFacts | null;
+	/** Accounts on a non-Argon2 stored password (boot_state.ts); null/undefined = not counted. */
+	legacyPasswordAccounts?: number | null;
 }): HealthPayload {
 	const healthy = isHealthy(options);
+	const notices: HealthNotice[] =
+		typeof options.legacyPasswordAccounts === 'number' && options.legacyPasswordAccounts > 0
+			? ['legacy_password_accounts']
+			: [];
 	return {
 		result: healthy ? 'ok' : 'error',
 		entity: options.entity,
@@ -133,6 +157,7 @@ export function buildHealthPayload(options: {
 		...optional('boot_schema_moved', options.bootSchemaMoved),
 		...optional('data_version', options.dataVersion ?? undefined),
 		...optional('update_run', options.updateRun ?? undefined),
+		...optional('notices', notices.length > 0 ? notices : undefined),
 	};
 }
 

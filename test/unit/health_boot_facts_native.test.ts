@@ -42,13 +42,17 @@ async function health(): Promise<{ status: number; body: Record<string, unknown>
 	return { status: response.status, body: (await response.json()) as Record<string, unknown> };
 }
 
-/** A data version strictly BELOW the code's (the "Update data is due" state). */
-function pendingVersion(): number[] {
+/**
+ * A code data version strictly ABOVE the installed one, in the same major (the
+ * "Update data is due" state). The CODE side moves, not the installed one: a
+ * triple below this engine's line start is another major's database, which is
+ * `unreachable`, not `pending` (T2 D08-b, data_version_unreachable_native).
+ */
+function codeAhead(): number[] {
 	const [major = 0, minor = 0, patch = 0] = DEDALO_DATA_VERSION;
-	if (patch > 0) return [major, minor, patch - 1];
-	if (minor > 0) return [major, minor - 1, 99];
-	return [major - 1, 99, 99];
+	return [major, minor, patch + 1];
 }
+const readInstalledAtCode = async () => [...DEDALO_DATA_VERSION];
 
 afterEach(() => {
 	resetBootStateForTest();
@@ -95,7 +99,7 @@ describe('/health serves the boot facts (U-01 / U-04)', () => {
 
 	test('a PENDING data update is reported, not red → 200, data_version.state pending', async () => {
 		recordBootSchemaVerdict(OK_VERDICT);
-		await refreshDataVersionState(async () => pendingVersion());
+		await refreshDataVersionState(readInstalledAtCode, codeAhead());
 		const { status, body } = await health();
 		expect(status).toBe(200);
 		expect(body.result).toBe('ok');
@@ -121,7 +125,7 @@ describe('/health serves the update run (design §3.5)', () => {
 
 	test('a run applying the schema: boot_schema skipped + data pending is NOT red, update_run served', async () => {
 		recordUpdateRunFacts(run('CODE_SWAPPED', true));
-		await refreshDataVersionState(async () => pendingVersion());
+		await refreshDataVersionState(readInstalledAtCode, codeAhead());
 		const { status, body } = await health();
 		expect(status).toBe(200);
 		expect(body.boot_schema).toBe('skipped');

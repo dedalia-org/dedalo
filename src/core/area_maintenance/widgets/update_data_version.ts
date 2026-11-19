@@ -39,18 +39,29 @@ import {
  */
 async function updateDataVersionGetValue(): Promise<WidgetResponse> {
 	const { getCurrentDataVersion } = await import('../backup.ts');
+	return { data: await updateDataVersionPanel(await getCurrentDataVersion()) };
+}
+
+/**
+ * The panel's value for an installed data version. `notice` is present ONLY for
+ * a database this engine cannot update (boot_state.ts `unreachable` — a v6
+ * database): without it the panel read "Data format is updated: 6.9.1", because
+ * no rung matches and "no rung" was the panel's only way to say "nothing to do"
+ * (T2 D08-b). Absent otherwise — the other states keep the panel's bytes.
+ */
+export async function updateDataVersionPanel(current: number[]): Promise<Record<string, unknown>> {
 	const { getMatchedDescriptor, getUpdateVersion, toWireDescriptor } = await import(
 		'../../update/catalog.ts'
 	);
-	const current = await getCurrentDataVersion();
+	const { classifyDataVersion, dataVersionAdvice } = await import('../../update/boot_state.ts');
 	const descriptor = getMatchedDescriptor(current);
+	const advice = dataVersionAdvice(classifyDataVersion(current, DEDALO_DATA_VERSION));
 	return {
-		data: {
-			update_version: getUpdateVersion(current),
-			current_version_in_db: current,
-			dedalo_version: DEDALO_DATA_VERSION,
-			updates: descriptor === null ? null : toWireDescriptor(descriptor),
-		},
+		update_version: getUpdateVersion(current),
+		current_version_in_db: current,
+		dedalo_version: DEDALO_DATA_VERSION,
+		updates: descriptor === null ? null : toWireDescriptor(descriptor),
+		...(advice === null ? {} : { notice: `Not updated: ${advice}` }),
 	};
 }
 

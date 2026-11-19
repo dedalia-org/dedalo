@@ -37,7 +37,7 @@ import {
 import { DedaloError } from '../errors/index.ts';
 import { getServerState } from '../resolve/server_state.ts';
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
-import { classifyDataVersion } from './boot_state.ts';
+import { classifyDataVersion, dataVersionAdvice } from './boot_state.ts';
 import { DEDALO_DATA_VERSION } from './version.ts';
 
 /** How long an HTTP surface waits on the backup verdict before saying `verifying`. */
@@ -289,7 +289,9 @@ export async function requireDataVersionCurrent(
 			? `the database is on data version ${verdict.installed} but this code declares ${verdict.code} — run "Update data" first, then update the code`
 			: verdict.state === 'ahead'
 				? `the database is on data version ${verdict.installed}, NEWER than this code (${verdict.code}) — restore a compatible backup or install the matching code first`
-				: `the installed data version could not be read — fix the database (matrix_updates) before updating the code`;
+				: verdict.state === 'unreachable'
+					? (dataVersionAdvice(verdict) as string)
+					: `the installed data version could not be read — fix the database (matrix_updates) before updating the code`;
 	throw new DedaloError('update.refused', {
 		message: `code update refused: data version ${verdict.state} — ${detail}`,
 		publicMessage: `Error. Code update refused: ${detail}`,

@@ -230,13 +230,25 @@ const get_content_data = async function(self) {
 
 	// dedalo_db_management
 		if (!update_version) {
-			// Info text
-			ui.create_dom_element({
-				element_type	: 'div',
-				class_name		: 'info_text success_text',
-				text_content	: 'Data format is updated: ' + current_version_in_db.join('.'),
-				parent			: content_data
-			})
+			// Info text. `notice`: the server's sentence for a database this engine
+			// cannot update (a Dédalo v6 database: its migration runs on v6). No rung
+			// matches it, but it is NOT up to date — never say so.
+			if (typeof value.notice==='string' && value.notice!=='') {
+				set_widget_label_style(self, 'danger', 'add', content_data)
+				ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'info_text error_text',
+					text_content	: value.notice,
+					parent			: content_data
+				})
+			}else{
+				ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'info_text success_text',
+					text_content	: 'Data format is updated: ' + current_version_in_db.join('.'),
+					parent			: content_data
+				})
+			}
 			// Button quit. Allows the user quit from Dédalo here
 			const button_quit = ui.create_dom_element({
 				element_type	: 'button',

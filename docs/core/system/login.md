@@ -184,8 +184,18 @@ algorithm and no "try the old scheme" branch.
     (naming the account) and ambiguously on the wire.
 
     These accounts do **not** need to choose a new password. Run
-    `scripts/migrate_v6_passwords.ts`, which decrypts each legacy value once,
-    re-hashes it with Argon2id, and writes the hash back.
+    `bun run dedalo:migrate-passwords` (`scripts/migrate_v6_passwords.ts`), which
+    decrypts each legacy value once, re-hashes it with Argon2id, and writes the
+    hash back. There is no upgrade at the next login: the earlier engine's
+    rehash-on-login is retired, because it needs the v6 encryption key inside the
+    running server.
+
+    The server tells you when accounts are waiting. At start it counts the
+    accounts whose stored password is not Argon2id and logs one warning with the
+    number and the command (`[boot] LEGACY PASSWORDS: …`); `/health` then carries
+    `"notices": ["legacy_password_accounts"]` — a notice, the probe stays green —
+    and the refusal of each such login names the command in the server log. See
+    [Migrate the passwords](../../install/migrating_from_v6.md#62-migrate-the-passwords).
 
 ### Brute-force throttle (SEC-019)
 

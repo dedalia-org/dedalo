@@ -1417,6 +1417,14 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Accounts still on a v6 password are counted at start, and the log names the command that fixes them**
+
+    After a migration from v6, an account whose password was never converted cannot log in: v7 accepts Argon2id hashes only, and there is no conversion at the next login. The server log gave advice that no longer applies (to log in once on the previous engine), and nothing warned you before a user was refused.
+
+    Now every start counts those accounts and logs `[boot] LEGACY PASSWORDS: <n> account(s) …` with the command to run, `bun run dedalo:migrate-passwords`; `/health` carries `"notices": ["legacy_password_accounts"]` while any remain (the check stays green); and each refused login of such an account is logged with the same command. Nobody has to choose a new password. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
+
+    Wire contract: `WC-2026-11-19-legacy-aes-lazy-rehash-retired`.
+
 - **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
 
     A `calculation` widget's `process` block now selects its formula by **file and
@@ -1609,6 +1617,12 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **Starting v7 on a Dédalo v6 database now says the database is not migrated**
+
+    A v7 server started on a database that was still at a 6.x data version gave the wrong advice everywhere. The start-up log said a data update was pending and to run *Update data*; the health check stayed green; and the *Update data* panel said "Data format is updated: 6.9.1". None of it could work: the move from v6 to v7 is done on the v6 installation, before v7 ever starts.
+
+    The server now recognises a database from an earlier major version that none of its updates starts from. The log says `[boot] DATABASE NOT MIGRATED` and points to the migration guide, `/health` answers 503 with `"data_version": {"state": "unreachable"}`, the *Update data* panel shows the same sentence instead of "updated", and a code update is refused for that reason. Run Phase A of [Migrating from v6](./install/migrating_from_v6.md) on the v6 installation, then start v7 again.
 
 - **A system search across two or more linked sections no longer matches through a record stored in another table.**
 
@@ -2003,7 +2017,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 87 entries"
+??? note "Wire contract — 88 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2091,6 +2105,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
     - `WC-2026-11-19-external-api-url-unpublished`
+    - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
     - `WC-2026-11-19-window-features-grammar`
 
 ## 7.0.0-beta.8 — 2026-11-08

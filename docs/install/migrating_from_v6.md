@@ -390,6 +390,8 @@ Nothing asks you to install, either: there is no install page. A migrated instan
      WHERE "string"->'dd133'->0->>'value' NOT LIKE '$argon2%';
     ```
 
+The server counts them for you too: every start logs `[boot] LEGACY PASSWORDS: <n> account(s) still hold a Dédalo v6 password value …` while any remain, `/health` carries `"notices": ["legacy_password_accounts"]`, and each refused login of such an account is logged with the command below.
+
 **Nobody has to choose a new password.** Because the old storage is reversible, the tool decrypts each legacy value once and re-hashes it with Argon2id. Users log in afterwards with the passwords they already have, and are never told anything happened.
 
 ```shell
@@ -606,6 +608,8 @@ Most trouble is found by the deep preflight, **before** the migration. The rule 
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| The server log says `[boot] DATABASE NOT MIGRATED`, `/health` answers 503 with `"data_version": {"state": "unreachable"}`, and the *Update data* panel says the database is a Dédalo v6 database | the v7 engine was started on a database still at a 6.x data version: Phase A never ran on it. No *Update data* of v7 starts from a v6 database | stop the v7 server and run [Phase A](#3-phase-a-transform-the-data-on-v6) on the v6 install, then start v7 again |
+| Nobody can log in, and the server log says `[boot] LEGACY PASSWORDS` | the passwords were not migrated | [migrate the passwords](#62-migrate-the-passwords) |
 | A component shows the wrong or no value | the row failed to reformat and was carried past the stamp | search the log, re-run the migration (it is idempotent), or fix the record |
 | Widget with a subsidiary form shows nothing / duplicated rows | dataframe frames left legacy or orphaned | [dataframe frames](#92-dataframe-frames-v7) |
 | A computed/mirrored value is empty or stale | the mirror was written by the migration, outside the save path | [stale mirrors](#93-stale-observer-mirrors-v7) |
