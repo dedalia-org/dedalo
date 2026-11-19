@@ -20690,7 +20690,6 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 */
 .thesaurus_pane {
   position: fixed;
-  min-width: 50vh;
   height: 60vh;
   min-height: 10rem;
   z-index: 3;

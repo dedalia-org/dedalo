@@ -847,22 +847,26 @@ const ASSEMBLY_WRITER = crypto.randomUUID();
  * Unreadable / legacy / missing identity → not proven (the age rule decides).
  */
 function writerIsGone(ownerPath: string): boolean {
-	let owner: { host?: unknown; pid?: unknown; writer?: unknown };
-	try {
-		owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
-	} catch {
-		return false;
-	}
-	if (owner === null || typeof owner !== 'object') return false;
-	if (owner.host !== hostname() || typeof owner.pid !== 'number' || typeof owner.writer !== 'string') {
-		return false;
-	}
+	const owner = readWriterIdentity(ownerPath);
+	if (owner === null) return false;
 	if (owner.pid === process.pid) return owner.writer !== ASSEMBLY_WRITER;
 	try {
 		process.kill(owner.pid, 0);
 		return false; // a live process holds that pid
 	} catch (error) {
 		return (error as NodeJS.ErrnoException).code === 'ESRCH';
+	}
+}
+
+/** The recorded writer when it is a complete identity on THIS host, else null. */
+function readWriterIdentity(ownerPath: string): { pid: number; writer: string } | null {
+	try {
+		const owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
+		return owner?.host === hostname() && typeof owner.pid === 'number' && typeof owner.writer === 'string'
+			? owner
+			: null;
+	} catch {
+		return null;
 	}
 }
 
@@ -1041,6 +1045,20 @@ function assertPartsCompleteAndUnderCap(
 	);
 }
 
+/** The output's size while a writer may still hold it, or null once it is abandoned. */
+function liveAssemblySize(assembled: string, ownerPath: string): number | null {
+	let idleFor = 0;
+	let size = 0;
+	try {
+		const stat = statSync(assembled);
+		idleFor = Date.now() - stat.mtimeMs;
+		size = stat.size;
+	} catch {
+		idleFor = 0; // it vanished under us: let the retry decide
+	}
+	return idleFor < ASSEMBLY_STALE_MS && !writerIsGone(ownerPath) ? size : null;
+}
+
 /**
  * Open the assembly output EXCLUSIVELY, recovering an abandoned one.
  *
@@ -1083,16 +1101,8 @@ function openAssemblyOutput(assembled: string): number {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 	}
-	let idleFor = 0;
-	let size = 0;
-	try {
-		const stat = statSync(assembled);
-		idleFor = Date.now() - stat.mtimeMs;
-		size = stat.size;
-	} catch {
-		idleFor = 0; // it vanished under us: let the retry below decide
-	}
-	if (idleFor < ASSEMBLY_STALE_MS && !writerIsGone(ownerPath)) throw alreadyAssembling(size);
+	const liveSize = liveAssemblySize(assembled, ownerPath);
+	if (liveSize !== null) throw alreadyAssembling(liveSize);
 	rmSync(assembled, { force: true });
 	try {
 		return claim();
