@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "Uneko eraikuntza",
 	"update_code_current_version": "Uneko bertsioa",
 	"update_code_data_ahead": "Datu-basea orain exekutatzen ari den kodea baino datu-bertsio berriago batean dago. Zerbitzariak osasuntsu ez dagoela adieraziko du kode horren bertsioko datu-basearen babeskopia bat leheneratu arte, edo kode berriagoa berriro instalatu arte.",
+	"update_code_data_unreachable": "Zerbitzaria itzuli da, baina bere datu-basea Dédaloren aurreko bertsio nagusi bateko datu-bertsio batean dago, eta kode honek ezin du eguneratu. Zerbitzariak osasuntsu ez dagoela adieraziko du datu-base hori aurreko bertsioaren instalazioan migratu arte, edo bertsio honetako datu-base bat leheneratu arte.",
 	"update_code_delete_point": "Ezabatu leheneratze-puntua",
 	"update_code_delete_point_confirm": "%s leheneratze-puntua ezabatu? Barruan duen kode-kopia diskotik kentzen da eta ezin da berreskuratu.",
 	"update_code_delete_point_done": "Leheneratze-puntua ezabatuta.",

@@ -1042,6 +1042,7 @@
 	"update_code_current_build": "Compilació actual",
 	"update_code_current_version": "Versió actual",
 	"update_code_data_ahead": "La base de dades és en una versió de dades més recent que el codi que s'executa ara. El servidor es declara no saludable fins que es restauri una còpia de seguretat de la base de dades de la versió d'aquest codi, o es torni a instal·lar el codi més recent.",
+	"update_code_data_unreachable": "El servidor ha tornat, però la seva base de dades és en una versió de dades d'una versió major anterior de Dédalo que aquest codi no pot actualitzar. El servidor es declara no saludable fins que aquesta base de dades es migri a la instal·lació de la versió anterior, o es restauri una base de dades d'aquesta versió.",
 	"update_code_delete_point": "Elimina el punt de restauració",
 	"update_code_delete_point_confirm": "Voleu eliminar el punt de restauració %s? La còpia de codi que conté s’esborra del disc i no es pot recuperar.",
 	"update_code_delete_point_done": "Punt de restauració eliminat.",

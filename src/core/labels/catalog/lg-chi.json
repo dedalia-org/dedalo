@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "当前构建",
 	"update_code_current_version": "当前版本",
 	"update_code_data_ahead": "数据库的数据版本比当前运行的代码更新。在恢复该代码版本的数据库备份或重新安装较新的代码之前，服务器会报告自身不健康。",
+	"update_code_data_unreachable": "服务器已恢复，但其数据库的数据版本属于 Dédalo 更早的主版本，当前代码无法更新它。在该数据库于旧版本的安装中完成迁移，或恢复本版本的数据库之前，服务器会报告自身不健康。",
 	"update_code_delete_point": "删除还原点",
 	"update_code_delete_point_confirm": "删除还原点 %s？其中的代码副本将从磁盘移除，且无法恢复。",
 	"update_code_delete_point_done": "还原点已删除。",

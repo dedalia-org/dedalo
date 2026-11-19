@@ -1042,6 +1042,7 @@
 	"update_code_current_build": "Compilación actual",
 	"update_code_current_version": "Versión actual",
 	"update_code_data_ahead": "La base de datos está en una versión de datos más reciente que el código que se ejecuta ahora. El servidor se declara no saludable hasta que se restaure una copia de seguridad de la base de datos de la versión de ese código, o se vuelva a instalar el código más reciente.",
+	"update_code_data_unreachable": "El servidor ha vuelto, pero su base de datos está en una versión de datos de una versión mayor anterior de Dédalo que este código no puede actualizar. El servidor se declara no saludable hasta que esa base de datos se migre en la instalación de la versión anterior, o se restaure una base de datos de esta versión.",
 	"update_code_delete_point": "Eliminar punto de restauración",
 	"update_code_delete_point_confirm": "¿Eliminar el punto de restauración %s? La copia de código que contiene se borra del disco y no se puede recuperar.",
 	"update_code_delete_point_done": "Punto de restauración eliminado.",

@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "Aktueller Build",
 	"update_code_current_version": "Aktuelle Version",
 	"update_code_data_ahead": "Die Datenbank hat eine neuere Datenversion als der jetzt laufende Code. Der Server meldet sich als nicht funktionsfähig, bis eine Datenbanksicherung aus der Version dieses Codes wiederhergestellt oder der neuere Code erneut installiert wird.",
+	"update_code_data_unreachable": "Der Server ist wieder erreichbar, aber seine Datenbank hat eine Datenversion aus einer früheren Hauptversion von Dédalo, die dieser Code nicht aktualisieren kann. Der Server meldet sich als nicht funktionsfähig, bis diese Datenbank auf der Installation der früheren Version migriert oder eine Datenbank dieser Version wiederhergestellt wird.",
 	"update_code_delete_point": "Wiederherstellungspunkt löschen",
 	"update_code_delete_point_confirm": "Den Wiederherstellungspunkt %s löschen? Die enthaltene Codekopie wird von der Festplatte entfernt und kann nicht wiederhergestellt werden.",
 	"update_code_delete_point_done": "Wiederherstellungspunkt gelöscht.",

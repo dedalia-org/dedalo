@@ -306,22 +306,29 @@ export const resolve_health_outcome = function(state, health_version, health_dig
 /**
 * READ_HEALTH_BODY
 * What one /health answer says to the poller. A 200 is a server that came back.
-* A 503 still carries the body, and two 503s are verdicts, not a server still
+* A 503 still carries the body, and three 503s are verdicts, not a server still
 * restarting: `boot_schema: 'failed'` (U-01 — resolve_health_outcome decides
-* between schema_failed and needs_restore), and `data_version.state: 'ahead'`
+* between schema_failed and needs_restore), `data_version.state: 'ahead'`
 * (the database is newer than the booted code — a deliberate restore of older
 * code across a data version: the operation HAPPENED, and the server stays
-* unhealthy until a human restores the matching database). Any other answer
-* (`version` null) keeps the poll going.
+* unhealthy until a human restores the matching database), and
+* `data_version.state: 'unreachable'` (the database is from an earlier major
+* version no update of the booted code starts from — a v6 database: the server
+* IS back, and stays unhealthy until that database is migrated; waiting for a
+* 200 would end as "the server did not come back", which is false —
+* WC-2026-11-19-data-version-unreachable). Any other answer (`version` null)
+* keeps the poll going.
 *
 * @param {number} status - the HTTP status
 * @param {Object|null} body - the parsed body (null when there is none)
-* @returns {{version:(string|null), digest:(string|null), boot_schema:(string|null), boot_schema_moved:(boolean|null), data_ahead:boolean, run:(Object|null)}}
+* @returns {{version:(string|null), digest:(string|null), boot_schema:(string|null), boot_schema_moved:(boolean|null), data_ahead:boolean, data_unreachable:boolean, run:(Object|null)}}
 */
 export const read_health_body = function(status, body) {
-	const boot_schema	= body?.boot_schema ?? null
-	const data_ahead	= status===503 && body?.data_version?.state==='ahead'
-	const came_back		= status===200 || (status===503 && (boot_schema==='failed' || data_ahead))
+	const boot_schema		= body?.boot_schema ?? null
+	const data_ahead		= status===503 && body?.data_version?.state==='ahead'
+	const data_unreachable	= status===503 && body?.data_version?.state==='unreachable'
+	const came_back			= status===200
+		|| (status===503 && (boot_schema==='failed' || data_ahead || data_unreachable))
 	return {
 		version				: came_back ? (body?.version ?? null) : null,
 		// null on a server older than the install stamp — the verdict falls
@@ -330,6 +337,7 @@ export const read_health_body = function(status, body) {
 		boot_schema			: boot_schema,
 		boot_schema_moved	: body?.boot_schema_moved ?? null,
 		data_ahead			: data_ahead,
+		data_unreachable	: data_unreachable,
 		// the update run this boot belongs to (core/update/run/), or null
 		run					: body?.update_run ?? null
 	}

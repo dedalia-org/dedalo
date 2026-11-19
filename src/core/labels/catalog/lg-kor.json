@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "현재 빌드",
 	"update_code_current_version": "현재 버전",
 	"update_code_data_ahead": "데이터베이스가 현재 실행 중인 코드보다 최신 데이터 버전에 있습니다. 해당 코드 버전의 데이터베이스 백업을 복원하거나 최신 코드를 다시 설치할 때까지 서버는 비정상 상태로 보고합니다.",
+	"update_code_data_unreachable": "서버가 다시 응답하지만, 데이터베이스가 Dédalo의 이전 주 버전의 데이터 버전에 있어 이 코드로는 업데이트할 수 없습니다. 해당 데이터베이스를 이전 버전의 설치에서 마이그레이션하거나 이 버전의 데이터베이스를 복원할 때까지 서버는 비정상 상태로 보고됩니다.",
 	"update_code_delete_point": "복원 지점 삭제",
 	"update_code_delete_point_confirm": "복원 지점 %s을(를) 삭제할까요? 여기에 담긴 코드 사본은 디스크에서 제거되며 복구할 수 없습니다.",
 	"update_code_delete_point_done": "복원 지점을 삭제했습니다.",

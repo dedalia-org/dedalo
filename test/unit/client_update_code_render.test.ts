@@ -396,6 +396,24 @@ describe('read_health_body — which /health answers are a server that came back
 			}),
 		);
 		expect(ahead).toMatchObject({ version: '7.0.0-beta.7', data_ahead: true });
+		expect(ahead.data_unreachable).toBe(false);
+		// a database of an earlier major (a v6 database): the server IS back and stays
+		// red until it is migrated — a verdict, never "still restarting"
+		// (WC-2026-11-19-data-version-unreachable)
+		const unreachable = read_health_body(
+			503,
+			body({ boot_schema: 'ok', data_version: { state: 'unreachable' } }),
+		);
+		expect(unreachable).toMatchObject({
+			version: '7.0.0-beta.7',
+			data_unreachable: true,
+			data_ahead: false,
+		});
+		// only as a 503 verdict: a 200 carrying the word is just a server that is back
+		expect(read_health_body(200, body({ data_version: { state: 'unreachable' } }))).toMatchObject({
+			version: '7.0.0-beta.7',
+			data_unreachable: false,
+		});
 		expect(read_health_body(503, body({ data_version: { state: 'pending' } })).version).toBeNull();
 		expect(read_health_body(503, null).version).toBeNull();
 	});
@@ -422,8 +440,17 @@ describe('read_health_body — which /health answers are a server that came back
 		}
 	});
 
-	test('the data-ahead sentence ships in the label master', () => {
+	test('the data-ahead and data-unreachable sentences ship in the label master', () => {
 		expect(master_labels.update_code_data_ahead).toBeString();
+		expect(master_labels.update_code_data_unreachable).toBeString();
+	});
+
+	test('the poller hands BOTH verdicts to the ending it renders', () => {
+		// the poll tick reads the verdict and passes it to finish_success, which
+		// renders its own note for each
+		expect(render_src).toContain('data_unreachable	= read.data_unreachable');
+		expect(render_src).toContain('finish_success(version, data_ahead, data_unreachable)');
+		expect(render_src).toContain('get_label.update_code_data_unreachable');
 	});
 });
 

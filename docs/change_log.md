@@ -1637,6 +1637,10 @@ Merged since the last release; these ship with the next one.
 
     The server now recognises a database from an earlier major version that none of its updates starts from. The log says `[boot] DATABASE NOT MIGRATED` and points to the migration guide, `/health` answers 503 with `"data_version": {"state": "unreachable"}`, the *Update data* panel shows the same sentence instead of "updated", and a code update is refused for that reason. Run Phase A of [Migrating from v6](./install/migrating_from_v6.md) on the v6 installation, then start v7 again.
 
+    If the server answers a code update's restart check in that state, the *Update code* panel now says the server is back on a database it cannot update, instead of waiting and then reporting that the server did not come back.
+
+    Wire contract: `WC-2026-11-19-data-version-unreachable`.
+
 - **A system search across two or more linked sections no longer matches through a record stored in another table.**
 
     A search can follow links through several sections — a record, the record it links, and the

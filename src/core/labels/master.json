@@ -1053,6 +1053,7 @@
 	"update_code_current_build": "Current build",
 	"update_code_current_version": "Current version",
 	"update_code_data_ahead": "The database is at a newer data version than the code now running. The server reports itself unhealthy until a database backup from that code’s version is restored, or the newer code is installed again.",
+	"update_code_data_unreachable": "The server is back, but its database is at a data version from an earlier major version of Dédalo that this code cannot update. The server reports itself unhealthy until that database is migrated on the earlier version’s installation, or a database of this version is restored.",
 	"update_code_delete_point": "Delete restore point",
 	"update_code_delete_point_confirm": "Delete the restore point %s? The code copy it holds is removed from disk and cannot be recovered.",
 	"update_code_delete_point_done": "Restore point deleted.",

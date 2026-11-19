@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "Build attuale",
 	"update_code_current_version": "Versione attuale",
 	"update_code_data_ahead": "Il database è a una versione dei dati più recente del codice ora in esecuzione. Il server si dichiara non integro finché non viene ripristinato un backup del database della versione di quel codice, o non viene reinstallato il codice più recente.",
+	"update_code_data_unreachable": "Il server è tornato, ma il suo database è a una versione dei dati di una versione principale precedente di Dédalo che questo codice non può aggiornare. Il server si dichiara non integro finché quel database non viene migrato sull’installazione della versione precedente, o non viene ripristinato un database di questa versione.",
 	"update_code_delete_point": "Elimina il punto di ripristino",
 	"update_code_delete_point_confirm": "Eliminare il punto di ripristino %s? La copia del codice che contiene viene rimossa dal disco e non può essere recuperata.",
 	"update_code_delete_point_done": "Punto di ripristino eliminato.",

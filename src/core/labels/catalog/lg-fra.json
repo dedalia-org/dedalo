@@ -1039,6 +1039,7 @@
 	"update_code_current_build": "Construction actuelle",
 	"update_code_current_version": "Version actuelle",
 	"update_code_data_ahead": "La base de données est à une version de données plus récente que le code en cours d’exécution. Le serveur se déclare en mauvais état jusqu’à ce qu’une sauvegarde de la base de données de la version de ce code soit restaurée, ou que le code plus récent soit réinstallé.",
+	"update_code_data_unreachable": "Le serveur est de retour, mais sa base de données est à une version de données d’une version majeure antérieure de Dédalo que ce code ne peut pas mettre à jour. Le serveur se déclare en mauvais état jusqu’à ce que cette base de données soit migrée sur l’installation de la version antérieure, ou qu’une base de données de cette version soit restaurée.",
 	"update_code_delete_point": "Supprimer le point de restauration",
 	"update_code_delete_point_confirm": "Supprimer le point de restauration %s ? La copie de code qu’il contient est effacée du disque et ne peut pas être récupérée.",
 	"update_code_delete_point_done": "Point de restauration supprimé.",

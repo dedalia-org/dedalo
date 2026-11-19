@@ -980,7 +980,7 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 		// DOM-stub guarded).
 		const reveal = (node) => ui.reveal(node, { block:'center' })
 
-		const finish_success = async (version, data_ahead=false) => {
+		const finish_success = async (version, data_ahead=false, data_unreachable=false) => {
 			end_tracking()
 			state = { ...state, mode:'done' }
 			track.paint(state)
@@ -999,6 +999,16 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 					element_type	: 'div',
 					class_name		: 'dd_note state_warning update_data_ahead',
 					text_content	: get_label.update_code_data_ahead || 'The database is at a newer data version than the code now running. The server reports itself unhealthy until a database backup from that code’s version is restored, or the newer code is installed again.',
+					parent			: body_response
+				}))
+			}
+			// …or a database of an earlier major version (/health 503 'unreachable'):
+			// the code answers, and stays unhealthy until that database is migrated.
+			if (data_unreachable===true) {
+				reveal(ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: 'dd_note state_warning update_data_unreachable',
+					text_content	: get_label.update_code_data_unreachable || 'The server is back, but its database is at a data version from an earlier major version of Dédalo that this code cannot update. The server reports itself unhealthy until that database is migrated on the earlier version’s installation, or a database of this version is restored.',
 					parent			: body_response
 				}))
 			}
@@ -1090,11 +1100,13 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 				let boot_schema = null
 				let boot_schema_moved = null
 				let data_ahead = false
+				let data_unreachable = false
 				let run = null
 				try {
 					const health_response = await fetch('/health')
 					// A 503 still carries the body (read_health_body: a failed boot
-					// migration, or a database ahead of the code, is a verdict).
+					// migration, a database ahead of the code, or one this code cannot
+					// update, is a verdict).
 					if (health_response.ok || health_response.status===503) {
 						const read = read_health_body(
 							health_response.ok ? 200 : 503,
@@ -1105,6 +1117,7 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 						boot_schema			= read.boot_schema
 						boot_schema_moved	= read.boot_schema_moved
 						data_ahead			= read.data_ahead
+						data_unreachable	= read.data_unreachable
 						run					= read.run
 					}
 				} catch (_error) {
@@ -1135,7 +1148,7 @@ const track_process = function(pid, pfile, body_response, expected_version, expe
 				if (version!==null && progress!=='rolling_back') {
 					const ending = resolve_health_outcome(state, version, digest, boot_schema, boot_schema_moved)
 					if (ending.outcome==='updated') {
-						finish_success(version, data_ahead)
+						finish_success(version, data_ahead, data_unreachable)
 						return
 					}
 					// THE NEW CODE BOOTED BUT ITS MIGRATION MOVED THE SCHEMA AND
