@@ -72,7 +72,7 @@
 
 
 // imports
-	import {get_section_id_from_tipo} from '../../common/js/utils/index.js'
+	import {get_section_id_from_tipo, get_tld_from_tipo} from '../../common/js/utils/index.js'
 	import {ui} from '../../common/js/ui.js'
 	import {render_value} from '../../common/js/utils/render_escape.js'
 	import {render_error} from '../../common/js/render_common.js'
@@ -489,7 +489,8 @@ view_line_edit_portal.render_column_id = function(options) {
 			const mousedown_handler = (e) => {
 				e.stopPropagation()
 				// open new area_ontology window and search the current term
-				const search_tipos = section_tipo + section_id
+				// section_tipo is the ontology root '<tld>0': the term tipo is tld + section_id
+				const search_tipos = get_tld_from_tipo(section_tipo) + section_id
 				self.open_ontology_window('default', search_tipos)
 			}
 			button_tree.addEventListener('mousedown', mousedown_handler)

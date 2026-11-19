@@ -490,6 +490,8 @@
 			line-height: 1.25rem;
 			padding-top: 0.33rem;
 			padding-bottom: 0.33rem;
+			// last resort only: a space-less token longer than the list's max-width
+			overflow-wrap: anywhere;
 
 			&.selected {
 				background-color: @color_grey_11;

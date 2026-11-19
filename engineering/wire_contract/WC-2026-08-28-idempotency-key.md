@@ -203,8 +203,11 @@ handler, when it is opened at all.
   it there is its own per-transfer identity: `transfer_id` is minted ONCE per
   transfer and every retried chunk carries the same one, so a resent chunk lands
   in the same staging artifact instead of a second one. The step that turns
-  staged chunks into a record, `join_chunked_files_uploaded` (`retries:5`), comes
-  back through the JSON door and IS stamped and gated. The gate pins the shape of
+  staged chunks into a record, `join_chunked_files_uploaded`, comes back through
+  the JSON door with `retries:1` per poll round (2026-11-19): unstamped, so NOT
+  ledgered — the join is idempotent per `upload_id` by itself, and a ledgered
+  resend turned its retryable `media.upload_conflict` into a fatal
+  `idempotency.outcome_unknown` for every join outlasting ~24 s. The gate pins the shape of
   that branch in `server.ts` so this statement cannot rot into a false one.
 
 None of the residuals is the measured defect. That defect is one client, on one

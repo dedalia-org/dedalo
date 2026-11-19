@@ -1,7 +1,7 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*global it, describe, assert, SHOW_DEBUG */
 /*eslint no-undef: 'error'*/
-import { ts_object } from '../../../core/ts_object/js/ts_object.js'
+import { ts_object, render_search_navigator } from '../../../core/ts_object/js/ts_object.js'
 import { ui } from '../../../core/common/js/ui.js'
 import { data_manager } from '../../../core/common/js/data_manager.js'
 
@@ -257,5 +257,132 @@ describe('TS_OBJECT EXTENDED : ', function() {
     });
 
 
+});
+
+
+
+// tree search result navigator (ts_object.render_search_navigator). Backend-free:
+// a stand-in area (node/content_data, rqo, filter, navigate spy) and plain term nodes.
+describe('TS_OBJECT SEARCH NAVIGATOR : ', function() {
+
+    let area, navigate_calls, persisted, nodes, max_input
+
+    const make_area = (limit=30, search_action='search') => {
+        const node = document.createElement('div')
+        const content_data = document.createElement('div')
+        node.appendChild(content_data)
+        node.content_data = content_data
+        document.getElementById('content').appendChild(node)
+        navigate_calls = 0
+        persisted = 0
+        max_input = document.createElement('input')
+        return {
+            node,
+            rqo : { source : { search_action }, sqo : { limit } },
+            request_config_object : { sqo : { limit } },
+            filter : {
+                pagination_id : 'test_nav',
+                limit,
+                max_input,
+                update_local_db_pagination() { persisted++ }
+            },
+            navigate() { navigate_calls++ }
+        }
+    }
+    const make_nodes = (n) => Array.from({ length : n }, (_, i) => {
+        const el = document.createElement('div')
+        el.textContent = 't' + i
+        el.style.height = '10px'
+        area.node.content_data.appendChild(el)
+        return el
+    })
+    const counter = (nav) => nav.querySelector('.counter').textContent
+    const current = () => nodes.findIndex(el => el.classList.contains('element_hilite_current'))
+    const set_max = (nav, value) => {
+        const input = nav.querySelector('.limit input')
+        input.value = value
+        input.dispatchEvent(new Event('change'))
+        return input.value
+    }
+
+    afterEach(function() {
+        area?.node.remove()
+    })
+
+    it('visibility: none for 0-1 results, shown for 2+ or a single result that fills the limit', function() {
+        area = make_area(30)
+        nodes = make_nodes(1)
+        assert.isNull(render_search_navigator(area, nodes, null, 1), '1 result below the limit')
+        assert.isNull(render_search_navigator(area, [], null, 0), '0 results')
+        area.rqo.sqo.limit = 1
+        assert.ok(render_search_navigator(area, nodes, null, 1), '1 result filling the limit')
+        assert.isNull(render_search_navigator(undefined, nodes), 'no area')
+    })
+
+    it('steps in tree order, starts on the scrolled-to node, wraps, skips unreachable', function() {
+        area = make_area(30)
+        nodes = make_nodes(4)
+        // server order differs from tree order; the search scrolled to t2
+        const nav = render_search_navigator(area, [nodes[2], nodes[0], nodes[3], nodes[1]], nodes[2], 4)
+        assert.equal(counter(nav), '3 / 4')
+        assert.equal(current(), 2)
+        nav.querySelector('.nav_next').click()
+        assert.equal(current(), 3)
+        nav.querySelector('.nav_next').click()
+        assert.equal(counter(nav), '1 / 4', 'wraps forward')
+        nav.querySelector('.nav_prev').click()
+        assert.equal(current(), 3, 'wraps back')
+        nodes[0].style.display = 'none' // collapsed branch
+        nav.querySelector('.nav_next').click()
+        assert.equal(current(), 1, 'skips the unreachable t0')
+        assert.equal(document.querySelectorAll('.element_hilite_current').length, 1)
+    })
+
+    it('one bar per area; close removes it; Esc in max does not close', function() {
+        area = make_area(30)
+        nodes = make_nodes(3)
+        render_search_navigator(area, nodes, null, 3)
+        const nav = render_search_navigator(area, nodes, null, 3)
+        assert.equal(area.node.querySelectorAll('.ts_search_navigator').length, 1)
+        nav.querySelector('.limit input').dispatchEvent(new KeyboardEvent('keydown', { key : 'Escape', bubbles : true }))
+        assert.ok(nav.isConnected, 'Esc in the max input keeps the bar')
+        nav.querySelector('.nav_next').dispatchEvent(new KeyboardEvent('keydown', { key : 'Escape', bubbles : true }))
+        assert.notOk(nav.isConnected, 'Esc elsewhere closes')
+        const nav2 = render_search_navigator(area, nodes, null, 3)
+        nav2.querySelector('.nav_close').click()
+        assert.equal(area.node.querySelectorAll('.ts_search_navigator').length, 0)
+        assert.equal(document.querySelectorAll('.element_hilite_current').length, 0)
+    })
+
+    it('max: clamps, keeps on empty, syncs the panel, navigates once per real change', function() {
+        const max = (typeof page_globals!=='undefined' && page_globals?.dedalo_search_client_max_limit) || 1000
+        area = make_area(30)
+        nodes = make_nodes(3)
+        const nav = render_search_navigator(area, nodes, null, 3)
+        assert.equal(nav.querySelector('.limit input').value, '30')
+        assert.equal(set_max(nav, '50'), '50')
+        assert.equal(area.rqo.sqo.limit, 50)
+        assert.equal(area.request_config_object.sqo.limit, 50)
+        assert.equal(area.filter.limit, 50)
+        assert.equal(max_input.value, '50', 'panel Max field synced')
+        assert.equal(persisted, 1)
+        assert.equal(navigate_calls, 1)
+        set_max(nav, '50')
+        assert.equal(navigate_calls, 1, 'same value: no search')
+        assert.equal(set_max(nav, ''), '50', 'empty keeps the limit')
+        assert.equal(navigate_calls, 1)
+        assert.equal(set_max(nav, '0'), '1', '0 clamps to 1, never to max')
+        assert.equal(set_max(nav, '-5'), '1')
+        assert.equal(set_max(nav, String(max + 1)), String(max), 'above max clamps to max')
+        assert.equal(navigate_calls, 3)
+    })
+
+    it('max hidden for a non-client search (pinned hierarchy_terms)', function() {
+        area = make_area(30, null) // null, not undefined: undefined takes the 'search' default
+        nodes = make_nodes(3)
+        const nav = render_search_navigator(area, nodes, null, 3)
+        assert.ok(nav)
+        assert.isNull(nav.querySelector('.limit'))
+    })
 });
 // @license-end

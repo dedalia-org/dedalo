@@ -725,45 +725,138 @@ else {
 			...extra,
 		});
 		const refusal = (code: string) => ({ ok: false, error: { code, retryable: false } });
+		const conflict = (assembled_bytes?: number) => ({
+			ok: false,
+			error: {
+				code: 'media.upload_assembling',
+				retryable: true,
+				...(assembled_bytes === undefined ? {} : { details: { assembled_bytes } }),
+			},
+		});
+		const done = { ok: true, data: true, file_data: { tmp_name: 'a.jpg', complete: true } };
 
 		/** Answers each join round from `answers` in turn; returns the call log. */
-		function answer_rounds(answers: unknown[]) {
+		function answer_rounds(answers: unknown[] | ((round: number) => unknown)) {
 			const calls: Record<string, unknown>[] = [];
 			const before = data_manager.request;
 			data_manager.request = async (options: Record<string, unknown>) => {
 				calls.push(options);
-				return answers[Math.min(calls.length, answers.length) - 1];
+				return typeof answers === 'function'
+					? answers(calls.length)
+					: answers[Math.min(calls.length, answers.length) - 1];
 			};
 			return { calls, restore: () => (data_manager.request = before) };
 		}
 
-		test('a running join is asked again until it settles, with no own key', async () => {
-			const done = { ok: true, data: true, file_data: { tmp_name: 'a.jpg', complete: true } };
-			const rounds = answer_rounds([refusal('media.upload_conflict'), done]);
+		/** A clock the poll pauses advance instantly: 5 s per round, no real wait. */
+		function fake_clock() {
+			const real_now = Date.now;
+			const real_set_timeout = globalThis.setTimeout;
+			let now = real_now();
+			Date.now = () => now;
+			globalThis.setTimeout = ((fn: () => void, ms = 0) => {
+				now += ms;
+				return real_set_timeout(fn, 0);
+			}) as typeof setTimeout;
+			return {
+				elapsed_min: (since: number) => (now - since) / 60_000,
+				start: now,
+				restore: () => {
+					Date.now = real_now;
+					globalThis.setTimeout = real_set_timeout;
+				},
+			};
+		}
+
+		test('a running join is asked again until it settles: one unkeyed attempt per round, silently', async () => {
+			const rounds = answer_rounds([conflict(10), done]);
+			const clock = fake_clock();
 			try {
 				const response = await transport.join_chunked_files(join_options());
 				expect(response).toBe(done);
 				expect(rounds.calls.length).toBe(2);
-				// data_manager mints the key per round (client_idempotency_tripwire)
-				for (const call of rounds.calls) expect(call.idempotency_key).toBeUndefined();
+				for (const call of rounds.calls) {
+					expect(call.idempotency_key).toBeUndefined();
+					// ONE attempt per round, so data_manager stamps no key: a same-key
+					// resend of the conflict would be answered outcome_unknown (fatal).
+					expect(call.retries).toBe(1);
+					// waiting is the loop's own business: every pending answer is silent,
+					// every final one (413, a login refusal) still reaches the page
+					const silent = call.silent_error as (e: unknown) => boolean;
+					expect(silent({ code: 'media.upload_assembling', retryable: true })).toBe(true);
+					expect(silent({ code: 'client.http_status', status: 502, retryable: true })).toBe(true);
+					expect(silent({ code: 'client.http_status', status: 413, retryable: false })).toBe(false);
+					expect(silent({ code: 'auth.not_logged', retryable: false })).toBe(false);
+				}
 			} finally {
+				clock.restore();
 				rounds.restore();
 			}
-		}, 15_000);
+		});
 
-		test('a real failure is returned at once, not retried', async () => {
-			const failed = refusal('media.action_failed');
-			const rounds = answer_rounds([failed]);
+		test('any retryable refusal is asked again (a proxy 502 during a restart)', async () => {
+			const bad_gateway = {
+				ok: false,
+				error: { code: 'client.http_status', status: 502, retryable: true },
+			};
+			const rounds = answer_rounds([bad_gateway, done]);
+			const clock = fake_clock();
 			try {
-				expect(await transport.join_chunked_files(join_options())).toBe(failed);
-				expect(rounds.calls.length).toBe(1);
+				expect(await transport.join_chunked_files(join_options())).toBe(done);
+				expect(rounds.calls.length).toBe(2);
 			} finally {
+				clock.restore();
+				rounds.restore();
+			}
+		});
+
+		test('a final refusal is returned at once, not retried (413, rejected content, login)', async () => {
+			for (const failed of [
+				{ ok: false, error: { code: 'client.http_status', status: 413, retryable: false } },
+				refusal('media.upload_rejected'),
+				refusal('auth.not_logged'),
+			]) {
+				const rounds = answer_rounds([failed]);
+				try {
+					expect(await transport.join_chunked_files(join_options())).toBe(failed);
+					expect(rounds.calls.length).toBe(1);
+				} finally {
+					rounds.restore();
+				}
+			}
+		});
+
+		test('a join that keeps progressing is waited for past 30 minutes', async () => {
+			// 600 rounds × 5 s = 50 min of a growing assembly, then the result
+			const rounds = answer_rounds((round) => (round <= 600 ? conflict(round * 1_000_000) : done));
+			const clock = fake_clock();
+			try {
+				expect(await transport.join_chunked_files(join_options())).toBe(done);
+				expect(clock.elapsed_min(clock.start)).toBeGreaterThan(30);
+			} finally {
+				clock.restore();
+				rounds.restore();
+			}
+		});
+
+		test('a join with no progress for 15 minutes gives up with the last answer', async () => {
+			const stuck = conflict(42);
+			const rounds = answer_rounds(() => stuck);
+			const clock = fake_clock();
+			try {
+				expect(await transport.join_chunked_files(join_options())).toBe(stuck);
+				const minutes = clock.elapsed_min(clock.start);
+				// longer than the server's 10 min stale rule (its rebuild is followed)
+				expect(minutes).toBeGreaterThanOrEqual(15);
+				expect(minutes).toBeLessThan(16);
+			} finally {
+				clock.restore();
 				rounds.restore();
 			}
 		});
 
 		test('a cancelled transfer stops waiting for the join', async () => {
-			const pending = refusal('idempotency.in_progress');
+			const pending = conflict(1);
 			const rounds = answer_rounds([pending]);
 			try {
 				const response = await transport.join_chunked_files(

@@ -197,11 +197,14 @@ render_area_thesaurus.prototype.list = async function(options) {
 		wrapper.content_data = content_data
 
 	// ts_search case
-		// When the server already resolved a search (e.g. page loaded with an
-		// active filter), defer the tree-walk until the 'render_<filter.id>'
-		// event fires, which guarantees the search panel DOM is ready.
+		// A full render carries a server-resolved search only for the ontology
+		// search_tipos deep link or the area's pinned properties.hierarchy_terms
+		// (a panel search re-renders at 'content' level, handled above). The parse
+		// needs neither the search panel nor the filter: the filter is lazily built
+		// (only on panel open), so waiting for its render event lost the result
+		// whenever the panel was closed.
 		if (data.ts_search) {
-			const render_handler = (wrapper_search) => {
+			const render_handler = () => {
 				dd_request_idle_callback(
 					async () => {
 
@@ -223,6 +226,10 @@ render_area_thesaurus.prototype.list = async function(options) {
 							is_ontology				: self.model === 'area_ontology'
 						})
 
+						// register in the area destroy cascade (as the content path does)
+						if (self.ar_instances && !self.ar_instances.includes(ts_object_instance)) {
+							self.ar_instances.push(ts_object_instance)
+						}
 						await ts_object_instance.parse_search_result(
 							data.ts_search.result,
 							data.ts_search.found
@@ -230,14 +237,9 @@ render_area_thesaurus.prototype.list = async function(options) {
 					}
 				)
 			}
-			self.events_tokens.push(
-				event_manager.subscribe('render_'+self.filter.id, render_handler)
-			)
-			// search_tipos Ontology case
-			// force filter render to fire the render event that parse the search result
-			if (self.model==='area_ontology' && self.search_tipos) {
-				self.filter.render()
-			}
+			// Waits for the root terms: a root still building has no children_container,
+			// so the search branches could not open under it (no hilite).
+			Promise.allSettled(self.root_terms_ready || []).then(render_handler)
 		}
 
 	// event keydown
@@ -328,6 +330,10 @@ const render_content_data = function(self) {
 			class_name		: 'thesaurus_list_wrapper',
 			parent			: fragment
 		})
+
+	// root_terms_ready. One promise per root build+render (filled by render_root_term);
+	// a deep-link search parse must wait for them (@see list ts_search case)
+		self.root_terms_ready = []
 
 	// elements
 		const data				= self.data.find(item => item.tipo==='dd100' || item.tipo==='dd5') || {}
@@ -522,7 +528,7 @@ export const render_root_term = function (options) {
 	// ts_object_instance
 	// Note that we do NOT wait here, we return the placeholder_wrapper
 	// and, when the ts_object if fully rendered, the placeholder is replaced.
-	ts_object.get_instance({
+	const ready = ts_object.get_instance({
 		// key_parts
 		section_tipo		: section_tipo,
 		section_id			: section_id,
@@ -556,6 +562,7 @@ export const render_root_term = function (options) {
 			}
 		);
 	})
+	self.root_terms_ready?.push(ready)
 
 
 	return placeholder_wrapper

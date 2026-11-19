@@ -195,7 +195,7 @@ runtime rejection, not a fallback to header-only.
 ### 3b. The join is interruptible and retryable
 
 Two further defects on the same path, both reachable in ordinary operation
-because the client's transport retries the join after 10 s:
+because the client re-sends the join while a long one runs:
 
 - parts were unlinked **as they were consumed**, so a join killed halfway had
   already destroyed the front of the transfer and no retry could have succeeded.
@@ -207,6 +207,37 @@ because the client's transport retries the join after 10 s:
   writer (a live assembly advances its mtime every 1 MiB window), so it is
   discarded and the join starts again from the parts that were kept. A FRESH
   leftover still refuses loudly, which is the concurrent-join case.
+
+**Amended 2026-11-19 (join polling).** The client polls the join in rounds of one
+unkeyed attempt (`upload_transport.js` `join_chunked_files`; why unkeyed:
+WC-2026-08-28-idempotency-key). Two additions on this seam:
+
+- a resend while an assembly runs answers a NEW code, `media.upload_assembling`
+  (409, retryable — it was `media.upload_conflict`), carrying
+  `details.assembled_bytes`, the output's current size (a details key must be a
+  label placeholder, so the running-join case got its own code and label;
+  `media.upload_conflict` keeps the ambiguous-name case). The client treats a
+  changed value as progress and gives up only after 15 min without one (longer
+  than `ASSEMBLY_STALE_MS`, so a rebuild the server starts is followed), instead
+  of a fixed 30 min total that a 10 GB join on slow storage, or two joins sharing
+  a disk, could exceed while the server went on to stage a file nobody attached.
+  `media.upload_conflict` (several staged uploads match a name) carries no size,
+  so it ends after those 15 min.
+- the claim records the writer (`assembled.owner`: `{host, pid, writer}`). An
+  output whose writer is PROVABLY dead is recovered AT ONCE — after a restart
+  the half-written output was otherwise "fresh" and every round got a conflict
+  for up to 10 min before the join could start again. Provably dead: the same
+  host and either our own pid under another writer id (a container restart
+  reuses pid 1) or a pid no process holds (ESRCH). Nothing enforces one engine
+  process per media root, so another live pid or another host is NEVER taken
+  over (two writers corrupt the file); the age rule decides those, and outputs
+  with no readable identity.
+- a join that fails unexpectedly after claiming (an I/O error: a full disk) is
+  recorded (`join_failed.json` in the transfer's folder) and the NEXT join of
+  that `upload_id` answers it once as `media.action_failed` (not retryable)
+  before the record is cleared. The round that ran the failed join has usually
+  been abandoned by the client's 10 s timeout, so without the record the poll
+  saw only a fresh copy growing — progress — and refilled the disk forever.
 
 The assembly copy is also `await`ed now — `joinChunkedUpload` is async and yields
 to the event loop between windows, so a multi-GB join no longer holds the single

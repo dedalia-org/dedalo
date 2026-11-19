@@ -288,6 +288,14 @@ const render_content_data = async function(self, ar_section_record) {
 		for (let i = 0; i < ar_section_record_length; i++) {
 			// section_record
 			const section_record_node = await ar_section_record[i].render()
+			// snake_case values (ontology model names) get a break opportunity
+			// after each '_': a narrow search card wraps them at a word joint,
+			// never mid-word. Plain-text values only; textContent is unchanged
+			const value_node = section_record_node.querySelector(':scope > .wrapper_component')
+			if (value_node && value_node.childNodes.length===1 && value_node.firstChild.nodeType===Node.TEXT_NODE && value_node.textContent.includes('_')) {
+				const parts = value_node.textContent.split('_')
+				value_node.replaceChildren(...parts.flatMap((part, j) => j===0 ? [part] : ['_', document.createElement('wbr'), part]))
+			}
 			// console.log('>> section_record TO RENDER:', ar_section_record[i]);
 			fragment.appendChild(section_record_node)
 		}

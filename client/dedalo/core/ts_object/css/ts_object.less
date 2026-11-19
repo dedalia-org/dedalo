@@ -428,6 +428,12 @@
 				animation: element_hilite_pulse 1.5s ease-out 1;
 			}
 
+			// the result the search navigator (render_search_navigator) points at
+			.element_hilite_current > .term_text {
+				outline: 2px solid var(--fg_default);
+				outline-offset: 2px;
+			}
+
 			@keyframes element_hilite_pulse {
 				0% {
 					box-shadow: 0 0 0 6px @color_hilite_yellow;
@@ -1011,3 +1017,70 @@
 	}
 
 }//end .wrap_ts_object
+
+// ts_search_navigator. Jump between hilited search results (render_search_navigator)
+.ts_search_navigator {
+	position: fixed;
+	bottom: 1rem;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 0.25rem;
+	background-color: var(--bg_fill_inverse);
+	color: var(--fg_inverse);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-2);
+	font-size: 1rem;
+
+	.limit {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		margin: 0 0.25rem;
+		font-size: 0.86rem;
+
+		input {
+			width: 4rem;
+			height: 1.75rem;
+			padding: 0 0.25rem;
+			border: none;
+			border-radius: var(--radius-md);
+			background-color: var(--bg_input);
+			color: var(--fg_default);
+			font-size: 0.86rem;
+		}
+	}
+
+	.counter {
+		min-width: 4.5rem;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.button {
+		align-items: center;
+		justify-content: center;
+		width: auto;
+		min-width: 2rem;
+		height: 2rem;
+		padding: 0 0.5rem;
+		border: none;
+		background: transparent;
+		color: inherit;
+		font-size: 1.25rem;
+		line-height: 1;
+		cursor: pointer;
+		border-radius: var(--radius-md);
+
+		&:hover {
+			opacity: 0.7;
+		}
+		&:focus-visible {
+			outline: 2px solid var(--fg_inverse);
+			outline-offset: -2px;
+		}
+	}
+}

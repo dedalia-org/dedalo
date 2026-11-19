@@ -57,12 +57,14 @@ import {
 	renameSync,
 	rmdirSync,
 	rmSync,
+	type Stats,
 	statSync,
 	unlinkSync,
 	writeFileSync,
 	writeSync,
 } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { config } from '../../../config/config.ts';
 import { readString } from '../../../config/readers.ts';
@@ -194,10 +196,16 @@ function noStagedParts(): DedaloError {
 	});
 }
 
-function alreadyAssembling(): DedaloError {
-	return new DedaloError('media.upload_conflict', {
+/**
+ * `assembledBytes` is the running output's size: the client's poll loop reads a
+ * changed value as progress (a live writer moves it constantly), so it waits as
+ * long as the join works instead of a fixed total (upload_transport.js).
+ */
+function alreadyAssembling(assembledBytes: number): DedaloError {
+	return new DedaloError('media.upload_assembling', {
 		message: 'join: this upload is already being assembled',
 		publicMessage: 'join: this upload is already being assembled',
+		details: { assembled_bytes: assembledBytes },
 	});
 }
 
@@ -810,12 +818,62 @@ function locateUploadDir(
  *
  * A LIVE assembly writes continuously — a 1 MiB window per iteration — so its
  * mtime advances constantly however large the file is; an output whose mtime has
- * not moved for ten minutes has no writer. The client's transport retries the
- * join after 10 s, so without this recovery ONE interrupted join (a restart, a
- * killed worker, a full disk) blocked every subsequent attempt on that transfer
- * until the 24 h sweep — permanently, from the user's point of view.
+ * not moved for ten minutes has no writer. The client keeps re-sending the join
+ * while it runs, so without this recovery ONE interrupted join (a killed worker,
+ * a full disk) blocked every subsequent attempt on that transfer until the 24 h
+ * sweep — permanently, from the user's point of view. A RESTART is recognised at
+ * once by the writer identity (writerIsGone); this age rule is the backstop for
+ * every case that identity cannot prove: a writer that died inside this process,
+ * another live process or host, or no identity at all.
  */
 export const ASSEMBLY_STALE_MS = 10 * 60 * 1000;
+
+/**
+ * This process's identity as an assembly writer, recorded beside the output
+ * (`assembled.owner`, `{host, pid, writer}`) when the output is claimed.
+ * Immutable for the life of the process.
+ */
+const ASSEMBLY_WRITER = crypto.randomUUID();
+
+/**
+ * True only when the recorded writer is PROVABLY dead, so its output can be
+ * recovered at once instead of after ASSEMBLY_STALE_MS (a restart mid-join).
+ * Nothing enforces one engine process per media root, so "another process" is
+ * never proof by itself — taking over a LIVE writer's output corrupts the file:
+ * - another host (a shared media root): its pids mean nothing here → not proven;
+ * - our own pid with another writer id: a pid is held by one live process, and
+ *   it is us, so the recorded process is gone (a container restart reuses pid 1);
+ * - another pid on this host: gone only if no process holds it (ESRCH). EPERM is
+ *   a live process of another user.
+ * Unreadable / legacy / missing identity → not proven (the age rule decides).
+ */
+async function writerIsGone(ownerPath: string): Promise<boolean> {
+	const owner = await readWriterIdentity(ownerPath);
+	if (owner === null) return false;
+	if (owner.pid === process.pid) return owner.writer !== ASSEMBLY_WRITER;
+	try {
+		process.kill(owner.pid, 0);
+		return false; // a live process holds that pid
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === 'ESRCH';
+	}
+}
+
+/** The recorded writer when it is a complete identity on THIS host, else null. */
+async function readWriterIdentity(
+	ownerPath: string,
+): Promise<{ pid: number; writer: string } | null> {
+	try {
+		const owner = JSON.parse(await readFile(ownerPath, 'utf8'));
+		return owner?.host === hostname() &&
+			typeof owner.pid === 'number' &&
+			typeof owner.writer === 'string'
+			? owner
+			: null;
+	} catch {
+		return null;
+	}
+}
 
 /** Marker file naming a QUARANTINED transfer inside its artifact dir. */
 export const REJECTION_MARKER = 'rejected.json';
@@ -992,44 +1050,88 @@ function assertPartsCompleteAndUnderCap(
 	);
 }
 
+/** The output as it is on disk now, or null when it is not there. */
+function statOrNull(path: string): Stats | null {
+	try {
+		return statSync(path);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The output's size while a writer may still hold it, or null once it is
+ * abandoned. `seen` null (it vanished under us) counts as just written.
+ */
+async function liveAssemblySize(seen: Stats | null, ownerPath: string): Promise<number | null> {
+	const idleFor = seen === null ? 0 : Date.now() - seen.mtimeMs;
+	if (idleFor < ASSEMBLY_STALE_MS && !(await writerIsGone(ownerPath))) return seen?.size ?? 0;
+	return null;
+}
+
+/**
+ * Claim the output: the exclusive create and the removal of any previous
+ * writer's identity run with NO await between them, so no join in this process
+ * can pair the new output with a dead writer (and recover it from under us).
+ * Until this writer's identity lands, a missing one reads as live (writerIsGone).
+ */
+async function claimAssemblyOutput(assembled: string, ownerPath: string): Promise<number> {
+	const fd = openSync(assembled, 'wx', 0o640);
+	rmSync(ownerPath, { force: true });
+	try {
+		await writeFile(
+			ownerPath,
+			JSON.stringify({ host: hostname(), pid: process.pid, writer: ASSEMBLY_WRITER }),
+			{ mode: 0o640 },
+		);
+	} catch (error) {
+		closeSync(fd);
+		rmSync(assembled, { force: true });
+		throw error;
+	}
+	return fd;
+}
+
 /**
  * Open the assembly output EXCLUSIVELY, recovering an abandoned one.
  *
- * The client's transport retries the join after 10 s and up to 5 times, so on a
- * slow (multi-GB) assembly a second join can arrive while the first is still
- * writing. Two writers on one output produce a silently corrupt file; refusing
- * the second produces a loud, retryable error, and between those two the loud
- * one is the only acceptable answer.
+ * The client re-sends the join every few seconds while it runs, so on a slow
+ * (multi-GB) assembly a second join arrives while the first is still writing.
+ * Two writers on one output produce a silently corrupt file; refusing the second
+ * produces a loud, retryable error carrying the output's size (the client's
+ * progress signal), and between those two the loud one is the only acceptable
+ * answer.
  *
  * RECOVERY (2026-08-03): an INTERRUPTED join used to leave this file behind
- * forever, and every retry then failed on it — a permanently stuck transfer,
- * reachable in ordinary operation because the transport retries at 10 s. An
- * output nobody has written to for ASSEMBLY_STALE_MS has no writer, and the
- * parts are all still on disk (they are removed only once the join is
+ * forever, and every retry then failed on it — a permanently stuck transfer.
+ * The parts are all still on disk (they are removed only once the join is
  * finished), so the honest recovery is to discard the partial output and
- * assemble again.
+ * assemble again. The output has no writer when its recorded writer is provably
+ * dead (a restart: recovered at once, 2026-11-19 — writerIsGone) or when nobody
+ * has written to it for ASSEMBLY_STALE_MS (the backstop).
  */
-function openAssemblyOutput(assembled: string): number {
-	const openAssembly = (): number => openSync(assembled, 'wx', 0o640);
+async function openAssemblyOutput(assembled: string): Promise<number> {
+	const ownerPath = `${assembled}.owner`;
 	try {
-		return openAssembly();
+		// Its synchronous prefix IS the claim (see joinChunkedUpload).
+		return await claimAssemblyOutput(assembled, ownerPath);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 	}
-	let idleFor = 0;
-	try {
-		idleFor = Date.now() - statSync(assembled).mtimeMs;
-	} catch {
-		idleFor = 0; // it vanished under us: let the retry below decide
-	}
-	if (idleFor < ASSEMBLY_STALE_MS) throw alreadyAssembling();
+	const seen = statOrNull(assembled);
+	const liveSize = await liveAssemblySize(seen, ownerPath);
+	if (liveSize !== null) throw alreadyAssembling(liveSize);
+	// The liveness check awaited: a concurrent join may have recovered the output
+	// meanwhile. Only the output judged abandoned is removed — checked with no
+	// await before the removal and the claim.
+	if (statOrNull(assembled)?.ino !== seen?.ino) throw alreadyAssembling(0);
 	rmSync(assembled, { force: true });
 	try {
-		return openAssembly();
+		return await claimAssemblyOutput(assembled, ownerPath);
 	} catch {
 		// Another join won the race to recover it — that one is live, so this is
 		// the ordinary concurrent case again.
-		throw alreadyAssembling();
+		throw alreadyAssembling(0);
 	}
 }
 
@@ -1135,6 +1237,13 @@ async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<Upl
 	// archive records must be the one the parts were uploaded under.
 	const name = meta?.name ?? displayFileName(hint);
 
+	// A join that FAILED while nobody was listening (the client polls in short
+	// rounds, so the round that ran it has usually gone): answer that failure ONCE,
+	// so the poll ends with the real cause instead of starting a new copy that
+	// fails the same way forever (a full disk). Consumed: a later join retries.
+	const failure = takeRecordedJoinFailure(upDir);
+	if (failure !== null) throw await recordedJoinFailure(failure);
+
 	// A transfer already quarantined must not read as "missing chunks": say what
 	// actually happened, and that the bytes are still there.
 	if (existsSync(resolve(upDir, REJECTION_MARKER))) {
@@ -1147,7 +1256,7 @@ async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<Upl
 	const assembled = resolve(upDir, 'assembled');
 	// EXCLUSIVE create, with recovery of an abandoned output — see
 	// openAssemblyOutput above for both halves of the reasoning.
-	const out = openAssemblyOutput(assembled);
+	const out = await openAssemblyOutput(assembled);
 	// The AUTHORITATIVE total: the pre-check reads the parts as they were a moment
 	// ago, this counts the bytes actually copied, so a part still growing under a
 	// concurrent chunk POST cannot slip past the ceiling.
@@ -1247,6 +1356,71 @@ async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<Upl
 /** The finished-join record kept in a transfer's artifact dir (see assembleChunkedUpload). */
 const JOINED_RECORD = 'joined.json';
 
+/** The last join's unexpected failure, kept in the artifact dir until a join reads it. */
+const JOIN_FAILED_RECORD = 'join_failed.json';
+
+/**
+ * Record an UNEXPECTED join failure (an I/O error: a full disk, a vanished
+ * part) for the next join of this upload_id — see throwRecordedJoinFailure.
+ * Typed refusals are not recorded: they are deterministic, and the quarantine
+ * ones keep their own marker. Best effort: a failure to record changes nothing.
+ */
+async function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): Promise<void> {
+	if (error instanceof DedaloError || typeof input.uploadId !== 'string') return;
+	try {
+		const upDir = uploadArtifactDir(input.userId, input.keyDir, input.uploadId, input.mediaRoot);
+		if (!existsSync(upDir)) return;
+		// The errno code only (ENOSPC, EIO…): the message names paths, and rides the
+		// log line below, never a stored payload.
+		const errno = (error as NodeJS.ErrnoException)?.code;
+		await writeFile(
+			resolve(upDir, JOIN_FAILED_RECORD),
+			JSON.stringify({
+				errno: typeof errno === 'string' ? errno : 'unknown',
+				at: new Date().toISOString(),
+			}),
+			{ mode: 0o640 },
+		);
+		console.warn(
+			`[upload] join of upload_id ${JSON.stringify(input.uploadId)} failed and was recorded for its next round:`,
+			error,
+		);
+	} catch (recordError) {
+		console.warn('[upload] could not record a failed join:', (recordError as Error).message);
+	}
+}
+
+/**
+ * Take (once) the failure a previous join of this transfer recorded: the rename
+ * is the synchronous claim, so no await precedes the assembly claim when there is
+ * none, and two concurrent joins never both answer it. The taken path, or null.
+ */
+function takeRecordedJoinFailure(upDir: string): string | null {
+	const path = resolve(upDir, JOIN_FAILED_RECORD);
+	const taken = `${path}.taken`;
+	try {
+		renameSync(path, taken);
+	} catch {
+		return null; // none recorded (or another join took it)
+	}
+	return taken;
+}
+
+/** The error answering a taken failure record (see takeRecordedJoinFailure). */
+async function recordedJoinFailure(taken: string): Promise<DedaloError> {
+	let errno = 'unknown';
+	try {
+		const recorded = (JSON.parse(await readFile(taken, 'utf8')) as { errno?: unknown }).errno;
+		if (typeof recorded === 'string' && /^[A-Z0-9_]{1,32}$/.test(recorded)) errno = recorded;
+	} catch {
+		// an unreadable record still means the last join failed
+	}
+	rmSync(taken, { force: true });
+	return new DedaloError('media.action_failed', {
+		message: `join: the previous attempt at this join failed (${errno}); see the earlier log line`,
+	});
+}
+
 /**
  * The recorded outcome of an already finished join of this upload_id, or null.
  * Null as well when the staged file is gone (ingested or deleted since): there is
@@ -1275,7 +1449,7 @@ async function replayJoinedUpload(
  * Join a chunked upload, idempotently per upload_id. The client keeps re-sending
  * the join of a multi-GB file until it gets an answer (a single request cannot
  * outlast the join), so:
- * - a resend while the first join runs gets media.upload_conflict (retryable)
+ * - a resend while the first join runs gets media.upload_assembling (retryable)
  *   from openAssemblyOutput;
  * - a join that already finished, or one whose parts vanished under it, replays
  *   its recorded result (the catch).
@@ -1294,6 +1468,7 @@ export async function joinChunkedUpload(
 	} catch (error) {
 		const late = await replayJoinedUpload(input);
 		if (late) return late;
+		await recordJoinFailure(input, error);
 		throw error;
 	}
 }

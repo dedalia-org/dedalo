@@ -241,7 +241,6 @@
 	// scroll/resize; width / height ONCE on open (the operator's own drag is then
 	// left alone — a size rewritten on every scroll snapped back to default)
 	position: fixed;
-	min-width: 50vh;
 	height: 60vh;
 	min-height: 10rem;
 	// above component content and the next components down the form
@@ -260,8 +259,18 @@
 		display: none;
 	}
 
-	// 50vh is wider than a portrait phone: never wider than the screen
+	// 50vh is wider than a portrait phone: never wider than the screen. The cap
+	// goes in min-width itself — min-width beats max-width, so a max-width alone
+	// left a 50vh pane overflowing the screen's left edge (the positioner anchors
+	// it to the field's right edge when it does not fit)
+	min-width: min(50vh, calc(100vw - 1rem));
 	max-width: 100vw;
+
+	// phone: the pane IS the field's bottom section, at the field's width
+	// (set by position_thesaurus_pane), never wider
+	@media screen and (max-width: @width_break_point_phone) {
+		min-width: 0;
+	}
 
 	// the area drops its own page chrome when it is a pane, not a page
 	> .area_thesaurus,

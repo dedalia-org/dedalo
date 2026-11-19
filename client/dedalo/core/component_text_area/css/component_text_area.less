@@ -63,6 +63,11 @@
 		// fullscreen covers the menu (fixed wrapper): no offset to keep
 		&.fullscreen:not(.view_line) > .content_data > .content_value > .toolbar_container {
 			top: 0;
+			// the toolbar shares the top line with the fullscreen tools pill and the
+			// exit button (layout.less .fullscreen): its buttons stop (and wrap) before them.
+			// shortcut: pill width from --tools_count (ui.component.activate) at 1.7rem per
+			// icon, its own full_screen hidden; measure the pill if icon sizes ever vary
+			padding-right: calc((var(--tools_count, 6) - 1) * 1.7rem + 1.1rem + 3rem);
 		}
 		// active ⇒ toolbar shown. The editor services toggle .hide from their own
 		// mousedown/focus, so activating by the label, the pill or the keyboard left

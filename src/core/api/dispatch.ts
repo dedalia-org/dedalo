@@ -378,7 +378,9 @@ function summarizeRqo(rqo: Rqo): string {
 // is minted ONCE per transfer and every retried chunk carries the same one, so a
 // resent chunk lands in the same staging artifact instead of a second one. The
 // step that turns staged chunks into a record — `join_chunked_files_uploaded` —
-// comes back through the JSON door and IS gated here.
+// comes back through the JSON door, but UNSTAMPED (retries:1 per poll round), so
+// not ledgered: the join is idempotent per upload_id by itself, and a ledgered
+// resend turned its retryable media.upload_conflict into outcome_unknown.
 
 /** How an action behaves when it is executed twice. */
 export type ActionIdempotency = 'idempotent' | 'mutating';

@@ -3782,15 +3782,24 @@ const position_thesaurus_pane = function(self, pane, options={}) {
 	// than the component: min-width, the operator's own drag). Rule: if it fits
 	// growing rightwards from the component's left edge, do that; otherwise grow
 	// leftwards from the component's RIGHT edge. Neither ever pushes it off-screen.
-	// (the -1 keeps the pane's border flush with the component's, as before)
-	const pane_width	= pane.offsetWidth || Math.floor(rect.width)
-	const fits_right	= rect.left + pane_width <= window.innerWidth - 8
+	// The pane's sides continue the component's VISUAL edge: its box, plus the
+	// `--pane_edge_outset` an active style declares when it draws that edge outside
+	// the box (Lift's outer ring: 1px). Default 0: an edge inside the box (Frame's
+	// inset line) or none.
+	const outset		= parseFloat(getComputedStyle(anchor).getPropertyValue('--pane_edge_outset')) || 0
+	const edge_left		= rect.left - outset
+	const edge_width	= rect.width + 2 * outset
+	// clientWidth, not innerWidth: a fixed box's `right` is measured from the layout
+	// viewport, which excludes the vertical scrollbar
+	const view_width	= document.documentElement.clientWidth
+	const pane_width	= pane.offsetWidth || edge_width
+	const fits_right	= edge_left + pane_width <= view_width - 8
 	if (fits_right) {
-		pane.style.left		= `${Math.floor(rect.left)-1}px`
+		pane.style.left		= `${edge_left}px` // fractional: a rounded edge missed the field's by a sub-pixel
 		pane.style.right	= 'auto'
 	} else {
 		pane.style.left		= 'auto'
-		pane.style.right	= `${Math.max(8, Math.floor(window.innerWidth - rect.right)-1)}px`
+		pane.style.right	= `${Math.max(8, view_width - rect.right - outset)}px`
 	}
 
 	// size: on open only, and never over a size the operator already chose
@@ -3801,7 +3810,7 @@ const position_thesaurus_pane = function(self, pane, options={}) {
 			pane.style.height	= remembered.height
 		} else {
 			// default: the component's width; height from CSS
-			pane.style.width	= `${Math.round(rect.width)}px`
+			pane.style.width	= `${edge_width}px`
 			pane.style.height	= ''
 		}
 	}

@@ -239,6 +239,11 @@ const client_failure = (api_error) => ({
 *   `notices[]`: 'page' publishes `'api_notices'` (the page subscriber toasts them
 *   through the policy table); 'caller' publishes NOTHING, because the caller
 *   renders the notice in its own wrapper and a second toast would duplicate it.
+* @param {Function|null} [options.silent_error=null] - `(api_error) => boolean`: true
+*   for a failure the CALLER handles itself (e.g. a polling loop's "still running"
+*   answers). Such a failure is returned but neither published as 'api_error',
+*   toasted nor logged to the console. Every other failure still reaches the page
+*   (relogin, no-access, toast).
 * @param {boolean|null} [options.busy_notice=null] - Whether this call feeds the
 *   slow-server cue. null = yes, unless its action is in BACKGROUND_ACTIONS or its
 *   timeout exceeds LONG_WAIT_TIMEOUT_MS (a declared long operation); true =
@@ -566,13 +571,14 @@ const execute_request = async function(options) {
 		base_delay	: 500, // default base delay in ms
 		timeout		: 5000, // default timeout in ms
 		notices		: 'page', // 'page' = publish 'api_notices' (default); 'caller' = the caller renders them itself
+		silent_error: null, // (api_error) => true for a failure the caller handles itself: returned, not announced
 		busy_notice	: null // null = default (on, except BACKGROUND_ACTIONS and timeouts > LONG_WAIT_TIMEOUT_MS); true = always; false = never
 	};
 
 	const merged_options = { ...default_options, ...options };
 
 	// vars from options applying defaults
-	const { url, method, mode, cache, credentials, headers, redirect, referrer, body, signal, base_delay, timeout, notices, busy_notice } = merged_options;
+	const { url, method, mode, cache, credentials, headers, redirect, referrer, body, signal, base_delay, timeout, notices, silent_error, busy_notice } = merged_options;
 	// ONE attempt count for both the stamp below and the retry loop (normalize_retries)
 	const retries = normalize_retries(merged_options.retries, default_options.retries)
 
@@ -830,6 +836,12 @@ const execute_request = async function(options) {
 		// page subscriber toasts synchronously (error_text needs it for reason_key)
 		if (api_error.tool===null || api_error.tool===undefined) {
 			api_error.tool = request_tool(body)
+		}
+
+		// a failure the caller declared its own (silent_error): returned, not
+		// announced — no event, no toast, no console line (error_capture records each)
+		if (typeof silent_error === 'function' && silent_error(api_error) === true) {
+			return envelope;
 		}
 
 		// debug console message. Lock-state chatter is not worth a red line, nor is a

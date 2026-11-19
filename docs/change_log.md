@@ -432,6 +432,18 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Thesaurus and ontology tree searches can now step through the found terms.**
+
+    When a search in the thesaurus or ontology tree finds more than one term, a small bar at the
+    bottom of the window shows the position (for example `3 / 17`) with previous and next buttons
+    that scroll to each found term in tree order, marking the current one. The bar wraps around at
+    both ends and closes with its × button or the Escape key.
+
+    The bar also has a **Max** field: the maximum number of terms the search returns (30 by
+    default). Changing it repeats the same search with the new limit and updates the search
+    panel's own Max field. The bar stays visible when a search fills its limit, even with a single
+    result, so the limit can be raised.
+
 - **A field's search options now explain the search operators, with a sample for each and what it finds.**
 
     Open a field's search options (the gear next to the search box) and, below Max, a folded
@@ -471,6 +483,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Uploading a very large file no longer fails while the server is still assembling it.**
+
+    When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
+
 - **Reverting a batch run cleans the values it puts back like a normal save**
 
     **Revert the bulk process** put each value back exactly as the run had found it. A value from before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers, and a number in a format its field no longer uses. The same was true of a record the revert restored whole — one a run had emptied or deleted.
@@ -496,6 +512,60 @@ Merged since the last release; these ship with the next one.
     **Action needed:** none. Details: [CSV import](./using/tools/using_import_dedalo_csv.md).
 
     Wire contract: `WC-2026-08-27-csv-ingest-refusals`.
+
+- **A field opened in fullscreen from the ontology or thesaurus tree fills the screen again.**
+
+    A field shown under a tree node and switched to fullscreen kept the tree's spacing above it:
+    the panel started below the top of the screen, showed the page behind it and ran off the
+    bottom. It now fills the screen exactly, in every active-field style.
+
+- **Fullscreen fields show their tools in every active-field style; Lift joins a portal's search bar to its card.**
+
+    In fullscreen, a field's tools were drawn above the screen (Background, Frame, Margin) or
+    on top of the exit button (Lift), and a text area's editor toolbar covered them. Every
+    style now shows them as the orange pill beside the exit button, on the same line as the
+    label; the text area's toolbar stops before it. Frame no longer cuts the label in half at
+    the top of the screen.
+
+    With **Lift**, a portal's search bar now joins its card as one surface: square corners
+    where they meet, the same width, and one line between them.
+
+- **The Lift active-field style no longer hides its tools or overlaps the ontology tree.**
+
+    With **Lift** chosen as the active-field style, a text field opened from a list cell in its
+    edit window showed its tools cut off under the window title, an unneeded two-row header and
+    an editor toolbar drawn over the card's edges; a field opened from an ontology node covered
+    that node's buttons. All now sit inside their own space.
+
+    The header band only appears when the label and the tools really do not fit on one line,
+    and it is measured again when the window is resized. **Frame** also stops lifting its tool
+    tab above the label on fields wide enough for both.
+
+- **The ontology window opened from a Children/Parent row now always shows and highlights the term.**
+
+    Opening the ontology tree from the tree button of a related-term row (for example in the
+    Children list of an ontology node) only found and highlighted the term when the search panel
+    had been left open; otherwise the default tree was shown. The term is now always located and
+    highlighted.
+
+    The same applies to a thesaurus area configured to open on pinned terms
+    (`hierarchy_terms` in the area's properties): its terms are now always located, whether
+    or not the search panel was left open.
+
+- **The thesaurus picker under a field lines up with it and fits a phone screen.**
+
+    The tree that opens under a field to pick terms (the tree button of a relation field) was a
+    pixel narrower than the field and offset from it, and on a phone it was wider than the
+    screen and ran off its left edge. It now has exactly the field's width and edges, never
+    grows wider than the screen, and with the **Lift** style it joins the field's card as its
+    bottom section.
+
+- **Parent and Children columns in lists read as one line again.**
+
+    In list views, the Parent and Children columns (for example in the ontology and thesaurus
+    lists) scattered each value and its `|` separators across a grid, wrapping parts like the
+    model onto a second, misaligned line. Each related record now reads as one wrapped line,
+    such as `Tesauro | dd | 100 | area_thesaurus`.
 
 - **Restoring a version from the Time Machine cleans the value like a normal save**
 
@@ -602,6 +672,10 @@ Merged since the last release; these ship with the next one.
 - **Searching the ontology or a thesaurus no longer stops working until the page is reloaded.**
 
     One failed search — a server refusal, a network timeout, an error drawing the result tree — left the ontology / thesaurus tree unable to search again, and "Show all" pressed while a search was still running was silently ignored. The tree now recovers on its own and runs the requests in order. In Safari, the browser's local store can drop its connection while the tab is in the background; the application now reconnects instead of failing until a reload.
+
+- **Long values in search-form autocomplete fields are readable again.**
+
+    In the search form, a long value without spaces (e.g. the ontology model "component_relation_children") ran past the right edge of the autocomplete result list, and once chosen it broke mid-word with its remove button pushed onto a line of its own. The result list now widens to fit its rows, and the chosen value wraps only after an underscore, with the remove button beside it.
 
 - **Select options with a dataframe no longer end in a stray separator.**
 
