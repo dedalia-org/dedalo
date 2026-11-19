@@ -81,33 +81,9 @@ import {
 } from './tool_uca_maps_fixture.js';
 
 /**
- * Runs `fn` with the tool sheet's phone rules applied at the suite's desktop
- * width, where the phone @media never matches: the rules inside it whose
- * selector names `selector_part` are lifted out of the loaded sheet and applied
- * unconditionally. Call inside with_tool_css.
- * @returns {Promise<*>}
- */
-const with_phone_rules = async function (selector_part, fn) {
-	const sheet = tool_sheet();
-	const rules = [...sheet.cssRules]
-		.filter((rule) => rule instanceof CSSMediaRule && /max-width:\s*600px/.test(rule.conditionText))
-		.flatMap((rule) => [...rule.cssRules])
-		.filter((rule) => rule.selectorText && rule.selectorText.includes(selector_part));
-	assert.isAbove(rules.length, 0, 'expected phone rules for ' + selector_part);
-	const style = document.createElement('style');
-	style.textContent = rules.map((rule) => rule.cssText).join('\n');
-	document.head.appendChild(style);
-	try {
-		return await fn();
-	} finally {
-		style.remove();
-	}
-};
-
-/**
- * Runs `fn` with the WHOLE tool sheet re-applied, in its own order, its phone
- * @media made unconditional: unlike with_phone_rules, a later desktop rule still
- * beats an earlier phone one, so a cascade-order bug shows. Call inside with_tool_css.
+ * Runs `fn` at the suite's desktop width as a phone would see it: the WHOLE tool
+ * sheet re-applied in its own order, its phone @media made unconditional, so a
+ * later desktop rule still beats an earlier phone one. Call inside with_tool_css.
  * @returns {Promise<*>}
  */
 const with_phone_cascade = async function (fn) {
@@ -3533,22 +3509,47 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		});
 	});
 
+	/** Every panel the tool hangs from its bar: [panel key, control key]. attach_whole_bar checks it. */
+	const TOOLBAR_PANELS = [
+		['console_panel', 'console_control'],
+		['map_image_panel', 'map_image_control'],
+		['object_viewer_panel', 'object_viewer_control'],
+		['xyz_panel', 'xyz_control'],
+		['wms_panel', 'wms_control'],
+		['ua_panel', 'ua_control'],
+		['upload_panel', 'upload_control'],
+		['place_search_panel', 'place_search_control'],
+		['legend_panel', 'legend_control'],
+		['roman_panel', 'roman_control'],
+	];
+
+	/** The whole bar as edit() builds it, Catastro and UA included; the table must name every panel. */
+	const attach_whole_bar = async function () {
+		geolocation.section_lang = 'lg-spa'; // gates Catastro and UA in
+		offer_catastro();
+		tool.get_capabilities = async () => ({
+			ok: true,
+			data: { gazetteers: structuredClone(WITH_PLEIADES) },
+		});
+		await run_edit();
+		assert.sameMembers(
+			TOOLBAR_PANELS.map(([panel_key]) => tool[panel_key]),
+			tool._toolbar_nodes.filter((node) => node.classList.contains('uca-maps-panel')),
+			'expected the table to name every panel the bar hangs',
+		);
+	};
+
 	it('on a phone every panel lies beside the bar and below the view box, so another button switches panels', async function () {
 		await with_tool_css(() =>
-			with_phone_rules('.uca-maps-panel', () => {
-				tool.attach_console();
-				tool.attach_xyz_basemaps();
-				tool.attach_file_upload();
+			with_phone_cascade(async () => {
+				await attach_whole_bar();
 				const map_node = geolocation.map.getContainer();
 				const map_rect = map_node.getBoundingClientRect();
 				const view_box = map_node.parentNode.querySelector(':scope > .map_inputs');
-				const cases = [
-					[tool.console_control, tool.console_panel, 'console'],
-					[tool.xyz_control, tool.xyz_panel, 'XYZ (centred on a desktop)'],
-					[tool.upload_control, tool.upload_panel, 'upload (centred on a desktop)'],
-				];
 				let previous = null;
-				for (const [control, panel, name] of cases) {
+				for (const [name, control_key] of TOOLBAR_PANELS) {
+					const control = tool[control_key];
+					const panel = tool[name];
 					// no close in between: the bar stays reachable while a panel is open
 					control.getContainer().click();
 					assert.isFalse(panel.hidden, name + ': expected open');
@@ -3614,21 +3615,21 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 
 	it('on a phone every control in a panel is a 44px target with 16px text, and the projection fields stand one per line', async function () {
 		await with_tool_css(() =>
-			with_phone_rules('.uca-maps-', () => {
-				tool.attach_xyz_basemaps();
-				tool.attach_file_upload();
+			with_phone_cascade(async () => {
+				await attach_whole_bar();
 				// a checkbox or radio is judged by its label
 				const controls =
 					'button, select, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea, [role=button]';
-				for (const [control, panel, name] of [
-					[tool.xyz_control, tool.xyz_panel, 'XYZ'],
-					[tool.upload_control, tool.upload_panel, 'upload'],
-				]) {
-					control.getContainer().click();
+				seeded_layer(1).openPopup(); // the console's object section
+				let measured = 0;
+				for (const [name, control_key] of TOOLBAR_PANELS) {
+					const panel = tool[name];
+					tool[control_key].getContainer().click();
 					const rendered = [...panel.querySelectorAll(controls)].filter(
 						(el) => el.getBoundingClientRect().width > 0,
 					);
-					assert.isAtLeast(rendered.length, 3, name + ': expected its controls rendered');
+					assert.isAtLeast(rendered.length, 1, name + ': expected its controls rendered');
+					measured += rendered.length;
 					for (const el of rendered) {
 						const rect = el.getBoundingClientRect();
 						assert.isAtLeast(
@@ -3645,7 +3646,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 						}
 					}
 				}
+				assert.isAtLeast(measured, 30, "expected the panels' controls measured at all");
 
+				tool.upload_control.getContainer().click();
 				const row = tool.upload_panel.querySelector('.uca-maps-upload-epsg-row');
 				const fields = [
 					'.uca-maps-upload-epsg',
@@ -3674,7 +3677,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	// phone) it would sit below the fold, so it is scrolled into view
 	it("on a phone a panel message below the fold is scrolled into the panel's view", async function () {
 		await with_tool_css(() =>
-			with_phone_rules('.uca-maps-', async () => {
+			with_phone_cascade(async () => {
 				tool.attach_file_upload();
 				tool.upload_control.getContainer().click();
 				const panel = tool.upload_panel;
@@ -3758,23 +3761,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 
 	it("on a phone the bar keeps the size of the map's other controls, and a map shorter than the bar scrolls it in its own box", async function () {
 		await with_tool_css(() =>
-			with_phone_rules('.uca-maps-toolbar', () => {
+			with_phone_cascade(async () => {
 				// the whole bar, in the tool's order: 13 squares, taller than the map
-				geolocation.section_lang = 'lg-spa'; // gates UA in
-				offer_catastro();
-				tool.attach_console();
-				tool.attach_map_image_download_control();
-				tool.attach_object_viewer();
-				tool.attach_onexone();
-				tool.attach_xyz_basemaps();
-				tool.attach_wms_services();
-				tool.attach_catastro();
-				tool.attach_administrative_units();
-				tool.attach_file_upload();
-				tool.attach_place_search();
-				tool.attach_geolocate();
-				tool.attach_legend();
-				tool.attach_roman_empire();
+				await attach_whole_bar();
 				const map_node = geolocation.map.getContainer();
 				const bar = map_node.querySelector('.uca-maps-toolbar');
 				const buttons = [...bar.querySelectorAll('.uca-maps-toolbar-button')];
@@ -3814,19 +3803,6 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		);
 	});
 
-	/** Every panel the tool hangs from its bar: [attach, panel key, control key]. */
-	const TOOLBAR_PANELS = [
-		['attach_console', 'console_panel', 'console_control'],
-		['attach_map_image_download_control', 'map_image_panel', 'map_image_control'],
-		['attach_object_viewer', 'object_viewer_panel', 'object_viewer_control'],
-		['attach_xyz_basemaps', 'xyz_panel', 'xyz_control'],
-		['attach_wms_services', 'wms_panel', 'wms_control'],
-		['attach_file_upload', 'upload_panel', 'upload_control'],
-		['attach_place_search', 'place_search_panel', 'place_search_control'],
-		['attach_legend', 'legend_panel', 'legend_control'],
-		['attach_roman_empire', 'roman_panel', 'roman_control'],
-	];
-
 	// The panels live inside Leaflet's container, which sets its own 12px
 	// Helvetica; they take the page's font and base size instead (html is the
 	// app's 1rem), with one smaller step for secondary text. Every text node a
@@ -3843,15 +3819,14 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 				"expected Leaflet's own font on the map, or this proves nothing",
 			);
 
-			mount_roman(WITH_PLEIADES);
-			for (const [attach, , control_key] of TOOLBAR_PANELS) {
-				tool[attach]();
+			await attach_whole_bar();
+			for (const [, control_key] of TOOLBAR_PANELS) {
 				tool[control_key].getContainer().click(); // opening populates the lists
 			}
 			seeded_layer(1).openPopup(); // the console's object section
 
 			let measured = 0;
-			for (const [, panel_key] of TOOLBAR_PANELS) {
+			for (const [panel_key] of TOOLBAR_PANELS) {
 				const panel = tool[panel_key];
 				assert.equal(
 					getComputedStyle(panel).fontSize,
@@ -3875,7 +3850,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 					assert.match(style.fontFamily, page_font, label + ": expected core's page font");
 					panel_measured++;
 				}
-				assert.isAtLeast(panel_measured, 3, panel_key + ': expected its texts walked');
+				assert.isAtLeast(panel_measured, 1, panel_key + ': expected its texts walked');
 				measured += panel_measured;
 			}
 			assert.isAtLeast(measured, 80, "expected the panels' texts walked at all");
@@ -3921,10 +3896,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	// buttons lose their fill and a checkbox falls back to the app's accent.
 	it('with the tool CSS, every box on the map carries the tool scope: buttons and checkboxes take the tool fill', async function () {
 		await with_tool_css(async () => {
-			mount_roman(WITH_PLEIADES);
-			for (const [attach] of TOOLBAR_PANELS) {
-				tool[attach]();
-			}
+			await attach_whole_bar();
 
 			// the generated values, read under a scope of their own
 			const scope = document.createElement('div');
@@ -3943,7 +3915,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			for (const [label, node] of [
 				['bar', bar],
 				['roman_dropdown', tool.roman_dropdown],
-				...TOOLBAR_PANELS.map(([, key]) => [key, tool[key]]),
+				...TOOLBAR_PANELS.map(([key]) => [key, tool[key]]),
 			]) {
 				assert.equal(
 					node.getAttribute('data-tool'),
