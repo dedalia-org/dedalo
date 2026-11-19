@@ -16,13 +16,14 @@
 // install the database happens to hold. The summarizer's tipo is an opaque
 // string, rewritten through src/core/test_data/test_tld_tipo_map.json.
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import type {
 	AgentAssistantTurn,
 	AgentLlmProvider,
 	AgentTranscriptEntry,
 } from '../../src/ai/agent/llm_provider.ts';
 import { runAgent } from '../../src/ai/agent/loop.ts';
+import * as realRetrieval from '../../src/ai/rag/retrieval.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { ensureCanonicalTest3 } from '../helpers/test_data.ts';
 
@@ -58,6 +59,14 @@ afterAll(() => {
 	} else {
 		process.env.DEDALO_RAG_EMBEDDING_PROVIDER = PRIOR_EMBEDDING_PROVIDER;
 	}
+});
+
+/** A spread COPY taken at import: what the mocking cases re-install (mock_isolation rule 3). */
+const REAL_RETRIEVAL = { ...realRetrieval };
+const RETRIEVAL = '../../src/ai/rag/retrieval.ts';
+// `mock.module` is process-global and `mock.restore()` does not revert it.
+afterEach(() => {
+	mock.module(RETRIEVAL, () => REAL_RETRIEVAL);
 });
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
@@ -310,4 +319,64 @@ describe('agent loop — RAG tools (2026-07-22 scope/group + passages)', () => {
 		expect(run.stop).toBe('end_turn');
 		expect(toolResultOf(provider).is_error).toBe(false);
 	});
+});
+
+describe('agent loop — a failed RAG tool tells the model a CODE, never the exception’s words (T2 S09-b)', () => {
+	// What an exception says is the server's: a driver message, a path, a host.
+	// The tool result goes to the model (an EXTERNAL provider's context when one
+	// is configured) and into the stored transcript — so it carries what every
+	// other failed tool carries: the ONE converter's structured error.
+	const SENTINEL = 'SENTINEL-9f3c connect ECONNREFUSED 10.0.0.7:5432 /srv/private/rag.sock';
+
+	for (const tool of ['dedalo_semantic_search', 'dedalo_retrieve_passages'] as const) {
+		test(`${tool}: the thrown text never reaches the tool_result, the transcript or the events`, async () => {
+			let thrown = 0;
+			const boom = async () => {
+				thrown += 1;
+				throw new Error(SENTINEL);
+			};
+			mock.module(RETRIEVAL, () => ({
+				...REAL_RETRIEVAL,
+				semanticSearch: boom,
+				retrievePassages: boom,
+			}));
+			const provider = new ScriptedProvider([
+				{
+					text: '',
+					tool_uses: [
+						{ id: 'toolu_boom', name: tool, input: { query: 'x', section_tipo: 'test3' } },
+					],
+					stop_reason: 'tool_use',
+				},
+				{ text: 'DONE', tool_uses: [], stop_reason: 'end_turn' },
+			]);
+			const events: unknown[] = [];
+			const quiet = console.error;
+			console.error = () => {};
+			let run: Awaited<ReturnType<typeof runAgent>>;
+			try {
+				run = await runAgent(SUPERUSER, 'q', provider, { onEvent: (event) => events.push(event) });
+			} finally {
+				console.error = quiet;
+			}
+			// FLOOR: the planted throw is what the tool met.
+			expect(thrown).toBe(1);
+			const second = provider.seenTranscripts[1] as AgentTranscriptEntry[];
+			const entry = second.find((item) => item.role === 'tool_results') as {
+				results: { tool_use_id: string; content: string; is_error: boolean }[];
+			};
+			const result = entry.results[0] as { content: string; is_error: boolean };
+			expect(result.is_error).toBe(true);
+			// The converter's structured error: a code the model can adapt to.
+			const body = JSON.parse(result.content) as { ok: boolean; error: { code: string } };
+			expect(body.ok).toBe(false);
+			expect(body.error.code).toBe('internal.unexpected');
+			// And the words stay home — everywhere the run can be read from.
+			for (const surface of [result.content, JSON.stringify(run), JSON.stringify(events)]) {
+				expect(surface).not.toContain('SENTINEL');
+				expect(surface).not.toContain('ECONNREFUSED');
+				expect(surface).not.toContain('/srv/private');
+			}
+		});
+	}
 });
