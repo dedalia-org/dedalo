@@ -810,6 +810,10 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		const map_container_node = geolocation.map.getContainer();
 		const tile_layers = tool._xyz_tile_layers;
 		assert.isOk(tool.xyz_control, 'expected the control attached first');
+		assert.isTrue(
+			tile_layers.some((tile_layer) => geolocation.map.hasLayer(tile_layer)),
+			'precondition: a tile layer this tool added is on the map',
+		);
 
 		// this fixture's default provider (VARIOUS) already had a
 		// layer_control — attach_xyz_basemaps reused it (its
@@ -1518,7 +1522,9 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			const panel = tool.wms_panel;
 			const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
 
-			for (const item of panel.querySelectorAll('.uca-maps-wms-list .uca-maps-wms-item')) {
+			const items = panel.querySelectorAll('.uca-maps-wms-list .uca-maps-wms-item');
+			assert.lengthOf(items, 3, 'expected one row per added layer');
+			for (const item of items) {
 				const item_width = item.getBoundingClientRect().width;
 				const title_width = item
 					.querySelector('.uca-maps-wms-item-title')

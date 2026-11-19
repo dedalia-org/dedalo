@@ -1206,6 +1206,9 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 	it("create_onexone_rectangle adds a 1 m rectangle to the marker's own FeatureGroup, linked by uid, auto-flagged uncertainty", function () {
 		const marker = seeded_layer(3);
 		const layers_before = geolocation.FeatureGroup[3].getLayers().length;
+		// another layer active: the rectangle must follow the marker, not the selection
+		geolocation.active_layer_id = 1;
+		const other_before = geolocation.FeatureGroup[1].getLayers().length;
 
 		create_onexone_rectangle(tool, marker);
 
@@ -1217,6 +1220,11 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			layers_after.length,
 			layers_before + 1,
 			'expected one new layer (the rectangle) added',
+		);
+		assert.equal(
+			geolocation.FeatureGroup[1].getLayers().length,
+			other_before,
+			'expected nothing added to the active layer',
 		);
 
 		const rectangle = layer_by_uid(geolocation.FeatureGroup[3], onexone_uid);

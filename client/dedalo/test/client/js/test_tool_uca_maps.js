@@ -1565,14 +1565,10 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	}; //end destroy_map_component
 
 	it('destroying the map component tears the tool down through its event, with the map already gone', async function () {
+		geolocation.section_lang = 'lg-spa'; // gates Catastro and UA in
+		offer_catastro();
 		await run_edit();
-		assert.isOk(tool.console_control, 'precondition: edit() attached the console');
-
-		await destroy_map_component();
-
-		assert.equal(tool.status, 'destroyed', 'expected the tool instance destroyed');
-		assert.isNull(tool.geolocation, 'expected the geolocation reference cleared');
-		for (const key of [
+		const released = [
 			'console_control',
 			'console_panel',
 			'map_image_control',
@@ -1589,7 +1585,16 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			'legend_control',
 			'roman_control',
 			'_toolbar_bar',
-		]) {
+		];
+		for (const key of released) {
+			assert.isOk(tool[key], 'precondition: edit() built ' + key);
+		}
+
+		await destroy_map_component();
+
+		assert.equal(tool.status, 'destroyed', 'expected the tool instance destroyed');
+		assert.isNull(tool.geolocation, 'expected the geolocation reference cleared');
+		for (const key of released) {
 			assert.isNull(tool[key], 'expected ' + key + ' released');
 		}
 	});
@@ -1913,6 +1918,11 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		});
 
 		const captured_blob = (await capture_download(() => download_vector(tool, layer, 'kml'))).blob;
+		assert.equal(
+			asked && asked.file_data && asked.file_data.key_dir,
+			OBJECT_GEOJSON_KEY_DIR,
+			'expected the object staged, not inlined',
+		);
 
 		if (response && response.ok !== true) {
 			assert.equal(
@@ -1923,10 +1933,12 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			);
 			this.skip();
 		}
-		assert.notProperty(asked, 'geojson', 'expected the object staged, not inlined');
 		assert.isOk(captured_blob, 'expected the KML delivered');
-		const vertices = (await captured_blob.text()).split(' ').length;
-		assert.isAtLeast(vertices, 40000, 'expected every vertex in the KML');
+		const kml = new DOMParser().parseFromString(await captured_blob.text(), 'application/xml');
+		const coordinates = kml.getElementsByTagName('coordinates')[0];
+		assert.isOk(coordinates, "expected real KML with the polygon's coordinates");
+		const pairs = coordinates.textContent.trim().split(/\s+/).length;
+		assert.isAtLeast(pairs, 40000, 'expected every vertex in the KML');
 	});
 
 	for (const row of server_vector_rows) {
@@ -3634,7 +3646,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 					tops[0] < tops[1] && tops[1] < tops[2],
 					'expected EPSG, zone and band one per line',
 				);
-				for (const label of row.querySelectorAll(':scope > span')) {
+				const labels = row.querySelectorAll(':scope > span');
+				assert.lengthOf(labels, fields.length, 'expected one label per field');
+				for (const label of labels) {
 					assert.isAtMost(
 						label.getBoundingClientRect().height,
 						parseFloat(getComputedStyle(label).fontSize) * 2,

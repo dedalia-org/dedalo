@@ -404,10 +404,10 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 			Array.from(boxes).every((box) => box.checked),
 			'expected every layer selected by default',
 		);
+		const inputs = tool.roman_panel.querySelectorAll('.uca-maps-roman-input');
+		assert.lengthOf(inputs, 3, 'expected one field per source: Pleiades, Pelagios, DARE');
 		assert.isTrue(
-			Array.from(tool.roman_panel.querySelectorAll('.uca-maps-roman-input')).every(
-				(input) => !input.disabled,
-			),
+			Array.from(inputs).every((input) => !input.disabled),
 			'expected every source enabled when the install serves them all',
 		);
 	});
@@ -1030,17 +1030,23 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		control.click(); // close
 		control.click(); // reopen
 
-		for (const input of panel.querySelectorAll('.uca-maps-roman-input')) {
+		const inputs = panel.querySelectorAll('.uca-maps-roman-input');
+		assert.lengthOf(inputs, 3, 'expected the three source fields');
+		for (const input of inputs) {
 			assert.equal(input.value, '', 'expected every field empty on reopening');
 		}
 		assert.isTrue(
 			panel.querySelector('.uca-maps-roman-pleiades-type input[value="name"]').checked,
 			'expected Pleiades back to "by name"',
 		);
-		for (const select of panel.querySelectorAll('.uca-maps-roman-dare-filters select')) {
+		const selects = panel.querySelectorAll('.uca-maps-roman-dare-filters select');
+		assert.lengthOf(selects, 3, 'expected the three DARE filters');
+		for (const select of selects) {
 			assert.equal(select.selectedIndex, 0, 'expected every DARE filter back to its first option');
 		}
-		for (const box of panel.querySelectorAll('.uca-maps-roman-dataset-checkbox')) {
+		const boxes = panel.querySelectorAll('.uca-maps-roman-dataset-checkbox');
+		assert.lengthOf(boxes, 2, 'expected the two Pelagios layers the install reported');
+		for (const box of boxes) {
 			assert.isTrue(box.checked, 'expected every Pelagios layer checked again');
 		}
 		assert.equal(message.hidden, true, 'expected the old message gone');
