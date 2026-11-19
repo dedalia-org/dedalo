@@ -45,24 +45,6 @@ const SEARCH_ACTION = {
 const POINT_ZOOM = 14;
 
 /**
- * ROMAN_MIN_QUERY
- * The shortest query each source accepts — the SAME minimums the server
- * refuses below (`server/roman_empire.ts`, v6's own `strlen` checks). The
- * as-you-type search reads this so a half-typed word never travels, and the
- * user never reads "at least N characters" as if it were a failure.
- *
- * @param {'pleiades'|'pelagios'|'dare'} source
- * @param {string} [type] - Pleiades only: 'name' or 'id'
- * @returns {number}
- */
-export const roman_min_query = function (source, type) {
-	if (source === 'pleiades') {
-		return type === 'id' ? 1 : 3;
-	}
-	return source === 'pelagios' ? 2 : 3;
-}; //end roman_min_query
-
-/**
  * ATTACH_ROMAN_EMPIRE
  * Builds the "Roma" button+panel (toolbar.js pattern). Idempotent.
  *

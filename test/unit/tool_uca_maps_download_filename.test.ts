@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import {
 	DEFAULT_MAP_IMAGE_NAME,
 	sanitize_download_name,
@@ -105,16 +105,39 @@ function mutableBindings(source: string): string[] {
 		);
 }
 
+const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
+
+/** Every browser module a server file imports, read off the imports themselves. */
+function sharedModules(): string[] {
+	const names = new Set<string>();
+	for (const file of readdirSync(new URL('server/', TOOL_DIR))) {
+		if (!file.endsWith('.ts')) continue;
+		const source = readFileSync(new URL(`server/${file}`, TOOL_DIR), 'utf8');
+		for (const match of source.matchAll(/from '\.\.\/js\/([a-z_]+\.js)'/g)) {
+			names.add(match[1] as string);
+		}
+	}
+	return [...names].sort();
+}
+
 /**
- * The server imports this module, so one instance serves every concurrent
+ * The server imports these modules, so one instance serves every concurrent
  * request. `module_state_tripwire` reads only `.ts`, so this gate stands in
- * for it: stateless, and import-free so both sides can load it.
+ * for it: stateless, and import-free so both sides can load them.
  */
-describe('tool_uca_maps download_filename — stateless, because the server shares it', () => {
-	const SOURCE = readFileSync(
-		new URL('../../tools/tool_uca_maps/js/download_filename.js', import.meta.url),
-		'utf8',
-	);
+describe('tool_uca_maps — every browser module the server imports is stateless', () => {
+	const SHARED = sharedModules().map((name) => ({
+		name,
+		source: readFileSync(new URL(`js/${name}`, TOOL_DIR), 'utf8'),
+	}));
+
+	test('the census finds the shared modules', () => {
+		expect(SHARED.map(({ name }) => name)).toEqual([
+			'download_filename.js',
+			'roman_min_query.js',
+			'upload_formats.js',
+		]);
+	});
 
 	test('the census sees every mutable binding shape', () => {
 		const sample = [
@@ -139,11 +162,15 @@ describe('tool_uca_maps download_filename — stateless, because the server shar
 	});
 
 	test('declares no module-level mutable binding', () => {
-		expect(SOURCE).toContain('export const sanitize_download_name');
-		expect(mutableBindings(SOURCE)).toEqual([]);
+		for (const { name, source } of SHARED) {
+			expect(source, name).toMatch(/^export const \w+ = /m);
+			expect(mutableBindings(source), name).toEqual([]);
+		}
 	});
 
 	test('imports nothing, so both the browser and the server can load it', () => {
-		expect(SOURCE).not.toMatch(/^import\s/m);
+		for (const { name, source } of SHARED) {
+			expect(source, name).not.toMatch(/^import\s/m);
+		}
 	});
 });

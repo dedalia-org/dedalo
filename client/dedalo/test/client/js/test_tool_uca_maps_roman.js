@@ -18,9 +18,9 @@ import {
 	add_roman_result,
 	create_roman_objects,
 	load_roman_capabilities,
-	roman_min_query,
 	search_roman,
 } from '../../../tools/tool_uca_maps/js/roman_empire.js';
+import { roman_min_query } from '../../../tools/tool_uca_maps/js/roman_min_query.js';
 import {
 	roman_feature,
 	roman_hit,

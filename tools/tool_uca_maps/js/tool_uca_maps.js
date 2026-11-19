@@ -109,9 +109,9 @@ import {
 	close_roman_suggestions,
 	detach_roman_empire,
 	hold_roman_suggestions,
-	roman_min_query,
 	search_roman,
 } from './roman_empire.js';
+import { roman_min_query } from './roman_min_query.js';
 import { attach_scale_bar, detach_scale_bar } from './scale_bar.js';
 import { attach_file_upload, detach_file_upload, upload_vector_file } from './vector_upload.js';
 import {

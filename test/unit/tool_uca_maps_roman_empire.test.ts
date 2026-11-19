@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as toolConfig from '../../src/core/tools/config.ts';
+import { roman_min_query } from '../../tools/tool_uca_maps/js/roman_min_query.js';
 import {
 	GAZETTEER_CONFIG_KEY,
 	probeGazetteers,
@@ -21,6 +22,7 @@ import {
 	matchPelagiosFeatures,
 	matchPleiadesIndex,
 	parseDareResults,
+	searchDare,
 	searchPelagios,
 	searchPleiades,
 } from '../../tools/tool_uca_maps/server/roman_empire.ts';
@@ -416,6 +418,51 @@ describe('probeGazetteers against a configured store', () => {
 		);
 		try {
 			expect(await probeGazetteers()).toEqual({ configured: false, pleiades: false, pelagios: [] });
+		} finally {
+			read.mockRestore();
+		}
+	});
+});
+
+// the browser waits for roman_min_query before it sends: the server must refuse
+// exactly below it, or a typed query is refused or a short one travels
+describe('the server refuses exactly below the minimum the browser waits for', () => {
+	const unconfigured = () =>
+		spyOn(toolConfig, 'getToolConfigValue').mockImplementation(
+			(async () => '') as typeof toolConfig.getToolConfigValue,
+		);
+	// past the length check each is refused for another reason, before any I/O:
+	// no store for Pleiades and Pelagios, a control character core refuses for DARE
+	const sources = [
+		{
+			label: 'Pleiades by name',
+			min: roman_min_query('pleiades', 'name'),
+			run: (text: string) => searchPleiades(contextOf({ type: 'name', value: text })),
+		},
+		{
+			label: 'Pleiades by id',
+			min: roman_min_query('pleiades', 'id'),
+			run: (text: string) => searchPleiades(contextOf({ type: 'id', value: text })),
+		},
+		{
+			label: 'Pelagios',
+			min: roman_min_query('pelagios'),
+			run: (text: string) => searchPelagios(contextOf({ query: text, datasets: ['provinces'] })),
+		},
+		{
+			label: 'DARE',
+			min: roman_min_query('dare'),
+			run: (text: string) => searchDare(contextOf({ query: `${text.slice(1)}\u0007` })),
+		},
+	];
+
+	test.each(sources.map((source) => [source.label, source]))('%s', async (_label, source) => {
+		const read = unconfigured();
+		try {
+			const short = await failureOf(source.run('1'.repeat(source.min - 1)));
+			expect(reasonOf(short)).toBe('search_text_too_short');
+			const enough = await failureOf(source.run('1'.repeat(source.min)));
+			expect(reasonOf(enough)).not.toBe('search_text_too_short');
 		} finally {
 			read.mockRestore();
 		}

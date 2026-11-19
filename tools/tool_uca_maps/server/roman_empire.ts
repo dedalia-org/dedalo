@@ -13,6 +13,7 @@ import {
 	type ToolResponse,
 	toolRequestId,
 } from '../../../src/core/tools/module.ts';
+import { roman_min_query } from '../js/roman_min_query.js';
 import { WIN_ANSI_HIGH } from './cp1252.ts';
 import {
 	GAZETTEER_CONFIG_KEY,
@@ -326,8 +327,7 @@ export async function searchPleiades(ctx: ToolActionContext): Promise<ToolRespon
 	if (type !== 'name' && type !== 'id') {
 		throw invalidOptions('Unknown search type.');
 	}
-	// v6's own minimums: 3 characters by name, an exact id otherwise
-	const value = requireQuery(ctx.options.value, type === 'name' ? 3 : 1);
+	const value = requireQuery(ctx.options.value, roman_min_query('pleiades', type));
 
 	const dir = await requireGazetteerDir();
 	const path = pleiadesIndexPath(dir);
@@ -399,7 +399,7 @@ async function fetchPleiadesPlace(id: string, deps: HarvestDeps = {}): Promise<u
 }
 
 export async function searchPelagios(ctx: ToolActionContext): Promise<ToolResponse> {
-	const query = requireQuery(ctx.options.query, 2);
+	const query = requireQuery(ctx.options.query, roman_min_query('pelagios'));
 
 	const requested = Array.isArray(ctx.options.datasets) ? ctx.options.datasets.map(String) : [];
 	const datasets = requested.filter((name) => PELAGIOS_DATASETS.includes(name));
@@ -432,7 +432,7 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 
 export async function searchDare(ctx: ToolActionContext): Promise<ToolResponse> {
 	// core's DARE services take 3 to 100 characters
-	const query = requireQuery(ctx.options.query, 3, 100);
+	const query = requireQuery(ctx.options.query, roman_min_query('dare'), 100);
 	const dare = dareQuery({
 		nameType: String(ctx.options.name_type ?? 'mss'),
 		typeId: String(ctx.options.type_id ?? '').trim(),
