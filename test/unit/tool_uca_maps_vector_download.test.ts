@@ -5,8 +5,8 @@
  * is installed and labels the data EPSG:4326, never v6's forced EPSG:3857.
  */
 
-import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, rmSync, truncateSync } from 'node:fs';
+import { describe, expect, test } from 'bun:test';
+import { existsSync, truncateSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { OBJECT_GEOJSON_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
@@ -21,12 +21,11 @@ import {
 	loadAction,
 	stagedJson,
 	stageFile,
-	stagingOf,
+	sweptStaging,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
 /** contextOf's caller; only the object key_dir is swept, never the rest of its staging. */
-const OBJECTS = resolve(stagingOf(-1), OBJECT_GEOJSON_KEY_DIR);
-afterEach(() => rmSync(OBJECTS, { recursive: true, force: true }));
+const OBJECTS = sweptStaging(-1, OBJECT_GEOJSON_KEY_DIR);
 
 const staged = (value: unknown) => stagedJson(OBJECT_GEOJSON_KEY_DIR, value);
 

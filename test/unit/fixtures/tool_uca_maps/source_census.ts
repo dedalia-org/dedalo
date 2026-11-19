@@ -1,10 +1,25 @@
 /**
- * A reader of the tool's modules as text, for the request-budget census: call
- * arguments, loop spans, top-level functions and the wait each one adds up to.
- * Not a parser: it reads the shapes the tool's code is written in.
+ * A reader of the tool's modules as text, for its censuses: the files, and for the
+ * request budgets call arguments, loop spans, top-level functions and the wait each
+ * one adds up to. Not a parser: it reads the shapes the tool's code is written in.
  */
 
+import { Glob } from 'bun';
 import { stripComments } from '../../../helpers/strip_comments.ts';
+
+/** A path under the tool's root, `tools/tool_uca_maps/`. */
+export function toolUrl(relative = ''): URL {
+	return new URL(`../../../../tools/tool_uca_maps/${relative}`, import.meta.url);
+}
+
+/** Each file under the tool's root that `pattern` matches: its relative path and raw text. */
+export async function toolSources(pattern: string): Promise<Array<[string, string]>> {
+	const found: Array<[string, string]> = [];
+	for await (const relative of new Glob(pattern).scan({ cwd: Bun.fileURLToPath(toolUrl()) })) {
+		found.push([relative, await Bun.file(toolUrl(relative)).text()]);
+	}
+	return found;
+}
 
 /**
  * A module with its comments stripped, so a name or a loop mentioned in prose is

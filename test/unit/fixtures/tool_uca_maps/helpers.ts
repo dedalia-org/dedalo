@@ -4,7 +4,7 @@
  * refusal or a success envelope, staged uploads and fixture binaries.
  */
 
-import { expect } from 'bun:test';
+import { afterEach, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -105,6 +105,16 @@ export function haveGdal(...binaries: string[]): boolean {
 /** The staging dir of a scratch uploader: each file picks user ids of its own. */
 export function stagingOf(userId: number): string {
 	return resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
+}
+
+/**
+ * The staging dir of `userId` (its `keyDir` only, when given), swept after each
+ * test of the scope that calls this: a file left behind would feed the next test.
+ */
+export function sweptStaging(userId: number, keyDir = ''): string {
+	const dir = resolve(stagingOf(userId), keyDir);
+	afterEach(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
 }
 
 /** `bytes` staged as `name` for `userId` (under `keyDir`), where the upload door leaves a file. */

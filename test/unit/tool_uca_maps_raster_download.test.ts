@@ -6,7 +6,7 @@
  * `bounds`, never v6's degrees read as metres.
  */
 
-import { afterEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
@@ -26,6 +26,7 @@ import {
 	loadAction,
 	stageFile,
 	stagingOf,
+	sweptStaging,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_MAGICK = identifyAvailable();
@@ -45,8 +46,11 @@ const TRANSPARENT_CORNER_PNG_BASE64 =
 const SAMPLE_BOUNDS = { west: -692000, north: 4322000, east: -690000, south: 4320000 };
 
 /** contextOf's caller; only the capture key_dir is swept, never the rest of its staging. */
-const CAPTURES = resolve(stagingOf(-1), MAP_IMAGE_KEY_DIR);
-afterEach(() => rmSync(CAPTURES, { recursive: true, force: true }));
+const CAPTURES = sweptStaging(-1, MAP_IMAGE_KEY_DIR);
+
+async function download(options: Record<string, unknown>): Promise<ToolResponse> {
+	return (await loadAction('raster_download')).handler(contextOf(options));
+}
 
 /** `base64` staged as the client's capture: the `file_data` the action takes. */
 function staged(base64: string): { key_dir: string; tmp_name: string } {
@@ -60,9 +64,8 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	test.each(['bmp', 'toString', 'constructor', '__proto__'])(
 		"an unsupported format ('%s') is refused",
 		async (format) => {
-			const action = await loadAction('raster_download');
 			await expect(
-				action.handler(contextOf({ format, file_data: staged(SAMPLE_PNG_BASE64) })),
+				download({ format, file_data: staged(SAMPLE_PNG_BASE64) }),
 			).rejects.toMatchObject({
 				code: 'request.invalid_options',
 				message: expect.stringMatching(/^Unsupported raster format/),
@@ -72,12 +75,11 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 
 	// the action deletes what it reads: a file staged for anything else is never named
 	test('a capture not staged under its own key_dir is refused, and left in place', async () => {
-		const action = await loadAction('raster_download');
 		stageFile(-1, 'other.png', 'x', 'image');
 		const other = resolve(stagingOf(-1), 'image', 'other.png');
 		try {
 			for (const file_data of [undefined, { key_dir: 'image', tmp_name: 'other.png' }]) {
-				await expect(action.handler(contextOf({ format: 'jpg', file_data }))).rejects.toThrow(
+				await expect(download({ format: 'jpg', file_data })).rejects.toThrow(
 					/must be staged under 'uca_maps_map_image'/,
 				);
 			}
@@ -88,18 +90,14 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	});
 
 	test('a capture with no tmp_name, or one never staged, is refused', async () => {
-		const action = await loadAction('raster_download');
 		const call = (tmp_name: string) =>
-			action.handler(
-				contextOf({ format: 'jpg', file_data: { key_dir: MAP_IMAGE_KEY_DIR, tmp_name } }),
-			);
+			download({ format: 'jpg', file_data: { key_dir: MAP_IMAGE_KEY_DIR, tmp_name } });
 		await expect(call('')).rejects.toThrow(/Missing staged file/);
 		expectCode(await failureOf(call('never_staged.png')), 'tool.target_not_found');
 	});
 
 	// a request lost after its upload never reaches the handler that deletes the capture
 	test("the next download sweeps the caller's captures over an hour old, and nothing else", async () => {
-		const action = await loadAction('raster_download');
 		const past = (Date.now() - ORPHAN_UPLOAD_AGE_MS - 60_000) / 1000;
 		const stale = staged(SAMPLE_PNG_BASE64);
 		utimesSync(resolve(CAPTURES, stale.tmp_name), past, past);
@@ -109,7 +107,7 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 		utimesSync(other, past, past);
 		try {
 			await expect(
-				action.handler(contextOf({ format: 'bmp', file_data: staged(SAMPLE_PNG_BASE64) })),
+				download({ format: 'bmp', file_data: staged(SAMPLE_PNG_BASE64) }),
 			).rejects.toThrow(/Unsupported raster format/);
 			expect(existsSync(resolve(CAPTURES, stale.tmp_name))).toBe(false);
 			expect(existsSync(resolve(CAPTURES, recent.tmp_name))).toBe(true);
@@ -120,18 +118,16 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 	});
 
 	test('a refused request still deletes its staged capture', async () => {
-		const action = await loadAction('raster_download');
 		const file_data = staged(SAMPLE_PNG_BASE64);
-		await expect(action.handler(contextOf({ format: 'bmp', file_data }))).rejects.toThrow(
+		await expect(download({ format: 'bmp', file_data })).rejects.toThrow(
 			/Unsupported raster format/,
 		);
 		expect(existsSync(resolve(CAPTURES, file_data.tmp_name))).toBe(false);
 	});
 
 	test('geotiff without bounds is refused', async () => {
-		const action = await loadAction('raster_download');
 		await expect(
-			action.handler(contextOf({ format: 'geotiff', file_data: staged(SAMPLE_PNG_BASE64) })),
+			download({ format: 'geotiff', file_data: staged(SAMPLE_PNG_BASE64) }),
 		).rejects.toThrow(/Missing bounds/);
 	});
 
@@ -143,36 +139,27 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 		['null', null],
 		['absent', undefined],
 	])('geotiff with a west bound that is %s is refused', async (_, west) => {
-		const action = await loadAction('raster_download');
 		const error = await failureOf(
-			action.handler(
-				contextOf({
-					format: 'geotiff',
-					file_data: staged(SAMPLE_PNG_BASE64),
-					bounds: { ...(west === undefined ? {} : { west }), north: 1, east: 2, south: 0 },
-				}),
-			),
+			download({
+				format: 'geotiff',
+				file_data: staged(SAMPLE_PNG_BASE64),
+				bounds: { ...(west === undefined ? {} : { west }), north: 1, east: 2, south: 0 },
+			}),
 		);
 		expectCode(error, 'request.invalid_options');
 		expect(error.message).toBe('bounds.west must be a finite number');
 	});
 
 	test('a non-string file_name is refused', async () => {
-		const action = await loadAction('raster_download');
 		await expect(
-			action.handler(
-				contextOf({ format: 'jpg', file_data: staged(SAMPLE_PNG_BASE64), file_name: 42 }),
-			),
+			download({ format: 'jpg', file_data: staged(SAMPLE_PNG_BASE64), file_name: 42 }),
 		).rejects.toThrow(/file_name must be a string/);
 	});
 
 	test('a file_name with nothing usable in it is refused, never quietly renamed', async () => {
-		const action = await loadAction('raster_download');
 		for (const file_name of ['', '   ', '/\\', '...']) {
 			await expect(
-				action.handler(
-					contextOf({ format: 'jpg', file_data: staged(SAMPLE_PNG_BASE64), file_name }),
-				),
+				download({ format: 'jpg', file_data: staged(SAMPLE_PNG_BASE64), file_name }),
 			).rejects.toThrow(/file_name has no usable characters/);
 		}
 	});
@@ -181,11 +168,8 @@ describe('tool_uca_maps raster_download — caller-fault validation (no binary n
 		['west>=east', { west: 10, north: 5, east: 0, south: 0 }],
 		['south>=north', { west: 0, north: 5, east: 10, south: 5 }],
 	])('geotiff with a degenerate box (%s) is refused', async (_, bounds) => {
-		const action = await loadAction('raster_download');
 		await expect(
-			action.handler(
-				contextOf({ format: 'geotiff', file_data: staged(SAMPLE_PNG_BASE64), bounds }),
-			),
+			download({ format: 'geotiff', file_data: staged(SAMPLE_PNG_BASE64), bounds }),
 		).rejects.toThrow(/degenerate/);
 	});
 });
@@ -194,9 +178,8 @@ describe.skipIf(!HAVE_MAGICK)(
 	'tool_uca_maps raster_download — real ImageMagick conversion (needs ImageMagick)',
 	() => {
 		test('jpg: flattened onto white, envelope v2, no result mirror', async () => {
-			const action = await loadAction('raster_download');
 			const file_data = staged(TRANSPARENT_CORNER_PNG_BASE64);
-			const response: ToolResponse = await action.handler(contextOf({ format: 'jpg', file_data }));
+			const response: ToolResponse = await download({ format: 'jpg', file_data });
 
 			const data = dataOf(response);
 			expect('result' in response).toBe(false); // forbidden PHP-era mirror key
@@ -225,15 +208,12 @@ describe.skipIf(!HAVE_MAGICK)(
 		});
 
 		test("jpg: the user's own file_name is honoured, sanitized here and not trusted", async () => {
-			const action = await loadAction('raster_download');
-			const response: ToolResponse = await action.handler(
-				contextOf({
-					format: 'jpg',
-					file_data: staged(SAMPLE_PNG_BASE64),
-					// A traversal attempt AND a name the user could plausibly type.
-					file_name: '../../Necrópolis de Cádiz',
-				}),
-			);
+			const response: ToolResponse = await download({
+				format: 'jpg',
+				file_data: staged(SAMPLE_PNG_BASE64),
+				// A traversal attempt AND a name the user could plausibly type.
+				file_name: '../../Necrópolis de Cádiz',
+			});
 
 			const data = dataOf(response);
 			// Separators gone, no basename reduction, extension appended once.
@@ -241,7 +221,6 @@ describe.skipIf(!HAVE_MAGICK)(
 		});
 
 		test('gif and webp: real conversions, each in its own format', async () => {
-			const action = await loadAction('raster_download');
 			for (const [format, filename, mime, magic] of [
 				['gif', 'map.gif', 'image/gif', [[0, 'GIF8']]],
 				[
@@ -254,9 +233,10 @@ describe.skipIf(!HAVE_MAGICK)(
 					],
 				],
 			] as const) {
-				const response: ToolResponse = await action.handler(
-					contextOf({ format, file_data: staged(SAMPLE_PNG_BASE64) }),
-				);
+				const response: ToolResponse = await download({
+					format,
+					file_data: staged(SAMPLE_PNG_BASE64),
+				});
 				const data = dataOf(response);
 				expect(data.filename).toBe(filename);
 				expect(data.mime).toBe(mime);
@@ -299,18 +279,16 @@ describe.skipIf(!HAVE_MAGICK)(
 		// timeout, so it failed by load, not by behaviour
 		test('a sequence over the list-length limit is refused in every format, one well under it converts', async () => {
 			expect(listLength + 1).toBeLessThan(ceiling);
-			const action = await loadAction('raster_download');
 
-			const under = await action.handler(
-				contextOf({ format: 'gif', file_data: staged(gifOfFrames(Math.floor(listLength / 2))) }),
-			);
+			const under = await download({
+				format: 'gif',
+				file_data: staged(gifOfFrames(Math.floor(listLength / 2))),
+			});
 			expect(under.ok).toBe(true);
 
 			const over = gifOfFrames(listLength + 1);
 			for (const format of ['jpg', 'gif', 'webp']) {
-				await expect(
-					action.handler(contextOf({ format, file_data: staged(over) })),
-				).rejects.toMatchObject({
+				await expect(download({ format, file_data: staged(over) })).rejects.toMatchObject({
 					code: 'tool.action_failed',
 					message: expect.stringMatching(/list length exceeds limit/i),
 				});
@@ -319,7 +297,6 @@ describe.skipIf(!HAVE_MAGICK)(
 
 		test('the conversion waits for a converter permit like every engine spawn', async () => {
 			const admission = converterAdmission();
-			const action = await loadAction('raster_download');
 			// hold every permit, so the export can only queue behind them
 			let release = (): void => {};
 			const gate = new Promise<void>((resolve) => {
@@ -329,9 +306,7 @@ describe.skipIf(!HAVE_MAGICK)(
 				admission.run('test_hold', () => gate),
 			);
 			try {
-				const exported = action.handler(
-					contextOf({ format: 'gif', file_data: staged(SAMPLE_PNG_BASE64) }),
-				);
+				const exported = download({ format: 'gif', file_data: staged(SAMPLE_PNG_BASE64) });
 				const deadline = performance.now() + 2000;
 				while (admission.queued === 0 && performance.now() < deadline) {
 					await Bun.sleep(10);
@@ -352,15 +327,12 @@ describe.skipIf(!HAVE_GDAL)(
 	'tool_uca_maps raster_download — real GeoTIFF georeference (needs gdal_translate)',
 	() => {
 		test("geotiff: assigns the REAL EPSG:3857 corners sent in bounds, not v6's degrees-as-meters", async () => {
-			const action = await loadAction('raster_download');
-			const response: ToolResponse = await action.handler(
-				contextOf({
-					format: 'geotiff',
-					file_data: staged(SAMPLE_PNG_BASE64),
-					bounds: SAMPLE_BOUNDS,
-					file_name: 'mapa',
-				}),
-			);
+			const response: ToolResponse = await download({
+				format: 'geotiff',
+				file_data: staged(SAMPLE_PNG_BASE64),
+				bounds: SAMPLE_BOUNDS,
+				file_name: 'mapa',
+			});
 
 			const data = dataOf(response);
 			// the extension is the format's, not its menu name: '.tif', never '.geotiff'

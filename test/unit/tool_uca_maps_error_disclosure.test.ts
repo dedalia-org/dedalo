@@ -8,13 +8,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { Glob } from 'bun';
 import { type ErrorCode, REASON_KEY_CODES } from '../../src/core/errors/registry.ts';
 import { tool } from '../../tools/tool_uca_maps/server/index.ts';
 import { REASON_KEYS } from '../../tools/tool_uca_maps/server/reasons.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
+import { toolSources, toolUrl } from './fixtures/tool_uca_maps/source_census.ts';
 
-const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
 /** Measured today: 11 inline `new DedaloError(` sites + 52 builder calls passing a key. */
 const FLOOR_KEYED = 63;
 
@@ -65,9 +64,7 @@ function isInlineOptions(args: string): boolean {
  * and property names, which a parenthesis inside a message cannot fool). */
 async function throwSites(): Promise<ThrowSite[]> {
 	const sites: ThrowSite[] = [];
-	const glob = new Glob('server/**/*.ts');
-	for await (const relative of glob.scan({ cwd: Bun.fileURLToPath(TOOL_DIR) })) {
-		const source = await Bun.file(new URL(relative, TOOL_DIR)).text();
+	for (const [relative, source] of await toolSources('server/**/*.ts')) {
 		const code = stripComments(source);
 		const blank = stripComments(source, { blankStrings: true, blankRegexBodies: true });
 		for (const match of blank.matchAll(/new DedaloError\(/g)) {
@@ -116,7 +113,7 @@ function callArguments(blank: string, start: number): Array<[number, number]> {
 
 /** Each builder `reasons.ts` exports, with the code its `new DedaloError(` names. */
 async function builderCodes(): Promise<Map<string, string>> {
-	const source = stripComments(await Bun.file(new URL('server/reasons.ts', TOOL_DIR)).text());
+	const source = stripComments(await Bun.file(toolUrl('server/reasons.ts')).text());
 	const builders = new Map<string, string>();
 	for (const part of source.split(/(?=\bexport function )/)) {
 		const match =
@@ -142,11 +139,8 @@ async function builderCalls(): Promise<BuilderCall[]> {
 	const builders = await builderCodes();
 	const pattern = new RegExp(`(?<![\\w.$])(${[...builders.keys()].join('|')})\\(`, 'g');
 	const calls: BuilderCall[] = [];
-	for await (const relative of new Glob('server/**/*.ts').scan({
-		cwd: Bun.fileURLToPath(TOOL_DIR),
-	})) {
+	for (const [relative, source] of await toolSources('server/**/*.ts')) {
 		if (relative === 'server/reasons.ts') continue;
-		const source = await Bun.file(new URL(relative, TOOL_DIR)).text();
 		const code = stripComments(source);
 		const blank = stripComments(source, { blankStrings: true, blankRegexBodies: true });
 		for (const match of blank.matchAll(pattern)) {
@@ -168,14 +162,10 @@ async function builderCalls(): Promise<BuilderCall[]> {
 
 /** Every server source but the declaration itself, comments stripped. */
 async function serverSources(): Promise<string> {
-	const parts: string[] = [];
-	for await (const relative of new Glob('server/**/*.ts').scan({
-		cwd: Bun.fileURLToPath(TOOL_DIR),
-	})) {
-		if (relative === 'server/reasons.ts') continue;
-		parts.push(stripComments(await Bun.file(new URL(relative, TOOL_DIR)).text()));
-	}
-	return parts.join('\n');
+	return (await toolSources('server/**/*.ts'))
+		.filter(([relative]) => relative !== 'server/reasons.ts')
+		.map(([, source]) => stripComments(source))
+		.join('\n');
 }
 
 describe('tool_uca_maps — a refusal says what the declaration says', () => {

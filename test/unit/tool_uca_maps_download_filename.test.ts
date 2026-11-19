@@ -12,6 +12,7 @@ import {
 	sanitize_download_name,
 	with_extension,
 } from '../../tools/tool_uca_maps/js/download_filename.js';
+import { toolUrl } from './fixtures/tool_uca_maps/source_census.ts';
 
 describe('tool_uca_maps download_filename — sanitize_download_name', () => {
 	test('keeps a heritage-shaped name intact, accents and spaces included', () => {
@@ -105,14 +106,12 @@ function mutableBindings(source: string): string[] {
 		);
 }
 
-const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
-
 /** Every browser module a server file imports, read off the imports themselves. */
 function sharedModules(): string[] {
 	const names = new Set<string>();
-	for (const file of readdirSync(new URL('server/', TOOL_DIR))) {
+	for (const file of readdirSync(toolUrl('server/'))) {
 		if (!file.endsWith('.ts')) continue;
-		const source = readFileSync(new URL(`server/${file}`, TOOL_DIR), 'utf8');
+		const source = readFileSync(toolUrl(`server/${file}`), 'utf8');
 		for (const match of source.matchAll(/from '\.\.\/js\/([a-z_]+\.js)'/g)) {
 			names.add(match[1] as string);
 		}
@@ -128,7 +127,7 @@ function sharedModules(): string[] {
 describe('tool_uca_maps — every browser module the server imports is stateless', () => {
 	const SHARED = sharedModules().map((name) => ({
 		name,
-		source: readFileSync(new URL(`js/${name}`, TOOL_DIR), 'utf8'),
+		source: readFileSync(toolUrl(`js/${name}`), 'utf8'),
 	}));
 
 	test('the census finds the shared modules', () => {

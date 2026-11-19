@@ -44,6 +44,7 @@ import {
 	refusal,
 	stageFile,
 	stagingOf,
+	sweptStaging,
 	thrownBy,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
@@ -100,8 +101,7 @@ describe('tool_uca_maps upload_vector_layer — caller-fault validation (no GDAL
 // and every refusal here comes before the EPSG lookup and ogr2ogr
 describe('tool_uca_maps upload_vector_layer — the fields are judged after the file (no GDAL needed)', () => {
 	const SCRATCH_USER = 987681;
-	const userStaging = stagingOf(SCRATCH_USER);
-	afterEach(() => rmSync(userStaging, { recursive: true, force: true }));
+	sweptStaging(SCRATCH_USER);
 	const UNDECLARED = '{"type":"FeatureCollection","features":[]}';
 	const DECLARED =
 		'{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:EPSG::25830"}},"features":[]}';
@@ -519,11 +519,8 @@ describe('tool_uca_maps declaresOwnCrs — no GDAL needed', () => {
 describe('tool_uca_maps upload_vector_layer — the staged path is confined to the caller', () => {
 	const SCRATCH_USER = 987682;
 	const VICTIM = 987683;
-	afterEach(() => {
-		for (const userId of [SCRATCH_USER, VICTIM]) {
-			rmSync(stagingOf(userId), { recursive: true, force: true });
-		}
-	});
+	sweptStaging(SCRATCH_USER);
+	sweptStaging(VICTIM);
 
 	// the key_dir is pinned; a tmp_name is refused as unsafe before any path is joined
 	test('a tmp_name/key_dir escaping the upload root is refused', async () => {
@@ -598,7 +595,7 @@ describe('tool_uca_maps upload_vector_layer — the staged path is confined to t
 // deletes what it read, and only what was staged for it
 describe('tool_uca_maps upload_vector_layer — the staged file is consumed', () => {
 	const SCRATCH_USER = 987687;
-	afterEach(() => rmSync(stagingOf(SCRATCH_USER), { recursive: true, force: true }));
+	sweptStaging(SCRATCH_USER);
 
 	test('a refused upload still deletes its staged file', async () => {
 		stageUpload(SCRATCH_USER, 'layer.exe', 'MZ');
@@ -659,7 +656,7 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 // never turned into U+FFFD: these refusals come before any GDAL call
 describe('tool_uca_maps upload_vector_layer — the uploaded text is never substituted', () => {
 	const SCRATCH_USER = 987688;
-	afterEach(() => rmSync(stagingOf(SCRATCH_USER), { recursive: true, force: true }));
+	sweptStaging(SCRATCH_USER);
 
 	test.each([
 		['a binary file (NUL bytes)', new Uint8Array([0x7b, 0x00, 0x7d])],
@@ -817,8 +814,7 @@ describe.skipIf(!HAVE_GDAL)(
 	'tool_uca_maps upload_vector_layer — real ogr2ogr conversion (needs ogr2ogr, ogrinfo, gdalsrsinfo)',
 	() => {
 		const SCRATCH_USER = 987684;
-		const userStaging = stagingOf(SCRATCH_USER);
-		afterEach(() => rmSync(userStaging, { recursive: true, force: true }));
+		sweptStaging(SCRATCH_USER);
 
 		// one point is enough: the round-trip proves the conversion path, not GDAL's geometry coverage
 		const SOURCE_GEOJSON =
@@ -849,6 +845,26 @@ describe.skipIf(!HAVE_GDAL)(
 			};
 			feature_count: number;
 			read_as?: string;
+		}
+
+		/** An accepted upload whose first point is SOURCE_GEOJSON's, to `digits`. */
+		function expectSourcePoint(response: ToolResponse, digits: number): void {
+			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
+				.geometry.coordinates;
+			expect(lon).toBeCloseTo(-0.375, digits);
+			expect(lat).toBeCloseTo(39.47, digits);
+		}
+
+		/** `shp` and its sidecars zipped by ogr2ogr as `outName`, a literal '.shp.zip'. */
+		async function zipShapefile(dir: string, shp: string, outName: string): Promise<ArrayBuffer> {
+			const out = resolve(dir, outName);
+			const ogr2ogr = await resolveGdalBinary('ogr2ogr');
+			await runToolBinary(
+				[ogr2ogr, '-if', 'ESRI Shapefile', '-f', 'ESRI Shapefile', out, shp],
+				`test fixture (${outName})`,
+				{ scratchDir: dir, expectedOutput: out },
+			);
+			return Bun.file(out).arrayBuffer();
 		}
 
 		test('a plain WGS84 .geojson round-trips unchanged', async () => {
@@ -923,11 +939,8 @@ describe.skipIf(!HAVE_GDAL)(
 			stageUpload(SCRATCH_USER, 'plain.zip', new Uint8Array(zipBytes));
 			const response = await uploadStaged(SCRATCH_USER, 'plain.zip');
 			expect(response.ok).toBe(true);
-			const data = dataOf<UploadedLayer>(response);
-			expect(data.feature_count).toBe(1);
-			const [lon, lat] = mustGet(data.geojson.features[0], 'features[0]').geometry.coordinates;
-			expect(lon).toBeCloseTo(-0.375, 3);
-			expect(lat).toBeCloseTo(39.47, 3);
+			expect(dataOf<UploadedLayer>(response).feature_count).toBe(1);
+			expectSourcePoint(response, 3);
 
 			// the file's own .prj wins, as in v6: even fields that agree with it are
 			// refused rather than handed to -s_srs, which would override it silently
@@ -964,22 +977,7 @@ describe.skipIf(!HAVE_GDAL)(
 						new Uint8Array(await Bun.file(resolve(dir, `utm${ext}`)).arrayBuffer()),
 					);
 				}
-				const out = resolve(dir, 'noprj.shp.zip');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[
-						ogr2ogr,
-						'-if',
-						'ESRI Shapefile',
-						'-f',
-						'ESRI Shapefile',
-						out,
-						resolve(noPrjDir, 'noprj.shp'),
-					],
-					'test fixture (noprj shp.zip)',
-					{ scratchDir: dir, expectedOutput: out },
-				);
-				return Bun.file(out).arrayBuffer();
+				return zipShapefile(dir, resolve(noPrjDir, 'noprj.shp'), 'noprj.shp.zip');
 			});
 			stageUpload(SCRATCH_USER, 'noprj.zip', new Uint8Array(zipBytes));
 			await refusal(
@@ -1008,32 +1006,19 @@ describe.skipIf(!HAVE_GDAL)(
 				band: 'S',
 			});
 			expect(response.ok).toBe(true);
-			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
-				.geometry.coordinates;
-			expect(lon).toBeCloseTo(-0.375, 3);
-			expect(lat).toBeCloseTo(39.47, 3);
+			expectSourcePoint(response, 3);
 		});
 
 		test('a CRS-less shapefile in longitude/latitude takes the EPSG alone (v6 lists 4326 with no zone or band)', async () => {
 			const zipBytes = await withScratchDir(async (dir) => {
 				const shp = await ogrFixture(dir, 'lonlat.shp', ['-f', 'ESRI Shapefile']);
 				rmSync(resolve(dir, 'lonlat.prj'));
-				const out = resolve(dir, 'lonlat.shp.zip');
-				const ogr2ogr = await resolveGdalBinary('ogr2ogr');
-				await runToolBinary(
-					[ogr2ogr, '-if', 'ESRI Shapefile', '-f', 'ESRI Shapefile', out, shp],
-					'test fixture (lonlat noprj shp.zip)',
-					{ scratchDir: dir, expectedOutput: out },
-				);
-				return Bun.file(out).arrayBuffer();
+				return zipShapefile(dir, shp, 'lonlat.shp.zip');
 			});
 			stageUpload(SCRATCH_USER, 'lonlat.zip', new Uint8Array(zipBytes));
 			const response = await uploadStaged(SCRATCH_USER, 'lonlat.zip', { epsg: '4326' });
 			expect(response.ok).toBe(true);
-			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
-				.geometry.coordinates;
-			expect(lon).toBeCloseTo(-0.375, 6);
-			expect(lat).toBeCloseTo(39.47, 6);
+			expectSourcePoint(response, 6);
 		});
 
 		test('a legacy UTM .geojson without crs takes the fields; one declaring crs refuses them', async () => {
@@ -1060,10 +1045,7 @@ describe.skipIf(!HAVE_GDAL)(
 			);
 
 			const response = await uploadStaged(SCRATCH_USER, 'legacy.geojson', fields);
-			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
-				.geometry.coordinates;
-			expect(lon).toBeCloseTo(-0.375, 3);
-			expect(lat).toBeCloseTo(39.47, 3);
+			expectSourcePoint(response, 3);
 		});
 
 		test('coordinates ogr2ogr leaves as no longitude/latitude are refused, the right fields fix them', async () => {
@@ -1095,10 +1077,7 @@ describe.skipIf(!HAVE_GDAL)(
 				zone: '30',
 				band: 'S',
 			});
-			const [lon, lat] = mustGet(dataOf<UploadedLayer>(response).geojson.features[0], 'features[0]')
-				.geometry.coordinates;
-			expect(lon).toBeCloseTo(-0.375, 1);
-			expect(lat).toBeCloseTo(39.47, 1);
+			expectSourcePoint(response, 1);
 		});
 	},
 );

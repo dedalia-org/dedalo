@@ -5,7 +5,7 @@
  * stream lengths or WinAnsi encoding only show when a real reader opens the file.
  */
 
-import { afterAll, afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -29,22 +29,20 @@ import {
 import { MAX_LATITUDE, toWebMercator } from '../../tools/tool_uca_maps/server/web_mercator.ts';
 import {
 	contextOf,
+	dataOf,
 	expectCode,
 	loadAction,
+	runFixtureBinary,
 	stagedJson,
-	stagingOf,
+	sweptStaging,
 	thrownBy,
 } from './fixtures/tool_uca_maps/helpers.ts';
 import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 /** The object the console stages; only that key_dir of each caller used here is swept. */
 const staged = (value: unknown) => stagedJson(OBJECT_GEOJSON_KEY_DIR, value);
-const OBJECTS = resolve(stagingOf(-1), OBJECT_GEOJSON_KEY_DIR);
-afterEach(() => {
-	for (const userId of [-1, 7]) {
-		rmSync(resolve(stagingOf(userId), OBJECT_GEOJSON_KEY_DIR), { recursive: true, force: true });
-	}
-});
+const OBJECTS = sweptStaging(-1, OBJECT_GEOJSON_KEY_DIR);
+sweptStaging(7, OBJECT_GEOJSON_KEY_DIR);
 
 const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -54,12 +52,7 @@ async function pdfText(bytes: Uint8Array, name: string): Promise<string> {
 	const pdfPath = join(scratch, `${name}.pdf`);
 	const txtPath = join(scratch, `${name}.txt`);
 	writeFileSync(pdfPath, bytes);
-	const proc = Bun.spawn(['pdftotext', '-enc', 'UTF-8', pdfPath, txtPath], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const code = await proc.exited;
-	expect(code).toBe(0);
+	await runFixtureBinary(['pdftotext', '-enc', 'UTF-8', pdfPath, txtPath]);
 	return await Bun.file(txtPath).text();
 }
 
@@ -300,11 +293,7 @@ async function realJpeg(
 	extra: readonly string[] = [],
 ): Promise<Uint8Array> {
 	const target = join(scratch, `${name}.jpg`);
-	const proc = Bun.spawn([MAGICK ?? 'magick', '-size', size, 'xc:red', ...extra, target], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	expect(await proc.exited).toBe(0);
+	await runFixtureBinary([MAGICK ?? 'magick', '-size', size, 'xc:red', ...extra, target]);
 	return new Uint8Array(await Bun.file(target).arrayBuffer());
 }
 
@@ -387,7 +376,7 @@ describe('objectPdfReport — the whole document', () => {
 		// one object per sheet: core keeps a completed staged file forever
 		expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
 
-		const data = response.data as { content_base64: string; filename: string; mime: string };
+		const data = dataOf<{ content_base64: string; filename: string; mime: string }>(response);
 		expect(data.mime).toBe('application/pdf');
 		expect(data.filename).toBe('uca_maps_object.pdf');
 
@@ -419,7 +408,7 @@ describe('objectPdfReport — the whole document', () => {
 		);
 		const text = await pdfText(
 			new Uint8Array(
-				Buffer.from((response.data as { content_base64: string }).content_base64, 'base64'),
+				Buffer.from(dataOf<{ content_base64: string }>(response).content_base64, 'base64'),
 			),
 			'labels',
 		);
@@ -448,7 +437,7 @@ describe('objectPdfReport — the whole document', () => {
 			),
 		);
 		return new Uint8Array(
-			Buffer.from((response.data as { content_base64: string }).content_base64, 'base64'),
+			Buffer.from(dataOf<{ content_base64: string }>(response).content_base64, 'base64'),
 		);
 	}
 

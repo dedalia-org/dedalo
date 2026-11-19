@@ -6,9 +6,8 @@
  * driver (`-if`), strict reserialized GeoJSON (those refusals run without GDAL).
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
@@ -46,8 +45,9 @@ import {
 	loadAction,
 	stagedJson,
 	stageFile,
-	stagingOf,
+	sweptStaging,
 	thrownBy,
+	withTempDir,
 } from './fixtures/tool_uca_maps/helpers.ts';
 
 const HAVE_GDAL = haveGdal(
@@ -232,18 +232,15 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 	// a fake binary that answers `--version` as GDAL 3.1 would: it runs, but -if
 	// fails. Named by its absolute path: Bun.which never sees a PATH set at runtime
 	test('a GDAL below the floor is the not-installed refusal for that binary, never a spawn that fails', async () => {
-		const bin = mkdtempSync(join(tmpdir(), 'uca_maps_old_gdal_'));
-		const name = join(bin, 'gdalinfo') as Parameters<typeof resolveGdalBinary>[0];
-		try {
+		await withTempDir('uca_maps_old_gdal_', async (bin) => {
+			const name = join(bin, 'gdalinfo') as Parameters<typeof resolveGdalBinary>[0];
 			writeFileSync(name, "#!/bin/sh\necho 'GDAL 3.1.4, released 2020/10/20'\n");
 			chmodSync(name, 0o755);
 			const error = await failureOf(resolveGdalBinary(name));
 			expectCode(error, 'tool.dependency_unavailable');
 			expect(isMissingGdalBinary(error, name)).toBe(true);
 			expect((error as DedaloError).message).toMatch(/GDAL 3\.2 or later is required/);
-		} finally {
-			rmSync(bin, { recursive: true, force: true });
-		}
+		});
 	});
 
 	test('a raster driver comes from the extension; an unknown one, VRT included, is refused', () => {
@@ -273,8 +270,7 @@ describe('tool_uca_maps runToolBinary — the spawn discipline (no GDAL needed)'
 // refused before any binary runs, so these hold where GDAL is not installed (CI)
 describe('tool_uca_maps handlers refuse a linked crs and lenient JSON before GDAL (no GDAL needed)', () => {
 	const UPLOADER = 987685;
-	const staging = stagingOf(UPLOADER);
-	afterEach(() => rmSync(staging, { recursive: true, force: true }));
+	sweptStaging(UPLOADER);
 
 	test("vector_download refuses the client's linked crs, wherever it sits", async () => {
 		const action = await loadAction('vector_download');
@@ -420,8 +416,7 @@ describe.skipIf(!HAVE_GDAL)(
 		});
 
 		const UPLOADER = 987686;
-		const staging = stagingOf(UPLOADER);
-		afterEach(() => rmSync(staging, { recursive: true, force: true }));
+		sweptStaging(UPLOADER);
 
 		// georeferenced, so a VRT GDAL opened would visibly succeed: a download
 		// with content, an overlay with corners — the refusal is the driver's

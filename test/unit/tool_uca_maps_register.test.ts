@@ -6,11 +6,9 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { Glob } from 'bun';
 import { authoringRegisterSchema } from '../../src/core/tools/register_schema.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
-
-const TOOL_DIR = new URL('../../tools/tool_uca_maps/', import.meta.url);
+import { toolSources, toolUrl } from './fixtures/tool_uca_maps/source_census.ts';
 
 /** `get_tool_label('some_key')`, or `('some_key', value…)` for a label with `%s`. */
 const LABEL_CALL = /get_tool_label\(\s*'([A-Za-z0-9_]+)'\s*[,)]/y;
@@ -45,9 +43,8 @@ function countArgs(source: string, from: number): number {
 /** Every `get_tool_label(` in the client's code, comments stripped. */
 async function labelCalls(): Promise<LabelCall[]> {
 	const calls: LabelCall[] = [];
-	const glob = new Glob('js/**/*.js');
-	for await (const relative of glob.scan({ cwd: Bun.fileURLToPath(TOOL_DIR) })) {
-		const source = stripComments(await Bun.file(new URL(relative, TOOL_DIR)).text());
+	for (const [relative, raw] of await toolSources('js/**/*.js')) {
+		const source = stripComments(raw);
 		for (const match of source.matchAll(/get_tool_label\(/g)) {
 			const at = match.index as number;
 			const text = source.slice(at, at + 60).split('\n')[0] as string;
@@ -82,7 +79,7 @@ let registerRead: ReturnType<typeof authoringRegisterSchema.safeParse> | undefin
  */
 async function registered() {
 	registerRead ??= authoringRegisterSchema.safeParse(
-		await Bun.file(new URL('register.json', TOOL_DIR)).json(),
+		await Bun.file(toolUrl('register.json')).json(),
 	);
 	if (!registerRead.success) {
 		throw new Error(`register.json failed authoring schema: ${registerRead.error.message}`);
@@ -147,7 +144,7 @@ describe('tool_uca_maps register.json', () => {
 	// prefix check passes whatever happens to one member, this one does not
 	test('every label_key compute_info answers ships its info_ label, in every language', async () => {
 		const { labels, langs } = await registeredLabels();
-		const source = await Bun.file(new URL('js/object_console.js', TOOL_DIR)).text();
+		const source = await Bun.file(toolUrl('js/object_console.js')).text();
 		const literals = [...source.matchAll(/\blabel_key\s*:\s*'([a-z_]+)'/g)];
 		// a key written any other way (double-quoted, computed) would escape the check
 		const code = stripComments(source);

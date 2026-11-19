@@ -10,6 +10,7 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ToolResponse } from '../../src/core/tools/module.ts';
 import {
 	type ImageCorners,
 	isCmykSource,
@@ -54,6 +55,11 @@ const VALID = {
 	file_name: 'plan',
 };
 
+/** The action with MAP_RECORD left out: each case names its own record, or none. */
+async function download(options: Record<string, unknown>): Promise<ToolResponse> {
+	return (await loadAction('image_download')).handler(contextOf(options, 1, { record: false }));
+}
+
 describe('tool_uca_maps image_download — caller faults, refused before any lookup', () => {
 	const cases: Array<[string, Record<string, unknown>]> = [
 		['an unknown format', { format: 'gif' }],
@@ -82,22 +88,16 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 		['a fractional width', { width: 10.5 }],
 		['a name that sanitizes to nothing', { file_name: '///' }],
 	];
-	for (const [label, override] of cases) {
-		test(`refuses ${label}`, async () => {
-			const action = await loadAction('image_download');
-			await expect(
-				action.handler(contextOf({ ...VALID, ...override }, 1, { record: false })),
-			).rejects.toMatchObject({
-				code: 'request.invalid_options',
-			});
+	test.each(cases)('refuses %s', async (_, override) => {
+		await expect(download({ ...VALID, ...override })).rejects.toMatchObject({
+			code: 'request.invalid_options',
 		});
-	}
+	});
 
 	// the one refusal here the user can fix: the browser explains it by its key
 	test('a name that sanitizes to nothing is refused with the key the user reads', async () => {
-		const action = await loadAction('image_download');
 		await refusal(
-			action.handler(contextOf({ ...VALID, file_name: '///' }, 1, { record: false })),
+			download({ ...VALID, file_name: '///' }),
 			'request.invalid_options',
 			'file_name_unusable',
 		);
@@ -107,10 +107,7 @@ describe('tool_uca_maps image_download — caller faults, refused before any loo
 	test.each(['toString', 'constructor', '__proto__'])(
 		"refuses the inherited key '%s' as a format",
 		async (format) => {
-			const action = await loadAction('image_download');
-			await expect(
-				action.handler(contextOf({ ...VALID, format }, 1, { record: false })),
-			).rejects.toMatchObject({
+			await expect(download({ ...VALID, format })).rejects.toMatchObject({
 				code: 'request.invalid_options',
 				message: expect.stringMatching(/^Unsupported image format/),
 			});
@@ -383,20 +380,11 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 	}
 
 	async function expectCmykRefusal(dir: string, source: string) {
-		const refusal = await renderImageDownload(
-			mkdtempSync(join(dir, 'work_')),
-			source,
-			ROTATED,
-			'png',
-			120,
-		).then(
-			() => null,
-			(error: unknown) => error,
+		await refusal(
+			renderImageDownload(mkdtempSync(join(dir, 'work_')), source, ROTATED, 'png', 120),
+			'tool.unsupported_target',
+			'image_cmyk',
 		);
-		expect(refusal).toMatchObject({
-			code: 'tool.unsupported_target',
-			details: { reason_key: 'image_cmyk' },
-		});
 	}
 
 	const CMYK_BANDS = ['-bands', '4', '-burn', '10', '-burn', '20', '-burn', '30', '-burn', '40'];
@@ -460,10 +448,7 @@ describe('tool_uca_maps image_download — the handler serves only the file the 
 
 	const refusalFor = (file_path: string) =>
 		withImageFiles(SLOT, FILES, async () => {
-			const action = await loadAction('image_download');
-			return failureOf(
-				action.handler(contextOf({ ...VALID, ...SLOT, file_path }, 1, { record: false })),
-			);
+			return failureOf(download({ ...VALID, ...SLOT, file_path }));
 		});
 
 	test('a path out of the media tree is no file of this image', async () => {

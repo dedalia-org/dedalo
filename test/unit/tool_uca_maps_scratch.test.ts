@@ -4,18 +4,16 @@
  * the boot sweep that collects what a killed process left behind.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	readdirSync,
 	rmSync,
 	statSync,
 	utimesSync,
 	writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import {
@@ -27,7 +25,7 @@ import {
 import { tool } from '../../tools/tool_uca_maps/server/index.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { scratchMediaRoot } from '../helpers/media_scratch_root.ts';
-import { expectCode, thrownBy } from './fixtures/tool_uca_maps/helpers.ts';
+import { expectCode, thrownBy, withTempDir } from './fixtures/tool_uca_maps/helpers.ts';
 
 describe('tool_uca_maps scratch — inside the media root, never the OS temp dir (no GDAL needed)', () => {
 	// ImageMagick spills its pixel cache into the scratch dir, and the OS temp
@@ -59,17 +57,14 @@ describe('tool_uca_maps scratch — inside the media root, never the OS temp dir
 		}
 	});
 
-	test('a root without the test-media marker is refused and nothing is created in it', () => {
-		const unmarked = mkdtempSync(join(tmpdir(), 'uca_maps_unmarked_'));
-		try {
+	test('a root without the test-media marker is refused and nothing is created in it', async () => {
+		await withTempDir('uca_maps_unmarked_', async (unmarked) => {
 			expectCode(
 				thrownBy(() => scratchRoot(unmarked)),
 				'media.invalid_path',
 			);
 			expect(existsSync(join(unmarked, config.media.upload.tmpSubdir))).toBe(false);
-		} finally {
-			rmSync(unmarked, { recursive: true, force: true });
-		}
+		});
 	});
 
 	test('a marked root gets the scratch under its staging tree, closed to other users', () => {
@@ -154,24 +149,22 @@ describe('tool_uca_maps scratch — inside the media root, never the OS temp dir
 	// the sweep runs in a timer, past the loader's guard: a bad media root must
 	// only warn, never throw where nothing catches it
 	test('a sweep that cannot reach the media root warns and writes nothing', async () => {
-		const unmarked = mkdtempSync(join(tmpdir(), 'uca_maps_unmarked_sweep_'));
-		const warned: unknown[] = [];
-		const warn = console.warn;
-		console.warn = (...args: unknown[]) => warned.push(args[0]);
+		const warn = spyOn(console, 'warn').mockImplementation(() => {});
 		try {
-			for (const configured of [null, unmarked]) {
-				const handle = startScratchSweep(configured, 60_000);
-				await new Promise((resolve) => setTimeout(resolve, 20));
-				handle.stop();
-			}
-			expect(warned).toEqual([
-				'[tool_uca_maps] scratch sweep skipped:',
-				'[tool_uca_maps] scratch sweep skipped:',
-			]);
-			expect(readdirSync(unmarked)).toEqual([]);
+			await withTempDir('uca_maps_unmarked_sweep_', async (unmarked) => {
+				for (const configured of [null, unmarked]) {
+					const handle = startScratchSweep(configured, 60_000);
+					await new Promise((resolve) => setTimeout(resolve, 20));
+					handle.stop();
+				}
+				expect(warn.mock.calls.map((args) => args[0])).toEqual([
+					'[tool_uca_maps] scratch sweep skipped:',
+					'[tool_uca_maps] scratch sweep skipped:',
+				]);
+				expect(readdirSync(unmarked)).toEqual([]);
+			});
 		} finally {
-			console.warn = warn;
-			rmSync(unmarked, { recursive: true, force: true });
+			warn.mockRestore();
 		}
 	});
 });

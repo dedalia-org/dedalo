@@ -65,6 +65,13 @@ beforeEach(() => {
 	};
 });
 
+/** A scripted answer that is core's refusal `code`. */
+function failWith(code: DedaloError['code'], message: string = code): () => never {
+	return () => {
+		throw new DedaloError(code, { message });
+	};
+}
+
 const VALID_CLICK = { bbox: [-1, 38, -0.9, 38.1], width: 512, height: 400, x: 128, y: 64 };
 
 /** The [lat, lon] at the centre of an EPSG:3857 box, inverted by hand. */
@@ -120,9 +127,7 @@ describe('search_places — a caller fault is refused before anything is asked',
 		'external.too_large',
 		'external.protocol',
 	] as const)('a transient %s is the place search unavailable, keyed', async (code) => {
-		answer = () => {
-			throw new DedaloError(code, { message: code });
-		};
+		answer = failWith(code);
 		const down = await failureOf(searchPlaces(contextOf({ query: 'Sagunto' })));
 		expectCode(down, 'tool.source_unavailable');
 		expect(down.details).toEqual({ reason_key: 'place_search_unavailable' });
@@ -133,17 +138,13 @@ describe('search_places — a caller fault is refused before anything is asked',
 	test.each(['external.bad_config', 'external.blocked_host', 'external.not_found'] as const)(
 		'a final %s passes through as core threw it',
 		async (code) => {
-			answer = () => {
-				throw new DedaloError(code, { message: code });
-			};
+			answer = failWith(code);
 			expectCode(await failureOf(searchPlaces(contextOf({ query: 'Sagunto' }))), code);
 		},
 	);
 
 	test("core's busy stays core's", async () => {
-		answer = () => {
-			throw new DedaloError('rate.limited', { message: 'busy' });
-		};
+		answer = failWith('rate.limited', 'busy');
 		expectCode(await failureOf(searchPlaces(contextOf({ query: 'Sagunto' }))), 'rate.limited');
 	});
 });
@@ -215,9 +216,7 @@ describe("search_dare — core's DARE services, v6's filters on the answer", () 
 	});
 
 	test("a provider's failure is the gazetteer unavailable, keyed", async () => {
-		answer = () => {
-			throw new DedaloError('external.transport', { message: 'reset' });
-		};
+		answer = failWith('external.transport', 'reset');
 		const error = await failureOf(searchDare(contextOf({ query: 'Sagunto' })));
 		expectCode(error, 'tool.source_unavailable');
 		expect(error.details).toEqual({ reason_key: 'gazetteer_service_unavailable' });
@@ -264,9 +263,7 @@ describe('get_elevation — caller-fault validation', () => {
 describe('get_elevation — an outage is "unavailable", a refused question is not', () => {
 	test("the provider's failure or core's busy answers unavailable", async () => {
 		for (const code of ['external.timeout', 'rate.limited'] as const) {
-			answer = () => {
-				throw new DedaloError(code, { message: code });
-			};
+			answer = failWith(code);
 			expect(dataOf(await getElevation(contextOf({ lat: 39.6, lon: -0.2 })))).toEqual({
 				elevation: null,
 				unavailable: true,
@@ -275,9 +272,7 @@ describe('get_elevation — an outage is "unavailable", a refused question is no
 	});
 
 	test("a question core refuses is the tool's own bug and stays loud", async () => {
-		answer = () => {
-			throw new DedaloError('request.invalid_data', { message: 'off grammar' });
-		};
+		answer = failWith('request.invalid_data', 'off grammar');
 		expectCode(
 			await failureOf(getElevation(contextOf({ lat: 39.6, lon: -0.2 }))),
 			'request.invalid_data',
@@ -341,18 +336,14 @@ describe("get_administrative_unit — core's IGN service wired into the handler"
 	});
 
 	test('"nothing there" or a unit with no name is not found, not a failure', async () => {
-		answer = () => {
-			throw new DedaloError('external.not_found', { message: 'nothing there' });
-		};
+		answer = failWith('external.not_found', 'nothing there');
 		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toEqual({ found: false });
 		answer = () => ({ features: [{ properties: { nameunit: '  ' } }] });
 		expect(dataOf(await getAdministrativeUnit(contextOf(VALID_CLICK)))).toEqual({ found: false });
 	});
 
 	test("a transient failure is the source unavailable with the tool's reason", async () => {
-		answer = () => {
-			throw new DedaloError('external.timeout', { message: 'slow' });
-		};
+		answer = failWith('external.timeout', 'slow');
 		const error = await failureOf(getAdministrativeUnit(contextOf(VALID_CLICK)));
 		expectCode(error, 'tool.source_unavailable');
 		expect(error.details).toEqual({ reason_key: 'admin_units_unavailable' });
@@ -363,9 +354,7 @@ describe("get_catastro_parcel — core's two Catastro services wired into the ha
 	const REFCAT = '5726401YJ2752F';
 	const RESULT_PAGE = `<html><body><td class="title">Get Feature Info Response</td><table><tr><td>nationalCadastralReference</td><td>${REFCAT}</td></tr><tr><td>otherReference</td><td><ul class="otherReference"><li><a href="https://example.com/rc?a=1&amp;b=2" target="_blank">Public remote access</a></li></ul></td></tr></table></body></html>`;
 	const PARCEL = `<FeatureCollection xmlns="http://www.opengis.net/wfs/2.0"><member><cp:CadastralParcel gml:id="ES.SDGC.CP.${REFCAT}"><gml:posList>725684.13 4372525.27 725685.12 4372525.09 725686.96 4372524.76</gml:posList></cp:CadastralParcel></member></FeatureCollection>`;
-	const notFound = () => {
-		throw new DedaloError('external.not_found', { message: 'nothing there' });
-	};
+	const notFound = failWith('external.not_found', 'nothing there');
 	// a click in Valencia: zone 30
 	const VALENCIA = { bbox: [-0.4, 39.45, -0.35, 39.5], width: 500, height: 500, x: 250, y: 250 };
 
@@ -448,15 +437,11 @@ describe("get_catastro_parcel — core's two Catastro services wired into the ha
 	});
 
 	test("a transient failure is the Catastro service unavailable; a final one is core's", async () => {
-		answer = () => {
-			throw new DedaloError('external.timeout', { message: 'slow' });
-		};
+		answer = failWith('external.timeout', 'slow');
 		const down = await failureOf(getCatastroParcel(contextOf(VALENCIA)));
 		expectCode(down, 'tool.source_unavailable');
 		expect(down.details).toEqual({ reason_key: 'catastro_unavailable' });
-		answer = () => {
-			throw new DedaloError('external.bad_config', { message: 'refused' });
-		};
+		answer = failWith('external.bad_config', 'refused');
 		expectCode(await failureOf(getCatastroParcel(contextOf(VALENCIA))), 'external.bad_config');
 	});
 

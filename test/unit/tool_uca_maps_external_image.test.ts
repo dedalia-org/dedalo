@@ -27,6 +27,7 @@ import {
 	type ScriptedRoute,
 	scriptedSite,
 } from './fixtures/tool_uca_maps/scripted_site.ts';
+import { toolUrl } from './fixtures/tool_uca_maps/source_census.ts';
 
 /** A 1×1 PNG: real bytes, so the receiver's sniff and structural check pass. */
 const ONE_PIXEL_PNG = new Uint8Array(
@@ -84,9 +85,9 @@ describe('tool_uca_maps stage_external_image — the switch', () => {
 	});
 
 	test('on by default: register.json declares it, and the real switch lets it through', async () => {
-		const register = JSON.parse(
-			readFileSync(new URL('../../tools/tool_uca_maps/register.json', import.meta.url), 'utf8'),
-		) as { default_config: Record<string, unknown> };
+		const register = JSON.parse(readFileSync(toolUrl('register.json'), 'utf8')) as {
+			default_config: Record<string, unknown>;
+		};
 		expect(register.default_config[EXTERNAL_IMAGES_CONFIG_KEY]).toBe(true);
 
 		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
@@ -233,10 +234,7 @@ describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
 
 describe('tool_uca_maps stage_external_image — the ceiling', () => {
 	test("is the associate picker's own (image_upload.js IMAGE_UPLOAD_MAX_BYTES)", () => {
-		const source = readFileSync(
-			new URL('../../tools/tool_uca_maps/js/image_upload.js', import.meta.url),
-			'utf8',
-		);
+		const source = readFileSync(toolUrl('js/image_upload.js'), 'utf8');
 		const picker = /\bconst IMAGE_UPLOAD_MAX_BYTES\s*=\s*([\d_]+)/.exec(source);
 		expect(picker).not.toBeNull();
 		expect(EXTERNAL_IMAGE_MAX_BYTES).toBe(Number((picker?.[1] ?? '').replace(/_/g, '')));
