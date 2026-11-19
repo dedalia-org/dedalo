@@ -37,8 +37,10 @@
   `409`, new registry code `tool.snapshot_unrestorable` (`conflict`, public, not retryable, label
   `error_tool_snapshot_unrestorable`; the offending value rides `coordinates.reason`, log-only). A
   whole-record row is checked key by key on its `relation` column and refused WHOLE on one
-  malformed key (also covers the bulk revert's undelete, which shares that door). A single
-  addressed locator object is written as `[locator]`. A well-formed row restores exactly as before.
+  malformed key (also covers the bulk revert's undelete, which shares that door — there the
+  record's scope is judged BEFORE this refusal surfaces since 2026-11-18,
+  WC-2026-11-17-tm-restore-value-gates review addendum L2). A single addressed locator object is
+  written as `[locator]`. A well-formed row restores exactly as before.
 - **Reason:** a decade-scale audit log carries shapes no live table holds (measured 2026-10-24: zero
   non-locator relation values in every live matrix table and in every whole-record snapshot's
   relation column; ~290k per-component TM rows across relation models do). One such row must not

@@ -33,6 +33,7 @@ import { DATAFRAME_RELATION_TYPE, isDataframeEntry } from '../../src/core/concep
 import { sql } from '../../src/core/db/postgres.ts';
 import { ddDateToSeconds } from '../../src/core/media/file_date.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { planCsvImport } from '../../src/core/tools/import_csv.ts';
 import type { ImportFileReport } from '../../src/core/tools/import_wire.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { mustGet } from '../helpers/assert.ts';
@@ -47,6 +48,10 @@ const MIXED_ID = 914120; // the mixed-mode envelope gate's own scratch record
 const STAMP_ID = 914200; // the envelope-frames-keep-the-stamp gate's own scratch record
 const BAD_SLOT_ID = 914210; // the non-dataframe-slot warning gate's own scratch record
 const STAMPS_ID = 914220; // the four-stamp round-trip gate's own scratch record
+const ZOTERO_FREE_ID = 914230; // the Zotero-limit scope gate: a record the CSV creates, then holds a code
+const ZOTERO_KEYLESS_ID = 914231; // …and one that holds none
+const LIMIT_BEFORE_ID = 914232; // the int4-limit row skip: the row written BEFORE the over-limit row
+const LIMIT_AFTER_ID = 914233; // …and the one written AFTER it
 /** A component_portal of test3 (→ test3): an APPEND main distinct from TEXT. */
 const PORTAL = 'test80';
 /** A component_dataframe of the test3 family (parent test45). */
@@ -79,6 +84,10 @@ afterAll(async () => {
 		STAMP_ID,
 		BAD_SLOT_ID,
 		STAMPS_ID,
+		ZOTERO_FREE_ID,
+		ZOTERO_KEYLESS_ID,
+		LIMIT_BEFORE_ID,
+		LIMIT_AFTER_ID,
 	]) {
 		await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
 			SECTION,
@@ -763,4 +772,214 @@ describe('append mode (import_mode: append)', () => {
 		)) as { items: Record<string, unknown>[] | null }[];
 		return rows[0]?.items ?? [];
 	}
+});
+
+describe("the Zotero import's record-number rules are ZOTERO's; the CSV section_id column has its OWN (owner rulings 2026-11-18)", () => {
+	// The Zotero door refuses a call-number above int4 under its own code, adopts
+	// or refuses by the record's Zotero key, and warns in envelope notices
+	// (tools/tool_import_zotero/server/call_number_address.ts). NONE of that is
+	// the CSV door's: its section_id column is read by `parseRecordIdCell` and
+	// written as at 123d88b48d. Every assertion below is the outcome MEASURED
+	// there — a limit moved into anything the two doors share turns one red.
+	const TEXT_COLUMN = { tipo: TEXT, model: 'component_input_text', checked: true, map_to: TEXT };
+	const CODE = 'test162';
+	const titleOf = async (id: number): Promise<unknown[]> => {
+		const rows = (await sql.unsafe(
+			`SELECT string -> '${TEXT}' AS items FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, id],
+		)) as { items: { value?: unknown }[] | null }[];
+		return (rows[0]?.items ?? []).map((item) => item.value);
+	};
+
+	// OWNER RULING 2026-11-18 (the CSV door's own): a section_id above the
+	// highest record number is THAT ROW's refusal, in its own sentence — the
+	// value and the limit — and the rest of the file imports. Before it, the id
+	// reached the existing-id read as written and the WHOLE FILE failed with the
+	// database's raw range message (`value "2147483648" is out of range for type
+	// integer`), also un-writing the rows around it. The mechanism is the DATA-22
+	// row skip; the wording, and the bound, are the CSV column's — never Zotero's.
+	test('a section_id above 2147483647 skips ONLY that row, with its own message (row, value, limit): the rows around it are written, nothing is written for it, no raw database text, no Zotero code or wording', async () => {
+		const report = await importCsv(
+			`section_id;${TEXT}\n${LIMIT_BEFORE_ID};"before the limit row"\n2147483648;"above the limit"\n${LIMIT_AFTER_ID};"after the limit row"\n`,
+			[KEY_COLUMN, TEXT_COLUMN],
+		);
+		expect(report.errors).toEqual([
+			"Row 3: SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)",
+		]);
+		expect(report.ok).toBe(true);
+		expect(report.failed).toEqual([]);
+		expect(report.created).toEqual([LIMIT_BEFORE_ID, LIMIT_AFTER_ID]);
+		expect(report.updated).toEqual([]);
+		// The valid rows of the same file ARE written — on both sides of the skip.
+		expect(await titleOf(LIMIT_BEFORE_ID)).toEqual(['before the limit row']);
+		expect(await titleOf(LIMIT_AFTER_ID)).toEqual(['after the limit row']);
+		// Nothing was written for the over-limit row: no record holds its text.
+		const stray = (await sql.unsafe(
+			`SELECT section_id FROM matrix_test WHERE section_tipo = $1 AND string -> '${TEXT}' @> $2::text::jsonb`,
+			[SECTION, JSON.stringify([{ value: 'above the limit' }])],
+		)) as { section_id: number }[];
+		expect(stray).toEqual([]);
+		// The database's own words never reach the report; neither do Zotero's.
+		const wire = JSON.stringify(report);
+		expect(wire).not.toContain('out of range');
+		expect(wire).not.toContain('type integer');
+		expect(wire).not.toContain('zotero');
+		expect(wire).not.toContain('call-number');
+		expect(report).not.toHaveProperty('refused');
+		expect(report).not.toHaveProperty('taken_over_at_id');
+	});
+
+	test('validate_import names the over-limit row too: the preflight says what the import will skip', async () => {
+		writeFileSync(
+			resolve(dir, CSV),
+			`section_id;${TEXT}\n2147483648;"above"\n99999999999999999999;"far above"\n`,
+		);
+		const loaded = await getLoadedTool('tool_import_dedalo_csv');
+		const res = (await mustGet(
+			loaded!.module.apiActions.validate_import,
+			'validate_import',
+		).handler({
+			principal: await resolvePrincipal(-1),
+			userId: USER,
+			background: false,
+			options: {
+				files: [{ file: CSV, section_tipo: SECTION, ar_columns_map: [KEY_COLUMN, TEXT_COLUMN] }],
+			},
+		})) as { data: { files: { ok: boolean; failed: { msg: string; row: number }[] }[] } };
+		const file = res.data.files[0];
+		expect(file?.ok).toBe(false);
+		expect(file?.failed.map((issue) => [issue.row, issue.msg])).toEqual([
+			[
+				2,
+				"the row would be SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)",
+			],
+			[
+				3,
+				"the row would be SKIPPED — the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
+			],
+		]);
+	});
+
+	test('the limit is EXACT, in the planner: 2147483647 is a record number, 2147483648 is refused with the limit sentence — and so is EVERY whole number above it, also a digit run past an exact integer; only a cell that is not a whole number keeps the DATA-22 sentence', async () => {
+		// Pure — the plan only (no record is created at the top of the range: an
+		// explicit id raises the section counter, and the suite's must stay usable).
+		const keyOnly = [
+			{
+				tipo: 'section_id',
+				model: 'component_section_id',
+				columnName: 'section_id',
+				lang: 'lg-nolan',
+			},
+		];
+		const plan = await planCsvImport(
+			[
+				['2147483647'],
+				['2147483648'],
+				['99999999999999999999'],
+				['12abc'],
+				['9007199254740991'],
+				['9007199254740993'],
+				['00000000000000000000000000000000000007'],
+				['00000000000000000000'],
+				['1e20'],
+			],
+			keyOnly as Parameters<typeof planCsvImport>[1],
+			SECTION,
+		);
+		expect(plan.map((record) => [record.row, record.sectionId, record.keyError])).toEqual([
+			[2, 2147483647, null],
+			[
+				3,
+				null,
+				"the section_id cell is '2147483648', which is above the highest record number (2147483647)",
+			],
+			// DELIBERATE EDIT (review of 5628134342): this row pinned the DATA-22
+			// sentence. The ruling is "any whole number above 2147483647" — a digit
+			// run too long for an exact JS integer is one, and is told the limit.
+			[
+				4,
+				null,
+				"the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
+			],
+			[5, null, "the section_id cell is '12abc', which is not a record id"],
+			// The last exact integer, and the first digit run past it: one sentence.
+			[
+				6,
+				null,
+				"the section_id cell is '9007199254740991', which is above the highest record number (2147483647)",
+			],
+			[
+				7,
+				null,
+				"the section_id cell is '9007199254740993', which is above the highest record number (2147483647)",
+			],
+			// LENGTH is not magnitude: a long run of leading zeros is still record 7,
+			// and zero is not a record id — neither is "above the limit".
+			[8, 7, null],
+			[9, null, "the section_id cell is '00000000000000000000', which is not a record id"],
+			// Not the digit grammar, whatever Number() makes of it.
+			[10, null, "the section_id cell is '1e20', which is not a record id"],
+		]);
+	});
+
+	test("a digit run too long for an exact integer is the CSV row skip with the LIMIT sentence — the CSV door's own, never the Zotero limit", async () => {
+		const report = await importCsv(`section_id;${TEXT}\n99999999999999999999;"huge"\n`, [
+			KEY_COLUMN,
+			TEXT_COLUMN,
+		]);
+		expect(report.ok).toBe(true);
+		expect(report.errors).toEqual([
+			"Row 2: SKIPPED — the section_id cell is '99999999999999999999', which is above the highest record number (2147483647)",
+		]);
+		expect(report.created).toEqual([]);
+		expect(report.updated).toEqual([]);
+		expect(JSON.stringify(report)).not.toContain('zotero');
+	});
+
+	test('a free section_id is CREATED at it; a record holding a code, and one holding none, are UPDATED in place — no key guard, no take-over bucket, no refusal, no notice', async () => {
+		const born = await importCsv(
+			`section_id;${TEXT};${CODE}\n${ZOTERO_FREE_ID};"csv born";"ZKEY${ZOTERO_FREE_ID}"\n${ZOTERO_KEYLESS_ID};"csv keyless";""\n`,
+			[
+				KEY_COLUMN,
+				TEXT_COLUMN,
+				{ tipo: CODE, model: 'component_input_text', checked: true, map_to: CODE },
+			],
+		);
+		expect(born.errors).toEqual([]);
+		expect(born.failed).toEqual([]);
+		expect(born.created).toEqual([ZOTERO_FREE_ID, ZOTERO_KEYLESS_ID]);
+		expect(born.updated).toEqual([]);
+
+		// The same ids again: one record now HOLDS a code (a Zotero key, to the
+		// Zotero door), the other holds none. The CSV door asks neither question.
+		const again = await importCsv(
+			`section_id;${TEXT}\n${ZOTERO_FREE_ID};"csv keyed, updated"\n${ZOTERO_KEYLESS_ID};"csv keyless, updated"\n`,
+			[KEY_COLUMN, TEXT_COLUMN],
+		);
+		expect(again.ok).toBe(true);
+		expect(again.errors).toEqual([]);
+		expect(again.failed).toEqual([]);
+		expect(again.created).toEqual([]);
+		expect(again.updated).toEqual([ZOTERO_FREE_ID, ZOTERO_KEYLESS_ID]);
+		expect(again).not.toHaveProperty('refused');
+		expect(again).not.toHaveProperty('taken_over_at_id');
+		expect(await titleOf(ZOTERO_FREE_ID)).toEqual(['csv keyed, updated']);
+		expect(await titleOf(ZOTERO_KEYLESS_ID)).toEqual(['csv keyless, updated']);
+	});
+
+	test('the CSV envelope carries no notice: the Zotero warnings are not ambient', async () => {
+		writeFileSync(resolve(dir, CSV), `section_id;${TEXT}\n2147483648;"above"\n`);
+		const loaded = await getLoadedTool('tool_import_dedalo_csv');
+		const res = (await mustGet(loaded!.module.apiActions.import_files, 'import_files').handler({
+			principal: await resolvePrincipal(-1),
+			userId: USER,
+			background: false,
+			options: {
+				files: [{ file: CSV, section_tipo: SECTION, ar_columns_map: [KEY_COLUMN, TEXT_COLUMN] }],
+			},
+		})) as { notices?: unknown[]; data: { files: ImportFileReport[] } };
+		const id = res.data.files[0]?.bulk_process_id ?? null;
+		if (id !== null) bulkProcessIds.push(id);
+		expect(res.notices ?? []).toEqual([]);
+	});
 });

@@ -47,7 +47,9 @@ The import never stops at the first problem: a reference it can read is written,
 
 - **Refused fields** — a value the record could not take, named with the record and field. The record keeps its stored value for that field. Examples: a date written as text ("circa 1900"), a Zotero item type the configuration's typology list does not know, a journal name held by two Series records.
 - **Created at / updated at their call-number id** — the record numbers of the references whose call number chose their record: the ones created at that number, and the ones that updated the record already there.
-- **Refused references** — a reference that was not imported because of its call number, named by its Zotero key with the reason (see [Choosing the record number](#choosing-the-record-number-the-call-number)). The rest of the export is imported.
+- **Taken over — the record had no Zotero key** — the record numbers of the references whose call number named a record that existed but did not belong to any Zotero reference yet (one created by hand, for instance). The record was written with the reference's values and holds its Zotero key from now on. They are listed apart from the updated records, and counted apart in the summary, so you can check that each one is the record you meant.
+- **Warnings** — shown first, in your language, when you have to act: a call number above the highest record number there is, a reference that names a record you may not change, or a reference without a Zotero key whose call number names a record that already belongs to another Zotero reference (see [Choosing the record number](#choosing-the-record-number-the-call-number)). Each one says how many references it concerns and which values or record numbers.
+- **Refused references** — a reference that was not imported because of its call number or of the record it names, listed by its Zotero key with the reason. The rest of the export is imported.
 - **File errors** — an export that is not CSL JSON, or not valid JSON, or larger than 64 MB (split the library and import the parts).
 - **Attachments** — a PDF that was not uploaded with the export, or whose cover could not be rendered.
 - **Notices** — what was not imported and why: Zotero fields the map does not name (listed once), the end of a date range when the target date is not a range, a Zotero "season" that is not a time of day.
@@ -56,25 +58,41 @@ The import never stops at the first problem: a reference it can read is written,
 
 A reference is matched by its **Zotero key** (the last part of its Zotero URI, stored in the code field): found → that record is updated; not found → a new record is created. If two references of one import carry the same key, or two records already hold it, nothing is imported and the report says so — fix the file or the duplicate codes first.
 
+The key is looked for in the **whole section**, not only among the records of your projects: a Zotero key belongs to one record, whoever may edit it. If the record that holds a reference's key is one you may not change, the reference is refused — no second record is created with the same key — and a warning names that record by its number. Ask whoever manages the record for access, or ask them to import the reference. An administrator, who may change every record, is not affected.
+
 ## Choosing the record number: the call number
 
 Zotero has no field for an identifier you can edit, so Dédalo reads the record number from Zotero's **Call Number** field (`call-number` in the export). Write there the number of the Dédalo record the reference belongs to:
 
-- **A record with that number exists** → it is updated, and from then on it holds the reference's Zotero key.
+- **A record with that number exists** → it is updated, and from then on it holds the reference's Zotero key. If the record held no Zotero key before and the reference carries a key, the report lists it under **Taken over — the record had no Zotero key** instead of under the updated records. If the key could not be written — you may not edit the field that holds it, or the value was refused — the record holds no key: it is listed as updated, and the key's field appears under the refused fields.
 - **No record has that number** → a record is created with exactly that number. This is also what happens when the record was deleted: import the reference again and it comes back at the same number.
 - **No call number** → the Zotero key decides, as described above.
 
 The call number must be a whole number written with digits only, from 1 to 2147483647 — `42`, not `042`, `42a`, `4.2` or `B-42`. A reference whose call number is anything else is **not imported** and is listed under refused references with the value it carried; correct it in Zotero, or clear it to let the Zotero key decide.
 
+2147483647 is the highest number a record can have, and it is the only limit: any call number up to it is taken as written. A whole number **above** it is refused too, and the import warns you, naming each such value and the limit.
+
 A reference is also refused, and the record left untouched, when:
 
 - the record with that number already holds **another** Zotero key — an import never turns one reference's record into another's;
-- the reference's Zotero key is already held by a **different** record than the one its call number names — the import cannot tell which one you mean;
+- the reference carries **no Zotero key** and the record with that number already belongs to another Zotero reference — see [A reference without a Zotero key](#a-reference-without-a-zotero-key);
+- the reference's Zotero key is already held by a **different** record than the one its call number names — the import cannot tell which one you mean. This holds for any record of the section, including one outside your projects: the report names it by its number;
 - an earlier reference of the same import carries the same call number;
-- the record with that number exists and you may not edit it — the reference is listed as refused, never as updated.
+- the record with that number exists and you may not change it — the reference is listed as refused, never as updated, and a warning names the record.
 
 !!! warning "A call number is a record number: check it before importing"
-    The number you write is the record that is written. The import refuses to overwrite a record that belongs to another Zotero reference, but a record that holds no Zotero key yet — one created by hand — is updated with the reference's values. The usual permissions apply: a reference whose record you may not edit is refused, and creating a record needs the permission to create in the section.
+    The number you write is the record that is written. The import refuses to overwrite a record that belongs to another Zotero reference, but a record that holds no Zotero key yet — one created by hand — is updated with the reference's values, and listed under **Taken over** in the report. The usual permissions apply: a reference whose record you may not change is refused, and creating a record needs the permission to create in the section.
+
+### A reference without a Zotero key
+
+A reference normally carries its Zotero key in the export (the `id` of the item). If one does not, and its call number names a record that already belongs to another Zotero reference, the import cannot tell whether it is the same reference or a different one — writing it would silently replace another reference's record. So the reference is **not imported**, the record is left untouched, and the report says so twice: a line under refused references and a warning that names the record by its number.
+
+What to do:
+
+- **It is the same reference** → export it from Zotero again so that it carries its key, and import the new file. The record is then updated.
+- **It is a different reference** → remove its call number in Zotero (or correct it) and import again: a new record is created for it.
+
+A reference without a Zotero key whose call number names a record that holds no key either is written into that record as an update; nothing is taken over, because the reference has no key to leave there.
 
 A record created at a number above the section's last one moves the section's counter up to it: the next record created by hand continues from there. Within one import the references that carry a call number are written first, so a reference without one never takes a number another reference of the same export names — whatever their order in the file. The report keeps the file's order.
 

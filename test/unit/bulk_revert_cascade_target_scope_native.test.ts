@@ -20,6 +20,22 @@
  *     locator different) → the target comes back with its frame.
  * The contrast is what makes the refusal mean "scope", not "anything failed".
  *
+ * SCOPE IS ASKED BEFORE THE IMAGE IS (review of 123d88b48d..39f6bd7622, L2).
+ * A missing row's scope is judged on the RESTORED row, and the save's value
+ * gates (C58) refuse an image before any row exists — so a target whose
+ * snapshot held a value the gates refuse answered `failed` (with the gate's
+ * code, at the in-scope referrer) to a principal who may not see it: the reason
+ * told them what an out-of-scope record's history holds. And a STANDALONE
+ * target's refusal was never located, in scope or not. Pinned, both ways round
+ * and on both paths (re-linked by a unit / standalone):
+ *   - out of scope + unrestorable image → `out_of_scope`, reason alone — the
+ *     same answer as for a restorable image;
+ *   - in scope + unrestorable image → `failed` with the gate's code, located
+ *     (at the unit that re-links it / at the record itself, standalone).
+ * Both refusals of a whole-record image are driven: a credential that is no
+ * hash (write_value_gates.ts) and a relation key that is no locator array
+ * (tm_record/relation_snapshot_shape.ts).
+ *
  * SITUATION: a `zzbcs` scratch TLD on `test1` (→ matrix_test): an unfiltered
  * host section with a portal + its dataframe slot, and a FILTERED section
  * (component_filter) the frames address. The non-admin is the ACL identity
@@ -27,12 +43,14 @@
  * asserts zero residue. assertTestDatabase before the first write.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
+import { DedaloError } from '../../src/core/errors/index.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import * as realRecordScope from '../../src/core/security/record_scope.ts';
 import { principalCanAccessRecord } from '../../src/core/security/record_scope.ts';
 import {
 	dropSituation,
@@ -52,6 +70,10 @@ import {
 } from '../helpers/acl_identity_fixture.ts';
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 
+/** A spread COPY taken at import: what the one mocking case re-installs (mock_isolation rule 3). */
+const REAL_RECORD_SCOPE = { ...realRecordScope };
+const RECORD_SCOPE = '../../src/core/security/record_scope.ts';
+
 const TLD = 'zzbcs';
 const SECTION = `${TLD}1`; // unfiltered host section
 const HMAIN = `${TLD}2`; // portal → HSLOT
@@ -59,6 +81,7 @@ const HSLOT = `${TLD}3`;
 const FSECTION = `${TLD}4`; // FILTERED section: the cascade target lives here
 const FILTER = `${TLD}5`;
 const FTEXT = `${TLD}6`;
+const FPASS = `${TLD}7`; // component_password: an image the value gates can refuse
 const TABLE = 'matrix_test';
 const USER_ID = -1;
 /** A project the non-admin does not hold (a dangling address is enough: scope is containment). */
@@ -95,6 +118,7 @@ const SITUATION = situation({
 			term: { 'lg-eng': 'Text' },
 			is_translatable: false,
 		},
+		{ tipo: FPASS, parent: FSECTION, model: 'component_password', term: { 'lg-eng': 'Secret' } },
 	],
 });
 
@@ -104,7 +128,13 @@ let bulkTable = '';
 interface RevertData {
 	counter: number;
 	bulk_process_id: number;
-	skipped: { reason: string }[];
+	skipped: {
+		reason: string;
+		code?: string;
+		section_tipo?: string;
+		tipo?: string;
+		section_id?: number;
+	}[];
 }
 
 async function mint(): Promise<number> {
@@ -202,6 +232,68 @@ async function deletedTargetIn(
 	return { host, target, revertId: first.bulk_process_id };
 }
 
+/**
+ * A run A creates `target` in FSECTION — born in project `projectId` — and
+ * NOTHING references it; the revert R of A (by root) D2-deletes it under R's
+ * id. Reverting R undeletes it as a STANDALONE cascade target (no unit
+ * re-links it).
+ */
+async function deletedStandaloneIn(
+	projectId: number,
+): Promise<{ target: number; revertId: number }> {
+	const run = await mint();
+	const target = await createSectionRecord(FSECTION, USER_ID, new Date(), undefined, {
+		bulkProcessId: run,
+		filterData: [{ type: 'dd675', section_tipo: 'dd153', section_id: projectId }],
+	});
+	const first = await revertAs(run, USER_ID);
+	expect(first.skipped).toEqual([]);
+	// FLOOR: D2 deleted it.
+	expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+	return { target, revertId: first.bulk_process_id };
+}
+
+const PLAINTEXT = 'Conforming-Passw0rd-2017!';
+
+/** The two refusals a whole-record image can meet, as a patch of one snapshot column. */
+const UNRESTORABLE = {
+	'a credential that is no hash': {
+		column: 'string',
+		patch: { [FPASS]: [{ id: 1, lang: 'lg-nolan', value: PLAINTEXT }] },
+		code: 'tool.snapshot_credential_unrestorable',
+	},
+	'a relation key that is no locator array': {
+		column: 'relation',
+		patch: { [HMAIN]: 'not-a-locator' },
+		code: 'tool.snapshot_unrestorable',
+	},
+} as const;
+type Unrestorable = keyof typeof UNRESTORABLE;
+
+/**
+ * Make the deleted target's role-4 snapshot one the restore REFUSES — what a
+ * pre-gate door left in history. Written past every gate, into the history
+ * row itself (the delete took the snapshot from a clean record).
+ */
+async function poisonSnapshot(target: number, revertId: number, kind: Unrestorable): Promise<void> {
+	const { column, patch } = UNRESTORABLE[kind];
+	const rows = (await sql.unsafe(
+		`UPDATE matrix_time_machine
+		    SET data = jsonb_set(
+		          data,
+		          ARRAY[$4::text],
+		          (CASE WHEN jsonb_typeof(data->$4) = 'object' THEN data->$4 ELSE '{}'::jsonb END)
+		            || $5::text::jsonb
+		        )
+		  WHERE section_tipo = $1 AND section_id = $2 AND bulk_process_id = $3 AND tm_role = 4
+		  RETURNING data->$4 AS patched`,
+		[FSECTION, target, revertId, column, JSON.stringify(patch)],
+	)) as { patched: Record<string, unknown> }[];
+	// FLOOR: the snapshot the undelete reads really carries the refused value.
+	expect(rows.length).toBeGreaterThan(0);
+	for (const row of rows) expect(row.patched).toMatchObject(patch);
+}
+
 beforeAll(async () => {
 	await assertTestDatabase('bulk_revert_cascade_target_scope_native');
 	await ensureSituation(SITUATION);
@@ -219,6 +311,7 @@ beforeAll(async () => {
 		{ id: 53, tipo: FSECTION, section_tipo: FSECTION, value: 2 },
 		{ id: 54, tipo: FTEXT, section_tipo: FSECTION, value: 2 },
 		{ id: 55, tipo: FILTER, section_tipo: FSECTION, value: 2 },
+		{ id: 56, tipo: FPASS, section_tipo: FSECTION, value: 2 },
 	];
 	await sql.unsafe(
 		`UPDATE matrix_profiles SET misc = jsonb_set(misc, '{dd774}', (misc->'dd774') || $1::text::jsonb)
@@ -228,7 +321,13 @@ beforeAll(async () => {
 	clearAclIdentityCaches();
 }, 60_000);
 
+// `mock.module` is process-global and `mock.restore()` does not revert it.
+afterEach(() => {
+	mock.module(RECORD_SCOPE, () => REAL_RECORD_SCOPE);
+});
+
 afterAll(async () => {
+	mock.module(RECORD_SCOPE, () => REAL_RECORD_SCOPE);
 	await removeAclIdentityFixture();
 	for (const section of [SECTION, FSECTION]) {
 		await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [section]);
@@ -283,5 +382,147 @@ describe('a cascade target re-linked by an in-scope unit is judged on its OWN sc
 			`${FSECTION}#${target}`,
 		]);
 		expect(data.skipped).toEqual([]);
+	}, 60_000);
+});
+
+describe('a missing target’s SCOPE is asked before its image is: the reason never tells what an out-of-scope record’s history holds', () => {
+	for (const kind of Object.keys(UNRESTORABLE) as Unrestorable[]) {
+		const { code } = UNRESTORABLE[kind];
+
+		test(`re-linked, OUTSIDE the reader’s projects, ${kind}: out_of_scope — reason alone, as for a restorable image`, async () => {
+			const { host, target, revertId } = await deletedTargetIn(FOREIGN_PROJECT_ID);
+			await poisonSnapshot(target, revertId, kind);
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			expect(data.skipped).toEqual([{ reason: 'out_of_scope' }]);
+			expect(JSON.stringify(data)).not.toContain(PLAINTEXT);
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+			expect(frameTargets(await stored(SECTION, host, 'relation', HSLOT))).toEqual([]);
+		}, 60_000);
+
+		test(`CONTROL — re-linked, INSIDE the reader’s projects, ${kind}: failed with the gate’s code, located at the unit`, async () => {
+			const { host, target, revertId } = await deletedTargetIn(ACL_PROJECT_ID);
+			await poisonSnapshot(target, revertId, kind);
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			const failed = data.skipped.filter((entry) => entry.reason === 'failed');
+			expect(failed).toHaveLength(1);
+			expect(failed[0]).toMatchObject({ code, section_tipo: SECTION, section_id: host });
+			expect(data.skipped.map((entry) => entry.reason)).not.toContain('out_of_scope');
+			expect(JSON.stringify(data)).not.toContain(PLAINTEXT);
+			// Rolled back whole: no half-restored target, no frame onto a missing record.
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+			expect(frameTargets(await stored(SECTION, host, 'relation', HSLOT))).toEqual([]);
+		}, 60_000);
+
+		test(`STANDALONE, OUTSIDE the reader’s projects, ${kind}: out_of_scope — reason alone`, async () => {
+			const { target, revertId } = await deletedStandaloneIn(FOREIGN_PROJECT_ID);
+			await poisonSnapshot(target, revertId, kind);
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			expect(data.skipped).toEqual([{ reason: 'out_of_scope' }]);
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		}, 60_000);
+
+		test(`STANDALONE, INSIDE the reader’s projects, ${kind}: failed with the gate’s code, located at the record`, async () => {
+			const { target, revertId } = await deletedStandaloneIn(ACL_PROJECT_ID);
+			await poisonSnapshot(target, revertId, kind);
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			expect(data.skipped).toHaveLength(1);
+			expect(data.skipped[0]).toMatchObject({
+				reason: 'failed',
+				code,
+				section_tipo: FSECTION,
+				section_id: target,
+			});
+			expect(JSON.stringify(data)).not.toContain(PLAINTEXT);
+			// Nothing of the refused image was kept.
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		}, 60_000);
+	}
+
+	// The record's coordinates AND the error's code ride a `failed` entry only
+	// when its scope verdict had PASSED by the time it threw (owner ruling
+	// 2026-11-18, TM Q3). Here the verdict itself throws for the restored row:
+	// nothing was judged, so the entry is the reason ALONE — typed (the record
+	// door's typed-refusal outcome) or untyped (the cascade group's own catch).
+	const PLANTED = {
+		typed: () => new DedaloError('internal.invariant', { message: 'planted in the scope verdict' }),
+		untyped: () => new TypeError('planted in the scope verdict'),
+	};
+	for (const kind of Object.keys(PLANTED) as (keyof typeof PLANTED)[]) {
+		test(`a ${kind} throw from INSIDE the scope verdict: \`failed\` and nothing else — no coordinates, NO CODE (both ride only once the verdict PASSED)`, async () => {
+			const { target, revertId } = await deletedStandaloneIn(ACL_PROJECT_ID);
+			let thrown = 0;
+			mock.module(RECORD_SCOPE, () => ({
+				...REAL_RECORD_SCOPE,
+				principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
+					if (sectionTipo === FSECTION && sectionId === target) {
+						thrown += 1;
+						throw PLANTED[kind]();
+					}
+					return REAL_RECORD_SCOPE.principalCanAccessRecord(sectionTipo, sectionId, who);
+				},
+			}));
+			const quiet = console.error;
+			console.error = () => {};
+			try {
+				const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+				// EXACT: the reason alone. A code here would tell a principal no verdict
+				// has cleared for this record why its revert stopped.
+				expect(data.skipped).toEqual([{ reason: 'failed' }]);
+				// The planted throw is what failed it (not a refusal further up).
+				expect(thrown).toBeGreaterThanOrEqual(1);
+			} finally {
+				console.error = quiet;
+			}
+			expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		}, 60_000);
+	}
+
+	test('RE-LINKED: a throw from INSIDE the target’s scope verdict fails the in-scope unit at ITS coordinates with NO CODE — the unit’s verdict passed, the target’s had not', async () => {
+		// The unit's own record (the host) passed its gate, so the entry is located
+		// there; but the error comes from inside the verdict over the cascade
+		// TARGET, which has not passed — its code is not the caller's to learn
+		// (owner ruling 2026-11-18, TM Q3). The CONTROL above (a value gate
+		// refusing AFTER the target's verdict passed) keeps its code.
+		const { host, target, revertId } = await deletedTargetIn(ACL_PROJECT_ID);
+		let thrown = 0;
+		mock.module(RECORD_SCOPE, () => ({
+			...REAL_RECORD_SCOPE,
+			principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
+				if (sectionTipo === FSECTION && sectionId === target) {
+					thrown += 1;
+					throw new DedaloError('internal.invariant', { message: 'planted in the scope verdict' });
+				}
+				return REAL_RECORD_SCOPE.principalCanAccessRecord(sectionTipo, sectionId, who);
+			},
+		}));
+		const quiet = console.error;
+		console.error = () => {};
+		try {
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			expect(thrown).toBeGreaterThanOrEqual(1);
+			// EXACT: the unit, located and codeless; the target it could not bring
+			// back, the reason alone.
+			expect(data.skipped).toEqual([
+				{ reason: 'failed', section_tipo: SECTION, tipo: HMAIN, section_id: host },
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+			expect(JSON.stringify(data)).not.toContain('internal.');
+		} finally {
+			console.error = quiet;
+		}
+		expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(frameTargets(await stored(SECTION, host, 'relation', HSLOT))).toEqual([]);
+	}, 60_000);
+
+	test('CONTROL — a STANDALONE target with a restorable image: outside → out_of_scope, inside → it comes back', async () => {
+		const foreign = await deletedStandaloneIn(FOREIGN_PROJECT_ID);
+		const refused = await revertAs(foreign.revertId, ACL_NON_ADMIN_USER_ID);
+		expect(refused.skipped).toEqual([{ reason: 'out_of_scope' }]);
+		expect(await stored(FSECTION, foreign.target, 'data', 'section_id')).toBe('NO-RECORD');
+
+		const own = await deletedStandaloneIn(ACL_PROJECT_ID);
+		const done = await revertAs(own.revertId, ACL_NON_ADMIN_USER_ID);
+		expect(done.skipped).toEqual([]);
+		expect(await stored(FSECTION, own.target, 'data', 'section_id')).not.toBe('NO-RECORD');
 	}, 60_000);
 });

@@ -12,22 +12,24 @@
  * know — relations, counters, ontology rows, TM replays), so the claim lives at
  * the writers, and this census makes it mechanical.
  *
- * TOTAL BY DERIVATION. The callers are DERIVED on every run from the
+ * TOTAL BY DERIVATION — OF THE ENTRIES TOO. The chokepoint's VALUE-CARRYING
+ * entries are not a hand list: they are every runtime export of
+ * `section_record/record_write.ts` named `persist*` (derived from the module on
+ * every run, matrix_writer_closure.ts moduleRuntimeExports), so an entry added
+ * tomorrow is walked the day it lands. The callers are DERIVED from the
  * import-resolved call graph of the write-path corpus
  * (test/helpers/matrix_writer_closure.ts: `src/`, `tools/`, `scripts/`): every
  * top-level declaration with a PRECISE (resolved, never a namespace escape) edge
- * to `persistRecordKeys` or `persistRecordColumns`, or to one of the chokepoint's
- * two REPLAY entries — `persistRestoredKeys` (a key's past value) and
- * `persistRecordBirth` (an undelete) — re-exports followed. A caller with no row
- * is RED; a row whose caller vanished is RED.
+ * to one of them, re-exports followed. A caller with no row is RED; a row whose
+ * caller vanished is RED.
  *
- * NOT DERIVED (named, so the title claims no more than the walk reads): the
- * chokepoint's other entries — `persistAppendedKeyItems` (the save door's own
- * append; its one caller is censused through `persistRecordKeys`),
- * `persistRelationRemovalKeys` (removes locators), `persistObserverMirrorKeys` /
- * `persistObserverResaveKeys` (cascade-owned: a mirror derived from stored
- * truth, a stored value re-ordered or cleared) and `persistModifiedStamp`. Who
- * may take each is write_obligations_tripwire leg B4.
+ * EVERY ENTRY IS WALKED since 2026-11-18 (C58, owner ruling "every save the
+ * same way, no exceptions"). Before, five entries were "named, not derived" —
+ * `persistAppendedKeyItems`, `persistRelationRemovalKeys`,
+ * `persistObserverMirrorKeys`, `persistObserverResaveKeys`,
+ * `persistModifiedStamp` — so a new door on one of them was never asked for a
+ * row. Who may TAKE each entry is still write_obligations_tripwire leg B4; what
+ * VALUE its callers carry is this census.
  *
  * VERDICTS:
  *   gated                — the caller writes component VALUES it did not read
@@ -42,51 +44,61 @@
  *                          translation_write_gates_native + the split-origin
  *                          child (text_area_media_src_split_origin).
  *   non_literal          — the keys written carry no user-authored literal
- *                          value (relations, counters, ontology rows, an
- *                          engine-authored label); the reason says which.
- *   exact_revert         — the BULK REVERT's own writers: they replay their
- *                          undo-log images VERBATIM, ungated — a revert is
- *                          exact by contract (`changed_since_run` compares the
- *                          bytes the run wrote). Named "Not covered" by
- *                          WC-2026-11-17-tm-restore-value-gates; an OPEN OWNER
- *                          QUESTION, not a settled exemption. CHECKED: the row
- *                          is confined to the bulk revert — declared in a
- *                          `tool_time_machine/server/bulk_revert*.ts` file, or
- *                          called (precisely) only from those files — so no
- *                          other replay door can take the verdict.
+ *                          value; the row's `reason` names the MECHANISM, in
+ *                          the code's own terms (locators only; the stored
+ *                          value minus what is removed; a permutation of the
+ *                          stored value; an empty value; engine-computed
+ *                          numbers; an engine-authored label).
  *
- * NO `replays_stored_image` VERDICT ANY MORE (C58, 2026-11-17,
- * WC-2026-11-17-tm-restore-value-gates). The Time Machine restore doors
- * replayed a stored image raw (N1 of T1-14): a history row written before a
- * gate existed came back ungated. All THREE are `gated` now — the component
- * restore (`toolTimeMachineApplyValue` → `persistRestoredKeys`), the
+ * NO `exact_revert` VERDICT ANY MORE (C58, owner ruling 2026-11-18,
+ * WC-2026-11-17-tm-restore-value-gates addendum). The bulk revert's four
+ * writers — `writeRevertedKey`, `writeComposedUnit`, `writeWipedKey` and the
+ * undelete `restoreAbsentSectionRow` — replayed their undo-log images
+ * verbatim, on the argument that a revert is exact by contract. Ruled: every
+ * save is done the same way. All four are `gated` (each gates what it writes,
+ * in its own file), and "exact" now means the pre-run value AS A SAVE STORES
+ * IT. Outcome half: translation_write_gates_native B1–B6.
+ *
+ * NO `replays_stored_image` VERDICT EITHER (C58, 2026-11-17). The Time Machine
+ * restore doors replayed a stored image raw (N1 of T1-14): a history row
+ * written before a gate existed came back ungated. All THREE are `gated` — the
+ * component restore (`toolTimeMachineApplyValue` → `persistRestoredKeys`), the
  * whole-record restore and the dataframe replay — a replay is a write of a
- * component value like any other. The replay entries are DERIVED since the
- * 2026-11-17 review: before, the component restore was gated in code but
- * outside this walk, so removing its gate left the census green, and a new
- * door on `persistRestoredKeys` / `persistRecordBirth` was never asked for a
- * row. Outcome half: translation_write_gates_native (R1–R4).
+ * component value like any other. Outcome half: translation_write_gates_native
+ * (R1–R5).
+ *
+ * So the verdict vocabulary is SHRINK-ONLY at two: a third verdict would be a
+ * new class of ungated write, and the test below pins the set.
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildWriterClosure, type WriterClosure } from '../helpers/matrix_writer_closure.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+	buildWriterClosure,
+	moduleRuntimeExports,
+	type WriterClosure,
+} from '../helpers/matrix_writer_closure.ts';
 
 const RECORD_WRITE = 'src/core/section_record/record_write.ts';
-const CHOKEPOINTS = [
-	`${RECORD_WRITE}#persistRecordKeys`,
-	`${RECORD_WRITE}#persistRecordColumns`,
-	// the REPLAY entries: a key's past value, an undelete
-	`${RECORD_WRITE}#persistRestoredKeys`,
-	`${RECORD_WRITE}#persistRecordBirth`,
-];
 const GATE_FILE = 'src/core/section/record/write_value_gates.ts';
 const GATE = `${GATE_FILE}#applyWriteValueGates`;
-/** The bulk revert's own server files — the only home of an `exact_revert` row. */
-const BULK_REVERT_FILE = /^tools\/tool_time_machine\/server\/bulk_revert(_\w+)?\.ts$/;
-const EXACT_REVERT_REASON =
-	'replays its undo-log image verbatim: a revert is EXACT by contract (changed_since_run compares the bytes the run wrote) — WC-2026-11-17-tm-restore-value-gates "Not covered", open owner question';
 
-type Verdict = 'gated' | 'non_literal' | 'exact_revert';
+/**
+ * THE CHOKEPOINT'S VALUE-CARRYING ENTRIES, derived: every runtime export of
+ * record_write.ts named `persist*`. Never a hand list — an entry added to the
+ * module is walked on the next run.
+ */
+function chokepointEntries(recordWriteSource: string): string[] {
+	return moduleRuntimeExports(recordWriteSource)
+		.filter((name) => /^persist[A-Z]/.test(name))
+		.sort()
+		.map((name) => `${RECORD_WRITE}#${name}`);
+}
+
+/** The verdict vocabulary — SHRINK-ONLY (see the header). */
+const VERDICTS = ['gated', 'non_literal'] as const;
+type Verdict = (typeof VERDICTS)[number];
 type Census = Readonly<Record<string, { verdict: Verdict; reason: string }>>;
 
 const CENSUS: Census = {
@@ -144,30 +156,64 @@ const CENSUS: Census = {
 		reason: 'puts a wiped project filter back: component_filter locators, no literal value',
 	},
 	'tools/tool_time_machine/server/tool_time_machine.ts#restoreAbsentSectionRow': {
-		verdict: 'exact_revert',
-		reason: `the bulk revert's cascade undelete (persistRecordBirth): ${EXACT_REVERT_REASON}`,
+		verdict: 'gated',
+		reason:
+			"the bulk revert's undelete (persistRecordBirth): every component key of the snapshot passes gateReplayedColumns before the insert — C58, owner ruling 2026-11-18",
 	},
 	'tools/tool_time_machine/server/bulk_revert_records.ts#writeWipedKey': {
-		verdict: 'exact_revert',
-		reason: `a wiped key's pre-wipe items: ${EXACT_REVERT_REASON}`,
+		verdict: 'gated',
+		reason:
+			"a wiped key's pre-wipe items pass gatedSnapshotKey (gateReplayedColumns) before the write — C58, owner ruling 2026-11-18",
 	},
 	'tools/tool_time_machine/server/bulk_revert_undo.ts#writeRevertedKey': {
-		verdict: 'exact_revert',
-		reason: `one reverted key: ${EXACT_REVERT_REASON}`,
+		verdict: 'gated',
+		reason:
+			'one reverted key: the lane it restores passes gatedKeyValue (gateReplayedValue) before the write — C58, owner ruling 2026-11-18',
 	},
 	'tools/tool_time_machine/server/bulk_revert_undo.ts#writeComposedUnit': {
-		verdict: 'exact_revert',
-		reason: `a composed unit's keys (main + slots): ${EXACT_REVERT_REASON}`,
+		verdict: 'gated',
+		reason:
+			"a composed unit's keys: the main's restored lanes and every slot pass gatedComposedWrites before the write — C58, owner ruling 2026-11-18",
+	},
+	// --- the entries walked since 2026-11-18 (removal law, cascade-owned, stamp) ---
+	'src/core/relations/save.ts#removePortalLocatorUnderGrant': {
+		verdict: 'non_literal',
+		reason:
+			'portal locator delete (persistRelationRemovalKeys): writes the STORED key minus the removed locator — a subset of stored items, nothing authored',
+	},
+	'src/core/section/record/delete_record.ts#removeAllInverseReferences': {
+		verdict: 'non_literal',
+		reason:
+			"the record delete's inverse-reference strip: column 'relation', each owner's STORED locators minus the ones naming the deleted record (null when none remain); persistModifiedStamp carries no value",
+	},
+	'src/core/section/record/delete_record.ts#deleteSectionData': {
+		verdict: 'non_literal',
+		reason:
+			"the data wipe: every key is REMOVED (null), except component_filter, which takes the wiper's default project LOCATORS (wipedComponentValue); persistModifiedStamp carries no value",
+	},
+	'src/core/section/record/observers.ts#recomputeExternalRelation': {
+		verdict: 'non_literal',
+		reason:
+			"the observer mirror recompute (persistObserverMirrorKeys): column 'relation' only — locators derived from stored truth",
+	},
+	'src/core/section/record/observers.ts#resaveObserverThroughSaveRules': {
+		verdict: 'non_literal',
+		reason:
+			"the observer re-save (persistObserverResaveKeys): the key's STORED value as its own save rules leave it — today a PERMUTATION (applyKeySaveRules sorts a declared-order portal, never edits an item), behind the declared-`order` pre-gate",
+	},
+	'src/core/section/record/observers.ts#applyRefreshDataClear': {
+		verdict: 'non_literal',
+		reason: 'the refresh_data clear (persistObserverResaveKeys): writes the EMPTY value `[]`',
 	},
 };
 
-/** Declarations with a precise edge to a chokepoint writer, sorted. */
-function deriveCallers(closure: WriterClosure): string[] {
+/** Declarations with a precise edge to a chokepoint entry, sorted. */
+function deriveCallers(closure: WriterClosure, entries: readonly string[]): string[] {
 	const out: string[] = [];
 	for (const key of closure.bodies.keys()) {
 		if (key.startsWith(`${RECORD_WRITE}#`)) continue;
 		const edges = closure.preciseEdgesOf(key);
-		if (CHOKEPOINTS.some((chokepoint) => edges.has(chokepoint))) out.push(key);
+		if (entries.some((entry) => edges.has(entry))) out.push(key);
 	}
 	return out.sort();
 }
@@ -206,23 +252,9 @@ function gatesLocally(
 	return false;
 }
 
-/**
- * Is `caller` the bulk revert's own? Declared in one of its files, or reached
- * (precise edges) ONLY from them — and from at least one: a writer nobody calls
- * is not the bulk revert's.
- */
-function isBulkRevertOnly(closure: WriterClosure, caller: string): boolean {
-	const fileOf = (key: string): string => key.split('#')[0] as string;
-	if (BULK_REVERT_FILE.test(fileOf(caller))) return true;
-	const callers = [...closure.bodies.keys()].filter(
-		(key) => key !== caller && closure.preciseEdgesOf(key).has(caller),
-	);
-	return callers.length > 0 && callers.every((key) => BULK_REVERT_FILE.test(fileOf(key)));
-}
-
 /** Every census violation for `closure` against `census` (empty = green). */
-function violations(closure: WriterClosure, census: Census): string[] {
-	const derived = deriveCallers(closure);
+function violations(closure: WriterClosure, census: Census, entries: readonly string[]): string[] {
+	const derived = deriveCallers(closure, entries);
 	const out: string[] = [];
 	for (const caller of derived) {
 		const row = census[caller];
@@ -231,11 +263,9 @@ function violations(closure: WriterClosure, census: Census): string[] {
 			continue;
 		}
 		if (row.reason.trim() === '') out.push(`row without a reason: ${caller}`);
+		if (!VERDICTS.includes(row.verdict)) out.push(`unknown verdict '${row.verdict}': ${caller}`);
 		if (row.verdict === 'gated' && !gatesLocally(closure, caller, derived)) {
 			out.push(`'gated' but does not reach ${GATE} locally: ${caller}`);
-		}
-		if (row.verdict === 'exact_revert' && !isBulkRevertOnly(closure, caller)) {
-			out.push(`'exact_revert' outside the bulk revert: ${caller}`);
 		}
 	}
 	for (const caller of Object.keys(census)) {
@@ -244,35 +274,82 @@ function violations(closure: WriterClosure, census: Census): string[] {
 	return out.sort();
 }
 
+const TM_SERVER = 'tools/tool_time_machine/server';
+/** Every door that REPLAYS a stored image (Time Machine restores, the bulk revert's writers). */
+const REPLAY_DOORS = [
+	`${TM_SERVER}/tool_time_machine.ts#toolTimeMachineApplyValue`,
+	`${TM_SERVER}/tool_time_machine.ts#restoreSectionRow`,
+	`${TM_SERVER}/tool_time_machine.ts#restoreAbsentSectionRow`,
+	`${TM_SERVER}/dataframe_restore.ts#applyDataframeRestore`,
+	`${TM_SERVER}/bulk_revert_undo.ts#writeRevertedKey`,
+	`${TM_SERVER}/bulk_revert_undo.ts#writeComposedUnit`,
+	`${TM_SERVER}/bulk_revert_records.ts#writeWipedKey`,
+];
+
 describe('component value gate census (T1-14)', () => {
 	const closure = buildWriterClosure();
+	const entries = chokepointEntries(
+		readFileSync(join(import.meta.dir, '../..', RECORD_WRITE), 'utf8'),
+	);
 
 	test('every chokepoint writer is classified; every gated row reaches the gate locally', () => {
-		expect(violations(closure, CENSUS)).toEqual([]);
+		expect(violations(closure, CENSUS, entries)).toEqual([]);
 	});
 
-	test('anti-vacuity: the value writers (save, translation, the three TM restores) are derived and gated', () => {
-		const derived = deriveCallers(closure);
-		// the walk's floor: the census measured 16 chokepoint writers (2026-11-17:
-		// 10 on the key/column entries + 6 on the replay entries)
-		expect(derived.length).toBeGreaterThan(14);
+	test('the entries are DERIVED from the chokepoint module — all nine, none hand-listed', () => {
+		// A new `persist*` export is walked the day it lands; this pin only makes
+		// its author read the header (what value do its callers carry?).
+		expect(entries.map((entry) => entry.split('#')[1])).toEqual([
+			'persistAppendedKeyItems',
+			'persistModifiedStamp',
+			'persistObserverMirrorKeys',
+			'persistObserverResaveKeys',
+			'persistRecordBirth',
+			'persistRecordColumns',
+			'persistRecordKeys',
+			'persistRelationRemovalKeys',
+			'persistRestoredKeys',
+		]);
+		// each entry has a caller in the corpus (the walk reads real edges, not names)
+		for (const entry of entries) {
+			expect(deriveCallers(closure, [entry]), entry).not.toEqual([]);
+		}
+	});
+
+	test('anti-vacuity: the value writers (save, translation, every replay door) are derived and gated', () => {
+		const derived = deriveCallers(closure, entries);
+		// the walk's floor: the census measured 22 chokepoint writers (2026-11-18:
+		// 16 on the key/column/replay entries + 6 on the entries walked since)
+		expect(derived.length).toBeGreaterThan(20);
 		const gated = Object.entries(CENSUS)
 			.filter(([, row]) => row.verdict === 'gated')
 			.map(([key]) => key);
-		expect(gated.length).toBeGreaterThanOrEqual(5);
+		expect(gated.length).toBeGreaterThanOrEqual(9);
 		for (const key of gated) expect(derived).toContain(key);
 	});
 
-	test('the replay entries are walked: the component restore is derived, the bulk revert is the only ungated replay', () => {
-		const derived = deriveCallers(closure);
-		expect(derived).toContain(
-			'tools/tool_time_machine/server/tool_time_machine.ts#toolTimeMachineApplyValue',
+	test('no replay door is exempt: every Time Machine restore and bulk revert writer is gated', () => {
+		const derived = deriveCallers(closure, entries);
+		for (const door of REPLAY_DOORS) {
+			expect(derived, door).toContain(door);
+			expect(CENSUS[door]?.verdict, door).toBe('gated');
+		}
+		// …and nothing under the Time Machine's server takes a replay entry ungated:
+		// a new restore door there is `gated` or it is red here.
+		const replayEntries = entries.filter((entry) =>
+			/#persist(RestoredKeys|RecordBirth|RecordColumns)$/.test(entry),
 		);
-		const exact = Object.entries(CENSUS)
-			.filter(([, row]) => row.verdict === 'exact_revert')
-			.map(([key]) => key);
-		expect(exact.length).toBeGreaterThanOrEqual(4);
-		for (const key of exact) expect(isBulkRevertOnly(closure, key)).toBe(true);
+		const tmReplays = deriveCallers(closure, replayEntries).filter((key) =>
+			key.startsWith(`${TM_SERVER}/`),
+		);
+		expect(tmReplays.length).toBeGreaterThanOrEqual(6);
+		for (const key of tmReplays) expect(CENSUS[key]?.verdict, key).toBe('gated');
+	});
+
+	test('the verdict vocabulary is shrink-only: gated, non_literal — no third class of write', () => {
+		expect([...VERDICTS]).toEqual(['gated', 'non_literal']);
+		const used = new Set(Object.values(CENSUS).map((row) => row.verdict));
+		expect([...used].sort()).toEqual(['gated', 'non_literal']);
 	});
 });
 
@@ -280,7 +357,10 @@ describe('the census catches what it claims to (synthetic corpus)', () => {
 	const FILES: Record<string, string> = {
 		[RECORD_WRITE]:
 			'export async function persistRecordKeys() {}\nexport async function persistRecordColumns() {}\n' +
-			'export async function persistRestoredKeys() {}\nexport async function persistRecordBirth() {}\n',
+			'export async function persistRestoredKeys() {}\nexport async function persistRecordBirth() {}\n' +
+			// an entry the census never listed by hand, and a private helper that is no entry
+			'export async function persistZzNewEntry() {}\nasync function persistZzPrivate() {}\n' +
+			'export async function afterRecordWrite() {\n\tawait persistZzPrivate();\n}\n',
 		'src/core/section_record/index.ts': "export { persistRecordKeys } from './record_write.ts';\n",
 		[GATE_FILE]: 'export async function applyWriteValueGates() {}\n',
 		'src/zz/gated.ts': [
@@ -303,7 +383,7 @@ describe('the census catches what it claims to (synthetic corpus)', () => {
 			'',
 		].join('\n'),
 		'src/zz/mention.ts': "export function zzMention() {\n\treturn 'persistRecordKeys';\n}\n",
-		// a replay door outside the bulk revert, and its undelete twin
+		// a replay door, and its undelete twin
 		'src/zz/replay.ts': [
 			"import { persistRecordBirth, persistRestoredKeys } from '../core/section_record/record_write.ts';",
 			'export async function zzReplay() {',
@@ -328,13 +408,29 @@ describe('the census catches what it claims to (synthetic corpus)', () => {
 			'}',
 			'',
 		].join('\n'),
-		// the bulk revert: its own writer, and its call of a shared undelete
-		'tools/tool_time_machine/server/bulk_revert_zz.ts': [
-			"import { persistRestoredKeys } from '../../../src/core/section_record/record_write.ts';",
-			"import { zzUndelete } from '../../../src/zz/replay.ts';",
-			'export async function zzRevert() {',
+		// a writer whose gate sits in its CALLER, another file: the old bulk-revert
+		// shape (the plan gated, the writer wrote what it was handed)
+		'src/zz/plan_gated.ts': [
+			"import { applyWriteValueGates } from '../core/section/record/write_value_gates.ts';",
+			"import { zzHandedWriter } from './handed_writer.ts';",
+			'export async function zzPlan() {',
+			'\tawait applyWriteValueGates();',
+			'\tawait zzHandedWriter();',
+			'}',
+			'',
+		].join('\n'),
+		'src/zz/handed_writer.ts': [
+			"import { persistRestoredKeys } from '../core/section_record/record_write.ts';",
+			'export async function zzHandedWriter() {',
 			'\tawait persistRestoredKeys();',
-			'\tawait zzUndelete();',
+			'}',
+			'',
+		].join('\n'),
+		// a caller of the entry nobody listed
+		'src/zz/new_entry.ts': [
+			"import { persistZzNewEntry } from '../core/section_record/record_write.ts';",
+			'export async function zzNewDoor() {',
+			'\tawait persistZzNewEntry();',
 			'}',
 			'',
 		].join('\n'),
@@ -343,27 +439,41 @@ describe('the census catches what it claims to (synthetic corpus)', () => {
 		files: Object.keys(FILES),
 		read: (rel) => FILES[rel] as string,
 	});
-	/** Honest rows for the synthetic replay doors (so the other controls read clean). */
-	const REPLAY_ROWS: Census = {
+	const entries = chokepointEntries(FILES[RECORD_WRITE] as string);
+	/** Honest rows for every synthetic door but the two the first control reads. */
+	const OTHER_ROWS: Census = {
 		'src/zz/replay.ts#zzReplay': { verdict: 'non_literal', reason: 'r' },
-		'src/zz/replay.ts#zzUndelete': { verdict: 'exact_revert', reason: 'r' },
-		'tools/tool_time_machine/server/bulk_revert_zz.ts#zzRevert': {
-			verdict: 'exact_revert',
-			reason: 'r',
-		},
+		'src/zz/replay.ts#zzUndelete': { verdict: 'non_literal', reason: 'r' },
 		'src/zz/two_doors.ts#zzWholeDoor': { verdict: 'gated', reason: 'r' },
 		'src/zz/two_doors.ts#zzKeyDoor': { verdict: 'non_literal', reason: 'r' },
+		'src/zz/handed_writer.ts#zzHandedWriter': { verdict: 'non_literal', reason: 'r' },
+		'src/zz/new_entry.ts#zzNewDoor': { verdict: 'non_literal', reason: 'r' },
+	};
+	const BASE: Census = {
+		'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' },
+		'src/zz/ungated.ts#zzUngated': { verdict: 'non_literal', reason: 'r' },
 	};
 
+	test('entries derive from the module: an exported persist* is one, a private helper and another export are not', () => {
+		expect(entries.map((entry) => entry.split('#')[1])).toEqual([
+			'persistRecordBirth',
+			'persistRecordColumns',
+			'persistRecordKeys',
+			'persistRestoredKeys',
+			'persistZzNewEntry',
+		]);
+	});
+
 	test('callers derive through static, re-exported and dynamic imports; a string is no edge', () => {
-		expect(deriveCallers(synthetic)).toEqual([
+		expect(deriveCallers(synthetic, entries)).toEqual([
 			'src/zz/gated.ts#zzGated',
+			'src/zz/handed_writer.ts#zzHandedWriter',
+			'src/zz/new_entry.ts#zzNewDoor',
 			'src/zz/replay.ts#zzReplay',
 			'src/zz/replay.ts#zzUndelete',
 			'src/zz/two_doors.ts#zzKeyDoor',
 			'src/zz/two_doors.ts#zzWholeDoor',
 			'src/zz/ungated.ts#zzUngated',
-			'tools/tool_time_machine/server/bulk_revert_zz.ts#zzRevert',
 		]);
 	});
 
@@ -372,64 +482,92 @@ describe('the census catches what it claims to (synthetic corpus)', () => {
 			'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' },
 			'src/zz/ungated.ts#zzUngated': { verdict: 'gated', reason: 'r' },
 			'src/zz/gone.ts#zzGone': { verdict: 'non_literal', reason: 'r' },
-			...REPLAY_ROWS,
+			...OTHER_ROWS,
 		};
-		expect(violations(synthetic, census)).toEqual(
+		expect(violations(synthetic, census, entries)).toEqual(
 			[
 				`'gated' but does not reach ${GATE} locally: src/zz/ungated.ts#zzUngated`,
 				'stale row (no longer a chokepoint writer): src/zz/gone.ts#zzGone',
 			].sort(),
 		);
 		expect(
-			violations(synthetic, {
-				'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' },
-				...REPLAY_ROWS,
-			}),
+			violations(
+				synthetic,
+				{ 'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' }, ...OTHER_ROWS },
+				entries,
+			),
 		).toEqual(['unclassified chokepoint writer: src/zz/ungated.ts#zzUngated']);
 	});
 
-	test('a replay entry caller needs a row; exact_revert is the bulk revert only', () => {
-		const base: Census = {
-			'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' },
-			'src/zz/ungated.ts#zzUngated': { verdict: 'non_literal', reason: 'r' },
-		};
-		// no rows for the replay doors: each one is asked for
-		expect(violations(synthetic, base)).toEqual([
+	test('a caller of ANY entry needs a row — an entry nobody listed by hand included', () => {
+		expect(violations(synthetic, BASE, entries)).toEqual([
+			'unclassified chokepoint writer: src/zz/handed_writer.ts#zzHandedWriter',
+			'unclassified chokepoint writer: src/zz/new_entry.ts#zzNewDoor',
 			'unclassified chokepoint writer: src/zz/replay.ts#zzReplay',
 			'unclassified chokepoint writer: src/zz/replay.ts#zzUndelete',
 			'unclassified chokepoint writer: src/zz/two_doors.ts#zzKeyDoor',
 			'unclassified chokepoint writer: src/zz/two_doors.ts#zzWholeDoor',
-			'unclassified chokepoint writer: tools/tool_time_machine/server/bulk_revert_zz.ts#zzRevert',
 		]);
-		// the bulk revert's writer, and an undelete ONLY it calls, may be exact
-		expect(violations(synthetic, { ...base, ...REPLAY_ROWS })).toEqual([]);
-		// a replay door of its own may not take the verdict — nor claim a gate it lacks
+		expect(violations(synthetic, { ...BASE, ...OTHER_ROWS }, entries)).toEqual([]);
+		// a replay door may not claim a gate it lacks
 		expect(
-			violations(synthetic, {
-				...base,
-				...REPLAY_ROWS,
-				'src/zz/replay.ts#zzReplay': { verdict: 'exact_revert', reason: 'r' },
-			}),
-		).toEqual(["'exact_revert' outside the bulk revert: src/zz/replay.ts#zzReplay"]);
-		expect(
-			violations(synthetic, {
-				...base,
-				...REPLAY_ROWS,
-				'src/zz/replay.ts#zzReplay': { verdict: 'gated', reason: 'r' },
-			}),
+			violations(
+				synthetic,
+				{
+					...BASE,
+					...OTHER_ROWS,
+					'src/zz/replay.ts#zzReplay': { verdict: 'gated', reason: 'r' },
+				},
+				entries,
+			),
 		).toEqual([`'gated' but does not reach ${GATE} locally: src/zz/replay.ts#zzReplay`]);
+	});
+
+	test('a retired verdict is refused: `exact_revert` is no row a writer may take', () => {
+		expect(
+			violations(
+				synthetic,
+				{
+					...BASE,
+					...OTHER_ROWS,
+					'src/zz/replay.ts#zzReplay': { verdict: 'exact_revert' as Verdict, reason: 'r' },
+				},
+				entries,
+			),
+		).toEqual(["unknown verdict 'exact_revert': src/zz/replay.ts#zzReplay"]);
 	});
 
 	test("another door's gate is not this door's: a gate reached only THROUGH a chokepoint writer is red", () => {
 		// zzKeyDoor reaches the gate only by calling zzWholeDoor (same file), which
 		// gates ITS OWN write — the apply_value shape with its component gate removed.
 		expect(
-			violations(synthetic, {
-				'src/zz/gated.ts#zzGated': { verdict: 'gated', reason: 'r' },
-				'src/zz/ungated.ts#zzUngated': { verdict: 'non_literal', reason: 'r' },
-				...REPLAY_ROWS,
-				'src/zz/two_doors.ts#zzKeyDoor': { verdict: 'gated', reason: 'r' },
-			}),
+			violations(
+				synthetic,
+				{
+					...BASE,
+					...OTHER_ROWS,
+					'src/zz/two_doors.ts#zzKeyDoor': { verdict: 'gated', reason: 'r' },
+				},
+				entries,
+			),
 		).toEqual([`'gated' but does not reach ${GATE} locally: src/zz/two_doors.ts#zzKeyDoor`]);
+	});
+
+	test("a gate in the writer's CALLER is not the writer's: the write itself must gate", () => {
+		// zzPlan gates and hands the value to zzHandedWriter (another file), which
+		// writes whatever it is handed — any other caller of it writes ungated.
+		expect(
+			violations(
+				synthetic,
+				{
+					...BASE,
+					...OTHER_ROWS,
+					'src/zz/handed_writer.ts#zzHandedWriter': { verdict: 'gated', reason: 'r' },
+				},
+				entries,
+			),
+		).toEqual([
+			`'gated' but does not reach ${GATE} locally: src/zz/handed_writer.ts#zzHandedWriter`,
+		]);
 	});
 });

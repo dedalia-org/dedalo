@@ -9,7 +9,8 @@
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {create_source} from '../../../core/common/js/common.js'
 	import {request_failed} from '../../../core/common/js/api_error.js'
-	import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
+	import {handle_api_error, api_error_from_notice} from '../../../core/common/js/error_dispatch.js'
+	import {error_text} from '../../../core/common/js/render_api_error.js'
 
 
 
@@ -258,7 +259,10 @@ const get_content_data_edit = async function(self) {
 					data_manager.request({
 						body : rqo,
 						retries : 1, // one try only
-						timeout : 3600 * 1000 // 3600 secs waiting response
+						timeout : 3600 * 1000, // 3600 secs waiting response
+						// the run's warnings are rendered HERE, above its report, where
+						// they stay readable (a page toast would be gone before the report is read)
+						notices : 'caller'
 					})
 					.then(function(response){
 
@@ -285,6 +289,9 @@ const get_content_data_edit = async function(self) {
 						if (failed) {
 							handle_api_error(response.error, {wrapper: msg_container})
 						}else{
+							// what the user must act on: a call-number above the limit, a
+							// record they may not change (envelope notices, labelled)
+							render_import_warnings(response.notices, msg_container)
 							// the run's report: what was written, refused, dropped (T1-7)
 							render_import_report(response.data, msg_container)
 						}
@@ -316,8 +323,12 @@ const get_content_data_edit = async function(self) {
 *
 * Report keys (WC-2026-11-12-zotero-csl-json-import): summary, failed[{msg}],
 * errors[], notices[], attachments[], and what the call-number addresses came
-* to, each in its own list: created_at_id[], updated_at_id[] (record ids) and
-* refused[{item, code, message}].
+* to, each in its own list: created_at_id[], updated_at_id[], taken_over_at_id[]
+* (record ids — taken over: the record had no Zotero key and holds the
+* reference's now; its heading is the label `zotero_taken_over_at_id`) and
+* refused[{item, code, message}]. (`data.notices` are the report's own text
+* lines; the ENVELOPE's `notices` are the run's coded warnings —
+* render_import_warnings.)
 *
 * @param {Object|null} data - The response data (the report)
 * @param {HTMLElement} parent - The node the report is appended to
@@ -351,6 +362,12 @@ export const render_import_report = function(data, parent) {
 	const groups = [
 		['import_created_at_id', id_list_lines('Created at their call-number id: ', data.created_at_id)],
 		['import_updated_at_id', id_list_lines('Updated at their call-number id: ', data.updated_at_id)],
+		// its OWN heading (owner ruling 2026-11-18): a record that existed with no
+		// Zotero key and holds the reference's now was TAKEN OVER, not just updated
+		['import_taken_over_at_id', id_list_lines(
+			get_label.zotero_taken_over_at_id || 'Taken over at their call-number id — the record had no Zotero key: ',
+			data.taken_over_at_id
+		)],
 		['import_refused', refused_lines],
 		['import_failed', failed_lines],
 		['import_errors', Array.isArray(data.errors) ? data.errors : []],
@@ -378,6 +395,52 @@ export const render_import_report = function(data, parent) {
 
 	return report_node
 }//end render_import_report
+
+
+
+/**
+* RENDER_IMPORT_WARNINGS
+* Renders the run's WARNINGS — the success envelope's `notices[]` — as a list
+* above the report: a call-number above the section_id limit
+* (`tool.zotero_call_number_above_limit`), a record the importer may not change
+* (`tool.zotero_record_not_writable`), a reference without a Zotero key whose
+* call-number names a record that already holds one
+* (`tool.zotero_item_without_key` — why it was refused and what to do). Each line is the notice's LABEL in the
+* user's language with its details filled in (`error_text`: label → message →
+* code), as TEXT (DS-1: the details quote values from the imported file).
+*
+* @param {Array<Object>|undefined} notices - The envelope's notices
+*   [{code, label_key, retryable, details?}]
+* @param {HTMLElement} parent - The node the list is appended to
+* @returns {HTMLElement|null} The list node, or null when there is no warning
+*/
+export const render_import_warnings = function(notices, parent) {
+
+	const lines = (Array.isArray(notices) ? notices : [])
+		.map(notice => api_error_from_notice(notice))
+		.filter(api_error => api_error!==null)
+		.map(api_error => error_text(api_error))
+
+	if (lines.length===0) {
+		return null
+	}
+
+	const list = ui.create_dom_element({
+		element_type	: 'ul',
+		class_name		: 'import_warnings',
+		parent			: parent
+	})
+	for (const line of lines) {
+		ui.create_dom_element({
+			element_type	: 'li',
+			text_content	: String(line),
+			parent			: list
+		})
+	}
+
+
+	return list
+}//end render_import_warnings
 
 
 

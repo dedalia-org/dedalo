@@ -196,7 +196,7 @@ Merged since the last release; these ship with the next one.
     A reference is **refused**, and nothing is written for it, when its call number is not a whole
     number, when the record with that number already holds another Zotero key, when its Zotero key
     is already held by a different record, when an earlier reference of the same import carries
-    the same call number, or when the record with that number exists and you may not edit it. The
+    the same call number, or when the record with that number exists and you may not change it. The
     rest of the export is imported. References that carry a call number are written first, so a
     reference without one never takes a number another reference of the same export names. The report lists separately the
     records created at their call number, the records updated at it, and each refused reference
@@ -209,6 +209,61 @@ Merged since the last release; these ship with the next one.
     whose `field_to_section_id` names `id` now stops the import with a message; name the Zotero
     field that holds the record number, or remove the setting to match by Zotero key only. Details:
     [Zotero import](./using/tools/using_import_zotero.md#choosing-the-record-number-the-call-number).
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
+
+- **"Zotero import: the highest record number is the only limit of a call number, a Zotero key is checked in the whole section, and you are warned about a record you may not change."**
+
+    Three things change in how the Zotero import decides which record a reference is written to.
+
+    - **The limit of a call number is the highest record number.** A call number is taken as
+      written up to 2147483647, the highest number a record can have; there is no lower bound. A
+      whole number **above** it is refused, and the import now says so in a warning that names
+      each such value and the limit — before, it was listed as "not a record number", which it
+      was not.
+    - **A Zotero key is looked for in the whole section.** Before, the import only saw the records
+      of your own projects: a reference whose key was already held by a record of another project
+      was created a second time, or written at its call number, and the key then lived on two
+      records. Now the key's record is found wherever it is. If it is another record than the one
+      the call number names, the reference is refused and the report names both records by their
+      number.
+    - **A record you may not change is named to you.** A reference that names such a record — by
+      its call number, or because that record holds its Zotero key — is refused, nothing is
+      written, and a warning lists the record numbers. Nothing the record holds is shown.
+
+    The warnings appear first in the report, in your language. Administrators, who may change
+    every record, see no difference beyond the first point.
+
+    **Action needed:** none. If an import warns about a record you may not change, ask whoever
+    manages that record for access, or ask them to import the reference. Details:
+    [Zotero import](./using/tools/using_import_zotero.md#how-a-reference-finds-its-record).
+
+    Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
+
+- **"Zotero import: a record taken over by a reference is listed apart, and a reference without a Zotero key that names another reference's record is refused with an explanation."**
+
+    Two things change in the report of the Zotero import. What the import writes does not change.
+
+    - **Taken over — the record had no Zotero key.** When a reference's call number names a record
+      that exists but did not belong to any Zotero reference yet (one created by hand, for
+      instance), the record is written with the reference's values and holds its Zotero key from
+      then on — as before. The report now lists these records under their own heading, apart from
+      the records created and the records updated, and the summary counts them apart ("1 taken
+      over"), so you can check that each one is the record you meant. A record whose key could
+      not be written (you may not edit the field that holds it) is listed as updated, with the
+      key's field among the refused fields.
+    - **A reference without a Zotero key.** A reference that carries no Zotero key and whose call
+      number names a record that already belongs to another Zotero reference is still not imported —
+      the import cannot tell whether it is the same reference. It is now explained: the refused
+      line and a warning, in your language, name the record by its number, say why, and say what
+      to do — export the reference from Zotero again so that it carries its key, or remove its
+      call number to create a new record. Nothing the record holds is shown.
+
+    These rules, like the call-number limit, belong to the Zotero import only: the CSV import
+    keeps its own rules for its `section_id` column.
+
+    **Action needed:** none. Details:
+    [Zotero import](./using/tools/using_import_zotero.md#a-reference-without-a-zotero-key).
 
     Wire contract: `WC-2026-11-12-zotero-csl-json-import`.
 
@@ -431,6 +486,32 @@ Merged since the last release; these ship with the next one.
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
 
+- **Reverting a batch run cleans the values it puts back like a normal save**
+
+    **Revert the bulk process** put each value back exactly as the run had found it. A value from before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers, and a number in a format its field no longer uses. The same was true of a record the revert restored whole — one a run had emptied or deleted.
+
+    Now every value a revert puts back passes the same checks as a normal save, like a single restore from the Time Machine. Rich text is cleaned, a number is formatted as its field declares, and a password entry stored as plain text is never written back: that field (or that record) is left as it is and listed as skipped (*failed*), while the rest of the run is still reverted. A password entry from a Dédalo v6 installation is put back as recorded. A deleted record the revert would bring back is checked against your projects before its values are: one outside them is listed as *out of scope* whatever its history holds, and one inside them whose values cannot be stored is listed as *failed* at that record. For developers reading the response: a *failed* entry carries the error code of what stopped it once your access to that record has been checked; an entry the report does not locate carries no record number, and no code either when it failed before that check. A value that was already clean is restored exactly as before, and the other languages of a translated field are not touched.
+
+    Reverting the same run again finds those fields *already at the pre-run value* — a value the first revert cleaned is not reported as edited since.
+
+    Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
+
+- **"CSV import: a record number above the limit skips only its row."**
+
+    In **Import CSV**, a row whose `section_id` was a whole number above 2147483647 — the highest
+    record number Dédalo holds — made the whole file fail: no row of it was imported, not even the
+    valid ones, and the report showed a message from the database
+    (`value "2147483648" is out of range for type integer`).
+
+    Now only that row is skipped. The report names it, with the value and the limit — for example
+    `Row 3: SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)` —
+    and every other row of the file is imported. The check step reports the same row before
+    anything is written.
+
+    **Action needed:** none. Details: [CSV import](./using/tools/using_import_dedalo_csv.md).
+
+    Wire contract: `WC-2026-08-27-csv-ingest-refusals`.
+
 - **A field opened in fullscreen from the ontology or thesaurus tree fills the screen again.**
 
     A field shown under a tree node and switched to fullscreen kept the tree's spacing above it:
@@ -489,7 +570,7 @@ Merged since the last release; these ship with the next one.
 
     Restoring an earlier version of a field — or of a whole record — from the **Time Machine** wrote the stored history value back exactly as it was recorded. A version recorded before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers a translation service had produced, and a number could return in a format its field no longer uses.
 
-    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry that is not stored as a hash (an entry from before passwords were hashed) — such an entry is never turned back into a working password. A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
+    Now a restore passes the same checks as a normal save. Rich text is cleaned, a number is formatted as its field declares, and a version the engine cannot store safely is refused, leaving the current value unchanged: a number whose field definition is broken, or a password entry stored as plain text — such an entry is never written back and never turned into a working password, and the message says so and asks for a new password to be set. A password entry from a Dédalo v6 installation (stored encrypted, before passwords were hashed) is put back exactly as recorded, so a user record from before the upgrade can still be restored and its password [converted](./install/migrating_from_v6.md). A version that was already clean restores exactly as before, and the other languages of a translated field are never touched. The history entry itself is not modified: the preview still shows it as it was recorded.
 
     Wire contract: `WC-2026-11-17-tm-restore-value-gates`.
 

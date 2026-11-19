@@ -72,6 +72,18 @@
  * read under its lock, with its own stamp — and every nested cascade it runs
  * carries the revert's id too: reverting the revert undeletes all of it.
  *
+ * THE VALUE GATES (C58, owner ruling 2026-11-18 — every save the same way;
+ * WC-2026-11-17-tm-restore-value-gates). A role-4 snapshot is stored bytes, not
+ * proof they saw the save's gates. Both restores write it gated: the missing-row
+ * undelete through `restoreAbsentSectionRow` (gateReplayedColumns), a wiped key
+ * through writeWipedKey (gatedSnapshotKey) — cleaned as a save cleans it, and a
+ * value the gates REFUSE refuses the whole record (typed; reported `failed`
+ * with the gate's code, located when the record's scope was judged). The
+ * judgements follow the write: a key is "at its snapshot" when it equals the
+ * snapshot's value as recorded OR as the write stores it, and the produced
+ * state is asked both ways — so a record a revert restored cleaned is `present`
+ * on the next revert, never "written since".
+ *
  * KNOWN WINDOW: the checks read committed state and the delete door opens its
  * own transaction (its media and diffusion halves must run after COMMIT, so it
  * cannot join one of ours). A reference created in between is stripped by the
@@ -101,7 +113,7 @@ import {
 	type TimeMachineRow,
 	TM_ROLE,
 } from '../../../src/core/db/time_machine.ts';
-import { toDedaloError } from '../../../src/core/errors/index.ts';
+import { isDedaloError, toDedaloError } from '../../../src/core/errors/index.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
 	historyMainsOf,
@@ -126,6 +138,7 @@ import { deleteSectionRecord } from '../../../src/core/section/record/delete_rec
 import { getExternalLaw } from '../../../src/core/section/record/external_laws/classify.ts';
 import { isCoveredObserverTipo } from '../../../src/core/section/record/observers.ts';
 import { isLangSlicedModel } from '../../../src/core/section/record/save_component.ts';
+import { gateReplayedColumns } from '../../../src/core/section/record/write_value_gates.ts';
 import {
 	persistRestoredKeys,
 	requestCoveredSlotRecompute,
@@ -136,7 +149,7 @@ import { revokeDeletedAccountAccess } from '../../../src/core/security/revocatio
 import { composedUnitProduces } from './bulk_revert_composed.ts';
 import type { RecordMarker, RevertKey, RevertUnit, RunRow } from './bulk_revert_plan.ts';
 import { recordAddress, runOwnsRecordStamps } from './bulk_revert_plan.ts';
-import { exactUnitProduces, type ProducedKey } from './bulk_revert_undo.ts';
+import { exactUnitProduces, type ProducedKey, type ProducedStart } from './bulk_revert_undo.ts';
 import { restoreAbsentSectionRow, restoreSectionMedia } from './tool_time_machine.ts';
 
 /** Record-level metadata keys every record carries from birth — never "someone else's value". */
@@ -188,11 +201,17 @@ export type RecordOutcome =
 			located: boolean;
 	  };
 
+/**
+ * A record's door THREW for it. `located`: the record's scope gate had passed
+ * before the throw (SEC-16). Its code is the error registry's, by the ONE
+ * converter (failedOutcomeOf) — and it is there ONLY when that gate had passed
+ * (owner ruling 2026-11-18, TM Q3): a throw before or inside the verdict keeps
+ * nothing of the error but the log's text. wire_disclosure_tripwire pins both.
+ */
+export type FailedOutcome = { kind: 'failed'; detail: string; located: boolean; code?: string };
+
 /** A born record's D2 outcome: a RecordOutcome, or the delete door THREW for it. */
-export type BornOutcome =
-	| RecordOutcome
-	/** `located`: the record's scope gate had passed before the throw (SEC-16). */
-	| { kind: 'failed'; detail: string; located: boolean; code: string };
+export type BornOutcome = RecordOutcome | FailedOutcome;
 
 export interface RecordContext {
 	principal: Principal;
@@ -246,11 +265,65 @@ async function mayUndelete(
  * record by reference passed ITS record's gate, which says nothing about this
  * one's. Inside a unit's transaction the row half joins it and the file half
  * is handed back as `afterCommit`; standalone, the whole undelete runs now.
+ * `onScopePassed` is told when the record's own scope verdict PASSED — also
+ * when the restore then throws: the caller's catch reads it to decide whether
+ * the error's code may ride the report (owner ruling 2026-11-18, TM Q3).
  */
-export async function undeleteCascadeRecord(
+export function undeleteCascadeRecord(
 	marker: RecordMarker,
 	context: RecordContext,
+	onScopePassed?: () => void,
 ): Promise<RecordOutcome> {
+	return undeleteRecord(marker, context, (restore) => restore(), onScopePassed);
+}
+
+/**
+ * {@link undeleteCascadeRecord} for a member of a STANDALONE cascade group
+ * (bulk_revert.ts undeleteStandaloneGroup): a typed refusal of the record's
+ * restore — a LIVE row's or a MISSING row's — is that record's `failed`
+ * outcome ({@link failedOnTypedRefusal}), with the refusal's code and located
+ * once its scope was judged, instead of a throw the group could only pin on
+ * its first member. A unit's prelude keeps the throwing door: its own catch
+ * reports the refusal, located by the unit's own scope gate.
+ */
+export function undeleteStandaloneRecord(
+	marker: RecordMarker,
+	context: RecordContext,
+	onScopePassed?: () => void,
+): Promise<RecordOutcome | FailedOutcome> {
+	return undeleteRecord(marker, context, failedOnTypedRefusal, onScopePassed);
+}
+
+/**
+ * How an undelete runs its restore. `scopeJudged` answers — when asked, after
+ * the restore threw — whether the record's own scope gate had PASSED by then.
+ */
+type RestoreRunner<F> = (
+	restore: () => Promise<RecordOutcome>,
+	scopeJudged: () => boolean,
+) => Promise<RecordOutcome | F>;
+
+/**
+ * The undelete of one role-4 marker (see undeleteCascadeRecord). `runRestore`
+ * runs the restore itself: of a row that EXISTS — its scope gate (mayUndelete)
+ * passed before — or of a MISSING one, whose scope is judged on the restored
+ * row, inside the restore (restoreDeletedRecord).
+ */
+async function undeleteRecord<F>(
+	marker: RecordMarker,
+	context: RecordContext,
+	runRestore: RestoreRunner<F>,
+	onScopePassed?: () => void,
+): Promise<RecordOutcome | F> {
+	// Whatever the restore does — return, refuse, throw — the caller learns
+	// whether the record's scope verdict had passed by then.
+	const run = async (restore: () => Promise<RecordOutcome>, scopeJudged: () => boolean) => {
+		try {
+			return await runRestore(restore, scopeJudged);
+		} finally {
+			if (scopeJudged()) onScopePassed?.();
+		}
+	};
 	const table = await getMatrixTableFromTipo(marker.sectionTipo);
 	const snapshot = decodeTmImage(marker.row.data, marker.row.data_absent);
 	const live =
@@ -265,9 +338,61 @@ export async function undeleteCascadeRecord(
 	if (live !== null) {
 		// The row is there: a SOFT cascade (delete_target) wiped it, or the address
 		// was taken again. restoreWipedRecord tells the two apart.
-		return restoreWipedRecord(marker, table, snapshot as Record<string, unknown>, context);
+		return run(
+			() => restoreWipedRecord(marker, table, snapshot as Record<string, unknown>, context),
+			() => true,
+		);
 	}
-	return restoreDeletedRecord(marker, snapshot, context);
+	const scope = { judged: false };
+	return run(
+		() => restoreDeletedRecord(marker, snapshot, context, scope),
+		() => scope.judged,
+	);
+}
+
+/**
+ * A restore that a typed engine refusal stops — the value gates' above all:
+ * `tool.snapshot_credential_unrestorable` for a credential image that is
+ * neither a hash nor a v6 ciphertext, `ontology.invalid_node` for a number
+ * under a malformed format node, `tool.snapshot_unrestorable` for a relation
+ * key that is no locator array — is that record's `failed` outcome, with the
+ * refusal's code — nothing of it is kept. LOCATED exactly when the record's
+ * own scope gate had passed (`scopeJudged`): always for a LIVE row (mayUndelete
+ * ran before the restore); for a MISSING row once the restored row was judged
+ * — which a refused image no longer prevents (tool_time_machine.ts
+ * judgedInsert asks the scope BEFORE it throws the refusal, so a principal who
+ * may not see the record is answered `out_of_scope`, never `failed`). Anything
+ * that is not a typed refusal propagates as the failure it is.
+ *
+ * (!) The restore may have WRITTEN keys before the refusing one, into a
+ * transaction it only JOINED (the cascade group's). The caller therefore turns
+ * `failed` into a throw inside that transaction (bulk_revert.ts
+ * undeleteStandaloneGroup → GroupRefused): never a half-restored record
+ * committed behind a reported failure.
+ */
+async function failedOnTypedRefusal(
+	restore: () => Promise<RecordOutcome>,
+	scopeJudged: () => boolean,
+): Promise<RecordOutcome | FailedOutcome> {
+	try {
+		return await restore();
+	} catch (error) {
+		if (!isDedaloError(error)) throw error;
+		return failedOutcomeOf(error, scopeJudged());
+	}
+}
+
+/**
+ * The `failed` outcome of a thrown error: `detail` is the LOG's, `code` the ONE
+ * converter's — kept only when the record's scope verdict had PASSED before the
+ * throw (`located`): a throw before or inside the verdict tells the caller
+ * nothing but that it failed (owner ruling 2026-11-18, TM Q3).
+ */
+function failedOutcomeOf(error: unknown, located: boolean): FailedOutcome {
+	const detail = error instanceof Error ? error.message : String(error);
+	return located
+		? { kind: 'failed', detail, located, code: toDedaloError(error).code }
+		: { kind: 'failed', detail, located };
 }
 
 /** Thrown inside an undelete's transaction to roll back a row the caller may not see. */
@@ -282,16 +407,24 @@ class UndeleteOutOfScope extends Error {}
  * row back without its marker could never be deleted again by reverting the
  * revert). Inside a unit's transaction all of it joins that one, and a scope
  * refusal refuses the unit, which rolls the row back with it.
+ *
+ * SCOPE BEFORE THE IMAGE'S OWN REFUSAL (SEC-16): the scope check is handed to
+ * the restore as its verdict on the restored row, so an image the value gates
+ * refuse is still judged for scope first — `out_of_scope` for a principal who
+ * may not see the record, whatever its history holds; the gate's typed
+ * refusal (thrown, the row rolled back) only for one who may. `scope.judged`
+ * tells the caller which it was.
  */
 async function restoreDeletedRecord(
 	marker: RecordMarker,
 	snapshot: unknown,
 	context: RecordContext,
+	scope: { judged: boolean },
 ): Promise<RecordOutcome> {
 	let columns: Awaited<ReturnType<typeof restoreAbsentSectionRow>>;
 	try {
 		columns = await withTransaction(async () => {
-			// VERBATIM (no dd197/dd201 stamp): the snapshot carries its own stamps,
+			// UNSTAMPED (no dd197/dd201 stamp of now): the snapshot carries its own stamps,
 			// and the run's stamp units compare against them — a "now" stamp here
 			// refused every one `changed_since_run` (a revert of a revert inexact).
 			// The ACTOR is still the reverting user: the birth's observer
@@ -303,13 +436,20 @@ async function restoreDeletedRecord(
 				marker.sectionId,
 				false,
 				context.userId,
+				async () => {
+					if (
+						!(await principalCanAccessRecord(
+							marker.sectionTipo,
+							marker.sectionId,
+							context.principal,
+						))
+					) {
+						throw new UndeleteOutOfScope();
+					}
+					scope.judged = true;
+				},
 			);
 			if (restored === null) return null;
-			if (
-				!(await principalCanAccessRecord(marker.sectionTipo, marker.sectionId, context.principal))
-			) {
-				throw new UndeleteOutOfScope();
-			}
 			await recordBulkBirth({
 				sectionTipo: marker.sectionTipo,
 				sectionId: marker.sectionId,
@@ -641,31 +781,86 @@ async function producedStateOf(
 ): Promise<ProducedState> {
 	const units =
 		context.unitsByRecord?.get(recordAddress(marker.sectionTipo, marker.sectionId)) ?? [];
-	const at = (column: string, tipo: string): string => `${column}|${tipo}`;
-	const produced = new Map<string, ProducedKey>();
-	const undecided = new Set<string>();
-	const startOf = (column: MatrixJsonbColumn, tipo: string): unknown =>
-		produced.has(at(column, tipo))
-			? produced.get(at(column, tipo))?.value
-			: keyOf(snapshot, column, tipo);
+	// Asked BOTH ways (the value gates, see the header): the snapshot and every
+	// unit's restore as recorded, and as the write stores them.
+	const passes = [
+		await producedPass(units, snapshot, false),
+		await producedPass(units, snapshot, true),
+	];
+	return {
+		settled: (column, tipo, liveValue) =>
+			passes.some((pass) => {
+				const key = pass.produced.get(producedAt(column, tipo));
+				return key !== undefined && !pass.undecided.has(tipo) && key.same(liveValue, key.value);
+			}),
+	};
+}
+
+/** A produced key's address in a pass. */
+const producedAt = (column: string, tipo: string): string => `${column}|${tipo}`;
+
+/** One reading of what the revert's units leave on a record (producedStateOf). */
+interface ProducedPass {
+	produced: Map<string, ProducedKey>;
+	/** Tipos of a unit the producers do not cover: never settled. */
+	undecided: Set<string>;
+}
+
+/**
+ * The units' restores placed over the snapshot, in the order the revert
+ * applies them. `asWritten`: the snapshot's keys and each restored region as
+ * the WRITE stores them (the value gates), `false` = as recorded.
+ */
+async function producedPass(
+	units: readonly RevertUnit[],
+	snapshot: Record<string, unknown>,
+	asWritten: boolean,
+): Promise<ProducedPass> {
+	const pass: ProducedPass = { produced: new Map(), undecided: new Set() };
+	const startOf: ProducedStart = async (column, tipo) => {
+		const placed = pass.produced.get(producedAt(column, tipo));
+		if (placed !== undefined) return placed.value;
+		const recorded = keyOf(snapshot, column, tipo);
+		return asWritten ? judgedSnapshotKey(column, tipo, recorded) : recorded;
+	};
 	for (const unit of units) {
 		const result =
 			unit.composed !== null
-				? await composedUnitProduces(unit, startOf)
-				: await exactUnitProduces(unit, startOf);
+				? await composedUnitProduces(unit, startOf, asWritten)
+				: await exactUnitProduces(unit, startOf, asWritten);
 		if (result === null) {
-			for (const key of unit.keys) undecided.add(key.tipo);
-			for (const slot of unit.slotTipos) undecided.add(slot);
+			for (const key of unit.keys) pass.undecided.add(key.tipo);
+			for (const slot of unit.slotTipos) pass.undecided.add(slot);
 			continue;
 		}
-		for (const key of result) produced.set(at(key.column, key.tipo), key);
+		for (const key of result) pass.produced.set(producedAt(key.column, key.tipo), key);
 	}
-	return {
-		settled: (column, tipo, liveValue) => {
-			const key = produced.get(at(column, tipo));
-			return key !== undefined && !undecided.has(tipo) && key.same(liveValue, key.value);
-		},
-	};
+	return pass;
+}
+
+/**
+ * One snapshot key AS THE RESTORE STORES IT: through the save's value gates
+ * (write_value_gates.ts gateReplayedColumns — the key's own model and column
+ * decide; a tipo the ontology no longer knows is verbatim). Throws the gate's
+ * typed refusal.
+ */
+async function gatedSnapshotKey(column: string, tipo: string, value: unknown): Promise<unknown> {
+	const gated = await gateReplayedColumns({ [column]: { [tipo]: value } });
+	return (gated[column] as Record<string, unknown>)[tipo];
+}
+
+/**
+ * {@link gatedSnapshotKey} for a JUDGEMENT: a value the gates refuse is judged
+ * as recorded — the write (writeWipedKey) is what refuses it, and only when
+ * the key must be written at all.
+ */
+async function judgedSnapshotKey(column: string, tipo: string, value: unknown): Promise<unknown> {
+	try {
+		return await gatedSnapshotKey(column, tipo, value);
+	} catch (error) {
+		if (isDedaloError(error)) return value;
+		throw error;
+	}
 }
 
 /**
@@ -693,7 +888,8 @@ async function wipedKeysOf(
 			if (RECORD_METADATA_KEYS.has(tipo)) continue;
 			const value = keyOf(snapshot, column, tipo);
 			const liveValue = keyOf(live, column, tipo);
-			if (canonicalJson(value) === canonicalJson(liveValue)) continue;
+			// At its snapshot — as recorded, or as the restore stores it (the value gates).
+			if (await atSnapshot(column, tipo, value, liveValue)) continue;
 			// Already at the state the revert produces: its units find it unchanged.
 			if (state.settled(column, tipo, liveValue)) continue;
 			// A COVERED OBSERVER slot is derived state ("who references me", or a
@@ -726,6 +922,22 @@ async function wipedKeysOf(
 		}
 	}
 	return { keys, written: false };
+}
+
+/**
+ * Whether a live key holds its snapshot's value: the bytes the snapshot
+ * recorded, or what the restore writes for them (judgedSnapshotKey — a record
+ * an earlier revert restored holds the second).
+ */
+async function atSnapshot(
+	column: string,
+	tipo: string,
+	value: unknown,
+	liveValue: unknown,
+): Promise<boolean> {
+	const liveText = canonicalJson(liveValue);
+	if (canonicalJson(value) === liveText) return true;
+	return canonicalJson(await judgedSnapshotKey(column, tipo, value)) === liveText;
 }
 
 /**
@@ -779,7 +991,13 @@ async function writeWipedKey(
 	context: RecordContext,
 ): Promise<unknown> {
 	const target = { table, sectionTipo: marker.sectionTipo, sectionId: marker.sectionId };
-	const written = wipedKeyState(key, key.model !== '' && isLangSlicedModel(key.model));
+	// THE VALUE GATES (see the header): the pre-wipe value as a save stores it —
+	// a refusal throws here and rolls the whole record's restore back.
+	const value = await gatedSnapshotKey(key.column, key.tipo, key.value);
+	const written = wipedKeyState(
+		{ ...key, value },
+		key.model !== '' && isLangSlicedModel(key.model),
+	);
 	// The chokepoint owns the key's derived writes (its COMPONENT-RESTORE entry —
 	// this IS a restore): the save law's relation_search (the wipe removed the
 	// key's ancestors) in the same UPDATE, and the observer cascade — the ledger
@@ -1136,11 +1354,11 @@ async function failedOnThrow(
 	try {
 		return await step();
 	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
+		const failed = failedOutcomeOf(error, located);
 		console.error(
-			`[bulk_revert] delete of born record ${marker.sectionTipo}/${marker.sectionId}: ${detail}`,
+			`[bulk_revert] delete of born record ${marker.sectionTipo}/${marker.sectionId}: ${failed.detail}`,
 		);
-		return { kind: 'failed', detail, located, code: toDedaloError(error).code };
+		return failed;
 	}
 }
 

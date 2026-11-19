@@ -118,6 +118,7 @@ import {
 	type RecordContext,
 	type RecordOutcome,
 	undeleteCascadeRecord,
+	undeleteStandaloneRecord,
 } from './bulk_revert_records.ts';
 import { revertUnit, type UnitResult } from './bulk_revert_undo.ts';
 
@@ -156,13 +157,17 @@ export type BulkRevertSkipReason =
 
 /**
  * One `skipped[]` entry. Coordinates are present ONLY for a unit the caller
- * was entitled to see (it passed the scope gate); an `out_of_scope` entry, or
- * a `failed` one from before the gate, carries the reason alone. `lang` names
- * the language region of a lang-sliced key. `code` rides a LOCATED `failed`
- * entry only: the converter's wire code of the error that failed the unit
- * (`tree.cycle` for a revert that would close a loop in a hierarchy;
- * `internal.unexpected` for an untyped throw) — a code, never the words
- * (WC-2026-10-11-parent-link-cycle-every-door).
+ * was entitled to see (it passed the scope gate); an `out_of_scope` entry
+ * carries the reason alone, and a `failed` one from before the gate carries no
+ * coordinates. `lang` names the language region of a lang-sliced key. `code`
+ * rides a `failed` entry only, and only once the principal's scope verdict over
+ * that unit / record has PASSED — located or not (owner rulings 2026-11-18,
+ * WC-2026-11-17-tm-restore-value-gates addenda): the converter's wire code of
+ * the error that failed the unit (`tree.cycle` for a revert that would close a
+ * loop in a hierarchy; `internal.unexpected` for an untyped throw) — a code,
+ * never the words (WC-2026-10-11-parent-link-cycle-every-door), and on an
+ * unlocated entry the ONLY thing beside the reason. A failure from BEFORE or
+ * INSIDE the verdict (the plan, the gate itself) is the reason alone.
  */
 export interface BulkRevertSkipped {
 	reason: BulkRevertSkipReason;
@@ -173,9 +178,47 @@ export interface BulkRevertSkipped {
 	code?: string;
 }
 
-/** The wire code of the error that failed a unit (the ONE converter classifies it). */
-export function failureCodeOf(error: unknown): string {
-	return toDedaloError(error).code;
+/**
+ * An entry that names NO record (SEC-16): the reason, and — for `failed` only —
+ * the bare wire code of the error that failed it (owner ruling 2026-11-18: it
+ * tells the operator WHY, never WHICH record). Never a coordinate key. Every
+ * other reason carries nothing else, `out_of_scope` above all: a code beside it
+ * would tell a principal who may not see the record why its revert stopped.
+ * The code it is handed exists only for a failure AFTER the scope verdict
+ * passed ({@link codeAfterVerdict}).
+ */
+function unlocatedEntry(reason: BulkRevertSkipReason, code?: string): BulkRevertSkipped {
+	return reason === 'failed' && code !== undefined ? { reason, code } : { reason };
+}
+
+/**
+ * The wire code of the error that failed a unit or record (the ONE converter
+ * classifies it) — ONLY when the principal's scope verdict over it had PASSED
+ * by the time it threw (owner ruling 2026-11-18, TM Q3). A throw before or
+ * inside the verdict has no code: what stopped a revert nobody was yet entitled
+ * to is not the caller's to learn. The ONE place a thrown error becomes a code
+ * in this file; a record outcome's code obeys the same rule at its source
+ * (bulk_revert_records.ts failedOutcomeOf).
+ */
+function codeAfterVerdict(error: unknown, verdictPassed: boolean): string | undefined {
+	return verdictPassed ? toDedaloError(error).code : undefined;
+}
+
+/**
+ * Where a unit's scope verdict stands, for its catch. `own`: the verdict over
+ * the unit's OWN record has passed — at the gate, or (a record the unit
+ * undeletes first) on the restored row inside its prelude. `memberOpen`: a
+ * cascade target of the prelude is being undeleted and ITS verdict has not
+ * passed yet — a throw then comes from before or inside that verdict.
+ */
+interface UnitVerdict {
+	own: boolean;
+	memberOpen: boolean;
+}
+
+/** Whether a unit's failure happened with every verdict it depends on PASSED. */
+function verdictPassed(verdict: UnitVerdict): boolean {
+	return verdict.own && !verdict.memberOpen;
 }
 
 /** Why a written key or record is not an exact inverse of the run. */
@@ -368,9 +411,11 @@ function createReporter(requestId: string, bulkProcessId: number) {
 	const inexact: BulkRevertInexact[] = [];
 	const tally = { counter: 0, unchanged: 0, exactDone: 0 };
 	/**
-	 * Refuse a unit or record: the code goes on the wire, the coordinates (and
-	 * a `failed` unit's error code) only when it has passed the scope gate, and
-	 * the words (if any) to the log.
+	 * Refuse a unit or record: the reason goes on the wire, the coordinates only
+	 * when it has passed the scope gate, a `failed` one's error code located or
+	 * not (unlocatedEntry) — the caller hands one over only for a failure after
+	 * the scope verdict passed (codeAfterVerdict) — and the words (if any) to
+	 * the log.
 	 */
 	const skip = (
 		row: Located,
@@ -390,7 +435,7 @@ function createReporter(requestId: string, bulkProcessId: number) {
 						lang: row.lang,
 						...(code === undefined ? {} : { code }),
 					}
-				: { reason },
+				: unlocatedEntry(reason, code),
 		);
 		const line = `[tool_time_machine/bulk_revert] request ${requestId}: bulk ${bulkProcessId} ${row.section_tipo}/${row.tipo}#${row.section_id} skipped (${reason})${detail === null ? '' : `: ${detail}`}`;
 		if (level === 'error') console.error(line);
@@ -476,6 +521,7 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 	const blocked = new Set<string>();
 	for (const failure of run.plan.unplanned) {
 		const row = { section_tipo: failure.sectionTipo, section_id: failure.sectionId, tipo: '' };
+		// No code: the plan ran before any scope gate (owner ruling 2026-11-18, TM Q3).
 		skip(row, 'failed', false, failure.detail, 'error');
 		blocked.add(recordAddress(failure.sectionTipo, failure.sectionId));
 	}
@@ -503,6 +549,8 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 		// Set ONLY after the scope gate passes; the catch below reads it, so a
 		// throw from inside the gate itself locates nothing.
 		let inScope = false;
+		// Whether the error's CODE may ride a `failed` entry: the verdicts passed.
+		const verdict: UnitVerdict = { own: false, memberOpen: false };
 		try {
 			const pending = (byUnit.get(unit) ?? []).filter((marker) => !landed.has(marker));
 			// The unit's OWN record deleted (and not yet undeleted by another
@@ -518,12 +566,23 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 				continue;
 			}
 			inScope = !deferred;
+			// Deferred: the own record's verdict is the prelude's (its restored row).
+			verdict.own = !deferred;
 			const result = await revertUnit(
 				unit,
 				unitContext,
 				async () => {
-					const prelude = await undeleteRelinked(unit, pending, children, landed, recordContext);
+					const prelude = await undeleteRelinked(
+						unit,
+						pending,
+						children,
+						landed,
+						recordContext,
+						verdict,
+					);
 					inScope = true;
+					// A record born in the run and gone has no row to judge: the gate was all of it.
+					verdict.own = true;
 					return prelude;
 				},
 				revertComposedUnit,
@@ -549,7 +608,7 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 					inScope,
 					error instanceof Error ? error.message : String(error),
 					'error',
-					failureCodeOf(error),
+					codeAfterVerdict(error, verdictPassed(verdict)),
 				);
 			}
 		}
@@ -641,7 +700,7 @@ function reportUnlinkedTargets(
 class GroupRefused extends Error {
 	constructor(
 		readonly marker: RecordMarker,
-		readonly outcome: RecordOutcome,
+		readonly outcome: BornOutcome,
 	) {
 		super(`cascade group member ${describeRecord(marker)} did not come back`);
 	}
@@ -653,8 +712,10 @@ class GroupRefused extends Error {
  * the whole group lands, or none of it does (a child that cannot come back
  * would leave the parent's restored frames pointing at a missing record; a
  * child back without its parent is an orphan). The refusing member is
- * reported by its own outcome, the rest `cascade_delete_not_reverted`; the
- * file halves of the landed members run after COMMIT.
+ * reported by its own outcome — or, for a throw that is no typed refusal, as
+ * the member that was being undeleted (`at`), never the group's first by
+ * default — the rest `cascade_delete_not_reverted`; the file halves of the
+ * landed members run after COMMIT.
  */
 async function undeleteStandaloneGroup(
 	group: readonly RecordMarker[],
@@ -663,18 +724,26 @@ async function undeleteStandaloneGroup(
 	activity: ActivitySink,
 ): Promise<void> {
 	let landed: Relinked[];
+	// The member being undeleted: who an untyped throw is reported against —
+	// and whether ITS scope verdict had passed by then (the code rides only so).
+	let at = group[0] as RecordMarker;
+	let atJudged = false;
 	try {
 		landed = await withTransaction(async () => {
 			const members: Relinked[] = [];
 			for (const marker of group) {
-				const outcome = await undeleteCascadeRecord(marker, context);
+				at = marker;
+				atJudged = false;
+				const outcome = await undeleteStandaloneRecord(marker, context, () => {
+					atJudged = true;
+				});
 				if (!isHandled(outcome)) throw new GroupRefused(marker, outcome);
 				members.push(relinkedOf(marker, outcome));
 			}
 			return members;
 		});
 	} catch (error) {
-		reportGroupFailure(group, error, report);
+		reportGroupFailure(group, error, at, atJudged, report);
 		return;
 	}
 	for (const member of landed) await reportLanded(member, report, activity);
@@ -682,7 +751,7 @@ async function undeleteStandaloneGroup(
 
 /** An undelete outcome that leaves the record there as the run's referrers expect. */
 function isHandled(
-	outcome: RecordOutcome,
+	outcome: BornOutcome,
 ): outcome is Extract<RecordOutcome, { kind: 'done' | 'present' | 'kept' }> {
 	return outcome.kind === 'done' || outcome.kind === 'present' || outcome.kind === 'kept';
 }
@@ -699,18 +768,31 @@ function relinkedOf(
 	};
 }
 
-/** Report a standalone group that rolled back: the cause, then every other member. */
+/**
+ * Report a standalone group that rolled back: the cause, then every other
+ * member. `at` is the member that was being undeleted when it threw, `atJudged`
+ * whether its scope verdict had passed by then.
+ */
 function reportGroupFailure(
 	group: readonly RecordMarker[],
 	error: unknown,
+	at: RecordMarker,
+	atJudged: boolean,
 	report: Reporter,
 ): void {
-	const refused = error instanceof GroupRefused ? error.marker : (group[0] as RecordMarker);
+	const refused = error instanceof GroupRefused ? error.marker : at;
 	if (error instanceof GroupRefused) {
 		reportRecord(report, error.marker, error.outcome, 'cascade_undelete');
 	} else {
 		const detail = error instanceof Error ? error.message : String(error);
-		report.skip(locateRecord(refused), 'failed', false, detail, 'error');
+		report.skip(
+			locateRecord(refused),
+			'failed',
+			false,
+			detail,
+			'error',
+			codeAfterVerdict(error, atJudged),
+		);
 	}
 	for (const marker of group) {
 		if (marker === refused) continue;
@@ -740,13 +822,24 @@ async function undeleteRelinked(
 	children: ReadonlyMap<RecordMarker, readonly RecordMarker[]>,
 	landed: ReadonlySet<RecordMarker>,
 	context: RecordContext,
+	verdict: UnitVerdict,
 ): Promise<Relinked[]> {
 	const prelude: Relinked[] = [];
 	const key = unitReportKey(unit);
 	for (const root of markers) {
 		for (const marker of cascadeGroup(root, children)) {
 			if (landed.has(marker)) continue;
-			prelude.push(await undeleteForUnit(key, marker, context));
+			// Open until this member's own scope verdict passes: a throw before
+			// that is a throw from before or inside a verdict.
+			verdict.memberOpen = true;
+			prelude.push(
+				await undeleteForUnit(key, marker, context, () => {
+					verdict.memberOpen = false;
+					if (isOwnRecord(unit, marker)) verdict.own = true;
+				}),
+			);
+			// Handled without a restore (nothing left to judge): not open either.
+			verdict.memberOpen = false;
 		}
 	}
 	return prelude;
@@ -762,8 +855,9 @@ async function undeleteForUnit(
 	key: RevertKey,
 	marker: RecordMarker,
 	context: RecordContext,
+	onScopePassed: () => void,
 ): Promise<Relinked> {
-	const outcome = await undeleteCascadeRecord(marker, context);
+	const outcome = await undeleteCascadeRecord(marker, context, onScopePassed);
 	if (outcome.kind === 'out_of_scope') {
 		throw new RevertRefusal(
 			'out_of_scope',
@@ -797,7 +891,7 @@ function reportRecord(
 ): void {
 	const row = locateRecord(marker);
 	if (outcome.kind === 'out_of_scope') report.skip(row, outcome.kind, false, null);
-	// Located only when its scope gate (bornGate) passed before the throw.
+	// Located — and coded — only when its scope gate passed before the throw.
 	else if (outcome.kind === 'failed')
 		report.skip(row, 'failed', outcome.located, outcome.detail, 'error', outcome.code);
 	// Located only when the record's scope was judged before the refusal (SEC-16).

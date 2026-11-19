@@ -219,3 +219,51 @@ responses; no fixture in `test/parity/fixtures/oracle_harvest/` carries a reques
   "used to identify a record for update vs. create" — still true, but it does not yet say that a
   value the old reader would have turned into a record is now REFUSED by name, nor that a foreign
   control number still means "create". Outside this round's edit set.
+
+## Addendum 2026-11-18 — a `section_id` above the highest record number SKIPS ITS ROW (owner ruling)
+
+Point 3 above covered a cell that is not a record id. One population slipped between it and the
+database: a digit run that IS an exact integer but lies above int4 (`2147483648` …
+`9007199254740991`). `parseRecordIdCell` accepts it (it is a run of digits and a safe integer),
+so it reached the file's one existing-id read as written, and Postgres refused the cast.
+
+- **Before:** `files[].ok: false`, `created`/`updated`/`failed` empty, `errors: ['value
+  "2147483648" is out of range for type integer']` — the WHOLE FILE failed, also the rows before
+  and after the offending one, and the sentence the operator read was the database's own.
+- **Now** (owner ruling 2026-11-18): the row is SKIPPED by the same mechanism as point 3, with its
+  own sentence naming the row, the value and the limit —
+  `Row 3: SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)`
+  — in `files[].errors`; `ok` stays `true`; every other row of the file is imported.
+  `validate_import` reports the row in `failed[]` (`the row would be SKIPPED — …`, `ok: false`,
+  `ready: false`) before anything is written. `2147483647` itself is a record number.
+- **No new key, no error code, no notice.** The line rides the existing `errors: string[]`, as the
+  DATA-22 line does; the envelope is unchanged.
+- **CSV's own.** The bound sits in the CSV planner's key resolution (`resolveRowKey`,
+  `src/core/tools/import_csv.ts`), not in `parseRecordIdCell` or `readExistingSectionIds`. The
+  Zotero import keeps its own limit rule, code (`tool.zotero_call_number_above_limit`) and notice
+  (WC-2026-11-12-zotero-csl-json-import); no Zotero wording or code appears on the CSV wire.
+
+**Gate:** `test/unit/import_csv_execute.test.ts` — the row skip (rows on both sides written,
+nothing written for the over-limit row, no database text in the report), the preflight line, and
+the exact bound in the planner. It replaces the test that pinned the previous outcome as a known
+defect awaiting this ruling. RED before; mutations red: `>` → `>=`, the bound one higher, the
+DATA-22 sentence reused, a file failure instead of the row skip.
+
+**Review, same day — a digit run past an exact integer is above the limit too.** The first cut
+read "above the limit" off `parseRecordIdCell`'s answer, which is `null` for a digit run too long
+to be an exact JS integer (`9007199254740993`, `99999999999999999999`): those rows were skipped
+with the point-3 sentence (`… which is not a record id`), against the ruling's "any whole number
+above 2147483647". Now the CSV planner asks the CELL (`isAboveRecordLimit`: the digit grammar and
+its magnitude, never its length — `0000…0007` is still record 7, `000…0` still not a record id),
+and every such row reads `… which is above the highest record number (2147483647)`, in `errors`
+and in `validate_import`'s `failed[]` alike. Still a row skip, still no key/code/notice;
+`parseRecordIdCell`, `readExistingSectionIds` and the Zotero door untouched. Gate: the planner's
+"limit is EXACT" case (its pinned row edited deliberately, + `9007199254740991` /
+`9007199254740993` / leading zeros / zero / `1e20`), the served row skip and the preflight — RED
+before; mutations red (the previous `parsed !== null` test, digit COUNT for magnitude, the
+grammar dropped, safe integers only, unsafe integers only).
+
+**Still open (measured 2026-11-18, not ruled):** an id above int4 INSIDE a cell — a relation
+locator's `section_id`, a `component_iri` item's `label_id` — rolls its row back as
+`failed[].msg: 'IGNORED: the row was rolled back — value "2147483648" is out of range for type
+integer'`. The row outcome is already per-row; the sentence is still the database's.

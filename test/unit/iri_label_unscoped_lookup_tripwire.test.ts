@@ -1,6 +1,6 @@
 /**
- * THE UNSCOPED FOLDED LOOKUP HAS NAMED CALLERS ONLY (T0-12, owner decision D6b,
- * 2026-11-11).
+ * THE UNSCOPED LOOKUPS HAVE NAMED CALLERS ONLY (T0-12, owner decision D6b,
+ * 2026-11-11; the whole-section code lookup, owner ruling 2026-11-18).
  *
  * `findSectionIdsByFoldedText` (src/core/tools/import_code_lookup.ts) answers
  * the records of a section whose value equals a text under the match fold —
@@ -12,17 +12,27 @@
  * `readSectionIdsByFoldedValue` (src/core/db/matrix.ts), is the same bypass one
  * level down.
  *
+ * `resolveMappedCodesInWholeSection` (same module, owner ruling 2026-11-18) is
+ * the second unscoped door: the CODE lookup asked as nobody, because a Zotero
+ * key must be unique in the SECTION — a holder outside the importer's projects
+ * has to be seen or the import writes the key onto a second record. It answers
+ * section_ids only and marks each match for the record door
+ * (`MappedRecord.unscopedMatch`); anywhere else it is the same scope bypass.
+ *
  * Asserted:
  *  1. Every production file (src/, tools/, scripts/) that NAMES either function
  *     outside a comment is its definer or an ALLOW-LISTED caller with a reason
  *     — a reference, not only a call, so an alias (`const f = …`) is caught.
  *     Allow-list entries are LIVE: an entry whose file no longer calls is red.
- *  2. Each allowed call of `findSectionIdsByFoldedText` passes a NON-EMPTY
- *     string-literal reason naming its owner decision (`'D6b: …'`) — and the
- *     function refuses an empty reason at runtime (run here, no DB).
+ *  2. Each allowed call of `findSectionIdsByFoldedText` /
+ *     `resolveMappedCodesInWholeSection` passes a NON-EMPTY string-literal
+ *     reason naming its owner decision (`'D6b: …'` / `'ruling 2026-11-18: …'`)
+ *     — and each function refuses an empty reason at runtime (run here, no DB).
  *  3. The SCOPED path stays scoped: `CandidateScope.principal` is a required
  *     `Principal` (the D6b exemption once widened it to `| undefined`, which
- *     let ANY caller of the scoped search drop its principal).
+ *     let ANY caller of the scoped search drop its principal). The
+ *     whole-section search is reachable from ONE place — the guarded export —
+ *     and that export marks every match `unscopedMatch`.
  *
  * Anti-vacuity: corpus floor; a planted unlisted caller, a planted reasonless
  * call and a planted alias are each reported by the same detector.
@@ -36,7 +46,10 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { findSectionIdsByFoldedText } from '../../src/core/tools/import_code_lookup.ts';
+import {
+	findSectionIdsByFoldedText,
+	resolveMappedCodesInWholeSection,
+} from '../../src/core/tools/import_code_lookup.ts';
 import {
 	REPO_ROOT,
 	WRITE_PATH_CORPUS_FLOOR,
@@ -50,8 +63,11 @@ interface Guarded {
 	definer: string;
 	/** Allowed callers → why they may see past the caller's scope. */
 	allowed: Record<string, string>;
-	/** Whether each call must carry a `'D6b: …'` literal reason argument. */
-	needsReasonLiteral: boolean;
+	/**
+	 * The owner decision each call's string-literal reason must open with
+	 * (`'D6b: …'`), or null when the calls carry no reason argument.
+	 */
+	reasonPrefix: string | null;
 }
 
 const GUARDED: readonly Guarded[] = [
@@ -62,7 +78,16 @@ const GUARDED: readonly Guarded[] = [
 			'src/core/tools/import_iri_label.ts':
 				'D6b: an imported iri label resolves against dd1706, the shared label vocabulary of every component_iri; the import links to the record and never writes into it — a scoped lookup would create a per-project duplicate',
 		},
-		needsReasonLiteral: true,
+		reasonPrefix: 'D6b: ',
+	},
+	{
+		name: 'resolveMappedCodesInWholeSection',
+		definer: 'src/core/tools/import_code_lookup.ts',
+		allowed: {
+			'tools/tool_import_zotero/server/index.ts':
+				'ruling 2026-11-18: the Zotero key identifies ONE record of the section, so its holder is looked up in the whole section — a key held outside the importer’s projects must be seen or the import writes it onto a second record; ids only, every match asked of the record door before a write (MappedRecord.unscopedMatch)',
+		},
+		reasonPrefix: 'ruling 2026-11-18: ',
 	},
 	{
 		name: 'readSectionIdsByFoldedValue',
@@ -71,7 +96,7 @@ const GUARDED: readonly Guarded[] = [
 			'src/core/tools/import_code_lookup.ts':
 				'the one door above it: findSectionIdsByFoldedText, which demands the named reason and resolves table/column from the ontology',
 		},
-		needsReasonLiteral: false,
+		reasonPrefix: null,
 	},
 ];
 
@@ -188,10 +213,13 @@ function violations(corpus: readonly SourceFile[], guarded: Guarded): string[] {
 		if (calls.length !== 1) {
 			found.push(`${file.path}: ${calls.length} calls of ${guarded.name} (exactly 1 is allowed)`);
 		}
-		if (!guarded.needsReasonLiteral) continue;
+		if (guarded.reasonPrefix === null) continue;
+		const reasonLiteral = new RegExp(`['"\`]${guarded.reasonPrefix}\\S[^'"\`]*['"\`]`);
 		for (const call of calls) {
-			if (!/['"`]D6b: \S[^'"`]*['"`]/.test(call)) {
-				found.push(`${file.path}: a ${guarded.name} call without its 'D6b: …' reason literal`);
+			if (!reasonLiteral.test(call)) {
+				found.push(
+					`${file.path}: a ${guarded.name} call without its '${guarded.reasonPrefix}…' reason literal`,
+				);
 			}
 		}
 	}
@@ -227,14 +255,37 @@ describe('iri_label_unscoped_lookup_tripwire', () => {
 		expect(lookup?.code).not.toMatch(/principal:\s*undefined/);
 	});
 
+	test('the whole-section search has ONE way in — the guarded export — and it marks every match for the record door', () => {
+		const lookup = corpus.find((file) => file.path === 'src/core/tools/import_code_lookup.ts');
+		const code = stripStringText(lookup?.code ?? '');
+		// The principal-less search is built in one place, behind one private name…
+		expect(code.match(/\bWHOLE_SECTION\b/g)?.length).toBeGreaterThan(1);
+		expect(code.match(/\bwholeSectionSearch\s*\(/g)).toHaveLength(2); // its definition + ONE call
+		expect(code).not.toMatch(/export[^\n]*\b(WHOLE_SECTION|wholeSectionSearch|candidateWindow)\b/);
+		// …called from the guarded export alone, which marks what it found.
+		const guarded =
+			/export async function resolveMappedCodesInWholeSection\s*\(([\s\S]*?)\n\}/.exec(code)?.[1];
+		expect(guarded).toBeDefined();
+		expect(guarded).toMatch(/wholeSectionSearch\(/);
+		expect(guarded).toMatch(/unscopedMatch: true/);
+	});
+
 	test('an empty reason is refused at runtime, before any read', async () => {
 		await expect(
 			findSectionIdsByFoldedText({ sectionTipo: 'dd1706', componentTipo: 'dd1715' }, 'x', '  '),
 		).rejects.toThrow(/named reason/);
+		await expect(
+			resolveMappedCodesInWholeSection(
+				[{ code: 'x', fields: [] }],
+				'test3',
+				{ sectionTipo: 'test3', componentTipo: 'test162' },
+				'  ',
+			),
+		).rejects.toThrow(/named reason/);
 	});
 
 	describe('positive controls (the detector sees each planted shape)', () => {
-		const [lookup] = GUARDED as [Guarded, Guarded];
+		const [lookup] = GUARDED as [Guarded, Guarded, Guarded];
 		const caller = Object.keys(lookup.allowed)[0] as string;
 		const good = `await ${lookup.name}(t, text, 'D6b: shared vocabulary');`;
 

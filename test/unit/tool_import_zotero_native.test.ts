@@ -26,6 +26,15 @@
  * item. No call-number → the Zotero key decides. The config binds NO component
  * to the variable, as the shipped default (dd1633) does not.
  * WC-2026-11-12-zotero-csl-json-import (+ addendum 2026-11-18).
+ *
+ * Owner rulings 2026-11-18 (the addendum "the limit and the whole section"):
+ * (a) the section_id limit (int4) IS the import limit — a call-number above it
+ * refuses the item under its OWN code and the run warns the user with a
+ * labelled envelope notice naming the value and the limit; (b) the Zotero KEY is
+ * looked up in the WHOLE section, not the importer's scope, and a record the
+ * importer may not change refuses the item and is NAMED to them (a `perm.*`
+ * refused entry + a labelled notice). (b) runs as real non-admin identities
+ * (test/helpers/authz_door_fixture.ts: CONTROL in project P, records in Q).
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
@@ -42,8 +51,11 @@ import {
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
+import { INT4_MAX } from '../../src/core/concepts/section_id.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { ensureRecordGenerationTable } from '../../src/core/db/record_generation.ts';
+import type { ApiNotice } from '../../src/core/errors/index.ts';
+import { getLabels } from '../../src/core/labels/catalog.ts';
 import { ghostscriptAvailable } from '../../src/core/media/engine/ghostscript.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
@@ -51,7 +63,11 @@ import { getMatrixTableFromTipo, getModelByTipo } from '../../src/core/ontology/
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
-import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import {
+	getPermissions,
+	type Principal,
+	resolvePrincipal,
+} from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { CSV_INGEST_MAX_BYTES } from '../../src/core/tools/import_csv.ts';
 import { lockLinkNames } from '../../src/core/tools/import_link.ts';
@@ -61,10 +77,24 @@ import { readZoteroConfig } from '../../src/core/tools/zotero_map.ts';
 import {
 	type AddressedItem,
 	addressOutcome,
-	type ItemRefusal,
+	refusalLedger,
+	refusalNotices,
+	screenAddresses,
 } from '../../tools/tool_import_zotero/server/call_number_address.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
 import { mustGet } from '../helpers/assert.ts';
+import {
+	AUTHZ_CONTROL_USER_ID,
+	AUTHZ_PROJECT_P,
+	AUTHZ_PROJECT_Q,
+	AUTHZ_TEXT_ONLY_USER_ID,
+	type AuthzIdentities,
+	assertAuthzDoorContrast,
+	createDoorRecord,
+	installAuthzDoorFixture,
+	removeAuthzDoorFixture,
+	resolveAuthzIdentities,
+} from '../helpers/authz_door_fixture.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import { installScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 
@@ -78,11 +108,10 @@ const IMAGE_KIT = resolve(import.meta.dir, '../../src/core/test_data/media_kit/i
 /** A word-processor original stand-in: not a PDF rendition, so no derivative is rebuilt. */
 const ODT_BYTES = Buffer.from('PK\u0003\u0004 not a pdf: authored document stand-in\n');
 
-const stagingRoot = resolve(
-	config.media.rootPath ?? '',
-	config.media.upload.tmpSubdir,
-	String(SCRATCH_USER),
-);
+/** One user's staging root (the door rebuilds it from the CURRENT user id). */
+const stagingRootOf = (userId: number) =>
+	resolve(config.media.rootPath ?? '', config.media.upload.tmpSubdir, String(userId));
+const stagingRoot = stagingRootOf(SCRATCH_USER);
 const stagedDir = resolve(stagingRoot, KEY_DIR);
 
 const SERVER_CONFIG = {
@@ -135,6 +164,10 @@ interface Report {
 	created_at_id: number[];
 	/** Records updated at their call-number id. */
 	updated_at_id: number[];
+	/** How many records were TAKEN OVER (never also counted in `updated`). */
+	taken_over: number;
+	/** Records taken over at their call-number id: they had no Zotero key and hold the item's now. */
+	taken_over_at_id: number[];
 	/** Items the run refused, typed: the item, the refusal's code, its sentence. */
 	refused: { item: string; code: string; message: string }[];
 }
@@ -142,26 +175,38 @@ interface Report {
 const runs: number[] = [];
 let teardownConfig: () => Promise<void> = async () => {};
 
-/** Stage one export (and optional attachments); answers its files_data entries. */
-function stage(name: string, items: unknown, extra: { name: string; from?: string }[] = []) {
-	mkdirSync(stagedDir, { recursive: true });
-	writeFileSync(
-		resolve(stagedDir, name),
-		typeof items === 'string' ? items : JSON.stringify(items),
-	);
+/** Stage one export (and optional attachments) for `userId`; answers its files_data entries. */
+function stage(
+	name: string,
+	items: unknown,
+	extra: { name: string; from?: string }[] = [],
+	userId: number = SCRATCH_USER,
+) {
+	const dir = resolve(stagingRootOf(userId), KEY_DIR);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(resolve(dir, name), typeof items === 'string' ? items : JSON.stringify(items));
 	for (const file of extra)
-		if (file.from !== undefined) copyFileSync(file.from, resolve(stagedDir, file.name));
+		if (file.from !== undefined) copyFileSync(file.from, resolve(dir, file.name));
 	return [
 		{ name, tmp_name: name },
 		...extra.map((file) => ({ name: file.name, tmp_name: file.name })),
 	];
 }
 
-async function runRaw(options: Record<string, unknown>): Promise<ToolResponse> {
+/** Who runs the import: the principal the doors ask, and the user whose staging dir is read. */
+interface Importer {
+	principal: Principal;
+	userId: number;
+}
+
+async function runRaw(
+	options: Record<string, unknown>,
+	importer?: Importer,
+): Promise<ToolResponse> {
 	const loaded = await getLoadedTool('tool_import_zotero');
 	return mustGet(loaded!.module.apiActions.import_files, 'import_files').handler({
-		principal: await resolvePrincipal(-1),
-		userId: SCRATCH_USER,
+		principal: importer?.principal ?? (await resolvePrincipal(-1)),
+		userId: importer?.userId ?? SCRATCH_USER,
 		background: false,
 		options: {
 			section_tipo: 'test3',
@@ -174,11 +219,31 @@ async function runRaw(options: Record<string, unknown>): Promise<ToolResponse> {
 	});
 }
 
-async function run(options: Record<string, unknown>): Promise<Report> {
-	const res = (await runRaw(options)) as { ok: boolean; data: Report };
+/** The whole success envelope: the report (`data`) and the run's labelled `notices`. */
+async function runEnvelope(
+	options: Record<string, unknown>,
+	importer?: Importer,
+): Promise<{ report: Report; notices: ApiNotice[] }> {
+	const res = (await runRaw(options, importer)) as {
+		ok: boolean;
+		data: Report;
+		notices?: ApiNotice[];
+	};
 	expect(res.ok).toBe(true);
 	if (res.data.bulk_process_id !== null) runs.push(res.data.bulk_process_id);
-	return res.data;
+	return { report: res.data, notices: res.notices ?? [] };
+}
+
+async function run(options: Record<string, unknown>): Promise<Report> {
+	return (await runEnvelope(options)).report;
+}
+
+/** A notice as the user reads it: its label (lg-eng) with its details filled in. */
+async function noticeText(notice: ApiNotice): Promise<string> {
+	const template = (await getLabels('lg-eng'))[notice.label_key] ?? '';
+	return template.replace(/\$\{(\w+)\}/g, (_match, name: string) =>
+		String(notice.details?.[name] ?? `\${${name}}`),
+	);
 }
 
 /** A test3 component's stored items on one record. */
@@ -477,8 +542,6 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			'-5',
 			'1.0',
 			'1e3',
-			'2147483648',
-			2147483648,
 			12.5,
 			{ shelf: 1 },
 			true,
@@ -509,6 +572,73 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			expect(await recordsNamed(`${RUN} bad ${index}`)).toEqual([]);
 		}
 		expect(report.summary).toContain(`${notNumbers.length} refused`);
+	});
+
+	test('the section_id limit IS the import limit (owner ruling 2026-11-18): a call-number above 2147483647 refuses THAT item under its own code, and the run WARNS the user — a labelled notice naming the values and the limit', async () => {
+		// RED before: such a value was one more "is not a record number" line under
+		// request.invalid_data — nothing said it WAS a number, past the limit — and
+		// the envelope carried no notice at all.
+		const above: unknown[] = ['2147483648', 2147483648, '99999999999999999999999'];
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-limit.json', [
+				...above.map((value, index) => ({
+					id: uri(`LIM${index}`),
+					'call-number': value,
+					title: `${RUN} limit ${index}`,
+				})),
+				// Not a whole number at all: rule 1's own refusal, and no part of the warning.
+				{ id: uri('LIMX'), 'call-number': '12abc', title: `${RUN} limit x` },
+				{ id: uri('LIMS'), title: `${RUN} limit sibling` },
+			]),
+		});
+		// The rest of the export is imported.
+		expect(report.created).toBe(1);
+		expect(await recordsWithCode(key('LIMS'))).toHaveLength(1);
+		expect(report.created_at_id).toEqual([]);
+		expect(report.refused).toHaveLength(above.length + 1);
+		for (const [index, value] of above.entries()) {
+			const refused = refusedItem(report, `LIM${index}`);
+			expect(refused?.code, String(value)).toBe('tool.zotero_call_number_above_limit');
+			expect(refused?.message, String(value)).toContain(`'${String(value)}'`);
+			expect(refused?.message).toContain(String(INT4_MAX));
+			expect(refused?.message).toContain('call-number');
+			expect(await recordsWithCode(key(`LIM${index}`))).toEqual([]);
+			expect(await recordsNamed(`${RUN} limit ${index}`)).toEqual([]);
+		}
+		expect(refusedItem(report, 'LIMX')?.code).toBe('request.invalid_data');
+		// THE WARNING: one envelope notice for the run, typed and labelled.
+		expect(notices).toEqual([
+			{
+				code: 'tool.zotero_call_number_above_limit',
+				label_key: 'error_tool_zotero_call_number_above_limit',
+				retryable: false,
+				details: {
+					count: above.length,
+					limit: INT4_MAX,
+					values: '2147483648, 2147483648, 99999999999999999999999',
+					variable: 'call-number',
+				},
+			},
+		]);
+		// …and what the user reads names every value and the limit (the label, filled).
+		const text = await noticeText(notices[0] as ApiNotice);
+		expect(text).not.toContain('${');
+		expect(text).toContain('2147483647');
+		expect(text).toContain('99999999999999999999999');
+		expect(text).toContain('call-number');
+		expect(text).toContain(String(above.length));
+	});
+
+	test('a run with nothing to warn about carries NO notice (the warning is not ambient)', async () => {
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-quiet.json', [
+				{ id: uri('QT1'), 'call-number': 'shelf 9', title: `${RUN} quiet 1` },
+				{ id: uri('QT2'), title: `${RUN} quiet 2` },
+			]),
+		});
+		expect(report.refused.map((entry) => entry.code)).toEqual(['request.invalid_data']);
+		expect(report.created).toBe(1);
+		expect(notices).toEqual([]);
 	});
 
 	test('rule 3: an absent id is CREATED at that id, attributed to the run, and the counter never re-mints it', async () => {
@@ -543,7 +673,7 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(next).toBeGreaterThan(createdAt);
 	});
 
-	test('rule 2: an existing record with NO key is updated and ADOPTS the key (a JSON-number call-number too)', async () => {
+	test('rule 2 + ruling (c): an existing record with NO key ADOPTS the key and is reported TAKEN OVER — its own list and count, never "updated" (a JSON-number call-number too)', async () => {
 		const existing = await createSectionRecord('test3', -1);
 		addressedIds.add(existing);
 		expect(await itemsOf(existing, 'string', 'test162')).toEqual([]);
@@ -553,14 +683,185 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 			]),
 		});
 		expect(report.refused).toEqual([]);
-		expect(report.created).toBe(0);
-		expect(report.updated).toBe(1);
-		expect(report.created_at_id).toEqual([]);
-		expect(report.updated_at_id).toEqual([existing]);
+		expect(report.failed).toEqual([]);
+		// Adopted as ruled: the record holds the item's key and its values.
 		expect(await recordsWithCode(key('AD2'))).toEqual([existing]);
 		expect((await itemsOf(existing, 'string', 'test52')).map((i) => i.value)).toEqual([
 			`${RUN} AD2`,
 		]);
+		// …and REPORTED APART (RED before ruling c: it was one more `updated_at_id`).
+		expect(report.taken_over_at_id).toEqual([existing]);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.created_at_id).toEqual([]);
+		expect({
+			created: report.created,
+			updated: report.updated,
+			taken_over: report.taken_over,
+		}).toEqual({ created: 0, updated: 0, taken_over: 1 });
+		expect(report.summary).toBe('Zotero import done. Created 0, updated 0, 1 taken over.');
+
+		// The SAME reference again: the record holds its key now — a plain update.
+		const again = await run({
+			files_data: stage('cn-adopt-again.json', [
+				{ id: uri('AD2'), 'call-number': existing, title: `${RUN} AD2 again` },
+			]),
+		});
+		expect(again.taken_over_at_id).toEqual([]);
+		expect(again.updated_at_id).toEqual([existing]);
+		expect({ updated: again.updated, taken_over: again.taken_over }).toEqual({
+			updated: 1,
+			taken_over: 0,
+		});
+		expect(again.summary).toBe('Zotero import done. Created 0, updated 1.');
+	});
+
+	test('ruling (c): a key-less item on a key-less record takes nothing over — no key is left there, it is an update', async () => {
+		const existing = await createSectionRecord('test3', -1);
+		addressedIds.add(existing);
+		const report = await run({
+			files_data: stage('cn-nokey-nokey.json', [
+				{ 'call-number': String(existing), title: `${RUN} NN1` },
+			]),
+		});
+		expect(report.refused).toEqual([]);
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([existing]);
+		expect(report.taken_over).toBe(0);
+		expect(await itemsOf(existing, 'string', 'test162')).toEqual([]);
+		expect((await itemsOf(existing, 'string', 'test52')).map((i) => i.value)).toEqual([
+			`${RUN} NN1`,
+		]);
+	});
+
+	test('ruling (c): a taken-over record whose write ROLLS BACK is not listed taken over (the finding counts only for what was committed)', () => {
+		const item = (who: string, found?: 'keyless_record' | 'item_without_key') =>
+			({ who, address: 50, mapped: { code: who }, found: found ?? null }) as never;
+		const ledger = refusalLedger();
+		const outcome = addressOutcome(
+			[item('ROLLED', 'keyless_record'), item('TAKEN', 'keyless_record'), item('SAME')],
+			{
+				records: [
+					{ index: 0, sectionId: null, created: false },
+					{ index: 1, sectionId: 51, created: false },
+					{ index: 2, sectionId: 52, created: false },
+				],
+				failed: [],
+			},
+			{ variable: 'call-number', idTarget: undefined },
+			ledger,
+		);
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [52], takenOverAtId: [51] });
+		expect(ledger.refused).toEqual([]);
+	});
+
+	test('ruling (c): a key-less record whose KEY FIELD was not written (a failed line on the key component) took nothing over — updated; a failed line on another field, or on another record, changes nothing', () => {
+		const item = (who: string) =>
+			({ who, address: 50, mapped: { code: who }, found: 'keyless_record' }) as never;
+		const line = (section_id: number, component_tipo: string) => ({
+			section_id,
+			component_tipo,
+			data: '',
+			msg: 'IGNORED',
+		});
+		const outcome = addressOutcome(
+			[item('NOKEY'), item('OTHERFIELD'), item('CLEAN')],
+			{
+				records: [
+					{ index: 0, sectionId: 61, created: false },
+					{ index: 1, sectionId: 62, created: false },
+					{ index: 2, sectionId: 63, created: false },
+				],
+				// 61: its key field failed. 62: another field failed. 999: not of this run's addresses.
+				failed: [line(61, 'test162'), line(62, 'test52'), line(999, 'test162')],
+			},
+			{ variable: 'call-number', idTarget: { componentTipo: 'test162' } as never },
+			refusalLedger(),
+		);
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [61], takenOverAtId: [62, 63] });
+	});
+
+	test('ruling (d): an item with NO Zotero key whose call-number names a record that HOLDS one is refused under its own code, with the explanation — why, and what to do — in its line and in a labelled notice; the record number only, the record untouched', async () => {
+		const codeBefore = await itemsOf(createdAt, 'string', 'test162');
+		const titleBefore = await itemsOf(createdAt, 'string', 'test52');
+		expect(codeBefore.map((i) => i.value)).toEqual([key('AD1')]);
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-nokey-keyed.json', [
+				// No `id`: Zotero exported the item without its key.
+				{ 'call-number': String(createdAt), title: `${RUN} NOKEY` },
+				{ id: uri('NK9'), title: `${RUN} NK9` },
+			]),
+		});
+		// Still refused, as ruled; the rest of the export is imported.
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.failed).toEqual([]);
+		expect(report.refused).toHaveLength(1);
+		const refused = report.refused[0];
+		expect(refused?.item).toBe('item #1');
+		// Its OWN code (RED before ruling d: the generic `resource.conflict`).
+		expect(refused?.code).toBe('tool.zotero_item_without_key');
+		// WHY…
+		expect(refused?.message).toContain(`call-number '${createdAt}' names record ${createdAt}`);
+		expect(refused?.message).toContain('already belongs to another Zotero reference');
+		expect(refused?.message).toContain('this item carries no Zotero key');
+		expect(refused?.message).toContain('cannot tell whether it is the same reference');
+		// …and WHAT TO DO: both ways out.
+		expect(refused?.message).toContain('Export the reference from Zotero again');
+		expect(refused?.message).toContain('remove its call-number to create a new record');
+		// The record number only — never the key it holds, nor its title.
+		expect(refused?.message).not.toContain(key('AD1'));
+		expect(refused?.message).not.toContain(String(titleBefore[0]?.value));
+
+		// The notice: coded, labelled, the user's language.
+		expect(notices).toEqual([
+			{
+				code: 'tool.zotero_item_without_key',
+				label_key: 'error_tool_zotero_item_without_key',
+				retryable: false,
+				details: { count: 1, section_ids: String(createdAt), variable: 'call-number' },
+			},
+		]);
+		const text = await noticeText(notices[0] as ApiNotice);
+		expect(text).toContain('1 reference(s) without a Zotero key');
+		expect(text).toContain(`section_id ${createdAt}`);
+		// The wording the owner ruled (2026-11-18, Q4): ANOTHER Zotero reference.
+		expect(text).toContain('a record that already belongs to another Zotero reference');
+		expect(text).toContain('cannot tell whether it is the same reference');
+		expect(text).toContain('Export the reference from Zotero again');
+		expect(text).toContain('remove its call-number to create a new record');
+		expect(text).not.toContain('${');
+		expect(text).not.toContain(key('AD1'));
+		// Translated where the sibling warnings are.
+		for (const lang of ['lg-spa', 'lg-cat']) {
+			const translated = (await getLabels(lang)).error_tool_zotero_item_without_key ?? '';
+			expect(translated).not.toBe((await getLabels('lg-eng')).error_tool_zotero_item_without_key);
+			for (const name of ['count', 'section_ids', 'variable'])
+				expect(translated).toContain(`\${${name}}`);
+		}
+		expect((await getLabels('lg-spa')).error_tool_zotero_item_without_key).toContain(
+			'ya pertenece a otra referencia de Zotero',
+		);
+		expect((await getLabels('lg-cat')).error_tool_zotero_item_without_key).toContain(
+			'ja pertany a una altra referència de Zotero',
+		);
+
+		// Untouched.
+		expect(await itemsOf(createdAt, 'string', 'test162')).toEqual(codeBefore);
+		expect(await itemsOf(createdAt, 'string', 'test52')).toEqual(titleBefore);
+		expect(await recordsNamed(`${RUN} NOKEY`)).toEqual([]);
+	});
+
+	test("ruling (d) is the key-less item's only: an item WITH a key against another key stays `resource.conflict`, and raises no key-less notice", async () => {
+		const { report, notices } = await runEnvelope({
+			files_data: stage('cn-rekey-notice.json', [
+				{ id: uri('AD11'), 'call-number': String(createdAt), title: `${RUN} AD11` },
+			]),
+		});
+		expect(report.refused.map((entry) => entry.code)).toEqual(['resource.conflict']);
+		expect(report.refused[0]?.message).not.toContain('carries no Zotero key');
+		expect(notices).toEqual([]);
 	});
 
 	test('rule 2: a record holding the SAME key is updated at its call-number', async () => {
@@ -834,59 +1135,393 @@ describe('call-number: the operator-chosen record ADDRESS (owner ruling 2026-11-
 		expect(await itemsOf(sectionId, 'string', 'test52')).toEqual([]);
 	});
 
-	test("rule 7: a record at the call-number that the importer may NOT write is a REFUSED item (the record door's code), never listed updated — and its line says nothing of what the record holds", () => {
+	test("rule 7: a record the importer may NOT change — at the call-number, or holding the item's key — is a REFUSED item (the record door's code), never listed updated; its line names the record and nothing it holds, and the run's alert names it too", () => {
 		// The executor's half is gated on real identities in import_create_door_native
-		// (1c: out of scope → `refusal: perm.out_of_scope`, the guard never asked).
-		// This is the door's half: how that outcome reaches the report.
-		const item = (who: string, address: number): AddressedItem => ({
+		// (1c: out of scope → `refusal: perm.out_of_scope`, the guard never asked; the
+		// unscoped match). This is the door's half: how that outcome reaches the report.
+		const item = (who: string, address: number | null): AddressedItem => ({
 			who,
 			address,
-			mapped: { code: who, url: null, address: String(address), fields: [], links: [] } as never,
+			found: null,
+			mapped: { code: who, url: null, address: null, fields: [], links: [] } as never,
 		});
-		const refused: ItemRefusal[] = [];
+		const ledger = refusalLedger();
+		const denied = (sectionId: number) => ({
+			code: 'perm.out_of_scope' as const,
+			message: `record ${sectionId} exists and is not writable`,
+			sectionId,
+		});
 		const outcome = addressOutcome(
-			[item('FOREIGN', 41), item('MINE', 42)],
-			[
-				{
-					index: 0,
-					sectionId: null,
-					created: false,
-					refusal: { code: 'perm.out_of_scope', message: 'record 41 exists and is not writable' },
-				},
-				{ index: 1, sectionId: 42, created: false },
-			],
-			'call-number',
-			refused,
+			[item('FOREIGN', 41), item('MINE', 42), item('BYKEY', null), item('PLAIN', null)],
+			{
+				records: [
+					{ index: 0, sectionId: null, created: false, refusal: denied(41) },
+					{ index: 1, sectionId: 42, created: false },
+					// No call-number: the item's KEY is held by record 7, not hers.
+					{ index: 2, sectionId: null, created: false, refusal: denied(7) },
+					{ index: 3, sectionId: 43, created: true },
+				],
+				failed: [],
+			},
+			{ variable: 'call-number', idTarget: undefined },
+			ledger,
 		);
-		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42] });
-		expect(refused).toEqual([
+		expect(outcome).toEqual({ createdAtId: [], updatedAtId: [42], takenOverAtId: [] });
+		expect(ledger.refused).toEqual([
 			{
 				item: 'FOREIGN',
 				code: 'perm.out_of_scope',
 				message: expect.stringContaining(
-					"call-number '41' names record 41, which you may not edit",
+					"call-number '41' names record 41, which you may not change",
+				),
+			},
+			{
+				item: 'BYKEY',
+				code: 'perm.out_of_scope',
+				message: expect.stringContaining(
+					"this item's Zotero key is held by record 7, which you may not change",
 				),
 			},
 		]);
-		expect(refused[0]?.message).not.toContain('Zotero key');
+		expect(ledger.refused[0]?.message).not.toContain('Zotero key');
+		// The alert: both references, the records ascending — ids only.
+		expect(refusalNotices(ledger, 'call-number')).toEqual([
+			{
+				code: 'tool.zotero_record_not_writable',
+				label_key: 'error_tool_zotero_record_not_writable',
+				retryable: false,
+				details: { count: 2, section_ids: '7, 41' },
+			},
+		]);
 	});
 
-	test('rule 7: one run reports created-at-id, updated and refused SEPARATELY', async () => {
+	test('the limit is int4, exactly: 2147483647 is an address, 2147483648 is refused past it; a notice lists at most twenty values, each cut', () => {
+		// Pure (no record is ever created AT the limit here: the counter would follow it).
+		const mapped = (address: string) =>
+			({
+				code: `K${address.length}-${address.slice(0, 12)}`,
+				address,
+				fields: [],
+				links: [],
+			}) as never;
+		const atLimit = refusalLedger();
+		const kept = screenAddresses([mapped(String(INT4_MAX))], 'call-number', atLimit);
+		expect(kept.map((item) => item.address)).toEqual([INT4_MAX]);
+		expect(atLimit).toEqual({ refused: [], aboveLimit: [], notWritable: [], withoutKey: [] });
+		expect(refusalNotices(atLimit, 'call-number')).toEqual([]);
+
+		const past = refusalLedger();
+		const huge = '9'.repeat(200);
+		const many = Array.from({ length: 25 }, (_unused, index) => String(INT4_MAX + 1 + index));
+		expect(screenAddresses([huge, ...many].map(mapped), 'call-number', past)).toEqual([]);
+		expect(past.refused.map((entry) => entry.code)).toEqual(
+			Array.from({ length: 26 }, () => 'tool.zotero_call_number_above_limit'),
+		);
+		const [notice] = refusalNotices(past, 'call-number');
+		expect(notice?.details?.count).toBe(26);
+		expect(notice?.details?.limit).toBe(2147483647);
+		const values = String(notice?.details?.values).split(', ');
+		// Twenty values and the ellipsis; the 200-digit one cut at 80 characters.
+		expect(values).toHaveLength(21);
+		expect(values[0]).toBe(`${'9'.repeat(80)}…`);
+		expect(values[1]).toBe('2147483648');
+		expect(values.at(-1)).toBe('…');
+	});
+
+	test('rule 7: one run reports created-at-id, updated, taken over and refused SEPARATELY', async () => {
 		const fresh = await freeId();
+		const keyless = await createSectionRecord('test3', -1);
+		addressedIds.add(keyless);
 		const report = await run({
 			files_data: stage('cn-report.json', [
 				{ id: uri('RP1'), 'call-number': String(fresh), title: `${RUN} RP1` },
 				{ id: uri('AD1'), 'call-number': String(createdAt), title: `${RUN} AD1 report` },
 				{ id: uri('RP3'), 'call-number': 'shelf 3', title: `${RUN} RP3` },
 				{ id: uri('RP4'), title: `${RUN} RP4` },
+				{ id: uri('RP5'), 'call-number': String(keyless), title: `${RUN} RP5` },
 			]),
 		});
 		expect(report.created).toBe(2);
 		expect(report.updated).toBe(1);
+		expect(report.taken_over).toBe(1);
 		expect(report.created_at_id).toEqual([fresh]);
 		expect(report.updated_at_id).toEqual([createdAt]);
+		expect(report.taken_over_at_id).toEqual([keyless]);
 		expect(report.refused.map((entry) => entry.item)).toEqual([key('RP3')]);
-		expect(report.summary).toBe('Zotero import done. Created 2, updated 1, 1 refused.');
+		expect(report.summary).toBe(
+			'Zotero import done. Created 2, updated 1, 1 taken over, 1 refused.',
+		);
+	});
+});
+
+describe('the Zotero key is checked in the WHOLE section; a record the importer may not change is NAMED (owner ruling 2026-11-18)', () => {
+	let ids: AuthzIdentities;
+	let control: Importer;
+	/** A keyed record of project Q — outside CONTROL's scope (she holds project P). */
+	let foreign = 0;
+	const FOREIGN_TITLE = `${RUN} foreign title`;
+
+	/** One refused item of a report, by its Zotero key. */
+	function refusedItem(report: Report, k: string) {
+		return report.refused.find((entry) => entry.item === key(k));
+	}
+
+	const code = (value: string) => ({ tipo: 'test162', lang: 'lg-nolan', value: [{ value }] });
+	const title = (value: string) => ({ tipo: 'test52', lang: 'lg-nolan', value: [{ value }] });
+	const titlesOf = async (sectionId: number) =>
+		(await itemsOf(sectionId, 'string', 'test52')).map((item) => item.value);
+
+	beforeAll(async () => {
+		await installAuthzDoorFixture();
+		ids = await resolveAuthzIdentities();
+		await assertAuthzDoorContrast(ids);
+		control = { principal: ids.control, userId: AUTHZ_CONTROL_USER_ID };
+		foreign = await createDoorRecord('test3', AUTHZ_PROJECT_Q, [
+			code(key('GK1')),
+			title(FOREIGN_TITLE),
+		]);
+	});
+
+	afterAll(async () => {
+		rmSync(stagingRootOf(AUTHZ_CONTROL_USER_ID), { recursive: true, force: true });
+		rmSync(stagingRootOf(AUTHZ_TEXT_ONLY_USER_ID), { recursive: true, force: true });
+		await removeAuthzDoorFixture();
+	});
+
+	test('the fixture is what the gate needs: CONTROL is no admin, and the keyed record is one she may not see', async () => {
+		expect(ids.control.isGlobalAdmin).toBe(false);
+		expect(await recordsWithCode(key('GK1'))).toEqual([foreign]);
+	});
+
+	test("rule 5 sees a key held OUTSIDE the importer's scope: the call-number names B, the key lives on A (not hers) — refused (resource.conflict), B not written, the key on ONE record", async () => {
+		// RED before: the key lookup was the importer's (project P), so it found no
+		// holder — the item was written AT its call-number, the key adopted there,
+		// and one Zotero key then lived on two records.
+		const mine = await createDoorRecord('test3', AUTHZ_PROJECT_P, [title(`${RUN} mine`)]);
+		const { report, notices } = await runEnvelope(
+			{
+				files_data: stage(
+					'gk-conflict.json',
+					[{ id: uri('GK1'), 'call-number': String(mine), title: `${RUN} GK1 at mine` }],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect(report.created + report.updated).toBe(0);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.refused).toHaveLength(1);
+		const refused = refusedItem(report, 'GK1');
+		expect(refused?.code).toBe('resource.conflict');
+		// The alert names the two records by section_id…
+		expect(refused?.message).toContain(`'${mine}'`);
+		expect(refused?.message).toContain(`record ${foreign}`);
+		// …and nothing the foreign record HOLDS.
+		expect(JSON.stringify({ report, notices })).not.toContain(FOREIGN_TITLE);
+		expect(report.failed).toEqual([]);
+		// A conflict is not a permission alert.
+		expect(notices).toEqual([]);
+		expect(await recordsWithCode(key('GK1'))).toEqual([foreign]);
+		expect(await itemsOf(mine, 'string', 'test162')).toEqual([]);
+		expect(await titlesOf(mine)).toEqual([`${RUN} mine`]);
+		expect(await titlesOf(foreign)).toEqual([FOREIGN_TITLE]);
+		expect(await recordsNamed(`${RUN} GK1 at mine`)).toEqual([]);
+	});
+
+	test('no call-number: the key is held by a record she may not change — the ITEM is refused (perm.out_of_scope) and the user is ALERTED naming that record; no second record takes the key', async () => {
+		// RED before: the scoped lookup found no holder, so the item was CREATED — a
+		// second record with the same Zotero key.
+		const { report, notices } = await runEnvelope(
+			{
+				files_data: stage(
+					'gk-bykey.json',
+					[{ id: uri('GK1'), title: `${RUN} GK1 by key` }],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect({ created: report.created, updated: report.updated }).toEqual({
+			created: 0,
+			updated: 0,
+		});
+		expect(report.refused).toEqual([
+			{
+				item: key('GK1'),
+				code: 'perm.out_of_scope',
+				message: expect.stringContaining(`record ${foreign}, which you may not change`),
+			},
+		]);
+		// Refused ONCE, as the item: never "updated" with every field ignored.
+		expect(report.failed).toEqual([]);
+		expect(notices).toEqual([
+			{
+				code: 'tool.zotero_record_not_writable',
+				label_key: 'error_tool_zotero_record_not_writable',
+				retryable: false,
+				details: { count: 1, section_ids: String(foreign) },
+			},
+		]);
+		const text = await noticeText(notices[0] as ApiNotice);
+		expect(text).not.toContain('${');
+		expect(text).toContain(String(foreign));
+		expect(JSON.stringify({ report, notices })).not.toContain(FOREIGN_TITLE);
+		expect(await recordsWithCode(key('GK1'))).toEqual([foreign]);
+		expect(await recordsNamed(`${RUN} GK1 by key`)).toEqual([]);
+		expect(await titlesOf(foreign)).toEqual([FOREIGN_TITLE]);
+	});
+
+	test('a call-number naming a record she may not change: refused (perm.out_of_scope) and ALERTED naming the record — its key never read, nothing written', async () => {
+		// RED before: the refused line was there, the alert was not.
+		const keyless = await createDoorRecord('test3', AUTHZ_PROJECT_Q, [
+			title(`${RUN} keyless foreign`),
+		]);
+		const { report, notices } = await runEnvelope(
+			{
+				files_data: stage(
+					'gk-address.json',
+					[
+						{ id: uri('GK2'), 'call-number': String(keyless), title: `${RUN} GK2` },
+						// The same run, a second record she may not change: ONE alert names both.
+						{ id: uri('GK3'), 'call-number': String(foreign), title: `${RUN} GK3` },
+					],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect(report.created + report.updated).toBe(0);
+		expect(report.updated_at_id).toEqual([]);
+		expect(report.refused).toEqual([
+			{
+				item: key('GK2'),
+				code: 'perm.out_of_scope',
+				message: expect.stringContaining(
+					`call-number '${keyless}' names record ${keyless}, which you may not change`,
+				),
+			},
+			{
+				item: key('GK3'),
+				code: 'perm.out_of_scope',
+				message: expect.stringContaining(
+					`call-number '${foreign}' names record ${foreign}, which you may not change`,
+				),
+			},
+		]);
+		// The line says nothing of what either record holds — not even whether it has a key.
+		for (const entry of report.refused) expect(entry.message).not.toContain('Zotero key');
+		expect(notices).toEqual([
+			{
+				code: 'tool.zotero_record_not_writable',
+				label_key: 'error_tool_zotero_record_not_writable',
+				retryable: false,
+				details: { count: 2, section_ids: [keyless, foreign].sort((a, b) => a - b).join(', ') },
+			},
+		]);
+		expect(await recordsWithCode(key('GK2'))).toEqual([]);
+		expect(await recordsWithCode(key('GK3'))).toEqual([]);
+		expect(await titlesOf(keyless)).toEqual([`${RUN} keyless foreign`]);
+		expect(await itemsOf(keyless, 'string', 'test162')).toEqual([]);
+	});
+
+	test('ruling (c), HOLDS is what was written: an importer who may write the record but NOT the key component leaves no key there — the record is listed UPDATED with the key field failed, never taken over', async () => {
+		// RED before (dc35ce349f): the guard's finding alone decided, so the record
+		// was listed `taken_over_at_id` — "holds the reference's key from now on" —
+		// while its key field was a `failed` line and the record held no key.
+		// TEXT_ONLY: test3 at 2, the text area (test17, the ISBN) at 2, the key
+		// component (test162) not granted — project P, as the record.
+		const textOnly = { principal: ids.textOnly, userId: AUTHZ_TEXT_ONLY_USER_ID };
+		expect(await getPermissions(ids.textOnly, 'test3', 'test3')).toBe(2);
+		expect(await getPermissions(ids.textOnly, 'test3', 'test17')).toBe(2);
+		expect(await getPermissions(ids.textOnly, 'test3', 'test162')).toBeLessThan(2);
+		const mine = await createDoorRecord('test3', AUTHZ_PROJECT_P, [title(`${RUN} TK1 before`)]);
+		const { report } = await runEnvelope(
+			{
+				files_data: stage(
+					'tk-nokeywrite.json',
+					[{ id: uri('TK1'), 'call-number': String(mine), ISBN: '978-84-0000-001-1' }],
+					[],
+					textOnly.userId,
+				),
+			},
+			textOnly,
+		);
+		expect(report.refused).toEqual([]);
+		// The record WAS written (the field she may write)…
+		expect(JSON.stringify(await itemsOf(mine, 'string', 'test17'))).toContain('978-84-0000-001-1');
+		// …the key was NOT: its field is a failed line, and the record holds none.
+		expect(
+			report.failed.filter((line) => line.component_tipo === 'test162' && line.section_id === mine),
+		).toHaveLength(1);
+		expect(await itemsOf(mine, 'string', 'test162')).toEqual([]);
+		expect(await recordsWithCode(key('TK1'))).toEqual([]);
+		// So nothing was taken over: an update, counted as one.
+		expect(report.taken_over_at_id).toEqual([]);
+		expect(report.updated_at_id).toEqual([mine]);
+		expect({
+			created: report.created,
+			updated: report.updated,
+			taken_over: report.taken_over,
+		}).toEqual({ created: 0, updated: 1, taken_over: 0 });
+		expect(report.summary).not.toContain('taken over');
+
+		// The served twin: CONTROL may write the key — the SAME record is taken over.
+		const served = await runEnvelope(
+			{
+				files_data: stage(
+					'tk-keywrite.json',
+					[{ id: uri('TK1'), 'call-number': String(mine), title: `${RUN} TK1 after` }],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect(served.report.failed).toEqual([]);
+		expect(served.report.taken_over_at_id).toEqual([mine]);
+		expect(served.report.updated_at_id).toEqual([]);
+		expect(await recordsWithCode(key('TK1'))).toEqual([mine]);
+	});
+
+	test('the served twins: a key held by a record IN her scope is updated; a global admin updates the record of ANY project — no refusal, no alert', async () => {
+		const mine = await createDoorRecord('test3', AUTHZ_PROJECT_P, [
+			code(key('GK4')),
+			title(`${RUN} GK4 before`),
+		]);
+		const served = await runEnvelope(
+			{
+				files_data: stage(
+					'gk-served.json',
+					[{ id: uri('GK4'), title: `${RUN} GK4 after` }],
+					[],
+					control.userId,
+				),
+			},
+			control,
+		);
+		expect(served.report.refused).toEqual([]);
+		expect(served.report.failed).toEqual([]);
+		expect({ created: served.report.created, updated: served.report.updated }).toEqual({
+			created: 0,
+			updated: 1,
+		});
+		expect(served.notices).toEqual([]);
+		expect(await recordsNamed(`${RUN} GK4 after`)).toEqual([mine]);
+		// The admin (root): the same global lookup, and the record door admits them.
+		const admin = await runEnvelope({
+			files_data: stage('gk-admin.json', [{ id: uri('GK1'), title: `${RUN} GK1 by admin` }]),
+		});
+		expect(admin.report.refused).toEqual([]);
+		expect({ created: admin.report.created, updated: admin.report.updated }).toEqual({
+			created: 0,
+			updated: 1,
+		});
+		expect(admin.notices).toEqual([]);
+		expect(await recordsNamed(`${RUN} GK1 by admin`)).toEqual([foreign]);
+		expect(await recordsWithCode(key('GK1'))).toEqual([foreign]);
 	});
 });
 

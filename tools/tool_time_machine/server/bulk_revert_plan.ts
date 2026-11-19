@@ -197,13 +197,20 @@ function legacyRowLang(row: RunRow): string {
 
 /**
  * A row, or a key, the plan could not place (its model or its dataframe slots
- * failed to resolve). Reported `failed` WITHOUT coordinates — nothing about it
- * has passed a scope gate — and the text goes to the log only.
+ * failed to resolve). Reported `failed` with the reason ALONE — no coordinates
+ * and no error code: the plan runs before any scope gate, so no verdict over
+ * its record has passed (owner ruling 2026-11-18, TM Q3) — and the text goes
+ * to the log only. It therefore keeps nothing of the error but that text.
  */
 export interface Unplanned {
 	sectionTipo: string;
 	sectionId: number;
 	detail: string;
+}
+
+/** A model lookup that THREW, kept per tipo: its text, for the log. */
+interface FailedModel {
+	failed: string;
 }
 
 /** The text of a thrown value, for the LOG. */
@@ -213,9 +220,9 @@ function errorText(error: unknown): string {
 
 /** The model of a tipo, memoized per plan; a throw is kept as its text. */
 async function modelOf(
-	models: Map<string, string | null | { failed: string }>,
+	models: Map<string, string | null | FailedModel>,
 	tipo: string,
-): Promise<string | null | { failed: string }> {
+): Promise<string | null | FailedModel> {
 	if (!models.has(tipo)) {
 		try {
 			models.set(tipo, await getModelByTipo(tipo));
@@ -228,7 +235,7 @@ async function modelOf(
 
 /** Group the component rows into keys (see the header). */
 async function groupKeys(rows: readonly RunRow[], unplanned: Unplanned[]): Promise<RevertKey[]> {
-	const models = new Map<string, string | null | { failed: string }>();
+	const models = new Map<string, string | null | FailedModel>();
 	const keys = new Map<string, RevertKey>();
 	const failed = new Set<string>();
 	for (const row of rows) {

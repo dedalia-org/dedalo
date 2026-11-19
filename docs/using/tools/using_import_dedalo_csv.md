@@ -111,6 +111,9 @@ Record 1 gains links to records 4 and 6 (unless it already had them), a new Poin
 !!! warning "64 MB per file"
     A CSV larger than 64 MB is refused at every step (upload, file list, check and import), with a sentence naming the file, its size and the limit. Split it into several files and upload the parts. Reading a CSV takes many times its own size in server memory, so the limit protects every user of the server.
 
+!!! warning "A row whose `section_id` is not a record number is skipped"
+    The `section_id` cell must be a whole number written in digits, no higher than 2147483647 — the highest record number Dédalo holds. A row whose cell is anything else is **skipped**, and the report names it: `Row 3: SKIPPED — the section_id cell is '2147483648', which is above the highest record number (2147483647)`, or `… is '12abc', which is not a record id`. Only that row is left out; every other row of the file is imported. The check step reports the same rows before anything is written.
+
 !!! tip "Read the report before moving on"
     The report separates **failed** cells (rejected, the record kept its previous value) from **warnings** (written, but worth a look — for example a language code that is valid but not in the project's configured languages). The *created* and *updated* lists are the actual `section_id`s, and you can copy them straight into a search to inspect what changed.
 

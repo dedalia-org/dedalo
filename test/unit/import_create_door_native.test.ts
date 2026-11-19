@@ -37,6 +37,12 @@
  *      addressed records are written FIRST: an unaddressed record never takes
  *      the id a later record of the same input addresses (review 2026-11-18).
  *
+ *   6. the mapped importer's record MATCHED PAST THE IMPORTER'S SCOPE
+ *      (`MappedRecord.unscopedMatch` — the Zotero key, looked up in the whole
+ *      section since owner ruling 2026-11-18): asked of the record door AS A
+ *      RECORD ('import_execute.match') before any field — out of scope refuses
+ *      the ITEM, naming the record; in scope it is an ordinary matched record.
+ *
  * THE IDENTITIES are authz_door_fixture's, asserted through the real resolver
  * first: LEVEL_1 (test3 at 1 — read, never write), READ_COMPONENT (test3 at 2,
  * test52 at 0), CONTROL (test3 + test52 at 2, test60 — the dataframe slot — at
@@ -147,6 +153,29 @@ async function importAddressed(
 		AUTHZ_SECTION,
 		principal,
 		{ bulkLabel: 'import address door gate', addressDoor: 'tool_import_zotero.import_files' },
+	);
+	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
+	return report;
+}
+
+/** The mapped engine on ONE record MATCHED by a lookup — past the importer's scope when `unscoped`. */
+async function importMatched(
+	principal: Principal,
+	sectionId: number,
+	value: string,
+	unscoped: boolean,
+) {
+	const report = await importMappedRecords(
+		[
+			{
+				sectionId,
+				...(unscoped ? { unscopedMatch: true as const } : {}),
+				fields: [{ component_tipo: AUTHZ_TEXT, values: [value] }],
+			},
+		],
+		AUTHZ_SECTION,
+		principal,
+		{ bulkLabel: 'import match door gate' },
 	);
 	if (report.bulkProcessId !== null) runIds.add(report.bulkProcessId);
 	return report;
@@ -451,6 +480,7 @@ describe.if(DB_READY)(
 					refusal: {
 						code: 'perm.out_of_scope',
 						message: expect.stringContaining(`record ${sectionId}`),
+						sectionId,
 					},
 				},
 			]);
@@ -495,7 +525,7 @@ describe.if(DB_READY)(
 					index: 0,
 					sectionId: null,
 					created: false,
-					refusal: { code: 'resource.conflict', message: 'the guard says no' },
+					refusal: { code: 'resource.conflict', message: 'the guard says no', sectionId },
 				},
 			]);
 			expect(report.failed).toEqual([]);
@@ -534,6 +564,57 @@ describe.if(DB_READY)(
 			expect(report.createdIds).toEqual([free, named]);
 			expect(JSON.stringify((await recordColumns(named))?.text)).toContain('zzorder addressed');
 			expect(JSON.stringify((await recordColumns(named))?.text)).not.toContain('zzorder free');
+		});
+
+		// --- 1d. a record MATCHED past the importer's scope (MappedRecord.unscopedMatch —
+		//         the Zotero key looked up in the WHOLE section, owner ruling 2026-11-18)
+
+		test('MAPPED, a record MATCHED past her scope (unscopedMatch) and OUT of it: the ITEM is refused by the record door (perm.out_of_scope) naming the record — never "updated" with every field ignored, the record untouched', async () => {
+			const sectionId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_Q);
+			const before = await rowCount();
+			const report = await importMatched(ids.control, sectionId, 'zzmatch foreign', true);
+			expect({ created: report.created, updated: report.updated }).toEqual({
+				created: 0,
+				updated: 0,
+			});
+			expect(report.records).toEqual([
+				{
+					index: 0,
+					sectionId: null,
+					created: false,
+					refusal: {
+						code: 'perm.out_of_scope',
+						message: expect.stringContaining(`record ${sectionId}`),
+						sectionId,
+					},
+				},
+			]);
+			// Refused ONCE, as the item: no per-field line beside it.
+			expect(report.failed).toEqual([]);
+			expect(await rowCount()).toBe(before);
+			expect((await recordColumns(sectionId))?.text ?? null).toBeNull();
+		});
+
+		test('MAPPED, a record MATCHED past her scope (unscopedMatch) but IN it (the served twin): updated, the field written', async () => {
+			const sectionId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_P);
+			const report = await importMatched(ids.control, sectionId, 'zzmatch in scope', true);
+			expect(report.failed).toEqual([]);
+			expect(report.records).toEqual([{ index: 0, sectionId, created: false }]);
+			expect(report.updated).toBe(1);
+			expect(JSON.stringify((await recordColumns(sectionId))?.text)).toContain('zzmatch in scope');
+		});
+
+		test("MAPPED, a record matched IN the caller's own lookup (no unscopedMatch): the record door is NOT asked as a whole — the per-field door alone speaks (every other mapped door, unchanged)", async () => {
+			// The contrast that pins the flag: the same foreign record WITHOUT it keeps
+			// the matched posture — "updated", each field an IGNORED line. A scoped
+			// lookup never produces this record; the flag exists because an unscoped one does.
+			const sectionId = await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_Q);
+			const report = await importMatched(ids.control, sectionId, 'zzmatch unflagged', false);
+			expect(report.records).toEqual([{ index: 0, sectionId, created: false }]);
+			expect(report.failed.map((failure) => String(failure.msg))).toEqual([
+				expect.stringMatching(REFUSED),
+			]);
+			expect((await recordColumns(sectionId))?.text ?? null).toBeNull();
 		});
 
 		// --- 2. the CSV importer: the create, and a column of a CREATED row ---------

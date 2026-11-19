@@ -43,6 +43,13 @@
  *      then the revert's OWN pairs under its bulk id, per lane — so reverting
  *      the revert chains exactly.
  *
+ * THE VALUE GATES (C58, owner ruling 2026-11-18 — bulk_revert_undo.ts header):
+ * the write door gates every lane of the main this unit restores, and every
+ * slot. The plan follows it: a lane whose live value already equals its
+ * earliest BEFORE as recorded OR as the write stores it (judgeReplayedValue)
+ * is unchanged — a lane an earlier revert put back cleaned is not a post-run
+ * change. The frames are judged as recorded (no gate keys on a dataframe).
+ *
  * ABSENCE OF THE MAIN beside frames. A frame-lane image with frames cannot
  * tell an absent lg-nolan value from an empty `[]` one (both compose to the
  * frames alone); the main part of such an image is read as ABSENT, and an
@@ -71,6 +78,7 @@ import {
 	NOLAN,
 	restoreLane,
 } from '../../../src/core/relations/main_lanes.ts';
+import { judgeReplayedValue } from '../../../src/core/section/record/write_value_gates.ts';
 import {
 	describeKey,
 	type RevertKey,
@@ -85,6 +93,7 @@ import {
 	keyLaneLaw,
 	lockUnitRecord,
 	type ProducedKey,
+	type ProducedStart,
 	rawKeyValue,
 	resolveKeyTarget,
 	rowPairsOf,
@@ -255,6 +264,11 @@ interface LanePart {
 	live: unknown;
 	side: (split: Split) => unknown;
 	same: (left: unknown, right: unknown) => boolean;
+	/**
+	 * The part's earliest BEFORE as the WRITE stores it (the value gates), when
+	 * that can differ from the recorded image: live equal to it is unchanged too.
+	 */
+	asWritten?: unknown;
 }
 
 /**
@@ -267,6 +281,7 @@ interface LanePart {
 function planPart(part: LanePart, pairs: readonly SplitPair[], scope: ComposedScope): boolean {
 	const first = pairs[0] as SplitPair;
 	if (part.same(part.live, part.side(first.before))) return false;
+	if ('asWritten' in part && part.same(part.live, part.asWritten)) return false;
 	assertChain(
 		pairs,
 		(after, before) => part.same(part.side(after), part.side(before)),
@@ -300,17 +315,23 @@ interface UnitPlan {
  * restored to its earliest BEFORE (see the header). A lane with nothing to
  * write counts `unchanged`.
  */
-function planLane(
+async function planLane(
 	plan: UnitPlan,
 	group: LaneGroup,
 	liveFrames: FrameMap,
 	scope: ComposedScope,
-): void {
+): Promise<void> {
 	const { lang, pairs } = group;
 	const first = pairs[0] as SplitPair;
 	const valueLive = laneRegion(plan.value, lang, scope.law);
 	const value = planPart(
-		{ what: `lane ${lang}`, live: valueLive, side: (split) => split.main, same: sameMain },
+		{
+			what: `lane ${lang}`,
+			live: valueLive,
+			side: (split) => split.main,
+			same: sameMain,
+			asWritten: await asWrittenMain(first.before.main, scope),
+		},
 		pairs,
 		scope,
 	);
@@ -341,15 +362,20 @@ function planLane(
 }
 
 /** Plan every lane, newest first. */
-function planUnit(
+async function planUnit(
 	live: unknown,
 	liveFrames: FrameMap,
 	groups: readonly LaneGroup[],
 	scope: ComposedScope,
-): UnitPlan {
+): Promise<UnitPlan> {
 	const plan: UnitPlan = { value: live, frames: null, valueLanes: [], unchanged: 0, lang: '' };
-	for (const group of groups) planLane(plan, group, liveFrames, scope);
+	for (const group of groups) await planLane(plan, group, liveFrames, scope);
 	return plan;
+}
+
+/** A recorded main part as the write stores it (the value gates; a refused value judged as recorded). */
+function asWrittenMain(recorded: unknown, scope: ComposedScope): Promise<unknown> {
+	return judgeReplayedValue(scope.key.model, scope.mainTipo, recorded);
 }
 
 /** Put a recorded lane region back over the current value (see the header on empty mains). */
@@ -535,11 +561,14 @@ function writtenOf(write: ComposedKeyWrite, scope: ComposedScope): WrittenKey {
  * every slot (restoreSlot, an emptied slot absent), exactly as slotWrites
  * does. Live values equal to this are, by construction, what planUnit finds
  * unchanged. null when the unit cannot be planned at all (no column, a
- * malformed log): undecided for the caller.
+ * malformed log): undecided for the caller. `asWritten`: each restored main
+ * part as the write stores it (the value gates), `false` = as recorded — the
+ * judgement asks both.
  */
 export async function composedUnitProduces(
 	unit: RevertUnit,
-	start: (column: MatrixJsonbColumn, tipo: string) => unknown,
+	start: ProducedStart,
+	asWritten: boolean,
 ): Promise<ProducedKey[] | null> {
 	let scope: ComposedScope;
 	let groups: LaneGroup[];
@@ -552,11 +581,12 @@ export async function composedUnitProduces(
 		if (error instanceof RevertRefusal) return null;
 		throw error;
 	}
-	let main = start(scope.column, scope.mainTipo);
+	let main = await start(scope.column, scope.mainTipo);
 	let frames: FrameMap | null = null;
 	for (const group of groups) {
 		const first = group.pairs[0] as SplitPair;
-		main = restoreMain(main, group.lang, first.before.main, scope.law);
+		const recorded = asWritten ? await asWrittenMain(first.before.main, scope) : first.before.main;
+		main = restoreMain(main, group.lang, recorded, scope.law);
 		if (group.lang === NOLAN) frames = first.before.frames;
 	}
 	const produced: ProducedKey[] = [
@@ -569,7 +599,7 @@ export async function composedUnitProduces(
 			...Object.keys(recorded).filter((tipo) => !scope.slotTipos.includes(tipo)),
 		];
 		for (const tipo of tipos) {
-			const next = restoreSlot(start(slotColumn, tipo), scope.mainTipo, recorded[tipo] ?? []);
+			const next = restoreSlot(await start(slotColumn, tipo), scope.mainTipo, recorded[tipo] ?? []);
 			produced.push({
 				column: slotColumn,
 				tipo,
@@ -598,7 +628,7 @@ export async function revertComposedUnit(
 	const live = rawKeyValue(record, keyTarget, scope.mainTipo);
 	const liveSlots = await readMainSlots(scope.target, scope.mainTipo, scope.slotTipos);
 	const liveFrames = liveFrameMap(liveSlots, scope.mainTipo);
-	const plan = planUnit(live, liveFrames, groups, scope);
+	const plan = await planUnit(live, liveFrames, groups, scope);
 	await assertNoOrphanedFrames(plan, live, liveFrames, unit, scope);
 	if (plan.frames !== null) {
 		assertFramesPair(
@@ -616,7 +646,12 @@ export async function revertComposedUnit(
 	}
 	// Nothing to write: every lane already back.
 	if (writes.length === 0) return { written: [], unchanged: Math.max(plan.unchanged, 1) };
-	await writeComposedUnit(writes, { live, liveSlots, lang: plan.lang || NOLAN }, scope, context);
+	await writeComposedUnit(
+		writes,
+		{ live, liveSlots, lang: plan.lang || NOLAN, valueLanes: plan.valueLanes },
+		scope,
+		context,
+	);
 	return {
 		written: writes.map((write) => writtenOf(write, scope)),
 		unchanged: plan.unchanged,

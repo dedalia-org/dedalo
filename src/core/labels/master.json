@@ -393,11 +393,15 @@
 	"error_tool_rdf_graph_too_large": "The RDF document is too large or too deeply nested to read (limit ${limit})",
 	"error_tool_rdf_identifier_unwritable": "Not created: the record could not hold the identifier that finds it again (${reason})",
 	"error_tool_restore_unchanged": "The selected version is the same as the current value. Nothing was restored",
+	"error_tool_snapshot_credential_unrestorable": "This history entry stores a password that was not saved in a protected form, so it cannot be restored. Nothing was changed. Set a new password instead",
 	"error_tool_snapshot_unrestorable": "This history entry stores a value in an old format that is not a valid link, so it cannot be restored. The current value is unchanged",
 	"error_tool_source_unavailable": "The server ${site} is not responding or is out of service. Contact its maintainer",
 	"error_tool_target_not_found": "The tool target does not exist",
 	"error_tool_too_many_items": "Too many items in one request: ${count} sent, at most ${limit} at a time",
 	"error_tool_unsupported_target": "The tool cannot operate on this target",
+	"error_tool_zotero_call_number_above_limit": "Not imported: ${count} reference(s) carry a ${variable} above ${limit}, the highest record number (section_id) there is: ${values}. Write a lower number in Zotero, or clear the field to match the reference by its Zotero key",
+	"error_tool_zotero_item_without_key": "Not imported: ${count} reference(s) without a Zotero key name a record that already belongs to another Zotero reference (section_id ${section_ids}). Without a key the import cannot tell whether it is the same reference, so the record was not changed. Export the reference from Zotero again so that it carries its key, or remove its ${variable} to create a new record",
+	"error_tool_zotero_record_not_writable": "Not imported: ${count} reference(s) name a record you may not change (section_id ${section_ids}). Correct the reference in Zotero, or ask for access to that record",
 	"error_translation_empty_result": "The translation service returned no text: it probably does not support this language",
 	"error_translation_not_configured": "The translation service is not configured for this engine",
 	"error_translation_provider_failed": "The translation service reported an error: ${provider_message}",
@@ -1305,5 +1309,6 @@
 	"year": "year",
 	"years": "years",
 	"yes": "yes",
-	"zoom": "Zoom"
+	"zoom": "Zoom",
+	"zotero_taken_over_at_id": "Taken over at their call-number id — the record had no Zotero key: "
 }

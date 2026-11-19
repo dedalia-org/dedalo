@@ -108,6 +108,13 @@ export interface LegacyContext {
 	frameUnit: RevertUnit | null;
 	/** The caller: a slot outside `frameUnit.slotTipos` is written only on its level-2 grant. */
 	principal: Principal;
+	/**
+	 * The planned key value AS THE WRITE STORES IT — the key's lane through the
+	 * save's value gates (bulk_revert_undo.ts judgedKeyValue; the write door
+	 * gates it for real). Injected, as the unit's other doors are: this module
+	 * is imported by the one that owns the write.
+	 */
+	asWritten: (value: unknown) => Promise<unknown>;
 }
 
 /** A plan that writes. */
@@ -532,6 +539,21 @@ async function assertSlotGrants(
 }
 
 /**
+ * Whether the live key already holds the inferred pre-run value — as the
+ * history row recorded it, or as the write stores it (the value gates: a key an
+ * earlier revert put back CLEANED is at its target too, not changed since).
+ */
+async function mainAtTarget(
+	planned: unknown,
+	live: unknown,
+	context: LegacyContext,
+): Promise<boolean> {
+	const liveText = canonicalJson(live);
+	if (canonicalJson(planned) === liveText) return true;
+	return canonicalJson(await context.asWritten(planned)) === liveText;
+}
+
+/**
  * Plan one legacy key over its live value (see the header): its main region,
  * and — the unit's carrier only — the main's frame half. A key already at the
  * inferred pre-run value is `unchanged` BEFORE the conflict check, as on the
@@ -580,7 +602,7 @@ export async function planLegacyKey(
 	if (context.frameUnit !== null && !framesAtTarget) {
 		await assertSlotGrants(key, record, plan, context);
 	}
-	if (framesAtTarget && canonicalJson(plan.value) === canonicalJson(live)) {
+	if (framesAtTarget && (await mainAtTarget(plan.value, live, context))) {
 		return { kind: 'unchanged' };
 	}
 	if (!framesOnly && (await mainChangedSinceRun(key, live))) throw changedSinceRun(key, 'main');

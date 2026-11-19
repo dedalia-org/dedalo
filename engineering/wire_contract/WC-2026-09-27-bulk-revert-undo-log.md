@@ -1426,3 +1426,12 @@ Gate: `test/unit/tm_save_before_native.test.ts`.
   undo log under the existing exemption above (beside D4's media `files_info`): no
   `bulk_process_id`, so a revert of the run leaves the recomputed mirror (a restored
   covered slot would be recomputed anyway). Attribution to the run is open (T1-38 plan, D1).
+
+## Addendum 2026-11-18 — "exact" is the pre-run value as a save stores it (C58)
+
+Owner ruling 2026-11-18: the revert's writers pass the save's value gates — the contract change,
+the `unchanged` / `present` judgements that follow it and the typed `failed` + `code` refusal are
+`WC-2026-11-17-tm-restore-value-gates`, addendum 2026-11-18. Everything above about chains,
+conflicts, lanes and units stands; where it says a BEFORE image is restored "exactly", read: as
+the gates store it (byte-identical for every value that already passed them).
+

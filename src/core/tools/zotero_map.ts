@@ -30,6 +30,7 @@
  * WC-2026-11-12-zotero-csl-json-import.
  */
 
+import { INT4_MAX } from '../concepts/section_id.ts';
 import { DedaloError } from '../errors/index.ts';
 import {
 	CSL_DATE_VARIABLES,
@@ -280,8 +281,15 @@ function addressVariableOf(variable: string | undefined): Partial<ZoteroConfig> 
 	return { fieldToSectionId: variable };
 }
 
-/** The largest section_id a matrix row can hold (Postgres int4). */
-const MAX_SECTION_ID = 2147483647;
+/**
+ * THE IMPORT LIMIT (owner ruling 2026-11-18): the largest section_id a matrix
+ * row can hold (Postgres int4) IS the largest record number an import may name.
+ * No lower bound is drawn: an address is taken as written up to it.
+ */
+export const RECORD_NUMBER_LIMIT = INT4_MAX;
+
+/** A whole number as an address spells it: digits, no sign, no leading zero. */
+const WHOLE_NUMBER = /^[1-9]\d*$/;
 
 /**
  * THE ONE READING OF AN ADDRESS (owner ruling 2026-11-17, rule 1): `text` as a
@@ -290,9 +298,20 @@ const MAX_SECTION_ID = 2147483647;
  * decides (`'12abc'` is not 12, `'007'` is not 7; PHP's `(int)` made both).
  */
 export function recordNumberOf(text: string): number | null {
-	if (!/^[1-9]\d*$/.test(text)) return null;
+	if (!WHOLE_NUMBER.test(text)) return null;
 	const number = Number(text);
-	return number <= MAX_SECTION_ID ? number : null;
+	return number <= RECORD_NUMBER_LIMIT ? number : null;
+}
+
+/**
+ * True when `text` IS a whole number in the address spelling but lies ABOVE
+ * {@link RECORD_NUMBER_LIMIT} — the one non-address the door names apart from
+ * the rest (owner ruling 2026-11-18): the operator wrote a record number, and
+ * must be told it is past the limit, not that it "is not a number". Any length
+ * of digits (a value past the float range is still above the limit).
+ */
+export function recordNumberAboveLimit(text: string): boolean {
+	return WHOLE_NUMBER.test(text) && Number(text) > RECORD_NUMBER_LIMIT;
 }
 
 /**

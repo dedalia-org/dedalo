@@ -2555,6 +2555,67 @@ export const ERROR_REGISTRY = {
 		retryable: false,
 		details_keys: ['count', 'limit'],
 	},
+	/**
+	 * NOTICES of tool_import_zotero.import_files, never thrown (owner rulings
+	 * 2026-11-18; WC-2026-11-12-zotero-csl-json-import, addendum "the limit and the
+	 * whole section"). The run succeeded and its report lists every refused item;
+	 * these say, in the user's language, what they must act on.
+	 *
+	 * `…call_number_above_limit`: the section_id limit (int4) IS the import limit —
+	 * `count` references carry a `variable` (the config's field_to_section_id,
+	 * default `call-number`) above `limit`; `values` quotes them (the first
+	 * twenty, each cut at 80 characters). Also the `code` of each such item's
+	 * `refused` entry. `caller`: the file is wrong, the same file is refused again.
+	 */
+	'tool.zotero_call_number_above_limit': {
+		category: 'caller',
+		status: 400,
+		label_key: 'error_tool_zotero_call_number_above_limit',
+		message: 'A reference names a record number above the highest section_id; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'limit', 'values', 'variable'],
+	},
+	/**
+	 * `…record_not_writable`: `count` references name — by call-number, or by a
+	 * Zotero key that record holds — a record the importer may not change;
+	 * `section_ids` names them (ascending, the first twenty) and NOTHING they hold.
+	 * PUBLIC: the owner ruled the importer is told which record refused them; each
+	 * item's `refused` entry carries the record door's own `perm.*` code.
+	 */
+	'tool.zotero_record_not_writable': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_tool_zotero_record_not_writable',
+		message: 'A reference names a record the importer may not change; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'section_ids'],
+	},
+	/**
+	 * `…item_without_key` (owner ruling 2026-11-18, d): `count` references carry
+	 * NO Zotero key and name — by `variable` (the call-number) — a record that
+	 * already holds one. Refused, the record untouched: nothing says the item is
+	 * that reference. The label is the explanation the owner asked for — why, and
+	 * what to do (re-export with the key, or remove the `variable` to create a
+	 * new record). `section_ids` names the records (ascending, the first twenty)
+	 * and nothing they hold; only a record the importer may WRITE is ever named
+	 * (the record door is asked before the key is read). Also the `code` of each
+	 * such item's `refused` entry.
+	 */
+	'tool.zotero_item_without_key': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_zotero_item_without_key',
+		message:
+			'A reference without a Zotero key names a record that already holds one; it was not imported',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+		details_keys: ['count', 'section_ids', 'variable'],
+	},
 	// An RDF/XML document past the graph reader's bounds (src/core/tools/rdf_graph.ts:
 	// element nesting deeper than maxDepth, or more than maxTriples statements). A
 	// remote linked-data answer is untrusted input: the bound stops a hostile or
@@ -2656,17 +2717,37 @@ export const ERROR_REGISTRY = {
 	 * the stored history, not the request, is what prevents it; the same row is
 	 * refused every time. The offending value rides `coordinates` (log-only):
 	 * it is stored record data.
-	 * ALSO (C58, WC-2026-11-17-tm-restore-value-gates): a CREDENTIAL image that
-	 * is not a stored hash (a legacy v6 ciphertext, a plaintext) — a replay never
-	 * mints a hash from history bytes (write_value_gates.ts gateReplayedValue).
-	 * The value never rides the error. The label's wording is the relation
-	 * case's ("not a valid link"); the rest of it holds for both.
+	 * A credential image a replay refuses is NOT this code: it has its own
+	 * (`tool.snapshot_credential_unrestorable`) — another cause, another remedy.
 	 */
 	'tool.snapshot_unrestorable': {
 		category: 'conflict',
 		status: 409,
 		label_key: 'error_tool_snapshot_unrestorable',
 		message: 'The history entry stores a value that is not a valid link and cannot be restored',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
+	/**
+	 * A history replay (tool_time_machine.apply_value on either door, the bulk
+	 * revert's writers and its undelete) refused because the image holds a
+	 * CREDENTIAL that is not stored bytes a replay may carry — neither empty, an
+	 * Argon2 hash, nor a legacy v6 ciphertext: a plaintext a pre-gate door stored
+	 * (write_value_gates.ts assertReplayableCredential; C58,
+	 * WC-2026-11-17-tm-restore-value-gates). A replay never mints a hash from
+	 * history bytes and never writes them raw, so nothing is written. Its own
+	 * code, not `tool.snapshot_unrestorable`: that one tells the user a LINK is
+	 * malformed; here the remedy is to set a new password. `conflict`: the stored
+	 * history is what prevents it; the same row is refused every time. The value
+	 * never rides the error (`coordinates.reason` names the cause only).
+	 */
+	'tool.snapshot_credential_unrestorable': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_tool_snapshot_credential_unrestorable',
+		message:
+			'The history entry stores a password that is neither hashed nor a legacy encrypted value and cannot be restored',
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,

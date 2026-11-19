@@ -1294,5 +1294,6 @@
 	"year": "年",
 	"years": "年",
 	"yes": "はい",
-	"zoom": "ズーム"
+	"zoom": "ズーム",
+	"zotero_taken_over_at_id": "call-number のレコード番号で引き継ぎ — レコードに Zotero キーがありませんでした: "
 }

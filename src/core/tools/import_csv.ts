@@ -8,6 +8,7 @@
  * (import_csv_execute.ts) is a pure "apply the plan" step.
  */
 
+import { INT4_MAX } from '../concepts/section_id.ts';
 import { DedaloError } from '../errors/index.ts';
 import { type ConformResult, conformImportData, unwrapDedaloData } from './import_data.ts';
 
@@ -458,11 +459,45 @@ function resolveRowKey(
 	const raw = column === -1 ? '' : phpTrim(row[column] ?? '');
 	if (raw === '') return { sectionId: null, keyError: null };
 	const sectionId = parseRecordIdCell(raw);
-	if (sectionId !== null) return { sectionId, keyError: null };
-	return {
-		sectionId: null,
-		keyError: `the section_id cell is '${raw}', which is not a record id`,
-	};
+	if (sectionId !== null && sectionId <= INT4_MAX) return { sectionId, keyError: null };
+	return { sectionId: null, keyError: unusableKeySentence(raw, isAboveRecordLimit(raw)) };
+}
+
+/**
+ * Is this (trimmed) cell A WHOLE NUMBER ABOVE THE HIGHEST RECORD NUMBER?
+ *
+ * Asked of the CELL, not of `parseRecordIdCell`'s answer: that reader returns
+ * null for a digit run too long to be an exact JS integer
+ * ('99999999999999999999'), and null also means "not a record id" — so the
+ * longest numbers were told they were not numbers (review of 5628134342). The
+ * ruling is every whole number above the limit, however long.
+ *
+ * MAGNITUDE, never length: `Number()` of a digit run is monotonic even where it
+ * rounds (and Infinity past ~309 digits), so `> INT4_MAX` is exact for every
+ * run — while a count of digits would call '0000000000007' above the limit.
+ * Zero stays "not a record id".
+ */
+function isAboveRecordLimit(cell: string): boolean {
+	return RECORD_ID_CELL.test(cell) && Number(cell) > INT4_MAX;
+}
+
+/**
+ * Why a present `section_id` cell names no record — the row's own sentence.
+ *
+ * THE HIGHEST RECORD NUMBER (owner ruling 2026-11-18). A digit run that lies
+ * above the `section_id` columns' range (`aboveLimit` — isAboveRecordLimit,
+ * also a run past an exact JS integer) names no record the database can hold. It used to reach the
+ * existing-id read as written and fail the WHOLE FILE with the database's own
+ * range message; it is this row's refusal, with its own sentence (the value and
+ * the limit), and the rest of the file imports. The bound lives on the CSV
+ * column's key (resolveRowKey), not in `parseRecordIdCell`: the grammar stays
+ * the grammar, and the Zotero door keeps its own limit rule and code
+ * (zotero_map.ts).
+ */
+function unusableKeySentence(raw: string, aboveLimit: boolean): string {
+	return aboveLimit
+		? `the section_id cell is '${raw}', which is above the highest record number (${INT4_MAX})`
+		: `the section_id cell is '${raw}', which is not a record id`;
 }
 
 export async function planCsvImport(
