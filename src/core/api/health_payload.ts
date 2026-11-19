@@ -140,10 +140,7 @@ export function buildHealthPayload(options: {
 	legacyPasswordAccounts?: number | null;
 }): HealthPayload {
 	const healthy = isHealthy(options);
-	const notices: HealthNotice[] =
-		typeof options.legacyPasswordAccounts === 'number' && options.legacyPasswordAccounts > 0
-			? ['legacy_password_accounts']
-			: [];
+	const notices = healthNotices(options.legacyPasswordAccounts);
 	return {
 		result: healthy ? 'ok' : 'error',
 		entity: options.entity,
@@ -157,8 +154,17 @@ export function buildHealthPayload(options: {
 		...optional('boot_schema_moved', options.bootSchemaMoved),
 		...optional('data_version', options.dataVersion ?? undefined),
 		...optional('update_run', options.updateRun ?? undefined),
-		...optional('notices', notices.length > 0 ? notices : undefined),
+		...optional('notices', notices),
 	};
+}
+
+/** The notices to serve, or undefined when there is nothing to say (the key is then omitted). */
+function healthNotices(
+	legacyPasswordAccounts: number | null | undefined,
+): HealthNotice[] | undefined {
+	return typeof legacyPasswordAccounts === 'number' && legacyPasswordAccounts > 0
+		? ['legacy_password_accounts']
+		: undefined;
 }
 
 /**

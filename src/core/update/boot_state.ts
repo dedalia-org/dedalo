@@ -134,15 +134,28 @@ export function classifyDataVersion(
 	if (installed === null || installed.length === 0) {
 		return { state: 'unknown', installed: null, code: codeText };
 	}
-	const order = compareVersionArrays(installed, code);
-	if (order < 0 && (installed[0] ?? 0) < (lowestFrom[0] ?? 0)) {
-		return { state: 'unreachable', installed: formatVersion(installed), code: codeText };
-	}
 	return {
-		state: order === 0 ? 'ok' : order < 0 ? 'pending' : 'ahead',
+		state: stateOfInstalled(installed, code, lowestFrom),
 		installed: formatVersion(installed),
 		code: codeText,
 	};
+}
+
+/** The state of a READ, non-empty installed version (see classifyDataVersion). */
+function stateOfInstalled(
+	installed: readonly number[],
+	code: readonly number[],
+	lowestFrom: readonly number[],
+): DataVersionStateName {
+	const order = compareVersionArrays(installed, code);
+	if (order === 0) return 'ok';
+	if (order > 0) return 'ahead';
+	return majorOf(installed) < majorOf(lowestFrom) ? 'unreachable' : 'pending';
+}
+
+/** A version's major (a missing segment counts as 0, as everywhere in version.ts). */
+function majorOf(version: readonly number[]): number {
+	return version[0] ?? 0;
 }
 
 /** Where the migration of a database of an older major is documented (the manual, in the repo). */
