@@ -148,6 +148,31 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		assert.equal(sent[0].options.type, 'id', 'expected the checked radio forwarded');
 	});
 
+	it('Pelagios sends the layers left checked, and only those', async function () {
+		mount_roman({ configured: true, pleiades: false, pelagios: ['provinces', 'roads_high'] });
+		await load_roman_capabilities(tool);
+
+		const section = tool.roman_panel.querySelector('.uca-maps-roman-pelagios');
+		const boxes = section.querySelectorAll('.uca-maps-roman-dataset-checkbox');
+		assert.lengthOf(boxes, 2, 'expected the two layers the install reported');
+		boxes[0].checked = false; // provinces
+
+		const sent = [];
+		stub_tool_request(async function (options) {
+			sent.push(options);
+			return { ok: true, data: { results: [] } };
+		});
+		const input = section.querySelector('.uca-maps-roman-input');
+		assert.isFalse(input.disabled, 'expected the Pelagios field enabled by its capability');
+		input.value = 'Gades';
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		await tick(SETTLE_MS);
+
+		assert.lengthOf(sent, 1, 'expected one search');
+		assert.equal(sent[0].action, 'search_pelagios');
+		assert.deepEqual(sent[0].options.datasets, ['roads_high'], 'expected the checked layer only');
+	});
+
 	it('two Roman panels on one page keep their own Pleiades choice: each radio group has its own name', async function () {
 		mount_roman(WITH_PLEIADES);
 		// a second tool on the same page, as when two records' maps are open at once

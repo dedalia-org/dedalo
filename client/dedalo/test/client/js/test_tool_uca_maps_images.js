@@ -997,6 +997,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			'.uca-maps-object-viewer-vector-list .uca-maps-object-viewer-checkbox',
 		);
 		assert.isOk(checkbox, "expected the seeded polygon's checkbox");
+		assert.equal(checkbox.type, 'checkbox', 'expected a real checkbox, not a text field');
 		assert.equal(checkbox.checked, true, 'expected checked (visible) by default');
 
 		checkbox.checked = false;
