@@ -916,6 +916,11 @@ The **backup set is five stores** — the matrix DB alone is not a backup:
 3. **Media originals** (`MEDIA_PATH`) — the `original` quality is the source
    of truth every derivative rebuilds from; derivatives need no backup.
 4. **`../private/`** — `.env` secrets, session store, `ts_state.json`.
+   `ts_state.json` is written atomically (temp + fsync + rename). A file that
+   EXISTS but does not read as a state object fails CLOSED: maintenance mode
+   is on for every non-root session, logged once as `[server_state] … FAILING
+   CLOSED`; root saving the maintenance settings rewrites it. A missing file
+   is the defaults (`server_state_torn_native`).
 5. **Every site-builder INSTANCE on this host** — per instance: its
    declaration and `secrets/`, its workspaces root (`SITES_ROOT`: every site's
    source and full git history), each site's whole webspace (**both** release

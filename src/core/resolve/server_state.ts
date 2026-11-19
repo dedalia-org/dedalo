@@ -7,10 +7,11 @@
  * maintenance mode refuses non-superuser logins.
  */
 
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { privateDir, readEnv } from '../../config/env.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { writeFileDurably } from '../files/durable.ts';
 
 export interface ServerState {
 	maintenance_mode: boolean;
@@ -130,24 +131,83 @@ export function statePathOf(): string {
 	return readEnv('DEDALO_TS_STATE_PATH') ?? join(privateDir, 'ts_state.json');
 }
 
-export function getServerState(): ServerState {
-	try {
-		const raw = readFileSync(statePath(), 'utf8');
-		// `recovery_mode` is RETIRED (WC-2026-11-12-recovery-mode-retired): a file written
-		// before keeps it, so it is dropped here — the next setServerState rewrites it clean.
-		const { recovery_mode: _retired, ...stored } = JSON.parse(raw) as Partial<ServerState> & {
-			recovery_mode?: unknown;
-		};
-		return { ...DEFAULT_STATE, ...stored };
-	} catch {
-		return { ...DEFAULT_STATE };
+/**
+ * The state when the file EXISTS but cannot be read as a state object (torn by a
+ * crash mid-write under the pre-atomic writer, hand-edited into invalid JSON,
+ * unreadable): FAIL CLOSED. Maintenance mode is a gate on every route — the
+ * dispatcher's Gate 2b and every non-dispatch route through
+ * security/session_gate.ts — and the writers that set it (an update run, a
+ * restore) are exactly the ones a crash interrupts; answering the defaults
+ * would re-open the installation to every session mid-window, silently. Root
+ * still enters, and saving the maintenance widget rewrites the file clean.
+ * Gate: test/unit/server_state_torn_native.test.ts.
+ */
+const UNREADABLE_STATE: ServerState = { ...DEFAULT_STATE, maintenance_mode: true };
+
+/** Said once per distinct damage (the read is per request), never per call. */
+let lastUnreadableReport: string | null = null;
+
+function unreadableState(path: string, why: string): ServerState {
+	const report = `${path}\n${why}`;
+	if (report !== lastUnreadableReport) {
+		lastUnreadableReport = report;
+		console.error(
+			`[server_state] ${path} exists but is not a readable state file (${why}) — FAILING CLOSED: maintenance mode is ON for every non-root session until root saves the maintenance settings again (which rewrites the file) or the file is repaired/removed`,
+		);
 	}
+	return { ...UNREADABLE_STATE };
 }
 
+export function getServerState(): ServerState {
+	const path = statePath();
+	let raw: string;
+	try {
+		raw = readFileSync(path, 'utf8');
+	} catch (error) {
+		// No file is the legitimate first state (a box nothing wrote yet).
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+			lastUnreadableReport = null;
+			return { ...DEFAULT_STATE };
+		}
+		return unreadableState(path, (error as Error).message);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (error) {
+		return unreadableState(
+			path,
+			raw.trim() === '' ? 'the file is empty' : (error as Error).message,
+		);
+	}
+	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+		return unreadableState(path, 'the content is not a JSON object');
+	}
+	lastUnreadableReport = null;
+	// `recovery_mode` is RETIRED (WC-2026-11-12-recovery-mode-retired): a file written
+	// before keeps it, so it is dropped here — the next setServerState rewrites it clean.
+	const { recovery_mode: _retired, ...stored } = parsed as Partial<ServerState> & {
+		recovery_mode?: unknown;
+	};
+	return { ...DEFAULT_STATE, ...stored };
+}
+
+/**
+ * ATOMIC AND DURABLE (core/files/durable.ts writeFileDurably: sibling temp →
+ * fsync → rename → directory fsync): a reader, or a boot after a crash, sees the
+ * previous state or the new one — never a truncated file. The file's mode is
+ * kept (0644 on first write), since the rename replaces the inode.
+ */
 export function setServerState(patch: Partial<ServerState>): ServerState {
 	const next = { ...getServerState(), ...patch };
 	const path = statePath();
 	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(next, null, '\t')}\n`);
+	let mode = 0o644;
+	try {
+		mode = statSync(path).mode & 0o777;
+	} catch {
+		// first write
+	}
+	writeFileDurably(path, `${JSON.stringify(next, null, '\t')}\n`, { mode });
 	return next;
 }
