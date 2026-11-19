@@ -433,6 +433,35 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		);
 	});
 
+	// a second attach (a re-render, a double call) must build nothing more: two buttons
+	// on the bar, or a panel nobody can reach, are what a missing guard leaves
+	for (const attach of [
+		'attach_xyz_basemaps',
+		'attach_wms_services',
+		'attach_onexone',
+		'attach_file_upload',
+		'attach_map_image_download_control',
+		'attach_object_viewer',
+	]) {
+		it(`${attach} is idempotent: a second call adds nothing to the bar`, function () {
+			tool[attach]();
+			const built = [...tool._toolbar_nodes];
+			assert.isNotEmpty(built, 'precondition: the first call built its button');
+			const buttons = geolocation.map
+				.getContainer()
+				.querySelectorAll('.uca-maps-toolbar-button').length;
+
+			tool[attach]();
+
+			assert.deepEqual(tool._toolbar_nodes, built, 'expected the same nodes, none added');
+			assert.equal(
+				geolocation.map.getContainer().querySelectorAll('.uca-maps-toolbar-button').length,
+				buttons,
+				'expected one button on the bar',
+			);
+		});
+	}
+
 	it('the control toggles panel visibility (Show/Hide)', function () {
 		tool.attach_console();
 		const control = geolocation.map.getContainer().querySelector('.uca-maps-control');
