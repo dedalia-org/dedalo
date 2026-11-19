@@ -1,6 +1,7 @@
 ---
 name: dedalo-ts-foundation
-description: Master orientation for the Dédalo v7 TypeScript/Bun engine — READ THIS FIRST before any src/ work. Covers what the engine is (the single engine and sole writer since the 2026-07-11 cutover; the frozen PHP tree is historical reference only), the load-bearing law ("tripwire or delete") and where the tripwire index lives (engineering/TRIPWIRES.md), the subsystem/dependency map, the post-WS-C home rule (dispatch.ts = registry+gates+envelope only → api/handlers/<class>.ts; read routing in section/read_facade.ts), and the map to every sibling skill. Use when starting any src/ TS work, asking "where does X live", "how is the TS server structured", architecture/layering/boundary questions, "is there an invariant about…", checking a flagged path before touching it, or onboarding. Spec: engineering/REWRITE_SPEC.md.
+description: >-
+  Master orientation for the Dédalo v7 TypeScript/Bun engine — READ THIS FIRST before any src/ work. Covers what the engine is (the single engine and sole writer since the 2026-07-11 cutover; the frozen PHP tree is historical reference only), the load-bearing law ("tripwire or delete") and where the tripwire index lives (engineering/TRIPWIRES.md), the subsystem/dependency map, the post-WS-C home rule (dispatch.ts = registry+gates+envelope only → api/handlers/<class>.ts; read routing in section/read_facade.ts), and the map to every sibling skill. Use when starting any src/ TS work, asking "where does X live", "how is the TS server structured", architecture/layering/boundary questions, "is there an invariant about…", checking a flagged path before touching it, or onboarding. Spec: engineering/REWRITE_SPEC.md.
 ---
 
 # Dédalo v7 foundation (TypeScript/Bun engine)
