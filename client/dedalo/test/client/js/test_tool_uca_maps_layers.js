@@ -10,7 +10,10 @@
  */
 
 import { request_failed } from '../../../core/common/js/api_error.js';
-import { check_administrative_unit_at_point } from '../../../tools/tool_uca_maps/js/administrative_units.js';
+import {
+	check_administrative_unit_at_point,
+	detach_administrative_units,
+} from '../../../tools/tool_uca_maps/js/administrative_units.js';
 import { is_spanish_official_lang } from '../../../tools/tool_uca_maps/js/armed_layer.js';
 import {
 	check_catastro_at_point,
@@ -2342,89 +2345,6 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		);
 	});
 
-	it('check_catastro_at_point refuses overlapping lookups (busy guard) — only the first reaches tool_request', async function () {
-		arm_catastro();
-
-		let call_count = 0;
-		let resolve_first;
-		stub_tool_request(
-			() =>
-				new Promise((resolve) => {
-					call_count++;
-					resolve_first = () => resolve({ ok: true, data: { found: false } });
-				}),
-		);
-
-		const first = check_catastro_at_point(tool, L.latLng(40.15, -3.65));
-		const second = check_catastro_at_point(tool, L.latLng(40.16, -3.66)); // dropped: busy
-
-		resolve_first();
-		await Promise.all([first, second]);
-
-		assert.equal(
-			call_count,
-			1,
-			'expected the second, overlapping lookup never to reach tool_request',
-		);
-	});
-
-	it('detach_catastro removes the button AND keeps the basemap on the live map', async function () {
-		geolocation.section_lang = 'lg-spa';
-		offer_catastro();
-		tool.attach_catastro();
-
-		const previous_base_layer = find_active_tile_layer(geolocation.map);
-		tool.catastro_control.getContainer().click(); // arm
-		const tile_layer = tool._catastro_tile_layer;
-		const map_container_node = geolocation.map.getContainer();
-
-		await tool.destroy(false, false, false);
-
-		assert.equal(tool.catastro_control, null, 'expected catastro_control cleared');
-		assert.isNotOk(
-			map_container_node.querySelector('.uca-maps-catastro-control'),
-			'expected the button removed from the DOM',
-		);
-		assert.equal(
-			geolocation.map.hasLayer(tile_layer),
-			false,
-			'expected the cadastral layer removed from the map',
-		);
-		assert.equal(
-			geolocation.map.hasLayer(previous_base_layer),
-			true,
-			'expected the basemap still on the map after teardown, not left blank',
-		);
-	});
-
-	// a parcel drawn after the disarm would land on a map no longer in Catastro mode
-	it('check_catastro_at_point drops a response that arrives after the user disarms Catastro mid-request', async function () {
-		arm_catastro();
-
-		let resolve_tool_request;
-		stub_tool_request(
-			() =>
-				new Promise((resolve) => {
-					resolve_tool_request = resolve;
-				}),
-		);
-
-		const before_layer_count = active_group().getLayers().length;
-		const pending = check_catastro_at_point(tool, L.latLng(40.15, -3.65));
-
-		tool.catastro_control.getContainer().click(); // disarm WHILE the request is in flight
-		assert.equal(is_catastro_enabled(tool), false, 'expected Catastro disarmed');
-
-		resolve_tool_request({ ok: true, data: parcel_found() });
-		await pending;
-
-		assert.equal(
-			active_group().getLayers().length,
-			before_layer_count,
-			'expected the late "found" response NOT to create a parcel after Catastro was disarmed',
-		);
-	});
-
 	// UA exists only for es/cat/eus; opening its panel is arming it
 	const arm_ua = function () {
 		geolocation.section_lang = 'lg-spa';
@@ -2689,9 +2609,46 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		});
 
 		// a click while a lookup runs, or while Geoman edits a shape, is not a lookup
-		it('check_administrative_unit_at_point asks nothing while a lookup is in flight or Geoman is editing', async function () {
-			arm_ua();
+	});
 
+	// armed_layer.js, shared by Catastro and UA: a map click is the lookup, and disarming
+	// undoes all of it. Catastro arms core's own checkbox (`core`); UA without a configured
+	// source adds the built-in, and the layer control it had to create for it
+	// `check` is the lookup a click runs; `found` a late answer it must drop once
+	// disarmed, and `drawn` what that answer would have changed
+	for (const armed of [
+		{
+			key: 'catastro',
+			attach: 'attach_catastro',
+			arm: () => arm_catastro(),
+			control: 'catastro_control',
+			panel: null,
+			button: '.uca-maps-catastro-control',
+			action: 'get_catastro_parcel',
+			check: (latlng) => check_catastro_at_point(tool, latlng),
+			found: () => parcel_found(),
+			drawn: () => active_group().getLayers().length,
+			core: true,
+		},
+		{
+			key: 'ua',
+			attach: 'attach_administrative_units',
+			arm: () => arm_ua(),
+			control: 'ua_control',
+			panel: 'ua_panel',
+			button: '.uca-maps-ua-control',
+			action: 'get_administrative_unit',
+			check: (latlng) => check_administrative_unit_at_point(tool, latlng),
+			found: () => ({ found: true, unit: { name: 'Late unit', level: 'Provincia', code: null } }),
+			drawn: () => {
+				const message = tool.ua_panel.querySelector('.uca-maps-ua-message');
+				return [message.hidden, message.textContent];
+			},
+			core: false,
+		},
+	]) {
+		it(`${armed.key}: one lookup at a time, and none while Geoman is editing`, async function () {
+			armed.arm();
 			let call_count = 0;
 			let resolve_first = null;
 			stub_tool_request(
@@ -2702,8 +2659,8 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 					}),
 			);
 
-			const first = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65));
-			await check_administrative_unit_at_point(tool, L.latLng(40.46, -3.66)); // dropped: busy
+			const first = armed.check(L.latLng(40.45, -3.65));
+			await armed.check(L.latLng(40.46, -3.66)); // dropped: busy
 			assert.equal(call_count, 1, 'expected the overlapping lookup never to reach tool_request');
 			resolve_first();
 			await first;
@@ -2711,23 +2668,21 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			const original_global_edit_mode_enabled = geolocation.map.pm.globalEditModeEnabled;
 			geolocation.map.pm.globalEditModeEnabled = () => true;
 			try {
-				await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65));
+				await armed.check(L.latLng(40.45, -3.65));
 			} finally {
 				geolocation.map.pm.globalEditModeEnabled = original_global_edit_mode_enabled;
 			}
 			assert.equal(call_count, 1, 'expected no lookup while Geoman is in global edit mode');
 
 			// control: idle and not editing, a click asks again
-			const control = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65));
+			const control = armed.check(L.latLng(40.45, -3.65));
 			assert.equal(call_count, 2, 'expected an idle click to reach tool_request');
 			resolve_first();
 			await control;
 		});
 
-		// closed by its own toggle here; a sibling panel's close disarms through on_hide
-		it('check_administrative_unit_at_point drops a response that arrives after the UA panel is closed mid-request', async function () {
-			arm_ua();
-
+		it(`${armed.key}: an answer that arrives after disarming is dropped`, async function () {
+			armed.arm();
 			let resolve_tool_request;
 			stub_tool_request(
 				() =>
@@ -2736,74 +2691,43 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 					}),
 			);
 
-			const pending = check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65));
+			const before = armed.drawn();
+			const pending = armed.check(L.latLng(40.15, -3.65));
+			tool[armed.control].getContainer().click(); // disarm WHILE the request is in flight
+			assert.isNull(tool._armed_layer, 'expected nothing armed');
 
-			tool.ua_control.getContainer().click(); // close WHILE the request is in flight
-			assert.equal(tool.ua_panel.hidden, true, 'expected the panel closed');
-
-			resolve_tool_request({
-				ok: true,
-				data: { found: true, unit: { name: 'Late unit', level: 'Provincia', code: null } },
-			});
+			resolve_tool_request({ ok: true, data: armed.found() });
 			await pending;
-
-			const message = tool.ua_panel.querySelector('.uca-maps-ua-message');
-			assert.equal(
-				message.hidden,
-				true,
-				'expected the late "found" response NOT written into the closed panel',
-			);
+			assert.deepEqual(armed.drawn(), before, 'expected the late answer to change nothing');
 		});
 
-		it('detach_administrative_units removes the button/panel AND keeps the basemap on the live map', async function () {
+		it(`${armed.key}: detach removes the button and its layer, and keeps the basemap on the live map`, async function () {
 			geolocation.section_lang = 'lg-spa';
-			tool.attach_administrative_units();
-
-			const previous_base_layer = find_active_tile_layer(geolocation.map);
-			tool.ua_control.getContainer().click(); // arm
-			const tile_layer = tool._ua_tile_layer;
+			offer_catastro();
+			tool[armed.attach]();
+			const previous_base_layer = find_active_tile_layer(geolocation.map); // before arming
+			tool[armed.control].getContainer().click(); // arm
+			const tile_layer = tool[`_${armed.key}_tile_layer`];
+			assert.isOk(tile_layer, 'precondition: the layer armed');
 			const map_container_node = geolocation.map.getContainer();
 
 			await tool.destroy(false, false, false);
 
-			assert.equal(tool.ua_control, null, 'expected ua_control cleared');
-			assert.equal(tool.ua_panel, null, 'expected ua_panel cleared');
-			assert.isNotOk(
-				map_container_node.querySelector('.uca-maps-ua-control'),
+			assert.isNull(tool[armed.control], `expected ${armed.control} cleared`);
+			if (armed.panel) {
+				assert.isNull(tool[armed.panel], `expected ${armed.panel} cleared`);
+			}
+			assert.isNull(
+				map_container_node.querySelector(armed.button),
 				'expected the button removed from the DOM',
 			);
-			assert.equal(
-				geolocation.map.hasLayer(tile_layer),
-				false,
-				'expected the administrative-units layer removed from the map',
-			);
-			assert.equal(
+			assert.isFalse(geolocation.map.hasLayer(tile_layer), 'expected the layer off the map');
+			assert.isTrue(
 				geolocation.map.hasLayer(previous_base_layer),
-				true,
 				'expected the basemap still on the map after teardown, not left blank',
 			);
 		});
-	});
 
-	// armed_layer.js, shared by Catastro and UA: a map click is the lookup, and disarming
-	// undoes all of it. Catastro arms core's own checkbox (`core`); UA without a configured
-	// source adds the built-in, and the layer control it had to create for it
-	for (const armed of [
-		{
-			key: 'catastro',
-			attach: 'attach_catastro',
-			control: 'catastro_control',
-			action: 'get_catastro_parcel',
-			core: true,
-		},
-		{
-			key: 'ua',
-			attach: 'attach_administrative_units',
-			control: 'ua_control',
-			action: 'get_administrative_unit',
-			core: false,
-		},
-	]) {
 		it(`${armed.key}: a map click asks with the view and clicked pixel; disarming unhooks the click and the layer`, async function () {
 			const map = geolocation.map;
 			const toggle = () => tool[armed.control].getContainer().click();
@@ -2848,7 +2772,9 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 				y: point.y,
 			});
 
+			assert.equal(tool._armed_layer?.key, armed.key, 'expected it the armed layer');
 			toggle(); // disarm
+			assert.isNull(tool._armed_layer, 'expected the armed slot freed');
 			assert.isFalse(map.listens('click', armed_handler), 'expected the map click unhooked');
 			assert.strictEqual(
 				geolocation.layer_control,
@@ -2865,6 +2791,18 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			);
 		});
 	}
+
+	// one armed slot for both: taking one feature down must not free the other's
+	it('detaching UA leaves Catastro armed, and its slot still answers for it', function () {
+		arm_catastro();
+		tool.attach_administrative_units();
+		assert.equal(tool._armed_layer?.key, 'catastro', 'precondition: Catastro armed');
+
+		detach_administrative_units(tool);
+
+		assert.equal(tool._armed_layer?.key, 'catastro', "expected Catastro's armed slot kept");
+		assert.isTrue(is_catastro_enabled(tool), 'expected Catastro still armed');
+	});
 
 	// UA's built-in is the tool's own layer: it joins whatever control the map has, or
 	// one it creates, and only the one it created leaves with it
