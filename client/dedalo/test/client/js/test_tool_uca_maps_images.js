@@ -283,11 +283,24 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			return real_tool_request(options);
 		});
 
+		// the refusal is an answer, not a throw: the catch-all would also give two lines
+		const unexpected = [];
+		const original_error = console.error;
+		console.error = (...args) => unexpected.push(String(args[0]));
 		let result = null;
-		await with_to_blob_stub(async () => {
-			result = await download_map_image(tool, 'jpg');
-		});
+		try {
+			await with_to_blob_stub(async () => {
+				result = await download_map_image(tool, 'jpg');
+			});
+		} finally {
+			console.error = original_error;
+		}
 
+		assert.deepEqual(
+			unexpected.filter((line) => line.includes('failed unexpectedly')),
+			[],
+			'expected the refusal handled, not thrown',
+		);
 		assert.isFalse(result.ok, 'expected the download refused');
 		const [lead, reason] = result.error.split('\n');
 		assert.equal(lead, 'The map image could not be downloaded.');
@@ -3139,6 +3152,72 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		}
 		assert.deepEqual(object_images(layer), [], 'expected nothing hung off the object');
 		assert.equal(released.length, rows.length, 'expected both staged files released');
+	});
+
+	// the three outcomes the panel tells apart, each ending with the image on the map
+	it('an accepted image lands on the map, placed, over the view, or over the view for want of GDAL', async function () {
+		tool.attach_file_upload();
+		const CORNERS = {
+			top_left: [40.46, -3.66],
+			top_right: [40.46, -3.64],
+			bottom_left: [40.44, -3.66],
+		};
+		const rows = [
+			{
+				label: 'placed by its own coordinates',
+				answer: { georeferenced: true, corners: CORNERS },
+				result: { ok: true, georeferenced: true, georeference_unavailable: false },
+			},
+			{
+				label: 'no coordinates',
+				answer: { georeferenced: false, corners: null },
+				result: { ok: true, georeferenced: false, georeference_unavailable: false },
+			},
+			{
+				label: 'GDAL missing',
+				answer: { georeferenced: false, georeference_unavailable: true, corners: null },
+				result: { ok: true, georeferenced: false, georeference_unavailable: true },
+			},
+		];
+		const seen = stub_image_record_doors(
+			9200,
+			() => ({ ok: true, data: true }),
+			() => ({ ok: true, data: [] }),
+		);
+		const carrier_of = (file_path) => {
+			let found = null;
+			geolocation.map.eachLayer((layer) => {
+				if (layer.feature?.properties?.uca_maps?.image?.file_path === file_path) found = layer;
+			});
+			return found;
+		};
+		try {
+			for (const [index, row] of rows.entries()) {
+				const file_path = `/image/1.5MB/0/rsc29_rsc170_${9200 + index}.jpg`;
+				stub_tool_request(async function (options) {
+					if (options.action !== 'get_image_overlay') {
+						return real_tool_request(options);
+					}
+					return { ok: true, data: { file_path, quality: '1.5MB', ...row.answer } };
+				});
+				assert.deepEqual(await tool.upload_image_file(one_pixel_png()), row.result, row.label);
+				await settle_map(geolocation.map);
+
+				const carrier = carrier_of(file_path);
+				assert.isOk(carrier, `expected the image's carrier on the map: ${row.label}`);
+				assert.isOk(await await_overlay(carrier), `expected its overlay drawn: ${row.label}`);
+				assert.isTrue(geolocation.map.hasLayer(carrier._uca_maps_overlay), row.label);
+				if (row.answer.corners) {
+					assert.deepEqual(
+						carrier.feature.properties.uca_maps.image.corners,
+						CORNERS,
+						"expected the server's corners kept",
+					);
+				}
+			}
+		} finally {
+			await seen.restore();
+		}
 	});
 
 	// a link can fail past the stage too: a stage that names no file, or an
