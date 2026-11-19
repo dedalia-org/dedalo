@@ -612,6 +612,31 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		);
 	});
 
+	// what the bar is for: its drawn width, measured on the ground at the map's centre,
+	// is the distance its last label names (to a pixel's worth of rounding)
+	it('the scale bar measures a real distance: its width on the ground is what its label says', function () {
+		tool.attach_scale_bar();
+		const map = geolocation.map;
+		const scale = map.getContainer().querySelector('.uca-maps-scale');
+		const width = parseFloat(scale.querySelector('.uca-maps-scale-rows').style.width);
+		assert.isAbove(width, 0, 'expected the bar drawn with a width');
+
+		const labels = scale.querySelectorAll('.uca-maps-scale-label');
+		const last = labels[labels.length - 1].textContent;
+		const match = /^([\d.]+) (m|km)$/.exec(last);
+		assert.isOk(match, `expected a distance with its unit, got "${last}"`);
+		const labelled = Number(match[1]) * (match[2] === 'km' ? 1000 : 1);
+		assert.isAbove(labelled, 0, 'expected a distance, not zero');
+
+		const y = map.getSize().y / 2;
+		const ground = map.distance(
+			map.containerPointToLatLng([0, y]),
+			map.containerPointToLatLng([width, y]),
+		);
+		const per_pixel = ground / width;
+		assert.closeTo(ground, labelled, per_pixel, 'expected the bar as long as its label says');
+	});
+
 	it('the scale redraws on every map move — a bar frozen at the old view lies about the map', function () {
 		tool.attach_scale_bar();
 
