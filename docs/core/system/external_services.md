@@ -86,8 +86,8 @@ definition, and `zenon8` is the column set a list view uses.
 | Key | Meaning |
 | --- | --- |
 | `entity` | Which service adapter handles this section. It must match a registered adapter name exactly; an unknown name is a loud error, never an empty field. |
-| `api_url` | The per-record endpoint the **server** calls. Its host must be allowed in the install's configuration (see step 4). |
-| `api_url_search` | The search endpoint, when the service has one. Optional. |
+| `api_url` | The per-record endpoint the **server** calls. Its host must be allowed in the install's configuration (see step 4). No query string and no fragment: the adapter builds the query, and a URL carrying `?…` or `#…` refuses the whole block. It is never sent to the browser. |
+| `api_url_search` | The search endpoint, when the service has one. Optional. Same rules as `api_url`. |
 | `ui_base_url` | The human-facing page for a record, used to build a link a curator can click. It is opened by the **browser**, so it must be an `http`/`https` address. |
 | `response_map` | Local role → remote payload key. The entry whose `local` is `ar_records` names the array of records in the response. |
 

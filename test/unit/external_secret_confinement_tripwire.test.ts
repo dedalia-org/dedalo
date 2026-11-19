@@ -238,6 +238,97 @@ describe('(c) positive control — a hostile api_config is stripped or refused',
 	});
 });
 
+describe('(e) the URLs THIS SERVER fetches stay on the server, and carry no query (T2 S09-c)', () => {
+	/**
+	 * `api_url` / `api_url_search` are fetched by the server (the outbound door);
+	 * no client code reads them. Publishing them told every reader of the section
+	 * where the server goes — and a key pasted into the URL as `?apikey=…` (the
+	 * usual shape of a "simple" API credential) rode along, past the credential
+	 * strip, which judges KEY NAMES. So: neither URL is published, and a query
+	 * string or a fragment on either is refused at parse — the adapter builds the
+	 * query, a credential goes in a `scope:'secret'` catalog key.
+	 */
+	const base = {
+		entity: 'zenon',
+		api_url: `https://${ALLOWED_HOST}/api/v1/record`,
+		api_url_search: `https://${ALLOWED_HOST}/api/v1/search`,
+		ui_base_url: `https://${ALLOWED_HOST}/Record/`,
+		response_map: [{ local: 'ar_records', remote: 'records' }],
+	};
+	const SECRET = 'QUERY-SECRET-VALUE-7731';
+	const QUERY_BEARING: Record<string, Record<string, unknown>> = {
+		'api_url with a query': { api_url: `${base.api_url}?apikey=${SECRET}` },
+		'api_url_search with a query': { api_url_search: `${base.api_url_search}?token=${SECRET}` },
+		'api_url with a fragment': { api_url: `${base.api_url}#${SECRET}` },
+		'api_url_search with a fragment': { api_url_search: `${base.api_url_search}#${SECRET}` },
+		'api_url with an empty query': { api_url: `${base.api_url}?` },
+	};
+
+	test('CONTROL: the clean binding parses, and publishes WITHOUT the fetched URLs', () => {
+		const parsed = parseApiConfig(base, { sectionTipo: 'zzexternal1' });
+		expect(parsed.apiUrl).toBe(base.api_url);
+		expect(parsed.apiUrlSearch).toBe(base.api_url_search);
+		const published = publishApiConfig(base, { sectionTipo: 'zzexternal1' });
+		expect(published).toEqual({
+			entity: 'zenon',
+			ui_base_url: base.ui_base_url,
+			response_map: base.response_map,
+		} as never);
+		expect(JSON.stringify(published)).not.toContain('/api/v1/');
+	});
+
+	for (const [name, patch] of Object.entries(QUERY_BEARING)) {
+		test(`${name}: REFUSED at parse (bad_config), its value in no message, and never published`, () => {
+			const hostile = { ...base, ...patch };
+			const error = (() => {
+				try {
+					parseApiConfig(hostile, { sectionTipo: 'zzexternal1' });
+					return null;
+				} catch (thrown) {
+					return thrown as ExternalServiceError;
+				}
+			})();
+			expect(error).toBeInstanceOf(ExternalServiceError);
+			expect(error?.kind).toBe('bad_config');
+			expect(error?.message).not.toContain(SECRET);
+			// Publication path 1, and path 2 (the structure-context echo).
+			const quiet = console.warn;
+			const warned: string[] = [];
+			console.warn = (...args: unknown[]) => {
+				warned.push(args.map(String).join(' '));
+			};
+			try {
+				const published = publishApiConfig(hostile, { sectionTipo: 'zzexternal1' });
+				// A binding the server itself refuses is not half-published.
+				expect(published).toBeNull();
+				const { properties } = resolveEmittedPropertiesAndCss({
+					model: 'section',
+					mode: 'edit',
+					tipo: 'zzexternal1',
+					ownProperties: { color: '#6c72b6', api_config: hostile },
+					sectionListChildProperties: null,
+					sectionProperties: null,
+				});
+				expect(JSON.stringify(properties)).not.toContain(SECRET);
+				expect('api_config' in properties).toBe(false);
+				expect(properties.color).toBe('#6c72b6');
+			} finally {
+				console.warn = quiet;
+			}
+			// The refusal's log line names the field, never the value.
+			expect(warned.join('\n')).not.toContain(SECRET);
+		});
+	}
+
+	test('a query on `ui_base_url` is NOT this rule’s (it is rendered, not fetched): the binding still parses', () => {
+		const parsed = parseApiConfig(
+			{ ...base, ui_base_url: `https://${ALLOWED_HOST}/Record/?lng=en&id=` },
+			{ sectionTipo: 'zzexternal1' },
+		);
+		expect(parsed.uiBaseUrl).toBe(`https://${ALLOWED_HOST}/Record/?lng=en&id=`);
+	});
+});
+
 describe('(d) the positive control drives BOTH publication paths', () => {
 	/**
 	 * The same hostile object as (c), plus the two shapes only a PUBLICATION
@@ -259,13 +350,7 @@ describe('(d) the positive control drives BOTH publication paths', () => {
 	/** PATH 1 — request_config[].api_config (core/relations/request_config/external.ts). */
 	test('path 1 (request_config): only the publishable keys survive', () => {
 		const published = publishApiConfig(hostile, { sectionTipo: 'zzexternal1' });
-		expect(Object.keys(published ?? {}).sort()).toEqual([
-			'api_url',
-			'api_url_search',
-			'entity',
-			'response_map',
-			'ui_base_url',
-		]);
+		expect(Object.keys(published ?? {}).sort()).toEqual(['entity', 'response_map', 'ui_base_url']);
 		const serialized = JSON.stringify(published);
 		expect(serialized).not.toContain('SUPER-SECRET-VALUE');
 		expect(serialized).not.toContain('another-secret');
@@ -299,8 +384,6 @@ describe('(d) the positive control drives BOTH publication paths', () => {
 		// The echo keeps everything else verbatim.
 		expect(properties.color).toBe('#6c72b6');
 		expect(Object.keys(properties.api_config as object).sort()).toEqual([
-			'api_url',
-			'api_url_search',
 			'entity',
 			'response_map',
 			'ui_base_url',

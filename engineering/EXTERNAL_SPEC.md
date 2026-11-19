@@ -118,8 +118,13 @@ of truth: no engine path reads a CALLER's copy.
 ```
 
 - `entity` — the registry key. Unknown ⇒ `ExternalServiceNotRegisteredError`.
-- `api_url` / `api_url_search` — FETCHED by this server. The binding checks
-  their SHAPE only (parseable http(s), no embedded credentials); WHERE the
+- `api_url` / `api_url_search` — FETCHED by this server, and NEVER PUBLISHED
+  (2026-11-19, `WC-2026-11-19-external-api-url-unpublished`: no client code
+  reads them). The binding checks their SHAPE only (parseable http(s), no
+  embedded credentials, NO query string and NO fragment — the adapter builds
+  the query, and a key pasted into the URL as `?apikey=…` is a credential the
+  key-name strip cannot see; refused `bad_config` naming the field, never the
+  value); WHERE the
   server may go is decided at the outbound door, step 3 of §5 (the host
   allowlist `DEDALO_EXTERNAL_ALLOWED_HOSTS`, before any DNS), and nowhere
   else. A non-allowlisted host therefore still PARSES: the binding answers
@@ -644,13 +649,14 @@ readable through ordinary section reads. Therefore:
 shaper `publishApiConfig`: the parsed `request_config[].api_config`
 (`relations/request_config/external.ts`) and the structure-context
 emitted-properties echo (`resolve/structure_context.ts`). It guarantees, in
-order: credential strip → a publishable-key ALLOWLIST (only an allowlist catches
-a future `internal_admin_url`) → URL vetting, with ONE bad field refusing the
+order: credential strip → a publishable-key ALLOWLIST (`entity`, `ui_base_url`,
+`response_map` — only an allowlist catches a future `internal_admin_url`; the
+server-fetched `api_url` / `api_url_search` are vetted and left out) → URL vetting, with ONE bad field refusing the
 WHOLE object, because a half-published binding is a trap. It NEVER THROWS: both
 call sites are read paths whose job is to render a form.
 
-No host allowlist applies on publication: those URLs are fetched by the
-CURATOR'S BROWSER, a different trust boundary, and gating them on the server's
+No host allowlist applies on publication: the one published URL (`ui_base_url`)
+is opened by the CURATOR'S BROWSER, a different trust boundary, and gating them on the server's
 egress list would silently break a working catalogue link on every install that
 has not opted into server-side fetching.
 

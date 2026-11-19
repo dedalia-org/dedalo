@@ -1291,6 +1291,14 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **An external service's API addresses are no longer sent to the browser, and may not carry a query string**
+
+    A section bound to an external record service declares the service's addresses in its `api_config`: `api_url`, `api_url_search` and `ui_base_url`. The first two are called by the Dédalo server, never by the browser, yet both were sent to every browser that opened the section — and an access key written into one of them as `?apikey=…` went with it.
+
+    Now only `entity`, `ui_base_url` and `response_map` are sent. `api_url` and `api_url_search` stay on the server, and one that carries a query string or a fragment (`?…`, `#…`) is refused: the section's external binding is refused as misconfigured until the address is corrected, and the server log names the field (never its value). No ontology shipped with Dédalo is affected. If one of your own sections declares such an address, remove the query from it; a service credential belongs in `../private/.env`, never in the ontology. See [External services](./core/system/external_services.md).
+
+    Wire contract: `WC-2026-11-19-external-api-url-unpublished`.
+
 - **Maintenance mode now closes every route to non-root sessions, not only the API**
 
     While maintenance mode was on, the API refused every session but `root`'s, but the routes that do not go through the API still answered a logged-in user: media and staged-upload files, model weights, the text-area tag redirect, a file upload, the environment view and — for a global administrator — the raw record view, the counters and the hierarchy dump download.
@@ -1985,7 +1993,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 85 entries"
+??? note "Wire contract — 86 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2072,6 +2080,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
+    - `WC-2026-11-19-external-api-url-unpublished`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

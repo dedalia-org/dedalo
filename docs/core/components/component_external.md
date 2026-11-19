@@ -333,8 +333,11 @@ all external components in that section:
   (request shape, identifier form, named formats). It must match a registered
   adapter exactly; an unknown key is a loud error, never an empty component.
   Documented entity: `zenon`.
-- `api_url` — per-record endpoint, called by the **server**. Its host must be
-  in the install's outbound allowlist or the whole binding is refused.
+- `api_url` — per-record endpoint, called by the **server** and never sent to
+  the browser. Its host must be in the install's outbound allowlist before the
+  server will call it. It may carry no query string and no fragment (the
+  adapter builds the query; a key pasted into the URL is a credential in
+  cataloguing data): a URL with `?…` or `#…` refuses the whole binding.
 - `api_url_search` *(optional)* — the service's search endpoint, when it has
   one. Server-side external search is not implemented yet (see the status note
   above), so nothing in the engine calls it today.
