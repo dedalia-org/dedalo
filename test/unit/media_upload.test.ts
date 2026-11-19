@@ -680,7 +680,10 @@ describe('interrupted join — parts survive, and a stale assembly is recovered'
 		writeFileSync(join(upDir, 'assembled'), 'partial');
 		await expect(call()).rejects.toThrow(/already being assembled/);
 		// A CONFLICT (409, retryable) — the competing join finishes and the retry works.
-		expect((await refusalOf(call())).code).toBe('media.upload_conflict');
+		const conflict = await refusalOf(call());
+		expect(conflict.code).toBe('media.upload_assembling');
+		// It carries the output's size: the client's poll reads a change as progress.
+		expect(conflict.details?.assembled_bytes).toBe('partial'.length);
 		// Both parts are still there — the interrupted attempt destroyed nothing.
 		expect(existsSync(join(upDir, '0.part'))).toBe(true);
 		expect(existsSync(join(upDir, '1.part'))).toBe(true);
@@ -692,6 +695,88 @@ describe('interrupted join — parts survive, and a stale assembly is recovered'
 		const joined = (await call()) as { complete: boolean; tmpName?: string };
 		expect(joined.complete).toBe(true);
 		// And the recovered file is the WHOLE transfer, not the partial wreckage.
+		expect(readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string))).toEqual(
+			Buffer.from(bytes),
+		);
+	});
+
+	/** Stages a two-part transfer and returns its dir + a join call. */
+	const stage = (fileName: string) => {
+		const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0x41, 0x42, 0x43, 0xff, 0xd9]);
+		const base = { keyDir: KEY, fileName, chunked: true, totalChunks: 2 };
+		const first = receiveUpload(parsed({ ...base, chunkIndex: 0 }, bytes.slice(0, 4)), USER, ROOT);
+		receiveUpload(parsed({ ...base, chunkIndex: 1 }, bytes.slice(4)), USER, ROOT);
+		const upDir = join(stagingDir(USER, KEY, ROOT), `.up_${first.uploadId}`);
+		const call = () =>
+			joinChunkedUpload({
+				keyDir: KEY,
+				tmpName: fileName,
+				totalChunks: 2,
+				userId: USER,
+				uploadId: first.uploadId,
+				mediaRoot: ROOT,
+			}) as Promise<{ complete: boolean; tmpName?: string }>;
+		return { bytes, upDir, call };
+	};
+
+	test('a FRESH output is taken over at once only when its writer is PROVABLY dead', async () => {
+		const { writeFileSync } = await import('node:fs');
+		const { hostname } = await import('node:os');
+		const exited = Bun.spawn(['true']);
+		await exited.exited;
+		const deadPid = exited.pid; // a pid nobody holds any more
+		const host = hostname();
+		const cases: { name: string; owner: string; recovered: boolean }[] = [
+			// a restart: the writer's process is gone
+			{ name: 'dead pid', owner: JSON.stringify({ host, pid: deadPid, writer: 'w-old' }), recovered: true },
+			// a container restart reuses the pid: same pid, another process instance
+			{ name: 'own pid', owner: JSON.stringify({ host, pid: process.pid, writer: 'w-old' }), recovered: true },
+			// a LIVE second process on this host: never taken over (two writers corrupt the file)
+			{ name: 'live pid', owner: JSON.stringify({ host, pid: process.ppid, writer: 'w-other' }), recovered: false },
+			// another host sharing the media root: its pids prove nothing here
+			{ name: 'other host', owner: JSON.stringify({ host: `${host}-elsewhere`, pid: deadPid, writer: 'w' }), recovered: false },
+			// no readable identity: the age rule decides
+			{ name: 'legacy', owner: 'a-previous-process', recovered: false },
+		];
+		for (const { name, owner, recovered } of cases) {
+			const { bytes, upDir, call } = stage(`writer_${name.replace(' ', '_')}.jpg`);
+			writeFileSync(join(upDir, 'assembled'), 'partial');
+			writeFileSync(join(upDir, 'assembled.owner'), owner);
+			if (recovered) {
+				const joined = await call();
+				expect(joined.complete, name).toBe(true);
+				expect(readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string)), name).toEqual(
+					Buffer.from(bytes),
+				);
+			} else {
+				expect((await refusalOf(call())).code, name).toBe('media.upload_assembling');
+			}
+		}
+	});
+
+	test('a join that failed unheard is answered ONCE, so the poll ends instead of re-copying forever', async () => {
+		const { mkdirSync, writeFileSync } = await import('node:fs');
+		const { bytes, upDir, call } = stage('failing.jpg');
+		// An I/O failure in the copy (a directory where a part should be: EISDIR,
+		// the same shape as ENOSPC — untyped, raised after the output was claimed).
+		const part = join(upDir, '1.part');
+		rmSync(part);
+		mkdirSync(part);
+		let raw: unknown = null;
+		try {
+			await call();
+		} catch (error) {
+			raw = error;
+		}
+		expect((raw as NodeJS.ErrnoException | null)?.code).toBe('EISDIR');
+		// Fixed underneath (the operator freed the disk): the NEXT join still answers
+		// the failure the client never heard — a non-retryable code that ends the poll.
+		rmSync(part, { recursive: true });
+		writeFileSync(part, bytes.slice(4));
+		expect((await refusalOf(call())).code).toBe('media.action_failed');
+		// Consumed: a later join assembles normally.
+		const joined = await call();
+		expect(joined.complete).toBe(true);
 		expect(readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string))).toEqual(
 			Buffer.from(bytes),
 		);
@@ -722,7 +807,7 @@ describe('resent join — idempotent per upload_id', () => {
 		const uploadId = stageTwoParts('resend.jpg');
 		const running = join2('resend.jpg', uploadId);
 		// The first join holds the assembly output until it settles.
-		expect((await refusalOf(join2('resend.jpg', uploadId))).code).toBe('media.upload_conflict');
+		expect((await refusalOf(join2('resend.jpg', uploadId))).code).toBe('media.upload_assembling');
 		const first = await running;
 		const again = await join2('resend.jpg', uploadId);
 		expect(again).toEqual(first);

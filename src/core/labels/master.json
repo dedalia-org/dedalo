@@ -267,6 +267,7 @@
 	"error_media_stem_locked": "The file name cannot be changed while media files exist under it (${files}): delete the media first, then rename",
 	"error_media_too_large": "The file is larger than the allowed maximum",
 	"error_media_unsupported_operation": "This media operation is not supported for this component",
+	"error_media_upload_assembling": "The upload is still being assembled (${assembled_bytes} bytes written so far)",
 	"error_media_upload_conflict": "The upload conflicts with another staged transfer",
 	"error_media_upload_rejected": "Upload rejected",
 	"error_observers_refresh_refused": "You may not refresh this external data here; the stored data is shown",

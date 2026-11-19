@@ -37,6 +37,7 @@ import {
 } from '../../../core/common/js/api_error.js'
 import {fetch_api} from '../../../core/common/js/api_transport.js'
 import {data_manager} from '../../../core/common/js/data_manager.js'
+import {join_chunked_files} from '../../../core/services/service_upload/js/upload_transport.js'
 import {event_manager} from '../../../core/common/js/event_manager.js'
 
 
@@ -358,6 +359,32 @@ describe('DATA_MANAGER.request — the envelope it resolves', function() {
 		assert.deepEqual(at_publish, ['tool_zz_probe', null, null, null, null], 'stamped before the page subscriber could toast; only a tool_request body names a tool')
 	})
 
+	it('silent_error: a matching failure is returned but not published nor logged; any other still is', async function() {
+		const refusal = (code) => ({ok: false, request_id: 'rq-silent', error: {code, message: 'm', label_key: 'error', retryable: true}})
+		const published = []
+		const logged = []
+		const token = event_manager.subscribe('api_error', (api_error) => { published.push(api_error.code) })
+		const original_console_error = console.error
+		console.error = (...args) => { logged.push(String(args[0])) }
+		try {
+			let code = 'media.upload_conflict'
+			await with_stubbed_fetch(async () => json_response(refusal(code), 409), async () => {
+				const silent_error = (api_error) => api_error.code === 'media.upload_conflict'
+				const quiet = await data_manager.request({body: {action: 'zz_poll'}, retries: 1, silent_error})
+				assert.equal(quiet.error.code, 'media.upload_conflict', 'the caller still gets the failure')
+				code = 'rate.limited'
+				const loud = await data_manager.request({body: {action: 'zz_poll'}, retries: 1, silent_error})
+				assert.equal(loud.error.code, 'rate.limited')
+			})
+		} finally {
+			console.error = original_console_error
+			event_manager.unsubscribe(token)
+		}
+		assert.deepEqual(published, ['rate.limited'])
+		assert.isFalse(logged.some((line) => line.includes('media.upload_conflict')), 'no console line for a silenced code')
+		assert.isTrue(logged.some((line) => line.includes('rate.limited')))
+	})
+
 	it('a network failure resolves (never rejects) with a synthesised envelope + client.network', async function() {
 		await with_stubbed_fetch(async () => { throw new TypeError('Failed to fetch') }, async () => {
 			const api_response = await data_manager.request({body: {action: 'read'}, retries: 1, base_delay: 1})
@@ -482,6 +509,59 @@ describe('DATA_MANAGER.request — the SHOW_DEBUG request line', function() {
 		// the request itself is unchanged
 		assert.equal(sent.length, 1)
 		assert.include(String(sent[0]), 'zz-login-pass-1', 'the server still receives the value')
+	})
+})
+
+
+
+describe('UPLOAD JOIN — a long join through the REAL data_manager', function() {
+
+	// The server as it behaves on a multi-GB join: the assembly keeps running
+	// across requests; a KEYED request that throws is ledgered `ambiguous` and its
+	// same-key resend answers idempotency.outcome_unknown (dispatch.ts
+	// runIdempotentLeader). The stub models that ledger, so a regression to a
+	// keyed, self-resending join (retries > 1) fails here exactly as it failed in
+	// production (beta.8: every join still running at round 2 errored).
+	it('a join still running across rounds settles with the file, silently, never keyed', async function() {
+		this.timeout(30000)
+		const ledger = new Map()
+		const keys = []
+		let calls = 0
+		const published = []
+		const logged = []
+		const token = event_manager.subscribe('api_error', (api_error) => { published.push(api_error.code) })
+		const original_console_error = console.error
+		console.error = (...args) => { logged.push(String(args[0])) }
+		let response
+		try {
+			await with_stubbed_fetch(async (url, init) => {
+				calls++
+				const body = JSON.parse(init.body)
+				keys.push(body.idempotency_key ?? null)
+				if (body.idempotency_key && ledger.get(body.idempotency_key) === 'ambiguous') {
+					return json_response({ok: false, request_id: 'rq-twin', error: {code: 'idempotency.outcome_unknown', message: 'm', label_key: 'error', retryable: false}}, 409)
+				}
+				if (calls <= 2) { // the first join is still assembling
+					if (body.idempotency_key) ledger.set(body.idempotency_key, 'ambiguous')
+					return json_response({ok: false, request_id: 'rq-' + calls, error: {code: 'media.upload_assembling', message: 'm', label_key: 'error', retryable: true, details: {assembled_bytes: calls}}}, 409)
+				}
+				return json_response({ok: true, request_id: 'rq-done', data: true, file_data: {tmp_name: 'big.tif', complete: true}})
+			}, async () => {
+				response = await join_chunked_files({
+					file_data		: {key_dir: 'image', tmp_name: 'big.tif', total_chunks: 2, upload_id: 'up_zz_join'},
+					files_chunked	: ['big.tif-0.blob', 'big.tif-1.blob']
+				})
+			})
+		} finally {
+			console.error = original_console_error
+			event_manager.unsubscribe(token)
+		}
+		assert.isFalse(request_failed(response), `join must settle with the file, got ${response?.error?.code}`)
+		assert.equal(response.file_data.tmp_name, 'big.tif')
+		assert.equal(calls, 3, 'one request per round: two still-running rounds, then the result')
+		assert.deepEqual(keys, [null, null, null], 'a round is never keyed (a keyed conflict is fatal on resend)')
+		assert.deepEqual(published, [], 'waiting is not an error the page announces')
+		assert.isFalse(logged.some((line) => line.includes('media.upload_assembling')), 'no console line per round')
 	})
 })
 

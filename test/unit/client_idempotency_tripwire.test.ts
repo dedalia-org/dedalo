@@ -905,7 +905,7 @@ const TRANSPORT_BYPASS_EXEMPTIONS: ReadonlyArray<{
 		basis: 'not-gated-here',
 		actions: ['dd_utils_api:join_chunked_files_uploaded'],
 		reason:
-			'THE ONE CLIENT TRANSPORT THAT ALREADY RETRIES BY ITSELF (max_retry 3 per chunk), and its chunk POSTs are multipart/form-data — answered by the multipart branch in src/server.ts, which returns BEFORE dispatchRqo and therefore never reaches Gate 4. What bounds it there is its own per-transfer identity: transfer_id is minted ONCE per transfer and every retried chunk carries the same one, so a resent chunk lands in the same staging artifact instead of a second one. The step that turns staged chunks into a record, join_chunked_files_uploaded, comes back through the JSON door with retries:5 and IS stamped and gated.',
+			'THE ONE CLIENT TRANSPORT THAT ALREADY RETRIES BY ITSELF (max_retry 3 per chunk), and its chunk POSTs are multipart/form-data — answered by the multipart branch in src/server.ts, which returns BEFORE dispatchRqo and therefore never reaches Gate 4. What bounds it there is its own per-transfer identity: transfer_id is minted ONCE per transfer and every retried chunk carries the same one, so a resent chunk lands in the same staging artifact instead of a second one. The step that turns staged chunks into a record, join_chunked_files_uploaded, comes back through the JSON door with retries:1 per round (no key, no ledger): the join is idempotent per upload_id by itself, and a ledgered resend turned its retryable media.upload_conflict into a fatal idempotency.outcome_unknown.',
 		identity_latch: 'asks',
 	},
 	{

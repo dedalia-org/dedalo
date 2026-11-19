@@ -166,6 +166,16 @@ executor `handle_api_error(api_error, ctx) → {recovered}` in
 panel, modal — labels first, `SHOW_DEBUG` suffix `[code · request_id]`) in
 `render_api_error.js`.
 
+A failed request is announced once: `data_manager.request` publishes the
+`api_error` event (the page subscriber runs the policy) and logs one console
+line. A caller that expects a failure and handles it itself — a polling loop whose
+"still running" answer is not an error the user must see every round — passes a
+predicate: `data_manager.request({…, silent_error: (api_error) => api_error.retryable === true})`
+returns a matching failure to the caller with no event, no toast and no console
+line. Every other failure is announced as usual, so a login or permission refusal
+(never retryable) still reaches the page. The caller is then responsible for showing the final
+failure (the upload join renders it in its queue row).
+
 ### Notices: a success that has something to say
 
 A **success** envelope may carry `notices: [{code, label_key, retryable,

@@ -226,18 +226,31 @@ export const create_connection_pool = function(max_concurrent) {
 * single final staged file (dd_utils_api::join_chunked_files_uploaded → TS
 * joinChunkedUpload, which also RE-SNIFFS the assembled bytes, SEC-066).
 *
-* retries:5 / timeout:10s are carried over verbatim from the legacy
-* implementation: the join is disk-bound (append + re-sniff of a possibly
-* multi-GB file) and a single slow response must not lose an upload that has
-* already fully transferred.
+* The join is disk-bound (append + re-sniff of a possibly multi-GB file) and
+* outlives one request budget, so the call is repeated in ROUNDS until it
+* settles; a slow answer must not lose an upload that has already fully
+* transferred.
 *
-* A multi-GB join outlives one request budget: after ~24 s the resend gets
-* idempotency.in_progress (not retryable) while the first join is still running,
-* and the user saw an error for a file that ended up staged. So the call is
-* repeated in rounds until it settles. Each round is a new request (data_manager
-* mints its key); the server's join is idempotent per upload_id: a round while
-* the first join runs gets media.upload_conflict, and a round after it ends gets
-* the recorded result (upload.ts joinChunkedUpload).
+* Each round is ONE attempt (`retries: 1` → no idempotency key, no ledger
+* entry): the round loop IS the retry. The server's join is idempotent per
+* upload_id by itself: a round while the first join runs gets
+* media.upload_assembling, and a round after it ends gets the recorded result
+* (upload.ts joinChunkedUpload). With data_manager's own resend (retries:5) the
+* conflict was thrown under a ledgered key, recorded `ambiguous`, and the
+* same-key resend got idempotency.outcome_unknown (not retryable) — every join
+* still running at round 2 (~24 s) failed while the server finished the file.
+*
+* A round is PENDING when its failure is retryable (still assembling, a client
+* timeout or network error, maintenance, rate limiting, a 5xx): ask again,
+* silently — waiting is not an error the user must see every round, and the
+* final answer is rendered by the caller (upload_queue / service_upload). A
+* final refusal (413, upload_rejected, a login refusal) is never retryable, so
+* it ends the loop and reaches the page.
+*
+* There is no fixed total wait: media.upload_assembling carries `details.assembled_bytes`,
+* and the loop gives up only after JOIN_IDLE_MS (15 min) without that number changing
+* (a 10 GB join on slow storage, or two joins sharing the disk, keep going as
+* long as the server writes; a changed number after a restart counts too).
 *
 * @param {Object} options
 *   @param {Object} options.file_data - `file_data` of the last chunk response
@@ -265,20 +278,25 @@ export const join_chunked_files = async function(options) {
 		}
 
 	// call to the API, fetch data and get response
-		const deadline = Date.now() + JOIN_MAX_WAIT_MS
+		let idle_since		= Date.now()
+		let last_bytes		= null
 		while (true) {
 			const response = await data_manager.request({
-				body	: rqo,
-				retries	: 5, // try
-				timeout	: 10 * 1000 // 10 secs waiting response
+				body			: rqo,
+				retries			: 1, // one attempt per round: the loop is the retry (see header)
+				timeout			: 10 * 1000, // 10 secs waiting response
+				silent_error	: is_join_pending
 			})
-			// still running on the server (or its answer was lost): ask again
-			const code		= response?.error?.code
-			const pending	= code==='media.upload_conflict'
-				|| code==='idempotency.in_progress'
-				|| code===CLIENT_ERROR.TIMEOUT
-				|| code===CLIENT_ERROR.NETWORK
-			if (!pending || Date.now() >= deadline || options.is_stopped?.()) {
+			if (!is_join_pending(response?.error) || options.is_stopped?.()) {
+				return response
+			}
+			// progress: the running assembly's size moved since the last round
+			const bytes = response.error.details?.assembled_bytes
+			if (typeof bytes === 'number' && bytes !== last_bytes) {
+				last_bytes	= bytes
+				idle_since	= Date.now()
+			}
+			if (Date.now() - idle_since >= JOIN_IDLE_MS) {
 				return response
 			}
 			await new Promise(resolve_wait => setTimeout(resolve_wait, JOIN_POLL_MS))
@@ -288,11 +306,18 @@ export const join_chunked_files = async function(options) {
 
 
 /**
-* JOIN_MAX_WAIT_MS / JOIN_POLL_MS
-* How long join_chunked_files keeps asking for a running join, and the pause
-* between rounds. 30 min covers a 10 GB join on slow storage (~6 MB/s).
+* JOIN_IDLE_MS / JOIN_POLL_MS / is_join_pending
+* How long join_chunked_files keeps asking with NO progress of the running
+* assembly, the pause between rounds, and what counts as "ask again" (see the
+* header). A live writer moves the size constantly; after the server's
+* ASSEMBLY_STALE_MS (10 min) without a write it rebuilds an abandoned output
+* from the kept parts, and the size moves again. The idle limit is LONGER than
+* that, so the round that triggers the rebuild is followed and the rebuilt file
+* is attached — equal limits would leave right after starting a rebuild nobody
+* waits for.
 */
-const JOIN_MAX_WAIT_MS	= 30 * 60 * 1000
+const JOIN_IDLE_MS		= 15 * 60 * 1000
+const is_join_pending	= (api_error) => api_error?.retryable === true
 const JOIN_POLL_MS		= 5 * 1000
 
 
@@ -1064,9 +1089,10 @@ export const create_transfer = function(options) {
 				}
 				settle(join_response, 'done')
 			} catch (error) {
-				// data_manager.request throws on an exhausted retry budget. Without
-				// this catch the rejection would escape into an unhandled promise and
-				// the caller would hang exactly as in D1.
+				// data_manager.request resolves every failure as an envelope; this
+				// guards an unexpected throw (a bug in a hook). Without this catch
+				// the rejection would escape into an unhandled promise and the caller
+				// would hang exactly as in D1.
 				settle({
 					ok		: false,
 					error	: new ApiError({

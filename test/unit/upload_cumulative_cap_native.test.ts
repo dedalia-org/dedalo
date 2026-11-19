@@ -150,7 +150,7 @@ describe('MEDIA-03 — the ceiling is counted at the join', () => {
 		const upDir = uploadArtifactDir(USER, keyDir, uploadId, ROOT);
 		// A DISCRIMINATOR, not decoration: an `assembled` file with a fresh mtime is
 		// planted, so any code path that reaches the exclusive create answers
-		// `media.upload_conflict` instead. Getting `media.too_large` therefore
+		// `media.upload_assembling` instead. Getting `media.too_large` therefore
 		// proves the refusal happened BEFORE the output was ever opened.
 		const assembled = join(upDir, 'assembled');
 		writeFileSync(assembled, 'a live assembly by another join');

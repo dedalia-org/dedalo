@@ -516,8 +516,9 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 				}),
 			};
 		} catch (error) {
-			// Keep the join's own diagnosis (upload_conflict is retryable, too_large and
-			// upload_rejected say the bytes are quarantined); wrapping hid all of them.
+			// Keep the join's own diagnosis (upload_assembling / upload_conflict are
+			// retryable, too_large and upload_rejected say the bytes are quarantined);
+			// wrapping hid all of them.
 			if (error instanceof DedaloError) throw error;
 			throw new DedaloError('media.action_failed', {
 				cause: error,

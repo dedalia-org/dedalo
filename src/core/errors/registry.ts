@@ -3121,9 +3121,9 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 	},
-	// A staged transfer whose state refuses the request AS IT STANDS: another
-	// join is assembling it, or the staged name is ambiguous. Retryable — the
-	// competing operation finishes.
+	// A staged transfer whose state refuses the request AS IT STANDS: the staged
+	// name is ambiguous, or another operation holds it. Retryable — the competing
+	// operation finishes.
 	'media.upload_conflict': {
 		category: 'conflict',
 		status: 409,
@@ -3132,6 +3132,20 @@ export const ERROR_REGISTRY = {
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: true,
+	},
+	// A join of this transfer is still assembling it (a resend while a multi-GB
+	// join runs). `assembled_bytes` is the output's size so far: the client's join
+	// poll reads a change as progress (upload.ts alreadyAssembling,
+	// upload_transport.js). Retryable — the running join finishes.
+	'media.upload_assembling': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_upload_assembling',
+		message: 'The upload is still being assembled',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: true,
+		details_keys: ['assembled_bytes'],
 	},
 	// A `properties.image_id` FILE STEM another record of the same section already
 	// holds (T1-10 OD-1, owner ruling 2026-11-13 c: refuse — two records naming
