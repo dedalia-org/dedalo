@@ -14,6 +14,7 @@ import { type EmbedRefusal, getImageFile, resolveEmbeddableImage } from './image
 import { PdfDocument } from './pdf_writer.ts';
 import { invalidOptions } from './reasons.ts';
 import { takeStagedJson } from './staged_upload.ts';
+import { toWebMercator } from './web_mercator.ts';
 
 /** v6's own cap for the same document ("Imágenes asociadas (Max. 30)"). */
 const MAX_IMAGES = 30;
@@ -25,19 +26,6 @@ export const IMAGE_READ_GATE = {
 	minLevel: 1,
 	handler: getImageFile,
 } as const;
-
-/** WGS84 → Web Mercator, the one reprojection this document needs. v6 gets it
- * from `turf.toMercator` in the browser; it is four lines of arithmetic and
- * does not justify a dependency on the server. */
-export function toMercator(lon: number, lat: number): [number, number] {
-	const x = (lon * 20037508.34) / 180;
-	// clamped: the Mercator projection is undefined at the poles, and a record
-	// at lat 90 would otherwise put Infinity in the document
-	const clamped = Math.max(-85.05112878, Math.min(85.05112878, lat));
-	const y =
-		(Math.log(Math.tan(((90 + clamped) * Math.PI) / 360)) / (Math.PI / 180)) * (20037508.34 / 180);
-	return [x, y];
-}
 
 /** Negative zero is a real IEEE value and a nonsense coordinate. */
 function normalizeZero(value: number): number {
@@ -51,7 +39,7 @@ export function reprojectCoordinates(coordinates: unknown): unknown {
 		return coordinates;
 	}
 	if (typeof coordinates[0] === 'number' && typeof coordinates[1] === 'number') {
-		const [x, y] = toMercator(coordinates[0], coordinates[1]);
+		const [x, y] = toWebMercator([coordinates[1], coordinates[0]]);
 		// `(-0).toFixed(2)` is "-0.00", and `Number("-0.00")` is negative zero:
 		// the prime meridian would be printed as "-0" in every document
 		return [normalizeZero(Number(x.toFixed(2))), normalizeZero(Number(y.toFixed(2)))];

@@ -24,7 +24,7 @@ import {
 } from './gdal.ts';
 import { OVERLAY_EXTENSIONS, resolveRenderableImage } from './image_media.ts';
 import { invalidOptions } from './reasons.ts';
-import { toWebMercator } from './web_mercator.ts';
+import { MAX_LATITUDE, toWebMercator } from './web_mercator.ts';
 
 /** Each format's MIME and the extension its file gets (a geotiff is `.tif`). */
 const IMAGE_DOWNLOAD_FORMATS: Readonly<Record<string, { mime: string; extension: string }>> = {
@@ -37,9 +37,6 @@ const IMAGE_DOWNLOAD_FORMATS: Readonly<Record<string, { mime: string; extension:
  * both are bounded (`outputSize`). Above v6's own ceiling, "Excelente" (2x)
  * on a screen. */
 export const MAX_IMAGE_DOWNLOAD_SIDE = 8000;
-
-/** EPSG:3857 stops short of the poles; a corner past this cannot be warped. */
-const MAX_MERCATOR_LAT = 85.0511;
 
 /** The descriptor's three control points, [lat, lon] each — the same shape
  * `js/rotated_image_overlay.js` takes and `image_edit.js` moves. */
@@ -67,7 +64,7 @@ function parseCorners(value: unknown): ImageCorners {
 			typeof lon !== 'number' ||
 			!Number.isFinite(lat) ||
 			!Number.isFinite(lon) ||
-			Math.abs(lat) > MAX_MERCATOR_LAT ||
+			Math.abs(lat) > MAX_LATITUDE ||
 			Math.abs(lon) > 180
 		) {
 			throw invalidOptions(`corners.${key} is not a valid [lat, lon]`);

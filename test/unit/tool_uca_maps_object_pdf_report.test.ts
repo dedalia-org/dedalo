@@ -18,7 +18,6 @@ import {
 	printableProperties,
 	readRequestedImages,
 	reprojectCoordinates,
-	toMercator,
 } from '../../tools/tool_uca_maps/server/pdf_report.ts';
 import {
 	encodeWinAnsi,
@@ -27,6 +26,7 @@ import {
 	textWidth,
 	wrapText,
 } from '../../tools/tool_uca_maps/server/pdf_writer.ts';
+import { MAX_LATITUDE, toWebMercator } from '../../tools/tool_uca_maps/server/web_mercator.ts';
 import {
 	contextOf,
 	expectCode,
@@ -73,17 +73,24 @@ describe('tool_uca_maps object_pdf_report — the per-image gate', () => {
 	});
 });
 
-describe('toMercator / reprojectCoordinates', () => {
+describe('toWebMercator / reprojectCoordinates', () => {
 	test('a known point lands where EPSG:3857 puts it', () => {
 		// Sagunto, roughly — checked against the standard spherical formula
-		const [x, y] = toMercator(-0.2726, 39.6766);
+		const [x, y] = toWebMercator([39.6766, -0.2726]);
 		expect(x).toBeCloseTo(-30345.69, 1);
 		expect(y).toBeCloseTo(4819057.36, 1);
+		// GeoJSON order is [lon, lat]: the document must not swap it
+		expect(reprojectCoordinates([-0.2726, 39.6766])).toEqual([-30345.69, 4819057.37]);
 	});
 
 	test('the pole is clamped to the projection limit, never Infinity in the document', () => {
-		expect(toMercator(0, 90)[1]).toBe(toMercator(0, 85.05112878)[1]);
-		expect(toMercator(0, -90)[1]).toBe(toMercator(0, -85.05112878)[1]);
+		// the grid is square: the clamped y is the half-world, as x is at lon 180
+		const limit = toWebMercator([MAX_LATITUDE, 0])[1];
+		expect(limit).toBeCloseTo(toWebMercator([0, 180])[0], 1);
+		expect(limit).toBeCloseTo(20037508.34, 1);
+		expect(toWebMercator([90, 0])[1]).toBe(limit);
+		expect(toWebMercator([-90, 0])[1]).toBe(toWebMercator([-MAX_LATITUDE, 0])[1]);
+		expect(reprojectCoordinates([0, 90])).toEqual([0, 20037508.34]);
 	});
 
 	test('a nested polygon ring is reprojected at every depth', () => {
