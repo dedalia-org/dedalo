@@ -20,7 +20,6 @@ import { Glob } from 'bun';
 import {
 	parse_modal_features,
 	parse_window_features,
-	// @ts-expect-error — a served client module (vanilla JS, no types)
 } from '../../client/dedalo/core/tools_common/js/window_features.js';
 
 const REPO = join(import.meta.dir, '..', '..');
