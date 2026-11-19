@@ -160,7 +160,7 @@ const opaque_pixels = async function (source) {
 describe('TOOL_UCA_MAPS (structural)', function () {
 	this.timeout(10000);
 
-	it('a new instance starts unattached and idle, and the prototype carries what no other test calls', function () {
+	it('a new instance starts unattached and idle', function () {
 		// what the attach_* guards and destroy() read: an attach that sees a
 		// stale value skips its work, a detach that sees one undoes another's
 		const instance = new tool_uca_maps();
@@ -183,18 +183,6 @@ describe('TOOL_UCA_MAPS (structural)', function () {
 		};
 		for (const [key, value] of Object.entries(initial)) {
 			assert.strictEqual(instance[key], value, 'expected ' + key + ' to start as ' + value);
-		}
-
-		// wire_tool's delegates and members other tests reach only indirectly
-		for (const name of [
-			'render',
-			'refresh',
-			'init',
-			'build',
-			'close_transient_modal',
-			'clear_roman_search',
-		]) {
-			assert.isFunction(tool_uca_maps.prototype[name], 'expected ' + name + ' on the prototype');
 		}
 	});
 
@@ -1563,6 +1551,30 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		assert.isOk(teardown, "expected the component's destroy event to reach the tool");
 		await teardown; // a detach_* that needs the map rejects here
 	}; //end destroy_map_component
+
+	// the other tests wire the tool by hand: this is the production init + build
+	it('init finds the map component up its caller chain, and build waits for its map', async function () {
+		const cell = { model: 'section_record', caller: geolocation }; // what a list cell or portal puts between
+		const real = new tool_uca_maps();
+		const sheets_before = new Set(document.querySelectorAll('link[rel=stylesheet]'));
+		try {
+			assert.isTrue(
+				await real.init({ model: 'tool_uca_maps', caller: cell, tool_config: { ddo_map: [] } }),
+			);
+			assert.strictEqual(real.geolocation, geolocation, 'expected the map component, not its cell');
+
+			await real.build(false);
+			assert.isTrue(real.map_ready, 'expected build to see the live map');
+			assert.deepEqual(real.ar_instances, [], 'expected no ddo_map clone of the component');
+		} finally {
+			// build loads the tool CSS; the suite runs without it
+			for (const link of document.querySelectorAll('link[rel=stylesheet]')) {
+				if (!sheets_before.has(link)) {
+					link.remove();
+				}
+			}
+		}
+	});
 
 	it('destroying the map component tears the tool down through its event, with the map already gone', async function () {
 		geolocation.section_lang = 'lg-spa'; // gates Catastro and UA in
@@ -3605,8 +3617,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			with_phone_rules('.uca-maps-', () => {
 				tool.attach_xyz_basemaps();
 				tool.attach_file_upload();
-				// the phone tier's own selector (scripts/tool_viewport_check.ts): a
-				// checkbox or radio is judged by its label
+				// a checkbox or radio is judged by its label
 				const controls =
 					'button, select, input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea, [role=button]';
 				for (const [control, panel, name] of [

@@ -877,8 +877,6 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		assert.isFalse(rejected_type.ok, 'expected a non-image refused');
 		assert.isOk(rejected_type.error, 'expected the refusal to say why');
 
-		// checked BEFORE reading the file — the point is not loading 30 MB into
-		// memory only to throw it away afterwards
 		const rejected_size = await tool.set_legend_symbol_icon(
 			0,
 			0,

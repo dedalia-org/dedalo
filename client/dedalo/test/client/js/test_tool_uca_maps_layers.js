@@ -607,13 +607,23 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			original.length > 0
 				? { action: 'set_data', key: null, id: null, value: original }
 				: { action: 'clear', key: null, id: null, value: null };
-		const restored = await geolocation.change_value({ changed_data: [restore], refresh: false });
-		const check = await geolocation_instance('uca_real_save_check_');
-		await check.build(true);
-		const after = JSON.parse(JSON.stringify(check.data?.entries || []));
-		await check.destroy(true);
+		let restored = null;
+		let after = null;
+		let restore_error = null;
+		try {
+			restored = await geolocation.change_value({ changed_data: [restore], refresh: false });
+			const check = await geolocation_instance('uca_real_save_check_');
+			await check.build(true);
+			after = JSON.parse(JSON.stringify(check.data?.entries || []));
+			await check.destroy(true);
+		} catch (error) {
+			restore_error = error;
+		}
 		if (body_error) {
 			throw body_error;
+		}
+		if (restore_error) {
+			throw restore_error;
 		}
 		assert.isFalse(!restored || request_failed(restored), 'expected the suite record put back');
 		assert.deepEqual(after, original, 'expected the suite record exactly as it was');

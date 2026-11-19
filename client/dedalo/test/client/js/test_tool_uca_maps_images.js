@@ -2067,7 +2067,6 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		// so this exercises the real staged-upload + server round trip without
 		// depending on GDAL being installed. The reason rides as a key that core's
 		// error_text turns into the tool's own label; the panel adds no line.
-		// The refusal leaves the staged file behind, so it is released here.
 		try {
 			const result = await tool.upload_vector_file(file, {
 				epsg: 'not-a-code',
@@ -3252,8 +3251,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 
 		tool.attach_image_overlays();
 
-		// the plugin loads on demand (classic <script>), so the overlay
-		// appears asynchronously
+		// the plugin loads on demand (classic <script>): the overlay waits for it
 		await await_overlay(carrier);
 
 		assert.isOk(
