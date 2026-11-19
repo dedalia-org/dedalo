@@ -22,11 +22,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { Glob } from 'bun';
-
-const REPO = join(import.meta.dir, '..', '..');
-const ROOTS = ['src', 'tools'];
+import { join } from 'node:path';
+import { REPO_ROOT, writePathSourceFiles } from '../helpers/write_path_corpus.ts';
 
 const STORE = 'session_store.ts';
 const GATE = 'session_gate.ts';
@@ -65,13 +62,16 @@ function reaches(source: string, moduleFile: string, binding: string): boolean {
 	return false;
 }
 
+/**
+ * The engine and the tools — the write-path corpus (a registered lister) minus
+ * `scripts/`: an operator script is no request route (a drill there reads the
+ * store to mint its own session).
+ */
 function sources(): Map<string, string> {
 	const files = new Map<string, string>();
-	for (const root of ROOTS) {
-		for (const path of new Glob('**/*.ts').scanSync({ cwd: join(REPO, root), absolute: true })) {
-			if (path.includes('/node_modules/')) continue;
-			files.set(relative(REPO, path), readFileSync(path, 'utf8'));
-		}
+	for (const path of writePathSourceFiles()) {
+		if (path.startsWith('scripts/')) continue;
+		files.set(path, readFileSync(join(REPO_ROOT, path), 'utf8'));
 	}
 	return files;
 }
@@ -98,7 +98,7 @@ describe('the session store is asked by the gate, never by a route', () => {
 
 	test('(b) the verdict-free dispatch read is reached by server.ts only, and called once', () => {
 		expect(reachers(GATE, 'dispatchSessionFromCookie')).toEqual([...DISPATCH_READ_ALLOWED]);
-		const server = stripComments(readFileSync(join(REPO, 'src/server.ts'), 'utf8'));
+		const server = stripComments(readFileSync(join(REPO_ROOT, 'src/server.ts'), 'utf8'));
 		expect(server.match(/\bdispatchSessionFromCookie\s*\(/g) ?? []).toHaveLength(1);
 	});
 

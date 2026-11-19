@@ -24,10 +24,9 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Glob } from 'bun';
+import { browserSourcesUnfiltered } from '../helpers/browser_corpus.ts';
 
 const REPO = join(import.meta.dir, '..', '..');
-const ROOTS = ['client/dedalo', 'tools'];
 
 /** A dependency install inside a tool directory is not the tool's code. */
 function isVendored(path: string): boolean {
@@ -44,15 +43,11 @@ function dynamicCode(source: string): string[] {
 	return [...code.matchAll(/(?<![\w$])(?:new\s+)?(?:Function|eval)\s*\(/g)].map((m) => m[0]);
 }
 
+/** Every .js under the browser trees in git's view (a registered lister), UNFILTERED. */
 function firstPartyFiles(): string[] {
-	const files: string[] = [];
-	for (const root of ROOTS) {
-		for (const path of new Glob('**/*.js').scanSync({ cwd: join(REPO, root) })) {
-			const full = `${root}/${path}`;
-			if (!isVendored(full)) files.push(full);
-		}
-	}
-	return files.sort();
+	return browserSourcesUnfiltered()
+		.filter((path) => !isVendored(path))
+		.sort();
 }
 
 describe('no first-party client code is built from a string', () => {

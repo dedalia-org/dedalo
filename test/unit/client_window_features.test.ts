@@ -28,10 +28,11 @@ const ENV = {
 	screen: { width: 1920, height: 1080, availWidth: 1900, availHeight: 1040, colorDepth: 24 },
 	window: { innerWidth: 1400, innerHeight: 900, outerWidth: 1420, outerHeight: 980 },
 };
-const canary = globalThis as unknown as { __wf_ran?: boolean };
+/** The global a hostile value would set if it ran — read and cleared, never assigned here. */
+const CANARY = '__wf_ran';
 
 function refusal(run: () => unknown): string {
-	canary.__wf_ran = undefined;
+	Reflect.deleteProperty(globalThis, CANARY);
 	let message = '';
 	try {
 		run();
@@ -39,7 +40,9 @@ function refusal(run: () => unknown): string {
 		message = (error as Error).message;
 	}
 	// Whatever the value was, it did not run.
-	expect(canary.__wf_ran).toBeUndefined();
+	const ran = Reflect.get(globalThis, CANARY);
+	Reflect.deleteProperty(globalThis, CANARY);
+	expect(ran).toBeUndefined();
 	return message;
 }
 
@@ -108,14 +111,14 @@ describe('window form: the grammar', () => {
 
 describe('window form: anything else is REFUSED naming the key — and never runs', () => {
 	const HOSTILE: Record<string, unknown> = {
-		'a statement after the form': 'return screen.width; globalThis.__wf_ran = true',
-		'a call': 'return (globalThis.__wf_ran = true)',
-		'an expression in the offset': 'return screen.width - (globalThis.__wf_ran = true)',
+		'a statement after the form': 'return screen.width; self.__wf_ran = true',
+		'a call': 'return (self.__wf_ran = true)',
+		'an expression in the offset': 'return screen.width - (self.__wf_ran = true)',
 		'a property the form may not read': 'return window.document',
 		'a deeper path': 'return window.location.href',
 		'a numeric property outside the dimension list': 'return screen.colorDepth',
 		'another object': 'return document.cookie',
-		'a constructor walk': 'return screen.constructor.constructor("globalThis.__wf_ran = true")()',
+		'a constructor walk': 'return screen.constructor.constructor("self.__wf_ran = true")()',
 		'a bracket read': 'return screen["width"]',
 		'two operations': 'return screen.width - 10 - 20',
 		'a multiplication': 'return screen.width * 2',

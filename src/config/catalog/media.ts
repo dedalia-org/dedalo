@@ -184,6 +184,16 @@ function deriveLegacyDecision(
 }
 
 /**
+ * A malformed DEDALO_MEDIA_WEB_BASE. Its own class, not a DedaloError:
+ * `src/config/` may not import `src/core/`, and this never reaches a wire — it
+ * is thrown while the config builds, so the process prints it and does not start
+ * (the precedent is tcp_listener.ts).
+ */
+export class MediaWebBaseError extends Error {
+	override readonly name = 'MediaWebBaseError';
+}
+
+/**
  * THE SHAPE of DEDALO_MEDIA_WEB_BASE (T2 D03-a; owner ruling 2026-11-19, FYI-2):
  * the base every media URL served to the client is built on is either
  *
@@ -204,7 +214,7 @@ function deriveLegacyDecision(
 export function parseMediaWebBase(raw: string): string {
 	const value = raw.trim();
 	const refuse = (why: string): never => {
-		throw new Error(
+		throw new MediaWebBaseError(
 			`Config key 'DEDALO_MEDIA_WEB_BASE' is malformed: '${raw}' ${why}. It takes a root-relative path ("/dedalo/media") or an absolute http(s) URL without user info, query string or fragment ("http://localhost:8080/dedalo/media"); leave it unset to serve media from the application's own origin. Edit that line in ../private/.env.`,
 		);
 	};
