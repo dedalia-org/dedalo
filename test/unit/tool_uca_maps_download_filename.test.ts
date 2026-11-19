@@ -139,6 +139,7 @@ describe('tool_uca_maps download_filename — stateless, because the server shar
 	});
 
 	test('declares no module-level mutable binding', () => {
+		expect(SOURCE).toContain('export const sanitize_download_name');
 		expect(mutableBindings(SOURCE)).toEqual([]);
 	});
 

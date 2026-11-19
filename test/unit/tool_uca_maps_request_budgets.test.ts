@@ -13,6 +13,7 @@ import { MEDIA_KEYS } from '../../src/config/catalog/media.ts';
 import { GEO_ORIGINS, GEO_SERVICE_IDS, GEO_SERVICES } from '../../src/core/geo_services/table.ts';
 import { HARVEST_DEFAULT_TIMEOUT_MS } from '../../src/core/harvest/harvest.ts';
 import { MIN_INTERVAL_MS } from '../../src/core/harvest/pacing.ts';
+import { unguarded } from '../../src/core/tools/reason_keys.ts';
 import { TOOL_BINARY_TIMEOUT_MS } from '../../tools/tool_uca_maps/server/gdal.ts';
 import { loadTool } from './fixtures/tool_uca_maps/helpers.ts';
 import {
@@ -86,7 +87,7 @@ describe('tool_uca_maps request budgets — every readOnly call', () => {
 	test('the census finds the calls it reads, every action named', () => {
 		const sites = callSites();
 		expect(sites.length).toBeGreaterThan(15);
-		for (const site of sites) expect(site.action).toMatch(/^[a-z_]+$/);
+		for (const site of sites) expect(site.action).toMatch(/^(?!null$)[a-z_]+$/);
 		// the Roman panel still picks among its three searches by source
 		const roman = readFileSync(join(JS_DIR, 'roman_empire.js'), 'utf8');
 		for (const name of ROMAN_SEARCH_ACTIONS) expect(roman).toContain(`'${name}'`);
@@ -314,7 +315,8 @@ async function serverWaitByAction(): Promise<Map<string, number>> {
 	const waits = new Map<string, number>();
 	for (const [file, handled] of await actionsByModule()) {
 		for (const { action, handler } of handled) {
-			expect(apiActions[action]).toBeDefined();
+			const spec = apiActions[action];
+			expect(spec && unguarded(spec.handler).name).toBe(handler);
 			waits.set(action, priceOf(file, handler));
 		}
 	}
