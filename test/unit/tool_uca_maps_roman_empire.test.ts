@@ -1,20 +1,37 @@
 /**
- * tool_uca_maps — the pure halves of the three gazetteer searches: index
- * matching, dataset matching, the DARE query (core's service, the filters)
- * and its reply parsing. No
- * network, no data directory: every fixture is written here.
+ * tool_uca_maps — the three gazetteer searches: index matching, dataset
+ * matching, the DARE query (core's service, the filters) and its reply parsing,
+ * then the Pleiades and Pelagios actions against a store built in a temp dir.
+ * No network: every fixture is written here.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as toolConfig from '../../src/core/tools/config.ts';
+import {
+	GAZETTEER_CONFIG_KEY,
+	probeGazetteers,
+} from '../../tools/tool_uca_maps/server/gazetteer_store.ts';
 import {
 	dareQuery,
 	decodeDareText,
+	getPleiadesPlace,
 	matchPelagiosFeatures,
 	matchPleiadesIndex,
 	parseDareResults,
 	searchPelagios,
+	searchPleiades,
 } from '../../tools/tool_uca_maps/server/roman_empire.ts';
-import { contextOf, expectCode, thrownBy } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	contextOf,
+	dataOf,
+	expectCode,
+	failureOf,
+	thrownBy,
+} from './fixtures/tool_uca_maps/helpers.ts';
+import { scriptedSite } from './fixtures/tool_uca_maps/scripted_site.ts';
 
 /** v6's own index shape: a flat array of [name, id] pairs. */
 const PLEIADES_INDEX = JSON.stringify([
@@ -248,5 +265,159 @@ describe('searchPelagios: the dataset list the client sends is filtered, not tru
 		);
 		await expect(searchPelagios(searching([]))).rejects.toThrow(/at least one dataset/);
 		await expect(searchPelagios(searching(undefined))).rejects.toThrow(/at least one dataset/);
+	});
+});
+
+/** A store in a temp dir, named as the install option; `files` are paths under it. */
+function configuredStore(files: Record<string, string>): { dir: string; restore: () => void } {
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uca_roman_store_')));
+	for (const [relative, text] of Object.entries(files)) {
+		mkdirSync(join(dir, relative, '..'), { recursive: true });
+		writeFileSync(join(dir, relative), text);
+	}
+	const read = spyOn(toolConfig, 'getToolConfigValue').mockImplementation((async (
+		tool: string,
+		key: string,
+		fallback: unknown,
+	) =>
+		tool === 'tool_uca_maps' && key === GAZETTEER_CONFIG_KEY
+			? dir
+			: fallback) as typeof toolConfig.getToolConfigValue);
+	return {
+		dir,
+		restore: () => {
+			read.mockRestore();
+			rmSync(dir, { recursive: true, force: true });
+		},
+	};
+}
+
+/** The reason_key a refusal carried, if any. */
+const reasonOf = (error: { details?: unknown }) =>
+	(error.details as { reason_key?: string } | undefined)?.reason_key;
+
+describe('searchPleiades', () => {
+	// refused BEFORE any store/DB access
+	const searching = (options: Record<string, unknown>) => contextOf(options, -1, { record: false });
+
+	test('an unknown search type is refused', async () => {
+		expectCode(
+			await failureOf(searchPleiades(searching({ type: 'title', value: 'Gades' }))),
+			'request.invalid_options',
+		);
+	});
+
+	test("v6's minimums: 3 characters by name, one by id", async () => {
+		for (const options of [
+			{ type: 'name', value: 'Ga' },
+			{ type: 'name', value: '   ' },
+			{ type: 'id', value: '' },
+		]) {
+			const error = await failureOf(searchPleiades(searching(options)));
+			expectCode(error, 'request.invalid_options');
+			expect(reasonOf(error)).toBe('search_text_too_short');
+		}
+	});
+
+	describe('against a configured store', () => {
+		let store: { dir: string; restore: () => void } | null = null;
+		afterEach(() => {
+			store?.restore();
+			store = null;
+		});
+
+		test('searches the index by name and by id', async () => {
+			store = configuredStore({ 'pleiades.json': PLEIADES_INDEX });
+			expect(dataOf(await searchPleiades(searching({ type: 'name', value: 'eme' })))).toEqual({
+				results: [
+					{ name: 'Augusta Emerita', id: '256155' },
+					{ name: 'Emerita', id: '256155' },
+				],
+			});
+			expect(dataOf(await searchPleiades(searching({ type: 'id', value: '246343' })))).toEqual({
+				results: [{ name: 'Tarraco', id: '246343' }],
+			});
+		});
+
+		test('a store without the index is an install gap, not zero results', async () => {
+			store = configuredStore({ 'pelagios/provinces.geojson': PELAGIOS_PROVINCES });
+			const error = await failureOf(searchPleiades(searching({ type: 'name', value: 'Gades' })));
+			expectCode(error, 'tool.dependency_unavailable');
+			expect(error.message).toMatch(/Pleiades index is missing/);
+		});
+	});
+});
+
+describe('searchPelagios against a configured store', () => {
+	let store: { dir: string; restore: () => void } | null = null;
+	beforeEach(() => {
+		store = configuredStore({
+			'pelagios/places_high.geojson': PELAGIOS_PLACES,
+			'pelagios/provinces.geojson': PELAGIOS_PROVINCES,
+		});
+	});
+	afterEach(() => {
+		store?.restore();
+		store = null;
+	});
+	const searching = (query: string, datasets: string[]) =>
+		contextOf({ query, datasets }, -1, { record: false });
+
+	test('finds a place in each selected layer', async () => {
+		const { results } = dataOf<{ results: { name: string; dataset: string }[] }>(
+			await searchPelagios(searching('ba', ['places_high', 'provinces'])),
+		);
+		expect(results.map(({ name, dataset }) => [name, dataset])).toEqual([['Baetica', 'provinces']]);
+		const merida = dataOf<{ results: { name: string; dataset: string }[] }>(
+			await searchPelagios(searching('emerita', ['places_high', 'provinces'])),
+		).results;
+		expect(merida.map(({ name, dataset }) => [name, dataset])).toEqual([['Mérida', 'places_high']]);
+	});
+
+	test('a layer the install lacks is skipped, the others still searched', async () => {
+		const { results } = dataOf<{ results: { name: string }[] }>(
+			await searchPelagios(searching('Baetica', ['roads_high', 'provinces'])),
+		);
+		expect(results.map(({ name }) => name)).toEqual(['Baetica']);
+	});
+});
+
+describe('getPleiadesPlace refuses a non-numeric id before any request', () => {
+	test.each([['../1'], ['1a'], ['1234567890123'], ['']])('id %p', async (id) => {
+		const site = scriptedSite({});
+		const error = await failureOf(getPleiadesPlace(contextOf({ id }), site.deps));
+		expectCode(error, 'request.invalid_options');
+		expect(site.sent).toEqual([]);
+	});
+});
+
+describe('probeGazetteers against a configured store', () => {
+	let store: { dir: string; restore: () => void } | null = null;
+	afterEach(() => {
+		store?.restore();
+		store = null;
+	});
+
+	test('reports what the store holds, never where it is', async () => {
+		store = configuredStore({
+			'pleiades.json': PLEIADES_INDEX,
+			'pelagios/provinces.geojson': PELAGIOS_PROVINCES,
+			'pelagios/not_listed.geojson': PELAGIOS_PROVINCES,
+		});
+		const probe = await probeGazetteers();
+		expect(probe).toEqual({ configured: true, pleiades: true, pelagios: ['provinces'] });
+		expect(JSON.stringify(probe)).not.toContain(store.dir);
+	});
+
+	// an existing directory, relative to where the server runs: it still names no store
+	test('a relative path is not a store', async () => {
+		const read = spyOn(toolConfig, 'getToolConfigValue').mockImplementation(
+			(async () => 'tools/tool_uca_maps/gazetteers') as typeof toolConfig.getToolConfigValue,
+		);
+		try {
+			expect(await probeGazetteers()).toEqual({ configured: false, pleiades: false, pelagios: [] });
+		} finally {
+			read.mockRestore();
+		}
 	});
 });
