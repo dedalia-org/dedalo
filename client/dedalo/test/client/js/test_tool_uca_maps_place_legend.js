@@ -85,6 +85,22 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		(mounted) => ({ geolocation, tool } = mounted),
 	);
 
+	/** A one-hit Nominatim envelope, fresh per call: a test may hand it out more than once. */
+	const sagunt_answer = () => ({
+		ok: true,
+		data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
+	});
+
+	/** The legend panel, opened, holding one group with one symbol. */
+	const open_legend_with_symbol = function () {
+		tool.attach_legend();
+		tool.legend_control.getContainer().click();
+		const panel = tool.legend_panel;
+		panel.querySelector('.uca-maps-legend-add-column').click();
+		panel.querySelector('.uca-maps-legend-add-element').click();
+		return panel;
+	};
+
 	/**
 	 * PLACE SEARCH, GEOLOCATION AND SCALE BAR — the three always-present
 	 * controls. The place search never reaches Nominatim: tool_request is
@@ -237,12 +253,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const rows = () => panel.querySelectorAll('.uca-maps-place-search-result-button').length;
 		assert.equal(input.placeholder, 'Place name', 'expected the field to say what it takes');
 
-		stub_tool_request(async function () {
-			return {
-				ok: true,
-				data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
-			};
-		});
+		stub_tool_request(async () => sagunt_answer());
 
 		const search = async (text) => {
 			input.value = text;
@@ -288,10 +299,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		toggle();
 		assert.equal(input.value, 'Sagunto', 'expected the query kept while the search runs');
 
-		search.release({
-			ok: true,
-			data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
-		});
+		search.release(sagunt_answer());
 		await tick();
 		assert.equal(
 			panel.querySelectorAll('.uca-maps-place-search-result-button').length,
@@ -331,10 +339,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		await tick();
 		assert.equal(pending.length, 1, 'expected no second search while the first runs');
 
-		pending[0]({
-			ok: true,
-			data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
-		});
+		pending[0](sagunt_answer());
 		await tick();
 		assert.equal(button.disabled, false, 'expected Search unlocked by the answer');
 		assert.equal(clear.disabled, false, 'expected Clear unlocked by the answer');
@@ -361,10 +366,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const rows = () => panel.querySelectorAll('.uca-maps-place-search-result-button').length;
 		const error = api_error('request.invalid_options', 'Nominatim is down', { transport: false });
 
-		let answer = {
-			ok: true,
-			data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
-		};
+		let answer = sagunt_answer();
 		stub_tool_request(async () => answer);
 
 		tool.place_search_control.getContainer().click();
@@ -723,11 +725,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 			[39.5, -0.4],
 			[39.5, -0.3],
 		]).options.color;
-		tool.attach_legend();
-		tool.legend_control.getContainer().click();
-		const panel = tool.legend_panel;
-		panel.querySelector('.uca-maps-legend-add-column').click();
-		panel.querySelector('.uca-maps-legend-add-element').click();
+		const panel = open_legend_with_symbol();
 
 		const icon = tool.legend.groups[0].symbols[0].icon;
 		assert.equal(
@@ -1291,12 +1289,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	});
 
 	it('the group name and symbol label inputs write to THEIR OWN slot', function () {
-		tool.attach_legend();
-		tool.legend_control.getContainer().click();
-
-		const panel = tool.legend_panel;
-		panel.querySelector('.uca-maps-legend-add-column').click();
-		panel.querySelector('.uca-maps-legend-add-element').click();
+		const panel = open_legend_with_symbol();
 
 		// driven through the DOM on purpose: calling the prototype mutators
 		// directly (as the strip_tags/index gate above does) cannot catch a
@@ -1324,12 +1317,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	});
 
 	it('the icon picker reports a refused or unreadable file in the panel, and an accepted one repaints the row', async function () {
-		tool.attach_legend();
-		tool.legend_control.getContainer().click();
-
-		const panel = tool.legend_panel;
-		panel.querySelector('.uca-maps-legend-add-column').click();
-		panel.querySelector('.uca-maps-legend-add-element').click();
+		const panel = open_legend_with_symbol();
 
 		const message = panel.querySelector('.uca-maps-legend-message');
 		const row_src = () => panel.querySelector('.uca-maps-legend-element img').getAttribute('src');
@@ -1772,11 +1760,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	// replayed under a class of the same specificity.
 	it("with the tool CSS, the legend's symbol and shape buttons keep a neutral hover", async function () {
 		await with_tool_css(async () => {
-			tool.attach_legend();
-			tool.legend_control.getContainer().click();
-			const panel = tool.legend_panel;
-			panel.querySelector('.uca-maps-legend-add-column').click();
-			panel.querySelector('.uca-maps-legend-add-element').click();
+			const panel = open_legend_with_symbol();
 			const symbol_btn = panel.querySelector('.uca-maps-legend-symbol-button');
 			symbol_btn.click();
 			const shape_btn = panel.querySelector(
@@ -1848,11 +1832,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	});
 
 	it('the symbol opens its own editor, and each gesture repaints the row in place', async function () {
-		tool.attach_legend();
-		tool.legend_control.getContainer().click();
-		const panel = tool.legend_panel;
-		panel.querySelector('.uca-maps-legend-add-column').click();
-		panel.querySelector('.uca-maps-legend-add-element').click();
+		const panel = open_legend_with_symbol();
 
 		const symbol_btn = panel.querySelector('.uca-maps-legend-symbol-button');
 		const row_icon = symbol_btn.querySelector('img');
