@@ -1673,6 +1673,8 @@ DEDALO_MEDIA_WEB_BASE="http://localhost:8080/dedalo/media"
 
 In a production topology (one virtual host fronting both the application and `/dedalo/media`) leave it unset.
 
+The value is checked when the server starts. It must be a root-relative path (`/dedalo/media`) or an absolute `http://` / `https://` URL, with no user name or password, no query string (`?…`) and no fragment (`#…`); a trailing slash is removed. Anything else — a missing scheme such as `localhost:8080/dedalo/media`, for instance — stops the server from starting, with a message that names this parameter and the value it found. There is no fallback: a silently ignored value would leave every image broken with nothing to explain why.
+
 Do not confuse it with DEDALO_MEDIA_EXPORT_BASE, which builds the media cells of EXPORTS — content that leaves the application and cannot use a relative URL. Both take the same kind of value (an origin plus `/dedalo/<DEDALO_MEDIA_DIR>`), and on a single-origin installation they are the same string; they differ in their audience and in what UNSET means. That key stays deliberately unset-means-unresolved; this one always has an effective value (the relative default).
 
 *Default: (unset)*

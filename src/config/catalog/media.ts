@@ -183,6 +183,64 @@ function deriveLegacyDecision(
 	return probe === 'content' ? 'legacy' : 'modern';
 }
 
+/**
+ * THE SHAPE of DEDALO_MEDIA_WEB_BASE (T2 D03-a; owner ruling 2026-11-19, FYI-2):
+ * the base every media URL served to the client is built on is either
+ *
+ *  - a ROOT-RELATIVE path (`/dedalo/media`) — same origin; or
+ *  - an ABSOLUTE http(s) URL (`http://localhost:8080/dedalo/media`) with no
+ *    userinfo, no query string and no fragment — another origin.
+ *
+ * Returns the base with its trailing slash(es) stripped (every builder appends a
+ * '/…'-rooted relative path). Anything else THROWS, naming the key and the
+ * value: the config builds at import, so the server refuses to start. There is
+ * NO fallback to the same-origin default — that would turn a split-origin typo
+ * (`localhost:8080/dedalo/media`: no scheme, so the browser reads a relative
+ * path) into "no images" with nothing in any log. Same posture as a retired key
+ * (config.ts RETIRED_ENV_KEYS). Call it only with a SET value: unset / empty is
+ * the default's business (config.ts).
+ * Gate: test/unit/config_media_web_base_native.test.ts.
+ */
+export function parseMediaWebBase(raw: string): string {
+	const value = raw.trim();
+	const refuse = (why: string): never => {
+		throw new Error(
+			`Config key 'DEDALO_MEDIA_WEB_BASE' is malformed: '${raw}' ${why}. It takes a root-relative path ("/dedalo/media") or an absolute http(s) URL without user info, query string or fragment ("http://localhost:8080/dedalo/media"); leave it unset to serve media from the application's own origin. Edit that line in ../private/.env.`,
+		);
+	};
+	if (/[\s\\]/.test(value)) return refuse('holds whitespace or a backslash');
+	if (/[?#]/.test(value)) return refuse('carries a query string or a fragment');
+	if (value.startsWith('/')) {
+		if (value.startsWith('//')) return refuse('is protocol-relative (name the scheme)');
+		if (value.split('/').some((segment) => segment === '..' || segment === '.')) {
+			return refuse('holds a "." or ".." path segment');
+		}
+		const path = value.replace(/\/+$/, '');
+		return path === '' ? refuse('is the bare root') : path;
+	}
+	if (!/^https?:\/\//i.test(value)) {
+		return refuse('is neither a root-relative path nor an http(s) URL');
+	}
+	if (!/^https?:\/\/[^/]/i.test(value)) return refuse('names no host');
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return refuse('is not a parseable URL');
+	}
+	if (url.hostname === '') return refuse('names no host');
+	if (url.username !== '' || url.password !== '') return refuse('carries user info');
+	if (
+		value
+			.split('/')
+			.slice(3)
+			.some((segment) => segment === '..' || segment === '.')
+	) {
+		return refuse('holds a "." or ".." path segment');
+	}
+	return value.replace(/\/+$/, '');
+}
+
 export const MEDIA_KEYS = {
 	DEDALO_3D_ALTERNATIVE_EXTENSIONS: {
 		type: 'string_list',
@@ -1151,6 +1209,8 @@ DEDALO_MEDIA_WEB_BASE="http://localhost:8080/dedalo/media"
 \`\`\`
 
 In a production topology (one virtual host fronting both the application and \`/dedalo/media\`) leave it unset.
+
+The value is checked when the server starts. It must be a root-relative path (\`/dedalo/media\`) or an absolute \`http://\` / \`https://\` URL, with no user name or password, no query string (\`?…\`) and no fragment (\`#…\`); a trailing slash is removed. Anything else — a missing scheme such as \`localhost:8080/dedalo/media\`, for instance — stops the server from starting, with a message that names this parameter and the value it found. There is no fallback: a silently ignored value would leave every image broken with nothing to explain why.
 
 Do not confuse it with DEDALO_MEDIA_EXPORT_BASE, which builds the media cells of EXPORTS — content that leaves the application and cannot use a relative URL. Both take the same kind of value (an origin plus \`/dedalo/<DEDALO_MEDIA_DIR>\`), and on a single-origin installation they are the same string; they differ in their audience and in what UNSET means. That key stays deliberately unset-means-unresolved; this one always has an effective value (the relative default).`,
 	},

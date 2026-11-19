@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
     - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
     - Publication fills the global search and map tables again
@@ -1424,6 +1425,12 @@ Merged since the last release; these ship with the next one.
     Now every start counts those accounts and logs `[boot] LEGACY PASSWORDS: <n> account(s) …` with the command to run, `bun run dedalo:migrate-passwords`; `/health` carries `"notices": ["legacy_password_accounts"]` while any remain (the check stays green); and each refused login of such an account is logged with the same command. Nobody has to choose a new password. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
 
     Wire contract: `WC-2026-11-19-legacy-aes-lazy-rehash-retired`.
+
+- **A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting** *(action needed)*
+
+    `DEDALO_MEDIA_WEB_BASE` is the address the browser fetches every image, video and PDF from when media is served from a different origin than the application. Its value was used as written. A slip such as `localhost:8080/dedalo/media` — no `http://` — produced addresses the browser read as paths of the page, so every image failed to load and no log said why.
+
+    The value is now checked when the server starts. It must be a root-relative path (`/dedalo/media`) or an absolute `http://` / `https://` URL with no user name or password, no query string and no fragment; a trailing slash is still removed. With any other value the server does not start, and the message names the parameter and the value it found. There is deliberately no fallback to the default. Before updating, check that line in `../private/.env` if you set it; an installation that leaves it unset is not affected. See [the configuration reference](./administration/configuration/config.md).
 
 - **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
 

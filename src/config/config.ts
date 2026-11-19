@@ -31,7 +31,7 @@
  * the DB layer without changing call sites.
  */
 
-import { legacyAwareDefaultDir } from './catalog/media.ts';
+import { legacyAwareDefaultDir, parseMediaWebBase } from './catalog/media.ts';
 import { declaredDataLangs, resolveCurrentDataLang } from './data_langs.ts';
 import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
 import { UNCONFIGURED } from './install_state.ts';
@@ -874,12 +874,16 @@ function buildMediaConfig(): MediaConfig {
 	// default (`<DEDALO_BINARY_BASE>/<name>`) in src/config/catalog/media.ts, so the census
 	// can print it and readString resolves it.
 	// Client/wire media URL base: DEDALO_MEDIA_WEB_BASE ('' = unset), else the
-	// same-origin relative default. Trailing slash stripped so every builder can
-	// append its '/...'-rooted relative path.
+	// same-origin relative default. A SET value is SHAPE-VALIDATED
+	// (catalog/media.ts parseMediaWebBase: root-relative path or absolute http(s)
+	// URL, no userinfo / query / fragment; trailing slash stripped so every
+	// builder can append its '/...'-rooted relative path) and a malformed one
+	// THROWS here — the config builds at import, so the boot is refused naming
+	// the key and the value. No fallback (T2 D03-a, owner ruling 2026-11-19).
 	const webBaseRaw = readEnv('DEDALO_MEDIA_WEB_BASE');
 	const webBase =
 		webBaseRaw !== undefined && webBaseRaw !== ''
-			? webBaseRaw.replace(/\/+$/, '')
+			? parseMediaWebBase(webBaseRaw)
 			: `/dedalo/${readString('DEDALO_MEDIA_DIR')}`;
 	// Export media base: same normalization (it is appended to the same
 	// '/...'-rooted relative path — a trailing slash would emit '…/media//image/…'),
