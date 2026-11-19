@@ -36,6 +36,7 @@ import {
 	detach_xyz_basemaps,
 } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js';
 import {
+	api_refusal,
 	roman_hit,
 	toasts_during,
 	until,
@@ -110,6 +111,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		geolocation_instance,
 		real_tool_request,
 		stub_tool_request,
+		hold_tool_request,
 		active_group,
 		open_console_on,
 		mount_roman,
@@ -161,10 +163,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			}
 			const value = JSON.parse(JSON.stringify(changed_data[0].value));
 			if (fail) {
-				return {
-					ok: false,
-					error: { is_api_error: true, code: 'request.invalid', message: 'Invalid data.' },
-				};
+				return api_refusal('request.invalid', 'Invalid data.');
 			}
 			// answered, but the component could not read its value back
 			if (degraded) {
@@ -178,10 +177,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 					/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(source.attribution || ''),
 				)
 			) {
-				return {
-					ok: false,
-					error: { is_api_error: true, code: 'request.invalid', message: 'Invalid data.' },
-				};
+				return api_refusal('request.invalid', 'Invalid data.');
 			}
 			for (const source of value.sources || []) {
 				source.attribution = (source.attribution || '').trim();
@@ -933,20 +929,14 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 	it('search_wms_layers drops a response that arrives after detach_wms_services already ran', async function () {
 		tool.attach_wms_services();
 
-		let resolve_tool_request;
-		stub_tool_request(
-			() =>
-				new Promise((resolve) => {
-					resolve_tool_request = resolve;
-				}),
-		);
+		const capabilities = hold_tool_request();
 
 		const pending = tool.search_wms_layers('https://example.com/geoserver/wms');
 
 		await tool.destroy(false, false, false);
 		assert.equal(tool.wms_panel, null, 'expected the panel already torn down');
 
-		resolve_tool_request({
+		capabilities.release({
 			ok: true,
 			data: { url: 'https://example.com/geoserver/wms', xml: SAMPLE_CAPABILITIES_XML },
 		});
@@ -2200,15 +2190,9 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65));
 		assert.isOk(banner(), 'expected the not-found banner first');
 
-		stub_tool_request(async () => ({
-			ok: false,
-			error: {
-				is_api_error: true,
-				code: 'client.timeout',
-				message: 'The request timed out',
-				transport: true,
-			},
-		}));
+		stub_tool_request(async () =>
+			api_refusal('client.timeout', 'The request timed out', { transport: true }),
+		);
 		await check_catastro_at_point(tool, L.latLng(40.15, -3.65));
 		assert.isNull(banner(), "expected no banner beside core's notice");
 
@@ -2281,16 +2265,10 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		);
 
 		// the next lookup takes it away as soon as it starts
-		let release;
-		stub_tool_request(
-			() =>
-				new Promise((resolve) => {
-					release = resolve;
-				}),
-		);
+		const lookup = hold_tool_request();
 		const pending = check_catastro_at_point(tool, L.latLng(40.16, -3.66));
 		assert.isNull(credit(), 'expected the credit gone while the next lookup runs');
-		release({ ok: true, data: found });
+		lookup.release({ ok: true, data: found });
 		await pending;
 		assert.equal(
 			geolocation.node.querySelectorAll('.uca-maps-catastro-credit').length,
@@ -2692,20 +2670,12 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 	]) {
 		it(`${armed.key}: one lookup at a time, and none while Geoman is editing`, async function () {
 			armed.arm();
-			let call_count = 0;
-			let resolve_first = null;
-			stub_tool_request(
-				() =>
-					new Promise((resolve) => {
-						call_count++;
-						resolve_first = () => resolve({ ok: true, data: { found: false } });
-					}),
-			);
+			const lookup = hold_tool_request({ ok: true, data: { found: false } });
 
 			const first = armed.check(L.latLng(40.45, -3.65));
 			await armed.check(L.latLng(40.46, -3.66)); // dropped: busy
-			assert.equal(call_count, 1, 'expected the overlapping lookup never to reach tool_request');
-			resolve_first();
+			assert.equal(lookup.calls, 1, 'expected the overlapping lookup never to reach tool_request');
+			lookup.release();
 			await first;
 
 			const original_global_edit_mode_enabled = geolocation.map.pm.globalEditModeEnabled;
@@ -2715,31 +2685,25 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			} finally {
 				geolocation.map.pm.globalEditModeEnabled = original_global_edit_mode_enabled;
 			}
-			assert.equal(call_count, 1, 'expected no lookup while Geoman is in global edit mode');
+			assert.equal(lookup.calls, 1, 'expected no lookup while Geoman is in global edit mode');
 
 			// control: idle and not editing, a click asks again
 			const control = armed.check(L.latLng(40.45, -3.65));
-			assert.equal(call_count, 2, 'expected an idle click to reach tool_request');
-			resolve_first();
+			assert.equal(lookup.calls, 2, 'expected an idle click to reach tool_request');
+			lookup.release();
 			await control;
 		});
 
 		it(`${armed.key}: an answer that arrives after disarming is dropped`, async function () {
 			armed.arm();
-			let resolve_tool_request;
-			stub_tool_request(
-				() =>
-					new Promise((resolve) => {
-						resolve_tool_request = resolve;
-					}),
-			);
+			const lookup = hold_tool_request();
 
 			const before = armed.drawn();
 			const pending = armed.check(L.latLng(40.15, -3.65));
 			tool[armed.control].getContainer().click(); // disarm WHILE the request is in flight
 			assert.isNull(tool._armed_layer, 'expected nothing armed');
 
-			resolve_tool_request({ ok: true, data: armed.found() });
+			lookup.release({ ok: true, data: armed.found() });
 			await pending;
 			assert.deepEqual(armed.drawn(), before, 'expected the late answer to change nothing');
 		});
@@ -2901,17 +2865,13 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		tool.attach_place_search();
 		mount_roman(WITH_PLEIADES);
 
-		stub_tool_request(async () => ({
-			ok: false,
-			error: {
-				is_api_error: true,
-				code: 'request.invalid_options',
+		stub_tool_request(async () =>
+			api_refusal('request.invalid_options', 'The search text is too long.', {
 				label_key: 'error_request_invalid_options',
-				details: { reason_key: 'search_text_too_long' },
-				message: 'The search text is too long.',
+				reason_key: 'search_text_too_long',
 				transport: false,
-			},
-		}));
+			}),
+		);
 
 		const ua_line = tool.ua_panel.querySelector('.uca-maps-ua-message');
 		show_ua_message(tool.ua_panel, 'an earlier line');

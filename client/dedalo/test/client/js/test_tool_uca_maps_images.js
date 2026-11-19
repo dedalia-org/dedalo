@@ -55,7 +55,10 @@ import { tool_uca_maps } from '../../../tools/tool_uca_maps/js/tool_uca_maps.js'
 import { MAP_IMAGE_KEY_DIR } from '../../../tools/tool_uca_maps/js/upload_formats.js';
 import { detach_file_upload } from '../../../tools/tool_uca_maps/js/vector_upload.js';
 import {
+	api_error,
+	api_refusal,
 	capture_download,
+	hold_answer,
 	IMAGE_DESCRIPTOR,
 	image_descriptor,
 	layer_by_uid,
@@ -2393,21 +2396,17 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			const submit = panel.querySelector('.uca-maps-upload-submit');
 			const message = panel.querySelectorAll('.uca-maps-upload-message')[row.line];
 
-			let settle = null;
-			tool[row.method] = function () {
-				return new Promise((resolve) => {
-					settle = resolve;
-				});
-			};
+			const upload = hold_answer();
+			tool[row.method] = upload.stub;
 
 			row.start(panel, picker);
 			await tick();
-			assert.isOk(settle, `expected the upload in flight: ${row.label}`);
+			assert.isOk(upload.release, `expected the upload in flight: ${row.label}`);
 
 			detach_file_upload(tool); // the panel's own teardown, as destroy() runs it
 			assert.equal(tool.upload_panel, null, `expected the panel already torn down: ${row.label}`);
 			const left = { hidden: message.hidden, text: message.textContent, submit: submit.disabled };
-			settle({ ok: false, error: 'late answer' });
+			upload.release({ ok: false, error: 'late answer' });
 			await tick();
 
 			assert.equal(message.isConnected, false, `expected the panel gone: ${row.label}`);
@@ -2569,11 +2568,8 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			);
 
 			// the next gesture is what removes it, before its own answer
-			let settle = null;
-			tool[half.method] = () =>
-				new Promise((resolve) => {
-					settle = resolve;
-				});
+			const upload = hold_answer();
+			tool[half.method] = upload.stub;
 			half.run();
 			assert.equal(
 				message.hidden,
@@ -2584,7 +2580,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 				assert.equal(message.textContent, half.next.text, label);
 				assert.equal(message.dataset.type, half.next.type, label);
 			}
-			settle({ ok: false });
+			upload.release({ ok: false });
 			await tick();
 		}
 	});
@@ -2634,17 +2630,13 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		const picker = panel.querySelector('.uca-maps-upload-image-file');
 		const message = panel.querySelectorAll('.uca-maps-upload-message')[1];
 
-		let settle = null;
-		tool.upload_image_file = function () {
-			return new Promise((resolve) => {
-				settle = resolve;
-			});
-		};
+		const upload = hold_answer();
+		tool.upload_image_file = upload.stub;
 
 		toggle();
 		pick_file(picker, image_file());
 		await tick();
-		assert.isOk(settle, 'expected the upload in flight');
+		assert.isOk(upload.release, 'expected the upload in flight');
 		assert.equal(message.hidden, false, 'expected the working line shown');
 
 		toggle();
@@ -2652,7 +2644,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		assert.equal(message.hidden, false, 'expected the working line kept while the upload runs');
 		assert.equal(picker.disabled, true, 'expected the picker still locked');
 
-		settle({ ok: true, georeferenced: true });
+		upload.release({ ok: true, georeferenced: true });
 		await tick();
 		assert.equal(
 			message.textContent,
@@ -2672,12 +2664,8 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		const inputs = Array.from(panel.querySelectorAll('.uca-maps-upload-epsg-row input'));
 		const file = vector_file();
 
-		let settle = null;
-		tool.upload_vector_file = function () {
-			return new Promise((resolve) => {
-				settle = resolve;
-			});
-		};
+		const upload = hold_answer();
+		tool.upload_vector_file = upload.stub;
 
 		toggle();
 		load_file(picker, file);
@@ -2686,7 +2674,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		inputs[2].value = 'N';
 		submit.click();
 		await tick();
-		assert.isOk(settle, 'expected the upload in flight');
+		assert.isOk(upload.release, 'expected the upload in flight');
 
 		toggle();
 		toggle();
@@ -2699,7 +2687,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		assert.equal(picker.disabled, true, 'expected the picker still locked');
 		assert.equal(submit.disabled, true, 'expected Upload still locked');
 
-		settle({ ok: true, feature_count: 1 });
+		upload.release({ ok: true, feature_count: 1 });
 		await tick();
 		assert.equal(
 			message.textContent,
@@ -2845,16 +2833,11 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 	 * `ingest` answers per call; every staged file is kept for release_staged.
 	 * The file check answers "no file" unless `file_check` says otherwise.
 	 */
-	const no_image_file = () => ({
-		ok: false,
-		error: {
-			is_api_error: true,
-			code: 'resource.not_found',
-			details: { reason_key: 'image_not_on_server' },
-			message: 'The image is no longer on the server.',
+	const no_image_file = () =>
+		api_refusal('resource.not_found', 'The image is no longer on the server.', {
+			reason_key: 'image_not_on_server',
 			transport: false,
-		},
-	});
+		});
 	const stub_image_record_doors = function (
 		new_id,
 		ingest,
@@ -2906,13 +2889,10 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 	it('only a refusal raised before the file moved, on a record with no file, deletes it; any other failure names it', async function () {
 		const NEW_ID = 987654;
 		const reason = 'The staged file is not an image';
-		const refusal = {
-			is_api_error: true,
-			code: 'request.invalid_options',
+		const refusal = api_error('request.invalid_options', reason, {
 			label_key: 'error_request_invalid_options',
-			message: reason,
 			transport: false,
-		};
+		});
 		const record_left = 'Image record ' + NEW_ID + ' may have been left empty: review it.';
 		const rows = [
 			{
@@ -2931,12 +2911,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			},
 			{
 				label: 'a timeout: the server may still finish',
-				ingest: {
-					is_api_error: true,
-					code: 'client.timeout',
-					message: 'The request timed out',
-					transport: true,
-				},
+				ingest: api_error('client.timeout', 'The request timed out', { transport: true }),
 				answer: null,
 				deletes: false,
 				result: { ok: false, error: record_left, staged_untouched: false },
@@ -2944,12 +2919,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				// what a resend gets while the first attempt is still ingesting
 				label: 'an idempotency replay: an envelope, yet the ingest is running',
-				ingest: {
-					is_api_error: true,
-					code: 'idempotency.in_progress',
-					message: 'Still running',
-					transport: false,
-				},
+				ingest: api_error('idempotency.in_progress', 'Still running', { transport: false }),
 				answer: null,
 				deletes: false,
 				result: { ok: false, error: record_left, staged_untouched: false },
@@ -2957,12 +2927,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				// persistUploadedMedia refusing AFTER the file is in the media tree
 				label: 'a failure after the move: the file is on disk',
-				ingest: {
-					is_api_error: true,
-					code: 'db.lock_timeout',
-					message: 'Lock timeout',
-					transport: false,
-				},
+				ingest: api_error('db.lock_timeout', 'Lock timeout', { transport: false }),
 				answer: null,
 				deletes: false,
 				result: { ok: false, error: record_left, staged_untouched: false },
@@ -2970,12 +2935,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				// a resend re-run after a restart: the first run consumed the staged file
 				label: 'a staged file already consumed',
-				ingest: {
-					is_api_error: true,
-					code: 'media.file_not_found',
-					message: 'Staged upload not found',
-					transport: false,
-				},
+				ingest: api_error('media.file_not_found', 'Staged upload not found', { transport: false }),
 				answer: null,
 				deletes: false,
 				result: { ok: false, error: record_left, staged_untouched: false },
@@ -2983,15 +2943,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				label: 'an envelope refusal whose delete is refused',
 				ingest: refusal,
-				answer: {
-					ok: false,
-					error: {
-						is_api_error: true,
-						code: 'perm.denied',
-						message: 'Permission denied',
-						transport: false,
-					},
-				},
+				answer: api_refusal('perm.denied', 'Permission denied', { transport: false }),
 				deletes: true,
 				result: { ok: false, error: record_left, staged_untouched: true },
 			},
@@ -3018,15 +2970,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				label: 'an envelope refusal whose file check fails',
 				ingest: refusal,
-				check: () => ({
-					ok: false,
-					error: {
-						is_api_error: true,
-						code: 'client.timeout',
-						message: 'The request timed out',
-						transport: true,
-					},
-				}),
+				check: () => api_refusal('client.timeout', 'The request timed out', { transport: true }),
 				answer: null,
 				deletes: false,
 				result: { ok: false, error: record_left, staged_untouched: true },
@@ -3132,16 +3076,10 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 						return real_tool_request(options);
 					}
 					asked = options.action;
-					return {
-						ok: false,
-						error: {
-							is_api_error: true,
-							code: 'request.invalid_options',
-							label_key: 'error_request_invalid_options',
-							message: reason,
-							transport: false,
-						},
-					};
+					return api_refusal('request.invalid_options', reason, {
+						label_key: 'error_request_invalid_options',
+						transport: false,
+					});
 				});
 				const result = await row.run();
 				assert.equal(asked, row.action, `expected the step after the ingest reached: ${row.label}`);
@@ -3246,15 +3184,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		};
 		stub_tool_request(async function (options) {
 			return options.action === 'get_image_file'
-				? {
-						ok: false,
-						error: {
-							is_api_error: true,
-							code: 'request.invalid_options',
-							message: reason,
-							transport: false,
-						},
-					}
+				? api_refusal('request.invalid_options', reason, { transport: false })
 				: real_tool_request(options);
 		});
 		try {
@@ -3299,16 +3229,11 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		layer.feature.properties.images = [{ url: 'https://images.example/a.jpg' }];
 		layer.feature.properties.uca_maps = {};
 
-		let stage = null;
-		const seen = stub_linked_import(
-			() =>
-				new Promise((resolve) => {
-					stage = resolve;
-				}),
-		);
+		const stage = hold_answer();
+		const seen = stub_linked_import(stage.stub);
 		try {
 			const first = import_linked_images(tool, layer);
-			assert.isOk(await until(() => stage), 'expected the first run to start downloading');
+			assert.isOk(await until(() => stage.release), 'expected the first run to start downloading');
 
 			const second = await import_linked_images(tool, layer);
 			assert.deepEqual(
@@ -3319,7 +3244,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			assert.equal(seen.stages.length, 1, 'expected only the first run to download anything');
 
 			// control: the first run is unaffected and imports its link
-			stage(staged_answer('a.jpg'));
+			stage.release(staged_answer('a.jpg'));
 			assert.equal((await first).imported, 1, 'expected the running import to finish its link');
 		} finally {
 			seen.restore();
@@ -3991,16 +3916,10 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		let answered = false;
 		const restore = stub_image_download(async function () {
 			answered = true;
-			return {
-				ok: false,
-				error: {
-					is_api_error: true,
-					code: 'resource.not_found',
-					details: { reason_key: 'image_not_on_server' },
-					message: 'The image is no longer on the server.',
-					transport: false,
-				},
-			};
+			return api_refusal('resource.not_found', 'The image is no longer on the server.', {
+				reason_key: 'image_not_on_server',
+				transport: false,
+			});
 		});
 		try {
 			const download = tool.console_panel.querySelector('.uca-maps-image-download-section');

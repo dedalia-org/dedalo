@@ -22,6 +22,8 @@ import {
 } from '../../../tools/tool_uca_maps/js/roman_empire.js';
 import { roman_min_query } from '../../../tools/tool_uca_maps/js/roman_min_query.js';
 import {
+	api_refusal,
+	hold_answer,
 	roman_feature,
 	roman_hit,
 	tick,
@@ -45,6 +47,8 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 	const {
 		wire_tool_by_hand,
 		stub_tool_request,
+		hold_tool_request,
+		spy_tool_request,
 		active_group,
 		mount_roman,
 		open_roman,
@@ -130,11 +134,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		assert.equal(radios[0].value, 'name');
 		assert.isTrue(radios[0].checked, 'expected "by name" chosen by default, as in v6');
 
-		const sent = [];
-		stub_tool_request(async function (options) {
-			sent.push(options);
-			return { ok: true, data: { results: [] } };
-		});
+		const sent = spy_tool_request(() => ({ ok: true, data: { results: [] } }));
 
 		radios[1].click();
 		const input = section.querySelector('.uca-maps-roman-input');
@@ -157,11 +157,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		assert.lengthOf(boxes, 2, 'expected the two layers the install reported');
 		boxes[0].checked = false; // provinces
 
-		const sent = [];
-		stub_tool_request(async function (options) {
-			sent.push(options);
-			return { ok: true, data: { results: [] } };
-		});
+		const sent = spy_tool_request(() => ({ ok: true, data: { results: [] } }));
 		const input = section.querySelector('.uca-maps-roman-input');
 		assert.isFalse(input.disabled, 'expected the Pelagios field enabled by its capability');
 		input.value = 'Gades';
@@ -222,11 +218,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 	it('each source sends its OWN action and its own fields', async function () {
 		mount_roman();
 
-		const sent = [];
-		stub_tool_request(async function (options) {
-			sent.push(options);
-			return { ok: true, data: { results: [] } };
-		});
+		const sent = spy_tool_request(() => ({ ok: true, data: { results: [] } }));
 
 		await search_roman(tool, 'pleiades', { query: 'Gades', type: 'id' });
 		await search_roman(tool, 'pelagios', { query: 'Gades', datasets: ['provinces'] });
@@ -486,11 +478,10 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		mount_roman();
 		open_roman(); // a list shows only over an open panel
 
-		const asked = [];
-		stub_tool_request(async function (options) {
-			asked.push(options);
-			return { ok: true, data: { results: [roman_hit('Gades', 36.53, -6.29)] } };
-		});
+		const asked = spy_tool_request(() => ({
+			ok: true,
+			data: { results: [roman_hit('Gades', 36.53, -6.29)] },
+		}));
 
 		const input = tool.roman_panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input');
 		assert.equal(
@@ -523,11 +514,10 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		await load_roman_capabilities(tool);
 		open_roman();
 
-		const asked = [];
-		stub_tool_request(async function (options) {
-			asked.push(options);
-			return { ok: true, data: { results: [roman_hit('Gades', 36.53, -6.29)] } };
-		});
+		const asked = spy_tool_request(() => ({
+			ok: true,
+			data: { results: [roman_hit('Gades', 36.53, -6.29)] },
+		}));
 
 		for (const source of ['pleiades', 'pelagios']) {
 			// the block must exist, or "no button in it" holds of nothing
@@ -573,11 +563,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		await load_roman_capabilities(tool);
 		open_roman();
 
-		const asked = [];
-		stub_tool_request(async function (options) {
-			asked.push(options);
-			return { ok: true, data: { results: [] } };
-		});
+		const asked = spy_tool_request(() => ({ ok: true, data: { results: [] } }));
 
 		const block = tool.roman_panel.querySelector('.uca-maps-roman-dare');
 		const chosen = {};
@@ -1013,12 +999,9 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		await load_roman_capabilities(tool);
 		open_roman(); // open: a closed panel hides any list anyway
 
-		let release_first;
-		stub_tool_request(function () {
-			return new Promise((resolve) => {
-				release_first = () =>
-					resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } });
-			});
+		const first = hold_tool_request({
+			ok: true,
+			data: { results: [{ name: 'Roma', id: '423025' }] },
 		});
 
 		const pleiades_input = tool.roman_panel.querySelector(
@@ -1033,7 +1016,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		dare_input.value = 'V'; // below DARE's minimum: nothing travels, the list is closed
 		dare_input.dispatchEvent(new Event('input'));
 
-		release_first();
+		first.release();
 		await tick(SETTLE_MS);
 
 		assert.equal(
@@ -1047,18 +1030,13 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 	it('a search refused before travelling still outdates the older one in flight', async function () {
 		mount_roman();
 
-		let release_first;
-		stub_tool_request(function () {
-			return new Promise((resolve) => {
-				release_first = () => resolve({ ok: true, data: { results: [roman_hit('STALE', 0, 0)] } });
-			});
-		});
+		const held = hold_tool_request({ ok: true, data: { results: [roman_hit('STALE', 0, 0)] } });
 
 		const first = search_roman(tool, 'dare', { query: 'Gades', name_type: 'mss' });
 		const refused = await search_roman(tool, 'pelagios', { query: 'Gadir', datasets: [] });
 		assert.equal(refused.ok, false, 'expected Pelagios with no layer refused');
 
-		release_first();
+		held.release();
 		const stale = await first;
 
 		assert.equal(stale.ok, false, 'expected the older search outdated by the refused one');
@@ -1218,14 +1196,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		const control = geolocation.map.getContainer().querySelector('.uca-maps-roman-control');
 		const panel = tool.roman_panel;
 		const message = panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-message');
-		let release;
-		let asked = 0;
-		stub_tool_request(function () {
-			asked++;
-			return new Promise((resolve) => {
-				release = () => resolve({ ok: true, data: { place: null } });
-			});
-		});
+		const geometry = hold_tool_request({ ok: true, data: { place: null } });
 		const choose_roma = () => {
 			seed_roman_list('pleiades', [{ name: 'Roma', id: '423025' }]);
 			tool.roman_dropdown
@@ -1236,19 +1207,19 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 
 		// control half: with the panel left alone, the error IS shown
 		choose_roma();
-		release();
+		geometry.release();
 		await tick(SETTLE_MS);
 		assert.equal(message.hidden, false, 'expected a geometry-less place reported under Pleiades');
 
 		choose_roma();
 		assert.equal(
-			asked,
+			geometry.calls,
 			2,
 			'expected the second geometry request sent — else release() replays the first',
 		);
 		control.click(); // close
 		control.click(); // reopen: clean
-		release();
+		geometry.release();
 		await tick(SETTLE_MS);
 		assert.equal(message.hidden, true, 'expected the late error dropped by the reopened panel');
 	});
@@ -1435,13 +1406,9 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		const panel = tool.roman_panel;
 		const pleiades_input = panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input');
 		const dare_input = panel.querySelector('.uca-maps-roman-dare .uca-maps-roman-input');
-		let asked = 0;
-		let release = null;
-		stub_tool_request(function () {
-			asked++;
-			return new Promise((resolve) => {
-				release = () => resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } });
-			});
+		const search = hold_tool_request({
+			ok: true,
+			data: { results: [{ name: 'Roma', id: '423025' }] },
 		});
 		const type_roma = () => {
 			pleiades_input.value = 'Roma';
@@ -1452,21 +1419,21 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		type_roma();
 		dare_input.focus();
 		await tick(AFTER_DEBOUNCE_MS);
-		assert.equal(asked, 0, 'expected Tab away to cancel the waiting search');
+		assert.equal(search.calls, 0, 'expected Tab away to cancel the waiting search');
 
 		// waiting, then a click in DARE
 		type_roma();
 		dare_input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 		await tick(AFTER_DEBOUNCE_MS);
-		assert.equal(asked, 0, 'expected a click away to cancel the waiting search');
+		assert.equal(search.calls, 0, 'expected a click away to cancel the waiting search');
 
 		// in flight, then Tab into DARE
 		pleiades_input.focus();
 		type_roma();
 		await tick(AFTER_DEBOUNCE_MS);
-		assert.equal(asked, 1, 'expected the search sent — else the next check proves nothing');
+		assert.equal(search.calls, 1, 'expected the search sent — else the next check proves nothing');
 		dare_input.focus();
-		release();
+		search.release();
 		await tick(SETTLE_MS);
 		assert.equal(
 			tool.roman_dropdown.hidden,
@@ -1504,23 +1471,21 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		make_panel_scrollable(panel);
 
 		const input = panel.querySelector('.uca-maps-roman-pleiades .uca-maps-roman-input');
-		let release = null;
-		stub_tool_request(function () {
-			return new Promise((resolve) => {
-				release = () => resolve({ ok: true, data: { results: [{ name: 'Roma', id: '423025' }] } });
-			});
+		const search = hold_tool_request({
+			ok: true,
+			data: { results: [{ name: 'Roma', id: '423025' }] },
 		});
 		const search_roma = async () => {
-			release = null;
+			search.release = null;
 			input.value = 'Roma';
 			input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-			await until(() => release !== null);
-			assert.isNotNull(release, 'expected the search sent');
+			await until(() => search.release !== null);
+			assert.isNotNull(search.release, 'expected the search sent');
 		};
 
 		// control half: the field in view, the answer opens the list
 		await search_roma();
-		release();
+		search.release();
 		await tick(SETTLE_MS);
 		assert.equal(tool.roman_dropdown.hidden, false, 'expected the list open under a field in view');
 		tool.close_roman_suggestions();
@@ -1535,7 +1500,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		// let that scroll's event pass FIRST: dispatched after the answer, it would
 		// close the list on its own and this gate would never see the open-time check
 		await two_frames();
-		release();
+		search.release();
 		await tick(SETTLE_MS);
 		assert.equal(tool.roman_dropdown.hidden, true, 'expected no list under a field out of view');
 	});
@@ -1706,14 +1671,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 				new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
 			);
 
-		let asked = 0;
-		let release = null;
-		stub_tool_request(function () {
-			asked++;
-			return new Promise((resolve) => {
-				release = () => resolve({ ok: true, data: { results: [roman_hit('NEW', 0, 0)] } });
-			});
-		});
+		const search = hold_tool_request({ ok: true, data: { results: [roman_hit('NEW', 0, 0)] } });
 		const seed = () => {
 			seed_roman_list('pleiades', [roman_hit('Gades', 36.5, -6.2)]);
 			input.focus();
@@ -1730,7 +1688,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 			'expected the focus on a row',
 		);
 		await tick(AFTER_DEBOUNCE_MS);
-		assert.equal(asked, 0, 'expected the waiting search cancelled by entering the list');
+		assert.equal(search.calls, 0, 'expected the waiting search cancelled by entering the list');
 		assert.equal(document.activeElement, row, 'expected the focus still on its row');
 
 		// a search already in flight, then Tab into the list
@@ -1738,10 +1696,14 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		input.value = 'Gadesy';
 		input.dispatchEvent(new Event('input'));
 		await tick(AFTER_DEBOUNCE_MS);
-		assert.equal(asked, 1, 'expected the search in flight — else the next check proves nothing');
+		assert.equal(
+			search.calls,
+			1,
+			'expected the search in flight — else the next check proves nothing',
+		);
 		tab(input);
 		const held = document.activeElement;
-		release();
+		search.release();
 		await tick(SETTLE_MS);
 		assert.isTrue(
 			document.contains(held),
@@ -1756,12 +1718,8 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 	// focused control stays usable
 	it('a capability answer that disables the focused field moves the focus to the first usable one', async function () {
 		require_document_focus();
-		let answer = null;
-		tool.get_capabilities = function () {
-			return new Promise((resolve) => {
-				answer = resolve;
-			});
-		};
+		const capabilities = hold_answer();
+		tool.get_capabilities = capabilities.stub;
 		tool.attach_roman_empire();
 		open_roman();
 		const panel = tool.roman_panel;
@@ -1772,7 +1730,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 			'expected the panel opened on Pleiades — else the answer disables nothing focused',
 		);
 
-		answer({
+		capabilities.release({
 			ok: true,
 			data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } },
 		});
@@ -1788,19 +1746,15 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 
 	it('a capability answer leaves alone a focused control that stays usable', async function () {
 		require_document_focus();
-		let answer = null;
-		tool.get_capabilities = function () {
-			return new Promise((resolve) => {
-				answer = resolve;
-			});
-		};
+		const capabilities = hold_answer();
+		tool.get_capabilities = capabilities.stub;
 		tool.attach_roman_empire();
 		open_roman();
 		const select = tool.roman_panel.querySelector('.uca-maps-roman-dare-filters select');
 		select.focus();
 		assert.equal(document.activeElement, select);
 
-		answer({
+		capabilities.release({
 			ok: true,
 			data: { gazetteers: { configured: false, pleiades: false, pelagios: [] } },
 		});
@@ -1940,16 +1894,12 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		await tick(50);
 		assert.isFalse(line.hidden, "expected the empty search's own line first");
 
-		stub_tool_request(async () => ({
-			ok: false,
-			error: {
-				is_api_error: true,
-				code: 'tool.source_unavailable',
-				details: { reason_key: 'gazetteer_service_unavailable' },
-				message: 'The gazetteer service did not answer properly.',
+		stub_tool_request(async () =>
+			api_refusal('tool.source_unavailable', 'The gazetteer service did not answer properly.', {
+				reason_key: 'gazetteer_service_unavailable',
 				transport: false,
-			},
-		}));
+			}),
+		);
 		input.value = 'Roma';
 		enter();
 		await tick(50);

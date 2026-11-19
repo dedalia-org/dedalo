@@ -51,6 +51,42 @@ export const until = async function (done, tries = 200, ms = 10) {
 };
 
 /**
+ * An error as core's ApiError carries it. Only the fields the caller names are set: a refusal
+ * without `transport` must stay without it, not gain an `undefined` key.
+ */
+export const api_error = function (code, message, { transport, reason_key, label_key } = {}) {
+	const error = { is_api_error: true, code };
+	if (label_key !== undefined) error.label_key = label_key;
+	if (reason_key !== undefined) error.details = { reason_key };
+	error.message = message;
+	if (transport !== undefined) error.transport = transport;
+	return error;
+};
+
+/** The answer to a request core refused. */
+export const api_refusal = (code, message, fields) => ({
+	ok: false,
+	error: api_error(code, message, fields),
+});
+
+/**
+ * A stand-in whose every call waits until the test settles it: `release(value)` resolves and
+ * `fail(error)` rejects the LATEST call. With an `answer`, a bare `release()` resolves a fresh
+ * copy of it, as a literal written in the stub would be.
+ */
+export const hold_answer = function (answer) {
+	const held = { calls: 0, release: null, fail: null };
+	held.stub = function () {
+		held.calls++;
+		return new Promise((resolve, reject) => {
+			held.release = (value = structuredClone(answer)) => resolve(value);
+			held.fail = reject;
+		});
+	};
+	return held;
+};
+
+/**
  * Runs `fn` with the tool's own stylesheet loaded, and removes it after:
  * the suite runs without it, so only a layout or paint test pays for it.
  */
@@ -495,6 +531,23 @@ export const use_live_map = function (bind) {
 		tool.tool_request = answer;
 	};
 
+	/** tool_request held until the test settles it (hold_answer). */
+	const hold_tool_request = function (answer) {
+		const held = hold_answer(answer);
+		stub_tool_request(held.stub);
+		return held;
+	};
+
+	/** tool_request recording every options it is sent, answered by `answer(options)`. */
+	const spy_tool_request = function (answer) {
+		const sent = [];
+		stub_tool_request(async function (options) {
+			sent.push(options);
+			return answer(options);
+		});
+		return sent;
+	};
+
 	/** The one layer of a seeded FeatureGroup (seeded_lib_data). */
 	const seeded_layer = (layer_id) => geolocation.FeatureGroup[layer_id].getLayers()[0];
 
@@ -651,6 +704,8 @@ export const use_live_map = function (bind) {
 		wire_tool_by_hand,
 		real_tool_request,
 		stub_tool_request,
+		hold_tool_request,
+		spy_tool_request,
 		seeded_layer,
 		active_group,
 		open_console_on,

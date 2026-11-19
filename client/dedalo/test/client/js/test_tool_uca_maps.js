@@ -62,6 +62,8 @@ import { OBJECT_GEOJSON_KEY_DIR } from '../../../tools/tool_uca_maps/js/upload_f
 import { parse_wms_capabilities_xml } from '../../../tools/tool_uca_maps/js/wms_services.js';
 import { detach_xyz_basemaps } from '../../../tools/tool_uca_maps/js/xyz_basemaps.js';
 import {
+	api_error,
+	api_refusal,
 	capture_download,
 	layer_by_uid,
 	picked_colour,
@@ -205,12 +207,11 @@ describe('TOOL_UCA_MAPS (structural)', function () {
 
 	it("upload_refusal_text: an upload refusal is the panel's lead, then the receiver's reason", function () {
 		// the upload transport publishes no page notice, so this line is the only one
-		const refusal = {
-			is_api_error: true,
-			code: 'media.upload_rejected',
-			label_key: 'x',
-			message: 'File content verification failed: not a JPEG — rejected',
-		};
+		const refusal = api_error(
+			'media.upload_rejected',
+			'File content verification failed: not a JPEG — rejected',
+			{ label_key: 'x' },
+		);
 		assert.equal(
 			upload_refusal_text(refusal, 'The image could not be loaded.'),
 			'The image could not be loaded.\n' + refusal.message,
@@ -218,18 +219,12 @@ describe('TOOL_UCA_MAPS (structural)', function () {
 	});
 
 	it("upload_refusal_text: any other code, or a refusal with no reason, is core's error_text", function () {
-		const other = {
-			is_api_error: true,
-			code: 'request.invalid_options',
+		const other = api_error('request.invalid_options', 'Invalid request options', {
 			label_key: 'error_request_invalid_options',
-			message: 'Invalid request options',
-		};
-		const bare = {
-			is_api_error: true,
-			code: 'media.upload_rejected',
+		});
+		const bare = api_error('media.upload_rejected', '  ', {
 			label_key: 'error_media_upload_rejected',
-			message: '  ',
-		};
+		});
 
 		for (const api_error of [other, bare]) {
 			const text = upload_refusal_text(api_error, 'LEAD');
@@ -623,12 +618,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		assert.equal(calls, 1, 'expected the answered centre not to be asked again');
 
 		// a refusal and a throw are not answers: neither may stick
-		const refusal = {
-			is_api_error: true,
-			code: 'request.invalid_options',
-			message: 'x',
-			transport: false,
-		};
+		const refusal = api_error('request.invalid_options', 'x', { transport: false });
 		for (const failing of [
 			async function () {
 				calls++;
@@ -655,12 +645,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 
 		const asked = { first: 0, second: 0 };
 		let release = null;
-		const refusal = {
-			is_api_error: true,
-			code: 'request.invalid_options',
-			message: 'x',
-			transport: false,
-		};
+		const refusal = api_error('request.invalid_options', 'x', { transport: false });
 		stub_tool_request(async function (options) {
 			if (Math.abs(options.options.lat - layer_center(first).lat) < 1e-9) {
 				asked.first++;
@@ -831,10 +816,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 
 		tool._external_images_enabled = null;
 		tool.get_capabilities = async function () {
-			return {
-				ok: false,
-				error: { is_api_error: true, code: 'perm.denied', message: 'x', transport: false },
-			};
+			return api_refusal('perm.denied', 'x', { transport: false });
 		};
 		assert.equal(await external_images_enabled(tool), false, 'expected a refusal to read as off');
 	});
@@ -856,15 +838,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		const seen = stub_linked_import(function (url) {
 			return url === good.url
 				? staged_answer('good.jpg')
-				: {
-						ok: false,
-						error: {
-							is_api_error: true,
-							code: 'harvest.robots_disallowed',
-							message: 'The site does not allow it',
-							transport: false,
-						},
-					};
+				: api_refusal('harvest.robots_disallowed', 'The site does not allow it', {
+						transport: false,
+					});
 		});
 		const progress = [];
 		try {
@@ -946,8 +922,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 				ok: false,
 				error:
 					tmp_name === 'refused.jpg'
-						? { is_api_error: true, code: 'media.upload_rejected', message: 'x', transport: false }
-						: { is_api_error: true, code: 'internal.unexpected', message: 'x', transport: false },
+						? api_error('media.upload_rejected', 'x', { transport: false })
+						: api_error('internal.unexpected', 'x', { transport: false }),
 			}),
 		);
 		try {
@@ -982,15 +958,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		const seen = stub_linked_import(function (url) {
 			return url === good.url
 				? staged_answer('good.jpg')
-				: {
-						ok: false,
-						error: {
-							is_api_error: true,
-							code: 'harvest.robots_disallowed',
-							message: 'x',
-							transport: false,
-						},
-					};
+				: api_refusal('harvest.robots_disallowed', 'x', { transport: false });
 		});
 		tool.external_images_enabled = async () => true;
 		try {
@@ -1133,13 +1101,11 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	// the download's own line stays empty rather than repeat it
 	it("a refused download leaves its line to core's notice", async function () {
 		const layer = seeded_layer(1);
-		const refusal = {
-			is_api_error: true,
-			code: 'request.invalid_options',
-			details: { reason_key: 'file_name_unusable' },
-			message: 'The file name has no usable characters.',
-			transport: false,
-		};
+		const refusal = api_error(
+			'request.invalid_options',
+			'The file name has no usable characters.',
+			{ reason_key: 'file_name_unusable', transport: false },
+		);
 
 		stub_tool_request(async function (request) {
 			await release_staged_payload(request);

@@ -28,6 +28,7 @@ import { populate_place_search_results } from '../../../tools/tool_uca_maps/js/r
 import { attach_scale_bar, detach_scale_bar } from '../../../tools/tool_uca_maps/js/scale_bar.js';
 import { is_toolbar_node } from '../../../tools/tool_uca_maps/js/toolbar.js';
 import {
+	api_error,
 	one_pixel_png,
 	pick_file,
 	picked_colour,
@@ -80,7 +81,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	this.timeout(20000);
 
 	let geolocation, tool;
-	const { stub_tool_request, active_group } = use_live_map(
+	const { stub_tool_request, hold_tool_request, spy_tool_request, active_group } = use_live_map(
 		(mounted) => ({ geolocation, tool } = mounted),
 	);
 
@@ -122,19 +123,15 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		// hits are named in the record's language; set one only forwarding can match
 		geolocation.section_lang = 'lg-cat';
 
-		const sent = [];
-		stub_tool_request(async function (options) {
-			sent.push(options);
-			return {
-				ok: true,
-				data: {
-					results: [
-						{ name: 'Sagunt', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
-						{ name: 'Sagunto, Spain', point: [39.67, -0.28], bbox: null },
-					],
-				},
-			};
-		});
+		const sent = spy_tool_request(() => ({
+			ok: true,
+			data: {
+				results: [
+					{ name: 'Sagunt', point: [39.68, -0.27], bbox: [39.6, -0.35, 39.75, -0.2] },
+					{ name: 'Sagunto, Spain', point: [39.67, -0.28], bbox: null },
+				],
+			},
+		}));
 
 		const result = await search_places(tool, ' Sagunto ');
 		assert.equal(result.ok, true);
@@ -161,17 +158,11 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 	it('search_places toasts a request that throws, but not once the tool is torn down mid-flight', async function () {
 		tool.attach_place_search();
 
-		let fail = null;
-		stub_tool_request(
-			() =>
-				new Promise((resolve, reject) => {
-					fail = reject;
-				}),
-		);
+		const search = hold_tool_request();
 		await toasts_during(async (toasts) => {
 			// control: alive, the exception reaches the page toast
 			const alive = search_places(tool, 'Sagunto');
-			fail(new Error('Boom.'));
+			search.fail(new Error('Boom.'));
 			assert.equal((await alive).ok, false);
 			assert.equal(toasts.length, 1, 'expected the live failure toasted');
 			assert.equal(toasts[0].code, 'client.tool_uca_maps_failed');
@@ -179,7 +170,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 			const pending = search_places(tool, 'Sagunto');
 			await tool.destroy(false, false, false);
 			assert.equal(tool.place_search_panel, null, 'expected the panel already torn down');
-			fail(new Error('Boom.'));
+			search.fail(new Error('Boom.'));
 
 			assert.equal((await pending).ok, false);
 			assert.equal(
@@ -285,24 +276,19 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const input = panel.querySelector('.uca-maps-place-search-input');
 		const button = panel.querySelector('.uca-maps-place-search-button');
 
-		let settle = null;
-		stub_tool_request(function () {
-			return new Promise((resolve) => {
-				settle = resolve;
-			});
-		});
+		const search = hold_tool_request();
 
 		toggle();
 		input.value = 'Sagunto';
 		button.click();
 		await tick();
-		assert.isOk(settle, 'expected the search in flight');
+		assert.isOk(search.release, 'expected the search in flight');
 
 		toggle();
 		toggle();
 		assert.equal(input.value, 'Sagunto', 'expected the query kept while the search runs');
 
-		settle({
+		search.release({
 			ok: true,
 			data: { results: [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }] },
 		});
@@ -373,12 +359,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const input = panel.querySelector('.uca-maps-place-search-input');
 		const message = panel.querySelector('.uca-maps-place-search-message');
 		const rows = () => panel.querySelectorAll('.uca-maps-place-search-result-button').length;
-		const error = {
-			is_api_error: true,
-			code: 'request.invalid_options',
-			message: 'Nominatim is down',
-			transport: false,
-		};
+		const error = api_error('request.invalid_options', 'Nominatim is down', { transport: false });
 
 		let answer = {
 			ok: true,
