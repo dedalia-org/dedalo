@@ -57,6 +57,7 @@ import {
 	renameSync,
 	rmdirSync,
 	rmSync,
+	type Stats,
 	statSync,
 	unlinkSync,
 	writeFileSync,
@@ -846,8 +847,8 @@ const ASSEMBLY_WRITER = crypto.randomUUID();
  *   a live process of another user.
  * Unreadable / legacy / missing identity → not proven (the age rule decides).
  */
-function writerIsGone(ownerPath: string): boolean {
-	const owner = readWriterIdentity(ownerPath);
+async function writerIsGone(ownerPath: string): Promise<boolean> {
+	const owner = await readWriterIdentity(ownerPath);
 	if (owner === null) return false;
 	if (owner.pid === process.pid) return owner.writer !== ASSEMBLY_WRITER;
 	try {
@@ -859,9 +860,11 @@ function writerIsGone(ownerPath: string): boolean {
 }
 
 /** The recorded writer when it is a complete identity on THIS host, else null. */
-function readWriterIdentity(ownerPath: string): { pid: number; writer: string } | null {
+async function readWriterIdentity(
+	ownerPath: string,
+): Promise<{ pid: number; writer: string } | null> {
 	try {
-		const owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
+		const owner = JSON.parse(await readFile(ownerPath, 'utf8'));
 		return owner?.host === hostname() &&
 			typeof owner.pid === 'number' &&
 			typeof owner.writer === 'string'
@@ -1047,18 +1050,46 @@ function assertPartsCompleteAndUnderCap(
 	);
 }
 
-/** The output's size while a writer may still hold it, or null once it is abandoned. */
-function liveAssemblySize(assembled: string, ownerPath: string): number | null {
-	let idleFor = 0;
-	let size = 0;
+/** The output as it is on disk now, or null when it is not there. */
+function statOrNull(path: string): Stats | null {
 	try {
-		const stat = statSync(assembled);
-		idleFor = Date.now() - stat.mtimeMs;
-		size = stat.size;
+		return statSync(path);
 	} catch {
-		idleFor = 0; // it vanished under us: let the retry decide
+		return null;
 	}
-	return idleFor < ASSEMBLY_STALE_MS && !writerIsGone(ownerPath) ? size : null;
+}
+
+/**
+ * The output's size while a writer may still hold it, or null once it is
+ * abandoned. `seen` null (it vanished under us) counts as just written.
+ */
+async function liveAssemblySize(seen: Stats | null, ownerPath: string): Promise<number | null> {
+	const idleFor = seen === null ? 0 : Date.now() - seen.mtimeMs;
+	if (idleFor < ASSEMBLY_STALE_MS && !(await writerIsGone(ownerPath))) return seen?.size ?? 0;
+	return null;
+}
+
+/**
+ * Claim the output: the exclusive create and the removal of any previous
+ * writer's identity run with NO await between them, so no join in this process
+ * can pair the new output with a dead writer (and recover it from under us).
+ * Until this writer's identity lands, a missing one reads as live (writerIsGone).
+ */
+async function claimAssemblyOutput(assembled: string, ownerPath: string): Promise<number> {
+	const fd = openSync(assembled, 'wx', 0o640);
+	rmSync(ownerPath, { force: true });
+	try {
+		await writeFile(
+			ownerPath,
+			JSON.stringify({ host: hostname(), pid: process.pid, writer: ASSEMBLY_WRITER }),
+			{ mode: 0o640 },
+		);
+	} catch (error) {
+		closeSync(fd);
+		rmSync(assembled, { force: true });
+		throw error;
+	}
+	return fd;
 }
 
 /**
@@ -1079,35 +1110,24 @@ function liveAssemblySize(assembled: string, ownerPath: string): number | null {
  * dead (a restart: recovered at once, 2026-11-19 — writerIsGone) or when nobody
  * has written to it for ASSEMBLY_STALE_MS (the backstop).
  */
-function openAssemblyOutput(assembled: string): number {
+async function openAssemblyOutput(assembled: string): Promise<number> {
 	const ownerPath = `${assembled}.owner`;
-	const claim = (): number => {
-		const fd = openSync(assembled, 'wx', 0o640);
-		// Synchronous with the claim (no await between): a concurrent join in this
-		// process can never see the output without its writer.
-		try {
-			writeFileSync(
-				ownerPath,
-				JSON.stringify({ host: hostname(), pid: process.pid, writer: ASSEMBLY_WRITER }),
-				{ mode: 0o640 },
-			);
-		} catch (error) {
-			closeSync(fd);
-			rmSync(assembled, { force: true });
-			throw error;
-		}
-		return fd;
-	};
 	try {
-		return claim();
+		// Its synchronous prefix IS the claim (see joinChunkedUpload).
+		return await claimAssemblyOutput(assembled, ownerPath);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 	}
-	const liveSize = liveAssemblySize(assembled, ownerPath);
+	const seen = statOrNull(assembled);
+	const liveSize = await liveAssemblySize(seen, ownerPath);
 	if (liveSize !== null) throw alreadyAssembling(liveSize);
+	// The liveness check awaited: a concurrent join may have recovered the output
+	// meanwhile. Only the output judged abandoned is removed — checked with no
+	// await before the removal and the claim.
+	if (statOrNull(assembled)?.ino !== seen?.ino) throw alreadyAssembling(0);
 	rmSync(assembled, { force: true });
 	try {
-		return claim();
+		return await claimAssemblyOutput(assembled, ownerPath);
 	} catch {
 		// Another join won the race to recover it — that one is live, so this is
 		// the ordinary concurrent case again.
@@ -1221,7 +1241,8 @@ async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<Upl
 	// rounds, so the round that ran it has usually gone): answer that failure ONCE,
 	// so the poll ends with the real cause instead of starting a new copy that
 	// fails the same way forever (a full disk). Consumed: a later join retries.
-	throwRecordedJoinFailure(upDir);
+	const failure = takeRecordedJoinFailure(upDir);
+	if (failure !== null) throw await recordedJoinFailure(failure);
 
 	// A transfer already quarantined must not read as "missing chunks": say what
 	// actually happened, and that the bytes are still there.
@@ -1235,7 +1256,7 @@ async function assembleChunkedUpload(input: JoinChunkedUploadInput): Promise<Upl
 	const assembled = resolve(upDir, 'assembled');
 	// EXCLUSIVE create, with recovery of an abandoned output — see
 	// openAssemblyOutput above for both halves of the reasoning.
-	const out = openAssemblyOutput(assembled);
+	const out = await openAssemblyOutput(assembled);
 	// The AUTHORITATIVE total: the pre-check reads the parts as they were a moment
 	// ago, this counts the bytes actually copied, so a part still growing under a
 	// concurrent chunk POST cannot slip past the ceiling.
@@ -1344,7 +1365,7 @@ const JOIN_FAILED_RECORD = 'join_failed.json';
  * Typed refusals are not recorded: they are deterministic, and the quarantine
  * ones keep their own marker. Best effort: a failure to record changes nothing.
  */
-function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): void {
+async function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): Promise<void> {
 	if (error instanceof DedaloError || typeof input.uploadId !== 'string') return;
 	try {
 		const upDir = uploadArtifactDir(input.userId, input.keyDir, input.uploadId, input.mediaRoot);
@@ -1352,7 +1373,7 @@ function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): void 
 		// The errno code only (ENOSPC, EIO…): the message names paths, and rides the
 		// log line below, never a stored payload.
 		const errno = (error as NodeJS.ErrnoException)?.code;
-		writeFileSync(
+		await writeFile(
 			resolve(upDir, JOIN_FAILED_RECORD),
 			JSON.stringify({
 				errno: typeof errno === 'string' ? errno : 'unknown',
@@ -1369,19 +1390,33 @@ function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): void 
 	}
 }
 
-/** Answer (once) the failure a previous join of this transfer recorded. */
-function throwRecordedJoinFailure(upDir: string): void {
+/**
+ * Take (once) the failure a previous join of this transfer recorded: the rename
+ * is the synchronous claim, so no await precedes the assembly claim when there is
+ * none, and two concurrent joins never both answer it. The taken path, or null.
+ */
+function takeRecordedJoinFailure(upDir: string): string | null {
 	const path = resolve(upDir, JOIN_FAILED_RECORD);
-	if (!existsSync(path)) return;
+	const taken = `${path}.taken`;
+	try {
+		renameSync(path, taken);
+	} catch {
+		return null; // none recorded (or another join took it)
+	}
+	return taken;
+}
+
+/** The error answering a taken failure record (see takeRecordedJoinFailure). */
+async function recordedJoinFailure(taken: string): Promise<DedaloError> {
 	let errno = 'unknown';
 	try {
-		const recorded = (JSON.parse(readFileSync(path, 'utf8')) as { errno?: unknown }).errno;
+		const recorded = (JSON.parse(await readFile(taken, 'utf8')) as { errno?: unknown }).errno;
 		if (typeof recorded === 'string' && /^[A-Z0-9_]{1,32}$/.test(recorded)) errno = recorded;
 	} catch {
 		// an unreadable record still means the last join failed
 	}
-	rmSync(path, { force: true });
-	throw new DedaloError('media.action_failed', {
+	rmSync(taken, { force: true });
+	return new DedaloError('media.action_failed', {
 		message: `join: the previous attempt at this join failed (${errno}); see the earlier log line`,
 	});
 }
@@ -1433,7 +1468,7 @@ export async function joinChunkedUpload(
 	} catch (error) {
 		const late = await replayJoinedUpload(input);
 		if (late) return late;
-		recordJoinFailure(input, error);
+		await recordJoinFailure(input, error);
 		throw error;
 	}
 }
