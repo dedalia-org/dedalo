@@ -211,7 +211,7 @@ const get_content_data_edit = function(self) {
 * The `external_source` field in `self.data` overrides `files_info` entirely; it is used
 * when the 3-D model is hosted on an external URL rather than the Dédalo media server.
 *
-* Media URLs are versioned by their file (get_media_url, ?v=<file_time>-<size>), so
+* Media URLs are versioned by their file (get_media_url, ?dv=<file_time>-<size>), so
 * renders reuse the HTTP cache and re-uploaded files get a new URL.
 *
 * @param {number} i - zero-based entry index (always 0 in the current single-entry model)
@@ -248,7 +248,7 @@ export const get_content_value = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
+			// The server versions the URL by file mtime+size (?dv=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
 				? data.posterframe_url
 				: page_globals.fallback_image
@@ -502,7 +502,7 @@ export const get_content_value_read = (i, current_value, self) => {
 		const file_info	= files_info.find(el => el.quality===quality && el.file_exist===true)
 		if(file_info) {
 			// posterframe image
-			// The server versions the URL by file mtime+size (?v=), so a re-uploaded image gets a new URL.
+			// The server versions the URL by file mtime+size (?dv=), so a re-uploaded image gets a new URL.
 			const posterframe_url = data.posterframe_url
 				? data.posterframe_url
 				: page_globals.fallback_image

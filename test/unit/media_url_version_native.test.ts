@@ -1,7 +1,7 @@
 /**
  * Server-emitted media URLs are versioned by the FILE (WC-2026-10-29-posterframe-url-version,
  * one helper: src/core/media/url_version.ts). component_av `posterframe_url`:
- * `?v=<mtime ms>-<size>` — so the client reuses the HTTP cache across renders and a regenerated
+ * `?dv=<mtime ms>-<size>` — so the client reuses the HTTP cache across renders and a regenerated
  * posterframe still gets a new URL. Built on the generic `test` TLD (test94 = av in test3),
  * the posterframe planted in the suite media root and removed after (with its bucket dir, when
  * this gate created it). Also: a stat ERROR (not only a missing file) is "no file", never a
@@ -69,7 +69,7 @@ async function emitPosterframeUrl(): Promise<unknown> {
 	return (emission.items[0] as { posterframe_url?: unknown }).posterframe_url;
 }
 
-test('posterframe_url carries ?v=<mtime ms>-<size> and changes when the file does', async () => {
+test('posterframe_url carries ?dv=<mtime ms>-<size> and changes when the file does', async () => {
 	const loc = await location();
 	planted = loc.absolutePath;
 	mkdirSync(dirname(planted), { recursive: true });
@@ -79,7 +79,7 @@ test('posterframe_url carries ?v=<mtime ms>-<size> and changes when the file doe
 	utimesSync(planted, t0, t0);
 	const first = await emitPosterframeUrl();
 	const { mtimeMs, size } = statSync(planted);
-	expect(String(first)).toEndWith(`${loc.relativePath}?v=${Math.trunc(mtimeMs)}-${size}`);
+	expect(String(first)).toEndWith(`${loc.relativePath}?dv=${Math.trunc(mtimeMs)}-${size}`);
 	// same bytes, same mtime → same URL (the cache is reused)
 	expect(await emitPosterframeUrl()).toBe(first);
 
@@ -98,7 +98,7 @@ test('posterframe_url carries ?v=<mtime ms>-<size> and changes when the file doe
 	// the indexation grid's media cell: same token on the PHP-grammar path
 	const cell = `${config.media.webBase}${loc.relativePath}`;
 	const { mtimeMs: m, size: z } = statSync(planted);
-	expect(versionedMediaUrl(cell)).toBe(`${cell}?v=${Math.trunc(m)}-${z}`);
+	expect(versionedMediaUrl(cell)).toBe(`${cell}?dv=${Math.trunc(m)}-${z}`);
 
 	rmSync(planted);
 	expect(await emitPosterframeUrl()).toBeNull();
@@ -127,7 +127,7 @@ test('a stat ERROR (ENOTDIR) is "no posterframe", not a failed read', async () =
 	}
 });
 
-test('image base_svg_url carries ?v=<mtime ms>-<size> and changes when the envelope does', async () => {
+test('image base_svg_url carries ?dv=<mtime ms>-<size> and changes when the envelope does', async () => {
 	const spec = mediaTypeOf('component_image')!;
 	const identity = {
 		componentTipo: 'test99',
@@ -149,7 +149,7 @@ test('image base_svg_url carries ?v=<mtime ms>-<size> and changes when the envel
 		const first = baseSvgUrl(spec, identity, pathOpts);
 		const { mtimeMs, size } = statSync(loc.absolutePath);
 		expect(first).toBe(
-			`${config.media.webBase}${loc.relativePath}?v=${Math.trunc(mtimeMs)}-${size}`,
+			`${config.media.webBase}${loc.relativePath}?dv=${Math.trunc(mtimeMs)}-${size}`,
 		);
 		expect(baseSvgUrl(spec, identity, pathOpts)).toBe(first);
 		// a layer save rewrites the envelope (same second) → new URL

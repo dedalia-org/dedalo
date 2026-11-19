@@ -467,7 +467,7 @@ export function baseSvgUrl(
 	// EMBEDDED in the envelope file (defaultRasterUrl) stays relative on purpose
 	// — it resolves against the envelope's own fetch origin, keeping the
 	// persisted file host-portable.
-	return `${config.media.webBase}${location.relativePath}?v=${version}`;
+	return `${config.media.webBase}${location.relativePath}?dv=${version}`;
 }
 
 /**

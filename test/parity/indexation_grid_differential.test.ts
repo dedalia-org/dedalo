@@ -179,9 +179,11 @@ describe.if(hasPhpCredentials())('get_indexation_grid differential', () => {
 			if (cells > 0)
 				expect(stripped, 'render_class stamped on the rendered component cells').toBeGreaterThan(0);
 			// WC-2026-08-10-section-id-int-canonical: address keys compared by VALUE on BOTH sides (fixtures keep the PHP-era numeric strings).
-			// WC-2026-10-29-posterframe-url-version: TS media cells carry `?v=<mtime ms>-<size>`
+			// WC-2026-10-29-posterframe-url-version: TS media cells carry `?dv=<mtime ms>-<size>`
 			// when the file exists; the PHP store has the bare path — compare without it.
-			const unversioned = JSON.parse(JSON.stringify(ts.body.data).replace(/\?v=\d+-\d+(?=")/g, ''));
+			const unversioned = JSON.parse(
+				JSON.stringify(ts.body.data).replace(/\?dv=\d+-\d+(?=")/g, ''),
+			);
 			expect(normalizeSectionIdTypes(unversioned)).toEqual(
 				normalizeSectionIdTypes(adopted.body) as never,
 			);

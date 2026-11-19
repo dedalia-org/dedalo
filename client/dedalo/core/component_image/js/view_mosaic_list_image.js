@@ -81,7 +81,7 @@ export const view_mosaic_list_image = function() {
 *   2. entries entry matching page_globals.dedalo_quality_thumb — Dédalo-hosted thumbnail.
 *   3. page_globals.fallback_image — placeholder when no suitable entry exists.
 *
-* Dédalo-hosted URLs are versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* Dédalo-hosted URLs are versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * Side effects:
 *   - Attaches two event listeners on the <img>: 'load' and 'error'.

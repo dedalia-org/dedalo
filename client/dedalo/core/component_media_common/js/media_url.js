@@ -13,6 +13,8 @@
 * component (av, 3d, image, pdf, svg — WC-2026-10-29-posterframe-url-version);
 * server-emitted URLs (posterframe_url, base_svg_url) arrive already versioned.
 * Without a file_time the render time is used — never cached, never stale.
+* Key `dv`, never `v`: Apache mod_h264_streaming reads `?v=<seconds>` as a trim
+* parameter and serves a seconds-long clip (WC-2026-11-19-media-url-version-key).
 * @param {Object} file_info - files_info item ({file_path, file_time})
 * @returns {string} url
 */
@@ -22,7 +24,7 @@ export const get_media_url = (file_info) => {
 		? file_info.file_time.time + '-' + file_info.file_size
 		: Date.now()
 
-	return DEDALO_MEDIA_URL + file_info.file_path + '?v=' + version
+	return DEDALO_MEDIA_URL + file_info.file_path + '?dv=' + version
 }//end get_media_url
 
 

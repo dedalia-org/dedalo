@@ -84,7 +84,7 @@ describe.if(DB_READY)('the login avatar (dd522)', () => {
 		const thumbUrl = await resolveUserImageUrl(USER_ID);
 		expect(thumbUrl).toStartWith(`${config.media.webBase}${thumbPath}`);
 		// versioned by the FILE (url_version.ts), so a re-upload is not served stale
-		expect(thumbUrl).toMatch(/\?v=\d+-\d+$/);
+		expect(thumbUrl).toMatch(/\?dv=\d+-\d+$/);
 
 		// the delivered tier wins over the thumbnail when both exist
 		const mainPath = await plantAvatar(SPEC.defaultQuality, SPEC.defaultExtension);

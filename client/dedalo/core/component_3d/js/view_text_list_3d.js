@@ -22,7 +22,7 @@
 *
 * Image resolution priority (same waterfall as view_mini_list_3d / view_default_list_3d):
 *   1. 'thumb' quality entry from data.entries where file_exist === true
-*   2. data.posterframe_url (versioned by the server, ?v=<mtime ms>-<size>)
+*   2. data.posterframe_url (versioned by the server, ?dv=<mtime ms>-<size>)
 *   3. page_globals.fallback_image (global placeholder, set at page bootstrap)
 *
 * The module exports one namespace object `view_text_list_3d` with a single static
@@ -73,7 +73,7 @@ view_text_list_3d.render = async function(self, options) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe_url
-		// versioned by the server (?v=<mtime ms>-<size>): a regenerated still gets a new URL
+		// versioned by the server (?dv=<mtime ms>-<size>): a regenerated still gets a new URL
 		const posterframe_url = data.posterframe_url
 			? data.posterframe_url
 			: page_globals.fallback_image

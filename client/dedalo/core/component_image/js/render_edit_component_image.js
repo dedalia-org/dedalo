@@ -111,7 +111,7 @@ render_edit_component_image.prototype.edit = async function(options) {
 * Duplicate qualities (same quality string, different file) are deduplicated via
 * ar_resolved; the first occurrence wins.
 *
-* Each option's value URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* Each option's value URL is versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * @param {Object} self - component_image instance
 * Returns null when fewer than two distinct qualities exist: a one-option select

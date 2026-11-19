@@ -136,8 +136,8 @@ view_default_list_av.render = async function(self, options) {
 *
 * Fallback chain for the <img> source (evaluated in order):
 *   1. entries entry with quality === 'thumb' and file_exist === true
-*      → get_media_url(thumb)          (versioned by its file, ?v=<file_time>-<size>)
-*   2. data.posterframe_url             (versioned by the server, ?v=<mtime ms>-<size>)
+*      → get_media_url(thumb)          (versioned by its file, ?dv=<file_time>-<size>)
+*   2. data.posterframe_url             (versioned by the server, ?dv=<mtime ms>-<size>)
 *   3. page_globals.fallback_image      (global placeholder PNG; unversioned)
 *
 * The error event on the image re-assigns src to page_globals.fallback_image

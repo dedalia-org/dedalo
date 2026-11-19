@@ -1,7 +1,7 @@
 /**
  * Media component client URLs are versioned by the FILE, not the render
  * (WC-2026-10-29-posterframe-url-version): `get_media_url` (component_media_common/js/media_url.js)
- * yields `?v=<file_time.time>-<file_size>` — stable across renders (HTTP cache reused),
+ * yields `?dv=<file_time.time>-<file_size>` — stable across renders (HTTP cache reused),
  * new when either changes (a re-transcode, a same-second rewrite of another size) —
  * and falls back to the render time when the scan has no file_time (never cached).
  */
@@ -40,7 +40,7 @@ const file = (time: number | null, size: number) => ({
 
 test('versioned by file_time + file_size, stable across renders', () => {
 	const url = get_media_url(file(65116987113, 722370));
-	expect(url).toBe('/dedalo/media/av/404/0/test94_test3_1.mp4?v=65116987113-722370');
+	expect(url).toBe('/dedalo/media/av/404/0/test94_test3_1.mp4?dv=65116987113-722370');
 	expect(get_media_url(file(65116987113, 722370))).toBe(url);
 });
 
@@ -52,6 +52,6 @@ test('a new mtime OR a same-second rewrite of another size gives a new URL', () 
 
 test('no file_time → render-time token (never served stale)', () => {
 	const before = Date.now();
-	const v = Number(get_media_url(file(null, 1)).split('?v=')[1]);
+	const v = Number(get_media_url(file(null, 1)).split('?dv=')[1]);
 	expect(v).toBeGreaterThanOrEqual(before);
 });

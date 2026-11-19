@@ -486,6 +486,14 @@ Merged since the last release; these ship with the next one.
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
 
+- **Videos on some servers no longer show a 2-second duration in the edit view and the versions tool.**
+
+    On servers whose Apache loads the H.264 streaming module, an audiovisual record played only its
+    first seconds in the record and in *Media versions*, although the file itself was complete. Media
+    links now carry their version under a key that module does not read, so the whole video plays.
+
+    Wire contract: `WC-2026-11-19-media-url-version-key`.
+
 - **Reverting a batch run cleans the values it puts back like a normal save**
 
     **Revert the bulk process** put each value back exactly as the run had found it. A value from before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers, and a number in a format its field no longer uses. The same was true of a record the revert restored whole — one a run had emptied or deleted.
@@ -2053,7 +2061,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 85 entries"
+??? note "Wire contract — 86 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2140,6 +2148,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
+    - `WC-2026-11-19-media-url-version-key`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

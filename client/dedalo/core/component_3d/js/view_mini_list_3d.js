@@ -33,7 +33,7 @@ export const view_mini_list_3d = function() {
 * Resolution order for the displayed image (most-specific wins):
 *   1. 'thumb' quality entry from data.entries, when file_exist === true.
 *   2. data.posterframe_url (a server-generated static snapshot of the model),
-*      versioned by the server (?v=<mtime ms>-<size>).
+*      versioned by the server (?dv=<mtime ms>-<size>).
 *   3. page_globals.fallback_image — the site-wide placeholder image URL.
 *
 * A runtime 'error' listener on the <img> element replaces a broken src with
@@ -65,7 +65,7 @@ view_mini_list_3d.render = async function(self, options) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe (used as fallback)
-	// The server versions the URL by file mtime+size (?v=), so a regenerated posterframe gets a new URL.
+	// The server versions the URL by file mtime+size (?dv=), so a regenerated posterframe gets a new URL.
 		const posterframe_url = data.posterframe_url
 			? data.posterframe_url
 			: page_globals.fallback_image

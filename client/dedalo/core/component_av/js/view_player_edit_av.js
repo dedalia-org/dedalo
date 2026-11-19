@@ -43,7 +43,7 @@
 *   self.data.entries       {Array}   - array of entry objects; entries[0] is the primary file group
 *   self.data.entries[0].files_info {Array} - array of file_info objects per quality/extension
 *     file_info shape: { quality, extension, file_path, file_exist, file_size, file_time }
-*   self.data.posterframe_url {string} - absolute URL of the poster image, versioned by the server (?v=<mtime ms>-<size>)
+*   self.data.posterframe_url {string} - absolute URL of the poster image, versioned by the server (?dv=<mtime ms>-<size>)
 *   self.data.subtitles     {Object|undefined}
 *     subtitles shape: { subtitles_url: string, lang: string, lang_name: string }
 *   self.fragment           {Object|null} - active fragment window; null means no fragment
