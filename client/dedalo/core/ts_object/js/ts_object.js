@@ -2803,7 +2803,7 @@ export const render_search_navigator = function(area, nodes, start_node=null, to
 		const button = ui.create_dom_element({
 			element_type	: 'button',
 			class_name		: 'button ' + class_name,
-			inner_html		: text,
+			text_content	: text,
 			parent			: navigator
 		})
 		button.setAttribute('type', 'button') // not a form submit
@@ -2812,14 +2812,14 @@ export const render_search_navigator = function(area, nodes, start_node=null, to
 		return button
 	}
 
-	const prev_button	= make_button('nav_prev', '&#8249;', get_label.previous || 'Previous')
+	const prev_button	= make_button('nav_prev', '‹', get_label.previous || 'Previous')
 	const counter		= ui.create_dom_element({
 		element_type	: 'span',
 		class_name		: 'counter',
 		parent			: navigator
 	})
 	counter.setAttribute('aria-live', 'polite')
-	const next_button	= make_button('nav_next', '&#8250;', get_label.next || 'Next')
+	const next_button	= make_button('nav_next', '›', get_label.next || 'Next')
 
 	// max. Search limit; a change re-runs the same search with it
 	if (can_set_limit) {
@@ -2865,7 +2865,7 @@ export const render_search_navigator = function(area, nodes, start_node=null, to
 		})
 	}
 
-	const close_button	= make_button('nav_close', '&times;', get_label.close || 'Close')
+	const close_button	= make_button('nav_close', '×', get_label.close || 'Close')
 
 	const is_reachable = (node) => node.isConnected && node.getBoundingClientRect().height > 0
 	const set_current = (i) => {

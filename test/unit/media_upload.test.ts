@@ -728,13 +728,29 @@ describe('interrupted join — parts survive, and a stale assembly is recovered'
 		const host = hostname();
 		const cases: { name: string; owner: string; recovered: boolean }[] = [
 			// a restart: the writer's process is gone
-			{ name: 'dead pid', owner: JSON.stringify({ host, pid: deadPid, writer: 'w-old' }), recovered: true },
+			{
+				name: 'dead pid',
+				owner: JSON.stringify({ host, pid: deadPid, writer: 'w-old' }),
+				recovered: true,
+			},
 			// a container restart reuses the pid: same pid, another process instance
-			{ name: 'own pid', owner: JSON.stringify({ host, pid: process.pid, writer: 'w-old' }), recovered: true },
+			{
+				name: 'own pid',
+				owner: JSON.stringify({ host, pid: process.pid, writer: 'w-old' }),
+				recovered: true,
+			},
 			// a LIVE second process on this host: never taken over (two writers corrupt the file)
-			{ name: 'live pid', owner: JSON.stringify({ host, pid: process.ppid, writer: 'w-other' }), recovered: false },
+			{
+				name: 'live pid',
+				owner: JSON.stringify({ host, pid: process.ppid, writer: 'w-other' }),
+				recovered: false,
+			},
 			// another host sharing the media root: its pids prove nothing here
-			{ name: 'other host', owner: JSON.stringify({ host: `${host}-elsewhere`, pid: deadPid, writer: 'w' }), recovered: false },
+			{
+				name: 'other host',
+				owner: JSON.stringify({ host: `${host}-elsewhere`, pid: deadPid, writer: 'w' }),
+				recovered: false,
+			},
 			// no readable identity: the age rule decides
 			{ name: 'legacy', owner: 'a-previous-process', recovered: false },
 		];
@@ -745,9 +761,10 @@ describe('interrupted join — parts survive, and a stale assembly is recovered'
 			if (recovered) {
 				const joined = await call();
 				expect(joined.complete, name).toBe(true);
-				expect(readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string)), name).toEqual(
-					Buffer.from(bytes),
-				);
+				expect(
+					readFileSync(join(stagingDir(USER, KEY, ROOT), joined.tmpName as string)),
+					name,
+				).toEqual(Buffer.from(bytes));
 			} else {
 				expect((await refusalOf(call())).code, name).toBe('media.upload_assembling');
 			}

@@ -795,7 +795,10 @@ else {
 		});
 
 		test('any retryable refusal is asked again (a proxy 502 during a restart)', async () => {
-			const bad_gateway = { ok: false, error: { code: 'client.http_status', status: 502, retryable: true } };
+			const bad_gateway = {
+				ok: false,
+				error: { code: 'client.http_status', status: 502, retryable: true },
+			};
 			const rounds = answer_rounds([bad_gateway, done]);
 			const clock = fake_clock();
 			try {

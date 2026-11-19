@@ -862,7 +862,9 @@ function writerIsGone(ownerPath: string): boolean {
 function readWriterIdentity(ownerPath: string): { pid: number; writer: string } | null {
 	try {
 		const owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
-		return owner?.host === hostname() && typeof owner.pid === 'number' && typeof owner.writer === 'string'
+		return owner?.host === hostname() &&
+			typeof owner.pid === 'number' &&
+			typeof owner.writer === 'string'
 			? owner
 			: null;
 	} catch {
@@ -1352,10 +1354,16 @@ function recordJoinFailure(input: JoinChunkedUploadInput, error: unknown): void 
 		const errno = (error as NodeJS.ErrnoException)?.code;
 		writeFileSync(
 			resolve(upDir, JOIN_FAILED_RECORD),
-			JSON.stringify({ errno: typeof errno === 'string' ? errno : 'unknown', at: new Date().toISOString() }),
+			JSON.stringify({
+				errno: typeof errno === 'string' ? errno : 'unknown',
+				at: new Date().toISOString(),
+			}),
 			{ mode: 0o640 },
 		);
-		console.warn(`[upload] join of upload_id ${JSON.stringify(input.uploadId)} failed and was recorded for its next round:`, error);
+		console.warn(
+			`[upload] join of upload_id ${JSON.stringify(input.uploadId)} failed and was recorded for its next round:`,
+			error,
+		);
 	} catch (recordError) {
 		console.warn('[upload] could not record a failed join:', (recordError as Error).message);
 	}
