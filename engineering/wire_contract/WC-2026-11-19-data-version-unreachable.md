@@ -95,3 +95,28 @@ Owner rulings 2026-11-19 (T2 B1 follow-ups, D08-b).
   the sentence, the label's placeholders ⊆ its keys); the client suite
   `test_update_data_version.js` (a swapped catalog entry is what prints; the
   server sentence only when the dictionary lacks the key). No re-harvest.
+
+## Addendum 2026-11-20 (2) — the code-update panel says it before the click
+
+Owner ruling 2026-11-19 (T2 B1 follow-ups, D08-b): the UPDATE-CODE panel shows
+the `unreachable` state too, not only at the end of a run.
+
+- **`update_code` `get_value`** — `consumer.checks[]` gains one line,
+  **`{ id: 'data_version', state: 'ok' | 'blocked', detail: '<state>/<installed>/<code>' }`**
+  (`<state>` ∈ `ok | pending | ahead | unreachable | unknown`; `<installed>` is
+  empty when it could not be read), placed after the operator lines. It is the
+  door's own reading (`preconditions.ts installedDataVersionVerdict`, shared with
+  `requireDataVersionCurrent`), so every state the door refuses for is `blocked`
+  here and `consumer.ready` is false with it. Before, the panel showed "Ready to
+  update" over a database the door refused, and the reason arrived only as the
+  refusal.
+- **Client:** the line is worded from `update_code_data_version_<state>` (the
+  versions in its placeholders), `update_code_note_data_version_<state>` and
+  `update_code_fix_data_version_<state>` — for `unreachable`: the code update is
+  refused because of that database, and the migration runs on the earlier
+  major's installation (the manual page is named). The version modal's gate
+  says the same instead of "blocked", and keeps Update disabled.
+- **Gates:** `update_status_native` (the line per state, equal to the door's
+  rule for the same reading; every state has its words); the client suite
+  `test_update_code.js` (the panel line per state, the control, the modal's
+  gate). No re-harvest.

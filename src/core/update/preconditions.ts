@@ -37,7 +37,7 @@ import {
 import { DedaloError } from '../errors/index.ts';
 import { getServerState } from '../resolve/server_state.ts';
 import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
-import { classifyDataVersion, dataVersionAdvice } from './boot_state.ts';
+import { classifyDataVersion, type DataVersionState, dataVersionAdvice } from './boot_state.ts';
 import { DEDALO_DATA_VERSION } from './version.ts';
 
 /** How long an HTTP surface waits on the backup verdict before saying `verifying`. */
@@ -260,6 +260,25 @@ export function checkUpdatePreconditions(
 }
 
 /**
+ * The data-version verdict a code update is judged on, read NOW: the installed
+ * version (unreadable = `unknown`) classified against the code's. ONE reading
+ * for the door ({@link requireDataVersionCurrent}) and for the panel line that
+ * predicts it (status.ts `data_version`) — they cannot disagree.
+ */
+export async function installedDataVersionVerdict(
+	read: () => Promise<number[]> = readInstalledDataVersionStrict,
+	code: readonly number[] = DEDALO_DATA_VERSION,
+): Promise<DataVersionState> {
+	let installed: number[] | null;
+	try {
+		installed = await read();
+	} catch {
+		installed = null;
+	}
+	return classifyDataVersion(installed, code);
+}
+
+/**
  * THE DATA-VERSION GATE of a code update (update audit 2026-10-29, U-04;
  * VERSIONING_SPEC S7). The installed data version (matrix_updates) must equal
  * the data version the RUNNING code declares before another code release may
@@ -276,13 +295,7 @@ export async function requireDataVersionCurrent(
 	read: () => Promise<number[]> = readInstalledDataVersionStrict,
 	code: readonly number[] = DEDALO_DATA_VERSION,
 ): Promise<void> {
-	let installed: number[] | null;
-	try {
-		installed = await read();
-	} catch {
-		installed = null;
-	}
-	const verdict = classifyDataVersion(installed, code);
+	const verdict = await installedDataVersionVerdict(read, code);
 	if (verdict.state === 'ok') return;
 	const detail =
 		verdict.state === 'pending'

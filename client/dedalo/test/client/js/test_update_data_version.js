@@ -121,7 +121,7 @@ describe('UPDATE_DATA_VERSION WIDGET', function () {
 		// The served dictionary carries the key (labels_tripwire: defined in the master).
 		assert.isString(get_label.update_data_notice_unreachable, 'the label is served');
 		for (const slot of ['installed', 'engine', 'installed_major', 'engine_major', 'doc']) {
-			assert.include(get_label.update_data_notice_unreachable, '${' + slot + '}', slot);
+			assert.include(get_label.update_data_notice_unreachable, `\${${slot}}`, slot);
 		}
 		// A translated catalog entry: the panel prints THAT sentence, never the
 		// server's English one, with every placeholder filled.
@@ -146,10 +146,7 @@ describe('UPDATE_DATA_VERSION WIDGET', function () {
 			const { card, content_data } = await render_in_card(
 				no_rung_value({ notice: NOTICE, notice_data: NOTICE_DATA }),
 			);
-			assert.strictEqual(
-				content_data.querySelector('.info_text.error_text').textContent,
-				NOTICE,
-			);
+			assert.strictEqual(content_data.querySelector('.info_text.error_text').textContent, NOTICE);
 			card.remove();
 		});
 	});

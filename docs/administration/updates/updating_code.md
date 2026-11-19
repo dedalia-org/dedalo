@@ -203,10 +203,22 @@ open above Details, because it needs your attention.
 
 The checks the panel decides are the same ones the update refuses on:
 supervisor declared (`DEDALO_SUPERVISED=true` in the process environment),
-deployment channel, superuser identity, backup root outside the code tree,
-runtime data outside the code tree (the row names the setting that moves each
-item), the archive tools, the Bun version pin, a leftover staging directory,
-**enough free disk space**, and **only Dédalo files in the code folder**:
+deployment channel, superuser identity, **data version**, backup root outside
+the code tree, runtime data outside the code tree (the row names the setting
+that moves each item), the archive tools, the Bun version pin, a leftover
+staging directory, **enough free disk space**, and **only Dédalo files in the
+code folder**:
+
+- **Data version** compares the data version of the database with the one the
+  running code declares; a code update is refused unless they are equal. The
+  row says which way they differ and what to do: the database is behind (run
+  *Update data* first), it is newer than the code (restore a matching backup or
+  install the newer code again), it could not be read, or it is a database of
+  an **earlier major version** — one that no update of this engine starts
+  from, so *Update data* cannot move it either. That last case is a Dédalo v6
+  database under v7: the move is made on the v6 installation
+  ([Migrating from v6](../../install/migrating_from_v6.md)). The version window
+  shows the same reason beside its disabled Update button.
 
 - **Enough free disk space** applies the update's own rule — room for a second
   copy of the code (the release and its dependencies) — so it reads, for

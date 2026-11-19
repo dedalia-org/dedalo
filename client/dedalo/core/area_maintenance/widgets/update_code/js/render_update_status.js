@@ -5,6 +5,7 @@
 
 
 // imports
+	import {format_label} from '../../../../common/js/common.js'
 	import {ui} from '../../../../common/js/ui.js'
 	import {item_release} from './update_code_channel.js'
 
@@ -414,6 +415,47 @@ const disk_space_text = function(detail) {
 
 
 /**
+* DATA_VERSION_FACT
+* The `data_version` line's FACT, parsed: the server sends
+* `<state>/<installed>/<code>` (core/update/status.ts dataVersionCheck) —
+* `state` is the data-version verdict (ok | pending | ahead | unreachable |
+* unknown), `installed` is empty when the database could not be read.
+* @param {string} detail
+* @returns {{state:string, installed:string, engine:string}}
+*/
+export const data_version_fact = function(detail) {
+	const [state, installed, engine] = String(detail ?? '').split('/')
+	return {
+		state		: state || 'unknown',
+		installed	: installed || '',
+		engine		: engine || ''
+	}
+}//end data_version_fact
+
+
+
+/**
+* DATA_VERSION_TEXT
+* That fact, in words: the installed version when it is the one this code
+* declares; else the state's own sentence (`update_code_data_version_<state>`,
+* the versions in its placeholders) — for `unreachable`, a database of an
+* earlier major version that no update of this engine starts from. An unknown
+* state shows the raw fact rather than nothing.
+* @param {string} detail
+* @returns {string}
+*/
+export const data_version_text = function(detail) {
+	const fact = data_version_fact(detail)
+	if (fact.state==='ok') {
+		return fact.installed
+	}
+	const label = get_label['update_code_data_version_' + fact.state]
+	return label ? format_label(label, fact) : String(detail)
+}//end data_version_text
+
+
+
+/**
 * CHECK_ROW
 * One readiness line: label (by check id), state chip, and the server's fact.
 * A `note` label — `<prefix>_note_<id>` — is rendered underneath, but ONLY
@@ -466,18 +508,27 @@ export const check_row = function(parent, check, label_prefix='update_code') {
 	if (check.detail!==undefined && check.detail!==null && check.detail!=='') {
 		const detail_text = check.id==='disk_space'
 			? disk_space_text(String(check.detail))
-			: String(check.detail)
+			: check.id==='data_version'
+				? data_version_text(String(check.detail))
+				: String(check.detail)
 		ui.create_dom_element({
 			element_type	: 'span',
-			class_name		: 'check_detail mono',
+			// a sentence, not a value: the data-version fact is not set in mono
+			class_name		: check.id==='data_version' ? 'check_detail' : 'check_detail mono',
 			text_content	: detail_text,
 			parent			: value
 		})
 	}
 
+	// ONE check, SEVERAL reasons: the data-version line blocks for a database
+	// behind, ahead, of an earlier major, or unreadable — each has its own why
+	// and its own way out, keyed by the fact's state (`<id>_<reason>`).
+	const reason = check.id==='data_version' ? data_version_fact(check.detail).state : null
+
 	// the why, only where it helps (a state-specific note wins: one check id
 	// can block and warn for different reasons)
-	const note = get_label[label_prefix + '_note_' + check.id + '_' + check.state]
+	const note = (reason && get_label[label_prefix + '_note_' + check.id + '_' + reason])
+		|| get_label[label_prefix + '_note_' + check.id + '_' + check.state]
 		|| get_label[label_prefix + '_note_' + check.id]
 	if (note && check.state!=='ok') {
 		ui.create_dom_element({
@@ -489,7 +540,9 @@ export const check_row = function(parent, check, label_prefix='update_code') {
 	}
 
 	// …and what to DO, on a block: `<prefix>_fix_<id>`, one step per line
-	const fix = check.state==='blocked' ? get_label[label_prefix + '_fix_' + check.id] : null
+	const fix = check.state==='blocked'
+		? ((reason && get_label[label_prefix + '_fix_' + check.id + '_' + reason]) || get_label[label_prefix + '_fix_' + check.id])
+		: null
 	if (fix) {
 		const fix_block = ui.create_dom_element({
 			element_type	: 'div',

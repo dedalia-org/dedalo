@@ -22,7 +22,9 @@
 		backup_waiver_check,
 		build_waive_backup_row,
 		image_update_command,
-		image_command_tag
+		image_command_tag,
+		data_version_fact,
+		data_version_text
 	} from './render_update_status.js'
 	import {
 		channel_shortfall_note,
@@ -1622,6 +1624,20 @@ export const render_info_modal = function( self, versions_info, body_response, a
 							render_maintenance_prereq(node, async () => {
 								await self.refresh_consumer() // re-reads self.value AND the panel behind
 								paint_gate()
+							})
+							return
+						}
+						// the data version says WHY, here too: "blocked" alone sends the
+						// operator to look for a switch, and for a database of an earlier
+						// major version there is none on this installation
+						if (check.id==='data_version') {
+							const reason = data_version_fact(check.detail).state
+							ui.create_dom_element({
+								element_type	: 'div',
+								class_name		: 'dd_note state_danger update_gate_data_version',
+								text_content	: (get_label.update_code_check_data_version || check.id) + ': ' + data_version_text(check.detail)
+									+ (get_label['update_code_note_data_version_' + reason] ? '. ' + get_label['update_code_note_data_version_' + reason] : ''),
+								parent			: node
 							})
 							return
 						}

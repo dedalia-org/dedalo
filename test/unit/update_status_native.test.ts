@@ -49,7 +49,7 @@ import {
 	installedRootEntriesOf,
 	RELEASE_ROOT_MANIFEST_PATH,
 } from '../../src/core/update/install_stamp.ts';
-import { backupFreshness } from '../../src/core/update/preconditions.ts';
+import { backupFreshness, requireDataVersionCurrent } from '../../src/core/update/preconditions.ts';
 import {
 	advertisedUrlReachableCheck,
 	archiveSymlinkNames,
@@ -60,6 +60,7 @@ import {
 	type StatusCheck,
 } from '../../src/core/update/status.ts';
 import { isSupervised } from '../../src/core/update/supervision.ts';
+import { DEDALO_DATA_VERSION } from '../../src/core/update/version.ts';
 
 const STATES = new Set(['ok', 'warn', 'blocked', 'unknown']);
 
@@ -187,6 +188,87 @@ describe('consumer status', () => {
 		const check = byId(status.checks, 'backup_root_outside_tree');
 		const inside = backupRootIsInsideTree(status.tree.backup_root, projectRoot);
 		expect(check.state).toBe(inside ? 'blocked' : 'ok');
+	});
+
+	/**
+	 * The DATA-VERSION line (T2 D08-b follow-up, owner 2026-11-19): the panel's
+	 * normal state says what the door will refuse for — above all a database of
+	 * an earlier major (`unreachable`), which no "Update data" can move.
+	 */
+	const codeVersion = DEDALO_DATA_VERSION.join('.');
+	const dataVersionPanel = (read: () => Promise<number[]>) =>
+		consumerStatus(superuser, {
+			backupDir: PANEL_BACKUP_DIR,
+			waitMs: 60_000,
+			space: { measure: async () => 1024, available: () => 10 ** 12, exists: () => false },
+			installedDataVersion: read,
+		});
+	/** The rule the DOOR refuses with for the same reading (null = it lets the update through). */
+	const doorRule = async (read: () => Promise<number[]>): Promise<string | null> => {
+		try {
+			await requireDataVersionCurrent(read);
+			return null;
+		} catch (error) {
+			return String((error as { coordinates?: { rule?: unknown } }).coordinates?.rule);
+		}
+	};
+	const ahead = [...DEDALO_DATA_VERSION];
+	ahead[2] = (ahead[2] ?? 0) + 1;
+	const DATA_VERSION_CASES: [string, () => Promise<number[]>, string][] = [
+		['unreachable', async () => [6, 9, 1], `unreachable/6.9.1/${codeVersion}`],
+		['ahead', async () => ahead, `ahead/${ahead.join('.')}/${codeVersion}`],
+		[
+			'unknown',
+			async () => {
+				throw new Error('matrix_updates unreadable');
+			},
+			`unknown//${codeVersion}`,
+		],
+		['unknown', async () => [], `unknown//${codeVersion}`],
+	];
+
+	test('a database of an earlier major BLOCKS the code update on the panel, as a fact the door agrees with', async () => {
+		const status = await dataVersionPanel(async () => [6, 9, 1]);
+		const check = byId(status.checks, 'data_version');
+		expect(check.state).toBe('blocked');
+		// A fact, never a sentence: <state>/<installed>/<code>.
+		expect(check.detail).toBe(`unreachable/6.9.1/${codeVersion}`);
+		expect(status.ready).toBe(false);
+		expect(await doorRule(async () => [6, 9, 1])).toBe('data_version_unreachable');
+	});
+
+	test('every not-current data version blocks with its own fact — the SAME verdict the door refuses with', async () => {
+		for (const [state, read, detail] of DATA_VERSION_CASES) {
+			const check = byId((await dataVersionPanel(read)).checks, 'data_version');
+			expect(check.state, state).toBe('blocked');
+			expect(check.detail, state).toBe(detail);
+			expect(await doorRule(read), state).toBe(`data_version_${state}`);
+		}
+	});
+
+	test('control — the installed version this code declares: ok, and the door lets it through', async () => {
+		const read = async () => [...DEDALO_DATA_VERSION];
+		const status = await dataVersionPanel(read);
+		const check = byId(status.checks, 'data_version');
+		expect(check.state).toBe('ok');
+		expect(check.detail).toBe(`ok/${codeVersion}/${codeVersion}`);
+		expect(await doorRule(read)).toBeNull();
+	});
+
+	test('every data-version state the line can carry has its words (fact, why, and what to do)', () => {
+		const missing = ['pending', 'ahead', 'unreachable', 'unknown']
+			.flatMap((state) => [
+				`update_code_data_version_${state}`,
+				`update_code_note_data_version_${state}`,
+				`update_code_fix_data_version_${state}`,
+			])
+			.concat('update_code_check_data_version')
+			.filter((key) => labels[key] === undefined);
+		expect(missing, 'add these to src/core/labels/master.json').toEqual([]);
+		// The unreachable pointer names the manual page of that migration.
+		expect(labels.update_code_fix_data_version_unreachable).toContain(
+			'docs/install/migrating_from_v6.md',
+		);
 	});
 
 	test('a non-superuser is blocked on identity, exactly as preconditions refuses', async () => {
