@@ -4449,8 +4449,6 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		);
 	});
 
-	// kept last in its file: client_suite_census.ts (test/helpers/) reads the quote in this
-	// test's regex literal as an open string, and would count no it() after it
 	it('capturing the map requests no URL held by a CSS custom property', async function () {
 		tool.attach_map_image_download_control();
 
@@ -4463,7 +4461,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		const token_paths = [...style]
 			.filter((name) => name.startsWith('--'))
 			.flatMap((name) =>
-				[...style.getPropertyValue(name).matchAll(/url\(\s*['"]?([^'")]+)/g)].map(
+				[...style.getPropertyValue(name).matchAll(/url\(\s*[\x27\x22]?([^\x27\x22)]+)/g)].map(
 					(match) => match[1],
 				),
 			)

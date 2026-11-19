@@ -2937,8 +2937,6 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		}
 	});
 
-	// kept last in its file: client_suite_census.ts (test/helpers/) reads the quote in this
-	// test's regex literal as an open string, and would count no it() after it
 	it('ARCGIS loads straight from Esri unless the component configures an `arcgis` default, then it comes through the tile proxy', function () {
 		const arcgis_layer = () =>
 			Object.values(geolocation.layer_control._layers).find((entry) => entry.name === 'ARCGIS')
@@ -2996,7 +2994,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			esri,
 			"expected Esri's own credit, whole, when the entry gives none",
 		);
-		assert.notMatch(esri, /[&<>"']/, 'expected a credit escaping leaves unchanged');
+		assert.notMatch(esri, /[&<>\x22\x27]/, 'expected a credit escaping leaves unchanged');
 	});
 });
 
