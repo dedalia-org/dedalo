@@ -3,16 +3,12 @@
  *
  * Store assertions run on an injectable SCRATCH table (dedalo_ts_test_*,
  * dropped in afterAll); the widget module's handlers are exercised directly.
- * The catalog CONDITION (receiver flag → membership) is boot-frozen in
- * registry.ts, so the honest assertion is consistency with the CURRENT
- * config: flag off ⇒ dispatchWidgetRequest refuses the widget id outright
- * (the non-master posture — the widget is unreachable), flag on ⇒ the
- * admin gate + handlers respond.
+ * Since 2026-11-19 (email transport) every installation lists the widget:
+ * the admin gate refuses non-admins, admins get the handlers.
  */
 // Migrated to the generic `test` TLD 2026-08-20 (AGENTS.md hard rules): the stored report row's section is an opaque string, rewritten to its phase-2 `test` clone (src/core/test_data/test_tld_tipo_map.json).
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { config } from '../../src/config/config.ts';
 import { widget } from '../../src/core/area_maintenance/widgets/error_reports.ts';
 import {
 	dispatchGetWidgetValue,
@@ -115,10 +111,8 @@ describe('error_reports widget (WC-018)', () => {
 		expect(Object.keys(widget.apiActions ?? {})).toEqual(['get_reports']);
 	});
 
-	test('catalog membership = participates in error reporting (receiver OR a master URL)', () => {
-		const participates =
-			config.errorReport.receiverEnabled || Boolean(config.errorReport.masterApiUrl);
-		expect(MAINTENANCE_WIDGET_IDS.includes('error_reports')).toBe(participates);
+	test('catalog membership: every installation lists it (each stores its own reports)', () => {
+		expect(MAINTENANCE_WIDGET_IDS.includes('error_reports')).toBe(true);
 	});
 
 	test('getValue reports the configured target (env-driven display)', async () => {
@@ -127,7 +121,7 @@ describe('error_reports widget (WC-018)', () => {
 		expect(typeof data.target).toBe('string');
 	});
 
-	test('dispatch: non-admin refused; non-member id refused outright when flag off', async () => {
+	test('dispatch: non-admin refused; admin answered', async () => {
 		// Admin gate runs FIRST regardless of catalog membership.
 		const nonAdminRefusal = await rejectedBy(() =>
 			dispatchWidgetRequest(nonAdmin, { model: 'error_reports', action: 'get_reports' }, {}),
@@ -139,24 +133,12 @@ describe('error_reports widget (WC-018)', () => {
 		);
 		expect(nonAdminValueRefusal.code).toBe('perm.denied');
 
-		const participates =
-			config.errorReport.receiverEnabled || Boolean(config.errorReport.masterApiUrl);
-		if (participates) {
-			// Participating install: the widget is in the catalog, the handler answers.
-			const adminResult = await dispatchWidgetRequest(
-				admin,
-				{ model: 'error_reports', action: 'get_reports' },
-				{},
-			);
-			expect(adminResult.data).toBeDefined();
-		} else {
-			// Non-participating install: the widget id is NOT in the catalog —
-			// refused before any handler exists to run.
-			const refusal = await rejectedBy(() =>
-				dispatchWidgetRequest(admin, { model: 'error_reports', action: 'get_reports' }, {}),
-			);
-			expect(refusal.code).toBe('maintenance.widget_unknown');
-		}
+		const adminResult = await dispatchWidgetRequest(
+			admin,
+			{ model: 'error_reports', action: 'get_reports' },
+			{},
+		);
+		expect(adminResult.data).toBeDefined();
 	});
 
 	test('getValue is fail-soft: a broken store yields a null panel, never a throw', async () => {

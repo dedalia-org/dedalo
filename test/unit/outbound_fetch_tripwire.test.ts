@@ -92,10 +92,6 @@ const BOUNDED_BY: Record<string, { sites: number; how: string }> = {
 		sites: 1,
 		how: 'operator-configured multimodal embedding endpoint: a timeout at the call; res.json() is NOT byte-capped (CARRY-14 debt)',
 	},
-	'tools/tool_error_report/server/index.ts': {
-		sites: 1,
-		how: 'relay to the operator-configured master (https, or loopback http): relayTimeoutMs at the call; response.json() of a small envelope is NOT byte-capped (CARRY-14 debt)',
-	},
 	'src/core/area_maintenance/widgets/site_builder_status.ts': {
 		sites: 1,
 		how: 'small JSON status payload from the local daemon',
@@ -161,8 +157,6 @@ const FETCH_SEAMS: Record<string, string> = {
 		'EmbeddingProvider — `config.fetchImpl ?? fetch`, the call carries signal: controller.signal',
 	'src/ai/rag/multimodal_embedding_provider.ts':
 		'MultimodalEmbeddingProvider — `config.fetchImpl ?? fetch`, the call carries signal: controller.signal',
-	'tools/tool_error_report/server/index.ts':
-		'send_report defaultDeps — `fetchImpl: fetch`, the relay call carries signal: controller.signal',
 };
 
 /**

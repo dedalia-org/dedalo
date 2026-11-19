@@ -25,7 +25,7 @@
 * TS-only, so a self-contained style survives the sync (sync-drift hazard).
 *
 * SECURITY (DS-1): every report field (description, source, stack, context) is
-* UNTRUSTED remote content submitted by other installations. It is rendered
+* UNTRUSTED user/browser-supplied content. It is rendered
 * EXCLUSIVELY through text_content / textContent — never inner_html — so a
 * crafted report can not become markup in a global admin's browser.
 *
@@ -121,7 +121,7 @@ const render_content_data = function(self) {
 		}
 
 	// target — where reports from THIS installation are sent (env-driven,
-	// DEDALO_ERROR_REPORT_MASTER_URL). textContent only (DS-1).
+	// DEDALO_ERROR_REPORT_EMAIL). textContent only (DS-1).
 		const target = typeof value.target==='string' ? value.target : null
 		if (target!==null) {
 			const target_row = ui.create_dom_element({
@@ -311,8 +311,14 @@ const build_detail = function(report, detail) {
 
 	field('Description', report.description)
 	field('Page', report.page_url)
-	field('Source IP', report.source_ip)
 	field('Dédalo version', report.dedalo_version)
+	// mail outcome (context.mail, stamped by tool_error_report at send time)
+		const mail = report.context && report.context.mail && typeof report.context.mail==='object'
+			? report.context.mail
+			: null
+		if (mail) {
+			field('Email', String(mail.status) + (mail.code ? ' (' + mail.code + ')' : '') + (mail.ref ? ' · ref ' + mail.ref : ''))
+		}
 
 	// captured JS errors — <pre> + textContent (stack text is hostile input)
 		const js_errors = Array.isArray(report.js_errors) ? report.js_errors : []

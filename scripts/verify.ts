@@ -55,7 +55,7 @@ const TRIPWIRES = [
 	'test/unit/config_declaration_tripwire.test.ts',
 	'test/unit/install_seed_manifest_tripwire.test.ts',
 	'test/unit/install_seed_drift_tripwire.test.ts',
-	'test/unit/ip_allowlist.test.ts',
+	'test/unit/ip_address.test.ts',
 	'test/unit/proxy_trust_tripwire.test.ts',
 	'test/unit/password_cost_tripwire.test.ts',
 	'test/unit/config_docs_tripwire.test.ts',

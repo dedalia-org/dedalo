@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
     - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
     - Publication fills the global search and map tables again
@@ -1373,6 +1374,25 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Error reports are stored on your installation and sent by email; the anonymous report intake is removed.** *(action needed)*
+
+    Before, an administrator's error report was relayed over HTTP to a "master" installation, which
+    accepted reports from anyone on the network without logging in. That door could be used to fill
+    the master's database. It is gone.
+
+    Now every report is **stored on the installation where it was written** (the *Error reports*
+    panel of the maintenance dashboard lists them) and, when `DEDALO_ERROR_REPORT_EMAIL` is set,
+    **emailed** there through the configured mailer: a plain-text summary, the full report as
+    `report.json` and the screenshot as an image. Unset, reports stay on your installation.
+
+    **Action needed:** remove `DEDALO_ERROR_REPORT_MASTER_URL`, `DEDALO_ERROR_REPORT_RECEIVER`,
+    `DEDALO_ERROR_REPORT_TOKEN`, `DEDALO_ERROR_REPORT_ALLOWED_IPS` and
+    `DEDALO_ERROR_REPORT_TIMEOUT_MS` from `../private/.env` (the server logs a warning at boot while
+    the first two are set), and set `DEDALO_ERROR_REPORT_EMAIL` if you want reports sent to the
+    maintainers. See [Error reports](./administration/error_reports.md).
+
+    Wire contract: `WC-2026-11-19-error-report-email-transport`.
+
 - **The server unit runs on a read-only file system; the installer upgrades its own earlier templates and the update names the re-render command.**
 
     On a production host the engine's systemd unit now runs with `ProtectSystem=strict`: the whole
@@ -1458,6 +1478,12 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
 
 #### Removed
+
+- **The setting TOOLS_REGISTRY_CACHE_TTL_MS is removed.**
+
+    It has had no effect since Dédalo became the only writer of the tools registry (every change
+    refreshes the tools list at once). It is no longer listed in `sample.env` or the settings
+    reference. A leftover line in `../private/.env` is ignored; you can delete it.
 
 - **The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.** *(action needed)*
 
@@ -2061,7 +2087,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 86 entries"
+??? note "Wire contract — 87 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2148,6 +2174,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
+    - `WC-2026-11-19-error-report-email-transport`
     - `WC-2026-11-19-media-url-version-key`
 
 ## 7.0.0-beta.8 — 2026-11-08

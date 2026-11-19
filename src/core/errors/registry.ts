@@ -3538,8 +3538,7 @@ export const EXTERNAL_ERROR_KINDS = [
  */
 export const LEGACY_TOKEN_MAP: Readonly<Record<string, ErrorCode>> = {
 	// HTTP envelope tokens
-	// The Gate-1 sentence itself: dd_error_report_api mimics the unregistered-
-	// action shape by message (WC-017) until P2 restates it as code identity.
+	// The Gate-1 sentence itself (legacy unregistered-action message).
 	'Undefined or unauthorized method (action)': 'request.unknown_action',
 	not_logged: 'auth.not_logged',
 	csrf_failed: 'auth.csrf_failed',

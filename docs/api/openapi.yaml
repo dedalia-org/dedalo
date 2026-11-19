@@ -186,8 +186,7 @@ components:
             API class name. Registered classes: `dd_core_api`, `dd_utils_api`,
             `dd_tools_api`, `dd_area_maintenance_api`, `dd_diffusion_api`,
             `dd_component_portal_api`, `dd_component_av_api`, `dd_component_info`,
-            `dd_component_3d_api`, `dd_ts_api`, `dd_rag_api`, `dd_error_report_api`,
-            `dd_mcp_api`. Defaults to `dd_core_api`.
+            `dd_component_3d_api`, `dd_ts_api`, `dd_rag_api`, `dd_mcp_api`. Defaults to `dd_core_api`.
           examples:
             - dd_core_api
             - dd_utils_api

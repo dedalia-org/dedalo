@@ -137,7 +137,6 @@ handler bodies live in `src/core/api/handlers/<class>.ts`.
 | `dd_identify_api` | Object identification: `find_matches` (the records sharing a seed's identifying features, with the per-criterion breakdown), `identify_by_image`, `get_proposals`, `resolve_type_link`. Needs a `properties.identify` profile on the section; declines cleanly without one. All four are READS, ACL-gated inside the engine. |
 | `dd_external_api` | `search` — a third-party catalogue searched THROUGH the engine, so the request passes the host allowlist, the SSRF guard, the breaker and the byte cap. The client names only its own component and the query. |
 | `dd_mcp_api` | The in-process agent bridge: `mcp_proxy`, `agent_models`, `agent_chat`, `agent_chat_stream`, `agent_apply`. **Fail-closed** — every action refuses unless the agent HTTP surface is explicitly enabled. |
-| `dd_error_report_api` | `receive_report` — machine-to-machine error intake, reachable only where the receiver is enabled. |
 
 ## Request lifecycle
 
@@ -176,8 +175,7 @@ own permission gate and scrubs the untrusted SQO. The handler returns an
 `server.ts` sets the session cookie on login or logout and serializes the JSON (or
 streams NDJSON).
 
-One narrower gate rides alongside: the **error-report intake** is reachable only
-where the receiver is enabled. There is no install action on the wire — a server
+There is no install action on the wire — a server
 that is not installed does not start at all
 ([installer reference](../../install/installer_reference.md#a-server-that-is-not-installed-refuses-to-start)).
 

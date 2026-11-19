@@ -7,9 +7,8 @@
  * short-circuits to null on a true here, so no such address ever hits the
  * country database, and the client shows the IP with no flag (never an error).
  *
- * The loopback token set mirrors the one the rest of the engine already trusts
- * (`src/core/security/ip_allowlist.ts` LOOPBACK_SPELLINGS:
- * ['local','127.0.0.1','::1','::ffff:127.0.0.1']) — extended here with the full
+ * The loopback token set is the dispatcher's `'local'` sentinel plus the loopback
+ * addresses ['127.0.0.1','::1','::ffff:127.0.0.1'] — extended here with the full
  * IPv6 private ranges the IPv4-only client filter historically missed (the
  * `::1`/`local` 404 in section Activity that motivated this subsystem).
  *

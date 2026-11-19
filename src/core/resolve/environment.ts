@@ -45,8 +45,8 @@ import { getServerState } from './server_state.ts';
 const DEV_MODE = readString('DEDALO_DEV_MODE') === 'true';
 
 // Engine version strings come from the ONE source (core/update/version.ts) so
-// page_globals/plain_vars and other consumers (the error-report relay stamps
-// DEDALO_ENGINE_VERSION, WC-017) cannot drift apart.
+// page_globals/plain_vars and other consumers (tool_error_report stamps
+// DEDALO_ENGINE_VERSION into each report) cannot drift apart.
 
 /**
  * The DD_TIPOS constant map exposed to the client (PHP get_js_plain_vars —

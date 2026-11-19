@@ -211,8 +211,7 @@ Authentication is enforced at the [API gate](../core/system/api.md) for every
 action **except** a small allowlist of bootstrap and machine-to-machine
 actions that must run before a session exists. That list is
 `NO_LOGIN_ACTIONS` in `src/core/api/dispatch.ts`: `login`, `get_environment`,
-`start`, `get_login_context`, error-report intake from a remote install
-(`receive_report`), and the ontology-/code-master reachability and manifest
+`start`, `get_login_context`, and the ontology-/code-master reachability and manifest
 actions (`get_server_ready_status`, `get_ontology_update_info`,
 `get_code_update_info`) — the last three fail closed unless this install is
 configured as an ontology or code server (see [Updates](updates/index.md)).

@@ -49,8 +49,8 @@ export const SCALAR_BOUNDS = {
 	optionsKeys: 512,
 	/**
 	 * Serialized ceiling of the whole `options` bag. Deliberately 2× the
-	 * error-report intake's own `REPORT_MAX_SERIALIZED_BYTES` (256 KiB, and that
-	 * intake arrives through this very bag), and ~500× below the body ceiling.
+	 * error report's own `REPORT_MAX_SERIALIZED_BYTES` (256 KiB, and `send_report`
+	 * arrives through this very bag), and ~500× below the body ceiling.
 	 * Record CONTENT does not travel here — it travels in `rqo.data`, which stays
 	 * unbounded because a heritage record legitimately is large.
 	 */

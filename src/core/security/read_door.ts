@@ -690,11 +690,6 @@ export const READ_DOOR_POSTURE: ReadonlyMap<string, ReadDoorPosture> = new Map<
 			reason: 'a third-party catalogue search through the outbound door; no matrix record is read.',
 		},
 	],
-	// ── dd_error_report_api ──────────────────────────────────────────────────
-	[
-		'dd_error_report_api:receive_report',
-		{ posture: 'mutating', reason: 'pre-auth report intake.' },
-	],
 	// ── dd_mcp_api ───────────────────────────────────────────────────────────
 	[
 		'dd_mcp_api:mcp_proxy',

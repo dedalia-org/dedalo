@@ -1998,8 +1998,6 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
 	'dd_diffusion_api:retry_pending_deletions': 'diffusion subsystem door (Step 6)',
 	'dd_area_maintenance_api:lock_components_actions':
 		'maintenance-area lock state — the dd88 admin gate, no record addressed',
-	'dd_error_report_api:receive_report':
-		'pre-authentication report intake — no record, no grant to test',
 	'dd_ts_api:add_child': 'thesaurus tree write (Step 5 tree integrity owns the tree doors)',
 	'dd_ts_api:update_parent_data': 'thesaurus tree write (Step 5)',
 	'dd_ts_api:save_order': 'thesaurus tree write (Step 5)',
@@ -2086,7 +2084,7 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
  * listed `dd_component_text_area_api:create_tm_note` here, 60 → 61; part C
  * PROBES it — createTmNoteProbe — and restores 60.)
  */
-const NOT_YET_PROBED_CEILING = 60;
+const NOT_YET_PROBED_CEILING = 59;
 
 interface Census {
 	probes: Map<string, Probe>;

@@ -1,6 +1,8 @@
 /**
- * Error-report intake store — the ONE owning module for the
- * dedalo_ts_error_reports table (sql_confinement T4; WC-017).
+ * Error-report store — the ONE owning module for the dedalo_ts_error_reports
+ * table (sql_confinement T4). It holds the reports THIS installation's global
+ * admins sent through tool_error_report (WC-2026-11-19-error-report-email-transport);
+ * no other installation writes here — there is no network intake.
  *
  * Append-only by construction: this module exports insert/list/count plus the
  * retention prune — no UPDATE exists and the only DELETEs are the retention
@@ -9,7 +11,7 @@
  * through any door. The retention prune (opportunistic, on
  * insert — the session_store login-attempts GC precedent) bounds total disk
  * footprint; "append-only" governs integrity WITHIN the retention window, not
- * permanence (SECURITY_DECISIONS: error-report intake).
+ * permanence.
  *
  * DDL lives twice by the migrate.ts documented model: the authoritative copy in
  * install/db/migrations/0002_error_reports.sql (applied at boot) and the lazy
@@ -27,8 +29,8 @@ const TABLE_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/;
 /** Max rows one list() call may return (the admin widget pages through). */
 export const LIST_MAX_LIMIT = 100;
 
-/** What the receiver stamps + stores. source_ip/received_at are the only
- * trusted fields; everything else is the sender's self-reported claim. */
+/** One stored report row (written by tool_error_report's send_report;
+ * source_ip is always 'local' since the intake was retired). */
 export interface ErrorReportRow {
 	readonly source_ip: string;
 	readonly entity: string | null;
@@ -133,17 +135,14 @@ export async function insertErrorReport(
  * SEC-20). Registered in core/retention/prune.ts; also run opportunistically by
  * every insert, the way session_store GCs its own login attempts.
  *
- * WHY A ROW CEILING AND NOT ONLY A WINDOW. The intake is pre-auth by design and
- * its documented default posture is OPEN. An age window cannot bound a burst:
- * everything a flood delivers today is inside the window for the whole of it,
- * and since 2026-07-17 a report may carry an inline base64 screenshot of up to
- * ~200 KiB, which raised the realistic per-report size by two orders of
- * magnitude — the volume model the intake was accepted under predates it.
+ * WHY A ROW CEILING AND NOT ONLY A WINDOW. Writers are admins only, throttled
+ * per installation (tool_error_report SEND_MAX_PER_WINDOW), but a report may
+ * carry an inline screenshot of up to ~200 KiB, and an age window alone bounds
+ * time, not size. The ceiling bounds the disk footprint outright.
  *
- * EVICT THE OLDEST, DO NOT REFUSE THE NEWEST. A ceiling that refused at the door
- * would let anyone who can reach the intake silence the genuine reports it
- * exists to collect, simply by filling it first. Dropping the oldest instead
- * keeps the store bounded AND keeps it useful.
+ * EVICT THE OLDEST, DO NOT REFUSE THE NEWEST. A new report describes the problem
+ * someone is facing now; dropping it to keep an old one would lose the report
+ * that matters most.
  */
 export async function pruneErrorReports(options: {
 	apply: boolean;

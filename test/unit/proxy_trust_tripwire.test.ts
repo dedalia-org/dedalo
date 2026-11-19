@@ -14,9 +14,9 @@
  *  - the login throttle is keyed on that address, so an attacker minted a fresh
  *    brute-force bucket per request — the exact evasion the hop arithmetic exists for;
  *  - `dd544` activity rows recorded an attacker-chosen address as fact;
- *  - the address allowlists' `loopback` entry admits `127.0.0.1` (the error-report intake;
- *    until 2026-10-12 also the install gate), so a forged header was a claim to
- *    be loopback. The old comment on the function read "this is never an authorization
+ *  - the address allowlists' `loopback` entry admitted `127.0.0.1` (the error-report
+ *    intake, retired 2026-11-19; until 2026-10-12 also the install gate), so a forged
+ *    header was a claim to be loopback. The old comment on the function read "this is never an authorization
  *    input"; that was not true.
  *
  * There was a second, quieter bug in the same expression: `Math.max(0, len - hops)`

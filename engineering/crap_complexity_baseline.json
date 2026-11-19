@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 946,
-		"functions": 16679,
-		"functionsOverCap": 643,
-		"filesOverCap": 255
+		"files": 945,
+		"functions": 16759,
+		"functionsOverCap": 642,
+		"filesOverCap": 253
 	},
 	"ledger": [
 		{
@@ -240,6 +240,11 @@
 			"generated": "2026-11-14",
 			"functionsOverCap": 643,
 			"filesOverCap": 255
+		},
+		{
+			"generated": "2026-11-19",
+			"functionsOverCap": 642,
+			"filesOverCap": 253
 		}
 	],
 	"files": {
@@ -252,7 +257,6 @@
 		"src/core/api/handlers/dd_component_info.ts": 11,
 		"src/core/api/handlers/dd_component_text_area_api.ts": 17,
 		"src/core/api/handlers/dd_core_api.ts": 61,
-		"src/core/api/handlers/dd_error_report_api.ts": 10,
 		"src/core/api/handlers/dd_external_api.ts": 26,
 		"src/core/api/handlers/dd_identify_api.ts": 48,
 		"src/core/api/handlers/dd_mcp_api.ts": 41,
@@ -321,7 +325,6 @@
 		"src/core/db/postgres.ts": 8,
 		"src/core/diffusion_bridge/diffusion_delete.ts": 14,
 		"src/core/diffusion_bridge/diffusion_graph.ts": 14,
-		"src/core/error_report/gate.ts": 7,
 		"src/core/geoip/download.ts": 10,
 		"src/core/geoip/ensure.ts": 9,
 		"src/core/geoip/ip_ranges.ts": 37,
@@ -338,7 +341,7 @@
 		"src/core/install/media_tree.ts": 20,
 		"src/core/install/root_pw.ts": 8,
 		"src/core/labels/catalog.ts": 8,
-		"src/core/mailer/mailer.ts": 18,
+		"src/core/mailer/mailer.ts": 11,
 		"src/core/media/alternate_preflight.ts": 7,
 		"src/core/media/av_versions.ts": 7,
 		"src/core/media/component_emit.ts": 15,

@@ -2,11 +2,11 @@
 
 > See also: [Tools user guide](index.md) · [Error reports](../../administration/error_reports.md) · [Developer reference](../../development/tools/reference/tool_error_report.md)
 
-Report a problem to the Dédalo maintainers the moment it happens: the tool collects the current page context and any JavaScript errors captured since the page loaded, you add a description, and it sends the report to a central master installation.
+Report a problem to the Dédalo maintainers the moment it happens: the tool collects the current page context and any JavaScript errors captured since the page loaded, you add a description, and it stores the report on your installation and, when your operator has configured an address, emails it to the maintainers.
 
 ## What it's for
 
-When something goes wrong in the interface, the most useful bug report is the one filed from the exact page where it broke, with the technical error already attached. This tool does that: from any page it gathers the page context and the browser's captured JavaScript errors, lets you describe what you were doing, and relays the whole thing to the maintainers — so you do not have to reproduce the fault or copy error text by hand.
+When something goes wrong in the interface, the most useful bug report is the one filed from the exact page where it broke, with the technical error already attached. This tool does that: from any page it gathers the page context and the browser's captured JavaScript errors, lets you describe what you were doing, and sends the whole thing to the maintainers — so you do not have to reproduce the fault or copy error text by hand.
 
 !!! info "This is an administrator tool"
     The report button and form are shown to global administrators only. If you are not an administrator you will not see the launcher, and the server refuses reports from anyone else.
@@ -16,7 +16,7 @@ When something goes wrong in the interface, the most useful bug report is the on
 - You hit an error, a broken view, or unexpected behaviour and want to report it with the technical context attached.
 - You are an administrator triaging a problem a user showed you, on the page where it happens.
 
-For the operator-facing side of the feature — enabling it, configuring where reports go, and browsing reports received on a master installation — see [Error reports](../../administration/error_reports.md).
+For the operator-facing side of the feature — configuring where reports are emailed and browsing the reports stored on your installation — see [Error reports](../../administration/error_reports.md).
 
 ## Where to find it
 
@@ -29,7 +29,7 @@ A small circular launcher sits at the **bottom-right of every page** (shown to g
 3. Expand **Captured JavaScript errors** to see the technical details that will be attached.
 4. Write a **description** of what you were doing and what went wrong (required).
 5. Press **Send report**. Nothing leaves your browser until this click — the captured errors accumulate locally and are only sent when you send.
-6. Wait for the confirmation line. Your own server stamps the trusted identity and relays the report to the configured master installation.
+6. Wait for the confirmation line. Your own server stamps the trusted identity, stores the report and, when an address is configured, emails it. The confirmation says whether the email went out.
 
 ## Options
 
@@ -48,13 +48,13 @@ The report is assembled for you; there is nothing to configure. What it sends:
     Report from the page where the fault occurred, before navigating away — the captured JavaScript errors are what make the report actionable, and they reset when the page reloads.
 
 !!! warning
-    Free-text descriptions and captured error messages **may contain record data** (which can be personal or sensitive). The report crosses to the master installation's operator, and the explicit *Send report* click is the consent moment — describe the problem, but avoid pasting sensitive record content into the description.
+    Free-text descriptions and captured error messages **may contain record data** (which can be personal or sensitive). When emailing is configured, the report leaves your installation by email, and the explicit *Send report* click is the consent moment — describe the problem, but avoid pasting sensitive record content into the description.
 
 !!! note
-    The report always goes to the master installation configured by your operator. If reporting is not configured on your server, the tool tells you so honestly rather than sending nowhere.
+    The report is always stored on your installation. If no email address is configured, the tool tells you the report was saved here but not emailed.
 
 ## Related
 
-- **[Error reports](../../administration/error_reports.md)** — the operator guide: enabling reporting, the receiver side, and the dashboard widget that browses received reports.
+- **[Error reports](../../administration/error_reports.md)** — the operator guide: the email address setting and the dashboard widget that browses stored reports.
 - **[User panel](using_user_admin.md)** · **[AI assistant](using_assistant.md)** — other tools launched from the application chrome rather than a record.
 - **[Developer reference](../../development/tools/reference/tool_error_report.md)** — the send action, what is collected, identity stamping and security.

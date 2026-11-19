@@ -2,8 +2,7 @@
  * IP address literals as BYTES — the one parser every address predicate shares.
  *
  * Every address predicate needs to know what an address literal IS rather than how
- * it is spelled — the install/error-report allow gates (does this peer fall inside
- * an operator-written CIDR?), the outbound SSRF guard and its NAT64 reading (is this
+ * it is spelled — the outbound SSRF guard and its NAT64 reading (is this
  * resolved address public, and which IPv4 does it carry?), the on-premise
  * transcriber's metadata refusal. An address has many spellings (`::ffff:7f00:1` and
  * `::ffff:127.0.0.1`, `::1` and `0:0:0:0:0:0:0:1`), and every hand-rolled STRING check
@@ -12,20 +11,16 @@
  * another.
  *
  * PURE and TOTAL: no imports, no I/O, and every failure is a null or a `false`,
- * never a throw — every caller is a security predicate (one of them pre-auth), where
+ * never a throw — every caller is a security predicate, where
  * an exception on a hostile input is itself the vulnerability. What "I could not
  * parse it" MEANS (no match, or refuse) is the caller's decision, not this module's.
  */
 
 /**
- * Normalize an address for comparison: trim, lowercase, and fold the IPv4-mapped
- * IPv6 form (`::ffff:203.0.113.10`) down to its v4 spelling. A dual-stack listener
- * reports a v4 peer in that mapped form, so without the fold a literal entry the
- * operator copied out of their own `ip addr` output would never match. TEXT-level
- * and dotted-only on purpose: `packCidr` runs it on a block's network, where a hex
- * `::ffff:0:0/96` is an IPv6 block (the SSRF guard's range table) and must stay one.
- * A PEER's mapped address in any spelling is folded by `peerBytes`. Module-private:
- * a caller asks `peerBytes` or `packCidr`, never a second normalizing entry point.
+ * Normalize a block's network text: trim, lowercase, and fold the DOTTED IPv4-mapped
+ * form (`::ffff:203.0.113.10`) down to its v4 spelling. TEXT-level and dotted-only on
+ * purpose: a hex `::ffff:0:0/96` is an IPv6 block (the SSRF guard's range table) and
+ * must stay one. Module-private: callers ask `packCidr`.
  */
 function normalizeAddress(value: string): string {
 	const trimmed = value.trim().toLowerCase();
@@ -33,38 +28,9 @@ function normalizeAddress(value: string): string {
 	return mapped?.[1] ?? trimmed;
 }
 
-/** `::ffff:0:0/96`, the IPv4-mapped block (RFC 4291 §2.5.5.2). */
-function isMappedIpv4(bytes: Uint8Array): boolean {
-	return (
-		bytes.subarray(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff
-	);
-}
-
-/**
- * A PEER address (what a gate is asked about, or a literal allow entry) as bytes: an
- * IPv4-mapped IPv6 address in ANY spelling — `::ffff:127.0.0.1`, `::ffff:7f00:1`,
- * `0:0:0:0:0:ffff:7f00:1` — is the IPv4 it maps, so every spelling of one peer is
- * one value. Null when the text is not an address.
- */
-export function peerBytes(value: string): Uint8Array | null {
-	const bytes = packAddress(normalizeAddress(value));
-	return bytes !== null && bytes.length === 16 && isMappedIpv4(bytes) ? bytes.slice(12) : bytes;
-}
-
 /** Bytes equal, both lengths included — so a 4-byte and a 16-byte value never match. */
 export function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
 	return left.length === right.length && left.every((byte, index) => byte === right[index]);
-}
-
-/**
- * Do two address texts name the same address? Equal BYTES once normalized, so every
- * spelling of one address is that address (`2001:db8:0::1` is `2001:db8::1`). A text
- * that is not an address matches nothing — fail-closed, like `ipInCidr`.
- */
-export function sameAddress(left: string, right: string): boolean {
-	const a = peerBytes(left);
-	const b = peerBytes(right);
-	return a !== null && b !== null && sameBytes(a, b);
 }
 
 /**
@@ -213,50 +179,6 @@ export function packAddress(value: string): Uint8Array | null {
 }
 
 /**
- * Is `ip` inside `cidr`? PURE, total, and FAIL-CLOSED: a malformed address, a
- * malformed or missing prefix length, a prefix wider than the family allows, or a
- * cross-family pair (a v4 address against a v6 block) all return false. It never
- * throws — this runs inside a pre-auth gate, where an exception on a hostile input
- * is itself the vulnerability.
- *
- * Comparison is bitwise on the packed address: whole bytes are compared directly,
- * and the straddling byte is masked to the remaining bits, so `/23` and `/25` mean
- * what they say instead of what a string-prefix comparison would guess. `ip` is a
- * PEER (`peerBytes`): a mapped IPv6 in any spelling is judged as the IPv4 it maps,
- * exactly as a literal allow entry is (`sameAddress`).
- */
-export function ipInCidr(ip: string, cidr: string): boolean {
-	const address = peerBytes(ip);
-	const block = peerBlock(cidr);
-	return address !== null && block !== null && packedInBlock(address, block);
-}
-
-/**
- * An ALLOW-ENTRY block as the peers it admits, or null when the text is not a block.
- * A peer is folded to IPv4 whenever it is IPv4-mapped (`peerBytes`), so a block
- * written INSIDE `::ffff:0:0/96` (a /96 or longer, in either spelling:
- * `::ffff:a00:0/104`, `::ffff:10.0.0.0/104`) is the IPv4 block it spells — prefix
- * minus 96 — or it would match no peer at all. Any other block is `packCidr`'s. Only
- * for allow entries: the SSRF guard packs its range table with `packCidr`, where
- * `::ffff:0:0/96` is an IPv6 block and stays one. Exported for the allow-entry
- * grammar's gates (test/unit/ip_allowlist.test.ts), which read a block the way
- * `ipInCidr` does.
- */
-export function peerBlock(cidr: string): PackedCidr | null {
-	return mappedBlockAsIpv4(cidr) ?? packCidr(cidr);
-}
-
-/** A /96-or-longer block inside `::ffff:0:0/96` as its IPv4 block; null for any other text. */
-function mappedBlockAsIpv4(cidr: string): PackedCidr | null {
-	const raw = rawCidrNetwork(cidr);
-	const prefixBits = cidrPrefixBits(cidr) ?? 0;
-	if (raw?.length !== 16 || !isMappedIpv4(raw)) return null;
-	return prefixBits >= 96 && prefixBits <= 128
-		? { network: raw.slice(12), prefixBits: prefixBits - 96 }
-		: null;
-}
-
-/**
  * A CIDR block, packed once. A caller that tests the same blocks on every request (the
  * SSRF guard's range tables) packs them at module load with `packCidr` and asks
  * `packedInBlock`, instead of re-parsing constant text on every address it judges.
@@ -287,12 +209,6 @@ function cidrPrefixBits(cidr: string): number | null {
 	if (slash < 0) return null;
 	const prefixText = cidr.slice(slash + 1).trim();
 	return /^\d{1,3}$/.test(prefixText) ? Number(prefixText) : null;
-}
-
-/** A CIDR's network as written (trimmed, lower-cased, NOT folded), packed; or null. */
-function rawCidrNetwork(cidr: string): Uint8Array | null {
-	const slash = cidr.indexOf('/');
-	return slash < 0 ? null : packAddress(cidr.slice(0, slash).trim().toLowerCase());
 }
 
 /** Is a packed address inside a packed block? Never matches across families. */

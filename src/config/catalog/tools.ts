@@ -52,28 +52,7 @@ DEDALO_TRANSFORM_DEFINITIONS_DIR="/srv/dedalo_transforms"
 	// U-39): a PHP-coexistence write switch no caller consulted any more — the
 	// installer, the Register tools widget and the update run write explicitly. A
 	// leftover line in .env configures nothing.
-	TOOLS_REGISTRY_CACHE_TTL_MS: {
-		type: 'number',
-		scope: 'operator',
-		// NOTHING reads it, and that is the documented state: the registry TTL was
-		// deleted at the cutover, so the key is recognized only so an existing
-		// configuration carrying it still starts. Until 2026-08-31 a typed field
-		// `config.tools.registryCacheTtlMs` was materialized from it and read by
-		// nothing — a value the catalog itself calls inert, given a place in the
-		// object the engine is configured through (P2-27 / DEAD-09).
-		consumer: 'nothing — retained ONLY for backward compatibility; see typeSuffix',
-		default: 60000,
-		heading: 'Tools registry cache expiry',
-		typeLabel: 'int',
-		typeSuffix: '*no longer consulted*',
-		doc: `This parameter defined how long, in milliseconds, the server kept the tools registry in memory before reading it from the database again.
-
-It is no longer consulted. The expiry existed because a second engine could write the tools registry behind this server's back, so the cache had to be assumed stale after a while. Dédalo is now the only writer of those records, and every write clears the cache the moment it happens — so the data can never be stale and there is nothing to expire.
-
-The key is still recognized, so an existing configuration carrying it still starts, but setting it has no effect and it can be removed.
-
-\`\`\`bash
-TOOLS_REGISTRY_CACHE_TTL_MS=60000
-\`\`\``,
-	},
+	// TOOLS_REGISTRY_CACHE_TTL_MS retired 2026-11-20: read by nothing since the
+	// cutover deleted the registry TTL (every registry write invalidates the cache).
+	// An unknown .env key is ignored, so a leftover line still boots.
 } as const satisfies Record<string, CatalogEntry>;

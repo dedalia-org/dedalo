@@ -86,8 +86,6 @@ const FROZEN_PRE_AUTH: readonly string[] = Object.freeze([
 	'dd_utils_api:change_lang',
 	'dd_utils_api:request_password_reset',
 	'dd_utils_api:confirm_password_reset',
-	// gated pre-auth (Gate 1c: receiver flag + address allowlist), WC-017
-	'dd_error_report_api:receive_report',
 	'dd_utils_api:get_server_ready_status',
 	'dd_utils_api:get_ontology_update_info',
 	'dd_utils_api:get_code_update_info',

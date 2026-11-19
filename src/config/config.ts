@@ -57,6 +57,7 @@ import {
 	requireString,
 	secureServerList,
 	warnCodeOnlyOntologyServers,
+	warnRetiredErrorReportKeys,
 	warnRetiredOntologyServerCode,
 } from './readers.ts';
 
@@ -702,47 +703,19 @@ export interface OpsConfig {
 }
 
 /**
- * Error-report relay + intake (tool_error_report → the master installation;
- * WC-017/018/019). Sender side: masterApiUrl/token/relayTimeoutMs drive the
- * outbound relay. Receiver side (only the designated master): receiverEnabled/
- * allowedIps/token/retentionDays gate + bound the pre-auth intake action
- * (dd_error_report_api:receive_report — see src/core/error_report/).
+ * Error reports (tool_error_report; WC-2026-11-19-error-report-email-transport).
+ * Every report is stored on THIS installation (src/core/error_report/store.ts)
+ * and, when `email` is set, mailed there through the one mailer. No HTTP relay
+ * and no pre-auth intake exist (both retired 2026-11-19).
  */
 export interface ErrorReportConfig {
-	/**
-	 * Master installation JSON API endpoint the relay POSTs reports to
-	 * (DEDALO_ERROR_REPORT_MASTER_URL, e.g. https://master.example/dedalo/core/api/v1/json/).
-	 * Set ⇒ the sender relay is enabled (no separate flag). https-only; plain
-	 * http is accepted for loopback dev targets.
-	 */
-	readonly masterApiUrl: string | undefined;
-	/** Expose the pre-auth intake action on THIS server (DEDALO_ERROR_REPORT_RECEIVER).
-	 * Default false — only the designated master flips it on. */
-	readonly receiverEnabled: boolean;
-	/**
-	 * Optional shared per-master-deployment secret (DEDALO_ERROR_REPORT_TOKEN):
-	 * the sender relays it as the X-Dedalo-Report-Token header; the receiver
-	 * requires it when set. A spam filter, NEVER an authentication factor —
-	 * every payload field stays untrusted regardless (SECURITY_DECISIONS).
-	 */
-	readonly token: string | undefined;
-	/** Optional comma-separated intake IP allowlist (DEDALO_ERROR_REPORT_ALLOWED_IPS),
-	 * install-gate style with a 'loopback' shorthand; unset = open (the intake is
-	 * still throttled + size-capped). */
-	readonly allowedIps: string | undefined;
-	/** Outbound relay abort timeout in ms (DEDALO_ERROR_REPORT_TIMEOUT_MS, min 1000). */
-	readonly relayTimeoutMs: number;
-	/** Days received reports are retained before the opportunistic prune deletes
-	 * older rows (DEDALO_ERROR_REPORT_RETENTION_DAYS, 0 = keep forever). */
+	/** Recipient of mailed reports (DEDALO_ERROR_REPORT_EMAIL); undefined = store only.
+	 * Shape-checked by the mailer at send time (mailer.invalid_recipient). */
+	readonly email: string | undefined;
+	/** Days stored reports are retained (DEDALO_ERROR_REPORT_RETENTION_DAYS, 0 = forever). */
 	readonly retentionDays: number;
-	/**
-	 * Highest number of reports the store may hold (DEDALO_ERROR_REPORT_MAX_ROWS,
-	 * 0 = no ceiling). The AGE window cannot bound a burst — a flood arriving today
-	 * is inside the window for the whole of it, and a report may carry an inline
-	 * screenshot — so the store also needs a row ceiling (audit SEC-20). Over the
-	 * ceiling the OLDEST rows are evicted, never the incoming one refused: refusing
-	 * would let a flood silence the genuine reports the intake exists for.
-	 */
+	/** Highest number of stored reports (DEDALO_ERROR_REPORT_MAX_ROWS, 0 = no ceiling);
+	 * over it the OLDEST rows are evicted, never the incoming one refused. */
 	readonly maxRows: number;
 }
 
@@ -1196,6 +1169,12 @@ if (diffusionLangs.outsideProject.length > 0) {
 	);
 }
 
+// Boot warning only: the retired keys' values are never stored or used.
+warnRetiredErrorReportKeys(
+	readEnv('DEDALO_ERROR_REPORT_MASTER_URL'),
+	readEnv('DEDALO_ERROR_REPORT_RECEIVER'),
+);
+
 // Boot warning only: the retired key's value is never stored or used.
 warnRetiredOntologyServerCode(
 	readString('IS_AN_ONTOLOGY_SERVER') === 'true',
@@ -1387,11 +1366,7 @@ export const config: DedaloConfig = Object.freeze({
 		exportJobsPerUser: readNumber('DEDALO_EXPORT_JOBS_PER_USER'),
 	}),
 	errorReport: Object.freeze({
-		masterApiUrl: readEnv('DEDALO_ERROR_REPORT_MASTER_URL'),
-		receiverEnabled: readString('DEDALO_ERROR_REPORT_RECEIVER') === 'true',
-		token: readEnv('DEDALO_ERROR_REPORT_TOKEN'),
-		allowedIps: readEnv('DEDALO_ERROR_REPORT_ALLOWED_IPS'),
-		relayTimeoutMs: Math.max(1000, readNumber('DEDALO_ERROR_REPORT_TIMEOUT_MS')),
+		email: readEnv('DEDALO_ERROR_REPORT_EMAIL')?.trim() || undefined,
 		retentionDays: Math.max(0, readNumber('DEDALO_ERROR_REPORT_RETENTION_DAYS')),
 		maxRows: Math.max(0, readNumber('DEDALO_ERROR_REPORT_MAX_ROWS')),
 	}),

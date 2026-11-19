@@ -973,7 +973,7 @@ describe.if(DB_READY)(
 					if (result.body.ok !== false) failures.push(`${apiClass}::${action}: ok !== false`);
 					if (result.status >= 200 && result.status < 300)
 						failures.push(`${apiClass}::${action}: 2xx on failure (${result.status})`);
-					// a pre-auth gate (install / error-report intake) may refuse FIRST with
+					// a pre-auth gate may refuse FIRST with
 					// its own code; either way the status is the registry status of the code
 					const code = (result.body as { error?: { code?: ErrorCode } }).error?.code;
 					if (code === undefined || !Object.hasOwn(ERROR_REGISTRY, code)) {

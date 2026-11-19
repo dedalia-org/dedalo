@@ -816,9 +816,9 @@ permanent staleness, which is tripwire-grade.
 
 Since the cutover the engine is the single writer, so this is invalidation-only:
 there is no TTL and no restart-after-external-write rule.
-`TOOLS_REGISTRY_CACHE_TTL_MS` / `config.tools.registryCacheTtlMs` survives in the
-config catalog but is **read by nothing** — the coexistence-era S2-09 TTL it fed
-was deleted with the PHP engine.
+`TOOLS_REGISTRY_CACHE_TTL_MS` (and its `config.tools.registryCacheTtlMs` field)
+is retired — the coexistence-era S2-09 TTL it fed was deleted with the PHP engine;
+the key left the catalog 2026-11-20.
 
 ## Server-module coverage (2026-07-28)
 

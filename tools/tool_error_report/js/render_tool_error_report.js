@@ -95,7 +95,7 @@ const compress_image = function(img) {
 *
 * Layout (top to bottom):
 *  1. intro note — what will be sent and where (the disclosure/consent line:
-*     the report goes to the master installation on explicit send only);
+*     the report is stored here and emailed, on explicit send only);
 *  2. context summary — section locator, page path, captured-errors count,
 *     with the captured errors expandable inside a <details> block;
 *  3. description <textarea> (required);
@@ -180,7 +180,7 @@ const get_content_data = function(self) {
 		ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'error_report_intro',
-			text_content	: self.get_tool_label('intro') || 'Describe the problem. The page context and the captured JavaScript errors shown below will be attached and sent to the Dédalo master installation when you press send.',
+			text_content	: self.get_tool_label('intro') || 'Describe the problem. The page context and the captured JavaScript errors shown below will be saved on this installation and, if an error-report address is configured, emailed to it when you press send.',
 			parent			: fragment
 		})
 
@@ -460,13 +460,16 @@ const get_content_data = function(self) {
 			response_node.classList.remove('error','success')
 			response_node.textContent		= self.get_tool_label('sending') || 'Sending…'
 			try {
-				// envelope v2: the payload is `{delivered, via, report_id?}` and a
+				// envelope v2: the payload is `{delivered, report_id, ref, mailed}` and a
 				// refusal carries the coded, translated error — no prose on success.
+				// delivered + !mailed = stored here, not emailed (no address / mail failed).
 				const response		= await self.send_report(description)
 				const report_data	= (response && !request_failed(response)) ? response_data(response) : null
 				if (report_data && report_data.delivered===true) {
 					response_node.classList.add('success')
-					response_node.textContent = self.get_tool_label('sent_ok') || 'Report sent.'
+					response_node.textContent = report_data.mailed===true
+						? (self.get_tool_label('sent_ok') || 'Report sent.')
+						: (self.get_tool_label('sent_stored_only') || 'Report saved on this installation. It was not emailed (no recipient configured, or the mail could not be sent).')
 					description_input.value = ''
 				} else {
 					response_node.classList.add('error')

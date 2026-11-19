@@ -38,6 +38,15 @@ export interface SendMailOptions {
 	toName?: string;
 	/** Optional Reply-To address. */
 	replyTo?: string;
+	/** Optional attachments. `filename` must be an engine-chosen constant, never caller data. */
+	attachments?: readonly MailAttachment[];
+}
+
+/** One attachment, handed to the transport as-is. */
+export interface MailAttachment {
+	filename: string;
+	content: string | Buffer;
+	contentType: string;
 }
 
 /**
@@ -69,6 +78,24 @@ export function cleanEmail(value: string): string {
 /** Pragmatic single-address shape check (PHP component_email::is_valid_email). */
 export function isValidEmail(value: string): boolean {
 	return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** The nodemailer message for already-validated From/To (headers CR/LF-stripped). */
+function buildMessage(options: SendMailOptions, from: string, to: string): Record<string, unknown> {
+	const fromName = readString('DEDALO_SMTP_FROM_NAME');
+	const toName = options.toName?.replace(/[\r\n]/g, '').trim() ?? '';
+	const replyTo = options.replyTo !== undefined ? cleanEmail(options.replyTo) : '';
+	const html = options.bodyHtml ?? '';
+	const attachments = options.attachments ?? [];
+	return {
+		from: fromName !== '' ? { name: fromName, address: from } : from,
+		to: toName !== '' ? { name: toName, address: to } : to,
+		...(replyTo !== '' && isValidEmail(replyTo) ? { replyTo } : {}),
+		subject: options.subject.replace(/[\r\n]/g, '').trim(),
+		text: options.bodyText,
+		...(html !== '' ? { html } : {}),
+		...(attachments.length > 0 ? { attachments: attachments.map((item) => ({ ...item })) } : {}),
+	};
 }
 
 /**
@@ -108,11 +135,7 @@ export async function sendMail(options: SendMailOptions): Promise<SendMailResult
 		};
 	}
 
-	const subject = options.subject.replace(/[\r\n]/g, '').trim();
-	const toName = options.toName?.replace(/[\r\n]/g, '').trim() ?? '';
-	const replyTo = options.replyTo !== undefined ? cleanEmail(options.replyTo) : '';
 	const secure = readString('DEDALO_SMTP_SECURE').toLowerCase();
-	const fromName = readString('DEDALO_SMTP_FROM_NAME');
 
 	try {
 		const transporter = nodemailer.createTransport({
@@ -122,20 +145,16 @@ export async function sendMail(options: SendMailOptions): Promise<SendMailResult
 			secure: secure === 'ssl',
 			requireTLS: secure !== 'ssl' && secure !== 'none',
 			ignoreTLS: secure === 'none',
+			// nodemailer defaults wait up to 2 min to connect and 10 min on a silent
+			// socket — a stalled relay would hold the caller's request that long.
+			connectionTimeout: 10_000,
+			greetingTimeout: 10_000,
+			socketTimeout: 30_000,
 			...(smtpUser !== ''
 				? { auth: { user: smtpUser, pass: readString('DEDALO_SMTP_PASS') } }
 				: {}),
 		});
-		await transporter.sendMail({
-			from: fromName !== '' ? { name: fromName, address: from } : from,
-			to: toName !== '' ? { name: toName, address: to } : to,
-			...(replyTo !== '' && isValidEmail(replyTo) ? { replyTo } : {}),
-			subject,
-			text: options.bodyText,
-			...(options.bodyHtml !== undefined && options.bodyHtml !== ''
-				? { html: options.bodyHtml }
-				: {}),
-		});
+		await transporter.sendMail(buildMessage(options, from, to));
 		return { ok: true, msg: 'OK. Mail sent' };
 	} catch (error) {
 		// Log the transport error only — never the message content.

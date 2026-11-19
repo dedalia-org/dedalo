@@ -241,10 +241,9 @@ route. Consequences:
   2xx`; `Retry-After` threaded as `ApiResult.retryAfterMs`), then
   `logError(error, {subsystem: '<class>::<action>', requestId})`; `csrf_token`
   is appended after (session present). Gate codes: `request.unknown_action`
-  (Gate 1 AND Gate 1c-disabled — the SAME body minus request_id, so a probe
-  cannot learn the intake exists), `auth.not_logged` (401), `auth.maintenance` (401,
+  (Gate 1), `auth.not_logged` (401), `auth.maintenance` (401,
   the client relogin policy keys on both), `auth.csrf_failed` (403, extension
-  `action` + the fresh `csrf_token` + its `session_user_id`), `perm.denied` (report intake IP).
+  `action` + the fresh `csrf_token` + its `session_user_id`).
 - **The poison latch lives in `toDedaloError`** (raw error or anywhere in the
   `cause` chain), not in the catch — tool/MCP/stream conversions latch too.
 - **`src/server.ts`** has one failure door, `jsonFailureResponse(error,
@@ -434,7 +433,7 @@ tripwired or deleted"). Rows in `engineering/TRIPWIRES.md` + `scripts/verify.ts`
 |---|---|
 | `test/unit/error_registry_native.test.ts` | the REGISTRY is coherent: grammar, every code has a `master.json` label, label `{params}` ≡ `details_keys`, status↔category (named exemptions), `external.<kind>` totality + retryable/label agreement with the component state map, every former MCP HINT key mapped and hinted, LEGACY_TOKEN_MAP targets exist |
 | `test/unit/error_envelope_native.test.ts`, `error_converter_native.test.ts` | the envelope shapes and the converter's disclosure ladder (publicMessage only for `public`, details filtered to `details_keys`, `debug` only under the flag, poison latch inside `toDedaloError`); a failure body is exactly `{ok, request_id, error}`, `result` refused on both shapes (`ENVELOPE_FORBIDDEN_KEYS`), a `msg`/`errors` extension on success parses, `extend:{result}` cannot smuggle it in |
-| `test/unit/dispatch_error_native.test.ts` | the chokepoint: registry status, `ok:false ⇒ non-2xx`, Retry-After, csrf_token on both outcomes, Gate 1 ≡ Gate 1c-disabled, a NON-envelope handler body refused as `internal.unexpected`, server.ts's three doors |
+| `test/unit/dispatch_error_native.test.ts` | the chokepoint: registry status, `ok:false ⇒ non-2xx`, Retry-After, csrf_token on both outcomes, a NON-envelope handler body refused as `internal.unexpected`, server.ts's three doors |
 | `test/unit/error_taxonomy_tripwire.test.ts` | the TREE only speaks through the registry: (A) zero builder calls / `result:false` literals ANYWHERE (src/core/errors/ included) and no `result:` key written by convert.ts / stray `debug` keys / builtin `instanceof` outside convert.ts+process_health.ts / raw exception text on a wire key in the 8 former passthrough files; (B) shrink-only ratchets on hand-built `ok:false` failure literals and prose `errors:[…]`; (C) every code referenced or `reason`ed (a `reason` only on a code referenced nowhere, C1c), every client code string resolves; (D) runtime: every registered `(class,action)` converts a throw; (E) anti-vacuity |
 | `test/unit/error_throw_ratchet.test.ts` | untyped `throw new Error(` per file may only shrink (`engineering/error_throw_baseline.json`); ZERO_TIER dirs are at 0 (`ZERO_TIER_ENFORCED = true`, P3 exit) |
 | `test/unit/client_error_contract_tripwire.test.ts` | the client half: one transport (`api_transport.fetch_api`, no status allowlist), no fourth fetch wrapper, the compat-read census at ZERO (no baseline — `scripts/lib/client_compat_census.ts` + `NON_ENVELOPE_READS` exemptions, each live and reasoned), and the server compat block ABSENT (no `ERROR_ENVELOPE_COMPAT`, no `result:` written by convert.ts, `result` in `ENVELOPE_FORBIDDEN_KEYS`) — P4 landed 2026-08-16 |

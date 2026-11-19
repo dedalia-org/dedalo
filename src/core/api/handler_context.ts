@@ -48,12 +48,6 @@ export interface ApiRequestContext {
 	 * a log line nobody can act on.
 	 */
 	csrfSource?: 'header' | 'body' | null;
-	/** Raw X-Dedalo-Report-Token header (error-report intake spam filter,
-	 * WC-017) — checked constant-time by dd_error_report_api only. */
-	reportTokenCandidate?: string | null;
-	/** Declared request body size (Content-Length header, bytes) if present —
-	 * a cheap pre-clamp fast-reject for the pre-auth intake (WC-017). */
-	bodyByteLength?: number;
 	/** Transport-layer receipt time (performance.now()), for the access log (S2-37). */
 	startedAt?: number;
 	/** Resolved authorization identity — seeded ONCE per request by dispatchRqo

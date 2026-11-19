@@ -104,7 +104,7 @@ const ENGINE_NATIVE: Record<string, string> = {
 	'dataframe_control.get_value': 'read-only dataframe panel',
 	'dataframe_control.run_check': 'read-only dataframe consistency check',
 	'dataframe_control.run_fix': 'dataframe repair through the TS write path',
-	'error_reports.get_reports': 'read-only listing of the TS-owned error-report intake table',
+	'error_reports.get_reports': 'read-only listing of the TS-owned error-report table',
 	'publication_hosts.apply_rules':
 		'root-only; renders the phase-1 publication_host profile and sends rules.apply to a PAIRED agent through the one channel door (core/publication_host) — a publication-host surface no PHP install ever owned',
 	'publication_hosts.probe': 'root-only; read-only media.probe on a paired agent',

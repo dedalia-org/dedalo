@@ -51,3 +51,7 @@
   `error_reports` widget renders it as an `<img src="data:…">` (inert as
   markup; still never `inner_html`) and elides the base64 blob from the raw
   Context dump. Purely additive; PHP has no twin and never reads this endpoint.
+
+## Addendum 2026-11-19 — email transport
+
+Response is now `{delivered, report_id, ref, mailed}`; the HTTP relay is gone (store always, mail when `DEDALO_ERROR_REPORT_EMAIL` is set). See WC-2026-11-19-error-report-email-transport.

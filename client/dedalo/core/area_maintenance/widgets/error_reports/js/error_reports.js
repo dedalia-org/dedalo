@@ -5,19 +5,19 @@
 
 /**
 * ERROR_REPORTS
-* Maintenance widget controller for the error-report intake browser (WC-018).
+* Maintenance widget controller browsing this installation's error reports (WC-018).
 *
 * TS-OWNED widget (no PHP twin): this directory is excluded from
 * scripts/sync_client.sh like diffusion_server_control (WC-005). The server
-* half lives at src/core/area_maintenance/widgets/error_reports.ts and only
-* joins the catalog on master installations (DEDALO_ERROR_REPORT_RECEIVER).
+* half lives at src/core/area_maintenance/widgets/error_reports.ts (listed on
+* every installation: each stores the reports its admins send).
 *
 * Value shape (get_widget_value → errorReportsGetValue):
-*   this.value = { total: number|null, latest_received_at: string|null }
+*   this.value = { total: number|null, latest_received_at: string|null, target: string }
 *
 * Rows load on demand through widget_request → 'get_reports'
 * (render_error_reports.js). Every report-derived string renders via
-* textContent — the payloads are UNTRUSTED remote content (DS-1).
+* textContent — the payloads are UNTRUSTED user/browser content (DS-1).
 *
 * Main export: `error_reports` (constructor).
 */

@@ -11,8 +11,6 @@
  *  - a wrapped TDZ ReferenceError (in `cause`) flips the poison latch — the
  *    latch lives inside toDedaloError, not the dispatch catch;
  *  - `csrf_token` is appended on success AND failure for a session;
- *  - Gate 1 (unregistered pair) and Gate 1c-disabled (error-report intake off)
- *    answer BYTE-IDENTICAL bodies minus request_id — a probe cannot tell them apart;
  *  - the one-producer law at the dispatcher: a handler body WITHOUT `ok` (the
  *    PHP `{result,msg,errors}` fossil — the deleted legacy_body_adapter used
  *    to translate it) is a BUG and is refused as internal.unexpected 500, an
@@ -55,13 +53,6 @@ function authedContext() {
 		token,
 	};
 }
-
-const anonContext = () => ({
-	requestId: REQUEST_ID,
-	clientIp: '127.0.0.1',
-	session: null,
-	csrfCandidate: null,
-});
 
 /** Register a probe action on dd_utils_api for the duration of `run`. */
 async function withProbe<T>(
@@ -188,30 +179,6 @@ describe('registry status + envelope on the dispatch surface', () => {
 		expect(succeeded.status).toBe(200);
 		expect(succeeded.body.ok).toBe(true);
 		expect(succeeded.body.csrf_token).toBe(context.session?.csrfToken);
-	});
-});
-
-describe('Gate 1 and Gate 1c-disabled are indistinguishable', () => {
-	const previous = process.env.DEDALO_ERROR_REPORT_RECEIVER;
-	afterAll(() => {
-		if (previous === undefined) delete process.env.DEDALO_ERROR_REPORT_RECEIVER;
-		else process.env.DEDALO_ERROR_REPORT_RECEIVER = previous;
-	});
-
-	test('same status, same body minus request_id (and the action detail)', async () => {
-		process.env.DEDALO_ERROR_REPORT_RECEIVER = '';
-		const gate1 = await dispatchRqo(
-			{ action: 'receive_report', dd_api: 'dd_no_such_api' } as Rqo,
-			anonContext(),
-		);
-		const gate1c = await dispatchRqo(
-			{ action: 'receive_report', dd_api: 'dd_error_report_api' } as Rqo,
-			anonContext(),
-		);
-		expect(gate1.status).toBe(400);
-		expect(gate1c.status).toBe(400);
-		expect((gate1.body as Body).error?.code).toBe('request.unknown_action');
-		expect(JSON.stringify(gate1.body)).toBe(JSON.stringify(gate1c.body));
 	});
 });
 
