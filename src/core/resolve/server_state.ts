@@ -158,35 +158,45 @@ function unreadableState(path: string, why: string): ServerState {
 	return { ...UNREADABLE_STATE };
 }
 
-export function getServerState(): ServerState {
-	const path = statePath();
-	let raw: string;
+/** The file's text; null when there is no file (the legitimate first state); a refusal reason otherwise. */
+function readStateText(path: string): { raw: string } | { unreadable: string } | null {
 	try {
-		raw = readFileSync(path, 'utf8');
+		return { raw: readFileSync(path, 'utf8') };
 	} catch (error) {
-		// No file is the legitimate first state (a box nothing wrote yet).
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-			lastUnreadableReport = null;
-			return { ...DEFAULT_STATE };
-		}
-		return unreadableState(path, (error as Error).message);
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+		return { unreadable: (error as Error).message };
 	}
+}
+
+/** The stored state object, or why the text is not one. */
+function parseStateText(raw: string): { stored: object } | { unreadable: string } {
+	if (raw.trim() === '') return { unreadable: 'the file is empty' };
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);
 	} catch (error) {
-		return unreadableState(
-			path,
-			raw.trim() === '' ? 'the file is empty' : (error as Error).message,
-		);
+		return { unreadable: (error as Error).message };
 	}
 	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-		return unreadableState(path, 'the content is not a JSON object');
+		return { unreadable: 'the content is not a JSON object' };
 	}
+	return { stored: parsed };
+}
+
+export function getServerState(): ServerState {
+	const path = statePath();
+	const text = readStateText(path);
+	if (text === null) {
+		lastUnreadableReport = null;
+		return { ...DEFAULT_STATE };
+	}
+	if ('unreadable' in text) return unreadableState(path, text.unreadable);
+	const parsed = parseStateText(text.raw);
+	if ('unreadable' in parsed) return unreadableState(path, parsed.unreadable);
 	lastUnreadableReport = null;
 	// `recovery_mode` is RETIRED (WC-2026-11-12-recovery-mode-retired): a file written
 	// before keeps it, so it is dropped here — the next setServerState rewrites it clean.
-	const { recovery_mode: _retired, ...stored } = parsed as Partial<ServerState> & {
+	const { recovery_mode: _retired, ...stored } = parsed.stored as Partial<ServerState> & {
 		recovery_mode?: unknown;
 	};
 	return { ...DEFAULT_STATE, ...stored };
