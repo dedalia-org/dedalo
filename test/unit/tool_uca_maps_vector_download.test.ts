@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
 import { OBJECT_GEOJSON_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
 import { MAX_STAGED_JSON_BYTES } from '../../tools/tool_uca_maps/server/staged_upload.ts';
+import { readZip } from '../helpers/zip_xml_reader.ts';
 import {
 	contextOf,
 	dataOf,
@@ -126,7 +127,7 @@ describe('tool_uca_maps vector_download — caller-fault validation (no binary n
 describe.skipIf(!HAVE_GDAL)(
 	'tool_uca_maps vector_download — real ogr2ogr conversion (needs ogr2ogr)',
 	() => {
-		test('shp: returns a zip (PK magic bytes), envelope v2, no result mirror', async () => {
+		test('shp: returns a zip of the four files, its .prj geographic WGS 84, envelope v2, no result mirror', async () => {
 			const action = await loadAction('vector_download');
 			const file_data = staged(SAMPLE_GEOJSON);
 			const response: ToolResponse = await action.handler(contextOf({ format: 'shp', file_data }));
@@ -144,6 +145,15 @@ describe.skipIf(!HAVE_GDAL)(
 			// ZIP local-file-header magic ('PK\x03\x04'): a real archive, not an
 			// empty or garbage file
 			expect(bytes.subarray(0, 4).toString('hex')).toBe('504b0304');
+
+			// a shapefile is four files, and the .prj is where its CRS lives:
+			// geographic WGS 84, never a projected (v6's Mercator) one
+			const entries = readZip(bytes).entries;
+			const extensions = entries.map(({ name }) => name.slice(name.lastIndexOf('.'))).sort();
+			expect(extensions).toEqual(['.dbf', '.prj', '.shp', '.shx']);
+			const prj = new TextDecoder().decode(entries.find(({ name }) => name.endsWith('.prj'))?.data);
+			expect(prj).toMatch(/^GEOGCS\[".*WGS.*84/);
+			expect(prj).not.toContain('PROJCS');
 		});
 
 		test("kml: returns a WGS84 (EPSG:4326) KML, never v6's forced EPSG:3857", async () => {
@@ -163,6 +173,16 @@ describe.skipIf(!HAVE_GDAL)(
 			// coordinate present in the source polygon (rounded by KML's own
 			// precision) confirms end-to-end.
 			expect(kml).toContain('-6.2');
+			// lon,lat pairs inside the source polygon: no axis swap, no reprojection
+			const pairs = (/<coordinates>([^<]+)<\/coordinates>/.exec(kml)?.[1] ?? '')
+				.trim()
+				.split(/\s+/)
+				.map((tuple) => tuple.split(',').map(Number));
+			expect(pairs.length).toBeGreaterThanOrEqual(4);
+			for (const [lon, lat] of pairs) {
+				expect(lon).toBeWithin(-6.2901, -6.2799);
+				expect(lat).toBeWithin(36.5299, 36.5401);
+			}
 		});
 
 		test('an unparsable geojson fails the conversion as tool.action_failed, not a silent empty file', async () => {
