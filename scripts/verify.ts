@@ -475,6 +475,8 @@ const TRIPWIRES = [
 	'test/unit/install_ontology_digest_native.test.ts',
 	// T1-26 / S15 — the engine writes the boot marker its watchdog's grace reads (2026-11-12).
 	'test/unit/boot_marker_native.test.ts',
+	// T2 S09-a — the session store is asked by the gate, never by a route (2026-11-19).
+	'test/unit/session_read_confinement_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

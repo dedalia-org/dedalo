@@ -23,18 +23,7 @@ import { toErrorEnvelope } from '../errors/convert.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { buildEnvironment } from '../resolve/environment.ts';
 import { resolvePrincipal } from '../security/permissions.ts';
-import { getSession, SESSION_COOKIE, type Session } from '../security/session_store.ts';
-
-/** Resolve the caller's session from the TS-native cookie (null when absent/expired). */
-function readSessionFromCookie(request: Request): Session | null {
-	const cookieHeader = request.headers.get('cookie') ?? '';
-	const token = cookieHeader
-		.split(';')
-		.map((pair) => pair.trim())
-		.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-		?.slice(SESSION_COOKIE.length + 1);
-	return token !== undefined ? getSession(token) : null;
-}
+import { liveSessionFromCookie } from '../security/session_gate.ts';
 
 /**
  * Handle GET /…/environment. Returns the client environment payload
@@ -48,7 +37,7 @@ export async function handleEnvironmentView(
 ): Promise<Response> {
 	// Session gate — fail-closed 404 (never reveal the endpoint to the
 	// unauthenticated). Converter-made, like every other refusal body.
-	const session = readSessionFromCookie(request);
+	const session = liveSessionFromCookie(request.headers.get('cookie'));
 	if (session === null) {
 		const converted = toErrorEnvelope(new DedaloError('resource.not_found'), { requestId });
 		return new Response(JSON.stringify(converted.body), {

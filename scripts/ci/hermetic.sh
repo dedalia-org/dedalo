@@ -598,6 +598,9 @@ HERMETIC_TRIPWIRES=(
 	#     vendored release; never touches the database (verified with DB_HOST=127.0.0.1
 	#     DB_PORT=59999: 8 pass / 0 fail).
 	test/unit/install_ontology_digest_native.test.ts
+	# --- 2026-11-19 (T2 S09-a, session-read confinement). DB-free: a source scan of src/ and
+	#     tools/ plus planted strings (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/session_read_confinement_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

@@ -1291,6 +1291,12 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **Maintenance mode now closes every route to non-root sessions, not only the API**
+
+    While maintenance mode was on, the API refused every session but `root`'s, but the routes that do not go through the API still answered a logged-in user: media and staged-upload files, model weights, the text-area tag redirect, a file upload, the environment view and — for a global administrator — the raw record view, the counters and the hierarchy dump download.
+
+    Now all of them read the session through one gate and answer a non-root session exactly as they answer an anonymous caller (not found) until maintenance is lifted. `root` is served throughout. See [Maintenance-mode gate](./core/system/login.md#maintenance-mode-gate).
+
 - **The server unit runs on a read-only file system; the installer upgrades its own earlier templates and the update names the re-render command.**
 
     On a production host the engine's systemd unit now runs with `ProtectSystem=strict`: the whole

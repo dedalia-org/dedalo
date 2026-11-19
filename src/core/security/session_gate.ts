@@ -28,38 +28,19 @@ import { type Principal, resolvePrincipal, SUPERUSER_ID } from './permissions.ts
 import { getSession, SESSION_COOKIE, type Session } from './session_store.ts';
 
 /**
- * One named cookie's value out of a raw Cookie header, or undefined.
+ * One named cookie's value out of a raw Cookie header, or undefined. THE one
+ * cookie parser of the server (S09-a: five hand copies of it lived beside the
+ * routes until 2026-11-19).
  *
  * Exact-name match on the split pairs — a `startsWith(name)` scan over the whole
  * header would also match any cookie whose name merely BEGINS with this one.
  */
-function readCookie(cookieHeader: string, name: string): string | undefined {
+export function readCookie(cookieHeader: string, name: string): string | undefined {
 	return cookieHeader
 		.split(';')
 		.map((pair) => pair.trim())
 		.find((pair) => pair.startsWith(`${name}=`))
 		?.slice(name.length + 1);
-}
-
-/**
- * The live session behind this request's cookie header, IF its account is a global
- * admin as of THIS request; null otherwise (no cookie, no live session, or not an
- * admin any more). Callers answer 404 on null — never 403 — so an outsider cannot
- * confirm the surface exists.
- *
- * The Principal is resolved per call on purpose: it is the cached, invalidated-on-write
- * read of the dd128 record, and the ONLY value here that a demotion can reach without
- * ending the session.
- */
-export async function globalAdminSessionFromCookie(
-	cookieHeader: string | null,
-): Promise<Session | null> {
-	const token = readCookie(cookieHeader ?? '', SESSION_COOKIE);
-	if (token === undefined) return null;
-	const session = getSession(token);
-	if (session === null) return null;
-	const principal = await resolvePrincipal(session.userId);
-	return principal.isGlobalAdmin ? session : null;
 }
 
 /**
@@ -74,6 +55,62 @@ export function refusedUnderMaintenance(userId: number): boolean {
 }
 
 /**
+ * THE session read of every route outside the dispatcher: the cookie parsed, the
+ * session store asked, and Gate 2b applied — null when there is no cookie, no live
+ * session, or while maintenance refuses it ({@link refusedUnderMaintenance}). A
+ * route answers its own "unauthenticated" on null (a 404: no existence leak).
+ *
+ * `getSession` is importable by this module, the dispatch context
+ * ({@link dispatchSessionFromCookie}) and login only — a route that asked the
+ * store itself skipped the maintenance verdict (S09-a). Gates:
+ * test/unit/non_dispatch_session_gate_native.test.ts (the outcome, per route),
+ * test/unit/session_read_confinement_tripwire.test.ts (the importers).
+ */
+export function liveSessionFromCookie(cookieHeader: string | null): Session | null {
+	const token = readCookie(cookieHeader ?? '', SESSION_COOKIE);
+	if (token === undefined || token === '') return null;
+	const session = getSession(token);
+	if (session === null) return null;
+	return refusedUnderMaintenance(session.userId) ? null : session;
+}
+
+/**
+ * The session and its raw token for the RQO DISPATCHER's request context — and for
+ * nothing else. NO maintenance verdict here on purpose: the dispatcher applies
+ * Gate 2b itself (dispatch.ts runAuthGates), where the refusal is the typed
+ * `auth.maintenance` the client renders, and where the few pre-auth actions
+ * (login, the environment bootstrap) stay reachable. Every other route reads
+ * {@link liveSessionFromCookie}.
+ */
+export function dispatchSessionFromCookie(cookieHeader: string | null): {
+	session: Session | null;
+	token: string | null;
+} {
+	const token = readCookie(cookieHeader ?? '', SESSION_COOKIE);
+	if (token === undefined) return { session: null, token: null };
+	return { session: getSession(token), token };
+}
+
+/**
+ * The live session behind this request's cookie header, IF its account is a global
+ * admin as of THIS request; null otherwise (no cookie, no live session, refused by
+ * maintenance, or not an admin any more). Callers answer 404 on null — never 403 —
+ * so an outsider cannot confirm the surface exists.
+ *
+ * The Principal is resolved per call on purpose: it is the cached, invalidated-on-write
+ * read of the dd128 record, and the ONLY value here that a demotion can reach without
+ * ending the session.
+ */
+export async function globalAdminSessionFromCookie(
+	cookieHeader: string | null,
+): Promise<Session | null> {
+	const session = liveSessionFromCookie(cookieHeader);
+	if (session === null) return null;
+	const principal = await resolvePrincipal(session.userId);
+	return principal.isGlobalAdmin ? session : null;
+}
+
+/**
  * The live session behind this request's cookie header AND its Principal resolved
  * as of THIS request, for ANY authenticated account; null when there is no cookie or
  * no live session, or while maintenance refuses it (refusedUnderMaintenance). The per-user sibling of {@link globalAdminSessionFromCookie}, for a
@@ -85,12 +122,7 @@ export function refusedUnderMaintenance(userId: number): boolean {
 export async function sessionPrincipalFromCookie(
 	cookieHeader: string | null,
 ): Promise<{ session: Session; principal: Principal } | null> {
-	const token = readCookie(cookieHeader ?? '', SESSION_COOKIE);
-	if (token === undefined || token === '') return null;
-	const session = getSession(token);
+	const session = liveSessionFromCookie(cookieHeader);
 	if (session === null) return null;
-	// Gate 2b, as the dispatcher applies it to every API action: under maintenance
-	// a non-root session is not authenticated here either.
-	if (refusedUnderMaintenance(session.userId)) return null;
 	return { session, principal: await resolvePrincipal(session.userId) };
 }

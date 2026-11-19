@@ -209,6 +209,16 @@ stored password, legacy hash). A confirmed success clears the counter
 `login()` blocks any non-superuser while the server state `maintenance_mode` is
 set, returning an "under maintenance" message. Only `root` (`-1`) passes.
 
+The same rule holds for a session that already exists. The API dispatcher refuses
+a non-superuser session with `auth.maintenance`, and every route outside the
+dispatcher — media and staged-upload files, model weights, the text-area tag
+redirect, uploads, the raw record and environment views, the counters, the
+hierarchy dump download, the export download and the map tile proxy — reads the
+session through one function, `liveSessionFromCookie()`
+(`src/core/security/session_gate.ts`), which answers "no session" for it. Such a
+route replies as it does to an anonymous caller (a 404). `root` is served
+throughout: it is the account that lifts maintenance.
+
 ### Every attempt is audited
 
 `login()` appends a `LOG IN` row to the [activity log](logger.md) on **both**
