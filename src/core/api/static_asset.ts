@@ -43,10 +43,19 @@ import { config } from '../../config/config.ts';
  * naming servers this install already depends on and neither able to supply
  * code: its own media host (MEDIA_CSP_ORIGIN) and its configured update masters
  * (UPDATE_MASTER_CSP_ORIGINS). Nothing is ever hardcoded there.
- * `'unsafe-eval'` stays for the onnxruntime/transformers WASM glue (the active
- * transcription feature) — it does NOT weaken the XSS control above (that rests
- * on no-unsafe-inline); tightening it to `'wasm-unsafe-eval'` is a follow-up
- * once the in-browser AI tools are verified under it. The importmap hash is the
+ * `'unsafe-eval'` stays for THIRD-PARTY libraries that build functions from
+ * strings at runtime — not only for WebAssembly, which `'wasm-unsafe-eval'`
+ * alone would cover. Known dependants (T2 S10-b, census of the CLIENT_LIBS
+ * roots 2026-11-19): `onnxruntime` and `transformers` (the in-browser
+ * transcription models: the WASM runtime AND its JS glue, which calls
+ * `new Function`), and `jsoneditor` (its schema validator compiles each
+ * validator with `new Function`; component_json and the maintenance test
+ * consoles load it). `d3`, `geoman`, `qrcode`, `svgedit`, `ckeditor` and `three` also
+ * carry `Function(` in their builds and have NOT been exercised without it.
+ * So `'wasm-unsafe-eval'` is not a drop-in replacement: it needs every one of
+ * those verified first. First-party code builds nothing from strings
+ * (client_no_dynamic_code_tripwire). It does NOT weaken the XSS control above
+ * (that rests on no-unsafe-inline). The importmap hash is the
  * sha256 of the ONE inline script the page ships (index.html importmap); the
  * xss_csp_tripwire recomputes it so an edit to that block cannot silently break
  * module resolution.
