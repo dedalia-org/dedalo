@@ -772,8 +772,9 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		const saved = () => panel.querySelectorAll('.uca-maps-xyz-saved-list .uca-maps-xyz-item');
 
 		assert.equal(add_btn.textContent, 'Add and save');
-		assert.isNull(
-			panel.querySelector('.uca-maps-xyz-name'),
+		assert.lengthOf(
+			panel.querySelectorAll('.uca-maps-xyz-add-form input'),
+			4,
 			'expected no name field: a saved layer is named by its attribution',
 		);
 
@@ -1404,7 +1405,10 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		const tile_layer = geolocation.source_layers['stored:101'].layer;
 		const eye = panel.querySelector('.uca-maps-wms-list .uca-maps-wms-eye');
 
-		assert.isNotOk(panel.querySelector('.uca-maps-wms-checkbox'), 'expected the checkbox gone');
+		assert.isNull(
+			panel.querySelector('.uca-maps-wms-list input[type=checkbox]'),
+			'expected the checkbox gone',
+		);
 		assert.isOk(eye.getAttribute('aria-label'), 'expected the eye to carry an accessible name');
 		// eye_node draws one path; eye_off_node adds the strike as a second one
 		assert.equal(

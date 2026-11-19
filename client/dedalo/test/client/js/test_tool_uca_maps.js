@@ -2397,8 +2397,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		const color = tool.console_panel.querySelector('.uca-maps-style-color');
 		assert.isOk(color, 'expected a single colour field (v6 polygon_circle_style)');
 		assert.equal(color.type, 'color');
-		assert.isNotOk(
-			tool.console_panel.querySelector('.uca-maps-style-stroke-color'),
+		assert.lengthOf(
+			tool.console_panel.querySelectorAll('input[type=color]'),
+			1,
 			'expected NO separate stroke-colour field',
 		);
 
@@ -2628,7 +2629,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	});
 
 	it('the associate-image picker stays above the gallery it fills, and is the ONLY step', function () {
-		const layer = open_console_on(1);
+		open_console_on(1);
 
 		const images = tool.console_panel.querySelector('.uca-maps-object-images');
 		const nodes = Array.from(images.children);
@@ -2650,8 +2651,8 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			index('.uca-maps-object-gallery'),
 			'expected the picker above the gallery: a growing gallery must not push the control down the panel',
 		);
-		assert.isNotOk(
-			images.querySelector('.uca-maps-object-image-associate'),
+		assert.isNull(
+			images.querySelector(':scope > button'),
 			'expected NO confirm button: choosing the file associates it',
 		);
 		assert.isOk(
