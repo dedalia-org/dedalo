@@ -2806,7 +2806,7 @@ export const render_search_navigator = function(area, nodes, start_node=null, to
 			inner_html		: text,
 			parent			: navigator
 		})
-		button.type = 'button'
+		button.setAttribute('type', 'button') // not a form submit
 		button.title = title
 		button.setAttribute('aria-label', title)
 		return button
