@@ -785,6 +785,41 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		});
 	});
 
+	// the legend is map content the user reads: a click on it must not reach the
+	// map (a Catastro or UA lookup, a 1x1, deselecting the object) nor the wheel zoom it
+	it('a click or the wheel on the legend stays on the legend, never reaching the map', function () {
+		tool.attach_legend();
+		tool.set_legend_title('Simbología');
+		const overlay = tool.legend_overlay.getContainer();
+		const map = geolocation.map;
+		const map_node = map.getContainer();
+		// Leaflet lets a DOM click bubble and drops it itself (disableClickPropagation):
+		// the click is read as the map's own event, the rest as DOM events
+		const reached = [];
+		const dom_types = ['mousedown', 'wheel'];
+		const record = (event) => reached.push(event.type);
+		map.on('click', record);
+		for (const type of dom_types) map_node.addEventListener(type, record);
+		const send = (target) => {
+			const at = { bubbles: true, clientX: 50, clientY: 50 };
+			target.dispatchEvent(new MouseEvent('mousedown', at));
+			target.dispatchEvent(new MouseEvent('click', at));
+			target.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: 100 }));
+		};
+		try {
+			// control: the same gestures on the map itself do reach it
+			send(map_node.querySelector('.leaflet-map-pane'));
+			assert.sameMembers(reached, ['mousedown', 'click', 'wheel'], 'expected the map to hear them');
+			reached.length = 0;
+
+			send(overlay.querySelector('.uca-maps-legend-overlay-title') || overlay);
+			assert.deepEqual(reached, [], 'expected nothing from the legend to reach the map');
+		} finally {
+			map.off('click', record);
+			for (const type of dom_types) map_node.removeEventListener(type, record);
+		}
+	});
+
 	it('the overlay draws only what there is to draw, and the checkbox hides it', function () {
 		tool.attach_legend();
 		const overlay = tool.legend_overlay.getContainer();
