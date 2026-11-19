@@ -21,11 +21,14 @@ import {
 import { mustGet } from '../helpers/assert.ts';
 import {
 	contextOf,
+	expectCode,
+	failureOf,
 	haveGdal,
 	loadAction,
 	runFixtureBinary,
 	withTempDir,
 } from './fixtures/tool_uca_maps/helpers.ts';
+import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
 
 const HAVE_GDAL = haveGdal(
 	'gdalinfo',
@@ -434,5 +437,37 @@ describe.skipIf(!HAVE_GDAL)('tool_uca_maps image_download — the real warp (nee
 			expect(await pixel(out, 4, 60, middle)).toBe(255);
 			expect(Math.abs((await pixel(out, 1, 60, middle)) - 200)).toBeLessThanOrEqual(3);
 		});
+	});
+});
+
+// the handler itself, past validation: the file it would render is the one the
+// map shows, picked by pickDownloadSource, and a name it cannot match is refused
+// before anything is rendered (no GDAL needed)
+describe('tool_uca_maps image_download — the handler serves only the file the map shows', () => {
+	const SLOT = { section_tipo: 'test3', tipo: 'test99', section_id: 905106 };
+	const FILES = [{ quality: 'default', extension: 'jpg' }] as const;
+
+	const refusalFor = (file_path: string) =>
+		withImageFiles(SLOT, FILES, async () => {
+			const action = await loadAction('image_download');
+			return failureOf(
+				action.handler(contextOf({ ...VALID, ...SLOT, file_path }, 1, { record: false })),
+			);
+		});
+
+	test('a path out of the media tree is no file of this image', async () => {
+		const error = await refusalFor('../../../etc/passwd');
+		expectCode(error, 'resource.not_found');
+		expect(error.details).toEqual({ reason_key: 'image_not_on_server' });
+	});
+
+	test('a tier the image does not have is refused, never swapped for the served one', async () => {
+		// the path that tier would have, learnt by planting it alone for a moment
+		const absent = await withImageFiles(
+			SLOT,
+			[{ quality: 'larger', extension: 'jpg' }],
+			async (planted) => mustGet(planted[0], 'planted'),
+		);
+		expectCode(await refusalFor(absent), 'resource.not_found');
 	});
 });
