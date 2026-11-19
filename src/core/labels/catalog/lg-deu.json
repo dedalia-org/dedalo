@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "ohne aktuelle Datenbanksicherung",
 	"update_code_waive_backup_note": "Die Datenbank lässt sich nicht wiederherstellen, wenn die Aktualisierung fehlschlägt. Erstellen Sie nach Möglichkeit zuerst eine Sicherung; jeder Verzicht wird mit Ihrem Benutzer im Serverprotokoll festgehalten.",
 	"update_code_waive_backup_now_required": "Die Datenbanksicherung ist veraltet, während dieser Dialog offen war. Erstellen Sie eine Sicherung oder akzeptieren Sie den Verzicht unten, und drücken Sie erneut auf Aktualisieren.",
+	"update_data_notice_unreachable": "Nicht aktualisiert: Die Datenbank hat die Datenversion ${installed}, eine Datenbank von Dédalo v${installed_major}. Diese Engine (${engine}) hat keine Aktualisierung, die von dort ausgeht: Führen Sie zuerst die Migration v${installed_major} → v${engine_major} auf der v${installed_major}-Installation aus (${doc})",
 	"update_mode_mandatory": "Der Aktualisierungsmodus ist obligatorisch",
 	"update_ontology": "Ontologie aktualisieren",
 	"update_ontology_catalog_loading": "Liste des Servers wird gelesen…",

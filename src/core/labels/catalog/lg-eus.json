@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "datu-basearen babeskopia berririk gabe",
 	"update_code_waive_backup_note": "Datu-basea ezin izango da berreskuratu eguneratzeak huts egiten badu. Egin babeskopia bat lehenago ahal duzun bakoitzean; salbuespen bakoitza zerbitzariaren egunkarian erregistratzen da zure erabiltzailearekin.",
 	"update_code_waive_backup_now_required": "Datu-basearen babeskopia zaharkitu egin da elkarrizketa-koadro hau irekita zegoen bitartean. Egin babeskopia bat, edo onartu beheko salbuespena, eta sakatu Eguneratu berriro.",
+	"update_data_notice_unreachable": "Eguneratu gabe: datu-basea ${installed} datu-bertsioan dago, Dédalo v${installed_major} datu-base bat da. Motor honek (${engine}) ez du hortik abiatzen den eguneratzerik: exekutatu lehenik v${installed_major} → v${engine_major} migrazioa v${installed_major} instalazioan (${doc})",
 	"update_mode_mandatory": "Eguneratze-modua derrigorrezkoa da",
 	"update_ontology": "Eguneratu Ontologia",
 	"update_ontology_catalog_loading": "Zerbitzariaren zerrenda irakurtzen…",

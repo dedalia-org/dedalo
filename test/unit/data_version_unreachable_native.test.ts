@@ -221,8 +221,37 @@ describe('what the operator is told', () => {
 		expect(typeof stuck.notice).toBe('string');
 		expect(stuck.notice as string).toContain('6.9.1');
 		expect(stuck.notice as string).toMatch(/v6/);
+		// The FACTS of that sentence ride with it, so the panel words it from its
+		// label catalog in the reader's language (the sentence stays the fallback).
+		expect(stuck.notice_data).toEqual({
+			code: 'data_version_unreachable',
+			installed: '6.9.1',
+			engine: DEDALO_DATA_VERSION.join('.'),
+			installed_major: '6',
+			engine_major: String(DEDALO_DATA_VERSION[0]),
+			doc: 'docs/install/migrating_from_v6.md',
+		});
+		// …and every fact is IN the sentence: the two are one statement.
+		for (const fact of ['installed', 'engine', 'doc'] as const) {
+			expect(stuck.notice as string).toContain(
+				(stuck.notice_data as Record<string, string>)[fact] as string,
+			);
+		}
+		// The label the panel fills names exactly those facts as placeholders.
+		const master = (await import('../../src/core/labels/master.json')).default as Record<
+			string,
+			string
+		>;
+		const slots = [...(master.update_data_notice_unreachable ?? '').matchAll(/\$\{(\w+)\}/g)].map(
+			(match) => match[1] as string,
+		);
+		expect(slots.length).toBeGreaterThan(0);
+		for (const slot of slots) {
+			expect(Object.keys(stuck.notice_data as object)).toContain(slot);
+		}
 		const current = await updateDataVersionPanel([...DEDALO_DATA_VERSION]);
 		expect('notice' in current).toBe(false);
+		expect('notice_data' in current).toBe(false);
 		expect(Object.keys(current).sort()).toEqual([
 			'current_version_in_db',
 			'dedalo_version',

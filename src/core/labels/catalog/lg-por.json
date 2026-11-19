@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "sem uma cópia de segurança recente da base de dados",
 	"update_code_waive_backup_note": "A base de dados não poderá ser restaurada se a atualização correr mal. Faça antes uma cópia de segurança sempre que possível; cada dispensa fica registada no log do servidor com o seu utilizador.",
 	"update_code_waive_backup_now_required": "A cópia de segurança da base de dados ficou desatualizada enquanto este diálogo esteve aberto. Faça uma cópia de segurança, ou aceite a dispensa abaixo, e prima Atualizar novamente.",
+	"update_data_notice_unreachable": "Não atualizado: a base de dados está na versão de dados ${installed}, uma base de dados do Dédalo v${installed_major}. Este motor (${engine}) não tem nenhuma atualização que parta dela: execute primeiro a migração v${installed_major} → v${engine_major} na instalação v${installed_major} (${doc})",
 	"update_mode_mandatory": "O modo de atualização é obrigatório",
 	"update_ontology": "Atualizar Ontologia",
 	"update_ontology_catalog_loading": "A ler a lista do servidor…",

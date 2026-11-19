@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "हालिया डेटाबेस बैकअप के बिना",
 	"update_code_waive_backup_note": "अद्यतन विफल होने पर डेटाबेस को पुनर्स्थापित नहीं किया जा सकेगा। जब भी संभव हो पहले बैकअप बनाएँ; हर छूट आपके उपयोगकर्ता के साथ सर्वर लॉग में दर्ज की जाती है।",
 	"update_code_waive_backup_now_required": "यह संवाद खुला रहने के दौरान डेटाबेस बैकअप पुराना हो गया। बैकअप बनाएँ, या नीचे दी गई छूट स्वीकार करें, और फिर से अद्यतन दबाएँ।",
+	"update_data_notice_unreachable": "अपडेट नहीं हुआ: डेटाबेस डेटा संस्करण ${installed} पर है, जो Dédalo v${installed_major} का डेटाबेस है। इस इंजन (${engine}) के पास उससे शुरू होने वाला कोई अपडेट नहीं है: पहले v${installed_major} इंस्टॉलेशन पर v${installed_major} → v${engine_major} माइग्रेशन चलाएँ (${doc})",
 	"update_mode_mandatory": "अपडेट मोड अनिवार्य है",
 	"update_ontology": "ऑन्टोलॉजी अपडेट करें",
 	"update_ontology_catalog_loading": "सर्वर की सूची पढ़ी जा रही है…",

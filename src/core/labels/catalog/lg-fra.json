@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "sans sauvegarde récente de la base de données",
 	"update_code_waive_backup_note": "La base de données ne pourra pas être restaurée si la mise à jour échoue. Faites d'abord une sauvegarde chaque fois que possible ; toute dérogation est consignée dans le journal du serveur avec votre utilisateur.",
 	"update_code_waive_backup_now_required": "La sauvegarde de la base de données est devenue obsolète pendant que ce dialogue était ouvert. Faites une sauvegarde, ou acceptez la dérogation ci-dessous, puis appuyez de nouveau sur Mettre à jour.",
+	"update_data_notice_unreachable": "Non mis à jour : la base de données est à la version de données ${installed}, une base de données Dédalo v${installed_major}. Ce moteur (${engine}) n’a aucune mise à jour qui parte de cette version : exécutez d’abord la migration v${installed_major} → v${engine_major} sur l’installation v${installed_major} (${doc})",
 	"update_mode_mandatory": "Le mode de mise à jour est obligatoire",
 	"update_ontology": "Mise à jour de l'Ontologie",
 	"update_ontology_catalog_loading": "Lecture de la liste du serveur…",

@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, assert */
+/*global it, describe, assert, get_label */
 /*eslint no-undef: "error"*/
 
 /**
@@ -26,6 +26,36 @@ const container = document.getElementById('content');
 
 const NOTICE =
 	'Not updated: the database is on data version 6.9.1, a Dédalo v6 database: this engine (7.0.0) has no update that starts from it';
+
+/** The facts of that sentence (boot_state.ts dataVersionAdviceFacts). */
+const NOTICE_DATA = {
+	code: 'data_version_unreachable',
+	installed: '6.9.1',
+	engine: '7.0.0',
+	installed_major: '6',
+	engine_major: '7',
+	doc: 'docs/install/migrating_from_v6.md',
+};
+
+/** Run `fn` with one label swapped in the served dictionary (restored after). */
+const with_label = async (key, text, fn) => {
+	const had = Object.hasOwn(get_label, key);
+	const before = get_label[key];
+	if (text === undefined) {
+		delete get_label[key];
+	} else {
+		get_label[key] = text;
+	}
+	try {
+		return await fn();
+	} finally {
+		if (had) {
+			get_label[key] = before;
+		} else {
+			delete get_label[key];
+		}
+	}
+};
 
 /** The server's panel value when no rung matches (updateDataVersionPanel). */
 const no_rung_value = (extra) => {
@@ -84,6 +114,51 @@ describe('UPDATE_DATA_VERSION WIDGET', function () {
 		// the way out of the session stays
 		assert.ok(content_data.querySelector('button.quit_button'), 'the Quit button renders');
 
+		card.remove();
+	});
+
+	it('the notice is worded from the label catalog, in the reader language, with the server facts in its placeholders', async () => {
+		// The served dictionary carries the key (labels_tripwire: defined in the master).
+		assert.isString(get_label.update_data_notice_unreachable, 'the label is served');
+		for (const slot of ['installed', 'engine', 'installed_major', 'engine_major', 'doc']) {
+			assert.include(get_label.update_data_notice_unreachable, '${' + slot + '}', slot);
+		}
+		// A translated catalog entry: the panel prints THAT sentence, never the
+		// server's English one, with every placeholder filled.
+		const translated =
+			'Sin actualizar: datos ${installed} (Dédalo v${installed_major}); este motor es ${engine} (v${engine_major}). Ver ${doc}';
+		await with_label('update_data_notice_unreachable', translated, async () => {
+			const { card, content_data } = await render_in_card(
+				no_rung_value({ notice: NOTICE, notice_data: NOTICE_DATA }),
+			);
+			const error = content_data.querySelector('.info_text.error_text');
+			assert.strictEqual(
+				error.textContent,
+				'Sin actualizar: datos 6.9.1 (Dédalo v6); este motor es 7.0.0 (v7). Ver docs/install/migrating_from_v6.md',
+			);
+			assert.isTrue(card.classList.contains('danger'), 'still danger');
+			card.remove();
+		});
+	});
+
+	it('no label for the notice (an older dictionary): the server sentence, verbatim', async () => {
+		await with_label('update_data_notice_unreachable', undefined, async () => {
+			const { card, content_data } = await render_in_card(
+				no_rung_value({ notice: NOTICE, notice_data: NOTICE_DATA }),
+			);
+			assert.strictEqual(
+				content_data.querySelector('.info_text.error_text').textContent,
+				NOTICE,
+			);
+			card.remove();
+		});
+	});
+
+	it('facts without a sentence are no notice (the server sends both or neither)', async () => {
+		const { card, content_data } = await render_in_card(
+			no_rung_value({ notice_data: NOTICE_DATA }),
+		);
+		assert.ok(content_data.querySelector('.info_text.success_text'), 'the success text renders');
 		card.remove();
 	});
 

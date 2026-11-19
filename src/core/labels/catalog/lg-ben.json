@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "সাম্প্রতিক ডেটাবেস ব্যাকআপ ছাড়াই",
 	"update_code_waive_backup_note": "আপডেট ব্যর্থ হলে ডেটাবেস পুনরুদ্ধার করা যাবে না। সম্ভব হলে আগে একটি ব্যাকআপ নিন; প্রতিটি ছাড় আপনার ব্যবহারকারীসহ সার্ভার লগে নথিভুক্ত হয়।",
 	"update_code_waive_backup_now_required": "এই ডায়ালগ খোলা থাকা অবস্থায় ডেটাবেস ব্যাকআপ পুরোনো হয়ে গেছে। একটি ব্যাকআপ নিন, বা নিচের ছাড় গ্রহণ করুন, তারপর আবার আপডেট চাপুন।",
+	"update_data_notice_unreachable": "হালনাগাদ হয়নি: ডেটাবেসটি ডেটা সংস্করণ ${installed}-এ আছে, যা Dédalo v${installed_major}-এর ডেটাবেস। এই ইঞ্জিনের (${engine}) এমন কোনো হালনাগাদ নেই যা সেখান থেকে শুরু হয়: আগে v${installed_major} ইনস্টলেশনে v${installed_major} → v${engine_major} মাইগ্রেশন চালান (${doc})",
 	"update_mode_mandatory": "আপডেট মোড বাধ্যতামূলক",
 	"update_ontology": "অ্যান্টোলজি আপডেট করুন",
 	"update_ontology_catalog_loading": "সার্ভারের তালিকা পড়া হচ্ছে…",

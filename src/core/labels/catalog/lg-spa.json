@@ -1224,6 +1224,7 @@
 	"update_code_waive_backup_confirm": "sin una copia de seguridad reciente de la base de datos",
 	"update_code_waive_backup_note": "La base de datos no se podrá restaurar si la actualización falla. Haz antes una copia de seguridad siempre que puedas; toda exención queda registrada en el log del servidor con tu usuario.",
 	"update_code_waive_backup_now_required": "La copia de seguridad de la base de datos ha caducado mientras este diálogo estaba abierto. Haz una copia de seguridad, o acepta la exención de abajo, y pulsa Actualizar de nuevo.",
+	"update_data_notice_unreachable": "Sin actualizar: la base de datos está en la versión de datos ${installed}, una base de datos de Dédalo v${installed_major}. Este motor (${engine}) no tiene ninguna actualización que parta de ella: ejecute antes la migración v${installed_major} → v${engine_major} en la instalación v${installed_major} (${doc})",
 	"update_mode_mandatory": "El modo de actualización es obligatorio",
 	"update_ontology": "Actualizar Ontología",
 	"update_ontology_catalog_loading": "Leyendo la lista del servidor…",

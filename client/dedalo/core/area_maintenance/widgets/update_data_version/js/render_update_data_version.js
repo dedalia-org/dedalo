@@ -79,7 +79,7 @@
 // imports
 	import {ui} from '../../../../common/js/ui.js'
 	import {when_in_dom} from '../../../../common/js/events.js'
-	import {update_process_status} from '../../../../common/js/common.js'
+	import {update_process_status, format_label} from '../../../../common/js/common.js'
 	import {data_manager} from '../../../../common/js/data_manager.js'
 	import {login} from '../../../../login/js/login.js'
 	import {set_widget_label_style} from '../../../js/render_area_maintenance.js'
@@ -233,12 +233,22 @@ const get_content_data = async function(self) {
 			// Info text. `notice`: the server's sentence for a database this engine
 			// cannot update (a Dédalo v6 database: its migration runs on v6). No rung
 			// matches it, but it is NOT up to date — never say so.
+			// WORDED HERE, from the label catalog, when the server names the case
+			// (`notice_data.code`) and this dictionary carries its label: the
+			// server's facts fill the label's placeholders, so the sentence is in
+			// the reader's language. Else the server's own sentence, verbatim.
 			if (typeof value.notice==='string' && value.notice!=='') {
 				set_widget_label_style(self, 'danger', 'add', content_data)
+				const notice_data	= value.notice_data || {}
+				const notice_label	= notice_data.code==='data_version_unreachable'
+					? get_label.update_data_notice_unreachable
+					: null
 				ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: 'info_text error_text',
-					text_content	: value.notice,
+					text_content	: notice_label
+						? format_label(notice_label, notice_data)
+						: value.notice,
 					parent			: content_data
 				})
 			}else{

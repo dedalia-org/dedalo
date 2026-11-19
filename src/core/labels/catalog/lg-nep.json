@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "हालैको डाटाबेस ब्याकअपविना",
 	"update_code_waive_backup_note": "अद्यावधिक बिग्रिएमा डाटाबेस पुनर्स्थापना गर्न सकिँदैन। सम्भव भएसम्म पहिले ब्याकअप बनाउनुहोस्; हरेक छुट तपाईंको प्रयोगकर्तासहित सर्भर लगमा अभिलेख हुन्छ।",
 	"update_code_waive_backup_now_required": "यो संवाद खुला रहँदा डाटाबेस ब्याकअप पुरानो भयो। ब्याकअप बनाउनुहोस्, वा तलको छुट स्वीकार गर्नुहोस्, अनि फेरि अद्यावधिक थिच्नुहोस्।",
+	"update_data_notice_unreachable": "अद्यावधिक भएन: डाटाबेस डाटा संस्करण ${installed} मा छ, जुन Dédalo v${installed_major} को डाटाबेस हो। यो इन्जिन (${engine}) सँग त्यहाँबाट सुरु हुने कुनै अद्यावधिक छैन: पहिले v${installed_major} स्थापनामा v${installed_major} → v${engine_major} माइग्रेसन चलाउनुहोस् (${doc})",
 	"update_mode_mandatory": "अपडेट मोड अनिवार्य छ",
 	"update_ontology": "ओन्टोलजी अपडेट गर्नुहोस्",
 	"update_ontology_catalog_loading": "सर्भरको सूची पढ्दै…",

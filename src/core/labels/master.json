@@ -1236,6 +1236,7 @@
 	"update_code_waive_backup_confirm": "without a recent database backup",
 	"update_code_waive_backup_note": "The database will not be restorable if the update goes wrong. Make a backup first whenever you can; every waiver is recorded in the server log with your user.",
 	"update_code_waive_backup_now_required": "The database backup went stale while this dialog was open. Make a backup, or accept the waiver below, then press Update again.",
+	"update_data_notice_unreachable": "Not updated: the database is on data version ${installed}, a Dédalo v${installed_major} database. This engine (${engine}) has no update that starts from it: run the v${installed_major} → v${engine_major} migration on the v${installed_major} installation first (${doc})",
 	"update_mode_mandatory": "Update mode is mandatory",
 	"update_ontology": "Update Ontology",
 	"update_ontology_catalog_loading": "Reading the server’s list…",

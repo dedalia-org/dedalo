@@ -73,3 +73,25 @@ ending); the client suite `test_update_data_version.js` (the panel renders the
 notice and never "Data format is updated"; control without `notice`). Three
 gates that staged a 6.x database as `pending` were edited deliberately in the
 batch (same-major pending through the code seam). No re-harvest.
+
+## Addendum 2026-11-20 — the panel's sentence is a label
+
+Owner rulings 2026-11-19 (T2 B1 follow-ups, D08-b).
+
+- **`update_data_version` `get_value`** gains, beside `notice` and under the
+  same condition (the `unreachable` state only), the OPTIONAL object
+  **`notice_data`**: `{ code: 'data_version_unreachable', installed, engine,
+  installed_major, engine_major, doc }` — every value a string; the facts the
+  sentence is made of (`boot_state.ts dataVersionAdviceFacts`; `notice` is built
+  from them, so the two cannot disagree). The client words the notice from its
+  label catalog (`update_data_notice_unreachable`, the facts in the label's
+  `${placeholders}`) in the reader's language; `notice` stays the engine's own
+  English sentence and is what a client without that label shows. Chosen over a
+  server-side translation: the maintenance widgets word their own states from
+  `get_label` (the `update_code_*` family), and the boot line and the door's
+  refusal — the other two users of that sentence — are not per-request-language
+  surfaces.
+- **Gates:** `data_version_unreachable_native` (`notice_data` exact, its facts in
+  the sentence, the label's placeholders ⊆ its keys); the client suite
+  `test_update_data_version.js` (a swapped catalog entry is what prints; the
+  server sentence only when the dictionary lacks the key). No re-harvest.

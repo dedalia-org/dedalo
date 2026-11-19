@@ -1221,6 +1221,7 @@
 	"update_code_waive_backup_confirm": "دون نسخة احتياطية حديثة لقاعدة البيانات",
 	"update_code_waive_backup_note": "لن يمكن استعادة قاعدة البيانات إذا فشل التحديث. أنشئ نسخة احتياطية أولًا كلما أمكن؛ ويُسجَّل كل تنازل في سجل الخادم مع اسم المستخدم الخاص بك.",
 	"update_code_waive_backup_now_required": "أصبحت النسخة الاحتياطية لقاعدة البيانات قديمة بينما كان هذا المربع مفتوحًا. أنشئ نسخة احتياطية، أو اقبل التنازل أدناه، ثم اضغط تحديث مرة أخرى.",
+	"update_data_notice_unreachable": "لم يُحدَّث: قاعدة البيانات على إصدار البيانات ${installed}، وهي قاعدة بيانات Dédalo v${installed_major}. هذا المحرك (${engine}) لا يملك تحديثًا يبدأ منها: نفِّذ أولًا الترحيل v${installed_major} ← v${engine_major} على تثبيت v${installed_major} (${doc})",
 	"update_mode_mandatory": "وضع التحديث إلزامي",
 	"update_ontology": "تحديث الأنطولوجيا",
 	"update_ontology_catalog_loading": "جارٍ قراءة قائمة الخادم…",

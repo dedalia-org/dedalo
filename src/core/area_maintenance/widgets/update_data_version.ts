@@ -48,20 +48,29 @@ async function updateDataVersionGetValue(): Promise<WidgetResponse> {
  * database): without it the panel read "Data format is updated: 6.9.1", because
  * no rung matches and "no rung" was the panel's only way to say "nothing to do"
  * (T2 D08-b). Absent otherwise — the other states keep the panel's bytes.
+ * `notice_data` rides with it (same condition): the facts of that sentence, so
+ * the panel words it from its label catalog (`update_data_notice_unreachable`)
+ * in the reader's language; `notice` stays the engine's own English sentence —
+ * what a client without that label shows.
  */
 export async function updateDataVersionPanel(current: number[]): Promise<Record<string, unknown>> {
 	const { getMatchedDescriptor, getUpdateVersion, toWireDescriptor } = await import(
 		'../../update/catalog.ts'
 	);
-	const { classifyDataVersion, dataVersionAdvice } = await import('../../update/boot_state.ts');
+	const { classifyDataVersion, dataVersionAdvice, dataVersionAdviceFacts } = await import(
+		'../../update/boot_state.ts'
+	);
 	const descriptor = getMatchedDescriptor(current);
-	const advice = dataVersionAdvice(classifyDataVersion(current, DEDALO_DATA_VERSION));
+	const state = classifyDataVersion(current, DEDALO_DATA_VERSION);
+	const advice = dataVersionAdvice(state);
 	return {
 		update_version: getUpdateVersion(current),
 		current_version_in_db: current,
 		dedalo_version: DEDALO_DATA_VERSION,
 		updates: descriptor === null ? null : toWireDescriptor(descriptor),
-		...(advice === null ? {} : { notice: `Not updated: ${advice}` }),
+		...(advice === null
+			? {}
+			: { notice: `Not updated: ${advice}`, notice_data: dataVersionAdviceFacts(state) }),
 	};
 }
 

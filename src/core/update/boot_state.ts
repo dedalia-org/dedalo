@@ -176,10 +176,41 @@ const OLDER_MAJOR_MIGRATION_DOC = 'docs/install/migrating_from_v6.md';
  * every other state (each has its own wording where it is reported).
  */
 export function dataVersionAdvice(state: DataVersionState): string | null {
+	const facts = dataVersionAdviceFacts(state);
+	if (facts === null) return null;
+	return `the database is on data version ${facts.installed}, a Dédalo v${facts.installed_major} database: this engine (${facts.engine}) has no update that starts from it — run the v${facts.installed_major} → v${facts.engine_major} migration on the v${facts.installed_major} installation first (${facts.doc})`;
+}
+
+/** The values {@link dataVersionAdvice} is made of — what a screen needs to say it in its own language. */
+export interface DataVersionAdviceFacts {
+	/** The one advice this engine gives (a closed set of one, today). */
+	code: 'data_version_unreachable';
+	/** The installed data version (`6.9.1`). */
+	installed: string;
+	/** The data version this engine declares (`7.0.0`). */
+	engine: string;
+	installed_major: string;
+	engine_major: string;
+	/** Where that migration is documented (a path in the manual). */
+	doc: string;
+}
+
+/**
+ * The facts of {@link dataVersionAdvice}, for a consumer that words the advice
+ * itself (the Update-data panel: a label per language, these values in its
+ * placeholders). Null exactly when the advice is — the two cannot disagree,
+ * the sentence is built from this.
+ */
+export function dataVersionAdviceFacts(state: DataVersionState): DataVersionAdviceFacts | null {
 	if (state.state !== 'unreachable') return null;
-	const installedMajor = String(state.installed).split('.')[0];
-	const codeMajor = state.code.split('.')[0];
-	return `the database is on data version ${state.installed}, a Dédalo v${installedMajor} database: this engine (${state.code}) has no update that starts from it — run the v${installedMajor} → v${codeMajor} migration on the v${installedMajor} installation first (${OLDER_MAJOR_MIGRATION_DOC})`;
+	return {
+		code: 'data_version_unreachable',
+		installed: String(state.installed),
+		engine: state.code,
+		installed_major: String(state.installed).split('.')[0] ?? '',
+		engine_major: state.code.split('.')[0] ?? '',
+		doc: OLDER_MAJOR_MIGRATION_DOC,
+	};
 }
 
 /**
@@ -313,6 +344,26 @@ export async function currentLegacyPasswordAccounts(
 		}
 	})();
 	return bootState.legacyPasswordRecount;
+}
+
+/**
+ * A count taken by THIS process outside the recount window — the maintenance
+ * panel's read, or its migration run (area_maintenance/widgets/legacy_passwords.ts):
+ * /health answers it at once instead of up to {@link LEGACY_PASSWORD_RECOUNT_MS}
+ * later (owner 2026-11-19: after a run the notice must follow). The window
+ * restarts here; a change is logged once, as the recount does.
+ */
+export function recordLegacyPasswordAccounts(accounts: number, now: number = Date.now()): void {
+	const before = bootState.legacyPasswords;
+	bootState.legacyPasswords = accounts;
+	bootState.legacyPasswordsAt = now;
+	if (before !== null && accounts !== before) {
+		console.warn(
+			accounts === 0
+				? `[maintenance] LEGACY PASSWORDS: none left (was ${before}) — the /health notice is withdrawn`
+				: `[maintenance] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (was ${before})`,
+		);
+	}
 }
 
 /** TEST-ONLY: forget every fact (the state is process-global by design). */
