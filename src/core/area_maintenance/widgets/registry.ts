@@ -38,6 +38,7 @@ import { widget as diffusion_server_control } from './diffusion_server_control.t
 import { widget as environment } from './environment.ts';
 import { widget as error_reports } from './error_reports.ts';
 import { widget as export_hierarchy } from './export_hierarchy.ts';
+import { widget as legacy_passwords } from './legacy_passwords.ts';
 import { widget as lock_components } from './lock_components.ts';
 import { widget as make_backup } from './make_backup.ts';
 import { widget as media_control } from './media_control.ts';
@@ -130,6 +131,7 @@ const CORE_WIDGET_MODULES: readonly WidgetModule[] = [
 	site_builder_status,
 	publication_hosts,
 	ai_models,
+	legacy_passwords,
 ];
 
 /** The total surface: every module in the code, gated or not. Ownership classifies THIS. */

@@ -207,6 +207,8 @@ const RAW_CALLER_EXEMPT: Record<string, string> = {
 		'the UPDATE-PROCESS portalize transform (WC-025): a matrix-COLUMN-level relocation with TM relocated and save_tm suppressed by design; execute-gated behind the standalone update engine, never a request-path write.',
 	'scripts/repair_geolocation_studio_default.ts#repairUnit':
 		'a one-shot operator repair of the geolocation studio default: a per-key write inside withTransaction with its own recordTimeMachine row per repaired component; never a request-path save.',
+	'src/core/security/legacy_password_migration.ts#writeHash':
+		'the v6 → v7 PASSWORD CONVERSION (operator door: the legacy_passwords maintenance widget and `bun run dedalo:migrate-passwords`): under the row lock it replaces the dd133 value with the Argon2id hash of the SAME password, only over the value that was read. A storage-format conversion, not an edit of the account: no modified stamp (nobody changed the record), no TM row (the account history gains no event), no relation, no RAG text, no observer source, and no session to revoke (an account on a v6 value cannot have logged in).',
 };
 
 /**
@@ -222,6 +224,7 @@ const NON_DERIVED_RAW_WRITERS: Readonly<Record<string, string>> = {
 	'src/core/tools/register.ts#writeRegistryRecord': 'registry import',
 	'src/core/update/transform/portalize.ts#applyPortalizeRow': 'update transform',
 	'scripts/repair_geolocation_studio_default.ts#repairUnit': 'operator repair script',
+	'src/core/security/legacy_password_migration.ts#writeHash': 'operator password conversion',
 };
 
 /**
@@ -1114,6 +1117,8 @@ const SAVE_RULES_NO_DECLARED_ORDER: Readonly<Record<string, string>> = {
 		'DELETES aged matrix_activity rows — it writes no value at all.',
 	'scripts/repair_geolocation_studio_default.ts#repairUnit':
 		'writes the `geo` column of component_geolocation keys only — never a relation key.',
+	'src/core/security/legacy_password_migration.ts#writeHash':
+		'writes the `string` column key of component_password (dd133) only — never a relation key.',
 	'src/core/relations/save.ts#removeDataframeDataById':
 		'only REMOVES the frames of a removed main item from the stored dataframe array: what remains keeps its stored order.',
 	'src/core/relations/dataframe.ts#fixDataframeOrphanEntries':

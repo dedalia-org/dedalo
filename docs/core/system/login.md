@@ -183,8 +183,12 @@ algorithm and no "try the old scheme" branch.
     hashed. Such a value is refused: `auth.ts` denies loudly in the server log
     (naming the account) and ambiguously on the wire.
 
-    These accounts do **not** need to choose a new password. Run
-    `bun run dedalo:migrate-passwords` (`scripts/migrate_v6_passwords.ts`), which
+    These accounts do **not** need to choose a new password. Convert them from
+    the command line with `bun run dedalo:migrate-passwords`
+    (`scripts/migrate_v6_passwords.ts`), or — when a global administrator can
+    already log in — from **Maintenance → Legacy passwords**, a panel that shows
+    how many accounts are affected and runs the conversion from the server. Both
+    are the same code (`src/core/security/legacy_password_migration.ts`): it
     decrypts each legacy value once, re-hashes it with Argon2id, and writes the
     hash back. There is no upgrade at the next login: the earlier engine's
     rehash-on-login is retired, because it needs the v6 encryption key inside the

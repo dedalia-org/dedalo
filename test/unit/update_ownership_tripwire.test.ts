@@ -101,6 +101,8 @@ const ENGINE_NATIVE: Record<string, string> = {
 		'the reconcile REGISTRY door (core/reconcile, S-10): runs one registered cross-store reconcile through the TS write paths it wraps — dry by default, apply only on the explicit flag',
 	'counters_status.repair_all_counters':
 		'matrix_counter repair through the TS write path — the bulk form of modify_counter fix (P0-14); raise-only',
+	'legacy_passwords.migrate':
+		"v6 → v7 password conversion on matrix_users through the TS door (core/security/legacy_password_migration.ts, the CLI's own) — a TS-era surface: the PHP engine upgraded on login instead",
 	'dataframe_control.get_value': 'read-only dataframe panel',
 	'dataframe_control.run_check': 'read-only dataframe consistency check',
 	'dataframe_control.run_fix': 'dataframe repair through the TS write path',

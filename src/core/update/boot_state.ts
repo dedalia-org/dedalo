@@ -261,10 +261,11 @@ export function dataVersionState(): DataVersionState | null {
  * (never red: the engine is healthy; never the number: the probe answers anyone).
  * A count that cannot be read is said and recorded as null — never guessed.
  * `count` is injected by the boot (auth.ts countLegacyPasswordAccounts): this
- * module reads no database. The counter is KEPT: the fix runs in another process
- * (`bun run dedalo:migrate-passwords`), so /health re-takes the count through
- * {@link currentLegacyPasswordAccounts} — the notice must not outlive the
- * condition until the next restart.
+ * module reads no database. The counter is KEPT: the fix may run in another
+ * process (`bun run dedalo:migrate-passwords`), so /health re-takes the count
+ * through {@link currentLegacyPasswordAccounts} — the notice must not outlive
+ * the condition until the next restart. The maintenance panel's run is in THIS
+ * process and reports its own count ({@link recordLegacyPasswordAccounts}).
  */
 export async function refreshLegacyPasswordNotice(
 	count: () => Promise<number>,
@@ -276,7 +277,7 @@ export async function refreshLegacyPasswordNotice(
 	bootState.legacyPasswordsAt = now;
 	if (accounts !== null && accounts > 0) {
 		console.warn(
-			`[boot] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (not Argon2id) and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database (docs/install/migrating_from_v6.md, "Migrate the passwords"); nobody has to choose a new password`,
+			`[boot] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (not Argon2id) and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database, or convert them in Maintenance → Legacy passwords (docs/install/migrating_from_v6.md, "Migrate the passwords"); nobody has to choose a new password`,
 		);
 	}
 	return accounts;

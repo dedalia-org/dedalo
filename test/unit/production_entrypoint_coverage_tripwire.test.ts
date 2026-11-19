@@ -62,7 +62,7 @@ const UNREACHED_EXEMPTIONS: ReadonlyMap<string, string> = new Map([
 	],
 	[
 		'scripts/migrate_v6_passwords.ts',
-		'one-shot v6→v7 password re-hash CLI: needs legacy v6 password rows in a live users table; the re-hash it performs is src/core/security/legacy_password.ts, gated by legacy_password_migration.test.ts',
+		'v6→v7 password re-hash CLI: the command line (arguments, the v6 config reader, the printed report, process.exit) over the door src/core/security/legacy_password_migration.ts — the door is driven on planted v6 accounts by legacy_password_migration.test.ts (which also pins that this file holds no statement of its own, and the re-hash of legacy_password.ts against a blob produced by real PHP)',
 	],
 ]);
 /** Shrink-only: two today. */
