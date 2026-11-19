@@ -11,7 +11,11 @@ import { resolve } from 'node:path';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { openZipStream } from '../../src/core/files/zip.ts';
 import type { ToolResponse } from '../../src/core/tools/module.ts';
-import { VECTOR_UPLOAD_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
+import {
+	MAP_IMAGE_KEY_DIR,
+	OBJECT_GEOJSON_KEY_DIR,
+	VECTOR_UPLOAD_KEY_DIR,
+} from '../../tools/tool_uca_maps/js/upload_formats.js';
 import {
 	resolveGdalBinary,
 	runToolBinary,
@@ -623,10 +627,17 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 	});
 
 	// a request lost after its upload never reaches the handler that deletes the file
-	test("the next upload sweeps the caller's uploads over an hour old, and nothing else", async () => {
+	test("the next upload sweeps the caller's uploads over an hour old, in every key_dir the tool consumes, and nothing else", async () => {
 		const past = (Date.now() - ORPHAN_UPLOAD_AGE_MS - 60_000) / 1000;
 		stageUpload(SCRATCH_USER, 'stale.geojson', '{}');
 		utimesSync(uploadPath(SCRATCH_USER, 'stale.geojson'), past, past);
+		// left by the other actions: the next claim of any kind collects them
+		const others = [MAP_IMAGE_KEY_DIR, OBJECT_GEOJSON_KEY_DIR].map((keyDir) => {
+			stageFile(SCRATCH_USER, 'stale_other.bin', 'x', keyDir);
+			const path = resolve(stagingOf(SCRATCH_USER), keyDir, 'stale_other.bin');
+			utimesSync(path, past, past);
+			return path;
+		});
 		stageUpload(SCRATCH_USER, 'recent.geojson', '{}');
 		stageFile(SCRATCH_USER, 'old_photo.png', 'x', 'image');
 		const photo = resolve(stagingOf(SCRATCH_USER), 'image', 'old_photo.png');
@@ -639,6 +650,7 @@ describe('tool_uca_maps upload_vector_layer — the staged file is consumed', ()
 		);
 		expect(existsSync(uploadPath(SCRATCH_USER, 'stale.geojson'))).toBe(false);
 		expect(existsSync(uploadPath(SCRATCH_USER, 'recent.geojson'))).toBe(true);
+		for (const path of others) expect(existsSync(path)).toBe(false);
 		expect(existsSync(photo)).toBe(true);
 	});
 });

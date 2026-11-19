@@ -406,6 +406,28 @@ describe('objectPdfReport — the whole document', () => {
 		expect(text).toContain('-30345');
 	});
 
+	// the client sends the labels in the user's language; an empty one is a
+	// missing translation and falls back, never printing a blank heading
+	test('prints the labels the client sends, and the English one for an empty label', async () => {
+		const file_data = staged({
+			type: 'Feature',
+			properties: { name: 'Muralla' },
+			geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
+		});
+		const response = await objectPdfReport(
+			contextOf({ file_data, labels: { title: 'Propiedades del objeto', geometry: '' } }),
+		);
+		const text = await pdfText(
+			new Uint8Array(
+				Buffer.from((response.data as { content_base64: string }).content_base64, 'base64'),
+			),
+			'labels',
+		);
+		expect(text).toContain('Propiedades del objeto');
+		expect(text).not.toContain('Object properties');
+		expect(text).toContain('Geometry');
+	});
+
 	// test99 is the generic TLD's component_image: a real JPEG is planted at
 	// this id in the suite's MARKED media root, so only the gate can keep it out
 	const IMAGE = { section_tipo: 'test3', tipo: 'test99', section_id: 905104 };

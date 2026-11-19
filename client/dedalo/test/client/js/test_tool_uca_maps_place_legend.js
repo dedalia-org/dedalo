@@ -1140,6 +1140,37 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		tool.delete_legend_symbol(0, 5);
 		assert.isTrue(message.hidden, 'expected four of them (240 000 characters) accepted');
 		assert.equal(buffer().legend.groups[0].symbols.length, 5);
+		for (let i = 4; i >= 1; i--) {
+			tool.delete_legend_symbol(0, i);
+		}
+
+		// the 1 Mpx the icons share, read from each PNG's own header: fifteen
+		// 256×256 and sixteen 64×64 fill it exactly (an unread header counts as
+		// 256×256, which would refuse it), and one 1×1 more is refused
+		const be32 = (n) =>
+			String.fromCharCode((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+		const png = (side) =>
+			'data:image/png;base64,' +
+			btoa(
+				'\x89PNG\r\n\x1a\n' + be32(13) + 'IHDR' + be32(side) + be32(side) + '\x08\x06\x00\x00\x00',
+			);
+		tool.legend.groups[0].symbols[0].icon = null; // its default pin would count too
+		const sides = [...Array(15).fill(256), ...Array(16).fill(64)];
+		sides.forEach((side, at) => {
+			tool.add_legend_symbol(0);
+			tool.legend.groups[0].symbols[at + 1].icon = png(side);
+			tool.set_legend_symbol_label(0, at + 1, 'Square ' + at);
+		});
+		assert.isTrue(message.hidden, 'expected 15 × 256² + 16 × 64² (1 Mpx) accepted');
+		assert.equal(buffer().legend.groups[0].symbols.length, sides.length + 1);
+		tool.add_legend_symbol(0);
+		tool.legend.groups[0].symbols[sides.length + 1].icon = png(1);
+		refused(
+			() => tool.set_legend_symbol_label(0, sides.length + 1, 'One pixel more'),
+			"The legend's images are too large to save: remove some of them.",
+		);
+		tool.delete_legend_symbol(0, sides.length + 1);
+		assert.isTrue(message.hidden, 'expected the legend accepted again without it');
 
 		// a control character is kept as the core keeps it: a space
 		tool.set_legend_title('Two\nlines');

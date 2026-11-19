@@ -568,6 +568,42 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		);
 	});
 
+	it("DARE's search sends the three filters as the user set them", async function () {
+		mount_roman(WITH_PLEIADES);
+		await load_roman_capabilities(tool);
+		open_roman();
+
+		const asked = [];
+		stub_tool_request(async function (options) {
+			asked.push(options);
+			return { ok: true, data: { results: [] } };
+		});
+
+		const block = tool.roman_panel.querySelector('.uca-maps-roman-dare');
+		const chosen = {};
+		for (const [key, name] of [
+			['name_type', 'name-type'],
+			['type_id', 'type'],
+			['country', 'country'],
+		]) {
+			const select = block.querySelector('.uca-maps-roman-dare-' + name);
+			const last = select.options[select.options.length - 1].value;
+			// the last option differs from the default, or the send proves nothing
+			assert.notEqual(last, select.value, 'expected a non-default ' + key + ' to pick');
+			select.value = last;
+			chosen[key] = last;
+		}
+
+		block.querySelector('.uca-maps-roman-input').value = 'Gades';
+		block.querySelector('.uca-maps-roman-search-button').click();
+		await tick(SETTLE_MS);
+		assert.equal(asked.length, 1, 'expected one search');
+		assert.equal(asked[0].action, 'search_dare');
+		for (const key of Object.keys(chosen)) {
+			assert.equal(asked[0].options[key], chosen[key], 'expected ' + key + ' as chosen');
+		}
+	});
+
 	// a select's natural width (width auto) is its longest option plus its own
 	// chrome: the real one at least that wide shows every option whole
 	it('with the tool CSS, every DARE filter shows its longest option whole, on one line', async function () {
