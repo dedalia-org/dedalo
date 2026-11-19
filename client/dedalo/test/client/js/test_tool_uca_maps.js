@@ -2340,6 +2340,11 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		assert.equal(pdf_btn.textContent, 'Export as PDF', 'expected the button to name what it does');
 
 		const download = section.querySelector('.uca-maps-download-section');
+		assert.equal(
+			download.querySelector(':scope > h6')?.textContent,
+			'Vector download',
+			'expected the section to say WHAT it downloads',
+		);
 		assert.isOk(
 			download.querySelector('.uca-maps-download-button'),
 			'expected the download button',
@@ -2352,6 +2357,78 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			['geojson', 'shp', 'kml'],
 			'expected the three vector formats, in menu order',
 		);
+	});
+
+	// each console control reaches the tool through its own `change`: the setters
+	// are tested on their own, so here only the wire is, by recording the call
+	const CONSOLE_WIRES = [
+		{ label: 'Fill opacity', value: '0.6', method: 'set_style_field', args: ['fillOpacity', 0.6] },
+		{ label: 'Stroke weight', value: '7', method: 'set_style_field', args: ['weight', 7] },
+		{ label: 'Stroke opacity', value: '0.3', method: 'set_style_field', args: ['opacity', 0.3] },
+		{ label: 'Centroid', method: 'toggle_centroid', args: [] },
+		{ label: 'Uncertainty', method: 'toggle_uncertainty', args: [] },
+		{ label: 'Front', method: 'set_hierarchy', args: ['front', true] },
+		{ label: 'Back', method: 'set_hierarchy', args: ['back', true], unchecks: 'Front' },
+	];
+	for (const wire of CONSOLE_WIRES) {
+		it(`the console control "${wire.label}" calls ${wire.method} on change`, function () {
+			const layer = open_console_on(1); // a polygon: every control is offered
+			const field = (text) => {
+				const span = Array.from(tool.console_panel.querySelectorAll('.uca-maps-field > span')).find(
+					(node) => node.textContent === text,
+				);
+				assert.isOk(span, `expected the "${text}" control`);
+				return span.parentNode.querySelector('input');
+			};
+			const input = field(wire.label);
+			const other = wire.unchecks ? field(wire.unchecks) : null;
+			if (other) other.checked = true;
+
+			const calls = [];
+			tool[wire.method] = (...args) => calls.push(args);
+			if (input.type === 'checkbox') {
+				input.checked = true;
+			} else {
+				input.value = wire.value;
+			}
+			input.dispatchEvent(new Event('change'));
+
+			assert.lengthOf(calls, 1, `expected one ${wire.method} call`);
+			assert.strictEqual(calls[0][0], layer, 'expected the selected object');
+			assert.deepEqual(calls[0].slice(1), wire.args);
+			if (other) {
+				assert.isFalse(other.checked, `expected "${wire.unchecks}" unchecked, as in v6`);
+			}
+		});
+	}
+
+	it('a saved style is painted again when the console attaches: the core restores only the colour', function () {
+		const layer = seeded_layer(1);
+		layer.feature.properties.uca_maps = { style: { weight: 9, fillOpacity: 0.7 } };
+		assert.notEqual(layer.options.weight, 9, 'precondition: the core drew the default stroke');
+
+		tool.attach_console();
+
+		assert.equal(layer.options.weight, 9, 'expected the saved stroke weight');
+		assert.equal(layer.options.fillOpacity, 0.7, 'expected the saved fill opacity');
+	});
+
+	it('the gallery × takes that image off the object, and the gallery redraws without it', function () {
+		const layer = seeded_layer(1);
+		layer.feature.properties.uca_maps = { images: full_gallery().images.slice(0, 2) };
+		open_console_on(1);
+		const items = () =>
+			tool.console_panel.querySelectorAll('.uca-maps-object-gallery .uca-maps-object-gallery-item');
+		assert.lengthOf(items(), 2, 'precondition: both images in the gallery');
+
+		items()[0].querySelector('.uca-maps-object-gallery-remove').click();
+
+		assert.deepEqual(
+			tool.object_images(layer).map((image) => image.file_path),
+			['/1.jpg'],
+			'expected the first image taken off, the second kept',
+		);
+		assert.lengthOf(items(), 1, 'expected the gallery redrawn');
 	});
 
 	it("style offers v6's fields, with v6's own ranges, and paints border and body with ONE colour", function () {
