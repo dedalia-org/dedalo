@@ -52,13 +52,14 @@ export async function withImageFiles<T>(
 	);
 	// the first directory each plant created, if any: removed in reverse order
 	const created: Array<{ leaf: string; top: string | undefined }> = [];
+	let result: T;
 	try {
 		for (const [index, location] of planted.entries()) {
 			const leaf = dirname(location.absolutePath);
 			created.push({ leaf, top: mkdirSync(leaf, { recursive: true }) });
 			writeFileSync(location.absolutePath, files[index]?.bytes ?? 'planted by a gate');
 		}
-		return await body(planted.map((location) => location.relativePath));
+		result = await body(planted.map((location) => location.relativePath));
 	} finally {
 		for (const location of planted) rmSync(location.absolutePath, { force: true });
 		for (const { leaf, top } of created.reverse()) {
@@ -67,6 +68,8 @@ export async function withImageFiles<T>(
 				if (dir === top) break;
 			}
 		}
-		expect(await slotResidue(slot), `residue in ${where} after the test`).toHaveLength(0);
 	}
+	// after the finally, not in it: a residue failure there would replace the body's own error
+	expect(await slotResidue(slot), `residue in ${where} after the test`).toHaveLength(0);
+	return result;
 }

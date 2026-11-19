@@ -1976,7 +1976,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 				result,
 				{
 					ok: false,
-					error: tool.get_tool_label('upload_no_file') || 'Please choose a file first.',
+					error: 'Please choose a file first.',
 				},
 				`expected the no-file sentence, not the transport catch: ${row.label}`,
 			);
@@ -2255,10 +2255,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 
 		const title = panel.querySelector('.uca-maps-upload-vector-title');
 		assert.isOk(title, 'expected the vector half titled, as the image half is');
-		assert.equal(
-			title.textContent,
-			tool.get_tool_label('upload_vector_title') || 'Upload vector file',
-		);
+		assert.equal(title.textContent, 'Upload vector file');
 
 		const order = [
 			'.uca-maps-upload-vector-title',
@@ -2361,10 +2358,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		);
 		assert.equal(messages[0].hidden, true, "expected the vector half's line untouched");
 		assert.equal(messages[1].hidden, false, 'expected the result in the image half');
-		assert.equal(
-			messages[1].textContent,
-			tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.',
-		);
+		assert.equal(messages[1].textContent, 'Image placed at its own coordinates.');
 		assert.equal(messages[1].dataset.type, 'ok', 'expected a success, not the error tint');
 	});
 
@@ -2481,9 +2475,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				half: 'image',
 				answer: { ok: true, georeferenced: false },
-				text:
-					tool.get_tool_label('upload_image_success_viewport') ||
-					'The image carries no coordinates: placed over the current view.',
+				text: 'The image carries no coordinates: placed over the current view.',
 				type: 'warning',
 				hides: true,
 			},
@@ -2497,8 +2489,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				half: 'vector',
 				answer: { ok: true, feature_count: 2 },
-				text:
-					(tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (2)',
+				text: 'File uploaded successfully.' + ' (2)',
 				type: 'ok',
 				hides: true,
 				// only a success empties the picker: a failure keeps the file for the retry
@@ -2509,10 +2500,9 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 				half: 'vector',
 				answer: { ok: true, feature_count: 2, read_as: 'windows-1252' },
 				text:
-					(tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') +
+					'File uploaded successfully.' +
 					' (2) ' +
-					(tool.get_tool_label('upload_encoding_converted') ||
-						"It was not in UTF-8 and was read as Windows-1252: check the objects' texts."),
+					"It was not in UTF-8 and was read as Windows-1252: check the objects' texts.",
 				// read while checking the objects' texts: it stays
 				type: 'warning',
 				hides: false,
@@ -2522,8 +2512,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			{
 				half: 'vector',
 				answer: { ok: true, feature_count: 0 },
-				text:
-					tool.get_tool_label('upload_no_features') || 'No objects could be read from this file.',
+				text: 'No objects could be read from this file.',
 				type: 'warning',
 				hides: false,
 			},
@@ -2646,10 +2635,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 
 		upload.release({ ok: true, georeferenced: true });
 		await tick();
-		assert.equal(
-			message.textContent,
-			tool.get_tool_label('upload_image_success_placed') || 'Image placed at its own coordinates.',
-		);
+		assert.equal(message.textContent, 'Image placed at its own coordinates.');
 		assert.equal(picker.disabled, false);
 	});
 
@@ -2689,10 +2675,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 
 		upload.release({ ok: true, feature_count: 1 });
 		await tick();
-		assert.equal(
-			message.textContent,
-			(tool.get_tool_label('upload_success_message') || 'File uploaded successfully.') + ' (1)',
-		);
+		assert.equal(message.textContent, 'File uploaded successfully.' + ' (1)');
 		assert.equal(submit.disabled, false);
 	});
 

@@ -1837,7 +1837,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 
 		input.value = '';
 		enter();
-		await tick(50);
+		await tick(SETTLE_MS);
 		assert.isFalse(line.hidden, "expected the empty search's own line first");
 
 		stub_tool_request(async () =>
@@ -1848,7 +1848,7 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 		);
 		input.value = 'Roma';
 		enter();
-		await tick(50);
+		await tick(SETTLE_MS);
 		assert.isTrue(line.hidden, "expected no line beside core's notice");
 	});
 });

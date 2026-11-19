@@ -8,8 +8,8 @@
  * Shared by the test_tool_uca_maps* suites, one per feature group. use_live_map mounts a real
  * component_geolocation (TLD `test`) wired to a tool by hand, init() and tool_common's ceremony
  * skipped: production init only resolves `geolocation` and `map_ready` and the tool reads no
- * ontology. Lookups are stubbed; basemap and WMS tiles load from the network but are never
- * asserted on.
+ * ontology. Lookups are stubbed; only the component's first basemap and WMS tiles load from
+ * the network, and they are never asserted on.
  */
 
 import { data_manager } from '../../../core/common/js/data_manager.js';
@@ -395,19 +395,16 @@ export const use_live_map = function (bind) {
 		'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 	/**
-	 * Arming UA builds the core's built-in IGN layer (`builtin=ign_admin_units`)
-	 * and Catastro and ARCGIS their component defaults (`default_id=`), all
-	 * through the tile proxy: while this is in place (beforeEach) their tiles come
-	 * from BLANK_TILE, so no test makes the server reach a provider. The layers stay
-	 * real L.TileLayer. Returns the restore (L is global).
+	 * Every XYZ layer built after the mount (UA's IGN, Catastro, the base maps the
+	 * tool seeds, a test's own OSM or ArcGIS layer) draws BLANK_TILE: no test makes
+	 * the browser or the tile proxy reach a provider. The layers stay real
+	 * L.TileLayer with their own URL. Returns the restore (L is global).
 	 */
-	const offline_ua_wms = function () {
+	const offline_tiles = function () {
 		const original = L.tileLayer;
 		const patched = function (url, options) {
 			const layer = original.call(this, url, options);
-			if (String(url).includes('builtin=ign_admin_units') || String(url).includes('default_id=')) {
-				layer.getTileUrl = () => BLANK_TILE;
-			}
+			layer.getTileUrl = () => BLANK_TILE;
 			return layer;
 		};
 		patched.wms = original.wms;
@@ -472,7 +469,7 @@ export const use_live_map = function (bind) {
 		return wired;
 	};
 
-	let geolocation, tool, map_container, restore_ua_wms;
+	let geolocation, tool, map_container, restore_tiles;
 
 	beforeEach(async function () {
 		geolocation = await geolocation_instance('uca_console_');
@@ -486,7 +483,7 @@ export const use_live_map = function (bind) {
 		map_container = node.content_data[0].map_container;
 		await geolocation.get_map(map_container, 0);
 		assert.isOk(geolocation.map, 'expected a live Leaflet map');
-		restore_ua_wms = offline_ua_wms(); // L exists once get_map has loaded it
+		restore_tiles = offline_tiles(); // L exists once get_map has loaded it
 
 		// get_map() loads only the active layer: the circle and the marker need
 		// the core's own 'full' load to get a FeatureGroup at all
@@ -499,9 +496,9 @@ export const use_live_map = function (bind) {
 	});
 
 	afterEach(async function () {
-		if (restore_ua_wms) {
-			restore_ua_wms();
-			restore_ua_wms = null;
+		if (restore_tiles) {
+			restore_tiles();
+			restore_tiles = null;
 		}
 		if (tool) {
 			await tool.destroy(true, true, true);

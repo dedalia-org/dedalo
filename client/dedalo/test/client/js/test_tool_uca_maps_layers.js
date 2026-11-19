@@ -2588,7 +2588,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			await check_administrative_unit_at_point(tool, L.latLng(40.45, -3.65));
 
 			const message = tool.ua_panel.querySelector('.uca-maps-ua-message');
-			const level = tool.get_tool_label('ua_level_municipio') || 'Municipio';
+			const level = 'Municipio';
 			assert.equal(message.hidden, false, 'expected the unit shown in the panel');
 			assert.equal(message.dataset.type, 'ok');
 			assert.equal(message.textContent, 'Test municipality (' + level + ')');

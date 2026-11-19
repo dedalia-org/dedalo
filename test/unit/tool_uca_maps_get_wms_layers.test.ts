@@ -4,7 +4,7 @@
  * harvesting door: a private target is refused by its address policy.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
 import { isSsrfRefusal } from '../../src/core/security/ssrf_guard.ts';
 import {
@@ -19,6 +19,10 @@ import {
 	loadAction,
 	refusal,
 } from './fixtures/tool_uca_maps/helpers.ts';
+import { resetHarvestState } from './fixtures/tool_uca_maps/scripted_site.ts';
+
+beforeEach(resetHarvestState);
+afterEach(resetHarvestState);
 
 describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
 	test('an empty/missing url is refused as request.invalid_options, before the door', async () => {

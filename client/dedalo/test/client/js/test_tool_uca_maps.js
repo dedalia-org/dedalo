@@ -1481,8 +1481,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		// read after wait_for_map gave up: it says the map did not load, never "waiting"
 		assert.equal(
 			notice.textContent,
-			tool.get_tool_label('map_not_ready') ||
-				'The map did not finish loading. Close the tool and open it again with the map in view.',
+			'The map did not finish loading. Close the tool and open it again with the map in view.',
 			'expected the notice to say the map did not load and what to do',
 		);
 	});
@@ -2264,7 +2263,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 	 * tests above look at.
 	 */
 	it("the object section follows v6's order: the checkboxes hang from the elevation heading, properties LAST", function () {
-		const layer = open_console_on(1);
+		open_console_on(1);
 
 		const section = tool.console_panel.querySelector('.uca-maps-object-section');
 
@@ -2740,7 +2739,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 
 		let asked_for = undefined;
 		let disabled_during = null;
-		tool.associate_image = async function (asked_layer, file) {
+		tool.associate_image = async function (asked_layer) {
 			asked_for = asked_layer;
 			disabled_during = picker.disabled;
 			return { ok: true, still_shown: true };
@@ -2877,12 +2876,9 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 		assert.deepEqual(
 			lines,
 			[
-				(tool.get_tool_label('info_center') || 'Center') + ': ' + center,
-				(tool.get_tool_label('info_radius') || 'Radius') +
-					': ' +
-					geolocation.round_coordinate(radius, 2) +
-					' m',
-				(tool.get_tool_label('info_area') || 'Area') + ': ' + area,
+				'Center' + ': ' + center,
+				'Radius' + ': ' + geolocation.round_coordinate(radius, 2) + ' m',
+				'Area' + ': ' + area,
 			],
 			'expected one line per measure: Centre, Radius, Area',
 		);
@@ -4059,7 +4055,6 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 				panel.clientWidth,
 				'expected the sliders to shrink with a narrow console, not scroll it sideways',
 			);
-			panel.style.width = '';
 		});
 	});
 

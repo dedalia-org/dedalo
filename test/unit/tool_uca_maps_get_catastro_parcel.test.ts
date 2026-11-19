@@ -54,7 +54,7 @@ describe('clickedPoint and featureInfoQuery', () => {
 		expect(lon).toBeCloseTo(-0.95, 12);
 		// the Mercator midpoint, not the arithmetic one (38.05)
 		expect(lat).not.toBeCloseTo(38.05, 6);
-		expect(lat).toBeCloseTo(38.05003, 4);
+		expect(lat).toBeCloseTo(38.0500171, 7);
 		expect(
 			clickedPoint({ bbox: [-1, 38, -0.9, 38.1], width: 512, height: 400, x: 0, y: 0 }),
 		).toEqual([expect.closeTo(38.1, 10), -1]);

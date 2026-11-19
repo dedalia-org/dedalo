@@ -489,6 +489,11 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 
 	it('a second locationfound while disarmed drops nothing — v6 re-binds a listener per click and drops N markers', function () {
 		tool.attach_geolocate();
+		// the fixes below are fired by hand: the browser's own lookup would answer
+		// after the test, if at all (the map is rebuilt per test: no restore)
+		geolocation.map.locate = function () {
+			return this;
+		};
 
 		const group = active_group();
 		const before = group.getLayers().length;
