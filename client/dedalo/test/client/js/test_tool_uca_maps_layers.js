@@ -790,6 +790,12 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 			4,
 			'expected no name field: a saved layer is named by its attribution',
 		);
+		assert.equal(panel.querySelector('.uca-maps-xyz-url').placeholder, 'Base map URL (required)');
+		assert.equal(
+			panel.querySelector('.uca-maps-xyz-attribution').placeholder,
+			'Attribution (required, names the layer)',
+			'expected the field to say it names the layer, the form having no name field',
+		);
 
 		add_btn.click(); // every field empty -> the URL error
 		await until(() => !message.hidden);
@@ -1571,6 +1577,43 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 				2,
 				`expected the panel 5rem below the map top (off by ${dy}px)`,
 			);
+		});
+	});
+
+	// a name longer than its row is cut with an ellipsis inside the row: one
+	// that overflows it would push the eye and the slider out of the panel
+	it('with the tool CSS, a WMS layer name longer than its row is cut inside it', async function () {
+		await with_tool_css(async () => {
+			tool.attach_wms_services();
+			fake_component_save();
+			await tool.add_wms_layer(
+				wms_layer({ name: 'topo:long', title: 'Límites administrativos históricos '.repeat(8) }),
+			);
+			geolocation.map.getContainer().querySelector('.uca-maps-wms-control').click();
+
+			const item = tool.wms_panel.querySelector('.uca-maps-wms-list .uca-maps-wms-item');
+			const title = item.querySelector('.uca-maps-wms-item-title');
+			assert.isAbove(
+				title.scrollWidth,
+				title.clientWidth,
+				'expected the name cut, or nothing is proved',
+			);
+			// the three a browser needs to draw the "…": without overflow:hidden the
+			// text paints over the eye and the slider though its box stays put
+			const style = getComputedStyle(title);
+			assert.deepEqual(
+				[style.overflowX, style.textOverflow, style.whiteSpace],
+				['hidden', 'ellipsis', 'nowrap'],
+			);
+			const row = item.getBoundingClientRect();
+			for (const child of item.children) {
+				const rect = child.getBoundingClientRect();
+				assert.isAtMost(
+					rect.right,
+					row.right + 0.5,
+					`expected ${child.className} inside its row (${rect.right}px past ${row.right}px)`,
+				);
+			}
 		});
 	});
 

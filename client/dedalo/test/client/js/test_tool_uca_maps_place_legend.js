@@ -244,6 +244,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const input = panel.querySelector('.uca-maps-place-search-input');
 		const message = panel.querySelector('.uca-maps-place-search-message');
 		const rows = () => panel.querySelectorAll('.uca-maps-place-search-result-button').length;
+		assert.equal(input.placeholder, 'Place name', 'expected the field to say what it takes');
 
 		stub_tool_request(async function () {
 			return {
@@ -1704,6 +1705,84 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		const uploaded = await tool.set_legend_symbol_icon(0, 0, one_pixel_png('pin.png'));
 		assert.isTrue(uploaded.ok);
 		assert.notProperty(symbol, 'symbol', 'expected the symbol dropped once an image replaces it');
+	});
+
+	// the layout the user reads, measured: a hit is a compact row, a field's
+	// label leaves the width to its field, the overlay's groups sit close
+	it('with the tool CSS, hits are compact rows, a label leaves its field the width, overlay groups sit close', async function () {
+		await with_tool_css(async () => {
+			const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+			tool.attach_place_search();
+			tool.place_search_control.getContainer().click();
+			tool._place_results = [{ name: 'Sagunt', point: [39.68, -0.27], bbox: null }];
+			populate_place_search_results(tool, tool.place_search_panel);
+			const hit = tool.place_search_panel.querySelector('.uca-maps-place-search-result-button');
+			const text = document.createRange();
+			text.selectNodeContents(hit);
+			const text_height = text.getBoundingClientRect().height;
+			assert.isAbove(text_height, 0, 'expected the hit laid out');
+			assert.isAtMost(
+				hit.getBoundingClientRect().height - text_height,
+				rem,
+				'expected a one-line hit no taller than its text plus a little padding',
+			);
+
+			tool.attach_legend();
+			tool.legend_control.getContainer().click();
+			const field = tool.legend_panel
+				.querySelector('.uca-maps-legend-title-input')
+				.closest('.uca-maps-legend-field');
+			const label = field.querySelector('.uca-maps-legend-field-label');
+			const input = field.querySelector('input[type="text"]');
+			const natural = document.createRange();
+			natural.selectNodeContents(label);
+			assert.closeTo(
+				label.getBoundingClientRect().width,
+				natural.getBoundingClientRect().width,
+				1,
+				'expected the label as wide as its text: never grown, never squeezed by its field',
+			);
+			assert.isAbove(
+				input.getBoundingClientRect().width,
+				label.getBoundingClientRect().width,
+				'expected the field to take the rest of the line',
+			);
+
+			// enough groups that the overlay wraps them onto several lines
+			for (let i = 0; i < 12; i++) {
+				tool.add_legend_group();
+				tool.set_legend_group_name(i, 'Periodo histórico ' + i);
+				tool.add_legend_symbol(i);
+				tool.set_legend_symbol_label(i, 0, 'Elemento ' + i);
+			}
+			const columns = [
+				...tool.legend_overlay.getContainer().querySelectorAll('.uca-maps-legend-overlay-column'),
+			].map((column) => column.getBoundingClientRect());
+			const lines = [...new Set(columns.map((rect) => Math.round(rect.top)))].sort((a, b) => a - b);
+			assert.isAbove(lines.length, 1, 'expected the groups wrapped, or the row gap is not seen');
+			for (let i = 1; i < lines.length; i++) {
+				const above = Math.max(
+					...columns
+						.filter((rect) => Math.round(rect.top) === lines[i - 1])
+						.map((rect) => rect.bottom),
+				);
+				assert.isAtMost(
+					lines[i] - above,
+					0.5 * rem,
+					'expected the next line of groups close below',
+				);
+			}
+			const first_line = columns
+				.filter((rect) => Math.round(rect.top) === lines[0])
+				.sort((a, b) => a.left - b.left);
+			assert.isAbove(first_line.length, 1, 'expected two groups side by side');
+			assert.isAtLeast(
+				first_line[1].left - first_line[0].right,
+				0.5 * rem,
+				'expected side-by-side groups apart, never touching',
+			);
+		});
 	});
 
 	// the panel's `button` rule carries the tool's action hover; the symbol
