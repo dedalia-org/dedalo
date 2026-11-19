@@ -15,24 +15,24 @@ export interface ClickParams {
 	y: number;
 }
 
+/** A finite number as sent, or null: `Number()` would read null, '' and [] as 0. */
+const finite = (value: unknown): number | null =>
+	typeof value === 'number' && Number.isFinite(value) ? value : null;
+
 /** Parses+vets the client's click payload. Throws on anything malformed. */
 export function parseClickParams(options: Record<string, unknown>): ClickParams {
 	const bbox = options.bbox;
-	if (
-		!Array.isArray(bbox) ||
-		bbox.length !== 4 ||
-		!bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
-	) {
+	if (!Array.isArray(bbox) || bbox.length !== 4 || !bbox.every((n) => finite(n) !== null)) {
 		throw invalidOptions('A valid bounding box is required.');
 	}
-	const width = Number(options.width);
-	const height = Number(options.height);
-	const x = Number(options.x);
-	const y = Number(options.y);
-	if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+	const width = finite(options.width);
+	const height = finite(options.height);
+	const x = finite(options.x);
+	const y = finite(options.y);
+	if (width === null || width <= 0 || height === null || height <= 0) {
 		throw invalidOptions('A valid map size is required.');
 	}
-	if (!Number.isFinite(x) || !Number.isFinite(y)) {
+	if (x === null || y === null) {
 		throw invalidOptions('A valid click position is required.');
 	}
 	return { bbox: bbox as [number, number, number, number], width, height, x, y };

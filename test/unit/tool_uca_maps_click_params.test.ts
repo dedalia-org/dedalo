@@ -40,4 +40,21 @@ describe('parseClickParams', () => {
 		expect(() => parseClickParams({ ...VALID, x: undefined })).toThrow(/click position/);
 		expect(() => parseClickParams({ ...VALID, y: Number.NaN })).toThrow(/click position/);
 	});
+
+	// Number() reads each of these as a number (null, '' and [] as 0): a click with
+	// no position would be answered for the map's top-left corner
+	test.each([
+		['null', null],
+		["''", ''],
+		['[]', []],
+		["'128'", '128'],
+		['true', true],
+	])('a position or size sent as %s is refused, never read as a number', (_label, value) => {
+		for (const key of ['x', 'y']) {
+			expect(() => parseClickParams({ ...VALID, [key]: value })).toThrow(/click position/);
+		}
+		for (const key of ['width', 'height']) {
+			expect(() => parseClickParams({ ...VALID, [key]: value })).toThrow(/map size/);
+		}
+	});
 });
