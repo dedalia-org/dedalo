@@ -89,6 +89,16 @@
 
 	const pane_of = (portal) => portal.thesaurus_pane
 
+// visual_edge — where the pane's sides must land for a component: its box, widened
+// on both sides by the --pane_edge_outset its active style declares (0 when none).
+	const visual_edge = (node, outset) => {
+		const rect = node.getBoundingClientRect()
+		return {
+			left	: `${rect.left - outset}px`,
+			width	: `${rect.width + 2 * outset}px`
+		}
+	}
+
 
 
 describe('THESAURUS PANE (the inline picker surface)', function() {
@@ -130,7 +140,9 @@ describe('THESAURUS PANE (the inline picker surface)', function() {
 			window.dispatchEvent(new Event('scroll'))
 
 			assert.notEqual(pane.style.top, first_top, 'the pane followed the component')
-			assert.equal(pane.style.left, '39px') // rect.left − 1 (border flush)
+			// flush with the component's box: this node declares no --pane_edge_outset
+			assert.equal(pane.style.left, visual_edge(portal.node, 0).left)
+			assert.equal(pane.style.left, '40px')
 			assert.equal(pane.style.width, '300px')
 		})
 
@@ -154,7 +166,7 @@ describe('THESAURUS PANE (the inline picker surface)', function() {
 
 			assert.equal(pane.style.width,  '640px', 'width must not be reset by a scroll')
 			assert.equal(pane.style.height, '420px', 'height must not be reset by a scroll')
-			assert.equal(pane.style.left, '39px', 'position still tracks the component')
+			assert.equal(pane.style.left, visual_edge(portal.node, 0).left, 'position still tracks the component')
 		})
 
 		it('the remembered size is applied again on the NEXT open', async function() {
@@ -197,8 +209,33 @@ describe('THESAURUS PANE (the inline picker surface)', function() {
 
 			await portal.toggle_thesaurus_pane()
 			const pane = portal.thesaurus_pane
-			assert.equal(pane.style.left, '19px')
+			assert.equal(pane.style.left, visual_edge(portal.node, 0).left)
+			assert.equal(pane.style.left, '20px')
 			assert.equal(pane.style.right, 'auto')
+		})
+
+		it('the pane continues the component\'s VISUAL edge: the outset an active style declares widens it on both sides', async function() {
+			// An active style that draws the field's edge OUTSIDE its box (Lift's
+			// outer ring) declares how far in --pane_edge_outset; the pane's sides
+			// must land on that edge, not on the box. The declaration is the
+			// contract — the value is read from the node, never assumed.
+			const portal = make_portal({ id:'pane_edge_outset' })
+			portal.node.style.cssText = 'position:absolute; top:100px; left:40px; width:300px; height:50px; --pane_edge_outset:3px;'
+			const declared = parseFloat(getComputedStyle(portal.node).getPropertyValue('--pane_edge_outset'))
+			assert.equal(declared, 3, 'the node declares its outset')
+
+			await portal.toggle_thesaurus_pane()
+			const pane = portal.thesaurus_pane
+			const edge = visual_edge(portal.node, declared)
+			assert.equal(pane.style.left, edge.left, 'left edge = box − outset')
+			assert.equal(pane.style.width, edge.width, 'width = box + both outsets')
+			assert.equal(pane.style.left, '37px')
+			assert.equal(pane.style.width, '306px')
+
+			// and the edge is kept when the pane re-measures
+			portal.node.style.top = '260px'
+			window.dispatchEvent(new Event('scroll'))
+			assert.equal(pane.style.left, edge.left, 'the outset survives a scroll')
 		})
 
 		it('a full destroy removes the body-level pane AND its area', async function() {
