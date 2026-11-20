@@ -126,10 +126,9 @@ export const render_join = (values, separator, render_class) => {
 	return render_value(list, render_class).join(escape_html(separator ?? ', '));
 }; //end render_join
 
-// IS_EMPTY_ENTRY lives in util.js (the page's boot path reads it through
-// common.js, and this module is not on that path — page_load_budget_native);
-// re-exported here because the fallback merge below is its other reader.
-export { is_empty_entry };
+// is_empty_entry (the fallback merge below reads it) lives in util.js: the
+// page's boot path needs it through common.js, and this module is not on that
+// path (page_load_budget_native).
 
 /**
  * RENDER_FALLBACK_VALUE
