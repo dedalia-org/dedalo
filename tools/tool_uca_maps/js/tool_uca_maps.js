@@ -752,11 +752,7 @@ tool_uca_maps.prototype.close_transient_modal = function () {
  * @param {boolean} [remove_dom=false]
  * @returns {Promise<Object>} same shape as common.prototype.destroy
  */
-tool_uca_maps.prototype.destroy = async function (
-	delete_self = true,
-	delete_dependencies = false,
-	remove_dom = false,
-) {
+tool_uca_maps.prototype.destroy = async function (delete_self, delete_dependencies, remove_dom) {
 	const self = this;
 
 	detach_console(self);
@@ -784,7 +780,7 @@ tool_uca_maps.prototype.destroy = async function (
 	self.events_tokens = [];
 
 	// the standard instance teardown, same pattern as component_geolocation's own
-	// destroy override
+	// destroy override; an omitted argument takes common's default there
 	return common.prototype.destroy.call(self, delete_self, delete_dependencies, remove_dom);
 }; //end destroy
 
