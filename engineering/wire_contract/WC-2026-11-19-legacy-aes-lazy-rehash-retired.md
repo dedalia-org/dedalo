@@ -27,7 +27,7 @@ an Argon2id hash — an account upgraded itself the next time its owner logged i
 - **New 2026-11-19:** the log line names that command (it said "log into the PHP
   server once", an engine that no longer exists); the BOOT counts the accounts
   still on a non-Argon2 value and warns with the number and the command
-  (`auth.ts countLegacyPasswordAccounts` → `update/boot_state.ts
+  (`legacy_password_migration.ts countLegacyPasswordAccounts` → `update/boot_state.ts
   refreshLegacyPasswordNotice`); `/health` carries the notice
   `notices: ['legacy_password_accounts']` — never red, never the number (the
   probe answers anyone). The notice FOLLOWS the condition: `/health` re-takes
@@ -57,3 +57,13 @@ real route; the notice withdrawn / returned across the recount window with the
 query count pinned (1 per window, 20 concurrent callers share one); the REAL
 server spawned on the suite database (boot line on stderr, notice on `/health`).
 RED before (the line named PHP). Mutations red ×7. No re-harvest.
+- **One definition (2026-11-21, T2 B1 review LOW-1):** what a legacy value is
+  lives in `password_hash.ts storedPasswordState` (`none` = absent / null /
+  empty, `argon2`, `legacy` = anything else). The login refusal, the boot /
+  `/health` count and the conversion door all read it; no SQL predicate
+  restates it. Two edges moved with it, neither on the wire (the refusal
+  sentence is the same ambiguous one): an account whose stored value is the
+  EMPTY text is "no password" for the login too (it was logged as legacy while
+  the count said it was not), and a stored value that is not a text is refused
+  as legacy (the login threw on it). Gate: `legacy_password_notice_native`
+  ("ONE meaning of legacy account": login, counter and census, shape by shape).

@@ -24,8 +24,27 @@ import { ARGON2_OPTIONS } from './argon2_params.ts';
 import { assertPasswordPolicy } from './password_policy.ts';
 
 /** An Argon2 (any variant) PHC string, as produced by Bun.password / PHP password_hash. */
-export function isArgon2Hash(value: unknown): boolean {
+export function isArgon2Hash(value: unknown): value is string {
 	return typeof value === 'string' && value.startsWith('$argon2');
+}
+
+/**
+ * How a stored dd133 value stands with the login — THE ONE DEFINITION of a
+ * "legacy account" (T2 B1 review LOW-1: the login, the /health counter and the
+ * conversion door each spelled their own):
+ *   `none`    no password at all (absent, null, empty) — not a legacy account;
+ *   `argon2`  an Argon2 hash: the only form the login verifies;
+ *   `legacy`  anything else — above all v6's reversible AES value. The login
+ *             refuses it, /health counts it, the conversion door examines it.
+ * Read by auth.ts (the refusal) and legacy_password_migration.ts (the census,
+ * the batch, and through the census the boot / `/health` count). No SQL
+ * predicate restates it: the readers fetch the value and ask here.
+ */
+export type StoredPasswordState = 'none' | 'argon2' | 'legacy';
+
+export function storedPasswordState(value: unknown): StoredPasswordState {
+	if (value === null || value === undefined || value === '') return 'none';
+	return isArgon2Hash(value) ? 'argon2' : 'legacy';
 }
 
 /**

@@ -27,7 +27,9 @@
  * (engineering/wire_contract/WC-2026-11-19-legacy-aes-lazy-rehash-retired.md).
  * The operator runs `bun run dedalo:migrate-passwords` once
  * (scripts/migrate_v6_passwords.ts); the boot counts the accounts still waiting
- * (countLegacyPasswordAccounts → update/boot_state.ts). SAML is Phase 5
+ * (legacy_password_migration.ts countLegacyPasswordAccounts → update/boot_state.ts).
+ * WHAT a legacy value is has one definition, shared with that count and the
+ * conversion door: password_hash.ts storedPasswordState. SAML is Phase 5
  * continuation.
  */
 
@@ -35,6 +37,7 @@ import { config } from '../../config/config.ts';
 import { sql } from '../db/postgres.ts';
 import { ARGON2_OPTIONS, needsPasswordRehash } from './argon2_params.ts';
 import { MIGRATE_PASSWORDS_COMMAND } from './legacy_password_command.ts';
+import { isArgon2Hash, storedPasswordState } from './password_hash.ts';
 import { resolvePrincipal } from './permissions.ts';
 import { runWithoutAccountRevocation } from './revocation.ts';
 import { endUserSessions } from './session_media.ts';
@@ -247,7 +250,8 @@ export type ActiveAccountState = 'active' | 'inactive' | 'missing';
  */
 async function findUserByUsername(username: string): Promise<{
 	section_id: number;
-	passwordHash: string | null;
+	/** The stored dd133 value AS STORED — a text in real data, but nothing here assumes it. */
+	passwordHash: unknown;
 	activeAccount: ActiveAccountState;
 } | null> {
 	const rows = (await sql.unsafe(
@@ -258,7 +262,7 @@ async function findUserByUsername(username: string): Promise<{
 		[USERS_SECTION_TIPO, USERNAME_COMPONENT, JSON.stringify([{ value: username }])],
 	)) as {
 		section_id: number;
-		string: Record<string, { value?: string }[]> | null;
+		string: Record<string, { value?: unknown }[]> | null;
 		relation: Record<string, { section_id?: unknown }[] | undefined> | null;
 	}[];
 	const row = rows[0];
@@ -268,25 +272,6 @@ async function findUserByUsername(username: string): Promise<{
 		passwordHash: row.string?.[PASSWORD_COMPONENT]?.[0]?.value ?? null,
 		activeAccount: readActiveAccountState(row.relation?.[ACTIVE_ACCOUNT_COMPONENT]),
 	};
-}
-
-/**
- * How many accounts hold a stored password that is NOT an Argon2id hash — the
- * accounts `login()` refuses as legacy (above all v6's reversible AES values,
- * which `bun run dedalo:migrate-passwords` converts). An account with no
- * password at all is not one of them. Read at boot for the operator's notice
- * (update/boot_state.ts refreshLegacyPasswordNotice): they should learn of a
- * locked-out user base from the log, not from the first user who cannot get in.
- */
-export async function countLegacyPasswordAccounts(): Promise<number> {
-	const rows = (await sql.unsafe(
-		`SELECT count(*)::int AS n FROM matrix_users
-		 WHERE section_tipo = $1
-		   AND COALESCE(string->$2->0->>'value', '') <> ''
-		   AND string->$2->0->>'value' NOT LIKE '$argon2%'`,
-		[USERS_SECTION_TIPO, PASSWORD_COMPONENT],
-	)) as { n: number }[];
-	return Number(rows[0]?.n ?? 0);
 }
 
 /**
@@ -434,14 +419,17 @@ async function resolveLoginCandidate(
 	}
 
 	const user = await findUserByUsername(username);
-	if (user === null || user.passwordHash === null) {
+	// ONE definition of none / argon2 / legacy (password_hash.ts) — the same the
+	// /health count and the conversion door read.
+	const stored = user === null ? 'none' : storedPasswordState(user.passwordHash);
+	if (user === null || stored === 'none') {
 		await normalizeTiming(password); // AUTHZ-03: match the existing-user Argon2id cost
 		recordFailure();
 		await logLoginActivity('deny', 'User does not exist', username, clientIp);
 		return refusal;
 	}
 
-	if (!user.passwordHash.startsWith('$argon2')) {
+	if (!isArgon2Hash(user.passwordHash)) {
 		// A v6 password value — refused (see module header). Deny loudly in the
 		// server log, naming the fix; ambiguously on the wire.
 		console.error(

@@ -42,7 +42,7 @@ import { AREA_MAINTENANCE_TIPO } from '../concepts/area.ts';
 import { readMatrixKeyForUpdate, updateMatrixKeysData } from '../db/matrix_write.ts';
 import { sql, withTransaction } from '../db/postgres.ts';
 import { type LegacyKeyMaterial, rehashLegacyPassword } from './legacy_password.ts';
-import { isArgon2Hash } from './password_hash.ts';
+import { storedPasswordState } from './password_hash.ts';
 
 const USERS_TABLE = 'matrix_users';
 const USERS_SECTION_TIPO = 'dd128';
@@ -199,9 +199,16 @@ interface PasswordRow {
 	section_id: number;
 	username: string | null;
 	password: string;
+	/** storedPasswordState(password) === 'legacy' — classified once, at the read. */
+	legacy: boolean;
 }
 
-/** Every account holding a stored password, in id order. The values stay in this module. */
+/**
+ * Every account holding a stored password, in id order. The values stay in this
+ * module. WHICH accounts hold one, and which of those are legacy, is not decided
+ * by the statement: it fetches the value, and password_hash.ts
+ * storedPasswordState — the one definition, the login's own — classifies it.
+ */
 async function readPasswordRows(): Promise<PasswordRow[]> {
 	const rows = (await sql.unsafe(
 		`SELECT section_id,
@@ -209,21 +216,42 @@ async function readPasswordRows(): Promise<PasswordRow[]> {
 		        string->$3->0->>'value' AS password
 		   FROM matrix_users
 		  WHERE section_tipo = $1
-		    AND COALESCE(string->$3->0->>'value', '') <> ''
+		    AND string ? $3
 		  ORDER BY section_id`,
 		[USERS_SECTION_TIPO, USERNAME_COMPONENT, PASSWORD_COMPONENT],
-	)) as { section_id: unknown; username: string | null; password: string }[];
-	return rows.map((row) => ({ ...row, section_id: Number(row.section_id) }));
+	)) as { section_id: unknown; username: string | null; password: string | null }[];
+	return rows.flatMap((row) => {
+		const state = storedPasswordState(row.password);
+		if (state === 'none' || row.password === null) return [];
+		return [
+			{
+				section_id: Number(row.section_id),
+				username: row.username,
+				password: row.password,
+				legacy: state === 'legacy',
+			},
+		];
+	});
 }
 
 function censusOf(rows: readonly PasswordRow[]): LegacyPasswordCensus {
-	const argon2 = rows.filter((row) => isArgon2Hash(row.password)).length;
-	return { accounts: rows.length, argon2, legacy: rows.length - argon2 };
+	const legacy = rows.filter((row) => row.legacy).length;
+	return { accounts: rows.length, argon2: rows.length - legacy, legacy };
 }
 
 /** How many accounts hold a password, and how many of them are still legacy. Reads only. */
 export async function legacyPasswordCensus(): Promise<LegacyPasswordCensus> {
 	return censusOf(await readPasswordRows());
+}
+
+/**
+ * How many accounts the login refuses as legacy — the census's own number, for
+ * the boot and `/health` (update/boot_state.ts refreshLegacyPasswordNotice): the
+ * operator should learn of a locked-out user base from the log, not from the
+ * first user who cannot get in.
+ */
+export async function countLegacyPasswordAccounts(): Promise<number> {
+	return (await legacyPasswordCensus()).legacy;
 }
 
 /**
@@ -265,7 +293,7 @@ function selectBatch(
 	options: LegacyPasswordMigrationOptions,
 ): { pending: PasswordRow[]; batch: PasswordRow[] } {
 	const after = options.afterSectionId ?? Number.NEGATIVE_INFINITY;
-	const pending = rows.filter((row) => !isArgon2Hash(row.password) && row.section_id > after);
+	const pending = rows.filter((row) => row.legacy && row.section_id > after);
 	return { pending, batch: pending.slice(0, options.limit ?? pending.length) };
 }
 

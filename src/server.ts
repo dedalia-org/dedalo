@@ -1955,7 +1955,9 @@ export async function startServer() {
 		// said NOW, not discovered through the first user who is refused. Never
 		// fatal — an unreadable count is logged and reported as not counted.
 		{
-			const { countLegacyPasswordAccounts } = await import('./core/security/auth.ts');
+			const { countLegacyPasswordAccounts } = await import(
+				'./core/security/legacy_password_migration.ts'
+			);
 			await refreshLegacyPasswordNotice(countLegacyPasswordAccounts);
 		}
 		// Register the RAG save/delete → index-queue hook (no-op when

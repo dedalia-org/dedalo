@@ -267,7 +267,8 @@ export function dataVersionState(): DataVersionState | null {
  * — and the fix is one command. Recorded for /health, which carries a NOTICE
  * (never red: the engine is healthy; never the number: the probe answers anyone).
  * A count that cannot be read is said and recorded as null — never guessed.
- * `count` is injected by the boot (auth.ts countLegacyPasswordAccounts): this
+ * `count` is injected by the boot (legacy_password_migration.ts
+ * countLegacyPasswordAccounts): this
  * module reads no database. The counter is KEPT: the fix may run in another
  * process (`bun run dedalo:migrate-passwords`), so /health re-takes the count
  * through {@link currentLegacyPasswordAccounts} — the notice must not outlive
