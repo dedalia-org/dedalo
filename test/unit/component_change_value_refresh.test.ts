@@ -474,4 +474,23 @@ else {
 			expect(calls).toEqual(['saving', 'failed']);
 		});
 	});
+
+	// ────────────────────────────────────────────────────────────────────────────
+	// the stubbed emptiness rule (common.js get_fallback_value reads it)
+	// ────────────────────────────────────────────────────────────────────────────
+
+	describe('the stub answers is_empty_entry as the client does', () => {
+		test('a rich-text ghost is EMPTY (the fallback face), real text is not', async () => {
+			const { is_empty_entry } = await import(`${STUBS}/utils_index.js`);
+			for (const ghost of ['<p></p>', '<p> </p>', '<br data-mce-bogus="1">']) {
+				expect(is_empty_entry({ value: ghost }), ghost).toBe(true);
+			}
+			for (const empty of [undefined, null, {}, { value: '' }, { value: '  ' }, { value: [] }]) {
+				expect(is_empty_entry(empty), JSON.stringify(empty)).toBe(true);
+			}
+			for (const value of ['<p>a</p>', 'a', 0, ['a']]) {
+				expect(is_empty_entry({ value }), JSON.stringify(value)).toBe(false);
+			}
+		});
+	});
 }

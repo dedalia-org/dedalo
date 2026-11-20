@@ -18,8 +18,9 @@
  * with no database: the STATIC import closure of every entry is walked on the
  * checkout and each file must lie inside `ENGINE_FILES`.
  *
- * Static edges only, on purpose: a static import is resolved before a line of
- * the entry runs, so one edge out of the tree kills the whole module; an
+ * Static edges (and `require` calls) only, on purpose: a static import is
+ * resolved before a line of the entry runs, so one edge out of the tree kills
+ * the whole module; an
  * `await import()` costs nothing until its call site is reached, and the gates
  * that run a tree reach those for real.
  *
@@ -86,7 +87,10 @@ function staticClosure(
 		if (loader === null) continue; // a data file (json): a leaf
 		const imports = new Bun.Transpiler({ loader }).scanImports(readFileSync(file, 'utf8'));
 		for (const edge of imports) {
-			if (edge.kind !== 'import-statement' || !edge.path.startsWith('.')) continue;
+			// `require()` / `import x = require()` load at the same moment a static
+			// import does (the entry's evaluation), so they are edges too
+			if (edge.kind !== 'import-statement' && edge.kind !== 'require-call') continue;
+			if (!edge.path.startsWith('.')) continue;
 			const dep = resolve(dirname(file), edge.path);
 			if (!importer.has(dep)) {
 				importer.set(dep, file);
@@ -148,7 +152,7 @@ describe('engine tree closure — what a tree-run module imports is in the tree'
 		});
 	}
 
-	test('positive control: one static edge out of the tree is named with its chain; a lazy or type-only one is not', () => {
+	test('positive control: one static or require edge out of the tree is named with its chain; a lazy or type-only one is not', () => {
 		const root = mkdtempSync(join(tmpdir(), 'dedalo-engine-closure-'));
 		try {
 			const write = (rel: string, body: string): void => {
@@ -166,6 +170,10 @@ describe('engine tree closure — what a tree-run module imports is in the tree'
 				'src/lazy.ts',
 				"export const lazy = async () => (await import('../client/policy.js')).policy;\n",
 			);
+			write(
+				'src/required.ts',
+				"import policy = require('../client/policy.js');\nexport const required = policy;\n",
+			);
 			const inside = (rel: string): boolean => rel.startsWith(`src${sep}`);
 
 			const broken = staticClosure(root, 'src/entry.ts', inside);
@@ -176,6 +184,9 @@ describe('engine tree closure — what a tree-run module imports is in the tree'
 				},
 			]);
 			expect(staticClosure(root, 'src/lazy.ts', inside).escapes).toEqual([]);
+			expect(staticClosure(root, 'src/required.ts', inside).escapes).toEqual([
+				{ file: join('client', 'policy.js'), chain: [join('src', 'required.ts')] },
+			]);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
