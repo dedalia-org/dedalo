@@ -814,6 +814,15 @@ else {
 					},
 				},
 			},
+		'tools/tool_uca_maps/js/map_sources.js :: save_sources': {
+			doors: {
+				'.change_value(': {
+					verdict: 'operator-value',
+					reason:
+						'adds or removes the one XYZ/WMS source the user chose in the panel, on a copy of the entry’s `sources` list; the rest of the geolocation entry is the component’s own buffer, sent through build_changed_data_item as its save button would. Nothing stored is transformed, and a refused save puts the previous list back.',
+				},
+			},
+		},
 		'tools/tool_import_files/server/index.ts :: setComponentsData': {
 			doors: {
 				saveComponentData: {
