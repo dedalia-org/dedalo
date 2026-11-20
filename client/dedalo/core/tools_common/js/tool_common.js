@@ -66,7 +66,6 @@
 		tool_css_url
 		} from '../../../core/common/js/utils/index.js'
 	import {render_error} from './render_tool_common.js'
-	import {parse_window_features, parse_modal_features} from './window_features.js'
 
 
 
@@ -200,7 +199,11 @@ tool_common.prototype.init = async function(options) {
 							// Lazy (CONVENTIONS.md §2, rationale 3 — rarely hit): only a tool
 							// opened in its own window carries raw_data; keeps lz-string off
 							// the boot graph (page_load_budget_native).
-							const { LZString: lzstring } = await import('/dedalo/lib/lz-string/lz-string.js')
+							// The windowFeatures grammar rides the same wait (see load_window_features).
+		const [{ LZString: lzstring }, window_features] = await Promise.all([
+			import('/dedalo/lib/lz-string/lz-string.js'),
+			windowFeatures ? load_window_features() : null
+		])
 							const url_data_string	= lzstring.decompressFromEncodedURIComponent(raw_data)
 							if (!url_data_string) {
 								throw new Error('Decompression returned empty result')
@@ -1045,6 +1048,21 @@ const open_tool_modals = new Set()
 
 
 /**
+* LOAD_WINDOW_FEATURES
+* The windowFeatures grammar (window_features.js), loaded on the first tool
+* that DECLARES features instead of with the page.
+* Lazy (CONVENTIONS.md §2, rationale 3): only opening a tool needs it, and a
+* static import here put it on the cold-boot critical path of every page
+* (tool_common.js is on it) — one more request before first paint, counted by
+* test/unit/page_load_budget_native.test.ts. A tool with no windowFeatures
+* never loads it: there is nothing to parse.
+* @returns {Promise<{parse_window_features: Function, parse_modal_features: Function}>}
+*/
+const load_window_features = () => import('./window_features.js')
+
+
+
+/**
 * VIEW_MODAL
 * Opens the tool inside a Dédalo modal panel within the current window.
 * Handles the full tool lifecycle: instance resolution, spinner UI, build, render,
@@ -1099,10 +1117,6 @@ const view_modal = async function(options) {
 	// options
 		const caller			= options.caller
 		const windowFeatures	= options.windowFeatures || null
-		// Parsed BEFORE anything is built: the keys are a closed list of size
-		// properties (window_features.js) and any other is refused naming the key —
-		// the value is registry data, never trusted as style.
-		const modal_styles		= parse_modal_features(windowFeatures)
 
 	// validate caller
 		if (!caller) {
@@ -1134,6 +1148,25 @@ const view_modal = async function(options) {
 			return false
 		}
 		open_tool_modals.add(open_key)
+
+	// modal_styles
+	// Parsed BEFORE anything is built: the keys are a closed list of size
+	// properties (window_features.js) and any other is refused naming the key —
+	// the value is registry data, never trusted as style. The grammar module is
+	// loaded here, on the first tool that declares features, and AFTER the
+	// synchronous guard above (an await before it would let a second click
+	// through); a refusal releases the guard so the tool can be opened again
+	// once its registration is fixed.
+		let modal_styles = {}
+		if (windowFeatures) {
+			try {
+				const {parse_modal_features} = await load_window_features()
+				modal_styles = parse_modal_features(windowFeatures)
+			} catch (error) {
+				open_tool_modals.delete(open_key)
+				throw error
+			}
+		}
 
 	// tool_instance. Resolved inside the modal spinner callback (see below), so the
 	// modal opens on the click and the slow part (tool ES module import, CSS, build)
@@ -1526,7 +1559,11 @@ const view_window = async function(options) {
 		// The full payload is JSON-stringified then LZString-compressed to stay
 		// within URL-length limits.  The new window decompresses it in init().
 		// Lazy (CONVENTIONS.md §2, rationale 3): see the decompress site in init().
-		const { LZString: lzstring } = await import('/dedalo/lib/lz-string/lz-string.js')
+		// The windowFeatures grammar rides the same wait (see load_window_features).
+		const [{ LZString: lzstring }, window_features] = await Promise.all([
+			import('/dedalo/lib/lz-string/lz-string.js'),
+			windowFeatures ? load_window_features() : null
+		])
 		const raw_data = lzstring.compressToEncodedURIComponent(
 			JSON.stringify({
 				caller_ddo		: caller_ddo,
@@ -1544,7 +1581,9 @@ const view_window = async function(options) {
 	// PARSED against a closed grammar (window_features.js), never evaluated: a
 	// number, or the legacy relative form 'return screen.width -760'. Anything
 	// else throws naming the key (WC-2026-11-19-window-features-grammar).
-		const parsed_windowFeatures = parse_window_features(windowFeatures)
+		const parsed_windowFeatures = window_features
+			? window_features.parse_window_features(windowFeatures)
+			: null
 
 	// tool_window
 	// Open the tool in a named window so repeated opens reuse the same tab/window
