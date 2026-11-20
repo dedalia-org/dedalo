@@ -100,8 +100,8 @@ The buttons, top to bottom:
 9. **Upload file to map**: two panels.
    - **Upload vector file**: `.zip` (shapefile), `.geojson` or `.kml`, up to 10 MB. A file that
      declares its projection is reprojected automatically. One that does not (a GeoJSON without
-     `crs`, a shapefile without `.prj`) needs its projection chosen from **Default projections**
-     or typed in (for example `EPSG:25830`). A multi-part geometry arrives as one object per part,
+     `crs`, a shapefile without `.prj`) needs its EPSG code typed as a number (for example
+     `25830`); **Default projections** only lists common ones. A multi-part geometry arrives as one object per part,
      so each part can be measured and styled on its own.
    - **Upload image**: `.tif` (georeferenced), `.jpg`, `.jpeg` or `.png`. A GeoTIFF lands at its
      own coordinates; an image without coordinates is placed over the current view, ready to fit
@@ -148,9 +148,9 @@ A scale bar sits in the bottom-right corner of the map, also on the record's sma
     The image record created by an upload stays in the image section when you remove the image from
     the map; delete it there if it is no longer needed.
 
-!!! tip "The PDF embeds JPEG images"
-    The object's PDF sheet includes its associated image when that image is a JPEG; otherwise the
-    sheet says why it was left out.
+!!! tip "The PDF and its image"
+    The object's PDF sheet includes its associated image; when it cannot, the sheet says why it
+    was left out.
 
 !!! note "DARE and accents"
     DARE does not find names written with accents (`Cádiz` finds nothing, `Gades` does). This is
@@ -215,8 +215,10 @@ Set in the Tools configuration section (`dd996`), over the defaults the tool shi
 
 Format conversions (shapefile and KML export and import, reprojection, GeoTIFF export, placing a
 GeoTIFF at its own coordinates) run the GDAL command-line programs (`ogr2ogr`, `ogrinfo`,
-`gdal_translate`, `gdalwarp`, `gdalinfo`, `gdalsrsinfo`) on the server. Without GDAL, an uploaded
-GeoTIFF is placed over the current view, and the panel says why.
+`gdal_translate`, `gdalwarp`, `gdalinfo`, `gdalsrsinfo`) on the server. Without GDAL, vector file
+upload, Shapefile and KML download, the map's GeoTIFF download and an image's download are
+unavailable, and each panel says why; an uploaded GeoTIFF is placed over the current view. The
+rest of the tool works.
 
 ## Related
 
