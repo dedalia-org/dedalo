@@ -37,6 +37,7 @@ import {
 	currentLegacyPasswordAccounts,
 	LEGACY_PASSWORD_RECOUNT_MS,
 	legacyPasswordAccounts,
+	recordLegacyPasswordAccounts,
 	refreshLegacyPasswordNotice,
 	resetBootStateForTest,
 } from '../../src/core/update/boot_state.ts';
@@ -131,6 +132,34 @@ describe('the count', () => {
 		expect(await countLegacyPasswordAccounts()).toBe(baseline);
 		await setStoredPassword('');
 		expect(await countLegacyPasswordAccounts()).toBe(baseline);
+	});
+});
+
+describe('ONE meaning of "legacy account" (the /health counter and the door\'s census)', () => {
+	test('the boot counter and legacyPasswordCensus().legacy move together, value shape by value shape', async () => {
+		const { legacyPasswordCensus } = await import(
+			'../../src/core/security/legacy_password_migration.ts'
+		);
+		await setStoredPassword(null);
+		const baseline = await countLegacyPasswordAccounts();
+		expect((await legacyPasswordCensus()).legacy).toBe(baseline);
+		// [stored value, is it one more legacy account]
+		const shapes: [string, boolean][] = [
+			[LEGACY_VALUE, true],
+			['not-a-v6-value-and-not-a-hash', true],
+			[' $argon2id$leading-space', true],
+			['$ARGON2ID$upper', true],
+			[await Bun.password.hash('Conforming-Passw0rd-2017!', 'argon2id'), false],
+			['$argon2i$other-variant', false],
+			['', false],
+		];
+		for (const [value, legacy] of shapes) {
+			await setStoredPassword(value);
+			const expected = baseline + (legacy ? 1 : 0);
+			expect([value, await countLegacyPasswordAccounts()]).toEqual([value, expected]);
+			expect([value, (await legacyPasswordCensus()).legacy]).toEqual([value, expected]);
+		}
+		await setStoredPassword(null);
 	});
 });
 
@@ -282,6 +311,47 @@ describe('/health follows the condition without a restart', () => {
 		expect(lines.some((line) => line.includes('could not be counted'))).toBe(true);
 		resetBootStateForTest();
 		expect(await currentLegacyPasswordAccounts(Number.MAX_SAFE_INTEGER)).toBeNull();
+	});
+
+	test('a count recorded by this process while a recount is in flight is NOT overwritten by the older count', async () => {
+		let release: (count: number) => void = () => {};
+		let calls = 0;
+		const counter = (): Promise<number> => {
+			calls += 1;
+			// the boot's count answers at once; the recount's waits on the test
+			if (calls === 1) return Promise.resolve(3);
+			return new Promise<number>((resolve) => {
+				release = resolve;
+			});
+		};
+		const lines = await captured(async () => {
+			await refreshLegacyPasswordNotice(counter, 1_000);
+			const past = 1_000 + LEGACY_PASSWORD_RECOUNT_MS;
+			// /health starts a recount: its query saw the table BEFORE the run…
+			const recount = currentLegacyPasswordAccounts(past);
+			expect(calls).toBe(2);
+			// …the panel's run commits and reports none left…
+			recordLegacyPasswordAccounts(0, past + 5);
+			// …and only then does the older count come back.
+			release(3);
+			expect(await recount).toBe(0);
+			expect(legacyPasswordAccounts()).toBe(0);
+			// the window restarted at the run: no second query right after it
+			expect(await currentLegacyPasswordAccounts(past + 10)).toBe(0);
+			expect(calls).toBe(2);
+		});
+		// said once (by the run) — the stale recount announces no change back to 3
+		expect(
+			lines.filter((line) => line.includes('LEGACY PASSWORDS') && line.includes('was')),
+		).toEqual([expect.stringContaining('[maintenance]')]);
+		// CONTROL: with no record in between, the recount's own count IS taken
+		resetBootStateForTest();
+		await captured(async () => {
+			let answer = 3;
+			await refreshLegacyPasswordNotice(async () => answer, 1_000);
+			answer = 5;
+			expect(await currentLegacyPasswordAccounts(1_000 + LEGACY_PASSWORD_RECOUNT_MS)).toBe(5);
+		});
 	});
 
 	test('the window is a minute or less (the doc says "within a minute") and not zero', () => {

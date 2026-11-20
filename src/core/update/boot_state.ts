@@ -78,6 +78,12 @@ interface BootStateFacts {
 	legacyPasswordCounter: (() => Promise<number>) | null;
 	/** The recount in flight (single-flight), or null. */
 	legacyPasswordRecount: Promise<number | null> | null;
+	/**
+	 * Raised by every count this process records itself (boot, panel, run). A
+	 * recount whose query started under an older generation saw an older table:
+	 * its count is dropped, never written over the newer one.
+	 */
+	legacyPasswordGeneration: number;
 }
 
 const bootState: BootStateFacts = {
@@ -88,6 +94,7 @@ const bootState: BootStateFacts = {
 	legacyPasswordsAt: 0,
 	legacyPasswordCounter: null,
 	legacyPasswordRecount: null,
+	legacyPasswordGeneration: 0,
 };
 
 /** Record the update run's facts (the boot's journal read, then every executor step). */
@@ -275,6 +282,7 @@ export async function refreshLegacyPasswordNotice(
 	const accounts = await countLegacyPasswords(count, '[boot]');
 	bootState.legacyPasswords = accounts;
 	bootState.legacyPasswordsAt = now;
+	bootState.legacyPasswordGeneration += 1;
 	if (accounts !== null && accounts > 0) {
 		console.warn(
 			`[boot] LEGACY PASSWORDS: ${accounts} account(s) still hold a Dédalo v6 password value (not Argon2id) and cannot log in — run \`${MIGRATE_PASSWORDS_COMMAND}\` against this database, or convert them in Maintenance → Legacy passwords (docs/install/migrating_from_v6.md, "Migrate the passwords"); nobody has to choose a new password`,
@@ -327,8 +335,12 @@ export async function currentLegacyPasswordAccounts(
 		return bootState.legacyPasswords;
 	}
 	bootState.legacyPasswordRecount ??= (async () => {
+		const generation = bootState.legacyPasswordGeneration;
 		try {
 			const accounts = await countLegacyPasswords(count, '[health]');
+			// A count recorded meanwhile (the panel's run) is NEWER than this
+			// query's view of the table: it stands, and so does its window.
+			if (bootState.legacyPasswordGeneration !== generation) return bootState.legacyPasswords;
 			const before = bootState.legacyPasswords;
 			bootState.legacyPasswords = accounts;
 			bootState.legacyPasswordsAt = now;
@@ -352,12 +364,14 @@ export async function currentLegacyPasswordAccounts(
  * panel's read, or its migration run (area_maintenance/widgets/legacy_passwords.ts):
  * /health answers it at once instead of up to {@link LEGACY_PASSWORD_RECOUNT_MS}
  * later (owner 2026-11-19: after a run the notice must follow). The window
- * restarts here; a change is logged once, as the recount does.
+ * restarts here; a change is logged once, as the recount does. A /health
+ * recount in flight took its count BEFORE this one: it is dropped when it lands.
  */
 export function recordLegacyPasswordAccounts(accounts: number, now: number = Date.now()): void {
 	const before = bootState.legacyPasswords;
 	bootState.legacyPasswords = accounts;
 	bootState.legacyPasswordsAt = now;
+	bootState.legacyPasswordGeneration += 1;
 	if (before !== null && accounts !== before) {
 		console.warn(
 			accounts === 0
@@ -376,4 +390,5 @@ export function resetBootStateForTest(): void {
 	bootState.legacyPasswordsAt = 0;
 	bootState.legacyPasswordCounter = null;
 	bootState.legacyPasswordRecount = null;
+	bootState.legacyPasswordGeneration = 0;
 }
