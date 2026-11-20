@@ -95,6 +95,7 @@ is no deferred queue and no shutdown flush.
 | `LOG OUT` | `src/core/api/handlers/dd_utils_api.ts` — the `quit` action, before the session is destroyed |
 | `NEW` | `src/core/api/handlers/dd_core_api.ts` — the `create` action |
 | `SAVE` | `src/core/api/handlers/dd_core_api.ts` — after a component save |
+| `SAVE` (on the maintenance area, `dd88`) | `src/core/security/legacy_password_migration.ts` — one entry per executed conversion of v6 passwords, from the **Legacy passwords** panel and from `bun run dedalo:migrate-passwords`: `action: 'legacy_passwords.migrate'`, `via` (`panel` / `cli`), the converted user `section_id`s and the counts. Never a credential value, a hash or the v6 key values. A run that converts more than 200 accounts is split over several entries (`part` / `parts`); a dry run writes none |
 | `DELETE` | `src/core/api/handlers/dd_core_api.ts` — after a record delete, per deleted record |
 | `LOAD EDIT` / `LOAD LIST` | `src/core/api/handlers/dd_core_api.ts` — `logReadActivity`, on a section or area read |
 | `UPLOAD COMPLETE` | `tools/tool_upload/server/index.ts` — after the uploaded file is processed and persisted |
@@ -106,6 +107,12 @@ Emitters live at the **door** — the API handler or tool action — not inside 
 engine that does the work. A door knows both the acting user and the client
 host; `createSectionRecord`, `deletePosterframe` and their peers know neither,
 and several of them are reached from more than one door.
+
+The password conversion is the one emitter that takes its actor as an argument:
+its door has two callers — a maintenance panel and a command line — and a caller
+cannot run it without naming who it is. The command line has no session, so its
+entry names `root` from host `cli` and adds the operating-system account
+(`os_user`).
 
 Diffusion keeps a **separate** trail: `src/core/diffusion_bridge/diffusion_delete.ts`
 logs unpublish outcomes to the diffusion activity log (`dd1758`). It is not part of

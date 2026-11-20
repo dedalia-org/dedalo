@@ -60,13 +60,9 @@ const UNREACHED_EXEMPTIONS: ReadonlyMap<string, string> = new Map([
 		'scripts/migrate_v6_config.ts',
 		'one-shot v6→v7 migration CLI: its only input is a v6 install tree (config.inc + config_db), which no repo-owned fixture provides; the migration RULES it applies are src/config/migration_map.ts, gated by config_migration.test.ts',
 	],
-	[
-		'scripts/migrate_v6_passwords.ts',
-		'v6→v7 password re-hash CLI: the command line (arguments, the v6 config reader, the printed report, process.exit) over the door src/core/security/legacy_password_migration.ts — the door is driven on planted v6 accounts by legacy_password_migration.test.ts (which also pins that this file holds no statement of its own, and the re-hash of legacy_password.ts against a blob produced by real PHP)',
-	],
 ]);
-/** Shrink-only: two today. */
-const UNREACHED_EXEMPTIONS_MAX = 2;
+/** Shrink-only: one today. */
+const UNREACHED_EXEMPTIONS_MAX = 1;
 
 // ---------------------------------------------------------------- the tree
 

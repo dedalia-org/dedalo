@@ -13,7 +13,9 @@
  *   - `migrate`    runs THE SAME DOOR as the command line
  *                  (core/security/legacy_password_migration.ts) with the v6 key
  *                  material the admin types, dry unless `execute: true`, in
- *                  batches, and answers a per-run report.
+ *                  batches, and answers a per-run report. A run that executes
+ *                  is recorded in the activity log by the door (the admin, the
+ *                  converted user ids, the counts — owner ruling 2026-11-20).
  *
  * NEVER ON THE WIRE, IN A LOG OR IN A REPORT: a stored password value (old or
  * new), a plaintext, or the key material that was typed (it is read from the
@@ -32,6 +34,7 @@
  */
 
 import { config } from '../../../config/config.ts';
+import type { Principal } from '../../security/permissions.ts';
 import { refuseAction, type WidgetModule, type WidgetResponse } from './support.ts';
 
 /** Accounts examined per `migrate` request unless the caller asks for fewer. */
@@ -89,10 +92,15 @@ async function legacyPasswordsGetValue(): Promise<WidgetResponse> {
  * (true writes; anything else is a dry run), `after` (the previous batch's
  * `next_after`), `limit` (≤ {@link LEGACY_PASSWORDS_BATCH}).
  */
-async function legacyPasswordsMigrate(options: Record<string, unknown>): Promise<WidgetResponse> {
+async function legacyPasswordsMigrate(
+	options: Record<string, unknown>,
+	principal: Principal,
+): Promise<WidgetResponse> {
 	const { DEFAULT_INFORMATION } = await import('../../security/legacy_password.ts');
 	const { migrateLegacyPasswords } = await import('../../security/legacy_password_migration.ts');
 	const { recordLegacyPasswordAccounts } = await import('../../update/boot_state.ts');
+	const { hostFromClientIp } = await import('../../api/handlers/activity_log.ts');
+	const { currentRequestContext } = await import('../../security/request_context.ts');
 	const material = {
 		information: keyOption(options, 'information') ?? DEFAULT_INFORMATION,
 		infoKey: keyOption(options, 'info_key') ?? config.entity,
@@ -102,7 +110,13 @@ async function legacyPasswordsMigrate(options: Record<string, unknown>): Promise
 		Math.max(integerOption(options, 'limit') ?? LEGACY_PASSWORDS_BATCH, 1),
 		LEGACY_PASSWORDS_BATCH,
 	);
-	const report = await migrateLegacyPasswords(material, {
+	// The door records an executed run in the activity log, under this actor.
+	const actor = {
+		userId: principal.userId,
+		host: hostFromClientIp(currentRequestContext()?.clientIp),
+		via: 'panel' as const,
+	};
+	const report = await migrateLegacyPasswords(material, actor, {
 		execute: options.execute === true,
 		limit,
 		...(after === undefined ? {} : { afterSectionId: after }),

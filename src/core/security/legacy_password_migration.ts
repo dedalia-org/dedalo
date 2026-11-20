@@ -26,8 +26,19 @@
  * password in the only form the engine accepts — an operator conversion of the
  * storage format, not an edit of the account — so it stamps no modification and
  * appends no Time Machine row (write_obligations_tripwire carries the reason).
+ *
+ * BUT EVERY RUN THAT EXECUTES IS IN THE ACTIVITY LOG (owner ruling 2026-11-20):
+ * who ran it (the panel's principal; the command line's own identity), which
+ * accounts it converted (user section_ids), the counts. The door writes the
+ * entry itself — a caller cannot run it unrecorded, and must name its actor to
+ * call it at all — through the engine's one activity writer (logActivity →
+ * matrix_activity, section dd542), as a SAVE on the maintenance area, like the
+ * other audited maintenance door (publication_host_setup). The entry is counts
+ * and ids: never a credential value, a hash, a plaintext or the key material.
+ * A dry run converts nothing and writes no entry.
  */
 
+import { AREA_MAINTENANCE_TIPO } from '../concepts/area.ts';
 import { readMatrixKeyForUpdate, updateMatrixKeysData } from '../db/matrix_write.ts';
 import { sql, withTransaction } from '../db/postgres.ts';
 import { type LegacyKeyMaterial, rehashLegacyPassword } from './legacy_password.ts';
@@ -89,6 +100,99 @@ export interface LegacyPasswordMigrationOptions {
 	 * written — where a concurrent password change lands. Production passes none.
 	 */
 	beforeWrite?: (sectionId: number) => Promise<void>;
+}
+
+/**
+ * Who runs a conversion — what its activity entry names. The panel passes its
+ * principal and the request's host; the command line has no session, so it runs
+ * as root (as every CLI migration does) from host `cli`, and adds the operating
+ * system account that typed the command.
+ */
+export interface ConversionActor {
+	userId: number;
+	/** The activity row's host (dd544). */
+	host: string;
+	via: 'panel' | 'cli';
+	/** Command line only: the OS account that ran it. */
+	osUser?: string;
+}
+
+/** The `action` every conversion entry carries — how a reader finds them. */
+export const LEGACY_CONVERSION_ACTION = 'legacy_passwords.migrate';
+/**
+ * Converted ids per activity entry. An activity row has a ceiling
+ * (activity_log.ts ACTIVITY_DATA_MAX_BYTES; a list is cut at 256 items), and the
+ * command line converts a whole table in one run: a long run is several
+ * entries, each complete, instead of one that the ceiling shortens.
+ */
+export const LEGACY_CONVERSION_IDS_PER_ENTRY = 200;
+
+/** What one executed run did, as its activity entries say it. */
+export interface ConversionRunFacts {
+	/** false = the run threw before its end; the ids are what it had written. */
+	completed: boolean;
+	examined: number;
+	converted: number;
+	skipped: number;
+	/** The key material did not decrypt them. */
+	unconverted: number;
+	/** Legacy accounts left in the table; null when the run did not complete. */
+	remaining: number | null;
+	convertedSectionIds: readonly number[];
+}
+
+export interface ConversionActivityEntry {
+	what: 'SAVE';
+	tipo: string;
+	userId: number;
+	host: string;
+	data: Record<string, unknown>;
+}
+
+/**
+ * The activity entries of one executed run: one, or several when it converted
+ * more accounts than an entry may list. Every entry carries the run's counts;
+ * only the id list is split. PURE — and the only place the payload is built, so
+ * what an entry can hold is decided here: counts, ids, the actor. No account
+ * name, no credential.
+ */
+export function conversionActivityEntries(
+	actor: ConversionActor,
+	facts: ConversionRunFacts,
+): ConversionActivityEntry[] {
+	const ids = facts.convertedSectionIds;
+	const parts = Math.max(1, Math.ceil(ids.length / LEGACY_CONVERSION_IDS_PER_ENTRY));
+	return Array.from({ length: parts }, (_, index) => ({
+		what: 'SAVE' as const,
+		tipo: AREA_MAINTENANCE_TIPO,
+		userId: actor.userId,
+		host: actor.host,
+		data: {
+			msg: 'Dédalo v6 passwords converted to Argon2id',
+			action: LEGACY_CONVERSION_ACTION,
+			via: actor.via,
+			...(actor.osUser === undefined ? {} : { os_user: actor.osUser }),
+			execute: true,
+			completed: facts.completed,
+			examined: facts.examined,
+			converted: facts.converted,
+			skipped: facts.skipped,
+			unconverted: facts.unconverted,
+			remaining: facts.remaining,
+			converted_section_ids: ids.slice(
+				index * LEGACY_CONVERSION_IDS_PER_ENTRY,
+				(index + 1) * LEGACY_CONVERSION_IDS_PER_ENTRY,
+			),
+			part: index + 1,
+			parts,
+		},
+	}));
+}
+
+/** Append a run's entries. logActivity never throws: an audit write does not undo a conversion. */
+async function recordConversion(actor: ConversionActor, facts: ConversionRunFacts): Promise<void> {
+	const { logActivity } = await import('../api/handlers/activity_log.ts');
+	for (const entry of conversionActivityEntries(actor, facts)) await logActivity(entry);
 }
 
 interface PasswordRow {
@@ -168,8 +272,11 @@ function selectBatch(
 interface BatchOutcome {
 	recoverable: LegacyAccountRef[];
 	failed: LegacyAccountRef[];
-	converted: number;
+	/** The accounts WRITTEN, by section_id. */
+	converted: number[];
 	skipped: number;
+	/** Accounts looked at so far (the whole batch, unless the run threw). */
+	examined: number;
 }
 
 /** One account: hashed (the plaintext lives only inside rehashLegacyPassword), then — on execute — written. */
@@ -179,6 +286,7 @@ async function convertAccount(
 	options: LegacyPasswordMigrationOptions,
 	outcome: BatchOutcome,
 ): Promise<void> {
+	outcome.examined++;
 	const hash = await rehashLegacyPassword(row.password, material);
 	if (hash === null) {
 		outcome.failed.push(accountRef(row));
@@ -187,7 +295,7 @@ async function convertAccount(
 	outcome.recoverable.push(accountRef(row));
 	if (options.execute !== true) return;
 	await options.beforeWrite?.(row.section_id);
-	if (await writeHash(row.section_id, row.password, hash)) outcome.converted++;
+	if (await writeHash(row.section_id, row.password, hash)) outcome.converted.push(row.section_id);
 	else outcome.skipped++;
 }
 
@@ -198,6 +306,7 @@ async function convertAccount(
  */
 export async function migrateLegacyPasswords(
 	material: LegacyKeyMaterial,
+	actor: ConversionActor,
 	options: LegacyPasswordMigrationOptions = {},
 ): Promise<LegacyPasswordMigrationReport> {
 	const execute = options.execute === true;
@@ -205,21 +314,49 @@ export async function migrateLegacyPasswords(
 	const census = censusOf(rows);
 	const { pending, batch } = selectBatch(rows, options);
 
-	const outcome: BatchOutcome = { recoverable: [], failed: [], converted: 0, skipped: 0 };
-	for (const row of batch) {
-		await convertAccount(row, material, options, outcome);
+	const outcome: BatchOutcome = {
+		recoverable: [],
+		failed: [],
+		converted: [],
+		skipped: 0,
+		examined: 0,
+	};
+	/** The run's activity entry (execute only) — also when the run is about to throw. */
+	const record = (completed: boolean, remaining: number | null) =>
+		execute
+			? recordConversion(actor, {
+					completed,
+					examined: outcome.examined,
+					converted: outcome.converted.length,
+					skipped: outcome.skipped,
+					unconverted: outcome.failed.length,
+					remaining,
+					convertedSectionIds: outcome.converted,
+				})
+			: Promise.resolve();
+	let remaining: number;
+	try {
+		for (const row of batch) {
+			await convertAccount(row, material, options, outcome);
+		}
+		// Counted again, not derived: it is what /health and the next reader see.
+		remaining = execute ? (await legacyPasswordCensus()).legacy : census.legacy;
+	} catch (error) {
+		// What was written before the failure stays written — and stays on record.
+		await record(false, null);
+		throw error;
 	}
+	await record(true, remaining);
 
 	return {
 		...census,
 		execute,
 		examined: batch.length,
 		recoverable: outcome.recoverable.length,
-		converted: outcome.converted,
+		converted: outcome.converted.length,
 		failed: outcome.failed.length,
 		skipped: outcome.skipped,
-		// Counted again, not derived: it is what /health and the next reader see.
-		remaining: execute ? (await legacyPasswordCensus()).legacy : census.legacy,
+		remaining,
 		// More legacy accounts lie past this batch: the next one starts after its last.
 		next_after: batch.length < pending.length ? (batch.at(-1)?.section_id ?? null) : null,
 		recoverable_accounts: outcome.recoverable,

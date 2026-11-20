@@ -27,9 +27,12 @@
  * THE DOOR is src/core/security/legacy_password_migration.ts — this file is its
  * command line (arguments, the v6 config reader, the printed report). The
  * maintenance area's "Legacy passwords" panel runs the same door from the server.
+ * An --execute run is recorded in the activity log by the door (who, which user
+ * ids, the counts — never a credential).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { extractDefines } from '../src/config/php_defines.ts';
 import {
@@ -79,6 +82,22 @@ function keyMaterialFromConfig(
 	return { information, infoKey };
 }
 
+/**
+ * WHO the activity log names for a run from here (the door writes the entry on
+ * --execute): the command line has no session, so it is root — as every CLI
+ * migration is — from host `cli`, plus the operating-system account that typed
+ * the command (absent where the OS will not name it).
+ */
+function cliActor(): { userId: number; host: string; via: 'cli'; osUser?: string } {
+	let osUser: string | undefined;
+	try {
+		osUser = userInfo().username || undefined;
+	} catch {
+		// no passwd entry for this uid (a container): the entry goes without it
+	}
+	return { userId: -1, host: 'cli', via: 'cli', ...(osUser === undefined ? {} : { osUser }) };
+}
+
 async function main(): Promise<void> {
 	const execute = Bun.argv.includes('--execute');
 	const configDir = arg('config-dir');
@@ -116,7 +135,7 @@ async function main(): Promise<void> {
 
 	// ONE pass (each account is hashed once): on --execute the recoverable
 	// accounts are written as they are found; nothing recoverable writes nothing.
-	const plan = await migrateLegacyPasswords(material as LegacyKeyMaterial, { execute });
+	const plan = await migrateLegacyPasswords(material as LegacyKeyMaterial, cliActor(), { execute });
 
 	console.log(`\n\x1b[1m▶ v6 → v7 password migration — ${execute ? 'EXECUTE' : 'DRY-RUN'}\x1b[0m`);
 	console.log(`  users with a password : ${plan.accounts}`);
