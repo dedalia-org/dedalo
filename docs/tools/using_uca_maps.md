@@ -7,6 +7,10 @@ your own basemaps and WMS layers, upload vector files and georeferenced images, 
 parcels and administrative units, search places (modern and ancient), keep a legend, and download
 the map as an image.
 
+It is the Dédalo 7 version of the Dédalo 6 tool `tool_leaflet_special_tools`, written by Manuel
+Jesús Dávila González (Universidad de Cádiz). This version keeps its features and rewrites it for
+the current engine.
+
 ## What it's for
 
 The map component (`component_geolocation`) stores a point and the objects drawn on it. Working
@@ -101,8 +105,10 @@ The buttons, top to bottom:
    - **Upload vector file**: `.zip` (shapefile), `.geojson` or `.kml`, up to 10 MB. A file that
      declares its projection is reprojected automatically. One that does not (a GeoJSON without
      `crs`, a shapefile without `.prj`) needs its EPSG code typed as a number (for example
-     `25830`); **Default projections** only lists common ones. A multi-part geometry arrives as one object per part,
-     so each part can be measured and styled on its own.
+     `25830`); **Default projections** only lists common ones. A UTM code also needs its **zone**
+     and **band** (for `25830`, zone `30` and band `N`); any other code leaves both empty. A
+     multi-part geometry arrives as one object per part, so each part can be measured and styled
+     on its own.
    - **Upload image**: `.tif` (georeferenced), `.jpg`, `.jpeg` or `.png`. A GeoTIFF lands at its
      own coordinates; an image without coordinates is placed over the current view, ready to fit
      with **Enable editing**. The image is stored as an image record linked to the map.

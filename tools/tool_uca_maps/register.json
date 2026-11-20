@@ -10,7 +10,7 @@
 		"lg-eng": "Cartography and geographic-data tools for the map component: basemaps, WMS layers, format conversion and external map services.",
 		"lg-spa": "Herramientas de cartografía y datos geográficos para el componente de mapa: mapas base, capas WMS, conversión de formatos y servicios externos."
 	},
-	"developer": "Universidad de Cádiz / Museu de Prehistòria de València",
+	"developer": "Universidad de Cádiz (Manuel Jesús Dávila González) / Museu de Prehistòria de València",
 	"dedalo_version_min": "7.0.0",
 	"affected_models": ["component_geolocation"],
 	"show_in_inspector": false,

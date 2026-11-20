@@ -62,7 +62,7 @@
 			"model": "tool_uca_maps",
 			"name": "tool_uca_maps",
 			"label": "UCA Maps",
-			"developer": "Universidad de Cádiz / Museu de Prehistòria de València",
+			"developer": "Universidad de Cádiz (Manuel Jesús Dávila González) / Museu de Prehistòria de València",
 			"section_tipo": "dd1324",
 			"mode": "edit",
 			"properties": {
