@@ -1735,6 +1735,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The Update data panel speaks the administrator's language throughout**
+
+    Three sentences of the Maintenance area's **Update data** panel were printed in English whatever the interface language: "Data format is updated", the "To update data version" line that announces a pending update, and the **Quit** button. They now come from the label catalogs like the rest of the panel, in the seventeen interface languages.
+
 - **A damaged server state file now keeps maintenance mode on instead of silently switching it off**
 
     Maintenance mode is kept in `ts_state.json`, in the private directory. The file was written in place, so a crash or a power cut at the wrong moment — typically while an update or a restore was switching maintenance mode on — could leave it empty or cut short. The server then read it as "no settings" and started with maintenance mode off: every user could work in the middle of the maintenance window, and nothing was logged.

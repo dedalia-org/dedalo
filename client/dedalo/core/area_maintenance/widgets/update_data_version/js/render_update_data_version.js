@@ -255,7 +255,10 @@ const get_content_data = async function(self) {
 				ui.create_dom_element({
 					element_type	: 'div',
 					class_name		: 'info_text success_text',
-					text_content	: 'Data format is updated: ' + current_version_in_db.join('.'),
+					// worded by the label catalog (the version fills its placeholder)
+					text_content	: format_label(get_label.update_data_format_updated, {
+						version : current_version_in_db.join('.')
+					}),
 					parent			: content_data
 				})
 			}
@@ -263,7 +266,7 @@ const get_content_data = async function(self) {
 			const button_quit = ui.create_dom_element({
 				element_type	: 'button',
 				class_name		: 'quit_button light',
-				inner_html		: 'Quit',
+				text_content	: get_label.quit,
 				parent			: content_data
 			})
 			const click_handler = (e) => {
@@ -278,7 +281,11 @@ const get_content_data = async function(self) {
 		}
 
 	// info
-		const text = 'To update data version: ' + current_version_in_db.join('.') + ' ---> ' + update_version.join('.')
+		// worded by the label catalog: installed version → the version the update reaches
+		const text = format_label(get_label.update_data_pending, {
+			from	: current_version_in_db.join('.'),
+			to		: update_version.join('.')
+		})
 		const info = ui.create_dom_element({
 			element_type	: 'div',
 			class_name		: 'info_text error_text',

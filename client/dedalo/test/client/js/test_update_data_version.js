@@ -166,10 +166,73 @@ describe('UPDATE_DATA_VERSION WIDGET', function () {
 
 		const success = content_data.querySelector('.info_text.success_text');
 		assert.ok(success, 'the success text renders');
-		assert.strictEqual(success.textContent, 'Data format is updated: 7.0.0');
+		// the served catalog sentence (whatever the reader's language), its version filled
+		assert.strictEqual(
+			success.textContent,
+			get_label.update_data_format_updated.replace('${version}', '7.0.0'),
+		);
+		assert.include(success.textContent, '7.0.0');
+		assert.notInclude(success.textContent, '${');
 		assert.strictEqual(content_data.querySelector('.error_text'), null, 'no error text');
 		assert.isFalse(card.classList.contains('danger'), 'the widget card is not danger');
 
+		card.remove();
+	});
+
+	// The panel's own sentences come from the label catalog (owner ruling
+	// 2026-11-20, follow-up 6): a swapped catalog entry is what prints.
+	it('the three panel strings are served labels, with their placeholders', () => {
+		assert.isString(get_label.update_data_format_updated, 'update_data_format_updated is served');
+		assert.include(get_label.update_data_format_updated, '${version}');
+		assert.isString(get_label.update_data_pending, 'update_data_pending is served');
+		assert.include(get_label.update_data_pending, '${from}');
+		assert.include(get_label.update_data_pending, '${to}');
+		assert.isString(get_label.quit, 'quit is served');
+	});
+
+	it('up to date: the sentence and the Quit button print the catalog entries', async () => {
+		const value = no_rung_value({});
+		value.current_version_in_db = [7, 0, 0];
+		await with_label('update_data_format_updated', 'Formato de datos al día (${version})', async () => {
+			await with_label('quit', 'Salir de aquí', async () => {
+				const { card, content_data } = await render_in_card(value);
+				assert.strictEqual(
+					content_data.querySelector('.info_text.success_text').textContent,
+					'Formato de datos al día (7.0.0)',
+				);
+				assert.strictEqual(
+					content_data.querySelector('button.quit_button').textContent,
+					'Salir de aquí',
+				);
+				assert.notInclude(content_data.textContent, 'Data format is updated');
+				assert.notInclude(content_data.textContent, 'Quit');
+				card.remove();
+			});
+		});
+	});
+
+	it('an update is pending: the from → to sentence prints the catalog entry, both versions filled', async () => {
+		const value = {
+			update_version: [7, 0, 1],
+			current_version_in_db: [7, 0, 0],
+			dedalo_version: [7, 0, 1],
+			updates: {},
+		};
+		await with_label('update_data_pending', 'Pendiente: de ${from} a ${to}', async () => {
+			const { card, content_data } = await render_in_card(value);
+			const info = content_data.querySelector('.info_text.error_text');
+			assert.ok(info, 'the pending sentence renders as an error text');
+			assert.strictEqual(info.textContent, 'Pendiente: de 7.0.0 a 7.0.1');
+			assert.notInclude(content_data.textContent, 'To update data version');
+			assert.isTrue(card.classList.contains('danger'), 'a pending update marks the card danger');
+			card.remove();
+		});
+		// CONTROL: the served entry (no swap) — the same two versions, in the catalog's sentence.
+		const { card, content_data } = await render_in_card(value);
+		const info = content_data.querySelector('.info_text.error_text');
+		assert.include(info.textContent, '7.0.0');
+		assert.include(info.textContent, '7.0.1');
+		assert.notInclude(info.textContent, '${');
 		card.remove();
 	});
 
