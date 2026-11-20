@@ -1,11 +1,9 @@
 /**
- * staged_upload — a file the client staged through core's upload door, read by
- * the action it was staged for. Never a client path: two sanitized names under
- * the caller's own staging dir, rebuilt from the authenticated user id (the
- * pattern of `tool_import_dedalo_csv`'s `processUploadedFile`). A payload too
- * big for a request's `options` (core caps them at 512 KiB, `scalar_bounds.ts`)
- * travels this way: the map capture, an object's GeoJSON; so does the user's
- * vector file.
+ * staged_upload — a file the client staged through core's upload door, read by the action
+ * it was staged for. Never a client path: two sanitized names under the caller's own
+ * staging dir, rebuilt from the authenticated user id (as `tool_import_dedalo_csv`'s
+ * `processUploadedFile`). Payloads over the 512 KiB `options` cap (`scalar_bounds.ts`) come
+ * this way: the map capture, an object's GeoJSON, the user's vector file.
  */
 
 import { existsSync, statSync } from 'node:fs';

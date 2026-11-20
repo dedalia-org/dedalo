@@ -284,13 +284,10 @@ tool_uca_maps.prototype.build = async function (autoload = false) {
 /**
  * WAIT_FOR_MAP
  * Polls for `self.geolocation.map`: component_geolocation builds Leaflet lazily
- * (`lazy_in_viewport`, un-awaited) and publishes no "map ready" event. Gives up
- * if this instance is destroyed meanwhile, so a slow map never revives a
- * torn-down tool. destroy() nulls self.geolocation before its status turns
- * 'destroyed', so every read after a pause checks both.
+ * (`lazy_in_viewport`, un-awaited) and fires no "map ready" event. Gives up if the tool is
+ * destroyed meanwhile; destroy() nulls self.geolocation first, so each read checks both.
  *
- * @returns {Promise<boolean>} true once self.geolocation.map exists; false on
- *   timeout or if self.geolocation is null (no map component found at all)
+ * @returns {Promise<boolean>} true once the map exists; false on timeout or no map component
  */
 tool_uca_maps.prototype.wait_for_map = async function () {
 	const self = this;
@@ -724,11 +721,10 @@ tool_uca_maps.prototype.on_close_actions = function () {
 
 /**
  * CLOSE_TRANSIENT_MODAL
- * Closes the modal as soon as the tool is on the map: core's own spinner already
- * covered the load, so no fixed wait (v6's loading.gif + 3 s) is kept. Deferred to
- * an idle callback because view_modal sets `self.node.modal` only after render()
- * resolves. `transient = true` skips <dd-modal>'s unsaved-data guard: this modal
- * owns no editable data, so the prompt would be a bug.
+ * Closes the modal once the tool is on the map: core's spinner already covered the load,
+ * so v6's fixed wait (loading.gif + 3 s) is gone. Deferred to an idle callback: view_modal
+ * sets `self.node.modal` only after render() resolves. `transient = true` skips
+ * <dd-modal>'s unsaved-data guard: this modal owns no editable data.
  *
  * @returns {void}
  */

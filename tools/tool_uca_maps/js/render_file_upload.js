@@ -340,10 +340,9 @@ const bind_vector_upload = function (self, file_input, submit_button, message, p
 
 /**
  * BIND_UPLOAD_ON_PICK
- * The image half: one upload per pick. The picker is disabled for the round
- * trip: its own disabled state is the busy flag, never a cached one.
- * It is emptied after every attempt, failed ones too, so that choosing the
- * SAME file again still fires `change`.
+ * The image half: one upload per pick. The picker is disabled for the round trip (its own
+ * disabled state is the busy flag, never a cached one) and emptied after every attempt,
+ * failed ones too, so choosing the SAME file again still fires `change`.
  *
  * @param {HTMLInputElement} file_input
  * @param {HTMLElement} message - this sub-flow's own status line

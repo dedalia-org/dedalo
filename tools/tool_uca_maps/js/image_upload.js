@@ -532,11 +532,10 @@ export const create_image_object = function (self, image) {
 
 /**
  * ATTACH_OVERLAY
- * Creates one carrier's image overlay, tracked by the layer (for the console and
- * `pm:remove`) and by the tool (for the teardown sweep). SYNCHRONOUS on purpose:
- * `hydrate_image_overlays` runs un-serialized on every `updated_layer_data_`, and
- * with no await between the check and the assignment a second rebuild finds the
- * carrier taken.
+ * Creates one carrier's image overlay, tracked by the layer (console, `pm:remove`) and by
+ * the tool (teardown sweep). SYNCHRONOUS on purpose: `hydrate_image_overlays` runs
+ * un-serialized on every `updated_layer_data_`; with no await between check and assignment,
+ * a second rebuild finds the carrier taken.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} carrier - the transparent rectangle carrying the descriptor
@@ -718,10 +717,9 @@ export const IMAGE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * DOWNLOAD_IMAGE
- * "Descargar Imagen": the picture in its CURRENT shape (live corners, saved or
- * not), rendered by the server from the file the map shows (`image_download.ts`).
- * Opacity is not sent: it is how the map shows the image, not the image. An empty
- * name is refused as v6 refuses it.
+ * "Descargar Imagen": the picture in its CURRENT shape (live corners, saved or not),
+ * rendered by the server from the file the map shows (`image_download.ts`). Opacity is
+ * not sent (it is how the map shows the image); an empty name is refused, as v6 does.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} carrier

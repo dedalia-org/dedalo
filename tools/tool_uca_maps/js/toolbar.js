@@ -109,10 +109,9 @@ const get_toolbar_bar = function (self) {
 
 /**
  * CREATE_TOOLBAR_BUTTON
- * Appends one toggle button to the shared bar, so attach order is top-to-bottom
- * order. Leaflet's own bar link (`a[role=button]`), so square, hover and focus match
- * the zoom and Geoman bars. The icon is a glyph only; the title is the
- * accessible name.
+ * Appends one toggle button to the shared bar, so attach order is top-to-bottom order.
+ * Leaflet's own bar link (`a[role=button]`), so square, hover and focus match the zoom and
+ * Geoman bars. The icon is a glyph only; the title is the accessible name.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} options
@@ -145,24 +144,17 @@ export const create_toolbar_button = function (self, { title, icon, class_name, 
 
 /**
  * CREATE_TOOLBAR_PANEL
- * A floating panel appended to the map's own container, not another L.Control,
- * so arbitrary content does not fight Leaflet's corner layout. Hidden by default.
- * Unlike an L.Control it needs click/scroll propagation disabled explicitly, or a
- * slider inside drags the map.
+ * A floating panel on the map's own container, not an L.Control, so arbitrary content does
+ * not fight Leaflet's corner layout. Hidden by default; click/scroll propagation disabled
+ * by hand, or a slider inside drags the map.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} options
  * @param {string} options.class_name - identity class, e.g. 'uca-maps-console'
- * @param {Function} [options.on_hide] - called on every close that is not the
- *   panel's own toggle (a sibling opening, a centered panel's ×): a functionality
- *   armed while its panel is open (administrative_units.js) disarms here
- * @param {boolean} [options.centered] - open centred across the map near its
- *   top, where v6's modals sat: a list row needs more width than a column
- *   beside the buttons leaves. The header (title + ×) is built here
+ * @param {Function} [options.on_hide] - every close but its own toggle (armed features disarm)
+ * @param {boolean} [options.centered] - centred near the top as v6's modals, title + × header
  * @param {string} [options.title] - the header title of a centered panel
- * @param {Function} [options.on_reflow] - called after the open panel is placed
- *   again because the map changed size: what hangs outside it follows
- *   (roman_empire.js's suggestion list)
+ * @param {Function} [options.on_reflow] - after a resize re-places it (what hangs out follows)
  * @returns {HTMLElement} panel, already appended to the map container
  */
 export const create_toolbar_panel = function (
@@ -254,11 +246,10 @@ const anchor_panel_to_button = function (panel, control) {
 
 /**
  * MEASURE_BAR_EDGE
- * Where the toolbar ends, and where the core's view box (`.map_inputs`, a
- * sibling the map cannot stack above) ends, measured live like
- * anchor_panel_to_button. Only the phone rule reads them: there every panel
- * fills the map beside the bar and below that box, so the bar stays reachable
- * to switch panels and the panel's header is never under the box.
+ * Where the toolbar ends, and where the core's view box (`.map_inputs`, a sibling the map
+ * cannot stack above) ends, measured live like anchor_panel_to_button. Only the phone rule
+ * reads them: there a panel fills the map beside the bar and below that box, so the bar
+ * stays reachable and the panel's header is never under the box.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {HTMLElement} panel

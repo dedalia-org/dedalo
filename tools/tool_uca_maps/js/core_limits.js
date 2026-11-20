@@ -3,11 +3,10 @@
 
 /**
  * CORE_LIMITS
- * The core's rules for a map source and a legend (`src/core/geo/map_source.ts`,
- * `map_source_url.ts`, `map_legend.ts`) that the panels check before saving, since a refused
- * value blocks the whole geolocation save, and the core's words the tool repeats (a
- * provider's credit). The core's modules are not served to the browser, so they are
- * mirrored here and test/unit/tool_uca_maps_core_limits.test.ts fails when one drifts.
+ * The core's map-source and legend rules (`src/core/geo/map_source.ts`, `map_source_url.ts`,
+ * `map_legend.ts`) the panels check before saving, since one refused value blocks the whole
+ * geolocation save, and core wording the tool repeats. Core modules are not served to the
+ * browser: mirrored here, and test/unit/tool_uca_maps_core_limits.test.ts catches a drift.
  *
  * @module core_limits
  */

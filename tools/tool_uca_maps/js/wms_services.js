@@ -151,11 +151,10 @@ const layer_crs = function (layer_node) {
 
 /**
  * PARSE_WMS_CAPABILITIES_XML
- * Every `<Layer queryable>` with its OWN `<Name>` (v6's criterion): a layout group
- * without one is not addable. Each layer carries the CRS it will be saved with: the
- * first of WMS_CRS it offers, the map's own projection when it lists none (what Leaflet
- * asked before), and null when it lists only others (it cannot be drawn). Pure (no
- * network, no `self`), so a hand-written XML fixture tests it.
+ * Every `<Layer queryable>` with its OWN `<Name>` (v6's criterion); a group without one is
+ * not addable. Each carries the CRS it will be saved with: the first of WMS_CRS it offers,
+ * the map's own when it lists none (what Leaflet asked before), null when it lists only
+ * others (undrawable). Pure (no network, no `self`), so a hand-written XML fixture tests it.
  *
  * @param {string} xml_text
  * @returns {{ok: boolean, error?: string, version?: string, layers?: Array<{name: string, title: string, crs: string|null}>}}

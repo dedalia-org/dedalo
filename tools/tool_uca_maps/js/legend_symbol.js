@@ -4,11 +4,10 @@
 
 /**
  * LEGEND_SYMBOL
- * A legend symbol DRAWN from a shape and two colours: "this colour = this period" is
- * most of what a heritage legend says. Not in v6, which only uploads images. A leaf:
- * `legend.js` and `render_legend.js` both draw with it, and the first imports the second.
- * What is SAVED is always a PNG (`legend_symbol_data_url`, `pin_data_url`); the SVG
- * nodes only draw the editor's buttons.
+ * A legend symbol DRAWN from a shape and two colours ("this colour = this period" is most
+ * of a heritage legend); v6 only uploads images. A leaf: `legend.js` and `render_legend.js`
+ * both draw with it, and the first imports the second. What is SAVED is always a PNG
+ * (`legend_symbol_data_url`, `pin_data_url`); the SVG nodes only draw the editor's buttons.
  *
  * @module legend_symbol
  */

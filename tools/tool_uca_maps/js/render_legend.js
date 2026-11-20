@@ -4,12 +4,10 @@
 
 /**
  * RENDER_LEGEND
- * Two halves: the edit PANEL (tool chrome, left out of the map image), whose
- * group list is rebuilt only on STRUCTURAL change (typing or a colour repaints
- * just the overlay: a rebuild would drop focus or close the colour picker), and
- * the OVERLAY, map CONTENT. The code says group/symbol, as the record does; the
- * class names keep the old "column"/"element" on purpose: they are the
- * stylesheet's and the client tests' contract.
+ * Two halves: the edit PANEL (tool chrome, out of the map image), whose group list is
+ * rebuilt only on STRUCTURAL change (a rebuild while typing or picking a colour would drop
+ * focus or close the picker), and the OVERLAY, map CONTENT. Class names keep the old
+ * "column"/"element" (code says group/symbol): they are the CSS's and client tests' contract.
  *
  * @module render_legend
  */

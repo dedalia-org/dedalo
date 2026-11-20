@@ -4,10 +4,9 @@
 /**
  * MAP_SOURCES
  * The XYZ and WMS layers a user adds live in the record, as the geolocation entry's
- * `sources`, and the component draws them through the tile proxy (`build_source_layers`).
- * The tool only edits that list, through the component's own save path: adding or deleting
- * a layer IS the commit ("Add and save"), because the proxy can only serve a source the
- * server has numbered.
+ * `sources`, drawn by the component through the tile proxy (`build_source_layers`). The tool
+ * only edits that list, through the component's own save path: adding or deleting a layer
+ * IS the commit ("Add and save"), because the proxy only serves a source the server numbered.
  *
  * @module map_sources
  */

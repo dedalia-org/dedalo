@@ -3,11 +3,10 @@
 
 /**
  * RENDER_WMS_SERVICES
- * DOM for the "WMS" panel (its header is toolbar.js's). The search form is
- * built once at attach, so a typed URL survives a reopen; both lists are
- * rebuilt from `self._wms_search_results` and the record's saved WMS sources on
- * every search or mutation. Mutations reach `self.<method>(...)`, never
- * `wms_services.js`.
+ * DOM for the "WMS" panel (its header is toolbar.js's). The search form is built once at
+ * attach, so a typed URL survives a reopen; both lists are rebuilt from
+ * `self._wms_search_results` and the record's saved WMS sources on every search or
+ * mutation. Mutations reach `self.<method>(...)`, never `wms_services.js`.
  *
  * @module render_wms_services
  */

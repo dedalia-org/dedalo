@@ -1,10 +1,9 @@
 /**
- * raster_download — the map image in the formats a browser cannot write (PNG
- * is client-side): jpg/gif/webp via ImageMagick, GeoTIFF via GDAL. `bounds`
- * arrive already in EPSG:3857 metres, the grid Leaflet's pixels are uniform
- * in, so `-a_srs EPSG:3857 -a_ullr` georeferences with no `gdalwarp` resample.
- * The PNG capture arrives staged by core's upload door: a real map is MB, and
- * the request's `options` are capped far below that (`scalar_bounds.ts`).
+ * raster_download — the map image in the formats a browser cannot write (PNG is
+ * client-side): jpg/gif/webp via ImageMagick, GeoTIFF via GDAL. `bounds` arrive in
+ * EPSG:3857 metres, the grid Leaflet's pixels are uniform in, so `-a_srs EPSG:3857 -a_ullr`
+ * georeferences with no `gdalwarp` resample. The PNG capture arrives staged by core's upload
+ * door: a real map is MB, far above the request `options` cap (`scalar_bounds.ts`).
  */
 
 import { join } from 'node:path';

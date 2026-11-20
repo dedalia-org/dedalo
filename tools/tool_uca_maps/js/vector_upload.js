@@ -82,9 +82,8 @@ const toggle_upload_panel = function (self) {
 
 /**
  * UPLOAD_VECTOR_FILE
- * The engine's generic upload stages the raw file, then `upload_vector_layer`
- * converts it to WGS84 GeoJSON. Takes plain arguments, not a DOM event, so the client
- * gate can await it.
+ * The engine's generic upload stages the raw file, then `upload_vector_layer` converts it
+ * to WGS84 GeoJSON. Plain arguments, not a DOM event, so the client gate can await it.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {File} file - the browser File object chosen by the user

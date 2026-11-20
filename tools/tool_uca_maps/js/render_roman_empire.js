@@ -339,11 +339,10 @@ const clear_roman_message = function (block) {
 
 /**
  * RENDER_QUERY_INPUT
- * A source's field. No in-flow list: hits arrive as a typeahead under the field
- * (↑/↓ walk it, Enter or a click draws the place, Esc closes it), with the keyboard
- * contract of core `service_autocomplete`. The two local gazetteers keep v6's
- * search-on-keyup; DARE, a third party, searches on Enter or its Search button only
- * (LIVE_SOURCES).
+ * A source's field. Hits arrive as a typeahead under it, no in-flow list (↑/↓ walk it,
+ * Enter or a click draws the place, Esc closes it: core `service_autocomplete`'s keyboard
+ * contract). The two local gazetteers keep v6's search-on-keyup; DARE, a third party,
+ * searches on Enter or its Search button only (LIVE_SOURCES).
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {HTMLElement} panel

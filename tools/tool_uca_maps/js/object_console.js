@@ -796,10 +796,9 @@ const stage_object = function (self, geojson, lead) {
 
 /**
  * DOWNLOAD_VECTOR
- * GeoJSON is built in the browser; SHP/KML go through the server's
- * `vector_download` (ogr2ogr). No reprojection: v6's `turf.toMercator` broke RFC
- * 7946, and `toGeoJSON()` is already WGS84. One try around the whole body: a throw
- * is reported and returned for the line, never an unhandled rejection.
+ * GeoJSON is built in the browser; SHP/KML by the server's `vector_download` (ogr2ogr). No
+ * reprojection: v6's `turf.toMercator` broke RFC 7946, and `toGeoJSON()` is already WGS84.
+ * One try around the whole body: a throw is reported and returned, never left unhandled.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} layer
@@ -849,10 +848,9 @@ export const download_vector = async function (self, layer, format) {
 
 /**
  * DOWNLOAD_OBJECT_PDF
- * The object's properties, geometry and images as one server-built PDF
- * (`tools/tool_uca_maps/server/pdf_report.ts`). Images travel as record identities,
- * never paths, so the report cannot read media the caller may not; the labels
- * travel so it speaks the record's language.
+ * The object's properties, geometry and images as one server-built PDF (`pdf_report.ts`).
+ * Images travel as record identities, never paths, so the report cannot read media the
+ * caller may not; the labels travel so it speaks the record's language.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {Object} layer
@@ -1155,10 +1153,9 @@ const restore_natural_order = function (self) {
 
 /**
  * COMPUTE_INFO
- * Mirrors the core popup's math (`get_popup_content`), not v6's, so panel and
- * popup agree on the same click — save the circle, whose area is π·r² here and
- * 2·π·r there (`circle_area`). `format_polygon_area` replaces the core's
- * private `readable_area`, which leaves < 1 ha undefined. One row per line:
+ * Mirrors the core popup's math (`get_popup_content`), not v6's, so panel and popup agree
+ * on a click — save the circle: π·r² here, 2·π·r there (`circle_area`). `format_polygon_area`
+ * replaces core's private `readable_area`, which leaves < 1 ha undefined. One row per line:
  * a circle's centre, radius and area read as three.
  *
  * @param {Object} self

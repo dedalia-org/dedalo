@@ -939,10 +939,9 @@ const render_hierarchy_controls = function (self, layer, container) {
 
 /**
  * RENDER_PROPERTIES_EDITOR
- * Generic key/value CRUD over `layer.feature.properties`, excluding
- * RESERVED_PROPERTY_KEYS (core- and tool-managed fields) and showing the
- * layer's computed keys as read-only text. Each property is
- * edited in place and commits on change, a deliberate gesture; never a
+ * Generic key/value CRUD over `layer.feature.properties`, minus RESERVED_PROPERTY_KEYS
+ * (core- and tool-managed fields), with the layer's computed keys as read-only text. Each
+ * property is edited in place and commits on change, a deliberate gesture; never a
  * `window.prompt`, untestable headless and worse to use.
  *
  * @param {Object} self

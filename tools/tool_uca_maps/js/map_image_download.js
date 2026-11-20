@@ -265,19 +265,15 @@ export const keep_in_map_image = function (self, node) {
 
 /**
  * DOWNLOAD_MAP_IMAGE
- * Captures the map's content, never the controls around it (`keep_in_map_image`):
- * our panels are large overlays that would be baked into the image. Never silent: a
- * failure comes back as the text for the panel's line, and a client-side throw is
- * also reported.
+ * Captures the map's content, never the controls around it (`keep_in_map_image`): our
+ * panels are large overlays. Never silent: a failure returns the panel line's text, and a
+ * client-side throw is also reported. `file_name` OMITTED gets the default base name; EMPTY
+ * is refused as v6 does ("Por favor, indique un nombre para el archivo").
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {'png'|'jpg'|'gif'|'webp'|'geotiff'} format
- * @param {string} [file_name] - the user's own name for the file (panel
- *   field, v6 parity). OMITTED and EMPTY are different: a caller that passes
- *   nothing gets the default base name, an empty field is refused the way v6
- *   refuses it ("Por favor, indique un nombre para el archivo").
- * @returns {Promise<{ok: boolean, error?: string}>} `error`: an empty name, a
- *   server refusal or a client-side throw, for the panel's line
+ * @param {string} [file_name] - the user's own name for the file (panel field, v6 parity)
+ * @returns {Promise<{ok: boolean, error?: string}>} `error`: the text for the panel's line
  */
 export const download_map_image = async function (
 	self,

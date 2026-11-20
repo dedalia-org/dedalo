@@ -55,11 +55,10 @@ export const corner_transform = function (top_left, top_right, bottom_left, widt
 
 /**
  * BUILD_OVERLAY_CLASS
- * Built on first use: `L` exists only once component_geolocation loaded Leaflet.
- * `_image` is the CONTAINER, the name the inherited methods (opacity, z-index,
- * zoom re-placing and animation, removal) work on; the picture inside carries the
- * matrix. Options: opacity, zIndex, className, alt; no `interactive` (the carrier
- * takes the clicks).
+ * Built on first use: `L` exists only once component_geolocation loaded Leaflet. `_image`
+ * is the CONTAINER, the name the inherited methods (opacity, z-index, zoom re-placing and
+ * animation, removal) work on; the picture inside carries the matrix. Options: opacity,
+ * zIndex, className, alt; no `interactive` (the carrier takes the clicks).
  *
  * @returns {Function} an L.ImageOverlay subclass
  */

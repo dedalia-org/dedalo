@@ -1,10 +1,9 @@
 /**
  * get_catastro_parcel: the cadastral parcel at a map click, as v6
- * (`class.tool_leaflet_special_tools.php` `get_catastro_refcat`): its reference
- * from the INSPIRE view service, then its ring from the download service, both
- * asked through core's geo services (`catastro_wms_featureinfo`,
- * `catastro_wfs_parcel`). The ring arrives in the click's UTM zone and is
- * converted here (`utm.ts`).
+ * (`class.tool_leaflet_special_tools.php` `get_catastro_refcat`): its reference from the
+ * INSPIRE view service, then its ring from the download service, both through core's geo
+ * services (`catastro_wms_featureinfo`, `catastro_wfs_parcel`). The ring arrives in the
+ * click's UTM zone and is converted here (`utm.ts`).
  */
 
 import { DedaloError, isErrorInDomain, ok } from '../../../src/core/errors/index.ts';

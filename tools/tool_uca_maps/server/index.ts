@@ -1,11 +1,9 @@
 /**
- * tool_uca_maps — port of v6 `tool_leaflet_special_tools`. Every action is
- * `record_tipo` at read level: none writes section data. The image actions name
- * the IMAGE record, whose media path they disclose; `stage_external_image` is
- * the one write-level gate, since it exists only to change the map record. Not
- * readOnly: it and the three that delete the payload they were staged
- * (`raster_download`, `vector_download`, `object_pdf_report`). The rest write
- * only scratch.
+ * tool_uca_maps — port of v6 `tool_leaflet_special_tools`. Every action is `record_tipo`
+ * and writes no section data; image actions name the IMAGE record, whose media
+ * path they disclose. `stage_external_image` is the one write-level gate (it exists to change
+ * the map record). Not readOnly: it and the four that delete the file they are given
+ * (`raster_download`, `vector_download`, `object_pdf_report`, `upload_vector_layer`).
  */
 
 import type { ToolServerModule } from '../../../src/core/tools/module.ts';

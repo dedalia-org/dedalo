@@ -36,9 +36,8 @@ const OVERLAY_Z_INDEX = 10;
  * ENABLE_ARMED_LAYER
  * Shows the feature's layer over the basemap and arms the click. A source core already
  * offers (`source_key` = 'default:<id>') is switched on in place, never copied beside it;
- * otherwise `build_layer`'s layer joins the control as an overlay. One at a time, as v6's
- * `only_one_active_control`: another armed feature is disarmed first, by its own `disarm`.
- * `attribution`: plain text the map credits while armed.
+ * otherwise `build_layer`'s layer joins as an overlay, credited with `attribution` (plain
+ * text). One at a time, as v6's `only_one_active_control`: another is disarmed first.
  *
  * @param {Object} self - tool_uca_maps instance
  * @param {string} key - the feature's state key ('catastro' | 'ua')

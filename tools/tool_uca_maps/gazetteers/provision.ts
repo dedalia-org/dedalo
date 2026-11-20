@@ -1,13 +1,9 @@
 /**
- * Fills the directory the `gazetteer_data_path` tool option points at; the tool
- * ships no gazetteer data. Ops tooling, never on a request path.
- *
- *   bun tools/tool_uca_maps/gazetteers/provision.ts --out <dir> \
- *       [--from-v6 <path to tool_leaflet_special_tools>]
- *
- * Pleiades: the name→id index is built from Pleiades' own dumps (atlantides.org),
- * so any install can rebuild it. Pelagios: the layers are copied from a v6 tool
- * checkout, as no canonical download URL for them could be verified.
+ * Fills the dir the `gazetteer_data_path` option names (the tool ships no gazetteer
+ * data); ops tooling, never on a request path. Pleiades' index is rebuilt from its own
+ * dumps (atlantides.org); Pelagios' layers are copied from a v6 checkout, as no
+ * canonical download URL for them could be verified. Usage:
+ *   bun tools/tool_uca_maps/gazetteers/provision.ts --out <dir> [--from-v6 <v6 tool>]
  */
 
 import { existsSync, mkdirSync } from 'node:fs';

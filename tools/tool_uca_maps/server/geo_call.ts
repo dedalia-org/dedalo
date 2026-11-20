@@ -12,12 +12,11 @@ import { GEO_SERVICES } from '../../../src/core/geo_services/table.ts';
 import type { ReasonKey } from './reasons.ts';
 
 /**
- * Only a RETRYABLE `external.*` (as the registry says: a transient status, a
- * timeout, a dropped connection…) is "the source is down, try again". A
- * provider's refusal, a blocked address or "nothing there" is not retryable, and
- * a retryable code over it would have the browser ask a provider that already
- * said no again: those pass through with core's own label, as do `rate.limited`
- * (busy, not down) and a refused parameter (the tool's own bug).
+ * Only a RETRYABLE `external.*` (per the registry: a transient status, a timeout, a dropped
+ * connection…) means "the source is down, try again". A provider's refusal, a blocked
+ * address or "nothing there" is not, and a retryable code over it would have the browser ask
+ * again a provider that said no: those pass through with core's own label, as do
+ * `rate.limited` (busy, not down) and a refused parameter (the tool's own bug).
  */
 export async function askGeoService(
 	id: string,

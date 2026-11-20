@@ -5,10 +5,9 @@
 /**
  * CATASTRO
  * Panel-less toggle, as v6 (`special_tools_catastro.js`), for es/cat/eus records listing a
- * `catastro` default in `properties.map_sources`. Armed, that source goes OVER the basemap
- * through core's tile proxy (so the map image has it too), its checkbox ticked; v6 swapped
- * the basemap, leaving only parcels on a bare container. A map click asks the server for
- * the parcel, since the browser cannot read that WMS's replies, and draws it.
+ * `catastro` default in `properties.map_sources`. Armed, it goes OVER the basemap through
+ * core's tile proxy (so the map image has it too); v6 swapped the basemap. A click asks the
+ * server for the parcel (the browser cannot read that WMS's replies) and draws it.
  */
 
 import { request_failed, response_data } from '../../../core/common/js/api_error.js';

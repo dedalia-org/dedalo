@@ -3,12 +3,10 @@
 
 /**
  * LEGEND
- * A MANUAL legend editor (title, groups of icon+text items) and its overlay, as v6:
- * nothing is generated from the WMS layers. It is kept in the record, as the geolocation
- * entry's `legend` ({title, groups: [{name, symbols: [{label, icon}]}]}): every edit is
- * written to the component's buffer and marks it dirty, and the component's save button
- * commits it with the map, as a drawing (none of v6's 3 s autosaves). The overlay is map
- * content, not a toolbar node, so the map image download includes it.
+ * A MANUAL legend editor (title, groups of icon+text items) and its overlay, as v6: nothing
+ * is generated from the WMS layers. Kept in the record as the entry's `legend` ({title,
+ * groups: [{name, symbols: [{label, icon}]}]}); edits mark the component dirty and its save
+ * commits them like a drawing (no v6 3 s autosave). The overlay is map content, in the image.
  *
  * @module legend
  */
@@ -222,11 +220,10 @@ const to_entry_legend = function (legend) {
 
 /**
  * LEGEND_CHANGED
- * Every edit of the legend's content: the overlay repaints, the record's form is written
- * to the component's buffer and the component is marked dirty (nothing saves: the
- * component's button does, as for a drawing). A legend the core would refuse
- * (`legend_refusal`) is not written, since the save would be refused whole: the panel says
- * so instead.
+ * Every edit of the legend's content: the overlay repaints, the record's form goes to the
+ * component's buffer and marks it dirty (nothing saves: the component's button does, as for
+ * a drawing). A legend the core would refuse (`legend_refusal`) is not written, since the
+ * whole save would be refused: the panel says so instead.
  *
  * @param {Object} self
  * @returns {void}
