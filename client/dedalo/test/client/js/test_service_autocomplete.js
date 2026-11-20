@@ -1004,6 +1004,8 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			// never past its cap (search.less: min(30rem, 100vw − 2rem)) — whether a
 			// row is longer than the card is the font's to say, so the bound is the cap
 			assert.isAtMost(list_rect.width, Math.max(list_cap(f), card_rect.width) + 1, `${context}: the list is no wider than its cap`)
+			// …and a list that widens from the card's left must still end on screen
+			assert.isAtMost(list_rect.right, f.win.innerWidth + 1, `${context}: the list stays on screen`)
 			assert.isAtMost(card_rect.right, rect(f.group).right + 1, `${context}: the card does not leave its group`)
 
 			f.input_groups.forEach((group_node, i) => {

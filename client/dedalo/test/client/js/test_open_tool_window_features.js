@@ -2,7 +2,7 @@
 /*global it, describe, before, after, afterEach, assert */
 /*eslint no-undef: "error"*/
 
-import { open_tool } from '../../../core/tools_common/js/tool_common.js';
+import { open_tool, tool_common } from '../../../core/tools_common/js/tool_common.js';
 
 /**
  * TOOL WINDOW FEATURES — THE OPEN PATH
@@ -14,9 +14,10 @@ import { open_tool } from '../../../core/tools_common/js/tool_common.js';
  * its own — the module's unit gate (test/unit/client_window_features.test.ts)
  * cannot see whether tool_common still asks it.
  *
- * Backend-free: the tool context is passed as an object, and every case ends
- * before a tool module is requested (a refusal) or at `window.open`, which is
- * replaced for the suite.
+ * The tool context is passed as an object and `window.open` is replaced for
+ * the suite. The round-trip case is the one that reaches the server: it hands
+ * the URL the window door built to `tool_common.init`, the code that runs in
+ * the OPENED window, which rebuilds the caller (test52 of the test3 record).
  */
 describe('TOOL WINDOW FEATURES — THE OPEN PATH', () => {
 	const real_open = window.open;
@@ -139,6 +140,90 @@ describe('TOOL WINDOW FEATURES — THE OPEN PATH', () => {
 			'second open refused by the grammar, it resolved: ' + JSON.stringify(second.resolved),
 		);
 		assert.include(second.error.message, 'background');
+	});
+
+	it('window → init: the opened window rebuilds its caller from the URL the door built', async () => {
+		// 2026-11-20: an edit of the window door also rewrote the decompress
+		// site in init() — an undeclared identifier there, so every tool opened
+		// in its own window came up with no caller. Only the door was gated.
+		const tool_config = { ddo_map: [{ tipo: caller.tipo, role: 'main_element' }] };
+		const caller_options = { tag_id: 7 };
+		await open_tool({
+			caller,
+			caller_options,
+			tool_context: { ...tool_context('window', { width: 760, height: 500 }), tool_config },
+		});
+		assert.equal(opened.length, 1, 'window.open called once');
+		const opened_url = new URL(opened[0].url, window.location.href);
+		assert.isAbove(
+			(opened_url.searchParams.get('raw_data') || '').length,
+			20,
+			'the URL carries the compressed caller',
+		);
+
+		const real_location = window.location.href;
+		const tool = new tool_common();
+		let initialized;
+		try {
+			// the opened window reads its own address
+			window.history.replaceState({}, '', opened_url.search);
+			initialized = await tool.init({
+				model: 'tool_test_window_features',
+				lang: caller.lang,
+				mode: 'edit',
+			});
+		} finally {
+			window.history.replaceState({}, '', real_location);
+		}
+
+		try {
+			assert.isTrue(initialized, 'init succeeded');
+			assert.isTrue(tool.caller_is_calculated, 'the caller came from the URL');
+			assert.isOk(tool.caller, 'the caller was rebuilt: ' + tool.error);
+			assert.equal(tool.caller.tipo, caller.tipo);
+			assert.equal(tool.caller.section_tipo, caller.section_tipo);
+			assert.equal(tool.caller.model, caller.model);
+			assert.strictEqual(tool.caller.caller, tool, 'the rebuilt caller points back at the tool');
+			assert.deepEqual(tool.caller_options, caller_options, 'per-open data crossed the URL');
+			assert.deepEqual(tool.tool_config, tool_config, 'tool_config crossed the URL');
+		} finally {
+			await tool.caller?.destroy?.(true, true, true);
+		}
+	});
+
+	it('modal: declared sizes land on the modal box', async () => {
+		// own caller identity: the opening guard is keyed by tool + caller + lang
+		const modal_caller = { ...caller, id_base: 'test_open_tool_window_features_sized' };
+		const before_modals = new Set(document.querySelectorAll('dd-modal'));
+		const view = open_tool({
+			caller: modal_caller,
+			tool_context: tool_context('modal', { width: '40rem', maxWidth: '90%' }),
+		}).catch((error) => ({ error }));
+
+		// the box is styled when the modal is attached, before the tool loads
+		// (this tool has no module: its load fails afterwards, in the modal)
+		let modal = null;
+		for (let i = 0; i < 40 && !modal; i++) {
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			modal =
+				[...document.querySelectorAll('dd-modal')].find(
+					(node) => !before_modals.has(node) && node.modal_content?.style.width,
+				) || null;
+		}
+		try {
+			assert.isOk(modal, 'a modal was built and its box styled');
+			assert.equal(modal.modal_content.style.width, '40rem');
+			assert.equal(modal.modal_content.style.maxWidth, '90%');
+		} finally {
+			await view;
+			if (modal) {
+				modal.transient = true;
+				await modal.close();
+			}
+			document.querySelectorAll('dd-modal').forEach((node) => {
+				if (!before_modals.has(node)) node.remove();
+			});
+		}
 	});
 });
 
