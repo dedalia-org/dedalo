@@ -1,0 +1,111 @@
+/**
+ * tool_uca_maps — `get_wms_layers`: the user's URL vetted and the
+ * GetCapabilities query built, no network, and the handler going through the
+ * harvesting door: a private target is refused by its address policy.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { HarvestDeps } from '../../src/core/harvest/harvest.ts';
+import { isSsrfRefusal } from '../../src/core/security/ssrf_guard.ts';
+import {
+	getWmsLayers,
+	normalizeWmsBaseUrl,
+	wmsCapabilitiesUrl,
+} from '../../tools/tool_uca_maps/server/wms.ts';
+import {
+	contextOf,
+	expectCode,
+	failureOf,
+	loadAction,
+	refusal,
+} from './fixtures/tool_uca_maps/helpers.ts';
+import { resetHarvestState } from './fixtures/tool_uca_maps/scripted_site.ts';
+
+beforeEach(resetHarvestState);
+afterEach(resetHarvestState);
+
+describe('normalizeWmsBaseUrl — caller-fault validation (no network)', () => {
+	test('an empty/missing url is refused as request.invalid_options, before the door', async () => {
+		for (const url of ['', '   ']) {
+			await refusal(() => normalizeWmsBaseUrl(url), 'request.invalid_options', 'wms_url_required');
+		}
+
+		// a scripted site, so a lost guard cannot reach a real one
+		const sent: string[] = [];
+		const site: HarvestDeps = {
+			hop: async (request) => {
+				sent.push(request.url.toString());
+				throw new Error('no site here');
+			},
+		};
+		await refusal(getWmsLayers(contextOf({}), site), 'request.invalid_options', 'wms_url_required');
+		expect(sent).toEqual([]);
+
+		// the positive control: a valid url does reach the scripted site
+		await getWmsLayers(contextOf({ url: 'https://wms.example/wms' }), site).catch(() => null);
+		expect(sent.length).toBeGreaterThan(0);
+	});
+
+	test('a non-absolute or non-http(s) url is refused', async () => {
+		for (const url of ['geoserver/wms', 'ftp://example.com/wms', 'javascript:alert(1)']) {
+			await refusal(() => normalizeWmsBaseUrl(url), 'request.invalid_options', 'wms_url_invalid');
+		}
+	});
+
+	test('query and fragment are stripped — v6 parity (it discards whatever the user typed after "?")', () => {
+		const url = normalizeWmsBaseUrl(
+			'https://example.com/geoserver/wms?service=WMS&request=GetMap#frag',
+		);
+		expect(url.toString()).toBe('https://example.com/geoserver/wms');
+	});
+
+	test('a clean url round-trips unchanged', () => {
+		const url = normalizeWmsBaseUrl('  https://example.com/geoserver/wms  ');
+		expect(url.toString()).toBe('https://example.com/geoserver/wms');
+	});
+});
+
+describe('wmsCapabilitiesUrl', () => {
+	test('appends service=WMS&request=GetCapabilities to the base url', () => {
+		const base = normalizeWmsBaseUrl('https://example.com/geoserver/wms');
+		const capabilities = wmsCapabilitiesUrl(base);
+		expect(capabilities.searchParams.get('service')).toBe('WMS');
+		expect(capabilities.searchParams.get('request')).toBe('GetCapabilities');
+		expect(capabilities.origin + capabilities.pathname).toBe('https://example.com/geoserver/wms');
+	});
+});
+
+describe('tool_uca_maps get_wms_layers — handler', () => {
+	test('a private/loopback target is refused by the SSRF guard, no network reached', async () => {
+		const action = await loadAction('get_wms_layers');
+		const error = await failureOf(action.handler(contextOf({ url: 'http://127.0.0.1:9999/wms' })));
+		expectCode(error, 'request.invalid_options');
+		expect(error.details?.reason_key).toBe('wms_server_unreachable');
+		expect(isSsrfRefusal(error.cause)).toBe(true);
+	});
+
+	test('unresolved and non-public hosts answer alike, so the field maps no internal DNS', async () => {
+		const resolvers = {
+			failing: async () => {
+				throw new Error('ENOTFOUND');
+			},
+			empty: async () => [],
+			private: async () => [{ address: '10.0.0.1', family: 4 }],
+		};
+		const answers = new Set<string>();
+		for (const lookup of Object.values(resolvers)) {
+			const error = await failureOf(
+				getWmsLayers(contextOf({ url: 'https://wms.any.example/wms' }), { pinned: { lookup } }),
+			);
+			expect(isSsrfRefusal(error.cause)).toBe(true);
+			answers.add(JSON.stringify([error.code, error.message, error.details]));
+		}
+		expect([...answers]).toEqual([
+			JSON.stringify([
+				'request.invalid_options',
+				'The server could not be reached: check the URL.',
+				{ reason_key: 'wms_server_unreachable' },
+			]),
+		]);
+	});
+});

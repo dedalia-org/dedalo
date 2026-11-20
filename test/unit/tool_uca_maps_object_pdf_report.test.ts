@@ -1,0 +1,471 @@
+/**
+ * tool_uca_maps — `object_pdf_report` and the dependency-free PDF writer under
+ * it. The writer is verified by an outside reader (Poppler's `pdftotext` and
+ * `pdfimages`), never by asserting on the bytes it wrote: wrong xref offsets,
+ * stream lengths or WinAnsi encoding only show when a real reader opens the file.
+ */
+
+import { afterAll, describe, expect, test } from 'bun:test';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import type { GatedToolActionSpec } from '../../src/core/tools/module.ts';
+import { unguarded } from '../../src/core/tools/reason_keys.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../../tools/tool_uca_maps/js/upload_formats.js';
+import {
+	IMAGE_READ_GATE,
+	objectPdfReport,
+	printableProperties,
+	readRequestedImages,
+	reprojectCoordinates,
+} from '../../tools/tool_uca_maps/server/pdf_report.ts';
+import {
+	encodeWinAnsi,
+	PdfDocument,
+	readJpegInfo,
+	textWidth,
+	wrapText,
+} from '../../tools/tool_uca_maps/server/pdf_writer.ts';
+import { MAX_LATITUDE, toWebMercator } from '../../tools/tool_uca_maps/server/web_mercator.ts';
+import {
+	contextOf,
+	dataOf,
+	expectCode,
+	loadAction,
+	runFixtureBinary,
+	stagedJson,
+	sweptStaging,
+	thrownBy,
+} from './fixtures/tool_uca_maps/helpers.ts';
+import { withImageFiles } from './fixtures/tool_uca_maps/image_slot.ts';
+
+/** The object the console stages; only that key_dir of each caller used here is swept. */
+const staged = (value: unknown) => stagedJson(OBJECT_GEOJSON_KEY_DIR, value);
+const OBJECTS = sweptStaging(-1, OBJECT_GEOJSON_KEY_DIR);
+sweptStaging(7, OBJECT_GEOJSON_KEY_DIR);
+
+const scratch = mkdtempSync(join(tmpdir(), 'uca_pdf_'));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+/** Run the produced PDF through Poppler and give back its text. */
+async function pdfText(bytes: Uint8Array, name: string): Promise<string> {
+	const pdfPath = join(scratch, `${name}.pdf`);
+	const txtPath = join(scratch, `${name}.txt`);
+	writeFileSync(pdfPath, bytes);
+	await runFixtureBinary(['pdftotext', '-enc', 'UTF-8', pdfPath, txtPath]);
+	return await Bun.file(txtPath).text();
+}
+
+describe('tool_uca_maps object_pdf_report — the per-image gate', () => {
+	test('the per-image gate IS the get_image_file spec, not a second hand-written check', async () => {
+		const declared = (await loadAction('get_image_file')) as GatedToolActionSpec;
+		expect(String(IMAGE_READ_GATE.permission)).toBe(String(declared.permission));
+		expect(Number(IMAGE_READ_GATE.minLevel)).toBe(Number(declared.minLevel));
+		// the loader wraps every handler (the reason-key guard): compare the function behind it
+		expect(IMAGE_READ_GATE.handler).toBe(unguarded(declared.handler));
+	});
+});
+
+describe('toWebMercator / reprojectCoordinates', () => {
+	test('a known point lands where EPSG:3857 puts it', () => {
+		// Sagunto, roughly — checked against the standard spherical formula
+		const [x, y] = toWebMercator([39.6766, -0.2726]);
+		expect(x).toBeCloseTo(-30345.69, 1);
+		expect(y).toBeCloseTo(4819057.36, 1);
+		// GeoJSON order is [lon, lat]: the document must not swap it
+		expect(reprojectCoordinates([-0.2726, 39.6766])).toEqual([-30345.69, 4819057.37]);
+	});
+
+	test('the pole is clamped to the projection limit, never Infinity in the document', () => {
+		// the grid is square: the clamped y is the half-world, as x is at lon 180
+		const limit = toWebMercator([MAX_LATITUDE, 0])[1];
+		expect(limit).toBeCloseTo(toWebMercator([0, 180])[0], 1);
+		expect(limit).toBeCloseTo(20037508.34, 1);
+		expect(toWebMercator([90, 0])[1]).toBe(limit);
+		expect(toWebMercator([-90, 0])[1]).toBe(toWebMercator([-MAX_LATITUDE, 0])[1]);
+		expect(reprojectCoordinates([0, 90])).toEqual([0, 20037508.34]);
+	});
+
+	test('a nested polygon ring is reprojected at every depth', () => {
+		const ring = [
+			[
+				[0, 0],
+				[1, 1],
+			],
+		];
+		const out = reprojectCoordinates(ring) as number[][][];
+		expect(out[0]?.[0]).toEqual([0, 0]);
+		expect(out[0]?.[1]?.[0]).toBeCloseTo(111319.49, 1);
+	});
+});
+
+describe('printableProperties — v6 filter, verbatim', () => {
+	test('keeps scalars and drops nulls, the two internal keys and every object', () => {
+		expect(
+			printableProperties({
+				name: 'Muralla',
+				area: 412,
+				color: '#ff0000',
+				layer_id: 3,
+				missing: null,
+				uca_maps: { images: [1, 2] },
+			}),
+		).toEqual([
+			['name', 'Muralla'],
+			['area', '412'],
+		]);
+	});
+
+	test('a non-object is simply empty, never a throw', () => {
+		expect(printableProperties(null)).toEqual([]);
+		expect(printableProperties('nope')).toEqual([]);
+	});
+});
+
+describe('readRequestedImages — what may be asked for', () => {
+	test('reads a well-formed entry', () => {
+		expect(
+			readRequestedImages([
+				{ section_tipo: 'test3', section_id: 12, tipo: 'test99', name: 'a.jpg' },
+			]),
+		).toEqual([{ section_tipo: 'test3', section_id: 12, tipo: 'test99', name: 'a.jpg' }]);
+	});
+
+	test('a file path is NOT a way to name an image — only record identity is read', () => {
+		const [first] = readRequestedImages([
+			{
+				section_tipo: 'test3',
+				section_id: 12,
+				tipo: 'test99',
+				file_path: '/etc/passwd',
+				absolutePath: '/etc/passwd',
+			},
+		]);
+		expect(first).toBeDefined();
+		expect(Object.keys(first as object).sort()).toEqual([
+			'name',
+			'section_id',
+			'section_tipo',
+			'tipo',
+		]);
+	});
+
+	test('malformed entries are skipped and the list is capped at 30', () => {
+		const many = Array.from({ length: 40 }, (_value, index) => ({
+			section_tipo: 'test3',
+			section_id: index,
+			tipo: 'test99',
+		}));
+		expect(readRequestedImages(many)).toHaveLength(30);
+		expect(readRequestedImages([{ section_tipo: 'test3' }, null, 7])).toEqual([]);
+	});
+
+	test('nothing asked for is not an error', () => {
+		expect(readRequestedImages(undefined)).toEqual([]);
+	});
+
+	test('a non-list is refused as request.invalid_options', () => {
+		expectCode(
+			thrownBy(() => readRequestedImages('test3')),
+			'request.invalid_options',
+		);
+	});
+});
+
+describe('pdf_writer — encoding and wrapping', () => {
+	test('WinAnsi keeps Western-European accents as one byte each', () => {
+		expect(Array.from(encodeWinAnsi('áéíóúñüç'))).toEqual([
+			0xe1, 0xe9, 0xed, 0xf3, 0xfa, 0xf1, 0xfc, 0xe7,
+		]);
+	});
+
+	test('a codepoint the encoding cannot express is visibly a question mark, never dropped', () => {
+		expect(Array.from(encodeWinAnsi('文'))).toEqual([0x3f]);
+		expect(encodeWinAnsi('a文b')).toHaveLength(3);
+	});
+
+	test('a word longer than the line is broken rather than run off the page', () => {
+		const lines = wrapText('x'.repeat(500), 10, false, 200);
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.join('')).toBe('x'.repeat(500));
+	});
+
+	test("a geometry's coordinates wrap between pairs, in one pass, without losing a char", () => {
+		const ring: number[][] = [];
+		for (let i = 0; i <= 3000; i++) ring.push([-0.4123456789 + i * 1e-5, 39.4123456789 + i * 1e-5]);
+		const json = JSON.stringify([ring]);
+		// 3000 vertices: enough for a quadratic cut to take seconds, and the wrap
+		// is synchronous, so it would hold the whole server that long
+		const started = performance.now();
+		const lines = wrapText(json, 9, false, 480);
+		expect(performance.now() - started).toBeLessThan(1000);
+		expect(lines.length).toBeGreaterThan(10);
+		expect(lines.join('')).toBe(json);
+		for (const line of lines.slice(0, -1)) expect(line.endsWith('],')).toBe(true);
+		for (const line of lines) expect(textWidth(line, 9, false)).toBeLessThanOrEqual(480);
+	});
+
+	// the cut lands after "],", and the tail it carries plus the next char is
+	// already wider than the line: one cut is not enough
+	test('a tail carried past a "]," cut is cut again when it still overflows', () => {
+		const word = `${'x'.repeat(19)}],${'W'.repeat(40)}`;
+		const lines = wrapText(word, 10, false, 100);
+		expect(lines.join('')).toBe(word);
+		for (const line of lines) expect(textWidth(line, 10, false)).toBeLessThanOrEqual(100);
+	});
+
+	test('accented, unencodable and bold text wraps within the line, every char kept', () => {
+		const word = 'áéíóú文ñ'.repeat(60);
+		const lines = wrapText(word, 10, true, 200);
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.join('')).toBe(word);
+		for (const line of lines) expect(textWidth(line, 10, true)).toBeLessThanOrEqual(200);
+	});
+
+	test('readJpegInfo refuses what it cannot embed', () => {
+		expect(readJpegInfo(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBeNull(); // a PNG
+		expect(readJpegInfo(new Uint8Array([]))).toBeNull();
+	});
+
+	test('readJpegInfo reads a gray or RGB frame and refuses a CMYK one', () => {
+		// SOI, then an SOF0 segment: precision, height 261, width 519, the component count
+		const frame = (components: number) =>
+			new Uint8Array([
+				0xff,
+				0xd8,
+				0xff,
+				0xc0,
+				0x00,
+				8 + components * 3,
+				0x08,
+				0x01,
+				0x05,
+				0x02,
+				0x07,
+				components,
+				...Array.from({ length: components }, (_value, index) => [index + 1, 0x11, 0x00]).flat(),
+			]);
+		expect(readJpegInfo(frame(1))).toEqual({ width: 519, height: 261, components: 1 });
+		expect(readJpegInfo(frame(3))).toEqual({ width: 519, height: 261, components: 3 });
+		expect(readJpegInfo(frame(4))).toBeNull();
+	});
+});
+
+describe('pdf_writer — the file a real reader sees', () => {
+	test('Poppler opens the document and reads its text back, accents included', async () => {
+		const pdf = new PdfDocument();
+		pdf.text('Propiedades del objeto', { size: 18, bold: true });
+		pdf.rule();
+		pdf.text('Muralla de la Almoina — año 1238', { size: 10 });
+		pdf.text('Coordenadas: -0,2726 / 39,6766', { size: 10 });
+
+		const text = await pdfText(pdf.build(), 'accents');
+
+		expect(text).toContain('Propiedades del objeto');
+		expect(text).toContain('Muralla de la Almoina');
+		expect(text).toContain('año 1238');
+	});
+
+	test('content longer than one page really becomes more than one page', async () => {
+		const pdf = new PdfDocument();
+		for (let index = 0; index < 220; index++) {
+			pdf.text(`line number ${index}`, { size: 10 });
+		}
+		const text = await pdfText(pdf.build(), 'paged');
+
+		expect(text).toContain('line number 0');
+		expect(text).toContain('line number 219');
+		// 13.5 pt leading on a 730 pt column is 54 lines a page; Poppler ends
+		// every page with a form feed
+		expect(text.split('\f').length - 1).toBe(5);
+	});
+});
+
+/** ImageMagick 7, or 6's `convert`: what builds a real JPEG for these gates. */
+const MAGICK = Bun.which('magick') ?? Bun.which('convert');
+const HAVE_MAGICK = MAGICK !== null;
+
+/** A real encoder's JPEG, built at test time rather than checked in as a blob;
+ * `extra` adds encoder options (a grayscale colorspace). */
+async function realJpeg(
+	name: string,
+	size = '2x2',
+	extra: readonly string[] = [],
+): Promise<Uint8Array> {
+	const target = join(scratch, `${name}.jpg`);
+	await runFixtureBinary([MAGICK ?? 'magick', '-size', size, 'xc:red', ...extra, target]);
+	return new Uint8Array(await Bun.file(target).arrayBuffer());
+}
+
+/** Poppler's image listing of `bytes`: one row per image it found. */
+async function pdfImages(
+	bytes: Uint8Array,
+	name: string,
+): Promise<{ rows: string[]; errors: string }> {
+	const pdfPath = join(scratch, `${name}.pdf`);
+	writeFileSync(pdfPath, bytes);
+	const proc = Bun.spawn(['pdfimages', '-list', pdfPath], { stdout: 'pipe', stderr: 'pipe' });
+	const [listing, errors] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+	]);
+	expect(await proc.exited).toBe(0);
+	// a two-line header, then the images
+	return { rows: listing.trim().split('\n').slice(2), errors };
+}
+
+describe('pdf_writer — an embedded image is really IN the file', () => {
+	// the text round trip stays green with a broken `/XObject` key (pdf.image()
+	// still answers true, so no "could not be embedded" note): only an image
+	// reader shows that the pictures are gone
+	test.skipIf(!HAVE_MAGICK)(
+		'Poppler finds the image, and reports no syntax error doing it (needs ImageMagick)',
+		async () => {
+			const pdf = new PdfDocument();
+			pdf.text('con imagen', { size: 12 });
+			expect(pdf.image(await realJpeg('tiny'))).toBe(true);
+
+			const { rows, errors } = await pdfImages(pdf.build(), 'embedded');
+			expect(errors).not.toMatch(/Syntax Error/);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatch(/jpeg/i);
+		},
+	);
+
+	// with one image every index is 0: only two different ones, on two pages,
+	// show that each page names its own XObject
+	test.skipIf(!HAVE_MAGICK)(
+		'two different images, a page apart, each keep their own size and colour (needs ImageMagick)',
+		async () => {
+			const pdf = new PdfDocument();
+			expect(pdf.image(await realJpeg('first_rgb', '7x3'))).toBe(true);
+			for (let index = 0; index < 60; index++) pdf.text(`line ${index}`, { size: 10 });
+			expect(pdf.image(await realJpeg('second_gray', '4x9', ['-colorspace', 'Gray']))).toBe(true);
+
+			const { rows, errors } = await pdfImages(pdf.build(), 'two_images');
+			expect(errors).not.toMatch(/Syntax Error/);
+			// page, num, type, width, height, color
+			const listed = rows.map((row) => row.trim().split(/\s+/).slice(0, 6));
+			expect(listed).toEqual([
+				['1', '0', 'image', '7', '3', 'rgb'],
+				['2', '1', 'image', '4', '9', 'gray'],
+			]);
+		},
+	);
+});
+
+describe('objectPdfReport — the whole document', () => {
+	test('refuses a request with no geometry at all, or one that is not an object', async () => {
+		await expect(objectPdfReport(contextOf({}))).rejects.toMatchObject({
+			code: 'request.invalid_options',
+		});
+		const texto = staged('texto');
+		await expect(objectPdfReport(contextOf({ file_data: texto }))).rejects.toMatchObject({
+			code: 'request.invalid_options',
+		});
+		expect(existsSync(resolve(OBJECTS, texto.tmp_name))).toBe(false);
+	});
+
+	test('builds a readable report from an object with properties and a geometry', async () => {
+		const file_data = staged({
+			type: 'Feature',
+			properties: { name: 'Muralla', área: '1.240 m²' },
+			geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
+		});
+		const response = await objectPdfReport(contextOf({ elevation: 412, file_data }));
+		// one object per sheet: core keeps a completed staged file forever
+		expect(existsSync(resolve(OBJECTS, file_data.tmp_name))).toBe(false);
+
+		const data = dataOf<{ content_base64: string; filename: string; mime: string }>(response);
+		expect(data.mime).toBe('application/pdf');
+		expect(data.filename).toBe('uca_maps_object.pdf');
+
+		const text = await pdfText(
+			new Uint8Array(Buffer.from(data.content_base64, 'base64')),
+			'report',
+		);
+
+		expect(text).toContain('Object properties');
+		expect(text).toContain('Muralla');
+		expect(text).toContain('1.240 m²');
+		expect(text).toContain('Elevation: 412 m');
+		expect(text).toContain('EPSG:4326');
+		expect(text).toContain('EPSG:3857');
+		// the reprojected coordinate really is the Mercator one, not a copy
+		expect(text).toContain('-30345');
+	});
+
+	// the client sends the labels in the user's language; an empty one is a
+	// missing translation and falls back, never printing a blank heading
+	test('prints the labels the client sends, and the English one for an empty label', async () => {
+		const file_data = staged({
+			type: 'Feature',
+			properties: { name: 'Muralla' },
+			geometry: { type: 'Point', coordinates: [-0.2726, 39.6766] },
+		});
+		const response = await objectPdfReport(
+			contextOf({ file_data, labels: { title: 'Propiedades del objeto', geometry: '' } }),
+		);
+		const text = await pdfText(
+			new Uint8Array(
+				Buffer.from(dataOf<{ content_base64: string }>(response).content_base64, 'base64'),
+			),
+			'labels',
+		);
+		expect(text).toContain('Propiedades del objeto');
+		expect(text).not.toContain('Object properties');
+		expect(text).toContain('Geometry');
+	});
+
+	// test99 is the generic TLD's component_image: a real JPEG is planted at
+	// this id in the suite's MARKED media root, so only the gate can keep it out
+	const IMAGE = { section_tipo: 'test3', tipo: 'test99', section_id: 905104 };
+
+	async function reportFor(userId: number, admin: boolean): Promise<Uint8Array> {
+		const response = await objectPdfReport(
+			contextOf(
+				{
+					file_data: stagedJson(
+						OBJECT_GEOJSON_KEY_DIR,
+						{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [0, 0] } },
+						userId,
+					),
+					images: [{ ...IMAGE, name: 'secreta.jpg' }],
+				},
+				userId,
+				{ admin },
+			),
+		);
+		return new Uint8Array(
+			Buffer.from(dataOf<{ content_base64: string }>(response).content_base64, 'base64'),
+		);
+	}
+
+	test('an image the caller may not read is NAMED in the document as refused', async () => {
+		const text = await pdfText(await reportFor(7, false), 'forbidden');
+		expect(text).toContain('secreta.jpg');
+		expect(text).toContain('you may not read this record');
+		expect(text).not.toContain('could not be embedded');
+	});
+
+	test.skipIf(!HAVE_MAGICK)(
+		'a refused image is left out although it embeds for a caller who may read it (needs ImageMagick)',
+		async () => {
+			const jpeg = [
+				{ quality: 'default', extension: 'jpg', bytes: await realJpeg('tiny') },
+			] as const;
+			await withImageFiles(IMAGE, jpeg, async () => {
+				const refused = await reportFor(7, false);
+				expect(await pdfText(refused, 'forbidden_planted')).toContain(
+					'you may not read this record',
+				);
+				expect((await pdfImages(refused, 'forbidden_planted')).rows).toHaveLength(0);
+
+				// control: the same record, for a caller who may read it, is embedded
+				const allowed = await reportFor(-1, true);
+				expect(await pdfText(allowed, 'allowed')).not.toContain('Not included');
+				expect((await pdfImages(allowed, 'allowed')).rows).toHaveLength(1);
+			});
+		},
+	);
+});

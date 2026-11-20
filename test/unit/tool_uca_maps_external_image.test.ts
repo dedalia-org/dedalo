@@ -1,0 +1,261 @@
+/**
+ * tool_uca_maps — `stage_external_image` against a scripted site (`HarvestDeps.hop`,
+ * our clock): the switch, the host policy and ceiling handed to the door, what a
+ * refusal becomes, and the staged file the ingest reads back. The door itself is
+ * harvest_door_native.test.ts's.
+ */
+
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { toErrorBody } from '../../src/core/errors/convert.ts';
+import { ERROR_REGISTRY } from '../../src/core/errors/registry.ts';
+import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { STAGED_NAME_DIR } from '../../src/core/media/ingest/staged_name_record.ts';
+import * as toolConfig from '../../src/core/tools/config.ts';
+import {
+	EXTERNAL_IMAGE_MAX_BYTES,
+	EXTERNAL_IMAGES_CONFIG_KEY,
+	externalImagesEnabled,
+	externalImagesOn,
+	stagedFileName,
+	stageExternalImage,
+} from '../../tools/tool_uca_maps/server/external_image.ts';
+import { contextOf, dataOf, failureOf } from './fixtures/tool_uca_maps/helpers.ts';
+import {
+	resetHarvestState,
+	type ScriptedRoute,
+	scriptedSite,
+} from './fixtures/tool_uca_maps/scripted_site.ts';
+import { toolUrl } from './fixtures/tool_uca_maps/source_census.ts';
+
+/** A 1×1 PNG: real bytes, so the receiver's sniff and structural check pass. */
+const ONE_PIXEL_PNG = new Uint8Array(
+	Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+		'base64',
+	),
+);
+
+/** A 1×1 baseline JPEG, metadata stripped. */
+const ONE_PIXEL_JPEG = new Uint8Array(
+	Buffer.from(
+		'/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==',
+		'base64',
+	),
+);
+
+const USER_ID = -1;
+const IMAGE = 'https://images.example/collection/Muro%20norte.png';
+const JPEG = 'https://images.example/collection/Fachada.jpg';
+
+/** The image door skips a body by its status and type: the site asks it first. */
+const imageSite = (routes: Record<string, ScriptedRoute>) =>
+	scriptedSite(routes, { acceptBody: true });
+
+const on = async () => true;
+const off = async () => false;
+
+const staged: string[] = [];
+
+/** The staged file's path, registered (with its name record) for the sweep
+ * before any assertion can fail and strand it in the suite media root. */
+function stagedPath(fileData: Record<string, unknown>): string {
+	const dir = stagingDir(USER_ID, 'image');
+	const tmpName = String(fileData.tmp_name);
+	staged.push(join(dir, tmpName), join(dir, STAGED_NAME_DIR, tmpName));
+	return join(dir, tmpName);
+}
+
+beforeEach(resetHarvestState);
+
+afterEach(() => {
+	resetHarvestState();
+	for (const path of staged.splice(0)) rmSync(path, { force: true });
+});
+
+describe('tool_uca_maps stage_external_image — the switch', () => {
+	test('off, it is refused before anything is requested', async () => {
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const error = await failureOf(
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: off }),
+		);
+		expect(error.code).toBe('tool.method_not_allowed');
+		expect(site.sent).toEqual([]);
+	});
+
+	test('on by default: register.json declares it, and the real switch lets it through', async () => {
+		const register = JSON.parse(readFileSync(toolUrl('register.json'), 'utf8')) as {
+			default_config: Record<string, unknown>;
+		};
+		expect(register.default_config[EXTERNAL_IMAGES_CONFIG_KEY]).toBe(true);
+
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
+			harvest: site.deps,
+		});
+		stagedPath(dataOf<{ file_data: Record<string, unknown> }>(response).file_data);
+		expect(site.sent).toContain(IMAGE);
+	});
+
+	test.each([
+		['true', true, true],
+		['a JSON false', false, false],
+		['a quoted "false"', false, 'false'],
+		['a quoted "true"', false, 'true'],
+		['null', false, null],
+		['undefined', false, undefined],
+	])('the stored option %s reads as on=%p', (_label, on, value) => {
+		expect(externalImagesOn(value)).toBe(on);
+	});
+
+	// an install whose registration predates the option has neither an install
+	// value nor a register default: the reader's own fallback decides
+	test('an option nobody stored reads as on', async () => {
+		const read = spyOn(toolConfig, 'getToolConfigValue').mockImplementation(
+			async (_tool, _key, fallback) => fallback,
+		);
+		try {
+			expect(await externalImagesEnabled()).toBe(true);
+			expect(read).toHaveBeenCalledWith('tool_uca_maps', EXTERNAL_IMAGES_CONFIG_KEY, true);
+		} finally {
+			read.mockRestore();
+		}
+	});
+});
+
+describe('tool_uca_maps stage_external_image — through harvestFetch', () => {
+	test('a PNG is staged in the caller staging dir, answered as an upload is', async () => {
+		const site = imageSite({ [IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG } });
+		const response = await stageExternalImage(contextOf({ url: IMAGE }, USER_ID), {
+			harvest: site.deps,
+			enabled: on,
+		});
+		const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
+		const path = stagedPath(fileData);
+		expect(fileData.key_dir).toBe('image');
+		expect(fileData.extension).toBe('png');
+		expect(fileData.name).toBe('Muro norte.png');
+		expect(fileData.complete).toBe(true);
+
+		expect(existsSync(path)).toBe(true);
+		expect(new Uint8Array(readFileSync(path))).toEqual(ONE_PIXEL_PNG);
+
+		// any public site, at the associate picker's own ceiling
+		expect(site.ceilings.get(IMAGE)).toBe(EXTERNAL_IMAGE_MAX_BYTES);
+		expect(site.sent).toContain('https://images.example/robots.txt');
+	});
+
+	// a JPEG labelled with a type no registry knows is still a JPEG: the bytes decide
+	test.each(['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/jpeg; charset=binary'])(
+		'a JPEG served as %s is staged as a .jpg',
+		async (type) => {
+			const site = imageSite({ [JPEG]: { status: 200, type, body: ONE_PIXEL_JPEG } });
+			const response = await stageExternalImage(contextOf({ url: JPEG }, USER_ID), {
+				harvest: site.deps,
+				enabled: on,
+			});
+			const fileData = dataOf<{ file_data: Record<string, unknown> }>(response).file_data;
+			const path = stagedPath(fileData);
+			expect(fileData.extension).toBe('jpg');
+			expect(new Uint8Array(readFileSync(path))).toEqual(ONE_PIXEL_JPEG);
+		},
+	);
+
+	test('a non-2xx answer is the source unavailable, keyed, naming the status in the log', async () => {
+		const site = imageSite({ [IMAGE]: { status: 404 } });
+		const error = await failureOf(
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
+		);
+		expect(error.code).toBe('tool.source_unavailable');
+		expect(error.details).toEqual({ reason_key: 'linked_image_unavailable' });
+		expect(error.message).toContain('HTTP 404');
+	});
+
+	test.each([
+		['a page instead of an image', 'text/html', '<html></html>'],
+		['an image type the picker does not take (GIF)', 'image/gif', 'GIF89a'],
+	])('%s is refused by its declared type, unread', async (_label, type, body) => {
+		const site = imageSite({ [IMAGE]: { status: 200, type, body } });
+		const error = await failureOf(
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
+		);
+		expect(error.code).toBe('harvest.unexpected_type');
+		// refused by the door on the declared type, its body never sent
+		expect(site.skipped).toEqual([IMAGE]);
+	});
+
+	test('bytes that are not the declared type are refused by the receiver, nothing staged', async () => {
+		const site = imageSite({
+			[IMAGE]: { status: 200, type: 'image/png', body: '<html>not a png</html>' },
+		});
+		const dir = stagingDir(USER_ID, 'image');
+		const before = existsSync(dir) ? readdirSync(dir).sort() : [];
+		const error = await failureOf(
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
+		);
+		expect(error.code).toBe('media.upload_rejected');
+		// the panel shows this code's reason: the receiver's own, never the generic label
+		const body = toErrorBody(error);
+		expect(body.message.length).toBeGreaterThan(0);
+		expect(body.message).not.toBe(ERROR_REGISTRY['media.upload_rejected'].message);
+		expect(existsSync(dir) ? readdirSync(dir).sort() : []).toEqual(before);
+	});
+
+	test("the site's robots.txt is obeyed: a disallowed image is never requested", async () => {
+		const site = imageSite({
+			'https://images.example/robots.txt': {
+				status: 200,
+				type: 'text/plain',
+				body: 'User-agent: *\nDisallow: /collection\n',
+			},
+			[IMAGE]: { status: 200, type: 'image/png', body: ONE_PIXEL_PNG },
+		});
+		const error = await failureOf(
+			stageExternalImage(contextOf({ url: IMAGE }, USER_ID), { harvest: site.deps, enabled: on }),
+		);
+		expect(error.code).toBe('harvest.robots_disallowed');
+		// the recorder's floor: the robots probe went out, so the empty `sent` lists above are measured
+		expect(site.sent.length).toBeGreaterThan(0);
+		expect(site.sent).not.toContain(IMAGE);
+	});
+
+	test('a url that is not absolute http(s) is refused before the door', async () => {
+		for (const url of ['file:///etc/passwd', 'images/a.png', '', 42]) {
+			const site = imageSite({});
+			const error = await failureOf(
+				stageExternalImage(contextOf({ url }, USER_ID), { harvest: site.deps, enabled: on }),
+			);
+			expect(error.code).toBe('request.invalid_options');
+			expect(site.sent).toEqual([]);
+		}
+	});
+});
+
+describe('tool_uca_maps stage_external_image — the ceiling', () => {
+	test("is the associate picker's own (image_upload.js IMAGE_UPLOAD_MAX_BYTES)", () => {
+		const source = readFileSync(toolUrl('js/image_upload.js'), 'utf8');
+		const picker = /\bconst IMAGE_UPLOAD_MAX_BYTES\s*=\s*([\d_]+)/.exec(source);
+		expect(picker).not.toBeNull();
+		expect(EXTERNAL_IMAGE_MAX_BYTES).toBe(Number((picker?.[1] ?? '').replace(/_/g, '')));
+	});
+});
+
+describe('tool_uca_maps stagedFileName', () => {
+	test('keeps the link name with the extension of what was sent', () => {
+		expect(stagedFileName(new URL('https://a.example/x/foto.jpeg'), 'jpg')).toBe('foto.jpg');
+		expect(stagedFileName(new URL('https://a.example/x/foto.jpg'), 'png')).toBe('foto.png');
+		expect(stagedFileName(new URL('https://a.example/x/Muro%20norte'), 'png')).toBe(
+			'Muro norte.png',
+		);
+	});
+
+	test('a link with no name of its own gets a neutral one', () => {
+		expect(stagedFileName(new URL('https://a.example/'), 'jpg')).toBe('external_image.jpg');
+		expect(stagedFileName(new URL('https://a.example/x/.png'), 'png')).toBe('external_image.png');
+	});
+
+	test('a malformed escape keeps the raw segment', () => {
+		expect(stagedFileName(new URL('https://a.example/a%E0%A4%A.png'), 'png')).toBe('a%E0%A4%A.png');
+	});
+});

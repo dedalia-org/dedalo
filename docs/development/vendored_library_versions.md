@@ -29,7 +29,7 @@ the repo any more. **Two** sources back that URL, and that is the whole story:
 
 | Source | Count | Root | In git? |
 |---|---|---|---|
-| **npm** | 15 | `node_modules/` | no — `bun install` |
+| **npm** | 16 | `node_modules/` | no — `bun install` |
 | **vendor** | 5 | `vendor/` | **yes** — committed (ckeditor, json-view, lz-string, pdfjs, transformers) |
 
 <!-- END GENERATED client-libs:sources -->
@@ -89,6 +89,7 @@ they were prose (eight found 2026-08-28, five more 2026-10-02).
 | highlightjs | `@highlightjs/cdn-assets` | 11.12.0 | dependency | Not `highlight.js` — see below. |
 | onnxruntime | `onnxruntime-web` | 1.31.0-dev.20260914-8d85527a0 | dependency | Transformers.js's WASM runtime; the only `onnxruntime-web` the lockfile holds. |
 | qrcode | `easyqrcodejs` | 4.6.2 | dependency | The QR tool. Was a copy committed under its own `lib/` directory with no digest. |
+| dom-to-image | `dom-to-image-more` | 3.11.0 | dependency | Renders a map view to an image for download. |
 | svgedit | `@svgedit/svgcanvas` | 7.4.2 | dependency | Replaced a vendored ~7.2.x build. See below. |
 | mocha | `mocha` | 12.0.3 | **devDependency** | Client test harness. |
 | chai | `chai` | 6.3.0 | **devDependency** | Client test harness. |

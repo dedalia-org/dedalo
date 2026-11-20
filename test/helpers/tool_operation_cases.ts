@@ -18,6 +18,7 @@ export const TOOL_OPERATED: Record<string, string> = {
 	tool_numisdata_acquisition: 'client:test_tool_numisdata_acquisition.js',
 	tool_pdf_extractor: 'client:test_tool_pdf_extractor.js',
 	tool_sitebuilder: 'client:test_tool_sitebuilder.js',
+	tool_uca_maps: 'client:test_tool_uca_maps_layers.js',
 };
 
 const WIRING_ONLY =

@@ -1,0 +1,528 @@
+/**
+ * vector_upload — a shapefile zip, GeoJSON or KML converted server-side by one
+ * `ogr2ogr` to WGS84 GeoJSON (v6 reprojected in the browser from an 18-entry
+ * EPSG table). A source with no CRS of its own takes v6's EPSG/zone/band. GDAL
+ * opens a zipped shapefile only by the literal `.shp.zip`, so the copy has it.
+ */
+
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import {
+	type DecodedIngestText,
+	decodeIngestBytes,
+} from '../../../src/core/tools/ingest_encoding.ts';
+import {
+	type ToolActionContext,
+	type ToolResponse,
+	toolRequestId,
+} from '../../../src/core/tools/module.ts';
+import { VECTOR_UPLOAD_KEY_DIR } from '../js/upload_formats.js';
+import {
+	assertOfflineGeoJsonCrs,
+	inputDrivers,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
+import { invalidOptions, tooLarge } from './reasons.ts';
+import { claimStagedUpload } from './staged_upload.ts';
+import { readUtf8File } from './utf8_file.ts';
+import { assertZipInflatesWithin } from './zip_inflated_size.ts';
+
+// client extension -> the scratch-file extension ogr2ogr needs and the only
+// drivers GDAL may open it with (KML: whichever of the two the install has)
+const VECTOR_UPLOAD_FORMATS: Readonly<
+	Record<string, { scratchExtension: string; drivers: readonly string[] }>
+> = {
+	zip: { scratchExtension: 'shp.zip', drivers: ['ESRI Shapefile'] },
+	geojson: { scratchExtension: 'geojson', drivers: ['GeoJSON'] },
+	kml: { scratchExtension: 'kml', drivers: ['LIBKML', 'KML'] },
+};
+
+// v6 parity (`process_uploaded_vector`'s own $response->size check).
+const MAX_UPLOAD_BYTES = 10_000_000;
+
+// What a shapefile zip may inflate to (GDAL reads it), and what of ogr2ogr's
+// output is read back whole into this process and the browser: neither may
+// grow unbounded behind the 10 MB upload. 20x the upload covers a padded .dbf.
+const MAX_INFLATED_BYTES = 200_000_000;
+const MAX_OUTPUT_BYTES = 200_000_000;
+
+/** v6's manual projection: GDAL applies the EPSG; zone+band describe a UTM one. */
+interface ManualProjection {
+	epsg: string;
+	utm: { zone: number; south: boolean } | null;
+}
+
+// MGRS latitude bands (no I, no O); v6 reads them through Leaflet.UTM, where
+// a band before N is the southern hemisphere (`L.LatLng.UTM.js:604`)
+const UTM_BANDS = 'CDEFGHJKLMNPQRSTUVWX';
+
+/** Whether any of v6's three fields was typed, before judging their format. */
+function typesManualProjection(options: Record<string, unknown>): boolean {
+	return ['epsg', 'zone', 'band'].some((key) => String(options[key] ?? '').trim() !== '');
+}
+
+/**
+ * v6's fields, format only (no GDAL). The EPSG may come alone, as v6 lists
+ * non-UTM codes (`special_tools_upload.js:402-406`). A partial set is refused
+ * where v6 drops it silently: a typed field that does nothing is the failure
+ * these fields exist to prevent.
+ */
+export function parseManualProjection(options: Record<string, unknown>): ManualProjection | null {
+	if (!typesManualProjection(options)) return null;
+	const epsg = String(options.epsg ?? '').trim();
+	const zone = String(options.zone ?? '').trim();
+	const band = String(options.band ?? '')
+		.trim()
+		.toUpperCase();
+	if (epsg === '') {
+		throw invalidOptions(
+			'Zone and band describe an EPSG code: fill in the EPSG too',
+			'projection_epsg_missing',
+		);
+	}
+	if ((zone === '') !== (band === '')) {
+		throw invalidOptions(
+			'Zone and band go together: fill in both, or neither',
+			'projection_zone_band_pair',
+		);
+	}
+	if (!/^[0-9]{4,6}$/.test(epsg)) {
+		throw invalidOptions(`Invalid EPSG code '${epsg}'`, 'epsg_invalid');
+	}
+	if (zone === '') return { epsg, utm: null };
+	const zoneNumber = /^[0-9]{1,2}$/.test(zone) ? Number(zone) : 0;
+	if (zoneNumber < 1 || zoneNumber > 60) {
+		throw invalidOptions(`Invalid UTM zone '${zone}' (expected 1 to 60)`, 'utm_zone_invalid');
+	}
+	if (band.length !== 1 || !UTM_BANDS.includes(band)) {
+		throw invalidOptions(
+			`Invalid UTM band '${band}' (expected one letter, C to X)`,
+			'utm_band_invalid',
+		);
+	}
+	return {
+		epsg,
+		utm: { zone: zoneNumber, south: UTM_BANDS.indexOf(band) < UTM_BANDS.indexOf('N') },
+	};
+}
+
+/**
+ * The EPSG's own PROJ string (`gdalsrsinfo -o proj4`) decides: a UTM code
+ * needs the zone and band that describe it (v6's "include projection for
+ * UTM"), any other code takes neither — either way no field is decoration.
+ */
+export function assertProjectionMatches(projection: ManualProjection, proj4: string): void {
+	const zone = /\+proj=utm\b/.test(proj4) ? /\+zone=([0-9]+)/.exec(proj4) : null;
+	if (zone === null) {
+		if (projection.utm !== null) {
+			throw invalidOptions(
+				`EPSG:${projection.epsg} is not a UTM projection: leave zone and band empty`,
+				'epsg_not_utm',
+			);
+		}
+		return;
+	}
+	const south = /\+south\b/.test(proj4);
+	// in the band's own terms: an MGRS "S" is northern, so "19S" would mislead
+	const actual = `UTM zone ${zone[1]}, ${south ? 'southern hemisphere (band C to M)' : 'northern hemisphere (band N to X)'}`;
+	if (projection.utm === null) {
+		throw invalidOptions(
+			`EPSG:${projection.epsg} is ${actual}: fill in its zone and band too`,
+			'epsg_needs_zone_band',
+		);
+	}
+	if (Number(zone[1]) !== projection.utm.zone || south !== projection.utm.south) {
+		throw invalidOptions(
+			`EPSG:${projection.epsg} is ${actual}, not the zone and band given ` +
+				`(zone ${projection.utm.zone}, ${projection.utm.south ? 'southern' : 'northern'} hemisphere)`,
+			'epsg_zone_band_mismatch',
+		);
+	}
+}
+
+/**
+ * Only PROJ's own "crs not found" is the caller's; a timeout or a broken PROJ
+ * install stays the server fault it is (tool.action_failed), rethrown as is.
+ */
+export function classifyProjectionLookupError(error: unknown, epsg: string): unknown {
+	if (error instanceof Error && /crs not found/i.test(error.message)) {
+		return invalidOptions(`Unknown EPSG code '${epsg}'`, 'epsg_unknown');
+	}
+	return error;
+}
+
+async function checkManualProjection(dir: string, projection: ManualProjection): Promise<void> {
+	const gdalsrsinfo = await resolveGdalBinary('gdalsrsinfo');
+	let proj4: string;
+	try {
+		const result = await runToolBinary(
+			[gdalsrsinfo, '-o', 'proj4', `EPSG:${projection.epsg}`],
+			'vector_upload (projection lookup)',
+			{ scratchDir: dir },
+		);
+		proj4 = result.stdout;
+	} catch (error) {
+		throw classifyProjectionLookupError(error, projection.epsg);
+	}
+	assertProjectionMatches(projection, proj4);
+}
+
+/**
+ * GDAL gets the GeoJSON the tool read, reserialized: its parser accepts what
+ * strict JSON refuses (and duplicate keys), so a lenient file could carry a
+ * `crs` the check never saw. A UTF-8 BOM is the one leniency kept.
+ */
+export function parseStrictGeoJson(text: string): unknown {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
+	} catch {
+		throw invalidOptions(
+			'This GeoJSON is not strict JSON: save it as strict JSON',
+			'geojson_not_strict',
+		);
+	}
+	assertOfflineGeoJsonCrs(parsed);
+	return parsed;
+}
+
+/**
+ * Whether the file names its own CRS. In v6 the file's `crs` always wins
+ * (`projections.js:31-46`); `-s_srs` would override it silently, so a declaring
+ * file refuses the fields. A GeoJSON without `crs` counts as undeclared, though
+ * GDAL reads it as WGS84: legacy UTM files without it are what the fields are for.
+ */
+export async function declaresOwnCrs(
+	dir: string,
+	inputFile: string,
+	extension: string,
+): Promise<boolean> {
+	if (extension === 'kml') return true; // WGS84 by definition
+	if (extension === 'geojson') {
+		// the scratch copy this action wrote with JSON.stringify: always UTF-8
+		const text = await readUtf8File(inputFile);
+		if (text === null) {
+			throw new DedaloError('internal.invariant', {
+				message: 'vector_upload: its own scratch GeoJSON is not UTF-8',
+			});
+		}
+		const parsed = parseStrictGeoJson(text);
+		// any case: GDAL matches member names case-insensitively
+		return Object.entries((parsed ?? {}) as object).some(
+			([key, value]) => key.toLowerCase() === 'crs' && typeof value === 'object' && value !== null,
+		);
+	}
+	const ogrinfo = await resolveGdalBinary('ogrinfo');
+	const drivers = VECTOR_UPLOAD_FORMATS[extension]?.drivers ?? [];
+	const result = await runToolBinary(
+		[ogrinfo, ...inputDrivers(...drivers), '-json', '-so', '-ro', inputFile],
+		`vector_upload (${extension} crs probe)`,
+		{ scratchDir: dir },
+	);
+	const info = JSON.parse(result.stdout) as {
+		layers?: { geometryFields?: { coordinateSystem?: unknown }[] }[];
+	};
+	return (info.layers ?? []).some((layer) =>
+		(layer.geometryFields ?? []).some((field) => field.coordinateSystem != null),
+	);
+}
+
+/** A parsed GeoJSON FeatureCollection, loosely typed — the client is the one
+ * that walks `features` to build Leaflet layers. */
+export interface GeoJsonFeatureCollection {
+	type: 'FeatureCollection';
+	features: unknown[];
+	[key: string]: unknown;
+}
+
+/**
+ * The first position that is not longitude/latitude, or null. A GeoJSON with
+ * no `crs` is WGS84 to GDAL (RFC 7946), so its UTM metres come out of ogr2ogr
+ * unchanged and would land on the map as degrees.
+ */
+export function findPositionOutsideLonLat(
+	collection: GeoJsonFeatureCollection,
+): [number, number] | null {
+	for (const feature of collection.features) {
+		const outside = outsideInGeometry((feature as { geometry?: unknown } | null)?.geometry);
+		if (outside !== null) return outside;
+	}
+	return null;
+}
+
+function outsideInGeometry(geometry: unknown): [number, number] | null {
+	if (geometry === null || typeof geometry !== 'object') return null;
+	const { geometries, coordinates } = geometry as { geometries?: unknown; coordinates?: unknown };
+	if (Array.isArray(geometries)) {
+		for (const member of geometries) {
+			const outside = outsideInGeometry(member);
+			if (outside !== null) return outside;
+		}
+		return null;
+	}
+	return outsideInCoordinates(coordinates);
+}
+
+function outsideInCoordinates(coordinates: unknown): [number, number] | null {
+	if (!Array.isArray(coordinates) || coordinates.length === 0) return null;
+	// a position is the innermost array: one whose members are not numbers is outside too
+	if (!Array.isArray(coordinates[0])) {
+		const x = typeof coordinates[0] === 'number' ? coordinates[0] : Number.NaN;
+		const y = typeof coordinates[1] === 'number' ? coordinates[1] : Number.NaN;
+		const inside =
+			Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90;
+		return inside ? null : [x, y];
+	}
+	for (const child of coordinates) {
+		const outside = outsideInCoordinates(child);
+		if (outside !== null) return outside;
+	}
+	return null;
+}
+
+const SINGLE_PART: Readonly<Record<string, string>> = {
+	MultiPoint: 'Point',
+	MultiLineString: 'LineString',
+	MultiPolygon: 'Polygon',
+};
+
+/**
+ * One feature per part, each with the whole feature's properties, as v6
+ * splits them (`projections.js` multipoint/multipolygon/multilinestring).
+ * Leaflet draws a MultiPoint or a GeometryCollection (KML's MultiGeometry) as
+ * a FeatureGroup: an object the console can neither measure nor style.
+ */
+export function explodeToSingleParts(
+	collection: GeoJsonFeatureCollection,
+): GeoJsonFeatureCollection {
+	const features = collection.features.flatMap((feature) => {
+		const geometry = (feature as { geometry?: unknown } | null)?.geometry;
+		return singleParts(geometry).map((part) =>
+			part === geometry ? feature : { ...(feature as object), geometry: part },
+		);
+	});
+	return { ...collection, features };
+}
+
+function singleParts(geometry: unknown): unknown[] {
+	if (geometry === null || typeof geometry !== 'object') return [geometry];
+	const { type, geometries, coordinates } = geometry as {
+		type?: unknown;
+		geometries?: unknown;
+		coordinates?: unknown;
+	};
+	if (type === 'GeometryCollection' && Array.isArray(geometries)) {
+		return geometries.flatMap(singleParts);
+	}
+	const partType = typeof type === 'string' ? SINGLE_PART[type] : undefined;
+	if (partType !== undefined && Array.isArray(coordinates)) {
+		return coordinates.map((part) => ({ type: partType, coordinates: part }));
+	}
+	return [geometry];
+}
+
+// exported for the unit gate
+/** Each refusal names the one correction that applies: a field to fill in only
+ * where the file has no projection of its own, which is when they are taken. */
+export async function outsideLonLatRefusal(
+	dir: string,
+	position: [number, number],
+	projection: ManualProjection | null,
+	inputFile: string,
+	extension: string,
+): Promise<DedaloError> {
+	const at = position.map((value) => Number(value.toFixed(2))).join(', ');
+	if (projection !== null) {
+		return invalidOptions(
+			`With EPSG:${projection.epsg} the coordinates are not longitude/latitude (${at}): ` +
+				"it is not this file's projection",
+			'projection_not_this_file',
+		);
+	}
+	const declares = await declaresOwnCrs(dir, inputFile, extension);
+	if (declares) {
+		return invalidOptions(
+			`The coordinates do not fit the projection this file declares (${at} is not ` +
+				"longitude/latitude): correct the file's projection",
+			'projection_declared_wrong',
+		);
+	}
+	return invalidOptions(
+		`This file does not declare its projection and its coordinates are not ` +
+			`longitude/latitude (${at}): provide its EPSG code (and, for a UTM one, its zone ` +
+			'and band) to reproject it',
+		'projection_required',
+	);
+}
+
+// exported for the unit gate
+/**
+ * What ogr2ogr wrote, checked before it is answered: a FeatureCollection whose
+ * every position is longitude/latitude (else the refusal that applies), one
+ * feature per part.
+ */
+export async function readConvertedLayer(
+	dir: string,
+	outputFile: string,
+	inputFile: string,
+	extension: string,
+	projection: ManualProjection | null,
+): Promise<GeoJsonFeatureCollection> {
+	const outputSize = existsSync(outputFile) ? statSync(outputFile).size : 0;
+	if (outputSize > MAX_OUTPUT_BYTES) {
+		throw tooLarge(
+			`The converted layer (${outputSize} bytes) exceeds the ${MAX_OUTPUT_BYTES}-byte limit: ` +
+				'upload a smaller file',
+			'converted_layer_too_large',
+		);
+	}
+	const parsed = (await Bun.file(outputFile)
+		.json()
+		.catch(() => null)) as GeoJsonFeatureCollection | null;
+	if (parsed === null || parsed.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
+		throw new DedaloError('tool.action_failed', {
+			coordinates: { tool: 'tool_uca_maps' },
+			message: 'vector_upload: ogr2ogr produced no usable GeoJSON',
+		});
+	}
+	const outside = findPositionOutsideLonLat(parsed);
+	if (outside !== null) {
+		throw await outsideLonLatRefusal(dir, outside, projection, inputFile, extension);
+	}
+	return explodeToSingleParts(parsed);
+}
+
+export async function uploadVectorLayer(ctx: ToolActionContext): Promise<ToolResponse> {
+	const upload = claimStagedUpload(ctx, VECTOR_UPLOAD_KEY_DIR, 'tool_uca_maps.vectorUpload');
+	try {
+		return await convertUpload(ctx, upload.path);
+	} finally {
+		// one staged file per conversion, refused or not: core keeps a completed staged file
+		upload.release();
+	}
+}
+
+/** The staged file at `staged`, converted to WGS84 GeoJSON. */
+async function convertUpload(ctx: ToolActionContext, staged: string): Promise<ToolResponse> {
+	const fileData = (ctx.options.file_data ?? {}) as { extension?: unknown };
+	const extension = String(fileData.extension ?? '')
+		.toLowerCase()
+		.replace(/^\./, '');
+	const format = VECTOR_UPLOAD_FORMATS[extension];
+	if (format === undefined) {
+		throw invalidOptions(
+			`Unsupported vector file extension '${extension}' (expected zip, geojson or kml)`,
+			'upload_extension_unsupported',
+		);
+	}
+
+	const typed = typesManualProjection(ctx.options);
+
+	const size = statSync(staged).size;
+	if (size > MAX_UPLOAD_BYTES) {
+		throw tooLarge(
+			`The uploaded file (${size} bytes) exceeds the ${MAX_UPLOAD_BYTES}-byte limit`,
+			'upload_too_large',
+		);
+	}
+	// before any GDAL call opens it: declaresOwnCrs runs ogrinfo on the zip too
+	if (extension === 'zip') {
+		await assertZipInflatesWithin(
+			new Uint8Array(await Bun.file(staged).arrayBuffer()),
+			MAX_INFLATED_BYTES,
+		);
+	}
+
+	// a GeoJSON is UTF-8 by its standard, but older software writes the system code
+	// page: core converts what it can (windows-1252 is a guess the user must check)
+	// and refuses what it cannot, never substituting U+FFFD
+	const decoded =
+		extension === 'geojson'
+			? decodeUploadedText(new Uint8Array(await Bun.file(staged).arrayBuffer()))
+			: null;
+
+	const geojson = await withScratchDir(async (dir) => {
+		// distinct names: for a .geojson they would collide, and ogr2ogr refuses
+		// "Source and destination datasets must be different"
+		const inputFile = join(dir, `uca_maps_upload_in.${format.scratchExtension}`);
+		await Bun.write(
+			inputFile,
+			decoded !== null ? JSON.stringify(parseStrictGeoJson(decoded.text)) : Bun.file(staged),
+		);
+		const outputFile = join(dir, 'uca_maps_upload_out.geojson');
+
+		// the declared-CRS refusal goes BEFORE the fields are judged: on a file
+		// that declares its own, "zone and band go together" or "fill in its zone
+		// and band" would send the user to fill in fields that must end up empty
+		if (typed) {
+			const declares = await declaresOwnCrs(dir, inputFile, extension);
+			if (declares) {
+				throw invalidOptions(
+					'This file already declares its own projection: leave EPSG, zone and band empty',
+					'projection_already_declared',
+				);
+			}
+		}
+		const projection = parseManualProjection(ctx.options);
+		if (projection !== null) await checkManualProjection(dir, projection);
+
+		const ogr2ogr = await resolveGdalBinary('ogr2ogr');
+		const argv = [
+			ogr2ogr,
+			...inputDrivers(...format.drivers),
+			'-f',
+			'GeoJSON',
+			'-t_srs',
+			'EPSG:4326',
+		];
+		if (projection !== null) argv.push('-s_srs', `EPSG:${projection.epsg}`);
+		argv.push(outputFile, inputFile);
+
+		try {
+			await runToolBinary(argv, `vector_upload (${extension})`, {
+				scratchDir: dir,
+				expectedOutput: outputFile,
+			});
+		} catch (error) {
+			// a source with no CRS and no fields: ogr2ogr's stderr says so ("has no
+			// coordinate system … Use -s_srs"). Matched on the message: a wrong
+			// override fails otherwise and keeps its generic error.
+			const message = error instanceof Error ? error.message : String(error);
+			if (projection === null && /coordinate system/i.test(message)) {
+				throw invalidOptions(
+					'This file has no embedded coordinate system (no .prj / crs member) — ' +
+						'provide its EPSG code (and, for a UTM one, its zone and band) to reproject it',
+					'no_coordinate_system',
+				);
+			}
+			throw error;
+		}
+
+		return readConvertedLayer(dir, outputFile, inputFile, extension, projection);
+	});
+
+	return ok(
+		{
+			geojson,
+			feature_count: geojson.features.length,
+			...(decoded?.encoding === 'windows-1252' ? { read_as: decoded.encoding } : {}),
+		},
+		{ requestId: toolRequestId(ctx) },
+	);
+}
+
+/** The uploaded GeoJSON's text, through core's ingest decoder; its refusals
+ * (a binary file, or one already carrying U+FFFD) keyed for the user's language. */
+function decodeUploadedText(bytes: Uint8Array): DecodedIngestText {
+	try {
+		return decodeIngestBytes(bytes, 'GeoJSON');
+	} catch (error) {
+		if (error instanceof DedaloError && error.code === 'request.invalid_data') {
+			throw invalidOptions(error.message, 'upload_text_unreadable', error);
+		}
+		throw error;
+	}
+}

@@ -65,6 +65,12 @@ Section-level tools surface on the section itself. A tool's own `isAvailable(con
 | `tool_image_rotation` | Applies rotation and proportional crop transformations to image-component files across all quality levels | [reference](tool_image_rotation.md) |
 | `tool_upload` | Post-upload processing: moves uploaded files from temp to final storage and triggers component-specific file processing | [reference](tool_upload.md) |
 
+### Maps
+
+| Tool | Purpose | Reference |
+| --- | --- | --- |
+| `tool_uca_maps` | Cartography toolbar for `component_geolocation`: object console (measures, style, vector download, PDF), XYZ/WMS layers saved on the record, vector and georeferenced-image upload with GDAL reprojection, Catastro/administrative units/elevation/place search through core's geo services, Roman Empire gazetteers, legend and map-as-image export | [reference](tool_uca_maps.md) |
+
 ### Thesaurus & ontology
 
 | Tool | Purpose | Reference |

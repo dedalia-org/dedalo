@@ -59,18 +59,24 @@
 	"tools": [
 		{
 			"typo": "ddo",
-			"model": "tool_leaflet_special_tools",
-			"name": "tool_leaflet_special_tools",
-			"label": "Tool Leaflet Special Tools",
-			"developer": "Manuel Jesús Dávila González",
+			"model": "tool_uca_maps",
+			"name": "tool_uca_maps",
+			"label": "UCA Maps",
+			"developer": "Universidad de Cádiz (Manuel Jesús Dávila González) / Museu de Prehistòria de València",
 			"section_tipo": "dd1324",
 			"mode": "edit",
-			"properties": null,
-			"css": {
-				"url": "/v7/tools/tool_leaflet_special_tools/css/tool_leaflet_special_tools.css"
+			"properties": {
+				"open_as": "modal",
+				"windowFeatures": {
+					"width": "60rem",
+					"maxWidth": "100%"
+				}
 			},
-			"icon": "/v7/tools/tool_leaflet_special_tools/img/icon.svg",
-			"show_in_inspector": true,
+			"css": {
+				"url": "/v7/tools/tool_uca_maps/css/tool_uca_maps.css"
+			},
+			"icon": "/v7/tools/tool_uca_maps/img/icon.svg",
+			"show_in_inspector": false,
 			"show_in_component": true,
 			"type": "tool"
 		},

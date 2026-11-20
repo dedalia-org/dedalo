@@ -125,6 +125,7 @@ certs
 #   publication/host_agent/.gitignore
 #   publication/server_api/v2/.gitignore
 #   publication/site_builder/.gitignore
+#   tools/tool_uca_maps/gazetteers/.gitignore
 node_modules
 **/*/node_modules
 .DS_Store
@@ -223,6 +224,10 @@ publication/site_builder/.test-tmp
 publication/site_builder/**/*/.test-tmp
 publication/site_builder/.env.pre-instance
 publication/site_builder/**/*/.env.pre-instance
+tools/tool_uca_maps/gazetteers/pleiades.json
+tools/tool_uca_maps/gazetteers/**/*/pleiades.json
+tools/tool_uca_maps/gazetteers/pelagios
+tools/tool_uca_maps/gazetteers/**/*/pelagios
 
 # --- 5. Named explicitly (the OPS-01 assets). --------------------------------
 # Already covered by 1, 3 and 4. Stated anyway: these are the paths install.sh

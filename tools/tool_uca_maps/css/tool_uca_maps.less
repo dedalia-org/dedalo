@@ -1,0 +1,1684 @@
+/**
+* TOOL_UCA_MAPS
+*
+* Loaded on tool init
+*/
+
+// imports
+@import (once) '../../../client/dedalo/core/page/css/layout/vars';
+@import (once, reference) '../../../client/dedalo/core/page/css/layout/fonts';
+@import (once, reference) '../../../client/dedalo/core/tools_common/css/tool_mixins';
+
+// local vars
+// THE TOOL'S PALETTE: every paint is a token, or a retune cannot reach it
+// (colour_literal_ratchet_tripwire). APP CHROME (panels, buttons, messages)
+// reads core's semantic tokens and follows the theme; MAP CHROME sits on the
+// BASEMAP, which never darkens, so its dark twins below repeat the values.
+:root {
+	// the tool's identity hue IS the brand orange: read it from the palette so
+	// a retune moves this with it (--color_orange_dedalo is FILL ONLY; its ink
+	// is --fg_on_brand, never white — vars_tokens.less)
+	--tool_uca_maps: var(--color_orange_dedalo);
+
+	// --- map chrome (theme-invariant) ---
+	// Geoman's own glyph grey and pressed shade: the toolbar reads as one
+	// more bar beside Geoman's
+	--uca_maps_toolbar_glyph: #5b5b5b;
+	--uca_maps_toolbar_pressed: rgba(81, 77, 77, 0.31);
+	--uca_maps_map_chrome_bg: #ffffff;
+	--uca_maps_map_chrome_fg: #212529;
+	--uca_maps_map_chrome_border: #adb5bd;
+	--uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+	// Leaflet's own selection blue: the handle reads as part of the editor it
+	// belongs to, so it tracks the library, not this palette
+	--uca_maps_handle_border: #3388ff;
+	--uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+	// v6's `img/escala-<tier>.png` ramp, sampled from the binaries (six 40px
+	// bands). A data scale means the same thing in both themes.
+	--uca_maps_uncertainty_1: #4A7440;
+	--uca_maps_uncertainty_2: #5AB845;
+	--uca_maps_uncertainty_3: #31F705;
+	--uca_maps_uncertainty_4: #F7F005;
+	--uca_maps_uncertainty_5: #F79805;
+	--uca_maps_uncertainty_6: #F76C05;
+	--uca_maps_uncertainty_ring: #16181b;
+
+	// --- inline panel messages (app chrome: these DO flip) ---
+	--uca_maps_msg_ok_bg: #d1e7dd;
+	--uca_maps_msg_ok_fg: #0f5132;
+	--uca_maps_msg_warning_bg: #fff3cd;
+	--uca_maps_msg_warning_fg: #664d03;
+	--uca_maps_msg_error_bg: #f8d7da;
+	--uca_maps_msg_error_fg: #842029;
+}
+:root[data-theme="dark"] {
+	// map chrome: the SAME values. A basemap is lit the same way in both
+	// themes, so this is a twin that states invariance, not a copy-paste.
+	// Except the glyph: core darkens every .leaflet-bar here
+	// (component_geolocation.less), so it takes core's ink.
+	--uca_maps_toolbar_glyph: var(--fg_default);
+	--uca_maps_toolbar_pressed: rgba(81, 77, 77, 0.31);
+	--uca_maps_map_chrome_bg: #ffffff;
+	--uca_maps_map_chrome_fg: #212529;
+	--uca_maps_map_chrome_border: #adb5bd;
+	--uca_maps_legend_overlay_bg: rgba(255, 255, 255, 0.9);
+	--uca_maps_handle_border: #3388ff;
+	--uca_maps_handle_shadow: rgba(0, 0, 0, 0.5);
+	--uca_maps_uncertainty_1: #4A7440;
+	--uca_maps_uncertainty_2: #5AB845;
+	--uca_maps_uncertainty_3: #31F705;
+	--uca_maps_uncertainty_4: #F7F005;
+	--uca_maps_uncertainty_5: #F79805;
+	--uca_maps_uncertainty_6: #F76C05;
+	--uca_maps_uncertainty_ring: #16181b;
+
+	// the message tints ARE app chrome: a pale pastel under near-white ink is
+	// the "paired-but-unreadable" shape, so dark gets its own deep tint
+	--uca_maps_msg_ok_bg: #1f3a2c;
+	--uca_maps_msg_ok_fg: #b7e4c7;
+	--uca_maps_msg_warning_bg: #3d3016;
+	--uca_maps_msg_warning_fg: #ffe08a;
+	--uca_maps_msg_error_bg: #4a1f24;
+	--uca_maps_msg_error_fg: #f5b7bd;
+}
+@tool_color : var(--tool_uca_maps);
+
+// Type scale: two steps on the page's own base (html is 13px, so 1rem is the
+// app's body text). The panels sit inside Leaflet's container, whose own
+// 12px Helvetica they would otherwise inherit.
+@uca_maps_text_small: 0.85rem;
+
+// Shared per-panel action-button chrome. Mixins, not a shared class: each
+// panel scopes `button` to its own root, so a stray `<button>` never picks it up.
+// Colour comes from core's .tool_action_button() (fill, ink and hover as one
+// set): the panels carry `data-tool`, so the generated tokens reach them.
+.uca-maps-panel-action-button() {
+	.tool_action_button();
+	flex: 0 0 auto;
+	white-space: nowrap;
+	border: none;
+	border-radius: 0.2rem;
+	padding: 0.3rem 0.6rem;
+	font-size: 1rem;
+	cursor: pointer;
+
+	&:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+}//end uca-maps-panel-action-button
+
+// the smaller, muted secondary variant (▲/▼/✕/Add on a list row). The fill is
+// --bg_fill_inverse, the neutral built to carry inverse ink at AA in both
+// themes, so the ink is named here instead of inherited from the panel. Its
+// hover stays neutral: the tool hover fill was tuned for the tool ink, not this.
+.uca-maps-panel-secondary-button() {
+	padding: 0.15rem 0.4rem;
+	font-size: @uca_maps_text_small;
+	background-color: var(--bg_fill_inverse);
+	color: var(--fg_inverse);
+
+	&:hover {
+		background-color: var(--bg_fill_inverse);
+		filter: brightness(0.92);
+	}
+}//end uca-maps-panel-secondary-button
+
+// a bare icon as a button (v6's `<img>` with a pointer cursor): the eye of
+// .uca-maps-object-viewer-center and .uca-maps-wms-eye. The colour lives here
+// and the inline SVG inherits it (currentColor).
+.uca-maps-panel-icon-button() {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	background: none;
+	border: none;
+	padding: 0 0.15rem;
+	color: @tool_color;
+	cursor: pointer;
+
+	&:hover {
+		filter: brightness(0.92);
+	}
+}//end uca-maps-panel-icon-button
+
+// the in-flow status line panels use instead of the `ui.show_message` toast,
+// which a panel's own `overflow-y: auto` would clip. Its `data-type` (each
+// show_*_message) picks the tint: error by default, ok, warning, or info.
+.uca-maps-panel-inline-message() {
+	background-color: var(--uca_maps_msg_error_bg);
+	color: var(--uca_maps_msg_error_fg);
+
+	&[data-type="ok"] {
+		background-color: var(--uca_maps_msg_ok_bg);
+		color: var(--uca_maps_msg_ok_fg);
+	}
+	&[data-type="warning"] {
+		background-color: var(--uca_maps_msg_warning_bg);
+		color: var(--uca_maps_msg_warning_fg);
+	}
+	&[data-type="info"] {
+		background-color: var(--bg_surface_alt);
+		color: var(--fg_default);
+	}
+	border-radius: 0.2rem;
+	padding: 0.35rem 0.5rem;
+	font-size: @uca_maps_text_small;
+	// a refusal is two lines (panel_error_text.js): what failed, then why
+	white-space: pre-line;
+
+	&[hidden] {
+		display: none;
+	}
+}//end uca-maps-panel-inline-message
+
+// the floating surface every panel and the Roma dropdown share
+.uca-maps-floating-surface() {
+	background: var(--bg_elevated);
+	color: var(--fg_default);
+	border-radius: 0.25rem;
+	box-shadow: 0 0.1rem 0.5rem var(--shadow_default);
+	.global_font();
+	font-size: 1rem;
+}//end uca-maps-floating-surface
+
+// a panel form: one column of full-width fields
+.uca-maps-column-form() {
+	display: flex;
+	flex-direction: column;
+	gap: 0.3rem;
+	padding: 0.5rem 0.75rem;
+
+	input {
+		min-width: 0;
+	}
+}//end uca-maps-column-form
+
+.uca-maps-button-row() {
+	display: flex;
+	gap: 0.3rem;
+}//end uca-maps-button-row
+
+// the muted small-caps title above a panel list
+.uca-maps-list-title(@margin_top) {
+	margin: @margin_top 0.75rem 0.2rem;
+	font-size: @uca_maps_text_small;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--fg_muted);
+}//end uca-maps-list-title
+
+.uca-maps-list() {
+	list-style: none;
+	margin: 0 0 0.5rem;
+	padding: 0 0.75rem;
+}//end uca-maps-list
+
+.uca-maps-list-row() {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.2rem 0;
+}//end uca-maps-list-row
+
+// the name that takes a row's free width and cuts to one line
+.uca-maps-ellipsis() {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}//end uca-maps-ellipsis
+
+// the separator between the sub-flows of one panel (upload, Roma)
+.uca-maps-subtitle(@margin) {
+	margin: @margin;
+	padding-top: 0.5rem;
+	border-top: 1px solid var(--border_default);
+	font-size: @uca_maps_text_small;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--fg_muted);
+}//end uca-maps-subtitle
+
+// tool wrapper: scopes the tool's content against core. The modal is
+// transient (it closes once the panels are attached), so content_data only
+// holds the map-status notice; every panel hangs from the MAP's container.
+.wrapper_tool.tool_uca_maps {
+
+	>.content_data {
+
+		>.map_status_container {
+			padding: 1rem 0;
+
+			>.notice {
+				padding: 0.75rem 1rem;
+				border-radius: 0.25rem;
+				font-size: 1rem;
+
+				&.notice_warning {
+					background-color: var(--uca_maps_msg_warning_bg);
+					color: var(--uca_maps_msg_warning_fg);
+				}
+				&.notice_error {
+					background-color: var(--uca_maps_msg_error_bg);
+					color: var(--uca_maps_msg_error_fg);
+				}
+			}
+		}//end map_status_container
+
+	}//end content_data
+}//end wrapper_tool
+
+// LEFT TOOLBAR: every functionality gets its OWN toggle button and, when it
+// needs one, its OWN anchored panel, both through toolbar.js. Below is the
+// SHARED chrome; each functionality adds only its identity class.
+
+// shared button chrome, scoped to the map: the buttons live outside the tool's
+// DOM and outlive its modal. Leaflet's `.leaflet-bar a` paints the squares of
+// the one bar; Geoman's box (border-box, 5px padding) is the model, so the
+// hairline does not make a square taller. 5px below the zoom bar, not Leaflet's
+// 10px: the core's edit map (about 29.5rem) is barely taller than the column.
+.leaflet-control.uca-maps-toolbar {
+	margin-top: 5px;
+}
+
+// phone: the bar keeps the 30px squares of the map's other controls (Leaflet's
+// zoom, Geoman), and scrolls in its own box when the map is shorter than its
+// 13 buttons. The top-left corner, holding this bar, spans the map's height so
+// the bar can shrink inside it; Leaflet's corners take no pointer events, so
+// the map under it still pans.
+@media screen and (max-width: @width_break_point_phone) {
+	.leaflet-top.leaflet-left:has(> .uca-maps-toolbar) {
+		bottom: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.leaflet-control.uca-maps-toolbar {
+		flex: 0 1 auto;
+		min-height: 0;
+		margin-bottom: 10px;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+}
+.uca-maps-toolbar > .uca-maps-toolbar-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	padding: 5px;
+	color: var(--uca_maps_toolbar_glyph);
+	cursor: pointer;
+}
+.uca-maps-toolbar-glyph {
+	display: block;
+	// core's solid glyphs read larger than Geoman's line art in the same
+	// 20px box: 18px matches them by eye
+	width: 18px;
+	height: 18px;
+	background-color: currentColor;
+	-webkit-mask-size: contain;
+			mask-size: contain;
+	-webkit-mask-repeat: no-repeat;
+			mask-repeat: no-repeat;
+	-webkit-mask-position: center;
+			mask-position: center;
+}
+// core theme icons, the set every Dédalo button draws from
+.uca-maps-icon(@name) {
+	-webkit-mask-image: url('../../../core/themes/default/icons/@{name}.svg');
+			mask-image: url('../../../core/themes/default/icons/@{name}.svg');
+}
+.uca-maps-icon-info		{ .uca-maps-icon(info); }
+.uca-maps-icon-download	{ .uca-maps-icon(download); }
+.uca-maps-icon-upload	{ .uca-maps-icon(upload); }
+.uca-maps-icon-search	{ .uca-maps-icon(search); }
+
+// the tool's own icons (img/), drawn to match Geoman's line art, for what the
+// core set has no picture of
+.uca-maps-own-icon(@name) {
+	-webkit-mask-image: url('../img/@{name}.svg');
+			mask-image: url('../img/@{name}.svg');
+}
+.uca-maps-icon-object_viewer			{ .uca-maps-own-icon(object_viewer); }
+.uca-maps-icon-onexone					{ .uca-maps-own-icon(onexone); }
+.uca-maps-icon-xyz_basemaps				{ .uca-maps-own-icon(xyz_basemaps); }
+.uca-maps-icon-wms_services				{ .uca-maps-own-icon(wms_services); }
+.uca-maps-icon-catastro					{ .uca-maps-own-icon(catastro); }
+.uca-maps-icon-administrative_units		{ .uca-maps-own-icon(administrative_units); }
+.uca-maps-icon-geolocate				{ .uca-maps-own-icon(geolocate); }
+.uca-maps-icon-legend					{ .uca-maps-own-icon(legend); }
+.uca-maps-icon-roman_empire				{ .uca-maps-own-icon(roman_empire); }
+
+// pressed: Geoman's own inset shade, plus the tool colour as a thin edge
+// (decoration only, never under text). One look for an open panel and for
+// an armed toggle (1x1, Catastro, GPS).
+.uca-maps-toolbar-pressed() {
+	box-shadow: inset 3px 0 0 var(--tool_uca_maps), inset 0 -1px 5px 2px var(--uca_maps_toolbar_pressed);
+}
+.uca-maps-toolbar-button-active,
+.uca-maps-onexone-control.uca-maps-onexone-enabled {
+	.uca-maps-toolbar-pressed();
+}
+
+// "nothing here yet": one look everywhere (panels, the gallery, the Roma
+// dropdown, which hangs outside any panel); a place may add its own spacing
+.uca-maps-empty-state {
+	color: var(--fg_muted);
+	font-style: italic;
+	margin: 0;
+	padding: 0.2rem 0;
+}
+
+// shared panel chrome, anchored to the live map's container, NOT the tool's
+// modal, which closes itself as in v6. toolbar.js anchor_panel_to_button
+// places it by its OWN button, never at a hardcoded offset.
+.uca-maps-panel {
+	position: absolute;
+	z-index: 1000;
+	top: var(--uca_maps_anchor_top);
+	left: var(--uca_maps_anchor_left);
+	width: 18rem;
+	max-width: calc(100% - 1rem);
+	max-height: 70%;
+	overflow-y: auto;
+	.uca-maps-floating-surface();
+
+	&[hidden] {
+		display: none;
+	}
+
+	>.uca-maps-panel-header {
+		// sticky: the panel itself scrolls past max-height, and the header
+		// must stay in view while it does
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		padding: 0.5rem 0.75rem;
+		// the tool header's own treatment (tool_common.less): the hue is a 4px
+		// edge over the theme's surface (decoration), the title in the theme's ink
+		border-top: 4px solid @tool_color;
+		background-color: var(--bg_surface_alt);
+		color: var(--fg_default);
+		box-shadow: inset 0 -1px 0 var(--border_default);
+		border-radius: 0.25rem 0.25rem 0 0;
+
+		>.uca-maps-panel-title {
+			font-weight: bold;
+		}
+	}
+
+	// toolbar.js `centered`: v6's modal box — 600 px wide, centred across the
+	// map, 80 px below its top edge (`new_modal`) — never beside its button.
+	// A fixed top, not a vertical centre: a growing list then extends
+	// downward instead of moving the whole panel. No backdrop: the map stays live.
+	&.uca-maps-panel-centered {
+		top: 5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 37.5rem;
+		max-width: calc(100% - 2rem);
+		max-height: calc(100% - 6rem);
+
+		>.uca-maps-panel-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 0.5rem;
+
+			>.uca-maps-panel-close {
+				flex: 0 0 auto;
+				background: none;
+				border: none;
+				padding: 0 0.2rem;
+				color: inherit;
+				font-size: 1.3rem;
+				line-height: 1;
+				cursor: pointer;
+
+				&:hover {
+					opacity: 0.75;
+				}
+			}
+		}
+	}
+
+	// phone: every panel fills the map beside the bar and below the core's
+	// view box (toolbar.js measure_bar_edge), never over either, so another
+	// button switches panels without closing this one; the console's own
+	// width included
+	@media screen and (max-width: @width_break_point_phone) {
+		&,
+		&.uca-maps-panel-centered,
+		&.uca-maps-console {
+			top: var(--uca_maps_panel_top, 0.5rem);
+			left: var(--uca_maps_bar_edge, 0.5rem);
+			right: 0.5rem;
+			width: auto;
+			max-width: none;
+			max-height: calc(100% - var(--uca_maps_panel_top, 0.5rem) - 0.5rem);
+			transform: none;
+		}
+
+		// the panels live in the map, outside .wrapper_tool, so the shared
+		// phone tier (tools_common/css/tool_responsive.less) does not reach
+		// them: its control rules, restated. 44px = its @phone_hit_target;
+		// 16px text, or iOS Safari zooms the page on focus
+		input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+		select,
+		textarea {
+			max-width: 100%;
+			font-size: max(16px, 1em);
+		}
+		input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+		select,
+		button,
+		[role="button"] {
+			min-width: 44px;
+			min-height: 44px;
+		}
+	}
+}//end uca-maps-panel
+
+// "Download map as image" (map_image_download.js): the same select+button
+// flex row as the object section's .uca-maps-download, for the whole map
+.uca-maps-map-image-panel {
+	>.uca-maps-map-image-row {
+		display: flex;
+		gap: 0.3rem;
+		padding: 0.5rem 0.75rem;
+	}
+
+	// Name row and format row are the same flex-row shape; the second one
+	// drops its top padding so the pair reads as one block.
+	>.uca-maps-map-image-row + .uca-maps-map-image-row {
+		padding-top: 0;
+	}
+
+	.uca-maps-map-image-name-label {
+		flex: 0 0 auto;
+		align-self: center;
+		font-size: @uca_maps_text_small;
+	}
+
+	.uca-maps-map-image-name {
+		flex: 1 1 6rem;
+		min-width: 0;
+	}
+
+	.uca-maps-map-image-format {
+		flex: 1 1 4rem;
+		min-width: 0;
+	}
+
+	.uca-maps-map-image-button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-map-image-message,
+	.uca-maps-map-image-direct {
+		.uca-maps-panel-inline-message();
+		margin: 0 0.75rem 0.5rem;
+	}
+}//end uca-maps-map-image-panel
+
+// "Objects" (object_viewer.js): v6's two read-only lists
+// (special_tools_objects.js create_containers); view, toggle and center only
+.uca-maps-object-viewer-panel {
+
+	>.uca-maps-object-viewer-title {
+		.uca-maps-list-title(0.5rem);
+	}
+
+	.uca-maps-object-viewer-list {
+		.uca-maps-list();
+
+		>.uca-maps-object-viewer-item {
+			.uca-maps-list-row();
+
+			.uca-maps-object-viewer-checkbox {
+				flex: 0 0 auto;
+			}
+
+			.uca-maps-object-viewer-name {
+				.uca-maps-ellipsis();
+			}
+
+			// v6 puts a bare <img img/view.png> with a pointer cursor here, not a
+			// labelled button: the eye carries the meaning, so nothing frames it.
+			.uca-maps-object-viewer-center {
+				.uca-maps-panel-icon-button();
+			}
+		}
+	}//end uca-maps-object-viewer-list
+
+}//end uca-maps-object-viewer-panel
+
+// "XYZ" (xyz_basemaps.js): add form + reorderable list
+.uca-maps-xyz-panel {
+
+	.uca-maps-xyz-add-form {
+		.uca-maps-column-form();
+	}
+
+	// plain in-flow error line, NOT the ui.show_message toast, which needs a
+	// page-level host (render_xyz_basemaps.js show_xyz_message)
+	.uca-maps-xyz-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-xyz-zoom-row {
+		display: flex;
+		gap: 0.3rem;
+
+		input {
+			flex: 1 1 4rem;
+		}
+	}
+
+	.uca-maps-xyz-list-title {
+		.uca-maps-list-title(0.3rem);
+	}
+
+	.uca-maps-xyz-list {
+		.uca-maps-list();
+
+		>.uca-maps-xyz-item {
+			.uca-maps-list-row();
+
+			.uca-maps-xyz-item-name {
+				.uca-maps-ellipsis();
+			}
+
+			.uca-maps-xyz-item-controls {
+				flex: 0 0 auto;
+				display: flex;
+				gap: 0.2rem;
+			}
+		}
+	}//end uca-maps-xyz-list
+
+	// every button in this panel — Add, ▲, ▼, ✕ (same shared chrome as the
+	// console section's own button rule)
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-xyz-move-up, .uca-maps-xyz-move-down, .uca-maps-xyz-delete {
+		.uca-maps-panel-secondary-button();
+	}
+
+}//end uca-maps-xyz-panel
+
+// "WMS" (wms_services.js): search form + two lists (results, added)
+.uca-maps-wms-panel {
+
+	.uca-maps-wms-search-form {
+		.uca-maps-column-form();
+	}
+
+	// same reasoning as .uca-maps-xyz-message: a plain in-flow line, not the
+	// page-level toast this floating panel cannot host
+	.uca-maps-wms-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-wms-button-row {
+		.uca-maps-button-row();
+	}
+
+	.uca-maps-wms-list-title {
+		.uca-maps-list-title(0.3rem);
+	}
+
+	.uca-maps-wms-results, .uca-maps-wms-list {
+		.uca-maps-list();
+	}
+
+	.uca-maps-wms-results {
+		>.uca-maps-wms-result-item {
+			.uca-maps-list-row();
+
+			.uca-maps-wms-result-title {
+				.uca-maps-ellipsis();
+			}
+		}
+	}
+
+	.uca-maps-wms-list {
+		>.uca-maps-wms-item {
+			.uca-maps-list-row();
+
+			.uca-maps-wms-eye {
+				.uca-maps-panel-icon-button();
+			}
+
+			.uca-maps-wms-item-title {
+				.uca-maps-ellipsis();
+			}
+
+			// min-width:0 too: a range's automatic minimum is its default
+			// intrinsic width, which beat the basis and squeezed the name out
+			.uca-maps-wms-opacity {
+				flex: 0 0 6rem;
+				width: 6rem;
+				min-width: 0;
+			}
+		}
+	}
+
+	// every button in this panel — Search, Clear, Add, ✕ (the eye and the
+	// header's × override it with a more specific rule)
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-wms-result-add, .uca-maps-wms-delete {
+		.uca-maps-panel-secondary-button();
+	}
+
+}//end uca-maps-wms-panel
+
+// "Catastro" (catastro.js) is a toggle with no panel: same pressed look as "1x1"
+.uca-maps-catastro-control.uca-maps-catastro-enabled {
+	.uca-maps-toolbar-pressed();
+}
+// its lines are core's ui.show_message: a two-line message keeps its break
+.uca-maps-catastro-message .text {
+	white-space: pre-line;
+}
+
+// "UA" (administrative_units.js): the unit found (message line) + hint
+.uca-maps-ua-panel {
+
+	.uca-maps-ua-message {
+		.uca-maps-panel-inline-message();
+		margin: 0.5rem 0.75rem 0;
+	}
+
+	.uca-maps-ua-hint {
+		margin: 0.5rem 0.75rem;
+		font-size: @uca_maps_text_small;
+		color: var(--fg_muted);
+	}
+
+}//end uca-maps-ua-panel
+
+// "Upload file to map" (vector_upload.js + image_upload.js): ONE panel, two
+// sub-flows separated by a subtitle
+.uca-maps-upload-panel {
+
+	// one per sub-flow: under the Upload button (vector), under the picker (image)
+	.uca-maps-upload-message {
+		.uca-maps-panel-inline-message();
+		margin: 0 0.75rem 0.75rem;
+	}
+
+	.uca-maps-upload-hint {
+		margin: 0.5rem 0.75rem;
+		font-size: @uca_maps_text_small;
+		color: var(--fg_muted);
+	}
+
+	// the image picker closes its sub-flow (choosing the file uploads it),
+	// so both pickers keep the bottom margin a button would otherwise take
+	.uca-maps-upload-file,
+	.uca-maps-upload-image-file {
+		display: block;
+		width: calc(100% - 1.5rem);
+		margin: 0 0.75rem 0.75rem;
+	}
+
+	.uca-maps-upload-epsg-row {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0 0.75rem 0.5rem;
+
+		.uca-maps-upload-epsg {
+			flex: 0 1 5rem;
+			min-width: 0;
+		}
+
+		// v6's st-input-25 against the EPSG field's st-input-50
+		.uca-maps-upload-zone,
+		.uca-maps-upload-band {
+			flex: 0 1 2.5rem;
+			min-width: 0;
+		}
+
+		.uca-maps-upload-epsg-link {
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow-wrap: anywhere;
+			font-size: @uca_maps_text_small;
+		}
+
+		// phone: three label/field pairs in one row left each label one
+		// letter wide; one pair per line, the link on its own
+		@media screen and (max-width: @width_break_point_phone) {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr);
+			align-items: center;
+
+			.uca-maps-upload-epsg-link {
+				grid-column: 1 / -1;
+			}
+		}
+	}
+
+	// v6's small st-btn-info (9 px): a toggle, not the panel's main action
+	.uca-maps-upload-projections-button {
+		.uca-maps-panel-action-button();
+		display: block;
+		margin: 0 0.75rem;
+		padding: 0.2rem 0.5rem;
+		font-size: @uca_maps_text_small;
+	}
+
+	// the vector half's only upload trigger: it comes after the projection
+	// fields, which have to be filled in before it is pressed
+	.uca-maps-upload-submit {
+		.uca-maps-panel-action-button();
+		display: block;
+		margin: 0.25rem 0.75rem 0.75rem;
+	}
+
+	// the image sub-flow reuses the vector one's spacing; only the separator
+	// is new
+	.uca-maps-panel-subtitle {
+		.uca-maps-subtitle(0.25rem 0.75rem 0);
+	}
+
+	// the vector half opens the panel: nothing above it to separate from
+	.uca-maps-upload-vector-title {
+		margin-top: 0.5rem;
+		padding-top: 0;
+		border-top: none;
+	}
+
+}//end uca-maps-upload-panel
+
+// uploaded image overlay (image_upload.js): it sits ABOVE the vector SVG and
+// would swallow the click meant for its carrier rectangle. Leaflet's
+// `interactive:false` stops LAYER events; only this stops the pointer.
+.uca-maps-image-overlay {
+	pointer-events: none;
+}
+
+// the three draggable control points of "Activar edición" (image_edit.js): a
+// divIcon, not v6's `img/button.png`: no binary, and crisp at any zoom
+.uca-maps-image-handle {
+	box-sizing: border-box;
+	background: var(--uca_maps_map_chrome_bg);
+	border: 2px solid var(--uca_maps_handle_border);
+	border-radius: 50%;
+	box-shadow: 0 0 3px var(--uca_maps_handle_shadow);
+	cursor: move;
+}
+
+// object console (object_console.js): header + the selected-object section
+.uca-maps-console {
+	// wider than a plain panel: every style/property row of the selected
+	// object lives here
+	width: 22rem;
+
+	>.uca-maps-object-section {
+		padding: 0.5rem 0.75rem;
+
+		// section headings in sentence case and BOLD, as v6 (`special_tools.js`
+		// `info_console_load_properties`): grey small-caps read as disabled
+		// labels. `.uca-maps-section`, below, is v6's line above each block.
+		h6 {
+			margin: 0 0 0.35rem;
+			font-size: @uca_maps_text_small;
+			font-weight: 700;
+			letter-spacing: 0.02em;
+			color: inherit;
+		}
+
+		>.uca-maps-section {
+			border-top: 1px solid var(--border_default);
+			margin-top: 0.7rem;
+			padding-top: 0.55rem;
+		}
+
+		.uca-maps-object-gallery-title {
+			margin: 0.6rem 0 0.35rem;
+			font-size: @uca_maps_text_small;
+			font-weight: 700;
+		}
+
+		.uca-maps-object-info {
+			margin: 0.35rem 0;
+		}
+
+		// associated images: fixed-size thumbnails, not `auto-fill`: in a
+		// narrow panel a thumbnail stretched to its width stops being one
+		.uca-maps-object-gallery {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.3rem;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-object-gallery-item {
+			position: relative;
+			width: 4rem;
+			height: 4rem;
+		}
+
+		.uca-maps-object-gallery-thumb {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			display: block;
+		}
+
+		.uca-maps-object-gallery-remove {
+			position: absolute;
+			top: 0;
+			right: 0;
+			line-height: 1;
+			padding: 0 0.2rem;
+		}
+
+		.uca-maps-object-gallery-empty {
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-object-image-status {
+			margin: 0.35rem 0;
+			font-style: italic;
+		}
+
+		.uca-maps-object-image-file {
+			display: block;
+			width: 100%;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-object-linked-import {
+			display: block;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-object-linked-status {
+			margin: 0.35rem 0;
+			font-style: italic;
+		}
+
+		// a link is one unbroken string: without this it widens the panel
+		.uca-maps-object-linked-failure {
+			overflow-wrap: anywhere;
+		}
+
+		.uca-maps-field {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			margin: 0.3rem 0;
+
+			>span {
+				flex: 0 0 auto;
+			}
+
+			// min-width:0: a range's automatic minimum is its intrinsic ~130px,
+			// which pushed opacity/stroke past the panel edge (sideways scroll)
+			>input[type='range'] {
+				flex: 1 1 auto;
+				min-width: 0;
+			}
+		}
+
+		// image-overlay branch: shown INSTEAD of the geometry controls when the
+		// selected object carries an image
+		.uca-maps-image-view {
+			display: inline-block;
+			margin: 0.35rem 0;
+		}
+
+		.uca-maps-image-row {
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			margin: 0.3rem 0;
+
+			>label {
+				flex: 0 0 auto;
+			}
+
+			>input {
+				flex: 1 1 auto;
+				min-width: 0;
+			}
+		}
+
+		// v6 draws the scale as an <img> at 60% of the console width
+		// (`special_tools.js` `create_div_incertidumbre`); same width here,
+		// the bands themselves are the inline SVG in render_object_console.js.
+		.uca-maps-uncertainty-scale {
+			margin: 0.25rem 0;
+
+			>svg {
+				display: block;
+				width: 60%;
+				height: auto;
+			}
+
+			// the ramp is painted HERE, not by a fill attribute in the
+			// builder: a paint spelled in JS is one the palette cannot reach
+			.uca-maps-uncertainty-band-1 { fill: var(--uca_maps_uncertainty_1); }
+			.uca-maps-uncertainty-band-2 { fill: var(--uca_maps_uncertainty_2); }
+			.uca-maps-uncertainty-band-3 { fill: var(--uca_maps_uncertainty_3); }
+			.uca-maps-uncertainty-band-4 { fill: var(--uca_maps_uncertainty_4); }
+			.uca-maps-uncertainty-band-5 { fill: var(--uca_maps_uncertainty_5); }
+			.uca-maps-uncertainty-band-6 { fill: var(--uca_maps_uncertainty_6); }
+
+			// the marker on the current tier: a hollow ring plus a solid pip,
+			// dark in both themes because it sits on the ramp, not on a surface
+			.uca-maps-uncertainty-ring {
+				fill: none;
+				stroke: var(--uca_maps_uncertainty_ring);
+				stroke-width: 3;
+			}
+			.uca-maps-uncertainty-pip {
+				fill: var(--uca_maps_uncertainty_ring);
+			}
+		}
+
+		.uca-maps-onexone-reference {
+			margin: 0.35rem 0 0.2rem;
+			font-weight: 700;
+		}
+
+		.uca-maps-onexone-uncertainty-label {
+			font-weight: 700;
+		}
+
+		.uca-maps-uncertainty-badge {
+			margin: 0.2rem 0 0.4rem;
+			font-size: @uca_maps_text_small;
+			color: var(--fg_muted);
+			word-break: break-all; // the preserved 1/area bug prints ~20 decimals
+		}
+
+		.uca-maps-properties-list {
+			list-style: none;
+			margin: 0.2rem 0;
+			padding: 0;
+
+			>li.uca-maps-property-item {
+				display: flex;
+				align-items: center;
+				gap: 0.3rem;
+				margin: 0.25rem 0;
+
+				.uca-maps-property-key {
+					flex: 0 0 auto;
+					font-weight: bold;
+					max-width: 40%;
+					overflow: hidden;
+					text-overflow: ellipsis;
+					white-space: nowrap;
+				}
+
+				.uca-maps-property-value,
+				.uca-maps-property-link {
+					flex: 1 1 auto;
+					min-width: 0;
+				}
+
+				.uca-maps-property-delete {
+					flex: 0 0 auto;
+				}
+			}
+		}//end uca-maps-properties-list
+
+		.uca-maps-property-add {
+			display: flex;
+			gap: 0.3rem;
+			margin: 0.4rem 0;
+
+			input {
+				flex: 1 1 4rem;
+				min-width: 0;
+			}
+		}
+
+		// a format <select> and its button share the row: the select grows,
+		// the button keeps its natural width (the shared button rule below)
+		.uca-maps-download {
+			display: flex;
+			gap: 0.3rem;
+			margin-top: 0.6rem;
+		}
+
+		.uca-maps-download-format,
+		.uca-maps-image-download-name {
+			flex: 1 1 4rem;
+			min-width: 0;
+		}
+
+		// a download refusal, under its button (render_download_line.js
+		// create_panel_message)
+		.uca-maps-download-message {
+			.uca-maps-panel-inline-message();
+			margin-top: 0.4rem;
+		}
+
+		// a key "Add" refuses, under its row
+		.uca-maps-property-add-message {
+			.uca-maps-panel-inline-message();
+			margin-top: 0.3rem;
+		}
+
+		// every button in this section: Add, ✕ delete, Download. The mixin's
+		// flex:0 0 auto + nowrap keep "Add" from being squeezed to a letter per
+		// line in a row shared with two flex:1 inputs.
+		button {
+			.uca-maps-panel-action-button();
+		}
+
+		.uca-maps-property-delete {
+			.uca-maps-panel-secondary-button();
+			padding: 0.2rem 0.45rem;
+		}
+	}//end uca-maps-object-section
+
+}//end uca-maps-console
+
+
+// "Search" (place_search.js): a query input, two buttons and a result list
+// whose rows are BUTTONS, so the keyboard reaches them
+.uca-maps-place-search-panel {
+
+	.uca-maps-place-search-form {
+		.uca-maps-column-form();
+	}
+
+	.uca-maps-place-search-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-place-search-button-row {
+		.uca-maps-button-row();
+	}
+
+	.uca-maps-place-search-results {
+		.uca-maps-list();
+
+		>.uca-maps-place-search-result-item {
+			padding: 0.1rem 0;
+
+			// a result row is a full-width text button: it must WRAP, unlike
+			// every other button in this tool (a display_name is a whole
+			// address, and truncating it to one line hides which of two
+			// same-named villages this hit is)
+			.uca-maps-place-search-result-button {
+				display: block;
+				width: 100%;
+				text-align: left;
+				white-space: normal;
+				background-color: transparent;
+				color: inherit;
+				padding: 0.25rem 0.3rem;
+
+				&:hover {
+					background-color: var(--bg_surface_alt);
+					filter: none;
+				}
+			}
+		}
+	}
+
+	// Search + Clear
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+}//end uca-maps-place-search-panel
+
+// "Scale bar" (scale_bar.js): graphic scale + compass rose, bottom-right.
+// NO BACKGROUND, on purpose: v6 draws both straight onto the map, and over a
+// very dark basemap the black ink loses contrast exactly as it does in v6.
+.uca-maps-scale {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.25rem 0.4rem;
+	background-color: transparent;
+	color: var(--uca_maps_map_chrome_fg);
+	line-height: 1;
+
+	.uca-maps-scale-compass {
+		flex: 0 0 auto;
+		display: block;
+	}
+
+	.uca-maps-scale-graphic {
+		flex: 0 0 auto;
+	}
+
+	// the two offset rows are what makes this a "double line" checker bar
+	// rather than Leaflet core's single stroke (v6 `doubleLine: true`)
+	.uca-maps-scale-row {
+		display: flex;
+		height: 6px;
+
+		>.uca-maps-scale-division {
+			flex: 1 1 0;
+			border: 1px solid var(--uca_maps_map_chrome_fg);
+			border-right-width: 0;
+
+			// `fill: hollow` in v6: the filled divisions are inset, so the
+			// outline of every division stays visible either way
+			&.filled {
+				background-color: var(--uca_maps_map_chrome_fg);
+				background-clip: content-box;
+				border-color: var(--uca_maps_map_chrome_fg);
+			}
+		}
+
+		>.uca-maps-scale-division:last-child {
+			border-right-width: 1px;
+		}
+	}
+
+	// the rows share the first one's bottom stroke: a second top border would
+	// draw the middle line twice as thick as the outline. One pixel shorter so
+	// both rows keep the same fill between their lines.
+	.uca-maps-scale-row + .uca-maps-scale-row {
+		height: 5px;
+
+		>.uca-maps-scale-division {
+			border-top-width: 0;
+		}
+	}
+
+	.uca-maps-scale-labels {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 0.15rem;
+		font-size: 0.65rem;
+		white-space: nowrap;
+
+		// labels are aligned to the bar's ENDS, not centred on its end ticks:
+		// a centred end label hangs half its width outside the control and
+		// spills over the map (and out of the exported image). The middle
+		// label is centred by `space-between` on its own.
+	}
+
+}//end uca-maps-scale
+
+// "Geolocation" (geolocate.js) is pressed while the browser's position lookup
+// is in flight, so a slow fix reads as "working", not as a dead button
+.uca-maps-geolocate-control.uca-maps-geolocate-enabled {
+	.uca-maps-toolbar-pressed();
+}
+
+// "Legend" (legend.js, render_legend.js): the edit panel is tool chrome; the
+// overlay on the map is CONTENT, so it also goes into the map image
+.uca-maps-legend-panel {
+
+	.uca-maps-legend-form {
+		.uca-maps-column-form();
+	}
+
+	.uca-maps-legend-message {
+		.uca-maps-panel-inline-message();
+		position: sticky;
+		bottom: 0;
+		z-index: 1;
+		margin: 0.5rem 0.75rem;
+	}
+
+	// a visible label before every name field: a placeholder alone is gone
+	// once the field is filled, and a group then reads like an element
+	.uca-maps-legend-field {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		flex: 1 1 auto;
+		min-width: 0;
+
+		>.uca-maps-legend-field-label {
+			flex: 0 0 auto;
+			font-size: @uca_maps_text_small;
+			font-weight: bold;
+		}
+
+		>input[type="text"] {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	.uca-maps-legend-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.uca-maps-legend-show-label {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: @uca_maps_text_small;
+	}
+
+	.uca-maps-legend-empty {
+		padding: 0 0 0.5rem;
+	}
+
+	.uca-maps-legend-columns {
+		padding: 0 0.75rem;
+	}
+
+	// one card per group
+	.uca-maps-legend-column {
+		border: 1px solid var(--border_default);
+		border-radius: 0.25rem;
+		padding: 0.4rem 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.uca-maps-legend-column-row,
+	.uca-maps-legend-element-row {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-legend-confirm {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 0.4rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: 0.2rem;
+		background-color: var(--uca_maps_msg_warning_bg);
+		color: var(--uca_maps_msg_warning_fg);
+		font-size: @uca_maps_text_small;
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	.uca-maps-legend-elements {
+		list-style: none;
+		margin: 0.4rem 0 0.3rem;
+		padding: 0 0 0 1rem;
+
+		>.uca-maps-legend-element {
+			padding: 0.15rem 0;
+
+			.uca-maps-legend-element-name {
+				flex: 1 1 auto;
+				min-width: 0;
+			}
+		}
+	}//end uca-maps-legend-elements
+
+	// the symbol IS the button that changes it
+	.uca-maps-legend-symbol-button {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.15rem;
+		background: none;
+		border: 1px solid var(--border_default);
+		border-radius: 0.2rem;
+		cursor: pointer;
+
+		// neutral: the panel's `button` rule brings the tool's action hover,
+		// which would fill this frame in orange behind the symbol
+		&:hover,
+		&[aria-expanded="true"] {
+			background: none;
+			border-color: @tool_color;
+		}
+
+		>.uca-maps-legend-element-icon {
+			object-fit: contain;
+		}
+	}
+
+	.uca-maps-legend-symbol-editor {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem 0.75rem;
+		margin: 0.3rem 0 0.2rem 0.2rem;
+		padding: 0.3rem 0 0.3rem 0.6rem;
+		border-left: 2px solid @tool_color;
+
+		&[hidden] {
+			display: none;
+		}
+
+		.uca-maps-legend-field {
+			flex: 0 0 auto;
+		}
+
+		input[type="color"] {
+			width: 2rem;
+			height: 1.5rem;
+			padding: 0;
+			border: 1px solid var(--border_default);
+			cursor: pointer;
+		}
+	}
+
+	.uca-maps-legend-symbol-shapes {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.uca-maps-legend-symbol-shape {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.15rem 0.4rem;
+		font-size: @uca_maps_text_small;
+		background: none;
+		color: var(--fg_default);
+		border: 1px solid var(--border_default);
+
+		>svg {
+			width: 1rem;
+			height: 1rem;
+		}
+
+		// neutral, as the symbol button; before the pressed rule, which wins
+		&:hover {
+			background: none;
+			border-color: var(--border_default);
+		}
+
+		&[aria-pressed="true"] {
+			border-color: @tool_color;
+			box-shadow: inset 0 0 0 1px @tool_color;
+		}
+	}
+
+	button {
+		.uca-maps-panel-action-button();
+	}
+
+	.uca-maps-legend-move,
+	.uca-maps-legend-delete-column,
+	.uca-maps-legend-delete-element,
+	.uca-maps-legend-upload-icon,
+	.uca-maps-legend-add-element,
+	.uca-maps-legend-confirm-cancel {
+		.uca-maps-panel-secondary-button();
+	}
+
+	>.uca-maps-legend-add-column {
+		margin: 0 0.75rem 0.75rem;
+	}
+
+}//end uca-maps-legend-panel
+
+// the overlay: width as a share of the map and wrapping groups, instead of
+// v6's fixed 200/400/600 px (1-3 columns only) and its cut that hid the whole
+// legend below an 800 px map
+// right of the toolbar, which reaches down to the foot of a short map: the bar's
+// 10px margin, 30px squares and 2px borders, and Leaflet's 10px between controls
+.leaflet-left .leaflet-control.uca-maps-legend-overlay {
+	margin-left: calc(10px + 30px + 2 * 2px + 10px);
+}
+
+.uca-maps-legend-overlay {
+	background-color: var(--uca_maps_legend_overlay_bg);
+	border: 1px solid var(--uca_maps_map_chrome_border);
+	border-radius: 0.2rem;
+	padding: 0.4rem 0.6rem;
+	max-width: 50vw;
+	// vh, not %: this node hangs off Leaflet's own bottom-left corner, which
+	// is `position:absolute; bottom:0` with AUTO height — a percentage
+	// max-height there resolves to `none` and the scroll below never engages
+	max-height: 40vh;
+	overflow-y: auto;
+	font-size: 0.8rem;
+	color: var(--uca_maps_map_chrome_fg);
+
+	&[hidden] {
+		display: none;
+	}
+
+	.uca-maps-legend-overlay-title {
+		font-weight: bold;
+		margin-bottom: 0.3rem;
+	}
+
+	.uca-maps-legend-overlay-columns {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 1rem;
+	}
+
+	.uca-maps-legend-overlay-column-name {
+		font-weight: bold;
+		margin-bottom: 0.15rem;
+	}
+
+	.uca-maps-legend-overlay-element {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+
+		img {
+			flex: 0 0 auto;
+			object-fit: contain;
+		}
+	}
+
+}//end uca-maps-legend-overlay
+
+
+// "Roma" (roman_empire.js): a centred panel with v6's three sources stacked;
+// the rows of the shared result list DRAW the place, unlike place_search
+.uca-maps-roman-panel {
+
+	// wider than the other centred panels: DARE's three filters share one line,
+	// and at 37.5rem their longest options ("Nombre de lugar antiguo") were cut
+	&.uca-maps-panel-centered {
+		width: 46rem;
+
+		// later than the shared phone rule and as specific: restate it
+		@media screen and (max-width: @width_break_point_phone) {
+			width: auto;
+		}
+	}
+
+	.uca-maps-roman-source {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding: 0 0.75rem 0.6rem;
+
+		input[type="text"] {
+			min-width: 0;
+		}
+
+		&.is-unavailable >*:not(.uca-maps-panel-subtitle):not(.uca-maps-roman-unavailable) {
+			opacity: 0.5;
+		}
+	}
+
+	// same separator as the upload panel's two halves
+	.uca-maps-panel-subtitle {
+		.uca-maps-subtitle(0.25rem 0 0.1rem);
+	}
+
+	// the first source opens the panel: nothing above it to separate from
+	.uca-maps-roman-source:first-of-type .uca-maps-panel-subtitle {
+		border-top: 0;
+	}
+
+	.uca-maps-roman-message {
+		.uca-maps-panel-inline-message();
+	}
+
+	.uca-maps-roman-unavailable {
+		font-size: @uca_maps_text_small;
+		color: var(--fg_muted);
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	// DARE's field and its Search button share one line; the field takes the rest
+	.uca-maps-roman-query-row {
+		.uca-maps-button-row();
+
+		.uca-maps-roman-input {
+			flex: 1 1 auto;
+		}
+
+		.uca-maps-roman-search-button {
+			.uca-maps-panel-action-button();
+		}
+	}
+
+	.uca-maps-roman-pleiades-type {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.uca-maps-roman-radio {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		cursor: pointer;
+	}
+
+	.uca-maps-roman-dare-filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+
+		select {
+			flex: 1 1 10rem;
+			min-width: 0;
+			padding: 0.2rem;
+		}
+	}
+
+	.uca-maps-roman-dataset-buttons {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	// the twelve layers of a complete install, ALL VISIBLE AT ONCE: two
+	// columns, no inner scroll (it used to cap at 9rem and hide half of them)
+	.uca-maps-roman-datasets {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.1rem 0.5rem;
+	}
+
+	.uca-maps-roman-dataset-row {
+		display: flex;
+		align-items: center;
+		justify-self: start; // the label is the click target: only as wide as its text, not the cell
+		gap: 0.3rem;
+		white-space: nowrap; // a layer name is an identifier: wrapped, it reads as two
+	}
+
+	// the two layer-selection buttons (the live searches have no button: the
+	// suggestion list IS the search — see .uca-maps-roman-dropdown below)
+	.uca-maps-roman-dataset-buttons button {
+		.uca-maps-panel-action-button();
+	}
+
+}//end uca-maps-roman-panel
+
+
+
+// the "Roma" typeahead hangs from the MAP container: a panel's `overflow-y:
+// auto` would clip it. render_roman_empire.js places it in map coordinates,
+// one z-index notch above the panels (1000) it floats over.
+.uca-maps-roman-dropdown {
+	position: absolute;
+	z-index: 1001;
+	list-style: none;
+	margin: 0;
+	padding: 0.15rem 0;
+	min-width: 14rem;
+	max-height: 14rem;
+	overflow-y: auto;
+	// outside every panel, so it needs the page font of its own
+	.uca-maps-floating-surface();
+
+	&[hidden] {
+		display: none;
+	}
+
+	>.uca-maps-roman-result-item {
+		padding: 0;
+
+		.uca-maps-roman-result-button {
+			display: flex;
+			align-items: baseline;
+			justify-content: space-between;
+			gap: 0.5rem;
+			width: 100%;
+			border: 0;
+			border-radius: 0;
+			text-align: left;
+			background-color: transparent;
+			color: inherit;
+			padding: 0.3rem 0.6rem;
+			font-size: inherit;
+			cursor: pointer;
+
+			// hover and keyboard highlight are the SAME state: the arrow keys
+			// move `.is-active`, the mouse sets it on enter, so there are never
+			// two rows looking chosen at once
+			&:hover,
+			&.is-active {
+				background-color: var(--tool_fill);
+				color: var(--tool_on_fill);
+				filter: none;
+			}
+
+			.uca-maps-roman-result-name {
+				.uca-maps-ellipsis();
+			}
+
+			.uca-maps-roman-result-detail {
+				flex: 0 0 auto;
+				opacity: 0.7;
+				font-size: 0.9em;
+			}
+		}
+	}
+
+	>.uca-maps-roman-empty {
+		padding: 0.35rem 0.6rem;
+	}
+}//end uca-maps-roman-dropdown
+
+// a provider's credit beside its data (place search, DARE, elevation, a found
+// Catastro parcel, under the map component like core's banner): the
+// licence asks for it to be shown, the user does not need it to stand out
+.uca-maps-attribution {
+	list-style: none;
+	padding: 0.35rem 0.6rem;
+	font-size: @uca_maps_text_small;
+	color: var(--fg_muted);
+}

@@ -1,0 +1,84 @@
+/**
+ * vector_download — SHP and KML of one object (GeoJSON is client-side). GDAL's
+ * `.shp.zip` writes the zip itself (`/vsizip/` cannot: the driver patches its
+ * header in place). `layer.toGeoJSON()` is WGS84, so `-a_srs EPSG:4326` labels
+ * it where v6 forced EPSG:3857: an assignment, no reprojection. The object arrives
+ * staged by core's upload door: a detailed one outgrows a request's `options`.
+ */
+
+import { join } from 'node:path';
+import type { ToolActionContext, ToolResponse } from '../../../src/core/tools/module.ts';
+import { OBJECT_GEOJSON_KEY_DIR } from '../js/upload_formats.js';
+import { downloadAnswer } from './download_answer.ts';
+import {
+	assertOfflineGeoJsonCrs,
+	inputDrivers,
+	readFileBase64,
+	resolveGdalBinary,
+	runToolBinary,
+	withScratchDir,
+} from './gdal.ts';
+import { invalidOptions } from './reasons.ts';
+import { takeStagedJson } from './staged_upload.ts';
+
+/** Each format's OGR driver, download name and MIME. */
+const VECTOR_FORMATS: Readonly<Record<string, { driver: string; fileName: string; mime: string }>> =
+	{
+		shp: { driver: 'ESRI Shapefile', fileName: 'uca_maps_object.shp.zip', mime: 'application/zip' },
+		kml: {
+			driver: 'KML',
+			fileName: 'uca_maps_object.kml',
+			mime: 'application/vnd.google-earth.kml+xml',
+		},
+	};
+
+/** One `ogr2ogr` call into `fileName`, returned base64. */
+async function convertWithOgr2Ogr(
+	dir: string,
+	inputFile: string,
+	driverName: string,
+	fileName: string,
+): Promise<string> {
+	const outputFile = join(dir, fileName);
+	const ogr2ogr = await resolveGdalBinary('ogr2ogr');
+	await runToolBinary(
+		[
+			ogr2ogr,
+			...inputDrivers('GeoJSON'),
+			'-f',
+			driverName,
+			'-a_srs',
+			'EPSG:4326',
+			outputFile,
+			inputFile,
+		],
+		`vector_download (${fileName})`,
+		{ scratchDir: dir, expectedOutput: outputFile },
+	);
+	return readFileBase64(outputFile);
+}
+
+export async function vectorDownload(ctx: ToolActionContext): Promise<ToolResponse> {
+	// taken first: it is released whatever the outcome, a refusal below included
+	const geojson = await takeStagedJson(ctx, OBJECT_GEOJSON_KEY_DIR, 'tool_uca_maps.vectorDownload');
+	const format = String(ctx.options.format ?? '');
+	const spec = Object.hasOwn(VECTOR_FORMATS, format) ? VECTOR_FORMATS[format] : undefined;
+	if (spec === undefined) {
+		throw invalidOptions(`Unsupported vector format '${format}' (expected 'shp' or 'kml')`);
+	}
+	if (geojson === null || typeof geojson !== 'object') {
+		throw invalidOptions('Missing or invalid geojson');
+	}
+	// `-a_srs` replaces the CRS only after GDAL has read the one the file names
+	assertOfflineGeoJsonCrs(geojson);
+
+	const content = await withScratchDir(async (dir) => {
+		// ogr2ogr names the layer after the source file, and the layer names the
+		// members inside the `.shp.zip`: `input.geojson` would give `input.shp`
+		const inputFile = join(dir, 'uca_maps_object.geojson');
+		await Bun.write(inputFile, JSON.stringify(geojson));
+		return convertWithOgr2Ogr(dir, inputFile, spec.driver, spec.fileName);
+	});
+
+	return downloadAnswer(ctx, content, spec.fileName, spec.mime);
+}

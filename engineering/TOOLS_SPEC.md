@@ -828,7 +828,7 @@ WITH a server module: `tool_bibliography_acquisition`, `tool_dev_template`,
 `tool_media_versions`, `tool_numisdata_acquisition`, `tool_ontology`, `tool_ontology_parser`,
 `tool_pdf_extractor`, `tool_posterframe`, `tool_propagate_component_data`,
 `tool_sitebuilder`, `tool_tc`, `tool_time_machine`, `tool_transcription`,
-`tool_update_cache`, `tool_upload`.
+`tool_uca_maps`, `tool_update_cache`, `tool_upload`.
 
 WITHOUT one: `tool_assistant`, `tool_cataloging`, `tool_dd_label`,
 `tool_diffusion`, `tool_indexation`, `tool_numisdata_epigraphy`,

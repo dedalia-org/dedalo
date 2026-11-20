@@ -185,7 +185,11 @@ const BANK = {
 		// asserts a rating chip paints its datalist colour, so it needs one concrete
 		// colour as FIXTURE DATA ('#ff0000' in, 'rgb(255, 0, 0)' out). Not a paint site.
 		// 2026-10-12: 70 — the browser installer's render_installer.js left with it.
-		string_literals: 70,
+		// 2026-11-20: 74 — RAISED by decision: the tool_uca_maps client suites assert a
+		// colour set on a token paints ('rgb(1, 2, 3)' / 'rgb(4, 5, 6)'), that a hover
+		// leaves no fill (NO_PAINT) and draw an icon in one colour ('#c0392b'). FIXTURE
+		// DATA, each spelled once; not a paint site.
+		string_literals: 74,
 	},
 } as const;
 
