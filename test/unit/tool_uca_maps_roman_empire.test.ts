@@ -387,6 +387,38 @@ describe('searchPelagios against a configured store', () => {
 	});
 });
 
+describe('searchPelagios over a layer that escapes its names', () => {
+	// v6's places_subsites.geojson spells non-ASCII names as escapes (`\u00f6`)
+	const ESCAPED = JSON.stringify({
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				properties: { id: '7', modern: 'Römische Siedlung' },
+				geometry: { type: 'Point', coordinates: [16.2, 47.8] },
+			},
+		],
+	}).replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+	let store: { dir: string; restore: () => void } | null = null;
+	beforeEach(() => {
+		store = configuredStore({ 'pelagios/places_subsites.geojson': ESCAPED });
+	});
+	afterEach(() => {
+		store?.restore();
+		store = null;
+	});
+
+	test('a name the file spells escaped is still found', async () => {
+		expect(ESCAPED).toContain('R\\u00f6mische');
+		const { results } = dataOf<{ results: { name: string }[] }>(
+			await searchPelagios(
+				contextOf({ query: 'römische', datasets: ['places_subsites'] }, -1, { record: false }),
+			),
+		);
+		expect(results.map(({ name }) => name)).toEqual(['Römische Siedlung']);
+	});
+});
+
 describe('getPleiadesPlace refuses a non-numeric id before any request', () => {
 	test.each([['../1'], ['1a'], ['1234567890123'], ['']])('id %p', async (id) => {
 		const site = scriptedSite({});

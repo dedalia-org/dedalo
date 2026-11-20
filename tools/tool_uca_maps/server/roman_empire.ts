@@ -418,12 +418,9 @@ export async function searchPelagios(ctx: ToolActionContext): Promise<ToolRespon
 		if (path === null) {
 			continue; // an absent layer is not an error: capabilities already said so
 		}
+		// parsed every time, as v6 did: a raw-text pre-filter misses the names a
+		// layer spells as JSON escapes (places_subsites)
 		const text = await readGazetteerFile(path);
-		// cheap pre-filter: a 4 MB layer with no textual match anywhere is
-		// never worth parsing (v6 json_decodes every selected file, always)
-		if (!text.toLowerCase().includes(query.toLowerCase())) {
-			continue;
-		}
 		results.push(...matchPelagiosFeatures(text, dataset, query, RESULT_LIMIT - results.length));
 	}
 
