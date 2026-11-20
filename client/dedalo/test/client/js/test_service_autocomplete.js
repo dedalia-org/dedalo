@@ -983,6 +983,13 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 		const rect = (node) => node.getBoundingClientRect()
 		const tracks_of = (f) => f.style(f.group).gridTemplateColumns.split(' ').map(parseFloat)
 
+		// LIST_CAP: the widest the closed results list may grow, as search.less
+		// states it — min(30rem, 100vw − 2rem) — measured in the fixture's frame.
+		const list_cap = (f) => {
+			const rem = parseFloat(f.style(f.win.document.documentElement).fontSize)
+			return Math.min(30 * rem, f.win.innerWidth - 2 * rem)
+		}
+
 		// shared by every open-panel case: list under the panel and inside the
 		// card, option rows whole, operator label + select on one line
 		const assert_open_panel = (f, context) => {
@@ -993,7 +1000,10 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			const card_rect		= rect(f.card)
 			assert.isAtLeast(list_rect.top, panel_rect.bottom - 1, `${context}: the results list starts below the options panel`)
 			assert.isAtLeast(list_rect.left, card_rect.left - 1, `${context}: the list does not leave the card on the left`)
-			assert.isAtMost(list_rect.right, card_rect.right + 1, `${context}: the list does not leave the card on the right`)
+			// the list is at least the card's inner width and widens to a long row,
+			// never past its cap (search.less: min(30rem, 100vw − 2rem)) — whether a
+			// row is longer than the card is the font's to say, so the bound is the cap
+			assert.isAtMost(list_rect.width, Math.max(list_cap(f), card_rect.width) + 1, `${context}: the list is no wider than its cap`)
 			assert.isAtMost(card_rect.right, rect(f.group).right + 1, `${context}: the card does not leave its group`)
 
 			f.input_groups.forEach((group_node, i) => {
@@ -1062,13 +1072,6 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 				f.frame.remove()
 			}
 		})
-
-		// LIST_CAP: the widest the closed results list may grow, as search.less
-		// states it — min(30rem, 100vw − 2rem) — measured in the fixture's frame.
-		const list_cap = (f) => {
-			const rem = parseFloat(f.style(f.win.document.documentElement).fontSize)
-			return Math.min(30 * rem, f.win.innerWidth - 2 * rem)
-		}
 
 		it("options closed: the card keeps its track and a list of short rows fills the card, no wider (positive control)", async function() {
 			const f = await build({row_text: 'A'})

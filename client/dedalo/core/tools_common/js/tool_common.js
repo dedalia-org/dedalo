@@ -199,11 +199,7 @@ tool_common.prototype.init = async function(options) {
 							// Lazy (CONVENTIONS.md §2, rationale 3 — rarely hit): only a tool
 							// opened in its own window carries raw_data; keeps lz-string off
 							// the boot graph (page_load_budget_native).
-							// The windowFeatures grammar rides the same wait (see load_window_features).
-		const [{ LZString: lzstring }, window_features] = await Promise.all([
-			import('/dedalo/lib/lz-string/lz-string.js'),
-			windowFeatures ? load_window_features() : null
-		])
+							const { LZString: lzstring } = await import('/dedalo/lib/lz-string/lz-string.js')
 							const url_data_string	= lzstring.decompressFromEncodedURIComponent(raw_data)
 							if (!url_data_string) {
 								throw new Error('Decompression returned empty result')
