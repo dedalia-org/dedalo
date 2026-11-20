@@ -6334,6 +6334,11 @@
 			"skipped": 0,
 			"assertions": 301
 		},
+		"test/unit/tool_uca_maps_dispatch_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 6
+		},
 		"test/unit/tool_uca_maps_download_filename.test.ts": {
 			"tests": 16,
 			"skipped": 0,
