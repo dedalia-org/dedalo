@@ -1044,6 +1044,21 @@ const open_tool_modals = new Set()
 
 
 /**
+* LOAD_WINDOW_FEATURES
+* The windowFeatures grammar (window_features.js), loaded on the first tool
+* that DECLARES features instead of with the page.
+* Lazy (CONVENTIONS.md §2, rationale 3): only opening a tool needs it, and a
+* static import here put it on the cold-boot critical path of every page
+* (tool_common.js is on it) — one more request before first paint, counted by
+* test/unit/page_load_budget_native.test.ts. A tool with no windowFeatures
+* never loads it: there is nothing to parse.
+* @returns {Promise<{parse_window_features: Function, parse_modal_features: Function}>}
+*/
+const load_window_features = () => import('./window_features.js')
+
+
+
+/**
 * VIEW_MODAL
 * Opens the tool inside a Dédalo modal panel within the current window.
 * Handles the full tool lifecycle: instance resolution, spinner UI, build, render,
@@ -1076,6 +1091,9 @@ const open_tool_modals = new Set()
 * `windowFeatures` (object form) is applied as inline styles on `modal.modal_content`,
 * allowing per-tool size customisation via the registration config:
 *   `{"windowFeatures": {"width": "34rem", "maxWidth": "100%"}}`
+* Only the size properties are accepted (`width`, `minWidth`, `maxWidth`, `height`,
+* `minHeight`, `maxHeight`; `parse_modal_features`, window_features.js) — any other
+* key throws, naming it.
 *
 * @param {Object} options - Modal view options
 * @param {Object} options.tool_context - Full tool context object (name, model, css,
@@ -1126,6 +1144,25 @@ const view_modal = async function(options) {
 			return false
 		}
 		open_tool_modals.add(open_key)
+
+	// modal_styles
+	// Parsed BEFORE anything is built: the keys are a closed list of size
+	// properties (window_features.js) and any other is refused naming the key —
+	// the value is registry data, never trusted as style. The grammar module is
+	// loaded here, on the first tool that declares features, and AFTER the
+	// synchronous guard above (an await before it would let a second click
+	// through); a refusal releases the guard so the tool can be opened again
+	// once its registration is fixed.
+		let modal_styles = {}
+		if (windowFeatures) {
+			try {
+				const {parse_modal_features} = await load_window_features()
+				modal_styles = parse_modal_features(windowFeatures)
+			} catch (error) {
+				open_tool_modals.delete(open_key)
+				throw error
+			}
+		}
 
 	// tool_instance. Resolved inside the modal spinner callback (see below), so the
 	// modal opens on the click and the slow part (tool ES module import, CSS, build)
@@ -1398,10 +1435,9 @@ const view_modal = async function(options) {
 	// windowFeatures. To customize the modal size in a tool, set tool properties
 	// `windowFeatures` like `{"windowFeatures":{"width":"34rem","maxWidth":"100%"}}`
 	// Object form only (string form is for view_window); each key is a CSS property.
-		if (windowFeatures && typeof windowFeatures==='object') {
-			for (let [key, value] of Object.entries(windowFeatures)) {
-				modal.modal_content.style[key] = value
-			}
+	// (parsed at the top of this function — a closed list of size properties)
+		for (const [key, value] of Object.entries(modal_styles)) {
+			modal.modal_content.style[key] = value
 		}
 
 
@@ -1425,12 +1461,14 @@ const view_modal = async function(options) {
 * `caller_ddo.caller_dataframe` so the reconstructed tool can identify the correct row.
 *
 * `windowFeatures` format:
-*   - String: forwarded verbatim to `window.open` (e.g. 'left=100,top=100,…').
-*   - Object: each value may itself be a Function-as-string starting with 'return'
-*     (e.g. `"return screen.width - 760"`) — these are evaluated via `new Function(…)()`
-*     at open time so callers can express screen-relative positions declaratively.
-*     @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function
+*   - Object: `{left, top, width, height}` (plus the `popup` / `noopener` /
+*     `noreferrer` flags). A value is a number, or the relative form
+*     `"return screen.width - 760"` — PARSED by `parse_window_features`
+*     (window_features.js), never evaluated; it reads a closed list of
+*     `screen.*` / `window.*` dimensions, plus or minus an integer.
+*   - String: the same pairs inline ('left=100,top=100,…'), same grammar.
 *   - null: `open_window` falls back to 'new_tab'.
+*   Anything outside the grammar throws, naming the key.
 *
 * After the popup opens, a one-shot `focus` listener on the parent window fires
 * when the user returns (popup closed or alt-tabbed back) and refreshes the caller
@@ -1517,7 +1555,11 @@ const view_window = async function(options) {
 		// The full payload is JSON-stringified then LZString-compressed to stay
 		// within URL-length limits.  The new window decompresses it in init().
 		// Lazy (CONVENTIONS.md §2, rationale 3): see the decompress site in init().
-		const { LZString: lzstring } = await import('/dedalo/lib/lz-string/lz-string.js')
+		// The windowFeatures grammar rides the same wait (see load_window_features).
+		const [{ LZString: lzstring }, window_features] = await Promise.all([
+			import('/dedalo/lib/lz-string/lz-string.js'),
+			windowFeatures ? load_window_features() : null
+		])
 		const raw_data = lzstring.compressToEncodedURIComponent(
 			JSON.stringify({
 				caller_ddo		: caller_ddo,
@@ -1531,32 +1573,13 @@ const view_window = async function(options) {
 		}
 
 	// window features
-	// Normalise the windowFeatures value into the comma-separated string that
-	// window.open() expects, evaluating any Function-as-string values first.
-		const parsed_windowFeatures = typeof windowFeatures==='string'
-			? windowFeatures // string case as 'left=100,top=100,width=320,height=320'
-			: (windowFeatures && typeof windowFeatures==='object')
-				? (()=>{ // object case as {"left":"return screen.width -760","top":0,"width":760,"height":500}
-
-					const parsed_pairs = []
-					for(const key in windowFeatures) {
-
-						// value could be a Function as string like 'return screen.width -500'
-						// @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function
-						const value = typeof windowFeatures[key]==='string' && windowFeatures[key].indexOf('return')===0
-							? Function(windowFeatures[key])() // parse and auto exec the created Function
-							: windowFeatures[key]
-
-						const pair = `${key}=${value}`
-
-						parsed_pairs.push(pair)
-					}
-
-					const parsed_string = parsed_pairs.join(',')
-
-					return parsed_string
-				  })()
-				: null // null or non-object case
+	// The windowFeatures value → the comma-separated string window.open() expects.
+	// PARSED against a closed grammar (window_features.js), never evaluated: a
+	// number, or the legacy relative form 'return screen.width -760'. Anything
+	// else throws naming the key (WC-2026-11-19-window-features-grammar).
+		const parsed_windowFeatures = window_features
+			? window_features.parse_window_features(windowFeatures)
+			: null
 
 	// tool_window
 	// Open the tool in a named window so repeated opens reuse the same tab/window

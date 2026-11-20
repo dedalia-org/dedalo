@@ -1,7 +1,7 @@
 {
 	"generated_by": "bun run scripts/site_builder_single_source_baseline.ts",
 	"rule": "SHRINK-ONLY. A fact's owner set may lose files, never gain them. A file deriving a fact it does not own is red; an entry naming a file that no longer derives it is red. Regenerating requires --allow-regression to absorb growth, and the reason belongs in the entry and in the commit message.",
-	"scanned_files": 122,
+	"scanned_files": 123,
 	"facts": {
 		"daemon_transport": {
 			"what": "IS THE SITE BUILDER CONFIGURED, AND WHERE IS THE DAEMON — the five DEDALO_SITE_BUILDER_* values read as an address plus a credential.",

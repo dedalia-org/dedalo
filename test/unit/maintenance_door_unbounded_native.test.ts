@@ -887,6 +887,8 @@ const REQUEST_BOUNDED: Readonly<Record<string, string>> = {
 		'one indexed-MAX floor raise per counter row (counter-count-sized, each request-sized)',
 	'counters_status.reconcile_media_counters':
 		'walks the media TREE on disk, then one indexed-MAX floor raise per section',
+	'legacy_passwords.migrate':
+		'one indexed read of matrix_users (the users section) and one single-row UPDATE per account, at most LEGACY_PASSWORDS_BATCH accounts a request — the time is Argon2 hashing, not a statement',
 	'dataframe_control.get_value':
 		'bounded by its own per-table/total budgets (SET LOCAL per batch — gated below)',
 	'dataframe_control.run_check':

@@ -43,7 +43,7 @@ import { ok, toErrorEnvelope } from '../errors/convert.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ErrorCode } from '../errors/registry.ts';
 import { resolvePrincipal } from '../security/permissions.ts';
-import { getSession, SESSION_COOKIE, type Session } from '../security/session_store.ts';
+import { liveSessionFromCookie } from '../security/session_gate.ts';
 
 /**
  * Sections whose raw data is never dumpable through this endpoint, even by an
@@ -51,17 +51,6 @@ import { getSession, SESSION_COOKIE, type Session } from '../security/session_st
  * (e.g. a standalone password section) is a one-line change.
  */
 const SENSITIVE_RAW_VIEW_SECTIONS: ReadonlySet<string> = new Set<string>([config.usersSectionTipo]);
-
-/** Resolve the caller's session from the TS-native cookie (null when absent/expired). */
-function readSessionFromCookie(request: Request): Session | null {
-	const cookieHeader = request.headers.get('cookie') ?? '';
-	const token = cookieHeader
-		.split(';')
-		.map((pair) => pair.trim())
-		.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-		?.slice(SESSION_COOKIE.length + 1);
-	return token !== undefined ? getSession(token) : null;
-}
 
 /**
  * Fail-closed JSON refusal — the CONVERTER builds it (registry status, no
@@ -88,7 +77,7 @@ export async function handleRawView(
 	requestId: string = crypto.randomUUID(),
 ): Promise<Response> {
 	// Gate 1 — authenticated. 404 (not 401): never reveal the endpoint exists.
-	const session = readSessionFromCookie(request);
+	const session = liveSessionFromCookie(request.headers.get('cookie'));
 	if (session === null) {
 		return refuse('resource.not_found', requestId);
 	}

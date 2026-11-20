@@ -626,7 +626,7 @@ const build_list_view = async function(self, widgets) {
 * added id is never hidden — it simply also shows in the palette.
 */
 	const MAP_NODES = [
-		{ id:'clients',	x:10, y:14, tools:['lock_components'] },
+		{ id:'clients',	x:10, y:14, tools:['lock_components','legacy_passwords'] },
 		{ id:'web',		x:29, y:14, tools:['system_info','runtime_info','environment'] },
 		{ id:'core',	x:50, y:14, kind:'core',
 			tools:['check_config','config_areas','menu_skip_tipos','update_code','serve_code','update_data_version','error_reports'] },
@@ -678,6 +678,7 @@ const build_list_view = async function(self, widgets) {
 		serve_code                  : get_label.maintenance_desc_serve_code || 'Code server: builds releases from git and serves them to the installations that update from this one.',
 		update_data_version         : get_label.maintenance_desc_update_data_version || 'Runs pending data-version migrations against live data.',
 		lock_components             : get_label.maintenance_desc_lock_components || 'Active user sessions and component-lock tracking.',
+		legacy_passwords            : get_label.maintenance_desc_legacy_passwords || 'Accounts still on a Dédalo v6 password, and their conversion to the current format.',
 		database_info               : get_label.maintenance_desc_database_info || 'Live PostgreSQL catalog snapshot and maintenance actions.',
 		build_database_version      : get_label.maintenance_desc_build_database_version || 'Builds a clean-slate database snapshot. Heavy but additive.',
 		counters_status             : get_label.maintenance_desc_counters_status || 'Audit of the matrix_counter section-id counters.',

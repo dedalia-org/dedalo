@@ -5,10 +5,10 @@
 		"fingerprint": "f5ee5260187de451599495a828a844e2536e299e20a5006ad91a7ad4e89de833"
 	},
 	"measured": {
-		"tier_files": 1426,
-		"tier_tests": 22944,
-		"tier_pass": 22896,
-		"tier_skip": 48,
+		"tier_files": 1484,
+		"tier_tests": 24071,
+		"tier_pass": 24022,
+		"tier_skip": 49,
 		"failing_files": 0,
 		"failing_tests": 0
 	},
@@ -170,9 +170,9 @@
 			"assertions": 11
 		},
 		"test/unit/agent_loop.test.ts": {
-			"tests": 9,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 32
+			"assertions": 58
 		},
 		"test/unit/agent_model_catalog.test.ts": {
 			"tests": 18,
@@ -342,7 +342,7 @@
 		"test/unit/authz_substring_gate_tripwire.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 220
+			"assertions": 225
 		},
 		"test/unit/backup_freshness_deep_native.test.ts": {
 			"tests": 30,
@@ -397,7 +397,7 @@
 		"test/unit/boot_schema_verdict_native.test.ts": {
 			"tests": 21,
 			"skipped": 0,
-			"assertions": 50
+			"assertions": 51
 		},
 		"test/unit/boundary_seam_tripwire.test.ts": {
 			"tests": 4,
@@ -435,9 +435,9 @@
 			"assertions": 35
 		},
 		"test/unit/bulk_revert_cascade_target_scope_native.test.ts": {
-			"tests": 2,
+			"tests": 17,
 			"skipped": 0,
-			"assertions": 26
+			"assertions": 196
 		},
 		"test/unit/bulk_revert_relation_search_native.test.ts": {
 			"tests": 3,
@@ -460,14 +460,14 @@
 			"assertions": 16
 		},
 		"test/unit/calculation_fn_registry_tripwire.test.ts": {
-			"tests": 4,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 7
+			"assertions": 26
 		},
 		"test/unit/calculation_widget_native.test.ts": {
-			"tests": 3,
+			"tests": 37,
 			"skipped": 0,
-			"assertions": 3
+			"assertions": 80
 		},
 		"test/unit/caller_injection.test.ts": {
 			"tests": 24,
@@ -487,7 +487,7 @@
 		"test/unit/census_derivation_tripwire.test.ts": {
 			"tests": 45,
 			"skipped": 0,
-			"assertions": 690
+			"assertions": 699
 		},
 		"test/unit/change_lang.test.ts": {
 			"tests": 15,
@@ -502,7 +502,7 @@
 		"test/unit/change_log_tripwire.test.ts": {
 			"tests": 12,
 			"skipped": 0,
-			"assertions": 29
+			"assertions": 31
 		},
 		"test/unit/change_plan_write_door_native.test.ts": {
 			"tests": 11,
@@ -535,9 +535,9 @@
 			"assertions": 327
 		},
 		"test/unit/ci_workflow_tripwire.test.ts": {
-			"tests": 46,
+			"tests": 49,
 			"skipped": 0,
-			"assertions": 1415
+			"assertions": 1454
 		},
 		"test/unit/client_a11y_budget_tripwire.test.ts": {
 			"tests": 13,
@@ -597,7 +597,7 @@
 		"test/unit/client_error_contract_tripwire.test.ts": {
 			"tests": 26,
 			"skipped": 0,
-			"assertions": 166
+			"assertions": 170
 		},
 		"test/unit/client_error_signal.test.ts": {
 			"tests": 3,
@@ -617,7 +617,7 @@
 		"test/unit/client_gate_inventory_tripwire.test.ts": {
 			"tests": 43,
 			"skipped": 0,
-			"assertions": 486
+			"assertions": 494
 		},
 		"test/unit/client_idempotency_tripwire.test.ts": {
 			"tests": 75,
@@ -665,9 +665,9 @@
 			"assertions": 61
 		},
 		"test/unit/client_local_db_singleton_tripwire.test.ts": {
-			"tests": 8,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 29
+			"assertions": 32
 		},
 		"test/unit/client_map_node_icon_tripwire.test.ts": {
 			"tests": 5,
@@ -683,6 +683,11 @@
 			"tests": 7,
 			"skipped": 0,
 			"assertions": 26
+		},
+		"test/unit/client_no_dynamic_code_tripwire.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 45
 		},
 		"test/unit/client_open_window_guard.test.ts": {
 			"tests": 7,
@@ -820,9 +825,9 @@
 			"assertions": 24
 		},
 		"test/unit/client_transport_deadline.test.ts": {
-			"tests": 10,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 40
+			"assertions": 41
 		},
 		"test/unit/client_ui_reveal.test.ts": {
 			"tests": 5,
@@ -835,9 +840,9 @@
 			"assertions": 32
 		},
 		"test/unit/client_update_code_render.test.ts": {
-			"tests": 83,
+			"tests": 84,
 			"skipped": 0,
-			"assertions": 405
+			"assertions": 413
 		},
 		"test/unit/client_update_ontology_tlds_input.test.ts": {
 			"tests": 10,
@@ -855,9 +860,14 @@
 			"assertions": 57
 		},
 		"test/unit/client_upload_transport.test.ts": {
+			"tests": 29,
+			"skipped": 0,
+			"assertions": 94
+		},
+		"test/unit/client_window_features.test.ts": {
 			"tests": 26,
 			"skipped": 0,
-			"assertions": 73
+			"assertions": 97
 		},
 		"test/unit/closure_openquestions_tripwire.test.ts": {
 			"tests": 22,
@@ -905,9 +915,9 @@
 			"assertions": 5
 		},
 		"test/unit/coins_by_period_widget_native.test.ts": {
-			"tests": 22,
+			"tests": 30,
 			"skipped": 0,
-			"assertions": 52
+			"assertions": 74
 		},
 		"test/unit/colour_literal_ratchet_tripwire.test.ts": {
 			"tests": 11,
@@ -1005,9 +1015,9 @@
 			"assertions": 43
 		},
 		"test/unit/component_value_gate_census_tripwire.test.ts": {
-			"tests": 4,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 8
+			"assertions": 55
 		},
 		"test/unit/compose_invocation_tripwire.test.ts": {
 			"tests": 13,
@@ -1020,9 +1030,9 @@
 			"assertions": 356
 		},
 		"test/unit/config_census_tripwire.test.ts": {
-			"tests": 8,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 12
+			"assertions": 18
 		},
 		"test/unit/config_dead_field_tripwire.test.ts": {
 			"tests": 4,
@@ -1043,6 +1053,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 9
+		},
+		"test/unit/config_media_web_base_native.test.ts": {
+			"tests": 22,
+			"skipped": 0,
+			"assertions": 41
 		},
 		"test/unit/config_migration.test.ts": {
 			"tests": 25,
@@ -1117,7 +1132,7 @@
 		"test/unit/create_door_census_tripwire.test.ts": {
 			"tests": 29,
 			"skipped": 0,
-			"assertions": 268
+			"assertions": 282
 		},
 		"test/unit/create_record_audit.test.ts": {
 			"tests": 5,
@@ -1135,9 +1150,9 @@
 			"assertions": 10
 		},
 		"test/unit/csl_json.test.ts": {
-			"tests": 20,
+			"tests": 23,
 			"skipped": 0,
-			"assertions": 53
+			"assertions": 110
 		},
 		"test/unit/csrf_handshake.test.ts": {
 			"tests": 4,
@@ -1172,7 +1187,7 @@
 		"test/unit/csv_ingest_ceiling_native.test.ts": {
 			"tests": 6,
 			"skipped": 0,
-			"assertions": 35
+			"assertions": 41
 		},
 		"test/unit/csv_parser_conformance_native.test.ts": {
 			"tests": 52,
@@ -1198,6 +1213,11 @@
 			"tests": 11,
 			"skipped": 1,
 			"assertions": 10
+		},
+		"test/unit/data_version_unreachable_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 58
 		},
 		"test/unit/database_info_consolidate_native.test.ts": {
 			"tests": 15,
@@ -1257,7 +1277,7 @@
 		"test/unit/datalist_build_native.test.ts": {
 			"tests": 20,
 			"skipped": 0,
-			"assertions": 122
+			"assertions": 123
 		},
 		"test/unit/datalist_cache_key_native.test.ts": {
 			"tests": 6,
@@ -1270,14 +1290,14 @@
 			"assertions": 41
 		},
 		"test/unit/datalist_projects_scope_native.test.ts": {
-			"tests": 14,
+			"tests": 15,
 			"skipped": 0,
-			"assertions": 29
+			"assertions": 32
 		},
 		"test/unit/datalist_record_filter_native.test.ts": {
-			"tests": 10,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 17
+			"assertions": 25
 		},
 		"test/unit/date_flat_value_native.test.ts": {
 			"tests": 9,
@@ -1287,7 +1307,7 @@
 		"test/unit/date_flat_value_single_source_tripwire.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 44
+			"assertions": 46
 		},
 		"test/unit/db_asset_rebuild_atomic_native.test.ts": {
 			"tests": 6,
@@ -1312,7 +1332,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 24,
 			"skipped": 0,
-			"assertions": 1311
+			"assertions": 1360
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -1395,9 +1415,9 @@
 			"assertions": 42
 		},
 		"test/unit/delete_inverse_lost_update_native.test.ts": {
-			"tests": 4,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 13
+			"assertions": 94
 		},
 		"test/unit/delete_inverse_refs_native.test.ts": {
 			"tests": 4,
@@ -1425,9 +1445,9 @@
 			"assertions": 57
 		},
 		"test/unit/descriptor_completeness_tripwire.test.ts": {
-			"tests": 41,
+			"tests": 45,
 			"skipped": 0,
-			"assertions": 589
+			"assertions": 647
 		},
 		"test/unit/destructive_action_guards_native.test.ts": {
 			"tests": 16,
@@ -1470,9 +1490,9 @@
 			"assertions": 10
 		},
 		"test/unit/diffusion_compile_degrade_native.test.ts": {
-			"tests": 25,
+			"tests": 33,
 			"skipped": 0,
-			"assertions": 55
+			"assertions": 85
 		},
 		"test/unit/diffusion_computed_inverse_native.test.ts": {
 			"tests": 8,
@@ -1485,9 +1505,9 @@
 			"assertions": 85
 		},
 		"test/unit/diffusion_consolidated_withdrawn_native.test.ts": {
-			"tests": 3,
+			"tests": 6,
 			"skipped": 0,
-			"assertions": 39
+			"assertions": 79
 		},
 		"test/unit/diffusion_datum_replay.test.ts": {
 			"tests": 13,
@@ -1500,9 +1520,9 @@
 			"assertions": 11
 		},
 		"test/unit/diffusion_ddo_fns.test.ts": {
-			"tests": 30,
+			"tests": 39,
 			"skipped": 0,
-			"assertions": 73
+			"assertions": 92
 		},
 		"test/unit/diffusion_delete.test.ts": {
 			"tests": 6,
@@ -1530,14 +1550,14 @@
 			"assertions": 343
 		},
 		"test/unit/diffusion_external_chain_native.test.ts": {
-			"tests": 11,
+			"tests": 16,
 			"skipped": 0,
-			"assertions": 27
+			"assertions": 46
 		},
 		"test/unit/diffusion_file_writers.test.ts": {
 			"tests": 61,
 			"skipped": 0,
-			"assertions": 265
+			"assertions": 268
 		},
 		"test/unit/diffusion_frontier_replay.test.ts": {
 			"tests": 11,
@@ -1555,9 +1575,9 @@
 			"assertions": 53
 		},
 		"test/unit/diffusion_global_table_native.test.ts": {
-			"tests": 34,
+			"tests": 37,
 			"skipped": 0,
-			"assertions": 523
+			"assertions": 596
 		},
 		"test/unit/diffusion_graph_native.test.ts": {
 			"tests": 58,
@@ -1565,9 +1585,9 @@
 			"assertions": 115
 		},
 		"test/unit/diffusion_info_live_native.test.ts": {
-			"tests": 5,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 18
+			"assertions": 22
 		},
 		"test/unit/diffusion_info_parents.test.ts": {
 			"tests": 8,
@@ -1630,9 +1650,9 @@
 			"assertions": 174
 		},
 		"test/unit/diffusion_plan_compile.test.ts": {
-			"tests": 23,
+			"tests": 24,
 			"skipped": 0,
-			"assertions": 109
+			"assertions": 142
 		},
 		"test/unit/diffusion_plan_uninstalled_tld.test.ts": {
 			"tests": 5,
@@ -1660,14 +1680,14 @@
 			"assertions": 34
 		},
 		"test/unit/diffusion_rdf_graph_native.test.ts": {
-			"tests": 13,
+			"tests": 14,
 			"skipped": 0,
-			"assertions": 68
+			"assertions": 69
 		},
 		"test/unit/diffusion_rdfxml_writers.test.ts": {
-			"tests": 52,
+			"tests": 53,
 			"skipped": 0,
-			"assertions": 713
+			"assertions": 642
 		},
 		"test/unit/diffusion_report_model.test.ts": {
 			"tests": 23,
@@ -1777,7 +1797,7 @@
 		"test/unit/docs_locator_shape_tripwire.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 100
+			"assertions": 98
 		},
 		"test/unit/docs_manual_install_tripwire.test.ts": {
 			"tests": 30,
@@ -1800,9 +1820,9 @@
 			"assertions": 111
 		},
 		"test/unit/duplicate_record_media_verdict_native.test.ts": {
-			"tests": 9,
+			"tests": 15,
 			"skipped": 0,
-			"assertions": 75
+			"assertions": 146
 		},
 		"test/unit/duplicate_record_native.test.ts": {
 			"tests": 6,
@@ -1825,9 +1845,14 @@
 			"assertions": 18
 		},
 		"test/unit/engine_install_tld_tripwire.test.ts": {
-			"tests": 4,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 12
+			"assertions": 50
+		},
+		"test/unit/engine_tree_closure_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 23
 		},
 		"test/unit/engineering_currency_tripwire.test.ts": {
 			"tests": 3,
@@ -1847,7 +1872,7 @@
 		"test/unit/error_envelope_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 3025
+			"assertions": 3113
 		},
 		"test/unit/error_registry_native.test.ts": {
 			"tests": 15,
@@ -1895,9 +1920,9 @@
 			"assertions": 43
 		},
 		"test/unit/export_clean_text.test.ts": {
-			"tests": 19,
+			"tests": 37,
 			"skipped": 0,
-			"assertions": 42
+			"assertions": 87
 		},
 		"test/unit/export_download_safety_tripwire.test.ts": {
 			"tests": 20,
@@ -1915,9 +1940,9 @@
 			"assertions": 166
 		},
 		"test/unit/export_frontier_fanout_native.test.ts": {
-			"tests": 27,
+			"tests": 31,
 			"skipped": 0,
-			"assertions": 148
+			"assertions": 162
 		},
 		"test/unit/export_gate_b_native.test.ts": {
 			"tests": 16,
@@ -2020,14 +2045,14 @@
 			"assertions": 44
 		},
 		"test/unit/external_emit_native.test.ts": {
-			"tests": 14,
+			"tests": 15,
 			"skipped": 0,
-			"assertions": 54
+			"assertions": 59
 		},
 		"test/unit/external_fields_map_native.test.ts": {
-			"tests": 23,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 53
+			"assertions": 74
 		},
 		"test/unit/external_isolation_tripwire.test.ts": {
 			"tests": 11,
@@ -2037,12 +2062,12 @@
 		"test/unit/external_law_classify.test.ts": {
 			"tests": 31,
 			"skipped": 0,
-			"assertions": 86
+			"assertions": 87
 		},
 		"test/unit/external_law_registry_tripwire.test.ts": {
 			"tests": 16,
 			"skipped": 0,
-			"assertions": 55
+			"assertions": 53
 		},
 		"test/unit/external_merge_mirror.test.ts": {
 			"tests": 13,
@@ -2082,7 +2107,7 @@
 		"test/unit/external_registry_totality_tripwire.test.ts": {
 			"tests": 18,
 			"skipped": 0,
-			"assertions": 75
+			"assertions": 77
 		},
 		"test/unit/external_request_config_native.test.ts": {
 			"tests": 10,
@@ -2095,9 +2120,9 @@
 			"assertions": 89
 		},
 		"test/unit/external_search_native.test.ts": {
-			"tests": 33,
+			"tests": 34,
 			"skipped": 0,
-			"assertions": 208
+			"assertions": 213
 		},
 		"test/unit/external_search_target_tripwire.test.ts": {
 			"tests": 8,
@@ -2105,9 +2130,9 @@
 			"assertions": 18
 		},
 		"test/unit/external_secret_confinement_tripwire.test.ts": {
-			"tests": 16,
+			"tests": 23,
 			"skipped": 0,
-			"assertions": 42
+			"assertions": 87
 		},
 		"test/unit/external_section_id_verbatim_native.test.ts": {
 			"tests": 15,
@@ -2135,9 +2160,9 @@
 			"assertions": 37
 		},
 		"test/unit/external_zenon_native.test.ts": {
-			"tests": 20,
+			"tests": 26,
 			"skipped": 0,
-			"assertions": 41
+			"assertions": 83
 		},
 		"test/unit/feature_crawl_tripwire.test.ts": {
 			"tests": 21,
@@ -2175,9 +2200,9 @@
 			"assertions": 18
 		},
 		"test/unit/fixed_filter_expansion_native.test.ts": {
-			"tests": 32,
+			"tests": 33,
 			"skipped": 0,
-			"assertions": 56
+			"assertions": 60
 		},
 		"test/unit/frontier_class_native.test.ts": {
 			"tests": 10,
@@ -2502,7 +2527,7 @@
 		"test/unit/image_source_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 135
+			"assertions": 136
 		},
 		"test/unit/image_update_channel_native.test.ts": {
 			"tests": 71,
@@ -2520,9 +2545,9 @@
 			"assertions": 114
 		},
 		"test/unit/image_update_script_native.test.ts": {
-			"tests": 75,
+			"tests": 84,
 			"skipped": 0,
-			"assertions": 977
+			"assertions": 1156
 		},
 		"test/unit/image_updater_host_native.test.ts": {
 			"tests": 31,
@@ -2545,9 +2570,9 @@
 			"assertions": 68
 		},
 		"test/unit/import_create_door_native.test.ts": {
-			"tests": 11,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 47
+			"assertions": 97
 		},
 		"test/unit/import_csv.test.ts": {
 			"tests": 15,
@@ -2557,12 +2582,12 @@
 		"test/unit/import_csv_append_native.test.ts": {
 			"tests": 34,
 			"skipped": 0,
-			"assertions": 245
+			"assertions": 251
 		},
 		"test/unit/import_csv_execute.test.ts": {
-			"tests": 15,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 84
+			"assertions": 120
 		},
 		"test/unit/import_data.test.ts": {
 			"tests": 21,
@@ -2590,9 +2615,9 @@
 			"assertions": 2
 		},
 		"test/unit/indexation_grid_av_native.test.ts": {
-			"tests": 5,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 41
+			"assertions": 60
 		},
 		"test/unit/indexation_grid_read_door_native.test.ts": {
 			"tests": 13,
@@ -2605,9 +2630,9 @@
 			"assertions": 68
 		},
 		"test/unit/info_widget_native.test.ts": {
-			"tests": 16,
+			"tests": 18,
 			"skipped": 0,
-			"assertions": 170
+			"assertions": 174
 		},
 		"test/unit/info_widget_ports.test.ts": {
 			"tests": 4,
@@ -2622,7 +2647,7 @@
 		"test/unit/ingest_encoding_tripwire.test.ts": {
 			"tests": 27,
 			"skipped": 0,
-			"assertions": 99
+			"assertions": 109
 		},
 		"test/unit/install_abort_removal_durability_native.test.ts": {
 			"tests": 2,
@@ -2630,9 +2655,9 @@
 			"assertions": 11
 		},
 		"test/unit/install_bootstrap_sh.test.ts": {
-			"tests": 22,
+			"tests": 23,
 			"skipped": 0,
-			"assertions": 149
+			"assertions": 152
 		},
 		"test/unit/install_choice_refusal_drawn_native.test.ts": {
 			"tests": 4,
@@ -2682,7 +2707,7 @@
 		"test/unit/install_e2e.test.ts": {
 			"tests": 3,
 			"skipped": 0,
-			"assertions": 86
+			"assertions": 98
 		},
 		"test/unit/install_executor_events_native.test.ts": {
 			"tests": 4,
@@ -2745,9 +2770,9 @@
 			"assertions": 24
 		},
 		"test/unit/install_host_render_tripwire.test.ts": {
-			"tests": 74,
+			"tests": 90,
 			"skipped": 2,
-			"assertions": 577
+			"assertions": 875
 		},
 		"test/unit/install_host_resume_drill.test.ts": {
 			"tests": 6,
@@ -2760,9 +2785,9 @@
 			"assertions": 69
 		},
 		"test/unit/install_host_steps_native.test.ts": {
-			"tests": 137,
+			"tests": 140,
 			"skipped": 0,
-			"assertions": 1505
+			"assertions": 1607
 		},
 		"test/unit/install_injection_guards.test.ts": {
 			"tests": 5,
@@ -2867,7 +2892,7 @@
 		"test/unit/install_restart_supervisor_tripwire.test.ts": {
 			"tests": 34,
 			"skipped": 0,
-			"assertions": 298
+			"assertions": 301
 		},
 		"test/unit/install_resume_drill.test.ts": {
 			"tests": 5,
@@ -2932,7 +2957,7 @@
 		"test/unit/install_stack_nginx_native.test.ts": {
 			"tests": 22,
 			"skipped": 2,
-			"assertions": 65
+			"assertions": 67
 		},
 		"test/unit/install_stack_steps_native.test.ts": {
 			"tests": 89,
@@ -2940,9 +2965,9 @@
 			"assertions": 571
 		},
 		"test/unit/install_state_boot.test.ts": {
-			"tests": 8,
+			"tests": 15,
 			"skipped": 0,
-			"assertions": 32
+			"assertions": 72
 		},
 		"test/unit/install_step_table_native.test.ts": {
 			"tests": 9,
@@ -2952,7 +2977,7 @@
 		"test/unit/install_system_check_native.test.ts": {
 			"tests": 27,
 			"skipped": 0,
-			"assertions": 86
+			"assertions": 88
 		},
 		"test/unit/install_table_write_tripwire.test.ts": {
 			"tests": 3,
@@ -2967,7 +2992,7 @@
 		"test/unit/install_tui_frames.test.ts": {
 			"tests": 37,
 			"skipped": 0,
-			"assertions": 545
+			"assertions": 546
 		},
 		"test/unit/install_tui_parity_tripwire.test.ts": {
 			"tests": 33,
@@ -3030,9 +3055,9 @@
 			"assertions": 20
 		},
 		"test/unit/iri_label_unscoped_lookup_tripwire.test.ts": {
-			"tests": 11,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 15
+			"assertions": 24
 		},
 		"test/unit/item_value.test.ts": {
 			"tests": 7,
@@ -3067,7 +3092,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 46769
+			"assertions": 48057
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -3077,7 +3102,7 @@
 		"test/unit/lang_fallback_empty_slice_native.test.ts": {
 			"tests": 19,
 			"skipped": 0,
-			"assertions": 47
+			"assertions": 50
 		},
 		"test/unit/lang_region.test.ts": {
 			"tests": 16,
@@ -3095,9 +3120,14 @@
 			"assertions": 58
 		},
 		"test/unit/legacy_password_migration.test.ts": {
-			"tests": 6,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 15
+			"assertions": 120
+		},
+		"test/unit/legacy_password_notice_native.test.ts": {
+			"tests": 12,
+			"skipped": 0,
+			"assertions": 132
 		},
 		"test/unit/lint_scope_local_only_untracked_tripwire.test.ts": {
 			"tests": 3,
@@ -3205,9 +3235,9 @@
 			"assertions": 64
 		},
 		"test/unit/machine_name_rung_ratchet_native.test.ts": {
-			"tests": 6,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 142
+			"assertions": 114
 		},
 		"test/unit/machine_name_save_rules.test.ts": {
 			"tests": 35,
@@ -3242,7 +3272,7 @@
 		"test/unit/maintenance_widget_get_value_tripwire.test.ts": {
 			"tests": 1,
 			"skipped": 0,
-			"assertions": 39
+			"assertions": 40
 		},
 		"test/unit/maintenance_widget_kit_tripwire.test.ts": {
 			"tests": 7,
@@ -3265,14 +3295,14 @@
 			"assertions": 13
 		},
 		"test/unit/marc21_map.test.ts": {
-			"tests": 3,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 8
+			"assertions": 27
 		},
 		"test/unit/marc_identity_native.test.ts": {
-			"tests": 18,
+			"tests": 23,
 			"skipped": 0,
-			"assertions": 81
+			"assertions": 143
 		},
 		"test/unit/match_text.test.ts": {
 			"tests": 2,
@@ -3480,9 +3510,9 @@
 			"assertions": 436
 		},
 		"test/unit/media_export_base.test.ts": {
-			"tests": 8,
+			"tests": 10,
 			"skipped": 0,
-			"assertions": 39
+			"assertions": 47
 		},
 		"test/unit/media_fallback_listener.test.ts": {
 			"tests": 13,
@@ -3510,9 +3540,9 @@
 			"assertions": 67
 		},
 		"test/unit/media_image_id_native.test.ts": {
-			"tests": 15,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 72
+			"assertions": 114
 		},
 		"test/unit/media_index_marker_durability_native.test.ts": {
 			"tests": 7,
@@ -3547,7 +3577,7 @@
 		"test/unit/media_ingest_properties_native.test.ts": {
 			"tests": 27,
 			"skipped": 0,
-			"assertions": 91
+			"assertions": 89
 		},
 		"test/unit/media_ingestable_quality.test.ts": {
 			"tests": 11,
@@ -3575,9 +3605,9 @@
 			"assertions": 19
 		},
 		"test/unit/media_lifecycle_native.test.ts": {
-			"tests": 28,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 114
+			"assertions": 118
 		},
 		"test/unit/media_master_qualities_config.test.ts": {
 			"tests": 5,
@@ -3705,9 +3735,9 @@
 			"assertions": 156
 		},
 		"test/unit/media_upload.test.ts": {
-			"tests": 26,
+			"tests": 28,
 			"skipped": 0,
-			"assertions": 96
+			"assertions": 108
 		},
 		"test/unit/media_upload_endpoint.test.ts": {
 			"tests": 20,
@@ -3755,9 +3785,9 @@
 			"assertions": 48
 		},
 		"test/unit/migration_content_hash_tripwire.test.ts": {
-			"tests": 7,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 33
+			"assertions": 53
 		},
 		"test/unit/migration_shared_row_tripwire.test.ts": {
 			"tests": 7,
@@ -3829,6 +3859,11 @@
 			"skipped": 0,
 			"assertions": 1
 		},
+		"test/unit/non_dispatch_session_gate_native.test.ts": {
+			"tests": 10,
+			"skipped": 0,
+			"assertions": 56
+		},
 		"test/unit/numisdata_acquisition_seam_scope_native.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -3850,9 +3885,9 @@
 			"assertions": 33
 		},
 		"test/unit/observer_failsafe_native.test.ts": {
-			"tests": 16,
+			"tests": 18,
 			"skipped": 0,
-			"assertions": 61
+			"assertions": 82
 		},
 		"test/unit/observer_native.test.ts": {
 			"tests": 9,
@@ -3882,7 +3917,7 @@
 		"test/unit/observer_refresh_data_native.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 133
+			"assertions": 143
 		},
 		"test/unit/observer_seed_native.test.ts": {
 			"tests": 21,
@@ -4175,9 +4210,9 @@
 			"assertions": 231
 		},
 		"test/unit/operator_image_pin_tripwire.test.ts": {
-			"tests": 14,
+			"tests": 16,
 			"skipped": 0,
-			"assertions": 74
+			"assertions": 93
 		},
 		"test/unit/ops_backup.test.ts": {
 			"tests": 11,
@@ -4225,9 +4260,9 @@
 			"assertions": 689
 		},
 		"test/unit/original_lang.test.ts": {
-			"tests": 13,
+			"tests": 14,
 			"skipped": 0,
-			"assertions": 28
+			"assertions": 30
 		},
 		"test/unit/orphaned_unsaved_writers_tripwire.test.ts": {
 			"tests": 2,
@@ -4270,9 +4305,9 @@
 			"assertions": 22
 		},
 		"test/unit/password_hash_on_save.test.ts": {
-			"tests": 13,
+			"tests": 19,
 			"skipped": 0,
-			"assertions": 38
+			"assertions": 89
 		},
 		"test/unit/password_policy_native.test.ts": {
 			"tests": 29,
@@ -4865,9 +4900,9 @@
 			"assertions": 14
 		},
 		"test/unit/rdf_xml_serialiser.test.ts": {
-			"tests": 12,
+			"tests": 19,
 			"skipped": 0,
-			"assertions": 32
+			"assertions": 69
 		},
 		"test/unit/read_door_acl_native.test.ts": {
 			"tests": 24,
@@ -4917,7 +4952,7 @@
 		"test/unit/reconcile_registry_tripwire.test.ts": {
 			"tests": 18,
 			"skipped": 0,
-			"assertions": 368
+			"assertions": 370
 		},
 		"test/unit/reconcile_scheduler_native.test.ts": {
 			"tests": 12,
@@ -4935,9 +4970,9 @@
 			"assertions": 59
 		},
 		"test/unit/record_generation_native.test.ts": {
-			"tests": 9,
+			"tests": 10,
 			"skipped": 0,
-			"assertions": 36
+			"assertions": 42
 		},
 		"test/unit/record_info_native.test.ts": {
 			"tests": 12,
@@ -5005,9 +5040,9 @@
 			"assertions": 21
 		},
 		"test/unit/relation_index_context_native.test.ts": {
-			"tests": 24,
+			"tests": 25,
 			"skipped": 0,
-			"assertions": 470
+			"assertions": 477
 		},
 		"test/unit/relation_index_semijoin_native.test.ts": {
 			"tests": 5,
@@ -5020,9 +5055,9 @@
 			"assertions": 100
 		},
 		"test/unit/relation_insert_target_native.test.ts": {
-			"tests": 29,
+			"tests": 30,
 			"skipped": 0,
-			"assertions": 74
+			"assertions": 78
 		},
 		"test/unit/relation_list_cell_families_native.test.ts": {
 			"tests": 17,
@@ -5255,14 +5290,14 @@
 			"assertions": 64
 		},
 		"test/unit/rollback_predicate_native.test.ts": {
-			"tests": 9,
+			"tests": 15,
 			"skipped": 0,
-			"assertions": 19
+			"assertions": 37
 		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
-			"tests": 26,
+			"tests": 28,
 			"skipped": 0,
-			"assertions": 58
+			"assertions": 62
 		},
 		"test/unit/rqo_scalar_bound_tripwire.test.ts": {
 			"tests": 10,
@@ -5385,14 +5420,14 @@
 			"assertions": 31
 		},
 		"test/unit/search_deep_path_reverse_native.test.ts": {
-			"tests": 6,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 16
+			"assertions": 22
 		},
 		"test/unit/search_deep_semantics_native.test.ts": {
-			"tests": 22,
+			"tests": 30,
 			"skipped": 0,
-			"assertions": 48
+			"assertions": 66
 		},
 		"test/unit/search_display_paths_native.test.ts": {
 			"tests": 12,
@@ -5420,14 +5455,14 @@
 			"assertions": 74
 		},
 		"test/unit/search_hop_targets_native.test.ts": {
-			"tests": 6,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 19
+			"assertions": 30
 		},
 		"test/unit/search_hop_targets_real_user_native.test.ts": {
-			"tests": 4,
+			"tests": 5,
 			"skipped": 0,
-			"assertions": 10
+			"assertions": 13
 		},
 		"test/unit/search_is_filter_empty.test.ts": {
 			"tests": 7,
@@ -5460,9 +5495,9 @@
 			"assertions": 34
 		},
 		"test/unit/search_multisection_deep_path_dedup_native.test.ts": {
-			"tests": 6,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 11
+			"assertions": 20
 		},
 		"test/unit/search_operators.test.ts": {
 			"tests": 13,
@@ -5475,9 +5510,9 @@
 			"assertions": 21
 		},
 		"test/unit/search_order_lang_less_native.test.ts": {
-			"tests": 8,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 14
+			"assertions": 25
 		},
 		"test/unit/search_order_multilocator_native.test.ts": {
 			"tests": 5,
@@ -5492,7 +5527,7 @@
 		"test/unit/search_path_acl_native.test.ts": {
 			"tests": 67,
 			"skipped": 0,
-			"assertions": 221
+			"assertions": 227
 		},
 		"test/unit/search_paths_client_fixture_native.test.ts": {
 			"tests": 3,
@@ -5545,14 +5580,14 @@
 			"assertions": 11
 		},
 		"test/unit/search_section_id_open_between_native.test.ts": {
-			"tests": 8,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 18
+			"assertions": 20
 		},
 		"test/unit/search_statement_chokepoint_tripwire.test.ts": {
 			"tests": 41,
 			"skipped": 0,
-			"assertions": 97
+			"assertions": 99
 		},
 		"test/unit/search_store_decision_native.test.ts": {
 			"tests": 9,
@@ -5600,9 +5635,9 @@
 			"assertions": 1282
 		},
 		"test/unit/section_elements_context_native.test.ts": {
-			"tests": 24,
+			"tests": 36,
 			"skipped": 0,
-			"assertions": 860
+			"assertions": 1013
 		},
 		"test/unit/section_group_add_label_native.test.ts": {
 			"tests": 5,
@@ -5725,19 +5760,19 @@
 			"assertions": 28
 		},
 		"test/unit/select_dataframe_subdatum_native.test.ts": {
-			"tests": 9,
+			"tests": 10,
 			"skipped": 0,
-			"assertions": 56
+			"assertions": 60
 		},
 		"test/unit/select_family_echo_datalist_native.test.ts": {
-			"tests": 21,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 94
+			"assertions": 99
 		},
 		"test/unit/select_family_mode_datalist_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 80
+			"assertions": 81
 		},
 		"test/unit/sequence_verdict_native.test.ts": {
 			"tests": 12,
@@ -5760,9 +5795,14 @@
 			"assertions": 29896
 		},
 		"test/unit/server_state.test.ts": {
-			"tests": 8,
+			"tests": 9,
 			"skipped": 0,
-			"assertions": 76
+			"assertions": 79
+		},
+		"test/unit/server_state_torn_native.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 34
 		},
 		"test/unit/session_expiry.test.ts": {
 			"tests": 11,
@@ -5773,6 +5813,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 17
+		},
+		"test/unit/session_read_confinement_tripwire.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 18
 		},
 		"test/unit/session_sqo_merge_native.test.ts": {
 			"tests": 7,
@@ -5847,7 +5892,7 @@
 		"test/unit/sql_confinement_tripwire.test.ts": {
 			"tests": 27,
 			"skipped": 0,
-			"assertions": 86
+			"assertions": 88
 		},
 		"test/unit/sql_idle_timeout_canary.test.ts": {
 			"tests": 7,
@@ -5982,7 +6027,7 @@
 		"test/unit/suite_mariadb_target_native.test.ts": {
 			"tests": 34,
 			"skipped": 0,
-			"assertions": 300
+			"assertions": 304
 		},
 		"test/unit/supervision_declaration_tripwire.test.ts": {
 			"tests": 16,
@@ -5997,7 +6042,7 @@
 		"test/unit/sync_io_on_request_path_tripwire.test.ts": {
 			"tests": 28,
 			"skipped": 0,
-			"assertions": 172
+			"assertions": 174
 		},
 		"test/unit/system_info.test.ts": {
 			"tests": 7,
@@ -6075,9 +6120,9 @@
 			"assertions": 194
 		},
 		"test/unit/term_resolver_model_flat_native.test.ts": {
-			"tests": 21,
+			"tests": 24,
 			"skipped": 0,
-			"assertions": 39
+			"assertions": 44
 		},
 		"test/unit/test3_canonical_fixture.test.ts": {
 			"tests": 12,
@@ -6097,12 +6142,12 @@
 		"test/unit/test_db_marker_tripwire.test.ts": {
 			"tests": 51,
 			"skipped": 0,
-			"assertions": 290
+			"assertions": 296
 		},
 		"test/unit/test_media_root_tripwire.test.ts": {
 			"tests": 62,
 			"skipped": 0,
-			"assertions": 200
+			"assertions": 201
 		},
 		"test/unit/test_rag_db_tripwire.test.ts": {
 			"tests": 35,
@@ -6115,9 +6160,9 @@
 			"assertions": 46
 		},
 		"test/unit/test_tld_ontology_gate.test.ts": {
-			"tests": 11,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 182
+			"assertions": 191
 		},
 		"test/unit/test_tooling_socket_native.test.ts": {
 			"tests": 13,
@@ -6142,7 +6187,7 @@
 		"test/unit/text_area_media_src_split_origin.test.ts": {
 			"tests": 2,
 			"skipped": 0,
-			"assertions": 9
+			"assertions": 11
 		},
 		"test/unit/text_area_svg_split_origin.test.ts": {
 			"tests": 2,
@@ -6215,9 +6260,9 @@
 			"assertions": 22
 		},
 		"test/unit/tier_execution_tripwire.test.ts": {
-			"tests": 16,
+			"tests": 17,
 			"skipped": 0,
-			"assertions": 433
+			"assertions": 444
 		},
 		"test/unit/tier_file_order_tripwire.test.ts": {
 			"tests": 22,
@@ -6255,9 +6300,9 @@
 			"assertions": 14
 		},
 		"test/unit/tm_bulk_revert.test.ts": {
-			"tests": 7,
+			"tests": 8,
 			"skipped": 0,
-			"assertions": 54
+			"assertions": 67
 		},
 		"test/unit/tm_column_config_owner_native.test.ts": {
 			"tests": 4,
@@ -6272,7 +6317,7 @@
 		"test/unit/tm_composed_rows_native.test.ts": {
 			"tests": 31,
 			"skipped": 0,
-			"assertions": 222
+			"assertions": 225
 		},
 		"test/unit/tm_count_cache.test.ts": {
 			"tests": 3,
@@ -6310,9 +6355,9 @@
 			"assertions": 132
 		},
 		"test/unit/tm_epoch_tripwire.test.ts": {
-			"tests": 7,
+			"tests": 8,
 			"skipped": 0,
-			"assertions": 16
+			"assertions": 18
 		},
 		"test/unit/tm_excluded_sections_native.test.ts": {
 			"tests": 9,
@@ -6332,7 +6377,7 @@
 		"test/unit/tm_history_visibility_tripwire.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 36
+			"assertions": 35
 		},
 		"test/unit/tm_inspector_access_native.test.ts": {
 			"tests": 38,
@@ -6407,7 +6452,7 @@
 		"test/unit/tm_save_order_native.test.ts": {
 			"tests": 100,
 			"skipped": 0,
-			"assertions": 1777
+			"assertions": 1778
 		},
 		"test/unit/tm_scope_authz_native.test.ts": {
 			"tests": 5,
@@ -6432,7 +6477,7 @@
 		"test/unit/tm_two_lanes_native.test.ts": {
 			"tests": 58,
 			"skipped": 0,
-			"assertions": 516
+			"assertions": 517
 		},
 		"test/unit/tm_undo_log_writers_native.test.ts": {
 			"tests": 11,
@@ -6500,9 +6545,9 @@
 			"assertions": 766
 		},
 		"test/unit/tool_export_coverage_native.test.ts": {
-			"tests": 6,
+			"tests": 10,
 			"skipped": 0,
-			"assertions": 47
+			"assertions": 99
 		},
 		"test/unit/tool_export_data_lang_native.test.ts": {
 			"tests": 4,
@@ -6515,9 +6560,9 @@
 			"assertions": 429
 		},
 		"test/unit/tool_export_info_native.test.ts": {
-			"tests": 9,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 86
+			"assertions": 128
 		},
 		"test/unit/tool_export_inverse_native.test.ts": {
 			"tests": 23,
@@ -6570,9 +6615,9 @@
 			"assertions": 7
 		},
 		"test/unit/tool_export_value_relation_native.test.ts": {
-			"tests": 85,
+			"tests": 88,
 			"skipped": 0,
-			"assertions": 319
+			"assertions": 334
 		},
 		"test/unit/tool_header_contract_tripwire.test.ts": {
 			"tests": 6,
@@ -6597,7 +6642,7 @@
 		"test/unit/tool_import_dedalo_csv.test.ts": {
 			"tests": 25,
 			"skipped": 0,
-			"assertions": 430
+			"assertions": 425
 		},
 		"test/unit/tool_import_files.test.ts": {
 			"tests": 31,
@@ -6605,9 +6650,9 @@
 			"assertions": 74
 		},
 		"test/unit/tool_import_marc21.test.ts": {
-			"tests": 19,
+			"tests": 34,
 			"skipped": 0,
-			"assertions": 80
+			"assertions": 179
 		},
 		"test/unit/tool_import_rdf.test.ts": {
 			"tests": 79,
@@ -6617,12 +6662,12 @@
 		"test/unit/tool_import_zotero.test.ts": {
 			"tests": 5,
 			"skipped": 0,
-			"assertions": 11
+			"assertions": 12
 		},
 		"test/unit/tool_import_zotero_native.test.ts": {
-			"tests": 25,
+			"tests": 62,
 			"skipped": 1,
-			"assertions": 135
+			"assertions": 543
 		},
 		"test/unit/tool_job_status.test.ts": {
 			"tests": 10,
@@ -6630,9 +6675,9 @@
 			"assertions": 32
 		},
 		"test/unit/tool_lang.test.ts": {
-			"tests": 19,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 45
+			"assertions": 60
 		},
 		"test/unit/tool_lossless_writeback_tethers_native.test.ts": {
 			"tests": 4,
@@ -6640,9 +6685,9 @@
 			"assertions": 25
 		},
 		"test/unit/tool_lossless_writeback_tripwire.test.ts": {
-			"tests": 85,
+			"tests": 90,
 			"skipped": 0,
-			"assertions": 503
+			"assertions": 521
 		},
 		"test/unit/tool_numisdata_acquisition_commit_native.test.ts": {
 			"tests": 4,
@@ -6702,7 +6747,7 @@
 		"test/unit/tool_propagate_component_data_drive.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 69
+			"assertions": 66
 		},
 		"test/unit/tool_read_only_action_tripwire.test.ts": {
 			"tests": 25,
@@ -6785,9 +6830,9 @@
 			"assertions": 68
 		},
 		"test/unit/tools_loader.test.ts": {
-			"tests": 6,
+			"tests": 7,
 			"skipped": 0,
-			"assertions": 23
+			"assertions": 28
 		},
 		"test/unit/tools_path_confinement.test.ts": {
 			"tests": 37,
@@ -6905,9 +6950,9 @@
 			"assertions": 65
 		},
 		"test/unit/translation_write_gates_native.test.ts": {
-			"tests": 5,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 33
+			"assertions": 221
 		},
 		"test/unit/tree_cycle_race_native.test.ts": {
 			"tests": 41,
@@ -6922,7 +6967,7 @@
 		"test/unit/tree_obligations_native.test.ts": {
 			"tests": 6,
 			"skipped": 0,
-			"assertions": 58
+			"assertions": 60
 		},
 		"test/unit/tree_parent_lost_update_native.test.ts": {
 			"tests": 21,
@@ -6982,7 +7027,7 @@
 		"test/unit/ts_tree_semantics.test.ts": {
 			"tests": 20,
 			"skipped": 0,
-			"assertions": 50
+			"assertions": 56
 		},
 		"test/unit/twin_map_tripwire.test.ts": {
 			"tests": 6,
@@ -7030,9 +7075,9 @@
 			"assertions": 18
 		},
 		"test/unit/update_cli_native.test.ts": {
-			"tests": 11,
+			"tests": 12,
 			"skipped": 0,
-			"assertions": 53
+			"assertions": 58
 		},
 		"test/unit/update_code_widget_native.test.ts": {
 			"tests": 5,
@@ -7050,9 +7095,9 @@
 			"assertions": 29
 		},
 		"test/unit/update_docs_claims_tripwire.test.ts": {
-			"tests": 24,
+			"tests": 26,
 			"skipped": 0,
-			"assertions": 44
+			"assertions": 50
 		},
 		"test/unit/update_door_precondition_class_tripwire.test.ts": {
 			"tests": 19,
@@ -7135,9 +7180,9 @@
 			"assertions": 42
 		},
 		"test/unit/update_run_resume_native.test.ts": {
-			"tests": 34,
+			"tests": 36,
 			"skipped": 0,
-			"assertions": 139
+			"assertions": 149
 		},
 		"test/unit/update_run_start_native.test.ts": {
 			"tests": 13,
@@ -7145,9 +7190,9 @@
 			"assertions": 59
 		},
 		"test/unit/update_run_state_machine_native.test.ts": {
-			"tests": 20,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 90
+			"assertions": 133
 		},
 		"test/unit/update_server_https_native.test.ts": {
 			"tests": 6,
@@ -7155,9 +7200,9 @@
 			"assertions": 23
 		},
 		"test/unit/update_status_native.test.ts": {
-			"tests": 53,
+			"tests": 57,
 			"skipped": 0,
-			"assertions": 158
+			"assertions": 181
 		},
 		"test/unit/update_version.test.ts": {
 			"tests": 9,
@@ -7245,14 +7290,14 @@
 			"assertions": 152
 		},
 		"test/unit/value_law_agreement_native.test.ts": {
-			"tests": 13,
+			"tests": 14,
 			"skipped": 0,
-			"assertions": 842
+			"assertions": 872
 		},
 		"test/unit/value_law_agreement_tripwire.test.ts": {
-			"tests": 15,
+			"tests": 17,
 			"skipped": 0,
-			"assertions": 145
+			"assertions": 163
 		},
 		"test/unit/value_shape_native.test.ts": {
 			"tests": 8,
@@ -7272,7 +7317,7 @@
 		"test/unit/verify_selector_selftest.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 45
+			"assertions": 48
 		},
 		"test/unit/version_contract_native.test.ts": {
 			"tests": 8,
@@ -7317,7 +7362,7 @@
 		"test/unit/wire_disclosure_tripwire.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 89
+			"assertions": 138
 		},
 		"test/unit/wire_field_agreement_tripwire.test.ts": {
 			"tests": 5,
@@ -7355,9 +7400,9 @@
 			"assertions": 54
 		},
 		"test/unit/write_obligations_tripwire.test.ts": {
-			"tests": 47,
+			"tests": 49,
 			"skipped": 0,
-			"assertions": 226
+			"assertions": 236
 		},
 		"test/unit/ws_a_tripwires.test.ts": {
 			"tests": 6,

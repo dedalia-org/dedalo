@@ -1446,6 +1446,10 @@ const RAW_WRITERS: Readonly<Record<string, ParentWriteClass>> = {
 	'src/core/relations/dataframe.ts#fixDataframeOrphanEntries': {
 		no_parent_link: 'removes orphan dataframe frames — a removal',
 	},
+	'src/core/security/legacy_password_migration.ts#writeHash': {
+		no_parent_link:
+			'writes a user record’s password key (dd133, the `string` column): the Argon2id hash over the v6 value it read',
+	},
 	'src/core/tools/register.ts#writeRegistryRecord': {
 		no_parent_link: 'writes a tool registry record (dd1324): name, flags, properties',
 	},

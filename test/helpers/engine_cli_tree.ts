@@ -24,8 +24,13 @@ import { parseReleaseVersion } from '../../src/core/update/release_identity.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
-/** What the CLI's import closure reads besides its own sources. */
-const ENGINE_FILES = [
+/**
+ * What the engine tree holds: everything a module run FROM it may import. No
+ * `client/`, no `tools/` — a module of `src/` whose static closure leaves this
+ * list cannot be imported from the tree
+ * (test/unit/engine_tree_closure_native.test.ts walks every entry the gates run).
+ */
+export const ENGINE_FILES: readonly string[] = [
 	'src',
 	join('scripts', 'ops'),
 	join('engineering', 'image_registries.json'),

@@ -1,5 +1,5 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
-/*global it, describe, before, after, assert, page_globals */
+/*global it, describe, before, after, assert, page_globals, get_label */
 /*eslint no-undef: "error"*/
 
 /**
@@ -421,6 +421,37 @@ describe('UPDATE_CODE WIDGET', function () {
 			}
 		});
 
+		it('a database of an earlier major: the gate says WHY the code update is refused, and Update stays disabled', () => {
+			// T2 D08-b follow-up (owner 2026-11-19): the door refuses a database
+			// this engine cannot update (rule data_version_unreachable); the modal
+			// says so before the click — "blocked" alone names no way out.
+			const self = build_self('ok', '2', [
+				{ id: 'data_version', state: 'blocked', detail: 'unreachable/6.9.1/7.0.0' },
+			]);
+			self.value.consumer.ready = false;
+			const opened = open_modal(self);
+			try {
+				const gate = opened.modal.querySelector('.update_gate');
+				const note = gate.querySelector('.dd_note.state_danger.update_gate_data_version');
+				assert.ok(note, 'the data-version block has its own note');
+				assert.include(note.textContent, '6.9.1', 'the installed data version');
+				assert.include(note.textContent, '7.0.0', 'the version this code declares');
+				assert.include(
+					note.textContent,
+					get_label.update_code_note_data_version_unreachable,
+					'and why the update is refused',
+				);
+				assert.notInclude(note.textContent, 'unreachable/', 'never the raw fact');
+				assert.strictEqual(
+					gate.parentElement.querySelector('button.success').disabled,
+					true,
+					'Update is disabled',
+				);
+			} finally {
+				close(opened);
+			}
+		});
+
 		it('nothing blocked: no gate content and Update is live', () => {
 			const opened = open_modal(build_self('ok', '2'));
 			try {
@@ -449,7 +480,7 @@ describe('UPDATE_CODE WIDGET', function () {
 			// the method directly and read the options bag it assembles by
 			// intercepting at the transport.
 			assert.strictEqual(typeof self.update_code, 'function', 'the model exposes update_code');
-			window.fetch = async (url, options) => {
+			window.fetch = async (_url, options) => {
 				sent.push(JSON.parse(options.body));
 				return new Response(JSON.stringify({ ok: true, data: null }), {
 					headers: { 'Content-Type': 'application/json' },
@@ -508,6 +539,91 @@ describe('UPDATE_CODE WIDGET', function () {
 				} finally {
 					wrapper.remove();
 				}
+			}
+		});
+
+		// T2 D08-b follow-up (owner 2026-11-19): the panel's NORMAL state shows the
+		// data-version verdict the door refuses on (status.ts dataVersionCheck).
+		const data_version_check = (detail) => {
+			return { id: 'data_version', state: detail.startsWith('ok/') ? 'ok' : 'blocked', detail };
+		};
+
+		it('a database of an earlier major: the panel is BLOCKED, says the database cannot be updated here and points to the migration', () => {
+			const wrapper = render(consumer_with('ok', [data_version_check('unreachable/6.9.1/7.0.0')]));
+			try {
+				assert.include(
+					wrapper.querySelector('.status_verdict').className,
+					'state_danger',
+					'the headline is the blocked verdict',
+				);
+				const row = wrapper.querySelector('.attention_checks .check_row.state_blocked');
+				assert.ok(row, 'the block stays in view (not folded under Details)');
+				assert.strictEqual(
+					row.querySelector('.dd_k').textContent,
+					get_label.update_code_check_data_version,
+					'named by its label',
+				);
+				const detail = row.querySelector('.check_detail').textContent;
+				assert.include(detail, '6.9.1', 'the installed data version');
+				assert.include(detail, '7.0.0', 'the version this code declares');
+				assert.notInclude(row.textContent, 'unreachable/', 'never the raw fact');
+				assert.notInclude(row.textContent, '${', 'every placeholder is filled');
+				assert.strictEqual(
+					row.querySelector('.check_note').textContent,
+					get_label.update_code_note_data_version_unreachable,
+					'the why of THIS state: the code update is refused because of it',
+				);
+				const steps = [...row.querySelectorAll('.check_fix_steps li')].map((li) => li.textContent);
+				assert.isAbove(steps.length, 0, 'and what to do');
+				assert.include(
+					steps.join(' '),
+					'docs/install/migrating_from_v6.md',
+					'the pointer to the migration that runs on the earlier installation',
+				);
+			} finally {
+				wrapper.remove();
+			}
+		});
+
+		it('each not-current data version has its OWN words (behind ≠ ahead ≠ unreadable)', () => {
+			const notes = new Set();
+			for (const state of ['pending', 'ahead', 'unknown']) {
+				const detail = state === 'unknown' ? 'unknown//7.0.1' : `${state}/7.0.0/7.0.1`;
+				const wrapper = render(consumer_with('ok', [data_version_check(detail)]));
+				try {
+					const row = wrapper.querySelector('.attention_checks .check_row.state_blocked');
+					assert.ok(row, `${state} blocks in view`);
+					const note = row.querySelector('.check_note').textContent;
+					assert.strictEqual(note, get_label[`update_code_note_data_version_${state}`], state);
+					notes.add(note);
+					assert.notInclude(row.textContent, `${state}/`, 'never the raw fact');
+					assert.notInclude(row.textContent, 'migrating_from_v6', 'the v6 pointer is not theirs');
+					assert.isAbove(row.querySelectorAll('.check_fix_steps li').length, 0, 'a way out');
+				} finally {
+					wrapper.remove();
+				}
+			}
+			assert.strictEqual(notes.size, 3, 'three states, three reasons');
+		});
+
+		it('control — the data version this code declares: ready, no block, the version under Details', () => {
+			const wrapper = render(consumer_with('ok', [data_version_check('ok/7.0.0/7.0.0')]));
+			try {
+				assert.include(wrapper.querySelector('.status_verdict').className, 'state_ok');
+				assert.isNull(wrapper.querySelector('.attention_checks'), 'nothing in view');
+				const rows = [...wrapper.querySelectorAll('.all_checks_block .check_row')];
+				const row = rows.find(
+					(el) =>
+						el.querySelector('.dd_k').textContent === get_label.update_code_check_data_version,
+				);
+				assert.ok(row, 'listed with the other checks');
+				assert.strictEqual(row.querySelector('.check_detail').textContent, '7.0.0');
+				assert.isNull(
+					row.querySelector('.check_note'),
+					'no explanation of a failure that did not happen',
+				);
+			} finally {
+				wrapper.remove();
 			}
 		});
 
@@ -656,7 +772,7 @@ describe('UPDATE_CODE WIDGET', function () {
 		// archive digests that differ. Never the shared data triple.
 		const point_of = (version, digest = 'a'.repeat(64)) => {
 			return {
-				name: 'dedalo_' + version + '_abc1234_2026-08-25T10-00-00',
+				name: `dedalo_${version}_abc1234_2026-08-25T10-00-00`,
 				stamp: Date.now(),
 				bootable: true,
 				version: version,
@@ -1003,7 +1119,7 @@ describe('UPDATE_CODE WIDGET', function () {
 		// the folds remember the operator's choice under the REAL keys: save
 		// and restore whatever this origin held, never leave a test value behind
 		const FOLD_KEYS = ['installation', 'checks', 'last_update', 'restore_points'].map(
-			(key) => 'dedalo.update_code.fold.' + key,
+			(key) => `dedalo.update_code.fold.${key}`,
 		);
 		const saved = {};
 		const read_key = (key) => {
@@ -1275,7 +1391,7 @@ describe('UPDATE_CODE WIDGET', function () {
 				);
 				assert.ok(cancel, 'an unclaimed request can be cancelled');
 				cancel.click();
-				assert.strictEqual(cancelled && cancelled.id, PENDING.id);
+				assert.strictEqual(cancelled?.id, PENDING.id);
 				// no "Update blocked" headline over an installation whose path is open
 				assert.isNull(
 					wrapper.querySelector('.status_verdict'),
@@ -1849,7 +1965,7 @@ describe('UPDATE_ONTOLOGY waive-backup control', () => {
 			if (found) return found;
 			await new Promise((resolve) => setTimeout(resolve, 20));
 		}
-		throw new Error(what + ' never appeared');
+		throw new Error(`${what} never appeared`);
 	};
 
 	// submit the panel form → the confirm modal opens; `act` runs on it

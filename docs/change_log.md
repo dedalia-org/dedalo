@@ -18,6 +18,7 @@ Merged since the last release; these ship with the next one.
 !!! warning "Action needed when you update"
 
     - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
+    - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
     - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
     - Publication fills the global search and map tables again
@@ -499,7 +500,7 @@ Merged since the last release; these ship with the next one.
 
     **Revert the bulk process** put each value back exactly as the run had found it. A value from before the engine cleaned that kind of value came back uncleaned: a rich text could return with scripts or event handlers, and a number in a format its field no longer uses. The same was true of a record the revert restored whole — one a run had emptied or deleted.
 
-    Now every value a revert puts back passes the same checks as a normal save, like a single restore from the Time Machine. Rich text is cleaned, a number is formatted as its field declares, and a password entry stored as plain text is never written back: that field (or that record) is left as it is and listed as skipped (*failed*), while the rest of the run is still reverted. A password entry from a Dédalo v6 installation is put back as recorded. A deleted record the revert would bring back is checked against your projects before its values are: one outside them is listed as *out of scope* whatever its history holds, and one inside them whose values cannot be stored is listed as *failed* at that record. For developers reading the response: a *failed* entry carries the error code of what stopped it once your access to that record has been checked; an entry the report does not locate carries no record number, and no code either when it failed before that check. A value that was already clean is restored exactly as before, and the other languages of a translated field are not touched.
+    Now every value a revert puts back passes the same checks as a normal save, like a single restore from the Time Machine. Rich text is cleaned, a number is formatted as its field declares, and a password entry stored as plain text is never written back: that field (or that record) is left as it is and listed as skipped (*failed*), while the rest of the run is still reverted. A password entry from a Dédalo v6 installation is put back as recorded. A deleted record the revert would bring back is checked against your projects before its values are: one outside them is listed as *out of scope* whatever its history holds, and one inside them whose values cannot be stored is listed as *failed* at that record. For developers reading the response: a *failed* entry carries the error code of what stopped it once your access to that record has been checked; an entry the report does not locate carries no record number, and no code either when it failed before that check. An entry located at a field whose revert would have brought back a deleted record carries no code when the failure came from checking your access to that deleted record: the field's own check had passed, the record's had not. A value that was already clean is restored exactly as before, and the other languages of a translated field are not touched.
 
     Reverting the same run again finds those fields *already at the pre-run value* — a value the first revert cleaned is not reported as edited since.
 
@@ -1393,6 +1394,20 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-19-error-report-email-transport`.
 
+- **An external service's API addresses are no longer sent to the browser, and may not carry a query string**
+
+    A section bound to an external record service declares the service's addresses in its `api_config`: `api_url`, `api_url_search` and `ui_base_url`. The first two are called by the Dédalo server, never by the browser, yet both were sent to every browser that opened the section — and an access key written into one of them as `?apikey=…` went with it.
+
+    Now only `entity`, `ui_base_url` and `response_map` are sent. `api_url` and `api_url_search` stay on the server, and one that carries a query string or a fragment (`?…`, `#…`) is refused: the section's external binding is refused as misconfigured until the address is corrected, and the server log names the field (never its value). No ontology shipped with Dédalo is affected. If one of your own sections declares such an address, remove the query from it; a service credential belongs in `../private/.env`, never in the ontology. See [External services](./core/system/external_services.md).
+
+    Wire contract: `WC-2026-11-19-external-api-url-unpublished`.
+
+- **Maintenance mode now closes every route to non-root sessions, not only the API**
+
+    While maintenance mode was on, the API refused every session but `root`'s, but the routes that do not go through the API still answered a logged-in user: media and staged-upload files, model weights, the text-area tag redirect, a file upload, the environment view and — for a global administrator — the raw record view, the counters and the hierarchy dump download.
+
+    Now all of them read the session through one gate and answer a non-root session exactly as they answer an anonymous caller (not found) until maintenance is lifted. `root` is served throughout. See [Maintenance-mode gate](./core/system/login.md#maintenance-mode-gate).
+
 - **The server unit runs on a read-only file system; the installer upgrades its own earlier templates and the update names the re-render command.**
 
     On a production host the engine's systemd unit now runs with `ProtectSystem=strict`: the whole
@@ -1510,6 +1525,38 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-12-recovery-mode-retired`.
 
 #### Changed
+
+- **The Update-code panel says when the database's data version blocks a code update**
+
+    A code update is refused unless the database is at the data version the running code declares. The *Update code* panel did not show that: it could read "Ready to update", and the reason arrived only as the refusal after you pressed Update.
+
+    The panel now has a **Data version** line among its checks. When the versions differ the update is shown as blocked, with the reason and what to do: run *Update data* first, restore a matching backup, or — for a database of an earlier major version, such as a Dédalo v6 database under v7, which no update of this engine starts from — run the migration on that earlier installation ([Migrating from v6](./install/migrating_from_v6.md)). The version window shows the same reason beside its disabled Update button.
+
+    For API consumers: `consumer.checks[]` of the `update_code` panel value gains `{ id: "data_version", state, detail: "<state>/<installed>/<code>" }`.
+
+    Wire contract: `WC-2026-11-19-data-version-unreachable`.
+
+- **The Update-data panel's "Not updated" notice is shown in your language**
+
+    The notice the **Update data** panel shows for a database of an earlier major version ("Not updated: the database is on data version 6.9.1 …") was written in English whatever the language of the interface. It is now a text of the interface like the others, translated in every language Dédalo ships, with the versions and the manual page filled in.
+
+    For API consumers: the panel value keeps `notice` (the English sentence) and adds `notice_data`, the facts it is made of.
+
+    Wire contract: `WC-2026-11-19-data-version-unreachable`.
+
+- **Accounts still on a v6 password are counted at start, and the log names the command that fixes them**
+
+    After a migration from v6, an account whose password was never converted cannot log in: v7 accepts Argon2id hashes only, and there is no conversion at the next login. The server log gave advice that no longer applies (to log in once on the previous engine), and nothing warned you before a user was refused.
+
+    Now every start counts those accounts and logs `[boot] LEGACY PASSWORDS: <n> account(s) …` with the command to run, `bun run dedalo:migrate-passwords`; `/health` carries `"notices": ["legacy_password_accounts"]` while any remain (the check stays green; the server re-checks about once a minute, so the notice goes shortly after the migration, without a restart); and each refused login of such an account is logged with the same command. Nobody has to choose a new password. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
+
+    Wire contract: `WC-2026-11-19-legacy-aes-lazy-rehash-retired`.
+
+- **A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting** *(action needed)*
+
+    `DEDALO_MEDIA_WEB_BASE` is the address the browser fetches every image, video and PDF from when media is served from a different origin than the application. Its value was used as written. A slip such as `localhost:8080/dedalo/media` — no `http://` — produced addresses the browser read as paths of the page, so every image failed to load and no log said why.
+
+    The value is now checked when the server starts. It must be a root-relative path (`/dedalo/media`) or an absolute `http://` / `https://` URL with no user name or password, no query string and no fragment; a trailing slash is still removed. With any other value the server does not start, and the message names the parameter and the value it found. There is deliberately no fallback to the default. Before updating, check that line in `../private/.env` if you set it; an installation that leaves it unset is not affected. See [the configuration reference](./administration/configuration/config.md).
 
 - **Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused** *(action needed)*
 
@@ -1670,6 +1717,16 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Accounts still on a v6 password can be converted from the Maintenance area**
+
+    Converting the passwords of a migrated v6 installation needed a command line on the server (`bun run dedalo:migrate-passwords`), and the number of accounts still waiting appeared only in the start-up log.
+
+    The Maintenance area now has a **Legacy passwords** panel, for global administrators. It shows how many accounts hold a password, how many are already converted and how many are still on a v6 value and cannot log in. With the two v6 key values (`DEDALO_INFORMATION` and `DEDALO_INFO_KEY`; an empty field stands for the v6 default) **Check** reports how many accounts they decrypt without writing anything, and **Convert passwords** converts them and reports the accounts converted, the ones the values do not decrypt — listed by name and left untouched — and the ones skipped because their password changed meanwhile. Nobody has to choose a new password. The typed values are used for that request only: they are not stored, logged or sent back, and no password reaches the browser.
+
+    It is the same conversion as the command, which stays. The panel needs an administrator who can already log in: on a database that comes straight from v6 every password is a v6 value, `root`'s included, so the first conversion is still done with the command. The `/health` notice `legacy_password_accounts` now goes as soon as the panel has converted the last account. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
+
+    Wire contract: `WC-2026-11-19-maintenance-legacy-passwords-widget`.
+
 - **Permission matrices and record filters can be exported.**
 
     The permission matrix of a profile and the record filter of a user exported an empty cell. They
@@ -1703,6 +1760,22 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **A damaged server state file now keeps maintenance mode on instead of silently switching it off**
+
+    Maintenance mode is kept in `ts_state.json`, in the private directory. The file was written in place, so a crash or a power cut at the wrong moment — typically while an update or a restore was switching maintenance mode on — could leave it empty or cut short. The server then read it as "no settings" and started with maintenance mode off: every user could work in the middle of the maintenance window, and nothing was logged.
+
+    The file is now replaced in one step, so it always holds either the previous settings or the new ones. If it is found damaged anyway (for instance after editing it by hand), the server treats maintenance mode as on, lets only the superuser in, and says so in the log (`[server_state] … FAILING CLOSED`). Saving the maintenance settings as the superuser writes a good file again. A missing file is still read as the defaults.
+
+- **Starting v7 on a Dédalo v6 database now says the database is not migrated**
+
+    A v7 server started on a database that was still at a 6.x data version gave the wrong advice everywhere. The start-up log said a data update was pending and to run *Update data*; the health check stayed green; and the *Update data* panel said "Data format is updated: 6.9.1". None of it could work: the move from v6 to v7 is done on the v6 installation, before v7 ever starts.
+
+    The server now recognises a database from an earlier major version that none of its updates starts from. The log says `[boot] DATABASE NOT MIGRATED` and points to the migration guide, `/health` answers 503 with `"data_version": {"state": "unreachable"}`, the *Update data* panel shows the same sentence instead of "updated", and a code update is refused for that reason. Run Phase A of [Migrating from v6](./install/migrating_from_v6.md) on the v6 installation, then start v7 again.
+
+    If the server answers a code update's restart check in that state, the *Update code* panel now says the server is back on a database it cannot update, instead of waiting and then reporting that the server did not come back.
+
+    Wire contract: `WC-2026-11-19-data-version-unreachable`.
 
 - **A system search across two or more linked sections no longer matches through a record stored in another table.**
 
@@ -2074,6 +2147,16 @@ Merged since the last release; these ship with the next one.
 
 ### For developers
 
+#### Security
+
+- **A tool's window size and position are read as data, never run as code**
+
+    A tool's registration can say where and how large it opens (`properties.windowFeatures`). A value written as `"return screen.width -760"` used to be run as JavaScript in the page of every user who opened the tool, so anyone able to edit a tool's registration could run script there.
+
+    The value is now read against a fixed grammar and nothing in it is executed. A window accepts `left`, `top`, `width` and `height` as a number or as that same relative form — one screen or window dimension, plus or minus a whole number — and a modal accepts its size properties (`width`, `maxWidth`, …). Every tool shipped with Dédalo opens exactly as before. A registration that uses anything else no longer opens: the browser console names the key to correct. The accepted forms are listed in [register.json](./development/tools/register_json.md#propertieswindowfeatures).
+
+    Wire contract: `WC-2026-11-19-window-features-grammar`.
+
 #### Changed
 
 - **A field with no sortable value (links, IRIs, media, access rules, passwords) can no longer be used to sort a list.**
@@ -2087,7 +2170,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 87 entries"
+??? note "Wire contract — 92 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2174,8 +2257,13 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-text-area-broken-tag-repair`
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
+    - `WC-2026-11-19-data-version-unreachable`
     - `WC-2026-11-19-error-report-email-transport`
+    - `WC-2026-11-19-external-api-url-unpublished`
+    - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
+    - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-media-url-version-key`
+    - `WC-2026-11-19-window-features-grammar`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -23,6 +23,10 @@
  *   bun run dedalo:migrate-passwords --config-dir=<v6>/config --execute  # apply
  *
  * Run it ONCE, against the database the v7 engine will serve, before letting users in.
+ *
+ * THE DOOR is src/core/security/legacy_password_migration.ts — this file is its
+ * command line (arguments, the v6 config reader, the printed report). The
+ * maintenance area's "Legacy passwords" panel runs the same door from the server.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -31,12 +35,7 @@ import { extractDefines } from '../src/config/php_defines.ts';
 import {
 	DEFAULT_INFORMATION,
 	type LegacyKeyMaterial,
-	rehashLegacyPassword,
 } from '../src/core/security/legacy_password.ts';
-import { isArgon2Hash } from '../src/core/security/password_hash.ts';
-
-const PASSWORD_TIPO = 'dd133';
-const USERNAME_TIPO = 'dd132';
 
 function fail(message: string): never {
 	console.error(`\n✖ migrate_v6_passwords: ${message}`);
@@ -109,50 +108,35 @@ async function main(): Promise<void> {
 		);
 	}
 
-	const { sql } = await import('../src/core/db/postgres.ts');
+	// The door: the reading, the conversion and the report (never a credential value).
+	const { migrateLegacyPasswords } = await import(
+		'../src/core/security/legacy_password_migration.ts'
+	);
+	const names = (accounts: { username: string }[]) => accounts.map((a) => a.username).join(', ');
 
-	const rows = (await sql`
-		SELECT section_id,
-		       "string"->${USERNAME_TIPO}->0->>'value' AS username,
-		       "string"->${PASSWORD_TIPO}->0->>'value' AS password
-		FROM matrix_users
-		WHERE "string"->${PASSWORD_TIPO}->0->>'value' IS NOT NULL
-		ORDER BY section_id
-	`) as { section_id: number; username: string | null; password: string }[];
-
-	const legacy = rows.filter((r) => !isArgon2Hash(r.password));
-	const already = rows.length - legacy.length;
+	// ONE pass (each account is hashed once): on --execute the recoverable
+	// accounts are written as they are found; nothing recoverable writes nothing.
+	const plan = await migrateLegacyPasswords(material as LegacyKeyMaterial, { execute });
 
 	console.log(`\n\x1b[1m▶ v6 → v7 password migration — ${execute ? 'EXECUTE' : 'DRY-RUN'}\x1b[0m`);
-	console.log(`  users with a password : ${rows.length}`);
-	console.log(`  already Argon2id      : ${already}`);
-	console.log(`  legacy (v6 AES)       : ${legacy.length}\n`);
+	console.log(`  users with a password : ${plan.accounts}`);
+	console.log(`  already Argon2id      : ${plan.argon2}`);
+	console.log(`  legacy (v6 AES)       : ${plan.legacy}\n`);
 
-	if (legacy.length === 0) {
+	if (plan.legacy === 0) {
 		console.log('✔ nothing to do — every user is already on Argon2id.');
 		process.exit(0);
 	}
 
-	// Decrypt + re-hash. The plaintext lives only inside rehashLegacyPassword.
-	const planned: { id: number; username: string; hash: string }[] = [];
-	const failed: { id: number; username: string }[] = [];
-
-	for (const row of legacy) {
-		const username = row.username ?? `(no username, id ${row.section_id})`;
-		const hash = await rehashLegacyPassword(row.password, material);
-		if (hash === null) failed.push({ id: row.section_id, username });
-		else planned.push({ id: row.section_id, username, hash });
-	}
-
 	console.log(
-		`\x1b[1mRecoverable\x1b[0m (${planned.length}): ${planned.map((p) => p.username).join(', ')}\n`,
+		`\x1b[1mRecoverable\x1b[0m (${plan.recoverable}): ${names(plan.recoverable_accounts)}\n`,
 	);
 
-	if (failed.length > 0) {
+	if (plan.failed > 0) {
 		console.log(
-			`\x1b[31m!! NOT RECOVERABLE\x1b[0m (${failed.length}) — the key material does not decrypt these:`,
+			`\x1b[31m!! NOT RECOVERABLE\x1b[0m (${plan.failed}) — the key material does not decrypt these:`,
 		);
-		console.log(`   ${failed.map((f) => f.username).join(', ')}`);
+		console.log(`   ${names(plan.failed_accounts)}`);
 		console.log(
 			'   Either DEDALO_INFORMATION / DEDALO_INFO_KEY are wrong (check the v6 config that',
 		);
@@ -163,37 +147,24 @@ async function main(): Promise<void> {
 	}
 
 	if (!execute) {
-		console.log(`Dry-run complete. ${planned.length} password(s) would be re-hashed to Argon2id.`);
+		console.log(
+			`Dry-run complete. ${plan.recoverable} password(s) would be re-hashed to Argon2id.`,
+		);
 		console.log('Re-run with --execute to apply. No plaintext is ever printed or stored.');
 		process.exit(0);
 	}
 
-	if (planned.length === 0) fail('nothing recoverable — refusing to run');
+	if (plan.recoverable === 0) fail('nothing recoverable — nothing was written');
+	const report = plan;
 
-	let written = 0;
-	for (const item of planned) {
-		await sql`
-			UPDATE matrix_users
-			   SET "string" = jsonb_set(
-			         coalesce("string", '{}'::jsonb),
-			         ${`{${PASSWORD_TIPO}}`}::text[],
-			         jsonb_build_array(jsonb_build_object('id', 1, 'value', ${item.hash}::text, 'lang', 'lg-nolan'))
-			       )
-			 WHERE section_id = ${item.id}
-		`;
-		written++;
+	console.log(`\n✔ re-hashed ${report.converted} password(s) to Argon2id.`);
+	if (report.skipped > 0) {
+		console.log(
+			`  skipped (the stored password changed while this ran): ${report.skipped} — left as they are now.`,
+		);
 	}
-
-	// Prove it: nothing legacy may remain among the rows we touched.
-	const remaining = (await sql`
-		SELECT COUNT(*)::int AS n FROM matrix_users
-		 WHERE "string"->${PASSWORD_TIPO}->0->>'value' IS NOT NULL
-		   AND "string"->${PASSWORD_TIPO}->0->>'value' NOT LIKE '$argon2%'
-	`) as { n: number }[];
-
-	console.log(`\n✔ re-hashed ${written} password(s) to Argon2id.`);
-	console.log(`  legacy values still in the table: ${remaining[0]?.n ?? '?'}`);
-	if ((remaining[0]?.n ?? 0) > 0) {
+	console.log(`  legacy values still in the table: ${report.remaining}`);
+	if (report.remaining > 0) {
 		console.log('  (those are the NOT RECOVERABLE ones above — reset them by hand.)');
 	}
 	console.log('  Users log in with their EXISTING passwords. Nothing to communicate to them.');

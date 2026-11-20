@@ -275,3 +275,13 @@ the principal's scope verdict over that unit / record has PASSED.
   RED before; mutations red: code always, code never (unit/group; record outcome), the plan's
   code kept, the unit's verdict pre-passed, the group member's verdict pre-passed, the prelude member's
   pending verdict ignored.
+- **Review note 2026-11-19 (d2bf02a187):** a unit whose record was BORN in the run and is
+  already gone (`goneBornAddresses`) has no row to judge, so its `failed` entry carries a `code`
+  after the section / component permission checks only (no record-scope search exists for it).
+  No new exposure: such a unit's coordinates were already on the report on the same checks.
+  Gates added the same day in `bulk_revert_cascade_target_scope_native`: a DEFERRED unit (its own
+  record undeleted in the prelude) whose re-linked target is judged and then throws untyped →
+  exactly `{reason: 'failed'}`; a throw from inside the verdict over a LIVE (wiped) row —
+  re-linked → the unit located without `code`, standalone group member → `{reason: 'failed'}`
+  alone. Mutations red: the deferred unit's verdict pre-passed; a live row reported judged
+  before `mayUndelete`.

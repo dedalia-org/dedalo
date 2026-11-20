@@ -11,8 +11,9 @@
   (`sliceHasText`, `listFallbackByCount`), the display doors switched to
   `shownItems` (datalist labels, project names, user names, relation_list /
   export cells, identify path reads, RAG text); the client merge
-  (`client/dedalo/core/common/js/utils/render_escape.js` `is_empty_entry` /
-  `render_fallback_value`, `common.js get_fallback_value`) judges the entry's
+  (`client/dedalo/core/common/js/utils/util.js` `is_empty_entry`,
+  `utils/render_escape.js` `render_fallback_value`, `common.js
+  get_fallback_value`) judges the entry's
   VALUE, not the item, so the list / mini / text views show the sent fallback
   (T1-34 review).
 - Gates: `test/unit/lang_fallback_empty_slice_native.test.ts`,

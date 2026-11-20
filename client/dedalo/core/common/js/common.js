@@ -5,7 +5,7 @@
 
 
 // imports
-	import {clone, load_style, load_script, strip_tags} from '../../common/js/utils/index.js'
+	import {clone, load_style, load_script, strip_tags, is_empty_entry} from '../../common/js/utils/index.js'
 	import {event_manager} from '../../common/js/event_manager.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {delete_instance} from '../../common/js/instances.js'
@@ -13,7 +13,6 @@
 	import {ui} from '../../common/js/ui.js'
 	import {get_inserted_rules} from '../../page/js/css.js'
 	import {render_stream} from '../../common/js/render_common.js'
-	import {is_empty_entry} from '../../common/js/utils/render_escape.js'
 	// error system (api_error.js → error_policy.js → error_dispatch.js → render_api_error.js).
 	// The cycle common ↔ render_api_error (format_label) is resolved at call time:
 	// nothing here is used while the modules evaluate.

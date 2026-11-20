@@ -898,11 +898,13 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 		 * @param {number|null} [options.host_width=null] - the group's own room
 		 *   (side panels / nesting shrink it on a desktop window), null = the frame
 		 * @param {number} [options.rows=3] - results in the list
+		 * @param {string} [options.row_text] - the text of each result (its index
+		 *   is appended); the list's width follows its rows
 		 * @param {boolean} [options.tooltip_shown=false] - the help tooltip in its
 		 *   HOVERED state (no hidden_tooltip; transition off: read at first layout)
 		 * @param {boolean} [options.open=false] - the options panel open (gear)
 		 */
-		const build = async ({frame_width = 1200, host_width = null, rows = 3, tooltip_shown = false, open = false} = {}) => {
+		const build = async ({frame_width = 1200, host_width = null, rows = 3, row_text = 'Museu Nacional d’Art de Catalunya. Barcelona. ', tooltip_shown = false, open = false} = {}) => {
 			const opened = await open_css_frame(frame_width, 'search_card_fixture')
 			try {
 				const host = opened.container
@@ -963,11 +965,12 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 				el('span', 'button_options button gear', service)
 				const datalist = el('ul', 'autocomplete_data', service)
 				for (let i = 0; i < rows; i++) {
-					el('li', 'autocomplete_data_li', datalist, 'Museu Nacional d’Art de Catalunya. Barcelona. ' + i)
+					el('li', 'autocomplete_data_li', datalist, row_text + i)
 				}
 
 				return {
 					frame: opened.frame,
+					win: opened.win,
 					style: opened.win.getComputedStyle.bind(opened.win),
 					group, card, sibling, options, tooltip, input_groups, operators, select_container, datalist, search_input
 				}
@@ -980,6 +983,13 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 		const rect = (node) => node.getBoundingClientRect()
 		const tracks_of = (f) => f.style(f.group).gridTemplateColumns.split(' ').map(parseFloat)
 
+		// LIST_CAP: the widest the closed results list may grow, as search.less
+		// states it — min(30rem, 100vw − 2rem) — measured in the fixture's frame.
+		const list_cap = (f) => {
+			const rem = parseFloat(f.style(f.win.document.documentElement).fontSize)
+			return Math.min(30 * rem, f.win.innerWidth - 2 * rem)
+		}
+
 		// shared by every open-panel case: list under the panel and inside the
 		// card, option rows whole, operator label + select on one line
 		const assert_open_panel = (f, context) => {
@@ -990,7 +1000,12 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			const card_rect		= rect(f.card)
 			assert.isAtLeast(list_rect.top, panel_rect.bottom - 1, `${context}: the results list starts below the options panel`)
 			assert.isAtLeast(list_rect.left, card_rect.left - 1, `${context}: the list does not leave the card on the left`)
-			assert.isAtMost(list_rect.right, card_rect.right + 1, `${context}: the list does not leave the card on the right`)
+			// the list is at least the card's inner width and widens to a long row,
+			// never past its cap (search.less: min(30rem, 100vw − 2rem)) — whether a
+			// row is longer than the card is the font's to say, so the bound is the cap
+			assert.isAtMost(list_rect.width, Math.max(list_cap(f), card_rect.width) + 1, `${context}: the list is no wider than its cap`)
+			// …and a list that widens from the card's left must still end on screen
+			assert.isAtMost(list_rect.right, f.win.innerWidth + 1, `${context}: the list stays on screen`)
 			assert.isAtMost(card_rect.right, rect(f.group).right + 1, `${context}: the card does not leave its group`)
 
 			f.input_groups.forEach((group_node, i) => {
@@ -1060,8 +1075,8 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 			}
 		})
 
-		it("options closed: the card keeps its track and the list stays inside it (positive control)", async function() {
-			const f = await build()
+		it("options closed: the card keeps its track and a list of short rows fills the card, no wider (positive control)", async function() {
+			const f = await build({row_text: 'A'})
 			try {
 				const track = tracks_of(f)[0]
 				assert.isBelow(Math.abs(rect(f.card).width - track), 2, 'the closed card is one track wide')
@@ -1069,9 +1084,46 @@ describe("SERVICE_AUTOCOMPLETE", function() {
 				const card_rect = rect(f.card)
 				const list_rect = rect(f.datalist)
 				assert.isAtLeast(list_rect.top, rect(f.search_input).bottom - 1, 'the list hangs under the main input')
-				assert.isAtMost(list_rect.right, card_rect.right + 1, 'the list does not leave the card on the right')
+				assert.isAtLeast(list_rect.left, card_rect.left - 1, 'the list starts inside the card')
+				assert.isAtMost(list_rect.right, card_rect.right + 1, 'short rows: the list does not leave the card on the right')
+				// at least the card's inner width: it does not shrink to its rows
+				assert.isAtLeast(list_rect.right, rect(f.search_input).right - 1, 'short rows: the list still spans the input')
 			} finally {
 				f.frame.remove()
+			}
+		})
+
+		it("options closed: the list widens to a long row, past the card, and stops at its cap (30rem / the viewport)", async function() {
+			// a row with spaces that is wider than the card but under the cap: the
+			// list takes the row's width, so the row is ONE line
+			const fitting = await build()
+			let one_line_height
+			try {
+				const card_rect = rect(fitting.card)
+				const list_rect = rect(fitting.datalist)
+				const cap = list_cap(fitting)
+				assert.isBelow(card_rect.width, cap, 'precondition: the card is narrower than the cap')
+				assert.isAtLeast(list_rect.left, card_rect.left - 1, 'the list starts inside the card')
+				assert.isAbove(list_rect.right, card_rect.right + 1, 'the list widened past the card for its rows')
+				assert.isAtMost(list_rect.width, cap + 1, 'and stayed under the cap')
+				one_line_height = rect(fitting.datalist.firstElementChild).height
+			} finally {
+				fitting.frame.remove()
+			}
+
+			// a space-less row wider than the cap: the list stops AT the cap and the
+			// row wraps inside it (overflow-wrap, the last resort)
+			const capped = await build({row_text: 'component_relation_children_'.repeat(8)})
+			try {
+				const list_rect = rect(capped.datalist)
+				const cap = list_cap(capped)
+				assert.isBelow(Math.abs(list_rect.width - cap), 1.5, `the list is exactly as wide as its cap (${cap}px)`)
+				assert.isAtMost(list_rect.right, capped.win.innerWidth, 'and it stays on screen')
+				const row = capped.datalist.firstElementChild
+				assert.isAtMost(rect(row).right, list_rect.right + 1, 'the row does not spill out of the list')
+				assert.isAbove(rect(row).height, one_line_height + 1, 'the over-long row wrapped inside the capped list')
+			} finally {
+				capped.frame.remove()
 			}
 		})
 

@@ -45,9 +45,11 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
+import * as realTimeMachine from '../../src/core/db/time_machine.ts';
 import { DedaloError } from '../../src/core/errors/index.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import * as realRecordScope from '../../src/core/security/record_scope.ts';
@@ -73,6 +75,9 @@ import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.t
 /** A spread COPY taken at import: what the one mocking case re-installs (mock_isolation rule 3). */
 const REAL_RECORD_SCOPE = { ...realRecordScope };
 const RECORD_SCOPE = '../../src/core/security/record_scope.ts';
+/** Same law for the one case that plants a throw AFTER a verdict (the birth marker's write). */
+const REAL_TIME_MACHINE = { ...realTimeMachine };
+const TIME_MACHINE = '../../src/core/db/time_machine.ts';
 
 const TLD = 'zzbcs';
 const SECTION = `${TLD}1`; // unfiltered host section
@@ -82,6 +87,8 @@ const FSECTION = `${TLD}4`; // FILTERED section: the cascade target lives here
 const FILTER = `${TLD}5`;
 const FTEXT = `${TLD}6`;
 const FPASS = `${TLD}7`; // component_password: an image the value gates can refuse
+const SMAIN = `${TLD}8`; // portal → SSLOT (soft cascade: delete_target WIPES the frame target, row kept)
+const SSLOT = `${TLD}9`;
 const TABLE = 'matrix_test';
 const USER_ID = -1;
 /** A project the non-admin does not hold (a dangling address is enough: scope is containment). */
@@ -109,6 +116,29 @@ const SITUATION = situation({
 			},
 		},
 		{ tipo: HSLOT, parent: HMAIN, model: 'component_dataframe', term: { 'lg-eng': 'Slot' } },
+		{
+			tipo: SMAIN,
+			parent: SECTION,
+			model: 'component_portal',
+			term: { 'lg-eng': 'Soft main' },
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [SECTION, FSECTION], source: 'section' }] },
+							show: { ddo_map: [{ tipo: SSLOT, parent: 'self', section_tipo: SECTION }] },
+						},
+					],
+				},
+			},
+		},
+		{
+			tipo: SSLOT,
+			parent: SMAIN,
+			model: 'component_dataframe',
+			term: { 'lg-eng': 'Soft slot' },
+			properties: { dataframe: { delete_policy: 'delete_target' } },
+		},
 		{ tipo: FSECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Filtered' } },
 		{ tipo: FILTER, parent: FSECTION, model: 'component_filter', term: { 'lg-eng': 'Projects' } },
 		{
@@ -312,6 +342,8 @@ beforeAll(async () => {
 		{ id: 54, tipo: FTEXT, section_tipo: FSECTION, value: 2 },
 		{ id: 55, tipo: FILTER, section_tipo: FSECTION, value: 2 },
 		{ id: 56, tipo: FPASS, section_tipo: FSECTION, value: 2 },
+		{ id: 57, tipo: SMAIN, section_tipo: SECTION, value: 2 },
+		{ id: 58, tipo: SSLOT, section_tipo: SECTION, value: 2 },
 	];
 	await sql.unsafe(
 		`UPDATE matrix_profiles SET misc = jsonb_set(misc, '{dd774}', (misc->'dd774') || $1::text::jsonb)
@@ -324,10 +356,12 @@ beforeAll(async () => {
 // `mock.module` is process-global and `mock.restore()` does not revert it.
 afterEach(() => {
 	mock.module(RECORD_SCOPE, () => REAL_RECORD_SCOPE);
+	mock.module(TIME_MACHINE, () => REAL_TIME_MACHINE);
 });
 
 afterAll(async () => {
 	mock.module(RECORD_SCOPE, () => REAL_RECORD_SCOPE);
+	mock.module(TIME_MACHINE, () => REAL_TIME_MACHINE);
 	await removeAclIdentityFixture();
 	for (const section of [SECTION, FSECTION]) {
 		await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [section]);
@@ -512,6 +546,266 @@ describe('a missing target’s SCOPE is asked before its image is: the reason ne
 		}
 		expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
 		expect(frameTargets(await stored(SECTION, host, 'relation', HSLOT))).toEqual([]);
+	}, 60_000);
+
+	// ---- review of d2bf02a187: the DEFERRED unit and the LIVE-ROW (wiped) branch.
+
+	test('DEFERRED unit (its OWN record is one it undeletes first): a re-linked target is judged, then its restore throws untyped → `failed` and nothing else — the unit’s own verdict had not passed', async () => {
+		// Run A bears BOTH the target and the host that frames it; the revert R of
+		// A deletes both (D2). Reverting R, the host's unit is DEFERRED: its own
+		// record's verdict waits for the prelude (the restored row). The prelude
+		// undeletes the TARGET first (the newer marker): its verdict passes, then
+		// the birth marker's write throws. The target's verdict passed — the
+		// unit's OWN had not: no coordinates, no code (owner ruling 2026-11-18, Q3).
+		const t1 = await createSectionRecord(SECTION, USER_ID);
+		const run = await mint();
+		const host = await createSectionRecord(SECTION, USER_ID, new Date(), undefined, {
+			bulkProcessId: run,
+		});
+		const target = await createSectionRecord(FSECTION, USER_ID, new Date(), undefined, {
+			bulkProcessId: run,
+			filterData: [{ type: 'dd675', section_tipo: 'dd153', section_id: ACL_PROJECT_ID }],
+		});
+		const linked = await saveComponentData({
+			componentTipo: HMAIN,
+			sectionTipo: SECTION,
+			sectionId: host,
+			lang: 'lg-nolan',
+			changedData: [
+				{ action: 'insert', value: { section_tipo: SECTION, section_id: String(t1) } },
+			] as never,
+			userId: USER_ID,
+			bulkProcessId: run,
+		});
+		expect(linked.ok).toBe(true);
+		const itemId = Number(
+			((await stored(SECTION, host, 'relation', HMAIN)) as { id: number }[])[0]?.id,
+		);
+		const framed = await saveComponentData({
+			componentTipo: HSLOT,
+			sectionTipo: SECTION,
+			sectionId: host,
+			lang: 'lg-nolan',
+			changedData: [
+				{ action: 'insert', value: { section_tipo: FSECTION, section_id: String(target) } },
+			] as never,
+			userId: USER_ID,
+			bulkProcessId: run,
+			callerDataframe: { main_component_tipo: HMAIN, id_key: itemId } as never,
+		});
+		expect(framed.ok).toBe(true);
+		const first = await revertAs(run, USER_ID);
+		// FLOOR: both born records are gone, each with a role-4 twin under R, and
+		// the TARGET's is the newer one (the prelude takes it first).
+		expect(first.skipped).toEqual([]);
+		expect(await stored(SECTION, host, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+		const twins = (await sql.unsafe(
+			`SELECT section_tipo, max(id)::int AS id FROM matrix_time_machine
+			 WHERE bulk_process_id = $1 AND tm_role = 4
+			   AND ((section_tipo = $2 AND section_id = $3) OR (section_tipo = $4 AND section_id = $5))
+			 GROUP BY section_tipo`,
+			[first.bulk_process_id, SECTION, host, FSECTION, target],
+		)) as { section_tipo: string; id: number }[];
+		const twinOf = (section: string) =>
+			Number(twins.find((row) => row.section_tipo === section)?.id);
+		expect(twinOf(FSECTION)).toBeGreaterThan(twinOf(SECTION));
+
+		const scopeAsked: string[] = [];
+		let thrown = 0;
+		mock.module(RECORD_SCOPE, () => ({
+			...REAL_RECORD_SCOPE,
+			principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
+				const answer = await REAL_RECORD_SCOPE.principalCanAccessRecord(
+					sectionTipo,
+					sectionId,
+					who,
+				);
+				scopeAsked.push(`${sectionTipo}#${sectionId}:${answer}`);
+				return answer;
+			},
+		}));
+		mock.module(TIME_MACHINE, () => ({
+			...REAL_TIME_MACHINE,
+			recordBulkBirth: async (entry: { sectionTipo: string; sectionId: number }) => {
+				if (entry.sectionTipo === FSECTION && entry.sectionId === target) {
+					thrown += 1;
+					throw new TypeError('planted after the target’s scope verdict');
+				}
+				return REAL_TIME_MACHINE.recordBulkBirth(entry as never);
+			},
+		}));
+		const quiet = console.error;
+		console.error = () => {};
+		try {
+			const data = await revertAs(first.bulk_process_id, ACL_NON_ADMIN_USER_ID);
+			// The planted throw is what failed it — AFTER the target's verdict passed,
+			// and before the host's own was ever asked.
+			expect(thrown).toBe(1);
+			expect(scopeAsked).toEqual([`${FSECTION}#${target}:true`]);
+			// EXACT: the unit `failed`, the reason alone (no coordinates, NO CODE);
+			// the two records it could not bring back, the reason alone.
+			expect(data.skipped).toEqual([
+				{ reason: 'failed' },
+				{ reason: 'cascade_delete_not_reverted' },
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+			expect(JSON.stringify(data)).not.toContain('internal.');
+		} finally {
+			console.error = quiet;
+		}
+		expect(await stored(SECTION, host, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(await stored(FSECTION, target, 'data', 'section_id')).toBe('NO-RECORD');
+	}, 60_000);
+
+	/** A FILTERED record (the reader's project) with a text — what a soft cascade wipes. */
+	async function filteredWithText(): Promise<number> {
+		const id = await createSectionRecord(FSECTION, USER_ID, new Date(), undefined, {
+			filterData: [{ type: 'dd675', section_tipo: 'dd153', section_id: ACL_PROJECT_ID }],
+		});
+		const saved = await saveComponentData({
+			componentTipo: FTEXT,
+			sectionTipo: FSECTION,
+			sectionId: id,
+			lang: 'lg-nolan',
+			changedData: [
+				{ action: 'set_data', value: [{ id: 1, lang: 'lg-nolan', value: 'soon wiped' }] },
+			] as never,
+			userId: USER_ID,
+		});
+		expect(saved.ok).toBe(true);
+		return id;
+	}
+
+	/** `host` gets a SMAIN item and a SOFT (delete_target) frame onto `role`, past history. */
+	async function softFrame(host: number, role: number): Promise<void> {
+		const t1 = await createSectionRecord(SECTION, USER_ID);
+		await sql.unsafe(
+			`UPDATE "${TABLE}" SET relation = COALESCE(relation, '{}'::jsonb) || $3::text::jsonb
+			 WHERE section_tipo = $1 AND section_id = $2`,
+			[
+				SECTION,
+				host,
+				JSON.stringify({
+					[SMAIN]: [
+						{
+							id: 1,
+							type: 'dd151',
+							section_tipo: SECTION,
+							section_id: t1,
+							from_component_tipo: SMAIN,
+						},
+					],
+					[SSLOT]: [
+						{
+							id: 1,
+							type: 'dd490',
+							id_key: 1,
+							section_tipo: FSECTION,
+							section_id: role,
+							from_component_tipo: SSLOT,
+							main_component_tipo: SMAIN,
+						},
+					],
+				}),
+			],
+		);
+	}
+
+	/** The scope verdict over (FSECTION, id) throws a typed error; every other record is judged for real. */
+	function plantScopeThrow(id: number): { thrown: () => number } {
+		let thrown = 0;
+		mock.module(RECORD_SCOPE, () => ({
+			...REAL_RECORD_SCOPE,
+			principalCanAccessRecord: async (sectionTipo: string, sectionId: number, who: never) => {
+				if (sectionTipo === FSECTION && sectionId === id) {
+					thrown += 1;
+					throw new DedaloError('internal.invariant', { message: 'planted in the scope verdict' });
+				}
+				return REAL_RECORD_SCOPE.principalCanAccessRecord(sectionTipo, sectionId, who);
+			},
+		}));
+		return { thrown: () => thrown };
+	}
+
+	test('LIVE ROW, RE-LINKED: a throw from inside a WIPED target’s scope verdict fails the in-scope unit at ITS coordinates with NO CODE', async () => {
+		// The soft cascade keeps the row, so the target's scope is judged on the
+		// LIVE row before any restore (mayUndelete) — the other branch of the
+		// record door. Same law: the verdict had not passed, the code stays home.
+		const host = await createSectionRecord(SECTION, USER_ID);
+		const role = await filteredWithText();
+		await softFrame(host, role);
+		const run = await mint();
+		const removed = await saveComponentData({
+			componentTipo: SSLOT,
+			sectionTipo: SECTION,
+			sectionId: host,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'remove', id: 1, value: null }] as never,
+			userId: USER_ID,
+			bulkProcessId: run,
+		});
+		expect(removed.ok).toBe(true);
+		// FLOOR: WIPED, row kept.
+		expect(await stored(FSECTION, role, 'data', 'section_id')).not.toBe('NO-RECORD');
+		expect(await stored(FSECTION, role, 'string', FTEXT)).toBeUndefined();
+		const planted = plantScopeThrow(role);
+		const quiet = console.error;
+		console.error = () => {};
+		try {
+			const data = await revertAs(run, ACL_NON_ADMIN_USER_ID);
+			expect(planted.thrown()).toBeGreaterThanOrEqual(1);
+			expect(data.skipped).toEqual([
+				{ reason: 'failed', section_tipo: SECTION, tipo: SMAIN, section_id: host },
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+			expect(JSON.stringify(data)).not.toContain('internal.');
+		} finally {
+			console.error = quiet;
+		}
+		// Nothing came back: the wipe stands, the frame stays out.
+		expect(await stored(FSECTION, role, 'string', FTEXT)).toBeUndefined();
+		expect(frameTargets(await stored(SECTION, host, 'relation', SSLOT))).toEqual([]);
+	}, 60_000);
+
+	test('LIVE ROW, STANDALONE: a throw from inside a WIPED group member’s scope verdict → `failed` and nothing else (no coordinates, NO CODE)', async () => {
+		// born --soft frame--> child. Deleting `born` under a bulk id wipes child
+		// (row kept) under the same id; no unit re-links either, so reverting that
+		// id undeletes them as ONE standalone group. The child's row is LIVE: its
+		// verdict is mayUndelete's, and it throws.
+		const child = await filteredWithText();
+		const born = await createSectionRecord(SECTION, USER_ID);
+		await softFrame(born, child);
+		const revertId = await mint();
+		await deleteSectionRecord(SECTION, born, USER_ID, undefined, { bulkProcessId: revertId });
+		// FLOOR: born gone, child WIPED (row kept), its role-4 twin under the id.
+		expect(await stored(SECTION, born, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(await stored(FSECTION, child, 'data', 'section_id')).not.toBe('NO-RECORD');
+		expect(await stored(FSECTION, child, 'string', FTEXT)).toBeUndefined();
+		const twins = (await sql.unsafe(
+			`SELECT count(*)::int AS n FROM matrix_time_machine
+			 WHERE section_tipo = $1 AND section_id = $2 AND bulk_process_id = $3 AND tm_role = 4`,
+			[FSECTION, child, revertId],
+		)) as { n: number }[];
+		expect(Number(twins[0]?.n)).toBeGreaterThan(0);
+		const planted = plantScopeThrow(child);
+		const quiet = console.error;
+		console.error = () => {};
+		try {
+			const data = await revertAs(revertId, ACL_NON_ADMIN_USER_ID);
+			expect(planted.thrown()).toBeGreaterThanOrEqual(1);
+			// EXACT: the member whose verdict threw, the reason alone; the parent
+			// that rolled back with it, the reason alone.
+			expect(data.skipped).toEqual([
+				{ reason: 'failed' },
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+			expect(JSON.stringify(data)).not.toContain('internal.');
+		} finally {
+			console.error = quiet;
+		}
+		expect(await stored(SECTION, born, 'data', 'section_id')).toBe('NO-RECORD');
+		expect(await stored(FSECTION, child, 'string', FTEXT)).toBeUndefined();
 	}, 60_000);
 
 	test('CONTROL — a STANDALONE target with a restorable image: outside → out_of_scope, inside → it comes back', async () => {

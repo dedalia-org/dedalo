@@ -132,7 +132,12 @@ describe.if(hasPhpCredentials())('maintenance widget catalog differential', () =
 		// publication_hosts (WC-2026-10-03-publication-hosts-widget) is TS-ONLY: the
 		// publication-host registry and agent channel have no PHP peer. Asserted
 		// natively by test/unit/publication_host_widget_native.test.ts.
+		// legacy_passwords (WC-2026-11-19-maintenance-legacy-passwords-widget) is
+		// TS-ONLY: the PHP engine upgraded a v6 password at the next login instead of
+		// converting from a panel. Asserted natively by
+		// test/unit/legacy_password_migration.test.ts.
 		const TS_ONLY_WIDGET_IDS = new Set([
+			'legacy_passwords',
 			'error_reports',
 			'site_builder_status',
 			'ai_models',

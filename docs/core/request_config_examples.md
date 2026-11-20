@@ -465,8 +465,8 @@ This document does **not** re-explain the architecture or the wire format — se
 **Explanation**:
 - `api_engine: "zenon"` — routes data retrieval through the external Zenon adapter instead of the matrix tables.
 - `fields_map: true` — a lazy flag: the engine REPLACES it with the named component's own `properties.fields_map` and stamps the ddo's `model`, `lang` and `permissions`. The hydrated array is what the client sends as `&field[]=`, so it stays on the wire.
-- `api_config` is resolved from the section the show ddo names. Those five keys are the only ones published: anything else is dropped, credential-shaped keys (`api_key`, `token`, …) are stripped, and every URL must be `http(s)` — a `javascript:` `ui_base_url` refuses the whole block, because the portal concatenates it with a record id to open a window. A service credential belongs in `../private/.env` on a secret catalog key, never in the ontology.
-- `api_url` / `api_url_search` hosts must also be listed in `DEDALO_EXTERNAL_ALLOWED_HOSTS` before the SERVER will fetch them.
+- `api_config` is resolved from the section the show ddo names. Of those five keys the browser receives three — `entity`, `ui_base_url` and `response_map`; `api_url` and `api_url_search` are called by the server and stay on it. Anything else is dropped, credential-shaped keys (`api_key`, `token`, …) are stripped, and every URL must be `http(s)` — a `javascript:` `ui_base_url` refuses the whole block, because the portal concatenates it with a record id to open a window. A service credential belongs in `../private/.env` on a secret catalog key, never in the ontology.
+- `api_url` / `api_url_search` hosts must also be listed in `DEDALO_EXTERNAL_ALLOWED_HOSTS` before the SERVER will fetch them. Neither may carry a query string or a fragment (`?…`, `#…`): the service adapter builds the query, and a block with one is refused whole.
 
 *See properties:* [`api_engine`](../api/rqo.md#api_engine-string-optional-default-dedalo), [`api_config`](request_config.md#request_config_object-shape).
 

@@ -47,16 +47,15 @@ export interface ExternalApiConfig {
 
 /**
  * The api_config form that may reach a BROWSER — snake_case, because it is a
- * live client contract (component_portal.js:2054 concatenates `ui_base_url +
- * section_id`; service_autocomplete.js:1039 POSTs to `api_url_search`). Built
+ * live client contract (component_portal.js concatenates `ui_base_url +
+ * section_id`). The URLs the SERVER fetches (`api_url`, `api_url_search`) are
+ * not part of it: no client code reads them (T2 S09-c). Built
  * ONLY by `publishApiConfig`; see its header for what the shaping guarantees.
  * Optional keys are ABSENT (never null) when the ontology declares none —
  * matching the raw echo the client has always seen.
  */
 export interface PublishedApiConfig {
 	readonly entity: string;
-	readonly api_url: string;
-	readonly api_url_search?: string;
 	readonly ui_base_url?: string;
 	readonly response_map: ResponseMap;
 }

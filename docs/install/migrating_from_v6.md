@@ -390,6 +390,8 @@ Nothing asks you to install, either: there is no install page. A migrated instan
      WHERE "string"->'dd133'->0->>'value' NOT LIKE '$argon2%';
     ```
 
+The server counts them for you too: every start logs `[boot] LEGACY PASSWORDS: <n> account(s) still hold a Dédalo v6 password value …` while any remain, `/health` carries `"notices": ["legacy_password_accounts"]` (re-checked about once a minute, so it disappears shortly after the command below ran — no restart needed), and each refused login of such an account is logged with the command below.
+
 **Nobody has to choose a new password.** Because the old storage is reversible, the tool decrypts each legacy value once and re-hashes it with Argon2id. Users log in afterwards with the passwords they already have, and are never told anything happened.
 
 ```shell
@@ -401,6 +403,8 @@ bun run dedalo:migrate-passwords --config-dir=/path/to/dedalo_v6/config --execut
 ```
 
 It needs the v6 **`DEDALO_INFORMATION`** and **`DEDALO_INFO_KEY`** — the encryption key and IV. If your install keeps its defines in an included file, name it with `--config-file=/path/to/private/config.inc`, or pass them directly with `--information='…' --info-key='…'`.
+
+**From the application**, once it runs, a global administrator who can log in does the same in **Maintenance → Legacy passwords**. It needs an account that already works: on a database that comes straight from v6 the administrators' own passwords — `root` included — are v6 values too, so nobody can open the panel and the command above is the only way in. The panel is for what is left afterwards: accounts the first run could not decrypt (another key was in use when they were set), accounts restored later from a v6 copy, or an installation where the conversion was simply never finished. The panel shows how many accounts hold a password, how many are already converted and how many are still on a v6 value. Type the two v6 values (leave a field empty for the v6 default: the published information string, and this installation's entity name as the info key), press **Check** — a dry run that writes nothing and says how many accounts those values decrypt — and then **Convert passwords**. The report gives the accounts converted, the ones the values do not decrypt (listed by name, left untouched) and the ones skipped because their password changed meanwhile. It is the same conversion as the command above; the typed values are used for that request only and are not stored, logged or sent back, and no password ever reaches the browser. The `/health` notice goes as soon as the last account is converted.
 
 !!! warning "Use the config that was in use when the passwords were last set"
     Those two constants are marked *don't change it after install* for exactly this reason: change them and every stored password becomes undecryptable. If the dry run says **NOT RECOVERABLE** for everyone, the key material is wrong — it does **not** mean the passwords are lost. Find the right config before doing anything else. A wrong key is always reported, never silently applied.
@@ -606,6 +610,8 @@ Most trouble is found by the deep preflight, **before** the migration. The rule 
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| The server log says `[boot] DATABASE NOT MIGRATED`, `/health` answers 503 with `"data_version": {"state": "unreachable"}`, and the *Update data* panel says the database is a Dédalo v6 database | the v7 engine was started on a database still at a 6.x data version: Phase A never ran on it. No *Update data* of v7 starts from a v6 database | stop the v7 server and run [Phase A](#3-phase-a-transform-the-data-on-v6) on the v6 install, then start v7 again |
+| Nobody can log in, and the server log says `[boot] LEGACY PASSWORDS` | the passwords were not migrated | [migrate the passwords](#62-migrate-the-passwords) |
 | A component shows the wrong or no value | the row failed to reformat and was carried past the stamp | search the log, re-run the migration (it is idempotent), or fix the record |
 | Widget with a subsidiary form shows nothing / duplicated rows | dataframe frames left legacy or orphaned | [dataframe frames](#92-dataframe-frames-v7) |
 | A computed/mirrored value is empty or stale | the mirror was written by the migration, outside the save path | [stale mirrors](#93-stale-observer-mirrors-v7) |

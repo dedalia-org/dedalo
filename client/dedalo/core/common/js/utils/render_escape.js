@@ -1,7 +1,7 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*eslint no-undef: "error"*/
 
-import { safe_url } from './util.js';
+import { is_empty_entry, safe_url } from './util.js';
 
 /**
  * RENDER_ESCAPE — the ONE escaper at the render boundary
@@ -126,31 +126,9 @@ export const render_join = (values, separator, render_class) => {
 	return render_value(list, render_class).join(escape_html(separator ?? ', '));
 }; //end render_join
 
-/**
- * Editor ghost markup a rich-text value leaves behind when cleared — mirror of
- * the server rule (src/core/resolve/data_item_emptiness.ts RICH_TEXT_GHOSTS).
- */
-const RICH_TEXT_GHOSTS = new Set(['<p></p>', '<p> </p>', '<br data-mce-bogus="1">']);
-
-/**
- * IS_EMPTY_ENTRY
- * Whether a current-lang entry carries no text: missing, or its value is
- * null / undefined / false / '' / [] / whitespace / rich-text ghost markup.
- * '0' and 0 are values. A cleared translation is persisted as an ITEM
- * ({id, lang, value:''}) — judging the item's truthiness hid the fallback
- * (T1-34 / O14). The server sends fallback_value only for a slice it judged
- * empty by the model's rule, so this lenient check only decides which face a
- * position shows; it never invents a fallback.
- * @param {Object|null|undefined} entry - {value, ...}
- * @return {boolean}
- */
-export const is_empty_entry = (entry) => {
-	if (!entry || typeof entry !== 'object') return true;
-	const value = typeof entry.value === 'string' ? entry.value.trim() : entry.value;
-	if (value === undefined || value === null || value === '' || value === false) return true;
-	if (Array.isArray(value)) return value.length === 0;
-	return typeof value === 'string' && RICH_TEXT_GHOSTS.has(value);
-}; //end is_empty_entry
+// is_empty_entry (the fallback merge below reads it) lives in util.js: the
+// page's boot path needs it through common.js, and this module is not on that
+// path (page_load_budget_native).
 
 /**
  * RENDER_FALLBACK_VALUE

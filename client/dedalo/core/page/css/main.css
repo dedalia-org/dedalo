@@ -17414,6 +17414,65 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
   display: none;
 }
 /**
+* legacy_passwords
+*
+* Included from area_maintenance.less file.
+* The census, the notes and the report come from the shared widget_kit
+* (.dd_readout / .dd_note); only the key form and the failed list live here.
+*/
+.wrapper_widget.legacy_passwords .legacy_passwords_content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_lead {
+  font-size: 0.85rem;
+  color: var(--fg_muted);
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 40rem;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_field_label {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_input {
+  width: 100%;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.wrapper_widget.legacy_passwords .body_response {
+  white-space: pre-wrap;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_failed_title {
+  font-weight: 600;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_failed_list {
+  margin: 0;
+  padding-left: 1.2rem;
+  overflow-wrap: anywhere;
+}
+.wrapper_widget.legacy_passwords .legacy_passwords_failed_hint {
+  font-size: 0.8rem;
+  color: var(--fg_muted);
+}
+/**
 * lock_components
 *
 * Included from area_maintenance.less file.

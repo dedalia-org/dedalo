@@ -1244,7 +1244,11 @@ async function legWalkKillResume(c: Context): Promise<RunJournal> {
 			'RUN 2: the interrupted phase says so',
 		);
 	check(
-		journal.verify?.every((verdict) => verdict.ok) === true && journal.verify.length === 3,
+		// every predicate the engine declares, however many: a count written here
+		// went stale the day a fourth was added (and a short list must not pass)
+		journal.verify?.every((verdict) => verdict.ok) === true &&
+			journal.verify.length === e.verify.RUN_VERIFY_PREDICATES.length &&
+			journal.verify.length > 0,
 		'RUN 2: every post-verify predicate ok',
 		journal.verify,
 	);

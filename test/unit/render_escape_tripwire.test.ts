@@ -1230,14 +1230,26 @@ function loadEscaper(): Escaper {
 		`return ${safeBody.slice(safeBody.indexOf('function(value)'))}`,
 	)({ location: { origin: 'https://example.org' } }, URL);
 
+	// the real emptiness rule the fallback merge reads — util.js too (it is on
+	// the page's boot path through common.js; the escaper imports it from there)
+	const emptyStart = util.indexOf('const RICH_TEXT_GHOSTS');
+	const emptyEnd = util.indexOf('}//end is_empty_entry');
+	if (emptyStart === -1 || emptyEnd < emptyStart)
+		throw new Error(
+			`${UTIL}: is_empty_entry (with RICH_TEXT_GHOSTS) is not where the escaper imports it from`,
+		);
+	const emptyBody = util.slice(emptyStart, emptyEnd + 1).replace(/^export const /gm, 'const ');
+	const is_empty_entry = new Function(`${emptyBody}\nreturn is_empty_entry`)();
+
 	const source = read(ESCAPER)
 		.replace(/^\s*import .*$/gm, '')
 		.replace(/^export const /gm, 'const ');
 	const factory = new Function(
 		'safe_url',
+		'is_empty_entry',
 		`${source}\nreturn { escape_html, render_value, render_join, render_fallback_value }`,
 	);
-	return factory(safe_url) as Escaper;
+	return factory(safe_url, is_empty_entry) as Escaper;
 }
 
 // ---------------------------------------------------------------------------

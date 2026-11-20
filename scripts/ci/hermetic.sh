@@ -598,6 +598,13 @@ HERMETIC_TRIPWIRES=(
 	#     vendored release; never touches the database (verified with DB_HOST=127.0.0.1
 	#     DB_PORT=59999: 8 pass / 0 fail).
 	test/unit/install_ontology_digest_native.test.ts
+	# --- 2026-11-19 (T2 S09-a, session-read confinement). DB-free: a source scan of src/ and
+	#     tools/ plus planted strings (verified with DB_HOST=127.0.0.1 DB_PORT=59999).
+	test/unit/session_read_confinement_tripwire.test.ts
+	# --- 2026-11-19 (T2 S10-a, no dynamic code in the client). DB-free: a source scan of
+	#     client/dedalo and tools plus planted strings (verified with DB_HOST=127.0.0.1
+	#     DB_PORT=59999).
+	test/unit/client_no_dynamic_code_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run
@@ -790,8 +797,18 @@ tw_rc=0
 order_test_paths "${HERMETIC_TRIPWIRES[@]}" || tw_rc=$?
 hermetic_parallel=()
 hermetic_serial=()
+# Lane membership is an IN-SHELL comparison, never `printf … | grep -q` (2026-11-19):
+# bash's stdout is line-buffered, so printf writes the lane one line per write; grep -q
+# exits on its first match, and on a loaded machine the NEXT write lands on a closed
+# pipe — SIGPIPE, 141, which `pipefail` reports as "not in the lane". The file then
+# rode a parallel worker and the count check below went red (measured in the CI image,
+# 8 busy cores: 55 misses in 5000 lookups of the lane's first entry).
 for path in "${TEST_ORDER_PATHS[@]}"; do
-	if printf '%s\n' ${HERMETIC_SERIAL_LANE[@]+"${HERMETIC_SERIAL_LANE[@]}"} | grep -qxF "${path#./}"; then
+	in_lane=0
+	for lane_entry in ${HERMETIC_SERIAL_LANE[@]+"${HERMETIC_SERIAL_LANE[@]}"}; do
+		[ "$lane_entry" != "${path#./}" ] || in_lane=1
+	done
+	if [ "$in_lane" -eq 1 ]; then
 		hermetic_serial+=("$path")
 	else
 		hermetic_parallel+=("$path")

@@ -78,6 +78,14 @@ const STRAY_SOURCES: readonly string[] = [
 	'test6585',
 ];
 
+/**
+ * The non-scratch tlds `bun run test:db:setup` builds. Measured 2026-11-20 on the host
+ * and in the CI image (both 49). The per-file floor moved 107 → 142 → 114 with this
+ * count unchanged: 9+2N (first record), 10+2N+B with B=34 banked derived_flag tlds
+ * (0c898bf963), 14+2N+B with B=2 and the fixed-point leg (a77a814e8b).
+ */
+const SUITE_TLD_FLOOR = 49;
+
 /** The parser rungs (OntologyState.machineNameLegacyRungs keys). */
 const PARSER_RUNGS: readonly string[] = ['derived_flag', 'legacy_lang', 'single_value'];
 
@@ -110,6 +118,11 @@ describe('legacy machine-name rungs ratchet (G6)', () => {
 	test('floor: the suite carries the release (tlds with parsed nodes)', () => {
 		expect(tlds).toContain('dd');
 		expect(states.get('dd')?.matrixNodes ?? 0).toBeGreaterThan(1000);
+		// This file's assertion count follows the tld count (two per tld, plus one per
+		// banked tld), so a suite that silently LOST tlds would only show as a lower
+		// per-file floor, which a re-record banks. Said here instead: the suite build
+		// (the installer's seed + `oh` + the suite fixtures) lands SUITE_TLD_FLOOR tlds.
+		expect(tlds.length).toBeGreaterThanOrEqual(SUITE_TLD_FLOOR);
 	});
 
 	test('the rung vocabulary is closed: three parser rungs, two reader bridges', () => {

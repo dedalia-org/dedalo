@@ -916,6 +916,11 @@ The **backup set is five stores** — the matrix DB alone is not a backup:
 3. **Media originals** (`MEDIA_PATH`) — the `original` quality is the source
    of truth every derivative rebuilds from; derivatives need no backup.
 4. **`../private/`** — `.env` secrets, session store, `ts_state.json`.
+   `ts_state.json` is written atomically (temp + fsync + rename). A file that
+   EXISTS but does not read as a state object fails CLOSED: maintenance mode
+   is on for every non-root session, logged once as `[server_state] … FAILING
+   CLOSED`; root saving the maintenance settings rewrites it. A missing file
+   is the defaults (`server_state_torn_native`).
 5. **Every site-builder INSTANCE on this host** — per instance: its
    declaration and `secrets/`, its workspaces root (`SITES_ROOT`: every site's
    source and full git history), each site's whole webspace (**both** release
@@ -1712,9 +1717,21 @@ flips it to `"needs_restore"` — the old code cannot be trusted on that schema,
 so the watchdog does NOT roll back or restart, logs "needs a human", and the
 operator restores the pre-update database backup together with the tree
 (automatic rollback stays within one data model, owner decision D-2).
-`/health` also reports `data_version` (`ok|pending|ahead|unknown` against the
-code's declared data version): `pending` is reported, not red (run "Update
-data"); `ahead` — old code over a newer database — is red.
+`/health` also reports `data_version` (`ok|pending|ahead|unreachable|unknown`
+against the code's declared data version): `pending` is reported, not red (run
+"Update data"); `ahead` — old code over a newer database — is red; `unreachable`
+— a database of an older major than any rung of the update catalog starts from
+(a Dédalo v6 database: its migration runs on v6) — is red too. `notices` lists
+what an operator should act on without the probe going red
+(`legacy_password_accounts`: run `bun run dedalo:migrate-passwords`, or the
+Maintenance → Legacy passwords panel — the same door,
+`src/core/security/legacy_password_migration.ts`; the panel is also where a
+global admin reads the NUMBER, which `/health` never carries). That
+notice is not a boot snapshot: the count is taken at boot and again by `/health`
+at most once a minute (`boot_state.ts LEGACY_PASSWORD_RECOUNT_MS` — never per
+call), so it goes within a minute of the command-line migration, with no
+restart; a read or a run of the panel hands its own count to `/health` at once
+(`recordLegacyPasswordAccounts`).
 A pending, unconfirmed sentinel is the machine-readable fact "the last update
 never proved itself". Because it is written pre-swap, the `backupDir` it names
 may not exist yet — the rollback script handles that state explicitly (below).

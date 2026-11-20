@@ -97,6 +97,10 @@ const SRC_DIR = join(import.meta.dir, '..', '..', 'src');
  * it here WITH justification that it carries no request identity.
  */
 const ALLOWLISTED_MODULE_LET = new Set<string>([
+	// The last "ts_state.json is unreadable — failing closed" line said (path + why),
+	// so a per-request read of a torn file logs once per damage, not once per call.
+	// A fact about one FILE on disk: no identity, no request state.
+	'core/resolve/server_state.ts:lastUnreadableReport',
 	// The scratch trust stores a GATE hands the developer-route trust step's doors
 	// (install_dev_tls_native). Honoured only while DEDALO_TEST_TRUST_STORE_OFF is
 	// set (a test run), set and put back by that gate; an installer value, never

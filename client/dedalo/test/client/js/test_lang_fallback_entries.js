@@ -22,10 +22,8 @@
  */
 
 import { get_fallback_value } from '../../../core/common/js/common.js';
-import {
-	is_empty_entry,
-	render_fallback_value,
-} from '../../../core/common/js/utils/render_escape.js';
+import { render_fallback_value } from '../../../core/common/js/utils/render_escape.js';
+import { is_empty_entry } from '../../../core/common/js/utils/util.js';
 import { view_default_list_input_text } from '../../../core/component_input_text/js/view_default_list_input_text.js';
 import { view_mini_input_text } from '../../../core/component_input_text/js/view_mini_input_text.js';
 import { view_text_input_text } from '../../../core/component_input_text/js/view_text_input_text.js';

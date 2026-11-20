@@ -183,9 +183,24 @@ algorithm and no "try the old scheme" branch.
     hashed. Such a value is refused: `auth.ts` denies loudly in the server log
     (naming the account) and ambiguously on the wire.
 
-    These accounts do **not** need to choose a new password. Run
-    `scripts/migrate_v6_passwords.ts`, which decrypts each legacy value once,
-    re-hashes it with Argon2id, and writes the hash back.
+    These accounts do **not** need to choose a new password. Convert them from
+    the command line with `bun run dedalo:migrate-passwords`
+    (`scripts/migrate_v6_passwords.ts`), or — when a global administrator can
+    already log in — from **Maintenance → Legacy passwords**, a panel that shows
+    how many accounts are affected and runs the conversion from the server. Both
+    are the same code (`src/core/security/legacy_password_migration.ts`): it
+    decrypts each legacy value once, re-hashes it with Argon2id, and writes the
+    hash back. There is no upgrade at the next login: the earlier engine's
+    rehash-on-login is retired, because it needs the v6 encryption key inside the
+    running server.
+
+    The server tells you when accounts are waiting. At start it counts the
+    accounts whose stored password is not Argon2id and logs one warning with the
+    number and the command (`[boot] LEGACY PASSWORDS: …`); `/health` then carries
+    `"notices": ["legacy_password_accounts"]` — a notice, the probe stays green,
+    and it goes within a minute of the migration, without a restart —
+    and the refusal of each such login names the command in the server log. See
+    [Migrate the passwords](../../install/migrating_from_v6.md#62-migrate-the-passwords).
 
 ### Brute-force throttle (SEC-019)
 
@@ -208,6 +223,16 @@ stored password, legacy hash). A confirmed success clears the counter
 
 `login()` blocks any non-superuser while the server state `maintenance_mode` is
 set, returning an "under maintenance" message. Only `root` (`-1`) passes.
+
+The same rule holds for a session that already exists. The API dispatcher refuses
+a non-superuser session with `auth.maintenance`, and every route outside the
+dispatcher — media and staged-upload files, model weights, the text-area tag
+redirect, uploads, the raw record and environment views, the counters, the
+hierarchy dump download, the export download and the map tile proxy — reads the
+session through one function, `liveSessionFromCookie()`
+(`src/core/security/session_gate.ts`), which answers "no session" for it. Such a
+route replies as it does to an anonymous caller (a 404). `root` is served
+throughout: it is the account that lifts maintenance.
 
 ### Every attempt is audited
 

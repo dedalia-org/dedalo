@@ -409,11 +409,6 @@ const T2_DML_OUTSIDE_WRITER: Readonly<Record<string, { writes: number; reason: s
 		reason:
 			'section_id int-normalize sweep: the rewrite UPDATE runs on a row read FOR UPDATE inside withTransaction; the marker row goes through appendMatrixUpdateRow.',
 	},
-	'scripts/migrate_v6_passwords.ts': {
-		writes: 1,
-		reason:
-			'one-shot v6 password re-hash on matrix_users: jsonb built server-side (jsonb_build_object), the hash a ::text bind; run once at cutover.',
-	},
 	'scripts/repair_tm_test_tail.ts': {
 		writes: 1,
 		reason: 'suite-only Time Machine tail repair (matrix_time_machine), marker-guarded.',

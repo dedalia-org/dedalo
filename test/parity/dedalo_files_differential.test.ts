@@ -94,6 +94,9 @@ function isToolAssistantEntry(entry: ManifestEntry): boolean {
  *  - publication_hosts maintenance widget
  *    (WC-2026-10-03-publication-hosts-widget) — the panel over the native
  *    publication-host registry and agent channel, which have no PHP peer.
+ *  - legacy_passwords maintenance widget
+ *    (WC-2026-11-19-maintenance-legacy-passwords-widget) — the v6 password
+ *    conversion run from the server; PHP upgraded on login instead.
  * Their files exist only in the TS census; filtered from BOTH sides. */
 function isTsOnlyEntry(entry: ManifestEntry): boolean {
 	return (
@@ -103,6 +106,8 @@ function isTsOnlyEntry(entry: ManifestEntry): boolean {
 		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/site_builder_status/') ||
 		entry.url.startsWith('/dedalo/tools/tool_identify/') ||
 		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/ai_models/') ||
+		// WC-2026-11-19-maintenance-legacy-passwords-widget (TS-only v6 password conversion panel)
+		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/legacy_passwords/') ||
 		// WC-2026-09-03-maintenance-reconcile-status-widget (audit S-10, TS-only registry)
 		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/reconcile_status/') ||
 		entry.url.startsWith('/dedalo/core/area_maintenance/widgets/serve_ontology/') ||

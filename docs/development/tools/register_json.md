@@ -59,6 +59,17 @@ This is exactly what `bun run scripts/create_tool.ts --name=... --label=... --mo
 | `config` | object\|null | Runtime configuration definition. Properties flagged `"client": true` are exposed to the browser (`getToolClientConfig`) — never put secrets there |
 | `default_config` | object\|null | Factory default configuration; per-install overridable in the Tools configuration section (dd996). May carry `properties.tool_config` entries that redefine the tool's components for one field or button ([Server contract](server_contract.md), section *Per-field override*) |
 
+### `properties.windowFeatures`
+
+The size and position a tool asks for when it opens. The value is data, read against a closed grammar; nothing in it is ever run as code, and a value outside the grammar stops the tool from opening with an error that names the key.
+
+| `open_as` | Keys | Values |
+|---|---|---|
+| `window` | `left`, `top`, `width`, `height` (aliases `screenX`, `screenY`, `innerWidth`, `innerHeight`); the flags `popup`, `noopener`, `noreferrer` | A number, or the relative form `"return screen.width -760"`: `return`, then one of `screen.width`, `screen.height`, `screen.availWidth`, `screen.availHeight`, `screen.availLeft`, `screen.availTop`, `window.innerWidth`, `window.innerHeight`, `window.outerWidth`, `window.outerHeight`, `window.screenX`, `window.screenY`, `window.screenLeft`, `window.screenTop`, optionally followed by `+` or `-` and a whole number. A flag takes `true`/`false`. |
+| `modal` (and `tab`, `popup`) | `width`, `minWidth`, `maxWidth`, `height`, `minHeight`, `maxHeight` | A number of pixels, a CSS length or percentage (`"40rem"`, `"100%"`), or `auto`, `none`, `fit-content`, `max-content`, `min-content`. |
+
+`tool_upload` opens at the right edge of the screen with `{"top": 0, "left": "return screen.width -760", "width": 760, "height": 708}`; `tool_ontology` sizes its modal with `{"width": "40rem"}`. `null` leaves the default (a new tab, or the modal's own size). The parser is `client/dedalo/core/tools_common/js/window_features.js`.
+
 Every field maps to a fixed ontology tipo (`TOOL_NAME`, `TOOL_VERSION`, `CONFIG`, `DEFAULT_CONFIG`, `PROPERTIES`, `LABELS`, `AFFECTED_MODELS`, `AFFECTED_TIPOS`, `ACTIVE`, …) declared once in `src/core/tools/ontology_map.ts` — use those constants in any code reading registry data, never literal `dd1326`-style strings.
 
 ## Where the data lands

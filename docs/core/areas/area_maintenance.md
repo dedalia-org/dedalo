@@ -178,7 +178,7 @@ Every widget carries a `category`; the client groups and filters by it.
 | category | what it holds |
 | --- | --- |
 | `data` | Backups, database version artifacts, the data-version upgrade, hierarchy import/export. |
-| `migration` | The bulk transforms — `move_tld`, `move_locator`, `move_to_portal`, `move_to_table`, `move_lang`. |
+| `migration` | The bulk transforms — `move_tld`, `move_locator`, `move_to_portal`, `move_to_table`, `move_lang` — and `legacy_passwords`, the conversion of v6 passwords. |
 | `config` | Configuration and code: `check_config`, `config_areas`, `menu_skip_tipos`, `update_ontology`, `serve_ontology`, `register_tools`, `update_code`, `serve_code`. |
 | `integrity` | `lock_components`, `sequences_status`, `media_control`, `counters_status`, `reconcile_status`, `dataframe_control`. |
 | `system` | Environment, database info, system info, the runtime panel, error reports. |
@@ -207,6 +207,7 @@ read-only panel: it reports state through `getValue` or an eager catalog value.
 | `register_tools` | config | `register_tools` |
 | `update_code` | config | `update_code`, `restore_code`, `delete_restore_point` — PULL: install a release from a code server |
 | `serve_code` | config | `build_version_from_git_master` — SERVE: the code-server readout and the release builds; catalogued only on a code server or the `development` entity |
+| `legacy_passwords` | migration | `migrate` — the accounts still on a Dédalo v6 password (reversible AES, refused by the login) and their conversion to Argon2id with the v6 key values the administrator types; dry unless `execute:true`, in batches; the same door as `bun run dedalo:migrate-passwords`. `getValue` is the count. No password value, plaintext or typed key is ever answered or logged |
 | `lock_components` | integrity | *(area-level action — see the dispatch table)* |
 | `sequences_status` | integrity | *(read-only panel)* |
 | `media_control` | integrity | `set_media_access_mode`, `rebuild_media_index` |

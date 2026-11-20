@@ -26,7 +26,7 @@
 import { config } from '../../../config/config.ts';
 import { DedaloError, logError, toDedaloError, toErrorEnvelope } from '../../errors/index.ts';
 import { resolveTagLocatorMediaPath } from '../../media/tag_locator.ts';
-import { getSession, SESSION_COOKIE } from '../../security/session_store.ts';
+import { liveSessionFromCookie } from '../../security/session_gate.ts';
 import { type LocatorTag, parseTagId, safeDecodeTagId } from './tag_grammar.ts';
 import { renderDrawTag, renderSpriteTag } from './tag_render.ts';
 
@@ -103,17 +103,6 @@ function svgResponse(svg: string, request: Request, versioned: boolean): Respons
 	});
 }
 
-/** True when the caller has a valid TS session (locator branch ACL gate). */
-function hasValidSession(request: Request): boolean {
-	const cookieHeader = request.headers.get('cookie') ?? '';
-	const token = cookieHeader
-		.split(';')
-		.map((pair) => pair.trim())
-		.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-		?.slice(SESSION_COOKIE.length + 1);
-	return token !== undefined && getSession(token) !== null;
-}
-
 /**
  * Resolve a locator tag to its component media file URL and 302-redirect.
  * Fail-closed 404 on any miss (unauthenticated, invalid tipo, non-media model,
@@ -121,7 +110,7 @@ function hasValidSession(request: Request): boolean {
  */
 async function resolveLocatorTag(tag: LocatorTag, request: Request): Promise<Response> {
 	// ACL: authenticated only. The redirect target enforces media-protection again.
-	if (!hasValidSession(request)) return notFound();
+	if (liveSessionFromCookie(request.headers.get('cookie')) === null) return notFound();
 
 	try {
 		// The ONE tag-locator resolver (T0-10): §7.6 shape gate, the locator's own

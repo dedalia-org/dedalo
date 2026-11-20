@@ -179,6 +179,11 @@ export const DOOR_CLASSES: Readonly<Record<string, DoorDeclaration>> = Object.fr
 	},
 	'database_info.backfill_search_stores': { ...A, reason: 'derived stores, rebuildable' },
 	'reconcile_status.run_reconcile': A,
+	'legacy_passwords.migrate': {
+		...A,
+		reason:
+			'the same password in the only form the login accepts: written only when the v6 value DECRYPTS with the typed keys and is still the value read, dry unless execute — the global-admin gate (owner 2026-11-19)',
+	},
 	'build_database_version.build_install_version': A,
 	'build_database_version.build_recovery_version_file': A,
 	'export_hierarchy.sync_hierarchy_active_status': A,

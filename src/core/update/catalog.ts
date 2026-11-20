@@ -585,6 +585,31 @@ export function getUpdateVersion(
 }
 
 /**
+ * The LOWEST from-version any rung of the catalog starts at — the oldest data
+ * version this engine can take a database from. An empty catalog starts at the
+ * line start (a build with no rung moves nothing below its own line).
+ *
+ * What a database BELOW it means (boot_state.ts classifyDataVersion): when its
+ * MAJOR is lower, no rung here will ever reach it — it is another engine's
+ * database (Dédalo v6 today), whose migration runs on that engine. Derived, so
+ * a future rung from an older major widens the reachable set by itself.
+ */
+export function lowestReachableFrom(
+	catalog: Readonly<Record<string, UpdateDescriptor>> = UPDATE_CATALOG,
+): number[] {
+	let lowest: number[] | null = null;
+	for (const descriptor of Object.values(catalog)) {
+		const from = [
+			descriptor.updateFromMajor,
+			descriptor.updateFromMedium,
+			descriptor.updateFromMinor,
+		];
+		if (lowest === null || compareVersionArrays(from, lowest) < 0) lowest = from;
+	}
+	return lowest ?? [...DATA_LINE_START];
+}
+
+/**
  * PURE: is a rung's `target` ABOVE the code's own data version `code`? Such a
  * rung must never run (engine.ts updateVersion refuses it): a build moves the
  * INSTALLED data only up to the data version it was cut for — an untagged

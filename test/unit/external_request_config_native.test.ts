@@ -301,11 +301,12 @@ describe('api_config publication', () => {
 	test('the TARGET section binds; the item carries the published config', async () => {
 		const item = (await parsedCaller(CALLER))[0];
 		expect(item?.api_config?.entity).toBe('zenon');
-		expect(item?.api_config?.api_url).toBe('https://zenon.dainst.org/api/v1/record');
+		// The URLs the SERVER fetches are not published (T2 S09-c,
+		// WC-2026-11-19-external-api-url-unpublished): no client code reads them.
+		expect(item?.api_config).not.toHaveProperty('api_url');
+		expect(item?.api_config).not.toHaveProperty('api_url_search');
 		// component_portal.js:2054 builds the record link as ui_base_url + section_id.
 		expect(item?.api_config?.ui_base_url).toBe('https://zenon.dainst.org/Record/');
-		// service_autocomplete.js:1039 POSTs the user's query to api_url_search.
-		expect(item?.api_config?.api_url_search).toBe('https://zenon.dainst.org/api/v1/search');
 	});
 
 	test('credential-shaped and unknown keys never reach the wire', async () => {
@@ -314,8 +315,6 @@ describe('api_config publication', () => {
 		expect(serialized).not.toContain('SUPER-SECRET-VALUE');
 		expect(serialized).not.toContain('another-secret');
 		expect(Object.keys(item?.api_config ?? {}).sort()).toEqual([
-			'api_url',
-			'api_url_search',
 			'entity',
 			'response_map',
 			'ui_base_url',

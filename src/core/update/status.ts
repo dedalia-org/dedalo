@@ -97,7 +97,12 @@ import {
 	type InstallChannel,
 	installedRootEntriesOf,
 } from './install_stamp.ts';
-import { type BackupVerifyOptions, backupFreshnessWithin, PANEL_WAIT_MS } from './preconditions.ts';
+import {
+	type BackupVerifyOptions,
+	backupFreshnessWithin,
+	installedDataVersionVerdict,
+	PANEL_WAIT_MS,
+} from './preconditions.ts';
 import type { ReleaseKind } from './release_identity.ts';
 import { type DeleteBlockReason, deletabilityOf, RESTORE_POINT_PREFIX } from './restore_points.ts';
 import { isSupervised } from './supervision.ts';
@@ -657,8 +662,32 @@ function readLiveBunPin(): string | null {
 	}
 }
 
+/**
+ * The DATA-VERSION line (T2 D08-b, owner 2026-11-19): a code update refuses
+ * unless the installed data version equals the one this code declares
+ * (preconditions.ts requireDataVersionCurrent), and until now the panel learned
+ * of it from the refusal. Same reading as the door
+ * (`installedDataVersionVerdict`), so the line cannot promise what the door
+ * refuses. `ok` or `blocked`; the FACT is `<state>/<installed>/<code>` (installed
+ * empty when it could not be read) — the panel words it, and for `unreachable`
+ * (a database of an earlier major: no update of this engine starts from it)
+ * points at the migration that runs on that earlier installation.
+ */
+export async function dataVersionCheck(seams: ConsumerStatusSeams = {}): Promise<StatusCheck> {
+	return probeAsync('data_version', async () => {
+		const verdict = await installedDataVersionVerdict(seams.installedDataVersion);
+		return check(
+			'data_version',
+			verdict.state === 'ok' ? 'ok' : 'blocked',
+			`${verdict.state}/${verdict.installed ?? ''}/${verdict.code}`,
+		);
+	});
+}
+
 /** Test seams of `consumerStatus` — production passes none (the configured backup dir). */
 export interface ConsumerStatusSeams {
+	/** The installed data version the `data_version` line judges (default: the strict DB read). */
+	installedDataVersion?: () => Promise<number[]>;
 	/** The DATABASE backup dir the `backup_fresh` line judges. */
 	backupDir?: string;
 	/** How its artifacts are verified (a recording pg_restore, a budget). */
@@ -684,14 +713,16 @@ export async function consumerStatus(
 	const livePin = readLiveBunPin();
 	const rootEntries = rootEntriesCheck();
 	// the two bounded waits run TOGETHER: the panel pays the longer, not the sum
-	const [backupFresh, diskSpace] = await Promise.all([
+	const [backupFresh, diskSpace, dataVersion] = await Promise.all([
 		backupFreshnessCheck(principal, seams),
 		diskSpaceCheck(principal, backupRoot, seams),
+		dataVersionCheck(seams),
 	]);
 	const checks: StatusCheck[] = [
 		supervisorCheck(),
 		channelCheck(seams),
 		...operatorChecks(principal),
+		dataVersion,
 		backupFresh,
 		backupLocationCheck(backupRoot),
 		runtimeDataCheck(),

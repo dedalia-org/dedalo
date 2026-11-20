@@ -101,9 +101,13 @@ import { DedaloError } from './core/errors/dedalo_error.ts';
 import { HIERARCHY_IMPORT_DIR } from './core/install/paths.ts';
 import { HIERARCHY_MANIFEST_FILE } from './core/ontology/hierarchy_manifest_format.ts';
 import { corsPreflightResponse, corsResponseHeaders } from './core/security/cors.ts';
-import { globalAdminSessionFromCookie } from './core/security/session_gate.ts';
 import {
-	getSession,
+	dispatchSessionFromCookie,
+	globalAdminSessionFromCookie,
+	liveSessionFromCookie,
+	readCookie,
+} from './core/security/session_gate.ts';
+import {
 	SESSION_COOKIE,
 	SESSION_IDLE_TTL_SECONDS,
 	setSessionMediaKey,
@@ -116,10 +120,13 @@ import {
 	bootSchemaMoved,
 	bootSchemaStateName,
 	bootSchemaVerdict,
+	currentLegacyPasswordAccounts,
 	dataVersionState,
+	legacyPasswordAccounts,
 	recordBootSchemaVerdict,
 	recordUpdateRunFacts,
 	refreshDataVersionState,
+	refreshLegacyPasswordNotice,
 	updateRunFacts,
 } from './core/update/boot_state.ts';
 import { DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from './core/update/build_stamp.ts';
@@ -403,20 +410,6 @@ const MAX_REQUEST_BODY_BYTES = Math.max(
 	1,
 	Number(readString('SERVER_MAX_BODY_BYTES')) || 256 * 1024 * 1024,
 );
-
-/**
- * One named cookie's value out of a raw Cookie header, or undefined.
- *
- * Exact-name match on the split pairs — a `startsWith(name)` scan would also match
- * any cookie whose name merely BEGINS with this one.
- */
-function readCookie(cookieHeader: string, name: string): string | undefined {
-	return cookieHeader
-		.split(';')
-		.map((pair) => pair.trim())
-		.find((pair) => pair.startsWith(`${name}=`))
-		?.slice(name.length + 1);
-}
 
 /**
  * The PRE-AUTH LANGUAGE cookie (login-panel change_lang). Anonymous callers have no
@@ -1036,6 +1029,12 @@ export async function handleRequest(request: Request, context: RequestContext): 
 			dataVersion: dataVersionState(),
 			// The update run in flight (design §3.5) — red only for an ordered code rollback.
 			updateRun: updateRunFacts(),
+			// Accounts still on a v6 password value (T2 D08-a) — a notice, never red.
+			// Re-counted at most once a minute (boot_state.ts), so it follows the
+			// out-of-process fix without a restart; never asked of a database that is down.
+			legacyPasswordAccounts: dbOk
+				? await currentLegacyPasswordAccounts()
+				: legacyPasswordAccounts(),
 		});
 		return jsonResponse(anonymousHealthView(payload), payload.result === 'ok' ? 200 : 503);
 	}
@@ -1061,13 +1060,7 @@ export async function handleRequest(request: Request, context: RequestContext): 
 		if (MEDIA_ROOT === null) {
 			return notFoundResponse(context.requestId);
 		}
-		const cookieHeader = request.headers.get('cookie') ?? '';
-		const mediaSessionToken = cookieHeader
-			.split(';')
-			.map((pair) => pair.trim())
-			.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-			?.slice(SESSION_COOKIE.length + 1);
-		if (mediaSessionToken === undefined || getSession(mediaSessionToken) === null) {
+		if (liveSessionFromCookie(request.headers.get('cookie')) === null) {
 			return notFoundResponse(context.requestId); // fail-closed, no existence leak
 		}
 		let mediaPath: string;
@@ -1251,8 +1244,7 @@ export async function handleRequest(request: Request, context: RequestContext): 
 	// serveModelRequest — the door refuses, not this one caller — and it is a 404,
 	// so nothing leaks about what the store holds.
 	if (request.method === 'GET' && url.pathname.startsWith(AI_MODEL_URL_PREFIX)) {
-		const modelToken = readCookie(request.headers.get('cookie') ?? '', SESSION_COOKIE);
-		const modelSession = modelToken !== undefined ? getSession(modelToken) : null;
+		const modelSession = liveSessionFromCookie(request.headers.get('cookie'));
 		const modelResponse = await serveModelRequest(url.pathname, request, modelSession !== null);
 		if (modelResponse !== null) return modelResponse;
 	}
@@ -1274,13 +1266,7 @@ export async function handleRequest(request: Request, context: RequestContext): 
 	// URL only ever supplies <key_dir>[/thumbnail]/<name>, so one user can never
 	// address another's staging dir. Fail-closed: no session → 404, no leak.
 	if (request.method === 'GET' && url.pathname.startsWith(STAGED_URL_PREFIX)) {
-		const stagedCookie = request.headers.get('cookie') ?? '';
-		const stagedToken = stagedCookie
-			.split(';')
-			.map((pair) => pair.trim())
-			.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-			?.slice(SESSION_COOKIE.length + 1);
-		const stagedSession = stagedToken !== undefined ? getSession(stagedToken) : null;
+		const stagedSession = liveSessionFromCookie(request.headers.get('cookie'));
 		if (stagedSession === null) {
 			return notFoundResponse(context.requestId);
 		}
@@ -1346,13 +1332,7 @@ export async function handleRequest(request: Request, context: RequestContext): 
 		request.method === 'POST' &&
 		(request.headers.get('content-type') ?? '').includes('multipart/form-data')
 	) {
-		const uploadCookie = request.headers.get('cookie') ?? '';
-		const uploadToken = uploadCookie
-			.split(';')
-			.map((pair) => pair.trim())
-			.find((pair) => pair.startsWith(`${SESSION_COOKIE}=`))
-			?.slice(SESSION_COOKIE.length + 1);
-		const uploadSession = uploadToken !== undefined ? getSession(uploadToken) : null;
+		const uploadSession = liveSessionFromCookie(request.headers.get('cookie'));
 		// Header-only (L9): the vendored client always sends the token in the
 		// X-Dedalo-Csrf-Token header (with a FORM-FIELD fallback in the POST body).
 		// The old url.searchParams('csrf_token') fallback was never used by the
@@ -1390,14 +1370,15 @@ export async function handleRequest(request: Request, context: RequestContext): 
 
 		// Resolve the session from the TS-native cookie.
 		const cookieHeader = request.headers.get('cookie') ?? '';
-		const sessionToken = readCookie(cookieHeader, SESSION_COOKIE);
+		// The dispatcher applies Gate 2b (maintenance) itself — see dispatchSessionFromCookie.
+		const dispatchSession = dispatchSessionFromCookie(cookieHeader);
 		const apiContext: ApiRequestContext = {
 			requestId: context.requestId,
 			// Behind the reverse proxy the socket has no peer IP; the client IP comes
 			// from the TRUSTED X-Forwarded-For hop (never the spoofable left-most).
 			clientIp: clientIpFromRequest(request, context),
-			session: sessionToken !== undefined ? getSession(sessionToken) : null,
-			sessionToken: sessionToken ?? null,
+			session: dispatchSession.session,
+			sessionToken: dispatchSession.token,
 			// Anonymous language preference (login panel). Allowlisted in dispatch.
 			preauthLang: readCookie(cookieHeader, PREAUTH_LANG_COOKIE) ?? null,
 			// Header first; the body token is the fallback for sendBeacon, which
@@ -1960,6 +1941,13 @@ export async function startServer() {
 	// writers). A box whose database is not the install's yet never gets here:
 	// the fail-closed check at the top of startServer refused it.
 	if (!smokeBoot) {
+		// Accounts still on a v6 password value cannot log in (T2 D08-a): counted and
+		// said NOW, not discovered through the first user who is refused. Never
+		// fatal — an unreadable count is logged and reported as not counted.
+		{
+			const { countLegacyPasswordAccounts } = await import('./core/security/auth.ts');
+			await refreshLegacyPasswordNotice(countLegacyPasswordAccounts);
+		}
 		// Register the RAG save/delete → index-queue hook (no-op when
 		// DEDALO_RAG_ENABLED is off). Must run before serving so writes are captured.
 		initRagHooks();

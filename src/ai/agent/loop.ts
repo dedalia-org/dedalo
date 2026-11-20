@@ -37,7 +37,8 @@
  * local provider (openai_compat_provider.ts) via the model catalog.
  */
 
-import { toStructuredErr } from '../../core/errors/convert.ts';
+import { toDedaloError, toStructuredErr } from '../../core/errors/convert.ts';
+import { logError } from '../../core/errors/log.ts';
 import type { Principal } from '../../core/security/permissions.ts';
 import {
 	getToolSpec,
@@ -242,6 +243,23 @@ export function summarizeToolArgs(input: Record<string, unknown>): string {
 	return summary.length > 140 ? `${summary.slice(0, 139)}…` : summary;
 }
 
+/**
+ * The result of a tool whose own code threw: the ONE converter's structured
+ * error (a code and the registry's fixed sentence the model can adapt to) —
+ * never the exception's text, which is the server's (a driver message, a path,
+ * a host) while a tool result enters the model's context (an EXTERNAL
+ * provider's, when one is configured) and the stored transcript. The words go
+ * to the log (T2 S09-b; ERRORS_SPEC §2).
+ */
+function failedToolResult(toolUseId: string, name: string, error: unknown): AgentToolResult {
+	logError(toDedaloError(error), { subsystem: `agent/${name}` });
+	return {
+		tool_use_id: toolUseId,
+		content: JSON.stringify(toStructuredErr(error)),
+		is_error: true,
+	};
+}
+
 /** Execute one READ tool call under the principal. Errors become is_error results. */
 async function executeTool(
 	principal: Principal,
@@ -274,8 +292,7 @@ async function executeTool(
 			}
 			return { tool_use_id: toolUseId, content: JSON.stringify(hits), is_error: false };
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return { tool_use_id: toolUseId, content: message, is_error: true };
+			return failedToolResult(toolUseId, name, error);
 		}
 	}
 
@@ -310,8 +327,7 @@ async function executeTool(
 			}
 			return { tool_use_id: toolUseId, content: JSON.stringify(passages), is_error: false };
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return { tool_use_id: toolUseId, content: message, is_error: true };
+			return failedToolResult(toolUseId, name, error);
 		}
 	}
 

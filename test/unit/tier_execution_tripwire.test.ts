@@ -130,11 +130,13 @@ function arrayBlocks(source: string): string[] {
 
 /**
  * Run the tier's array blocks + its stage lines under bash, `bun` stubbed to print its
- * argv — one entry per `bun` call. `env` reaches the stage (a mode switch it reads).
+ * argv — one entry per `bun` call. `env` reaches the stage (a mode switch it reads);
+ * `prelude` lines run just before the stage (a stand-in for a tool the stage may call).
  */
 function runStageWithStubBun(
 	tier: Tier,
 	env: Record<string, string> = {},
+	prelude: string[] = [],
 ): { calls: string[][]; rc: number } {
 	const stage = tierStage(tier);
 	if (stage.orderLine === -1 || stage.bunLines.length === 0) {
@@ -146,6 +148,7 @@ function runStageWithStubBun(
 		...arrayBlocks(tier.source),
 		'tw_rc=0',
 		"bun() { printf 'CALL\\n'; printf 'ARG\\t%s\\n' \"$@\"; }",
+		...prelude,
 		...stage.lines.slice(stage.orderLine, stage.endLine + 1),
 		'printf \'RC\\t%s\\n\' "$tw_rc"',
 	].join('\n');
@@ -306,6 +309,22 @@ describe('tier execution — a declared array is an EXECUTED array', () => {
 				.sort()
 				.map((entry) => `./${entry}`);
 			expect(callPaths(calls[0] ?? [])).toEqual(expected);
+		});
+
+		test('the lane partition does not ride a pipe: a reader that exits early changes nothing', () => {
+			// 2026-11-19, a push refused by this file's own stage. The lane lookup was
+			// `printf '%s\n' lane… | grep -qxF path` under `pipefail`: bash writes one
+			// line per write, grep -q leaves at its first match, and under the parallel
+			// batch's load the next write hit a closed pipe (141) — a lane file was
+			// read as "not in the lane", the count check went red. Load-dependent, so
+			// it is made deterministic here: grep exits without reading a line. A
+			// partition done in the shell never asks. (order_test_paths keeps its own
+			// sed | sort — readers that consume all their input, so no early exit.)
+			const earlyExit = ['grep() { return 0; }'];
+			const baseline = runStageWithStubBun(hermetic);
+			const { calls, rc } = runStageWithStubBun(hermetic, {}, earlyExit);
+			expect(rc).toBe(0);
+			expect(calls).toEqual(baseline.calls);
 		});
 
 		test('NEGATIVE CONTROL — a lane entry that is not a HERMETIC_TRIPWIRES entry reds the stage', () => {

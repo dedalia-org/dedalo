@@ -73,6 +73,14 @@ function validateUrlField(
 	service: string,
 	field: string,
 	value: unknown,
+	/**
+	 * A URL THIS SERVER fetches (`api_url`, `api_url_search`): it may carry no
+	 * query string and no fragment. The adapter builds the query; a key pasted
+	 * into the URL (`?apikey=…`) is a credential in cataloguing data that the
+	 * key-NAME strip cannot see (T2 S09-c). `ui_base_url` is rendered, not
+	 * fetched, and keeps whatever query its catalogue needs.
+	 */
+	fetched = false,
 ): string {
 	if (typeof value !== 'string' || value.trim().length === 0) {
 		badConfig(sectionTipo, `api_config.${field} is not a non-empty string`, service);
@@ -91,6 +99,15 @@ function validateUrlField(
 	}
 	if (url.username !== '' || url.password !== '') {
 		badConfig(sectionTipo, `api_config.${field} carries embedded credentials`, service);
+	}
+	// Judged on the RAW text too: `https://host/path?` has an empty `search`.
+	if (fetched && (url.search !== '' || url.hash !== '' || /[?#]/.test(value))) {
+		// The field is named, the value never is — it may be the credential.
+		badConfig(
+			sectionTipo,
+			`api_config.${field} carries a query string or a fragment — the adapter builds the query; a credential belongs in ../private/.env on a scope:'secret' catalog key`,
+			service,
+		);
 	}
 	return url.toString();
 }
@@ -143,11 +160,11 @@ export function parseApiConfig(raw: unknown, context: { sectionTipo: string }): 
 	}
 	const service = entity.toLowerCase();
 
-	const apiUrl = validateUrlField(sectionTipo, service, 'api_url', source.api_url);
+	const apiUrl = validateUrlField(sectionTipo, service, 'api_url', source.api_url, true);
 	const apiUrlSearch =
 		source.api_url_search === undefined || source.api_url_search === null
 			? null
-			: validateUrlField(sectionTipo, service, 'api_url_search', source.api_url_search);
+			: validateUrlField(sectionTipo, service, 'api_url_search', source.api_url_search, true);
 	// ui_base_url is RENDERED, not fetched: its scheme is what matters (the
 	// `javascript:` case). The fetched URLs get the same shape checks; WHERE the
 	// server may go is decided at the door.
@@ -171,13 +188,16 @@ export function parseApiConfig(raw: unknown, context: { sectionTipo: string }): 
  * allowlist catches a future `internal_admin_url` or `debug_dump`. Everything
  * unlisted — including rsc205's cataloguer note `info` — is dropped.
  */
-const PUBLISHABLE_API_CONFIG_KEYS: readonly string[] = [
-	'entity',
-	'api_url',
-	'api_url_search',
-	'ui_base_url',
-	'response_map',
-];
+const PUBLISHABLE_API_CONFIG_KEYS: readonly string[] = ['entity', 'ui_base_url', 'response_map'];
+
+/**
+ * Declared keys that are the SERVER's and stay on it: validated like the rest (a
+ * binding with a bad one is not published at all), never put on the wire, and
+ * not reported as "dropped" — they are expected. `api_url` / `api_url_search`
+ * are fetched by this server through the outbound door; no client code reads
+ * them (T2 S09-c, WC-2026-11-19-external-api-url-unpublished).
+ */
+const SERVER_ONLY_API_CONFIG_KEYS: readonly string[] = ['api_url', 'api_url_search'];
 
 /**
  * THE PUBLICATION SHAPER — the one function that turns a raw ontology
@@ -198,7 +218,7 @@ const PUBLISHABLE_API_CONFIG_KEYS: readonly string[] = [
  *
  * WHY NO HOST ALLOWLIST HERE (nor in parseApiConfig). `DEDALO_EXTERNAL_ALLOWED_HOSTS`
  * governs what THIS SERVER contacts, and is enforced only at the outbound door
- * (transport.ts). These URLs are rendered by, and fetched from, the CURATOR'S
+ * (transport.ts). The one URL published (`ui_base_url`) is opened by the CURATOR'S
  * BROWSER — a different trust boundary — and gating them on the server's
  * egress list would silently break a working catalogue link on every install
  * that has not opted into server-side fetching yet.
@@ -230,7 +250,10 @@ export function publishApiConfig(
 	}
 	// (2) unknown keys dropped.
 	const droppedKeys = Object.keys(source).filter(
-		(key) => !credentialKeys.includes(key) && !PUBLISHABLE_API_CONFIG_KEYS.includes(key),
+		(key) =>
+			!credentialKeys.includes(key) &&
+			!PUBLISHABLE_API_CONFIG_KEYS.includes(key) &&
+			!SERVER_ONLY_API_CONFIG_KEYS.includes(key),
 	);
 	if (droppedKeys.length > 0) {
 		console.warn(
@@ -246,19 +269,14 @@ export function publishApiConfig(
 		const service = entity.toLowerCase();
 		// (3) URL vetting — shape only; see above on why the host allowlist is not
 		// this boundary's control.
+		// The server-only URLs are VETTED (a binding the server itself would refuse
+		// is not half-published) and then left out.
+		validateUrlField(sectionTipo, service, 'api_url', source.api_url, true);
+		if (source.api_url_search !== undefined && source.api_url_search !== null) {
+			validateUrlField(sectionTipo, service, 'api_url_search', source.api_url_search, true);
+		}
 		const published: PublishedApiConfig = {
 			entity: service,
-			api_url: validateUrlField(sectionTipo, service, 'api_url', source.api_url),
-			...(source.api_url_search === undefined || source.api_url_search === null
-				? {}
-				: {
-						api_url_search: validateUrlField(
-							sectionTipo,
-							service,
-							'api_url_search',
-							source.api_url_search,
-						),
-					}),
 			...(source.ui_base_url === undefined || source.ui_base_url === null
 				? {}
 				: {

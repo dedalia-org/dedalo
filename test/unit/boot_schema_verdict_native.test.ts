@@ -307,10 +307,10 @@ describe('/health carries the boot facts', () => {
 		const payload = buildHealthPayload({
 			...BASE,
 			bootSchema: 'ok',
-			dataVersion: classifyDataVersion([6, 9, 0], code),
+			dataVersion: classifyDataVersion(code, [7, 0, 1]),
 		});
 		expect(payload.result).toBe('ok');
-		expect(payload.data_version).toEqual({ state: 'pending', installed: '6.9.0', code: '7.0.0' });
+		expect(payload.data_version).toEqual({ state: 'pending', installed: '7.0.0', code: '7.0.1' });
 	});
 
 	test('anti-vacuity: all good is ok', () => {
@@ -324,17 +324,24 @@ describe('/health carries the boot facts', () => {
 });
 
 describe('the code-update door refuses a data version that does not match the code', () => {
-	async function refusal(read: () => Promise<number[]>): Promise<string | null> {
+	async function refusal(
+		read: () => Promise<number[]>,
+		code: number[] = [7, 0, 0],
+	): Promise<string | null> {
 		try {
-			await requireDataVersionCurrent(read, [7, 0, 0]);
+			await requireDataVersionCurrent(read, code);
 			return null;
 		} catch (error) {
 			return isDedaloError(error) ? `${error.code}:${String(error.coordinates?.rule)}` : 'untyped';
 		}
 	}
 
-	test('pending, ahead, missing row and unreadable all refuse — typed, with the reason', async () => {
-		expect(await refusal(async () => [6, 9, 0])).toBe('update.refused:data_version_pending');
+	test('pending, unreachable, ahead, missing row and unreadable all refuse — typed, with the reason', async () => {
+		expect(await refusal(async () => [7, 0, 0], [7, 0, 1])).toBe(
+			'update.refused:data_version_pending',
+		);
+		// A database of an older major is not "pending": no rung here starts from it (T2 D08-b).
+		expect(await refusal(async () => [6, 9, 0])).toBe('update.refused:data_version_unreachable');
 		expect(await refusal(async () => [7, 1, 0])).toBe('update.refused:data_version_ahead');
 		expect(await refusal(async () => [])).toBe('update.refused:data_version_unknown');
 		expect(

@@ -282,10 +282,11 @@ describe.if(hasPhpCredentials())('request_config explicit differential (Phase 4d
 	 * component). Two wire facts this pins, both live CLIENT contracts:
 	 *
 	 *  - `api_config` — component_portal.js:2054 builds the record link as
-	 *    `api_config.ui_base_url + section_id`, and service_autocomplete.js:1039
-	 *    POSTs to `api_config.api_url_search`. TS publishes a SHAPED copy
-	 *    (publishApiConfig); on this installation's data that is field-identical
-	 *    to the oracle's raw echo, which is what this asserts.
+	 *    `api_config.ui_base_url + section_id`. TS publishes a SHAPED copy
+	 *    (publishApiConfig) without the URLs the server itself fetches
+	 *    (`api_url`, `api_url_search` — WC-2026-11-19-external-api-url-unpublished);
+	 *    the rest is field-identical to the oracle's raw echo, which is what
+	 *    this asserts.
 	 *  - the HYDRATED `fields_map` (step 9) — service_autocomplete.js:911/:1060
 	 *    read `show.ddo_map[j].fields_map[0].remote` to shape the answer and to
 	 *    build `&field[]=`. The ontology stores the flag `fields_map: true`; if
@@ -319,8 +320,17 @@ describe.if(hasPhpCredentials())('request_config explicit differential (Phase 4d
 			expect(phpItem, 'no api_engine!==dedalo item in the oracle answer').toBeDefined();
 			expect(tsItem).toBeDefined();
 
-			// api_config: same fields, same values (key order is not a wire fact).
-			expect(tsItem?.api_config).toEqual(phpItem?.api_config as never);
+			// api_config: same fields, same values (key order is not a wire fact) —
+			// minus the two URLs the SERVER fetches, which TS no longer publishes
+			// (WC-2026-11-19-external-api-url-unpublished: no client code reads them).
+			const {
+				api_url: _apiUrl,
+				api_url_search: _apiUrlSearch,
+				...phpPublished
+			} = (phpItem?.api_config ?? {}) as Record<string, unknown>;
+			// FLOOR: the transform removed something real from the frozen answer.
+			expect(typeof _apiUrl).toBe('string');
+			expect(tsItem?.api_config).toEqual(phpPublished as never);
 			expect(
 				(tsItem?.api_config as { ui_base_url?: string })?.ui_base_url,
 				'a non-http(s) ui_base_url would be stored XSS on the portal edit click',
