@@ -206,14 +206,14 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 
 	const XYZ_URL = 'https://tiles.example.org/{z}/{x}/{y}.png';
 
-	/** A WMS layer as the search hands it to add_wms_layer; `overrides` changes what a test is about. */
-	const wms_layer = (overrides = {}) => ({
+	/** A WMS layer as the search hands it to add_wms_layer; `changes` is what a test is about. */
+	const wms_layer = (changes = {}) => ({
 		url: 'https://example.com/geoserver/wms',
 		name: 'topo:layer1',
 		title: 'Layer One',
 		version: '1.3.0',
 		crs: 'EPSG:3857',
-		...overrides,
+		...changes,
 	});
 
 	const arm_catastro = function () {
@@ -2106,7 +2106,7 @@ describe('TOOL_UCA_MAPS (live map: layers)', function () {
 		assert.include(
 			link.rel,
 			'noopener',
-			'expected no window.opener handed to the third-party page',
+			'expected the third-party page not to get a handle on this one',
 		);
 		assert.isNotOk(row.querySelector('input'), 'expected no editable input for the parcel url');
 		assert.isOk(
