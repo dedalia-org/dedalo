@@ -193,22 +193,26 @@ describe('UPDATE_DATA_VERSION WIDGET', function () {
 	it('up to date: the sentence and the Quit button print the catalog entries', async () => {
 		const value = no_rung_value({});
 		value.current_version_in_db = [7, 0, 0];
-		await with_label('update_data_format_updated', 'Formato de datos al día (${version})', async () => {
-			await with_label('quit', 'Salir de aquí', async () => {
-				const { card, content_data } = await render_in_card(value);
-				assert.strictEqual(
-					content_data.querySelector('.info_text.success_text').textContent,
-					'Formato de datos al día (7.0.0)',
-				);
-				assert.strictEqual(
-					content_data.querySelector('button.quit_button').textContent,
-					'Salir de aquí',
-				);
-				assert.notInclude(content_data.textContent, 'Data format is updated');
-				assert.notInclude(content_data.textContent, 'Quit');
-				card.remove();
-			});
-		});
+		await with_label(
+			'update_data_format_updated',
+			'Formato de datos al día (${version})',
+			async () => {
+				await with_label('quit', 'Salir de aquí', async () => {
+					const { card, content_data } = await render_in_card(value);
+					assert.strictEqual(
+						content_data.querySelector('.info_text.success_text').textContent,
+						'Formato de datos al día (7.0.0)',
+					);
+					assert.strictEqual(
+						content_data.querySelector('button.quit_button').textContent,
+						'Salir de aquí',
+					);
+					assert.notInclude(content_data.textContent, 'Data format is updated');
+					assert.notInclude(content_data.textContent, 'Quit');
+					card.remove();
+				});
+			},
+		);
 	});
 
 	it('an update is pending: the from → to sentence prints the catalog entry, both versions filled', async () => {
