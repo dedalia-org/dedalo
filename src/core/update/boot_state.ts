@@ -33,7 +33,7 @@
  */
 
 import type { BootSchemaVerdict } from '../../../install/db/migrate.ts';
-import { MIGRATE_PASSWORDS_COMMAND } from '../security/password_hash.ts';
+import { MIGRATE_PASSWORDS_COMMAND } from '../security/legacy_password_command.ts';
 import { lowestReachableFrom } from './catalog.ts';
 import { compareVersionArrays, DEDALO_DATA_VERSION, formatVersion } from './version.ts';
 

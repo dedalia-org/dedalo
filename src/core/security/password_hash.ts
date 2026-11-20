@@ -23,13 +23,6 @@
 import { ARGON2_OPTIONS } from './argon2_params.ts';
 import { assertPasswordPolicy } from './password_policy.ts';
 
-/**
- * The CLI that converts v6 password values to Argon2id (package.json script;
- * scripts/migrate_v6_passwords.ts) — the ONE spelling the login refusal and the
- * boot notice give the operator.
- */
-export const MIGRATE_PASSWORDS_COMMAND = 'bun run dedalo:migrate-passwords';
-
 /** An Argon2 (any variant) PHC string, as produced by Bun.password / PHP password_hash. */
 export function isArgon2Hash(value: unknown): boolean {
 	return typeof value === 'string' && value.startsWith('$argon2');

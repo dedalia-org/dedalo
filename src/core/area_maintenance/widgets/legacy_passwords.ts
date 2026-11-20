@@ -67,7 +67,7 @@ function integerOption(options: Record<string, unknown>, name: string): number |
  */
 async function legacyPasswordsGetValue(): Promise<WidgetResponse> {
 	const { legacyPasswordCensus } = await import('../../security/legacy_password_migration.ts');
-	const { MIGRATE_PASSWORDS_COMMAND } = await import('../../security/password_hash.ts');
+	const { MIGRATE_PASSWORDS_COMMAND } = await import('../../security/legacy_password_command.ts');
 	const { recordLegacyPasswordAccounts } = await import('../../update/boot_state.ts');
 	const census = await legacyPasswordCensus();
 	recordLegacyPasswordAccounts(census.legacy);

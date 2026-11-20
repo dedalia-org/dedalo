@@ -34,7 +34,7 @@
 import { config } from '../../config/config.ts';
 import { sql } from '../db/postgres.ts';
 import { ARGON2_OPTIONS, needsPasswordRehash } from './argon2_params.ts';
-import { MIGRATE_PASSWORDS_COMMAND } from './password_hash.ts';
+import { MIGRATE_PASSWORDS_COMMAND } from './legacy_password_command.ts';
 import { resolvePrincipal } from './permissions.ts';
 import { runWithoutAccountRevocation } from './revocation.ts';
 import { endUserSessions } from './session_media.ts';
