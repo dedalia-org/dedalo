@@ -29,6 +29,7 @@ import { attach_scale_bar, detach_scale_bar } from '../../../tools/tool_uca_maps
 import { is_toolbar_node } from '../../../tools/tool_uca_maps/js/toolbar.js';
 import {
 	api_error,
+	NO_PAINT,
 	one_pixel_png,
 	pick_file,
 	picked_colour,
@@ -973,7 +974,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 
 		const svg = new File(
 			[
-				'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#c0392b"/></svg>',
+				`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="${red}"/></svg>`,
 			],
 			'a.svg',
 			{ type: 'image/svg+xml' },
@@ -1804,7 +1805,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 					node.classList.add('uca-test-hover');
 					assert.equal(
 						getComputedStyle(node).backgroundColor,
-						'rgba(0, 0, 0, 0)',
+						NO_PAINT,
 						label + ': expected no fill under the pointer',
 					);
 				}

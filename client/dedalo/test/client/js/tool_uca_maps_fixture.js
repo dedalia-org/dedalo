@@ -110,6 +110,9 @@ export const with_tool_css = async function (fn) {
 export const tool_sheet = () =>
 	[...document.styleSheets].find((s) => s.href && s.href.includes('/tool_uca_maps.css'));
 
+/** What getComputedStyle answers for no paint at all. */
+export const NO_PAINT = 'rgba(0, 0, 0, 0)';
+
 /**
  * What `token` resolves to inside `parent`: a probe painted with it is appended,
  * its computed `property` read, and the probe removed (a leftover would join the

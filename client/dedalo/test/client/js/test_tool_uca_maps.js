@@ -66,6 +66,7 @@ import {
 	api_refusal,
 	capture_download,
 	layer_by_uid,
+	NO_PAINT,
 	picked_colour,
 	release_staged_payload,
 	resolve_token,
@@ -3311,7 +3312,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			const fill = resolve_token(tool.xyz_panel, '--tool_fill');
 			assert.notEqual(
 				fill,
-				'rgba(0, 0, 0, 0)',
+				NO_PAINT,
 				'expected the generated tool fill to resolve, or the equality proves nothing',
 			);
 			assert.equal(
@@ -3377,24 +3378,21 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			const buttons = dropdown.querySelectorAll('.uca-maps-roman-result-button');
 			assert.equal(buttons.length, 2, 'expected the two seeded suggestions');
 
-			dropdown.style.setProperty('--tool_fill', 'rgb(1, 2, 3)');
-			dropdown.style.setProperty('--tool_on_fill', 'rgb(4, 5, 6)');
+			const [fill, ink] = ['rgb(1, 2, 3)', 'rgb(4, 5, 6)'];
+			dropdown.style.setProperty('--tool_fill', fill);
+			dropdown.style.setProperty('--tool_on_fill', ink);
 			try {
 				buttons[0].classList.add('is-active');
 				const active = getComputedStyle(buttons[0]);
 				assert.equal(
 					active.backgroundColor,
-					'rgb(1, 2, 3)',
+					fill,
 					'expected the active row on the generated tool fill',
 				);
-				assert.equal(
-					active.color,
-					'rgb(4, 5, 6)',
-					'expected the active row in the ink tuned for that fill',
-				);
+				assert.equal(active.color, ink, 'expected the active row in the ink tuned for that fill');
 				assert.notEqual(
 					getComputedStyle(buttons[1]).backgroundColor,
-					'rgb(1, 2, 3)',
+					fill,
 					'expected only the active row highlighted',
 				);
 			} finally {
@@ -3975,7 +3973,7 @@ describe('TOOL_UCA_MAPS (live map: shell)', function () {
 			scope.remove();
 			assert.notEqual(
 				fill,
-				'rgba(0, 0, 0, 0)',
+				NO_PAINT,
 				"expected main.css's generated tokens loaded, or this proves nothing",
 			);
 
