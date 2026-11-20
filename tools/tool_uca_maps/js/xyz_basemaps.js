@@ -28,6 +28,10 @@ import {
 /** v6's defaults (`class.tool_leaflet_special_tools.php`) for a non-numisdata
  * `section_tipo`, WITHOUT Google Maps: `mt1.google.com` is no documented endpoint, and
  * requesting its tiles bypasses the official Map Tiles API, which its terms forbid. */
+/** A constant, not `basemap.url`: the CSP gate proves the host of every direct layer. */
+const ARCGIS_TILE_URL =
+	'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+
 // exported for the client gate
 export const DEFAULT_BASEMAPS = [
 	// core's built-in, through the tile proxy (or straight from OpenStreetMap where the
@@ -42,7 +46,7 @@ export const DEFAULT_BASEMAPS = [
 	// the map image, unless the component configures an `arcgis` default (`default_id`),
 	// which is drawn through the tile proxy
 	{
-		url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+		url: ARCGIS_TILE_URL,
 		default_id: 'arcgis',
 		name: 'ARCGIS',
 		attribution:
@@ -186,7 +190,8 @@ const rebuild_xyz_layer_control = function (self, { activate_index = 0 } = {}) {
 						},
 						{ dedalo_source: false },
 					)
-				: L.tileLayer(basemap.url, { attribution: basemap.attribution, ...zooms });
+				: // the one default that is neither built in nor proxied: ARCGIS
+					L.tileLayer(ARCGIS_TILE_URL, { attribution: basemap.attribution, ...zooms });
 		// the name is text (the panel list sets it as textContent), Leaflet's
 		// control writes it as innerHTML
 		layer_control.addBaseLayer(tile_layer, escape_html(basemap.name));
