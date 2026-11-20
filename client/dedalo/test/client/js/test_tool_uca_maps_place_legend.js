@@ -814,7 +814,7 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 			const at = { bubbles: true, clientX: 50, clientY: 50 };
 			target.dispatchEvent(new MouseEvent('mousedown', at));
 			target.dispatchEvent(new MouseEvent('click', at));
-			target.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: 100 }));
+			target.dispatchEvent(new window.WheelEvent('wheel', { ...at, deltaY: 100 }));
 		};
 		try {
 			// control: the same gestures on the map itself do reach it
@@ -1336,14 +1336,14 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		// the picker is a throwaway file input: catch it instead of opening the OS chooser
 		const pick = async function (file, done) {
 			let picker = null;
-			const original_click = HTMLInputElement.prototype.click;
-			HTMLInputElement.prototype.click = function () {
+			const original_click = window.HTMLInputElement.prototype.click;
+			window.HTMLInputElement.prototype.click = function () {
 				picker = this;
 			};
 			try {
 				panel.querySelector('.uca-maps-legend-upload-icon').click();
 			} finally {
-				HTMLInputElement.prototype.click = original_click;
+				window.HTMLInputElement.prototype.click = original_click;
 			}
 			assert.isOk(picker, 'expected the upload button to open a file picker');
 			pick_file(picker, file);
@@ -1360,13 +1360,13 @@ describe('TOOL_UCA_MAPS (live map: place and legend)', function () {
 		assert.equal(row_src(), default_symbol_icon(), 'expected the pin kept');
 
 		// a file the browser fails to decode
-		const original_decode = HTMLImageElement.prototype.decode;
-		HTMLImageElement.prototype.decode = () =>
+		const original_decode = window.HTMLImageElement.prototype.decode;
+		window.HTMLImageElement.prototype.decode = () =>
 			Promise.reject(new DOMException('undecodable', 'EncodingError'));
 		try {
 			await pick(one_pixel_png('pin.png'), () => !message.hidden);
 		} finally {
-			HTMLImageElement.prototype.decode = original_decode;
+			window.HTMLImageElement.prototype.decode = original_decode;
 		}
 		assert.isFalse(message.hidden, 'expected the failed read shown in the panel');
 		assert.equal(message.textContent, 'The icon could not be read.');

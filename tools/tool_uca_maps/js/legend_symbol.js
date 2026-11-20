@@ -201,7 +201,7 @@ export const legend_symbol_data_url = function (symbol) {
 export const pin_data_url = function (colour) {
 	const { canvas, context } = icon_canvas();
 	context.fillStyle = colour;
-	context.fill(new Path2D(PIN_PATH));
+	context.fill(new window.Path2D(PIN_PATH));
 
 	return canvas.toDataURL('image/png');
 }; //end pin_data_url

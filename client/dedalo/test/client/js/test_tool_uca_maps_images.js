@@ -3577,7 +3577,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 		const container = overlay.getElement();
 		const picture = container.querySelector('img');
 		const origin = L.DomUtil.getPosition(container);
-		const matrix = new DOMMatrix(picture.style.transform);
+		const matrix = new window.DOMMatrix(picture.style.transform);
 		const [tl, tr, bl] = [corners.top_left, corners.top_right, corners.bottom_left].map((el) =>
 			map.latLngToLayerPoint(L.latLng(el)),
 		);
@@ -3590,7 +3590,7 @@ describe('TOOL_UCA_MAPS (live map: images)', function () {
 			[w, h, L.point(tr.x + bl.x - tl.x, tr.y + bl.y - tl.y), 'bottom-right (inferred)'],
 		];
 		for (const [x, y, target, name] of expected) {
-			const landed = matrix.transformPoint(new DOMPoint(x, y));
+			const landed = matrix.transformPoint(new window.DOMPoint(x, y));
 			assert.closeTo(
 				origin.x + landed.x,
 				target.x,

@@ -1273,13 +1273,13 @@ describe('TOOL_UCA_MAPS (live map: roman)', function () {
 			if (type === 'mousedown' && is_capture(opts)) {
 				added.push(fn);
 			}
-			return EventTarget.prototype.addEventListener.call(this, type, fn, opts);
+			return window.EventTarget.prototype.addEventListener.call(this, type, fn, opts);
 		};
 		container.removeEventListener = function (type, fn, opts) {
 			if (type === 'mousedown' && is_capture(opts)) {
 				removed.push(fn);
 			}
-			return EventTarget.prototype.removeEventListener.call(this, type, fn, opts);
+			return window.EventTarget.prototype.removeEventListener.call(this, type, fn, opts);
 		};
 
 		try {
