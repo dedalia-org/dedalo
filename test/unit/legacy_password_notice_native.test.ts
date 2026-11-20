@@ -316,8 +316,12 @@ describe('the REAL server boot counts (the wiring in startServer)', () => {
 		const stderr = new Response(server.stderr as ReadableStream).text();
 		let health: { status: number; body: Record<string, unknown> } | null = null;
 		try {
+			// The socket answers BEFORE the boot is over (a 503 while the database
+			// check and the count are still to come): the answer that counts is the
+			// booted server's, so a non-200 is polled past — the last one is kept
+			// for the assertion below to show if the boot never completes.
 			const deadline = Date.now() + 60_000;
-			while (Date.now() < deadline && health === null) {
+			while (Date.now() < deadline && health?.status !== 200) {
 				if (server.exitCode !== null) break;
 				try {
 					const response = await fetch('http://localhost/health', { unix: socket });
@@ -326,8 +330,9 @@ describe('the REAL server boot counts (the wiring in startServer)', () => {
 						body: (await response.json()) as Record<string, unknown>,
 					};
 				} catch {
-					await Bun.sleep(100);
+					// not listening yet
 				}
+				if (health?.status !== 200) await Bun.sleep(100);
 			}
 		} finally {
 			server.kill('SIGTERM');
