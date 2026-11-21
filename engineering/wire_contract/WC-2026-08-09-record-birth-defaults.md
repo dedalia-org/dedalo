@@ -238,3 +238,31 @@ same file and the same gate.
 **Superseded 2026-10-01** by WC-2026-10-01-delete-locator-write-door: the section-only gate
 is replaced by the write door (section floor 2 + the pair + the record scope) — a deliberate
 divergence from PHP.
+
+## Addendum 2026-11-21 — no retro-seed: RULED, the manual corrected, a report-only census added (T2-SL-7, owner Q3)
+
+- **Ruling (owner, 2026-11-19, Q3 / O14):** the engine stays as this entry ships it — a
+  default is written ONLY when a record is created; a read never writes. The v6 behaviour
+  (the first edit-form build of an EXISTING record seeded its empty default-bearing
+  components) is **not** reproduced, by decision, not by omission.
+- **Who is affected:** records that existed before their section declared a default, and
+  Dédalo v6 records nobody opened in edit before the upgrade. They keep their empty field. The
+  engine cannot tell them from a value a curator cleared on purpose, so nothing fills them.
+- **The manual said otherwise** (`docs/core/components/component_input_text.md`: "edit … applies
+  `dato_default`"; `component_radio_button.md`: "seeds the value in edit mode when the stored
+  data is empty"; `component_number.md`: "Not ported"). Corrected; the rule is stated once in
+  `docs/core/ontology/authoring.md` → *`dato_default` — a default is written when the record is
+  created*.
+- **The census:** reconcile `record_missing_defaults`
+  (`src/core/section/record/missing_default_check.ts`, registered in
+  `src/core/reconcile/registry.ts`; Maintenance → Reconcile, `scripts/reconcile.ts`, dry in
+  the post-restore plan). It compares each section's declared defaults — the create door's own
+  spec, `getSectionDefaultsSpec` — with that section's records, and lists per section and
+  component the records whose key is absent, null or an empty array (`missing` = the full
+  count, `section_ids` = the first 50). **Report-only:** its apply is refused at the registry
+  (`applyRefused`); the operator fills the records they mean to with the propagate tool.
+- **Gate:** `test/unit/record_missing_defaults_native.test.ts` (the create door seeds; absent /
+  null / empty keys reported, a held value not; an edit read leaves the report unchanged and
+  the run writes nothing; apply refused; scope) + the registry's pair proof
+  (`reconcile_registry_native` PLANTERS.record_missing_defaults).
+- **Gate reconciliation:** TS-native only; no fixture, no re-harvest.

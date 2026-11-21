@@ -233,6 +233,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			portal_declared_order: 'src/core/relations/declared_order_reconcile.ts',
 			ddo_self_depth: 'src/core/relations/request_config/self_depth_check.ts',
 			wiped_filter_projects: 'src/core/section/record/wiped_filter_reconcile.ts',
+			record_missing_defaults: 'src/core/section/record/missing_default_check.ts',
 		};
 		for (const definition of REGISTERED) {
 			const owner = owners[definition.name];
@@ -279,6 +280,7 @@ describe('reconcile registry completeness (S-10)', () => {
 			'rich_text_images',
 			'portal_declared_order',
 			'ddo_self_depth',
+			'record_missing_defaults',
 		]) {
 			expect((REGISTERED.find((d) => d.name === name) as ReconcileDefinition).schedule).toBe(
 				'operator',
@@ -293,7 +295,14 @@ describe('reconcile registry completeness (S-10)', () => {
 		expect(REGISTERED.filter((d) => d.applyRefused !== undefined).map((d) => d.name)).toEqual([
 			'publication_apis',
 			'ddo_self_depth',
+			'record_missing_defaults',
 		]);
+		// The missing-defaults census (owner ruling Q3): report-only — which record takes a
+		// default is a data decision, made with the propagate tool, never by a reconcile.
+		const missingDefaults = REGISTERED.find(
+			(d) => d.name === 'record_missing_defaults',
+		) as ReconcileDefinition;
+		expect(missingDefaults.applyRefused?.reason.length).toBeGreaterThan(40);
 		// The level >= 2 'self' check (decision (c)): a DEFINITION check whose correction
 		// is a master-ontology edit — its apply is refused at the registry, with a reason.
 		const selfDepth = REGISTERED.find((d) => d.name === 'ddo_self_depth') as ReconcileDefinition;

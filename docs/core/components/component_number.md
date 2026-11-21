@@ -169,7 +169,7 @@ The `section_tipo` / `parent` wiring places the component as a column inside its
 | `type` | `"int"` \| `"float"` | (none: stored as given) | Numeric type. `int` truncates to an integer; `float` rounds to `precision`. |
 | `precision` | integer (number of decimals) | `2` | Decimals kept when `type` is `float`. Applied on save (every door) and to the input `step`. Ignored for `int`. Negative values round the integer part. |
 | `has_dataframe` | `true` \| `false` | `false` | Pairs each value item with a dataframe (uncertainty / qualifier / context) record. Required for literal mains (relation mains activate from the slot ddo alone); the control also renders read-only (Time Machine previews). Full ontology setup incl. a coloured rating: [component_dataframe](component_dataframe.md) → "Worked example — uncertainty rating on a literal". |
-| `dato_default` | array of value items | (none) | Default value applied in `edit` mode for new records. **Not ported** — no module under `src/` reads `dato_default` yet (see [component_input_text](component_input_text.md#properties--options)). |
+| `dato_default` | array of value items | (none) | Default value written when a record is created — never when an existing record is opened (see [Ontology authoring](../ontology/authoring.md#dato_default--a-default-is-written-when-the-record-is-created)). |
 | `css` | object | (none) | Per-instance CSS injected into the datum `context`. Generic, shared by every component. |
 
 !!! warning "Legacy `type` object form — deprecated"

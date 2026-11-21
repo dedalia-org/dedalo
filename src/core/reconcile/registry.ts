@@ -168,6 +168,7 @@ export const REGISTERED_NAMES: readonly string[] = [
 	'portal_declared_order',
 	'ddo_self_depth',
 	'wiped_filter_projects',
+	'record_missing_defaults',
 ];
 
 // Process-lifetime registry state (module_state_tripwire allowlisted): the

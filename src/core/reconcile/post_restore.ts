@@ -141,6 +141,11 @@ export const POST_RESTORE_PLAN: readonly PostRestoreStep[] = [
 		apply: false,
 		why: "it moves records between project scopes: a restore can bring back records an older data wipe filed under the default project, and the dry list names each with the projects its history held before the wipe — putting them back is the operator's decision, never a restore side effect",
 	},
+	{
+		name: 'record_missing_defaults',
+		apply: false,
+		why: 'a census, never a repair: a restore can bring back records created before their section declared a default (or in Dédalo v6 and never opened in edit); the dry list names them per section and component, and filling them is a deliberate propagate-tool run (its apply is refused at the registry)',
+	},
 ];
 
 export interface PostRestoreStepResult {

@@ -211,7 +211,7 @@ Views are selected from `context.view` (default `default`) and dispatched by the
 
 Modes:
 
-- **edit** — read/write a real record; applies `dato_default`, supports add/remove of items, `unique` and `mandatory` UI, transliteration.
+- **edit** — read/write a real record; supports add/remove of items, `unique` and `mandatory` UI, transliteration. Opening a record in edit never writes a value: a `dato_default` is written once, when the record is created (see [Ontology authoring](../ontology/authoring.md#dato_default--a-default-is-written-when-the-record-is-created)).
 - **list / tm** — read-only listing; `tm` (Time Machine) reuses the list render. The listed value has one special case: in `tm` mode, on the users section, the root user (`section_id = -1`) resolves to `Root`.
 - **search** — builds an SQO filter input; one text input per filter, with a language-behaviour checkbox for translatable components, and the `ontology7` TLD-split special case (a pasted/typed `rsc170` splits into `rsc` + `170`). Saves are blocked in search mode. Server-side the filter is turned into SQL by `src/core/search/builders/builder_string.ts` (shared by `component_input_text`, `component_text_area` and `component_email`), dispatched from `src/core/search/conform.ts`.
 

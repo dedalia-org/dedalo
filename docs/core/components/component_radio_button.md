@@ -205,8 +205,8 @@ All properties are optional and live in the ontology node `properties` JSON. Ver
 
 ### dato_default
 
-- **Values:** an array of value items, or `{"method": "<method_name>"}`.
-- **Effect:** seeds the value in `edit` mode when the stored data is empty and the user has write permission. Handled by the shared default-data mechanism common to every component. Verify shape in the ontology before use.
+- **Values:** an array of value items (for this component, locators: `[{"section_id": 1, "section_tipo": "dd501"}]` is the default of `oh93`, *Review status*). The `{"method": "<method_name>"}` form is not supported: a node declaring it makes its section's records impossible to create, loudly.
+- **Effect:** the value is written when a record is **created**, through every creation door (the list "+", a portal "+", an import…). Opening an existing record never writes it. Handled by the shared default mechanism common to every component — see [Ontology authoring](../ontology/authoring.md#dato_default--a-default-is-written-when-the-record-is-created).
 
 !!! note "Standard context properties"
     Like every component, `component_radio_button` also honours the generic ontology context blocks carried into the datum `context`: `css` (style stamped on `.wrapper_component`), `request_config` (the RQO that resolves the option list) and `view` (the render view to use). These are not component-specific options. Any other custom key seen in production should be verified in the ontology.

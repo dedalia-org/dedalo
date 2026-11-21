@@ -33,6 +33,7 @@ import { PUBLICATION_APIS_RECONCILE } from '../publication_host/api_reconcile.ts
 import { PUBLICATION_PROBE_RECONCILE } from '../publication_host/probe.ts';
 import { PORTAL_DECLARED_ORDER_RECONCILE } from '../relations/declared_order_reconcile.ts';
 import { DDO_SELF_DEPTH_RECONCILE } from '../relations/request_config/self_depth_check.ts';
+import { RECORD_MISSING_DEFAULTS_RECONCILE } from '../section/record/missing_default_check.ts';
 import { OBSERVER_MIRRORS_RECONCILE } from '../section/record/observer_reconcile.ts';
 import { WIPED_FILTER_PROJECTS_RECONCILE } from '../section/record/wiped_filter_reconcile.ts';
 import {
@@ -70,6 +71,7 @@ export async function loadAllReconciles(): Promise<readonly ReconcileDefinition[
 		PORTAL_DECLARED_ORDER_RECONCILE,
 		DDO_SELF_DEPTH_RECONCILE,
 		WIPED_FILTER_PROJECTS_RECONCILE,
+		RECORD_MISSING_DEFAULTS_RECONCILE,
 	];
 }
 

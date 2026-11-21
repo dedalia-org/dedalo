@@ -359,6 +359,40 @@ skip — never guessed. Full rules, counters and diagnostics:
 property-injection hook. If a node needs different behaviour, edit its
 `properties` and regenerate.
 
+### `dato_default` — a default is written when the record is created
+
+A component's `properties.dato_default` is the value a **new** record is born
+with. `oh21` (*Quality*, a `component_select`) declares
+`[{"section_id": 5, "section_tipo": "dd889"}]`; `oh32` (*Public*, a
+`component_publication`) declares `[{"section_id": 2, "section_tipo": "dd64"}]`,
+so a new Oral History record is unpublished until someone publishes it.
+
+The rule has one moment and no exceptions:
+
+- The default is written **once, when the record is created** — by every door
+  that creates a record (the list "+", a portal "+", the tree, an import), in
+  the same write as the record itself.
+- **Reading never writes.** Opening a record in edit does not seed anything. If
+  the field is empty, it stays empty until someone fills it.
+- The project filter (`component_filter`) is not a `dato_default`: a new record
+  takes the creating user's project (or the installation's default project)
+  through its own rule.
+
+!!! warning "Adding a default does not fill the records that already exist"
+    When you add `dato_default` to a component of a section that already holds
+    records, those records keep their empty field. The same is true of records
+    created in Dédalo v6 that nobody opened in edit before the upgrade (v6 wrote
+    the default the first time an edit form showed the record). Nothing is
+    wrong with them, and the engine cannot tell an old empty field from one a
+    curator cleared on purpose — so it does not fill them.
+
+    To see them: **Maintenance → Reconcile → `record_missing_defaults`** lists,
+    per section and component, how many records hold no value in a component
+    that declares a default, with the first record ids. The check only reports.
+    To fill the ones you mean to, filter the section to those records and use
+    [Propagate component data](../../using/tools/using_propagate_component_data.md)
+    on that component.
+
 ### Retired property keys
 
 `properties` is a free-form bag, so a key the engine no longer reads looks

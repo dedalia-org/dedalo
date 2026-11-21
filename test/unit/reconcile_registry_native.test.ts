@@ -144,6 +144,9 @@ const MN_PLANTED_ID = 2;
 
 /** ddo_self_depth: one portal whose map declares 'self' at depth 2 (decision (c)). */
 const SELF_DEPTH_TLD = 'zzrs';
+/** record_missing_defaults: a section whose component declares a default (owner ruling Q3). */
+const DEFAULTS_TLD = 'zzrd';
+const DEFAULTS_SECTION = `${DEFAULTS_TLD}1`;
 
 const HIER_TLD = 'zzrh';
 const HIER_SECTION = 'hierarchy1';
@@ -894,6 +897,36 @@ const PLANTERS: Record<string, Planter> = {
 		},
 		async unplant() {
 			await cleanScratchTipo(WIPED_HOST, TABLE);
+		},
+	},
+	record_missing_defaults: {
+		scope: [DEFAULTS_SECTION],
+		async plant() {
+			// A section declaring a default, and ONE record that existed before the
+			// declaration: its key is absent (raw insert — the create door would seed it).
+			await assertTestDatabase('reconcile_registry_native record_missing_defaults');
+			await upsertDdOntologyNode({
+				tipo: DEFAULTS_SECTION,
+				parent: 'test1',
+				model: 'section',
+				tld: DEFAULTS_TLD,
+				relations: [{ tipo: MATRIX_TEST_RELATION }],
+			} as never);
+			await upsertDdOntologyNode({
+				tipo: `${DEFAULTS_TLD}2`,
+				parent: DEFAULTS_SECTION,
+				model: 'component_input_text',
+				tld: DEFAULTS_TLD,
+				properties: { dato_default: 'seeded' },
+			} as never);
+			await clearOntologyDerivedCaches();
+			await insertMatrixRecordWithCounter(TABLE, DEFAULTS_SECTION, {});
+			return 1;
+		},
+		async unplant() {
+			await cleanScratchTipo(DEFAULTS_SECTION, TABLE);
+			await deleteTldNodes(DEFAULTS_TLD);
+			await clearOntologyDerivedCaches();
 		},
 	},
 	ddo_self_depth: {
