@@ -3039,6 +3039,11 @@
 			"skipped": 0,
 			"assertions": 5
 		},
+		"test/unit/ip_address.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 146
+		},
 		"test/unit/ip_allowlist.test.ts": {
 			"tests": 19,
 			"skipped": 0,
