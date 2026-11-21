@@ -58,6 +58,7 @@ import { CLIENT_MAX_LIMIT, getSectionTipos, sanitizeClientSqo } from '../../core
 import { DedaloError, ok } from '../../core/errors/index.ts';
 import { termByTipo } from '../../core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../core/ontology/resolver.ts';
+import { resolveDataframeSlotTipos } from '../../core/relations/dataframe_slots.ts';
 import { componentLocators, readsComputedLocators } from '../../core/relations/locator_source.ts';
 import { EmissionContext } from '../../core/resolve/component_data.ts';
 import type { MediaReadAddress } from '../../core/resolve/relation_list.ts';
@@ -67,7 +68,6 @@ import {
 	runWithRequestLangs,
 } from '../../core/resolve/request_lang.ts';
 import { buildSearchSql } from '../../core/search/sql_assembler.ts';
-import { getDataframeChildTipos } from '../../core/section/list_definitions/section_list.ts';
 import {
 	type FrontierRefusal,
 	type FrontierScope,
@@ -1100,7 +1100,7 @@ export async function assertExportDeclarationReadable(
 		}
 		// THE dedalo_raw DATAFRAME COLUMNS (2026-08-28). In that format
 		// buildEntries mints and FILLS one raw cell per
-		// `getDataframeChildTipos(topComponent)` frame — real components, with
+		// `resolveDataframeSlotTipos(topComponent)` frame — real components, with
 		// their own stored data, that appear in NO ddo path and therefore never
 		// reached Gate B. They are authorized HERE, once per run, on the same
 		// key: a caller who may not read the frame component may not receive a
@@ -1111,7 +1111,7 @@ export async function assertExportDeclarationReadable(
 			const topSection = resolveDeclaredTipo(firstSegment?.section_tipo);
 			const topComponent = resolveDeclaredTipo(firstSegment?.component_tipo);
 			if (topSection !== null && topComponent !== null) {
-				for (const frameTipo of await getDataframeChildTipos(topComponent)) {
+				for (const frameTipo of await resolveDataframeSlotTipos(topComponent)) {
 					// The SAME declaration gate as the segments above — a frame is
 					// a declared column of this export, just one the tool UI cannot
 					// spell, so it is authorized on the bare grant too.
@@ -1393,12 +1393,15 @@ async function openExportGridInScope(
 				// components, separate stored data, one column each — headed by the
 				// frame tipo, so the import maps them like any other component and
 				// the `id_key` locator re-pairs them with the main's items.
-				// Ontology-driven (children of model component_dataframe), so the
-				// column set is the same for every record of the run, framed or not
+				// Ontology-driven — THE ONE SLOT SET of the main (T2-SL-6,
+				// dataframe_slots.ts resolveDataframeSlotTipos: dataframe children ∪
+				// own-config ddos ∪ the model's fixed frames, the set the read, the
+				// save cascade and the Time Machine answer) — so the column set is
+				// the same for every record of the run, framed or not
 				// — and dedalo_raw stays a LOSSLESS dump: the tool UI cannot declare
 				// a dataframe step itself (atoms.ts hasDeclaredDataframeStep), so
 				// without this the frames would leave no column at all.
-				for (const frameTipo of await getDataframeChildTipos(topComponent)) {
+				for (const frameTipo of await resolveDataframeSlotTipos(topComponent)) {
 					entries.push({
 						kind: 'raw',
 						ddoIndex,

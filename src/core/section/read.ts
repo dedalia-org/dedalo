@@ -2964,6 +2964,56 @@ async function getDataConfigLimit(node: ElementNode): Promise<number | null> {
 }
 
 /**
+ * The dataframe slots a LITERAL main DECLARES, and whether it may take more —
+ * or null when it pairs with no frame at all (the common case: no node
+ * resolution, no slot work).
+ *   - has_dataframe === true: THE ONE SLOT SET (relations/dataframe_slots.ts
+ *     resolveDataframeSlotTipos — ontology children ∪ own-config ddos ∪ the
+ *     model's fixed frames), the set the save cascade, the Time Machine and the
+ *     raw export answer for the same main (T2-SL-6). `open`: a caller may name
+ *     further frames as its children (literalFrameSlots).
+ *   - no flag: the model's FIXED frames only (component_iri's dd560 — PHP
+ *     component_iri_json pairs it unconditionally). The flag stays the switch:
+ *     without it a child, a config ddo or a caller's line activates nothing.
+ */
+async function literalDeclaredFrames(
+	tipo: string,
+	model: string,
+): Promise<{ slots: string[]; open: boolean } | null> {
+	const { getNode } = await import('../ontology/resolver.ts');
+	const flagged =
+		((await getNode(tipo))?.properties as { has_dataframe?: boolean } | null)?.has_dataframe ===
+		true;
+	if (flagged) {
+		const { resolveDataframeSlotTipos } = await import('../relations/dataframe_slots.ts');
+		return { slots: await resolveDataframeSlotTipos(tipo), open: true };
+	}
+	const fixed = getComponentModel(model)?.fixedDataframeTipos ?? [];
+	return fixed.length > 0 ? { slots: [...fixed], open: false } : null;
+}
+
+/**
+ * The frames a literal emits: its declared slots, then — for an `open`
+ * (has_dataframe) literal — every component_dataframe its CALLER named as its
+ * child (the literal node's children are its effective config: PHP resolves a
+ * literal's frames through the request_config ddo_map it was handed, so a
+ * section map [L, F<L] reaches F even when L's own definition names no F).
+ */
+async function literalFrameSlots(
+	declared: { slots: string[]; open: boolean },
+	literalNode: ElementNode,
+): Promise<string[]> {
+	if (!declared.open) return declared.slots;
+	const slots = [...declared.slots];
+	for (const child of literalNode.children) {
+		const tipo = child.tipo;
+		if (typeof tipo !== 'string' || slots.includes(tipo)) continue;
+		if ((await getModelByTipo(tipo)) === 'component_dataframe') slots.push(tipo);
+	}
+	return slots;
+}
+
+/**
  * The mode a literal main's ddo_map DECLARES for one of its frames, or
  * undefined when it declares none (section/read.ts emitDdoData, literal frames).
  *
@@ -4137,51 +4187,22 @@ async function emitDdoDataUnbound(
 	item.parent_tipo = callerTipo;
 
 	// LITERAL mains pair with their dataframe slots too (the user-confirmed
-	// contract: any component — input_text, date, iri… — can declare frames):
+	// contract: any component — input_text, date, iri… — can declare frames).
+	// THE SLOT SET is the one every door answers (T2-SL-6, literalFrameSlots):
 	//   - component_iri ALWAYS pairs with its dd560 label dataframe (PHP
 	//     component_iri_json, hardcoded DEDALO_COMPONENT_IRI_LABEL_DATAFRAME);
-	//   - other literals require properties.has_dataframe === true (PHP
-	//     build_dataframe_subdatum) and pair with their ontology dataframe
-	//     children.
+	//   - a literal with properties.has_dataframe === true (PHP
+	//     build_dataframe_subdatum) pairs with its DECLARED slots — ontology
+	//     children ∪ its own config's ddos ∪ fixed — plus any frame its CALLER
+	//     names as its child.
 	// One frame per stored item id; the empty case uses the next provisional
 	// id (counter+1) so the editor can render a blank slot. The frame node's
 	// own properties.mode ('edit') is the item mode. Frames emit BEFORE the
 	// literal's own item (PHP merges the subdatum first).
 	if (ddoMode !== 'search') {
-		const { resolveFrameConfig, getDataframeChildTipos } = await import(
-			'../section/list_definitions/section_list.ts'
-		);
-		// Fixed frames are descriptor DATA (component_iri's dd560 — the PHP
-		// hardcoded DEDALO_COMPONENT_IRI_LABEL_DATAFRAME); other literals pair
-		// via the generic properties.has_dataframe ontology walk.
-		const fixedFrames = getComponentModel(model)?.fixedDataframeTipos;
-		let frameTipos: string[] = fixedFrames !== undefined ? [...fixedFrames] : [];
-		if (frameTipos.length === 0) {
-			const { getNode } = await import('../ontology/resolver.ts');
-			const hasDataframe =
-				((await getNode(ddo.tipo))?.properties as { has_dataframe?: boolean } | null)
-					?.has_dataframe === true;
-			if (hasDataframe) {
-				frameTipos = await getDataframeChildTipos(ddo.tipo);
-			}
-		}
-		if (frameTipos.length > 0) {
-			// has_dataframe literals carry the frame item-id counter (PHP
-			// get_counter — data.counters[tipo], 0 when never assigned).
-			const counters = (record.columns.data as { counters?: Record<string, number> } | null)
-				?.counters;
-			const frameCounter = Number(counters?.[ddo.tipo] ?? 0);
-			item.counter = frameCounter;
-			const storedIds = (Array.isArray(value) ? value : [])
-				.map((valueItem) => (valueItem as { id?: number | string } | null)?.id)
-				.filter((id): id is number | string => id !== undefined && id !== null);
-			// Blank slot = the NEXT provisional id, counter+1 — the client's own
-			// derivation (dataframe.js `item?.id ?? self.data.counter + 1`,
-			// render_edit_component_iri `current_value.id ?? self.data.counter+1`),
-			// so the emitted frame is the one the editor looks up. A literal `1`
-			// here (DATA-27) paired the blank frame at a key the client never asks
-			// for whenever the counter had moved past zero.
-			const pairIds = storedIds.length > 0 ? storedIds : [frameCounter + 1];
+		const { resolveFrameConfig } = await import('../section/list_definitions/section_list.ts');
+		const declaredFrames = await literalDeclaredFrames(ddo.tipo, model);
+		if (declaredFrames !== null) {
 			// THE LITERAL'S NODE (relations/element_node.ts resolveElement), under
 			// ITS caller: the portal node a nested literal sits under, else — at a
 			// read's top level — the read's ROOT map (rootNodeFor), exactly as a
@@ -4206,6 +4227,23 @@ async function emitDdoDataUnbound(
 				registry: emission.nodes,
 				...(scope !== undefined ? { scope } : {}),
 			});
+			const frameTipos = await literalFrameSlots(declaredFrames, literalNode);
+			// has_dataframe literals carry the frame item-id counter (PHP
+			// get_counter — data.counters[tipo], 0 when never assigned).
+			const counters = (record.columns.data as { counters?: Record<string, number> } | null)
+				?.counters;
+			const frameCounter = Number(counters?.[ddo.tipo] ?? 0);
+			if (frameTipos.length > 0) item.counter = frameCounter;
+			const storedIds = (Array.isArray(value) ? value : [])
+				.map((valueItem) => (valueItem as { id?: number | string } | null)?.id)
+				.filter((id): id is number | string => id !== undefined && id !== null);
+			// Blank slot = the NEXT provisional id, counter+1 — the client's own
+			// derivation (dataframe.js `item?.id ?? self.data.counter + 1`,
+			// render_edit_component_iri `current_value.id ?? self.data.counter+1`),
+			// so the emitted frame is the one the editor looks up. A literal `1`
+			// here (DATA-27) paired the blank frame at a key the client never asks
+			// for whenever the counter had moved past zero.
+			const pairIds = storedIds.length > 0 ? storedIds : [frameCounter + 1];
 			const frameScope: EmitScope = { parentNode: literalNode, path: scope?.path ?? [] };
 			for (const frameTipo of frameTipos) {
 				// THE FRAME'S GOVERNING DDO = the literal node's line for it (its

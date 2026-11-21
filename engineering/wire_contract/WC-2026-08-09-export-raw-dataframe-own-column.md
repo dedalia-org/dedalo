@@ -98,3 +98,16 @@ in the data model, and the shape it introduced was conditional on the data.
 - **Re-harvest: NOT needed.** The fixture keeps the PHP response verbatim; the
   gate reads the oracle leg as the fossil instead of diffing it against TS
   (the WC-001 pattern).
+
+## Addendum 2026-11-21 — the frame columns are the main's ONE slot set (T2-SL-6)
+
+The `dedalo_raw` frame columns were minted from the top-level component's ontology children of
+model `component_dataframe`. They are now minted — and authorized, once per run, on the same
+key — from `resolveDataframeSlotTipos` (`src/core/relations/dataframe_slots.ts`): dataframe
+children ∪ the component's own-config ddos (show and hide) ∪ the model's fixed frames — the set
+the read, the save cascade and the Time Machine answer. Consequences: a slot a component
+declares only in its `request_config` gets its column, and so does `component_iri`'s fixed label
+slot (dd560) — both were absent from a dump that claims to be lossless. Column order follows the
+set's order (children, config, fixed). Gate: the CROSS-DOOR case of
+`test/unit/has_dataframe_literal_native.test.ts`
+(see WC-2026-08-09-time-machine-restore-replays-paired-dataframe-frames, addendum 2026-11-21).

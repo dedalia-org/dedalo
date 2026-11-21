@@ -50,8 +50,19 @@ import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { assertMatrixTable } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { resolveDataframeSlotTipos } from '../../src/core/relations/dataframe_slots.ts';
+import { readSection } from '../../src/core/section/read.ts';
+import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
+import { exportGridUnified } from '../../src/diffusion/export/index.ts';
+import { toolTimeMachineApplyValue } from '../../tools/tool_time_machine/server/tool_time_machine.ts';
 import golden from './fixtures/has_dataframe_native/list_items.golden.json';
 
 /**
@@ -473,4 +484,272 @@ describe('a LITERAL main honours its declared ddo mode, exactly like a RELATION 
 		// the exact behaviour the frozen golden above pins.
 		expect(await readFrameMode()).toBe('list');
 	});
+});
+
+// ---------------------------------------------------------------------------
+// T2-SL-6 — ONE SLOT SET, EVERY DOOR.
+//
+// A main's dataframe slots are DECLARED in three places (dataframe_slots.ts
+// resolveDataframeSlotTipos): its ontology children of model
+// component_dataframe, the ddos of its OWN request_config (show and hide), and
+// its model's fixed frames. The save cascade and the Time Machine already
+// answered that set; the READ of a literal walked ontology children only, and
+// the raw export likewise — so a slot a literal declares in its config (the
+// node sits beside it, not under it) was stripped by a remove and restored by
+// the Time Machine, yet never shown and never exported.
+//
+// SITUATION `zzdfs` (scratch section on test1 → matrix_test), built and dropped:
+//   LIT    input_text, has_dataframe, own config naming SIBLING
+//   CHILD  component_dataframe under LIT            (declared: ontology child)
+//   SIBLING component_dataframe under the SECTION   (declared: LIT's own config)
+//   INJECTED component_dataframe under the SECTION  (declared NOWHERE: a caller
+//            names it as LIT's child in its own ddo_map)
+//   PLAIN  input_text WITHOUT has_dataframe (the flag law's control)
+// ---------------------------------------------------------------------------
+
+const ZTLD = 'zzdfs';
+const ZSECTION = `${ZTLD}1`;
+const LIT = `${ZTLD}2`;
+const CHILD = `${ZTLD}3`;
+const SIBLING = `${ZTLD}4`;
+const INJECTED = `${ZTLD}5`;
+const PLAIN = `${ZTLD}6`;
+const ZTABLE = 'matrix_test';
+
+const SLOT_SITUATION = situation({
+	tld: ZTLD,
+	name: 'dataframe_slot_set',
+	nodes: [
+		{ tipo: ZSECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Slot set' } },
+		{
+			tipo: LIT,
+			parent: ZSECTION,
+			model: 'component_input_text',
+			term: { 'lg-eng': 'Literal' },
+			properties: {
+				has_dataframe: true,
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [ZSECTION], source: 'section' }] },
+							show: { ddo_map: [{ tipo: SIBLING, parent: 'self', section_tipo: ZSECTION }] },
+						},
+					],
+				},
+			},
+		},
+		{ tipo: CHILD, parent: LIT, model: 'component_dataframe', term: { 'lg-eng': 'Child' } },
+		{ tipo: SIBLING, parent: ZSECTION, model: 'component_dataframe', term: { 'lg-eng': 'Sib' } },
+		{ tipo: INJECTED, parent: ZSECTION, model: 'component_dataframe', term: { 'lg-eng': 'Inj' } },
+		{ tipo: PLAIN, parent: ZSECTION, model: 'component_input_text', term: { 'lg-eng': 'Plain' } },
+	],
+});
+
+type ZItem = Record<string, unknown>;
+
+const zFrame = (slot: string, main: string, target: number): ZItem => ({
+	id: 1,
+	type: 'dd490',
+	id_key: 1,
+	section_tipo: ZSECTION,
+	section_id: target,
+	from_component_tipo: slot,
+	main_component_tipo: main,
+});
+
+/** A record holding `main` = one item (id 1) and one frame of it in every given slot. */
+async function zRecord(main: string, slots: readonly string[]): Promise<number> {
+	const id = await createSectionRecord(ZSECTION, -1);
+	const target = await createSectionRecord(ZSECTION, -1);
+	await sql.unsafe(
+		`UPDATE "${ZTABLE}" SET string = COALESCE(string, '{}'::jsonb) || $3::text::jsonb,
+		        relation = COALESCE(relation, '{}'::jsonb) || $4::text::jsonb
+		  WHERE section_tipo = $1 AND section_id = $2`,
+		[
+			ZSECTION,
+			id,
+			JSON.stringify({ [main]: [{ id: 1, lang: 'lg-nolan', value: 'held' }] }),
+			JSON.stringify(Object.fromEntries(slots.map((slot) => [slot, [zFrame(slot, main, target)]]))),
+		],
+	);
+	return id;
+}
+
+/** The items of an EDIT read of one record (its own config, or the caller's map). */
+async function readItems(id: number, ddoMap?: ZItem[]): Promise<ZItem[]> {
+	const { data } = await readSection({
+		action: 'read',
+		source: { tipo: ZSECTION, section_tipo: ZSECTION, mode: 'edit', lang: 'lg-eng' },
+		sqo: {
+			section_tipo: [ZSECTION],
+			filter_by_locators: [{ section_tipo: ZSECTION, section_id: String(id) }],
+			limit: 1,
+			offset: 0,
+		},
+		...(ddoMap === undefined ? {} : { show: { ddo_map: ddoMap } }),
+	} as never);
+	return data as ZItem[];
+}
+
+/** The slot tipos whose frame item an EDIT read of the record emits WITH the stored frame. */
+async function readSlots(id: number, ddoMap?: ZItem[]): Promise<string[]> {
+	return (await readItems(id, ddoMap))
+		.filter(
+			(item) =>
+				Number(item.section_id) === id &&
+				Number(item.id_key) === 1 &&
+				Array.isArray(item.entries) &&
+				item.entries.length === 1,
+		)
+		.map((item) => String(item.tipo))
+		.sort();
+}
+
+/** The situation's dataframe slots that hold at least one frame on the record. */
+async function zRelationKeys(id: number): Promise<string[]> {
+	const rows = (await sql.unsafe(
+		`SELECT relation FROM "${ZTABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+		[ZSECTION, id],
+	)) as { relation: Record<string, unknown[]> | null }[];
+	return Object.entries(rows[0]?.relation ?? {})
+		.filter(
+			([key, value]) =>
+				[CHILD, SIBLING, INJECTED].includes(key) && Array.isArray(value) && value.length > 0,
+		)
+		.map(([key]) => key)
+		.sort();
+}
+
+describe('T2-SL-6: a literal reads the ONE declared slot set (+ a caller-injected frame)', () => {
+	beforeAll(async () => {
+		await ensureSituation(SLOT_SITUATION);
+		expect(await getMatrixTableFromTipo(ZSECTION)).toBe(ZTABLE);
+	}, 60_000);
+
+	afterAll(async () => {
+		await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe('DELETE FROM dedalo_ts_record_generation WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe(`DELETE FROM "${ZTABLE}" WHERE section_tipo = $1`, [ZSECTION]);
+		await sql.unsafe(`DELETE FROM matrix_activity WHERE data->>'section_tipo' = $1`, [ZSECTION]);
+		expect(await dropSituation(SLOT_SITUATION)).toBe(0);
+	}, 60_000);
+
+	test('the declared set is the ontology child AND the sibling the own config names', async () => {
+		expect((await resolveDataframeSlotTipos(LIT)).sort()).toEqual([CHILD, SIBLING]);
+	});
+
+	test('a SIBLING-declared slot is emitted with its frame, like the child slot', async () => {
+		const id = await zRecord(LIT, [CHILD, SIBLING]);
+		expect(await readSlots(id)).toEqual([CHILD, SIBLING]);
+	}, 30_000);
+
+	test('a CALLER-INJECTED frame child is emitted too — beside the declared slots', async () => {
+		const id = await zRecord(LIT, [CHILD, SIBLING, INJECTED]);
+		const callerMap = [
+			{ tipo: LIT, section_tipo: ZSECTION, parent: ZSECTION, mode: 'edit' },
+			{ tipo: INJECTED, section_tipo: ZSECTION, parent: LIT },
+		];
+		expect(await readSlots(id, callerMap)).toEqual([CHILD, SIBLING, INJECTED]);
+		// Only a component_dataframe child is a frame: a caller line naming any
+		// other component under the literal pairs nothing with its items.
+		const withPlainChild = await readItems(id, [
+			...callerMap,
+			{ tipo: PLAIN, section_tipo: ZSECTION, parent: LIT },
+		]);
+		expect(withPlainChild.filter((item) => item.main_component_tipo === LIT)).toHaveLength(3);
+		expect(
+			withPlainChild.filter((item) => item.tipo === PLAIN && item.id_key !== undefined),
+		).toEqual([]);
+		// not declared, not injected: the read does not go looking for it
+		expect(await readSlots(id)).toEqual([CHILD, SIBLING]);
+	}, 30_000);
+
+	test('the flag law holds: a literal WITHOUT has_dataframe emits no frame, injected or not', async () => {
+		const id = await zRecord(PLAIN, [INJECTED]);
+		const callerMap = [
+			{ tipo: PLAIN, section_tipo: ZSECTION, parent: ZSECTION, mode: 'edit' },
+			{ tipo: INJECTED, section_tipo: ZSECTION, parent: PLAIN },
+		];
+		expect(await readSlots(id, callerMap)).toEqual([]);
+	}, 30_000);
+
+	test('CROSS-DOOR: read, save cascade, Time Machine restore and raw export answer the SAME slot set', async () => {
+		const declared = (await resolveDataframeSlotTipos(LIT)).sort();
+		expect(declared).toHaveLength(2); // floor: an empty set would agree with anything
+
+		// READ
+		const id = await zRecord(LIT, declared);
+		expect(await readSlots(id)).toEqual(declared);
+
+		// EXPORT (dedalo_raw): one column per slot, beside the main's.
+		const exported = await exportGridUnified({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			background: false,
+			options: {
+				section_tipo: ZSECTION,
+				model: 'section',
+				data_format: 'dedalo_raw',
+				breakdown: 'default',
+				fill_the_gaps: false,
+				lang: 'lg-eng',
+				ar_ddo_to_export: [{ path: [{ section_tipo: ZSECTION, component_tipo: LIT, name: LIT }] }],
+				sqo: {
+					section_tipo: [ZSECTION],
+					offset: 0,
+					filter_by_locators: [{ section_tipo: ZSECTION, section_id: String(id) }],
+				},
+			},
+		} as never);
+		const exportedSlots = [CHILD, SIBLING, INJECTED]
+			.filter((slot) => JSON.stringify(exported).includes(`${ZSECTION}_${slot}`))
+			.sort();
+		expect(exportedSlots).toEqual(declared);
+
+		// SAVE: removing the item strips its frame from every slot of the set.
+		const mark = (
+			(await sql.unsafe('SELECT COALESCE(MAX(id), 0) AS m FROM matrix_time_machine')) as {
+				m: number;
+			}[]
+		)[0]?.m;
+		const removed = await saveComponentData({
+			componentTipo: LIT,
+			sectionTipo: ZSECTION,
+			sectionId: id,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'remove', id: 1, value: null }],
+			userId: -1,
+		});
+		expect(removed.ok).toBe(true);
+		expect(await zRelationKeys(id)).toEqual([]);
+		// (control of the cascade's reach: an identical record keeps its frames)
+		expect(await zRelationKeys(await zRecord(LIT, declared))).toEqual(declared);
+
+		// TIME MACHINE: restoring the state before the remove puts a frame back
+		// in every slot of the set (the baseline row the remove recorded first).
+		const rows = (await sql.unsafe(
+			`SELECT id, data FROM matrix_time_machine
+			  WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND id > $4 AND tm_role IS NULL
+			  ORDER BY id ASC`,
+			[ZSECTION, id, LIT, Number(mark)],
+		)) as { id: number; data: unknown }[];
+		const before = rows.find(
+			(row) => Array.isArray(row.data) && (row.data as ZItem[]).some((e) => e.type === 'dd490'),
+		);
+		expect(before).toBeDefined();
+		const restored = await toolTimeMachineApplyValue({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			background: false,
+			options: {
+				section_tipo: ZSECTION,
+				section_id: id,
+				tipo: LIT,
+				lang: 'lg-nolan',
+				matrix_id: before?.id,
+			},
+		} as never);
+		expect(restored.ok).toBe(true);
+		expect(await zRelationKeys(id)).toEqual(declared);
+	}, 60_000);
 });

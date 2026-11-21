@@ -168,3 +168,31 @@ main's composed undo pairs (WC-2026-09-27-bulk-revert-undo-log §4 step 3).
 - **Divergence 4 stays**: no supported history has a slot row (PHP never wrote one), and
   `apply_value` on one is still refused.
 - **Divergences 1–3 unchanged.**
+
+## Addendum 2026-11-21 — the READ and the raw export answer the same slot set (T2-SL-6)
+
+The discovery union of divergence 1 (`resolveDataframeSlotTipos`: dataframe children ∪ the
+main's own-config ddos, show and hide ∪ the model's fixed frames) was the set of the save
+cascade, the Time Machine and the record delete. Two doors answered a narrower one — ontology
+children only — and now answer the same:
+
+- **Component read of a LITERAL main** (`src/core/section/read.ts` `literalDeclaredFrames` /
+  `literalFrameSlots`). A literal with `properties.has_dataframe: true` emits one frame item per
+  stored item id for every slot of the set, plus every `component_dataframe` its CALLER names as
+  its child (the request's ddo_map — PHP resolved a literal's frames through the request_config
+  ddo_map it was handed). Before: a slot the literal declares in its own `request_config`
+  without being its ontology child was stripped by a remove and restored by the Time Machine,
+  yet never emitted. `has_dataframe` stays the switch: without it only the model's fixed frames
+  pair (component_iri → dd560); a child node, a config ddo or a caller line activates nothing.
+  A `component_iri` that ALSO carries `has_dataframe` now emits its other declared slots beside
+  dd560 (it emitted dd560 alone).
+- **Raw export** (`src/diffusion/export/grid.ts`, WC-2026-08-09-export-raw-dataframe-own-column):
+  the `dedalo_raw` frame columns of a top-level component — and their per-run authorization —
+  are the same set. New columns appear for a slot declared by config only and for
+  component_iri's dd560.
+- Gate: `test/unit/has_dataframe_literal_native.test.ts` → "T2-SL-6" (sibling-declared and
+  caller-injected frames emitted; the flag law's control; and the CROSS-DOOR case — the read,
+  the save cascade, a Time Machine restore and the raw export of one main answer one set, so a
+  door narrowing or widening it alone goes red).
+- **Gate reconciliation:** TS-native only. `has_dataframe_literal` golden (child slot, oracle
+  captured) is unchanged; no frozen fixture holds a config-only literal slot. No re-harvest.
