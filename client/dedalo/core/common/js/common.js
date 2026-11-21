@@ -3053,7 +3053,8 @@ common.prototype.build_rqo_show = async function(_request_config_object, action,
 * Each clause gets an empty `q` that the caller fills in before dispatching.
 *
 * Key resolution steps:
-*  1. Determine the boolean `operator` ('$or' by default, mirrors server default).
+*  1. Determine the boolean `operator`: search.sqo_config.operator when the ontology
+*     declares one, else '$or' (the server synthesizes no search.sqo_config).
 *  2. Resolve `sqo_config` from search → show fallback.
 *  3. Resolve `ar_sections` from sqo → sqo_config → [self.section_tipo].
 *  4. Resolve `limit`/`offset` from choose.sqo_config → sqo_config → choose_limit_default (25).
@@ -3089,8 +3090,10 @@ common.prototype.build_rqo_search = async function(request_config_object, action
 		}
 
 	// get the operator to use into the filter free
-	// '$or' default mirrors the server default in request_config_utils
-	// build_sqo_config_default / resolve_show_sqo_config — keep both in sync
+	// '$or' is THIS function's default. The server sends search.sqo_config only
+	// when the ontology declares one and never synthesizes a default one
+	// (WC-2026-10-30-request-config-default-page-size, addendum 2026-11-21),
+	// so there is no server-side default to keep in sync
 		const operator	= request_config_object.search && request_config_object.search.sqo_config && request_config_object.search.sqo_config.operator
 			? request_config_object.search.sqo_config.operator
 			: '$or'

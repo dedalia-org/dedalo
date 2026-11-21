@@ -862,10 +862,20 @@ export async function readDdOntologySectionListFacts(): Promise<DdOntologySectio
 }
 
 /**
+ * THE SIBLING ORDER, as SQL — the one `ORDER BY` every "first child" / "children
+ * in order" read of dd_ontology shares: `order_number` ascending, a NULL
+ * order_number last, `tipo` breaking a tie (bytewise, so the pick never depends
+ * on the database collation or on the order the rows were written). The JS twin
+ * is ontology/resolver.ts `compareSiblingOrder`; the two must agree — gate:
+ * test/unit/ordered_child_lookup_native.test.ts.
+ */
+export const DD_ONTOLOGY_SIBLING_ORDER_SQL = 'order_number ASC NULLS LAST, tipo COLLATE "C" ASC';
+
+/**
  * The list nodes a read can ever swap in: per (parent, model), the FIRST
- * `section_list` / `section_list_thesaurus` child by `order_number` — exactly
- * the row build.ts `findSectionListChild` picks (`ORDER BY order_number ASC
- * LIMIT 1`; Postgres puts a NULL order_number last in both). A parent may hold
+ * `section_list` / `section_list_thesaurus` child in sibling order
+ * (DD_ONTOLOGY_SIBLING_ORDER_SQL) — exactly the row build.ts
+ * `findSectionListChild` picks, tie included. A parent may hold
  * several list children (tch546 ×4, oh123 ×2, tch20 ×2): only the first is
  * ever a request_config (relations/request_config/self_depth_check.ts
  * configReaders). Whole ontology, read-only, uncached.
@@ -876,7 +886,7 @@ export async function readDdOntologyFirstListNodeTipos(): Promise<Set<string>> {
 		   FROM dd_ontology
 		  WHERE model IN ('section_list', 'section_list_thesaurus')
 		    AND parent IS NOT NULL
-		  ORDER BY parent, model, order_number ASC`,
+		  ORDER BY parent, model, ${DD_ONTOLOGY_SIBLING_ORDER_SQL}`,
 	)) as { tipo: string }[];
 	return new Set(rows.map((row) => row.tipo));
 }

@@ -172,6 +172,16 @@ value is bound as a parameter (`$3`), never interpolated.
     permissions matrix; a `dd244` admin resolves per-element levels through
     their profile like any other user (see [security](security.md)).
 
+    **Root's password is not written by the application.** A write that changes
+    `dd133` of `dd128/-1` is refused by the record-write chokepoint for every
+    caller, root included — save, import, tool and Time Machine doors alike —
+    with `record.root_password_write_refused` (403, nothing written). It is
+    changed by the manual procedure in
+    [Changing the root password](../../administration/users_and_permissions.md#changing-the-root-password).
+    Three writes are not that door: the installer's first set, the
+    [v6 password conversion](../../install/migrating_from_v6.md#62-migrate-the-passwords)
+    and the login's own re-hash of the same password at a higher cost.
+
 ### Argon2id verification
 
 Verification is `Bun.password.verify(password, hash)`. `auth.ts` refuses any

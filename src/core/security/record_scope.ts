@@ -189,7 +189,9 @@ export async function principalCanAccessRecord(
  * root could no longer change its own password or its own email through the engine
  * either, while `password_reset.ts` excludes root from the emailed recovery flow by the
  * same `id > 0` rule: an installation with no in-engine way to rotate its most
- * privileged credential.
+ * privileged credential. (2026-11-21, S07: the owner then ruled exactly that for the
+ * PASSWORD — refused at the record-write chokepoint, security/root_password_guard.ts;
+ * name, email and image remain root's to edit through this exception.)
  */
 export async function assertRecordWriteTarget(
 	sectionTipo: string,

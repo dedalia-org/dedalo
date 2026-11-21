@@ -484,6 +484,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Searching through a field without its own configuration uses the same columns as its list.**
+
+    A relation field whose ontology node carries no request configuration, but has a list
+    definition under it, now resolves its columns from that list definition in every view except
+    the edit form — search and Time Machine included. Before, only the list view did; in search
+    the field fell back to its own relation nodes, so it could search other columns — and
+    sometimes another section — than the ones its list shows. A section without its own
+    configuration follows the same rule: in search it resolves the columns of its list definition
+    (a virtual section, those of its real section).
+
 - **Uploading a very large file no longer fails while the server is still assembling it.**
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
@@ -1375,6 +1385,14 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **The `root` password can no longer be changed from inside the application**
+
+    Until now `root` could type a new password for its own account in the application, like any other user. A session is not proof of the person: an unattended `root` session, or a tool running as `root`, could replace the installation's most privileged password without knowing the current one.
+
+    Now no part of the application writes that password — not the user form, not an import, not a tool, not a Time Machine restore of the `root` record — whoever is logged in, `root` included. The attempt is refused with a message and nothing is changed. `root` still edits its own name, email and image. The password is changed with the manual procedure, which needs access to the server and the database: see [Changing the root password](./administration/users_and_permissions.md#changing-the-root-password). Nothing changes for any other account, the conversion of v6 passwords converts `root`'s too as before, and there is nothing to do on update.
+
+    Wire contract: `WC-2026-11-21-root-password-write-refused`.
+
 - **Error reports are stored on your installation and sent by email; the anonymous report intake is removed.** *(action needed)*
 
     Before, an administrator's error report was relayed over HTTP to a "master" installation, which
@@ -1717,6 +1735,14 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Every conversion of v6 passwords is recorded in the activity log**
+
+    Converting the passwords of a migrated v6 installation left no trace of who had done it, or to which accounts.
+
+    A conversion that writes — **Convert passwords** in the Maintenance area's **Legacy passwords** panel, or `bun run dedalo:migrate-passwords --execute` — now leaves an entry in the Activity section: who ran it (the administrator logged into the panel; for the command line, `root` from host `cli`, with the operating-system account that typed the command), the section ids of the user records converted, and the counts — examined, converted, skipped, not convertible, still remaining. The entry never holds a password, a hash or the two v6 key values. A dry run (**Check**, or the command without `--execute`) converts nothing and is recorded as well, marked as a dry run with no converted record. The panel works through the accounts 25 at a time and leaves one entry per batch. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
+
+    Wire contract: `WC-2026-11-19-maintenance-legacy-passwords-widget`.
+
 - **Accounts still on a v6 password can be converted from the Maintenance area**
 
     Converting the passwords of a migrated v6 installation needed a command line on the server (`bun run dedalo:migrate-passwords`), and the number of accounts still waiting appeared only in the start-up log.
@@ -1760,6 +1786,40 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **A relation list that names two sections resolves to the last one, and never shows a section as a column.**
+
+    When the ontology relations of a field without its own request configuration — or of a
+    list definition — name more than one section, the engine now takes the LAST one as the target
+    section and shows none of them as a column. Before, it took the first and emitted the others
+    as columns that no view could draw, and the columns were read from the wrong section. An
+    ontology whose nodes name a single section is unaffected.
+
+    Wire contract: `WC-2026-11-21-implicit-section-node-never-a-column`.
+
+- **Login reads an empty or malformed stored password the same way everywhere**
+
+    The login, the legacy-password count and the conversion each had their own idea of which stored values are a Dédalo v6 password, and they disagreed on two shapes.
+
+    An account whose stored password is empty text is now treated as having no password by all three: the login refuses it and the Activity section records the attempt as a user that does not exist, where it used to say *legacy password hash* while the count did not include it. An account whose stored password is not text at all (a number, a list) is now refused as a legacy value and counted as one, where the login used to fail with a server error. What the person at the login form sees is unchanged: the same refusal as for any wrong user or password.
+
+    Wire contract: `WC-2026-11-19-legacy-aes-lazy-rehash-retired`.
+
+- **A node with two children of one model always resolves to the first by order.**
+
+    When an ontology node holds two children of the same model — two section maps under one
+    section, two list definitions under one field — the engine now always uses the first one by
+    order number (a child with no order number comes last; equal numbers resolve by identifier).
+    Before, some reads took whichever the database returned first, so the section map or the
+    list columns in use could change after an ontology update without the ontology having
+    changed. The same order now decides which field is "the first of its model" inside a
+    section: the first in form order, where it used to be the lowest identifier.
+    That walk now also looks inside a node that has no model, as the form tree already did;
+    only a nested section or area stops it.
+
+- **The Update data panel speaks the administrator's language throughout**
+
+    Three sentences of the Maintenance area's **Update data** panel were printed in English whatever the interface language: "Data format is updated", the "To update data version" line that announces a pending update, and the **Quit** button. They now come from the label catalogs like the rest of the panel, in the seventeen interface languages.
 
 - **A damaged server state file now keeps maintenance mode on instead of silently switching it off**
 
@@ -2170,7 +2230,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 92 entries"
+??? note "Wire contract — 94 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2264,6 +2324,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-media-url-version-key`
     - `WC-2026-11-19-window-features-grammar`
+    - `WC-2026-11-21-implicit-section-node-never-a-column`
+    - `WC-2026-11-21-root-password-write-refused`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

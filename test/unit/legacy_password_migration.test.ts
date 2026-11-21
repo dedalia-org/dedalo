@@ -34,7 +34,14 @@
  *    plaintext, no key material;
  *  - a password changed while the run was hashing is skipped, never overwritten;
  *  - a malformed key option is refused without echoing it;
- *  - the command line is the same door (it holds no statement of its own).
+ *  - the command line is the same door (it holds no statement of its own);
+ *  - EVERY RUN IS IN THE ACTIVITY LOG (owner ruling 2026-11-20: "actor,
+ *    accounts converted (user section_ids), counts, dry/execute") — from the
+ *    panel and from the command line: who ran it, which accounts (user
+ *    section_ids) it converted, the counts, and whether it wrote — and no
+ *    credential value, hash, plaintext or typed key in the row. A DRY run is on
+ *    record too (`execute: false`, no converted id): it tries key values
+ *    against every account. Only a refused caller leaves nothing.
  *
  * Scratch for these legs: four more dd128 records at ids this file owns,
  * planted before each test and swept after — never an installed account.
@@ -45,6 +52,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { boundActivityData } from '../../src/core/api/handlers/activity_log.ts';
 import { widget } from '../../src/core/area_maintenance/widgets/legacy_passwords.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
@@ -54,6 +62,10 @@ import {
 	rehashLegacyPassword,
 } from '../../src/core/security/legacy_password.ts';
 import {
+	type ConversionActor,
+	conversionActivityEntries,
+	LEGACY_CONVERSION_ACTION,
+	LEGACY_CONVERSION_IDS_PER_ENTRY,
 	legacyPasswordCensus,
 	migrateLegacyPasswords,
 } from '../../src/core/security/legacy_password_migration.ts';
@@ -285,20 +297,87 @@ async function captured(run: () => Promise<unknown>): Promise<string> {
 	return lines.join('\n');
 }
 
+/** The actor a direct door call names in these legs (the panel/CLI legs name their own). */
+const DOOR_ACTOR: ConversionActor = { userId: -1, host: 'zz_door_test', via: 'panel' };
+
+interface ConversionRow {
+	section_id: number;
+	who: number;
+	what: number;
+	where: string;
+	host: string;
+	data: Record<string, unknown>;
+	/** The whole stored row, serialized — what a secret would have to be absent from. */
+	raw: string;
+}
+
+/** The highest activity id there is: rows above it are the ones a leg wrote. */
+async function activityHighWater(): Promise<number> {
+	const rows = (await sql.unsafe(
+		`SELECT COALESCE(MAX(section_id), 0) AS id FROM matrix_activity WHERE section_tipo = 'dd542'`,
+	)) as { id: unknown }[];
+	return Number(rows[0]?.id);
+}
+
+/** The conversion rows written above `base`, oldest first. */
+async function conversionRows(base: number): Promise<ConversionRow[]> {
+	const rows = (await sql.unsafe(
+		`SELECT section_id, relation, string, misc, row_to_json(matrix_activity)::text AS raw
+		   FROM matrix_activity
+		  WHERE section_tipo = 'dd542' AND section_id > $1
+		    AND misc->'dd551'->0->'value'->>'action' = $2
+		  ORDER BY section_id`,
+		[base, LEGACY_CONVERSION_ACTION],
+	)) as {
+		section_id: unknown;
+		relation: Record<string, { section_id: number }[]>;
+		string: Record<string, { value: string }[]>;
+		misc: Record<string, { value: Record<string, unknown> }[]>;
+		raw: string;
+	}[];
+	return rows.map((row) => ({
+		section_id: Number(row.section_id),
+		who: Number(row.relation.dd543?.[0]?.section_id),
+		what: Number(row.relation.dd545?.[0]?.section_id),
+		where: String(row.string.dd546?.[0]?.value),
+		host: String(row.string.dd544?.[0]?.value),
+		data: row.misc.dd551?.[0]?.value as Record<string, unknown>,
+		raw: row.raw,
+	}));
+}
+
+async function sweepConversionRows(base: number): Promise<void> {
+	await sql.unsafe(
+		`DELETE FROM matrix_activity
+		  WHERE section_tipo = 'dd542' AND section_id > $1
+		    AND misc->'dd551'->0->'value'->>'action' = $2`,
+		[base, LEGACY_CONVERSION_ACTION],
+	);
+}
+
 describe('the conversion from the server — the legacy_passwords widget and its door', () => {
+	/** Activity ids above this were written by this file (the rows it sweeps). */
+	let fileBase = 0;
+	/** …and above this, by the running test. */
+	let base = 0;
 	beforeAll(async () => {
 		await assertTestDatabase('legacy_password_migration');
+		fileBase = await activityHighWater();
 	}, 60_000);
 	beforeEach(async () => {
 		await plant();
+		base = await activityHighWater();
 	});
-	afterEach(() => {
+	afterEach(async () => {
 		resetBootStateForTest();
+		await sweepConversionRows(fileBase);
 	});
 	afterAll(async () => {
 		await sweep();
-		// FLOOR of the sweep: no scratch account outlives the file.
+		// FLOOR of the sweep: no scratch account outlives the file…
 		expect((await storedPasswords()).size).toBe(0);
+		// …and no conversion row either.
+		expect(await conversionRows(fileBase)).toEqual([]);
 	});
 
 	describe('who may use it', () => {
@@ -546,10 +625,297 @@ describe('the conversion from the server — the legacy_passwords widget and its
 		});
 	});
 
+	describe('the activity log (owner ruling 2026-11-20)', () => {
+		const ROOT = join(import.meta.dir, '../..');
+		const DATA_KEYS = [
+			'action',
+			'completed',
+			'converted',
+			'converted_section_ids',
+			'examined',
+			'execute',
+			'msg',
+			'part',
+			'parts',
+			'remaining',
+			'skipped',
+			'unconverted',
+			'via',
+		];
+
+		/** No stored value (old or new), plaintext, typed key or hash of any kind in `text`. */
+		function expectNoSecret(text: string, stored: Iterable<string>, where: string): void {
+			const secrets = [
+				...SCRATCH.map((account) => account.plaintext),
+				...stored,
+				MATERIAL.information,
+				MATERIAL.infoKey,
+				FOREIGN.information,
+				FOREIGN.infoKey,
+			];
+			// FLOOR: there are values to look for.
+			expect(secrets.length).toBeGreaterThanOrEqual(SCRATCH.length * 2 + 4);
+			for (const secret of secrets) expect(text.includes(secret), where).toBe(false);
+			expect(text, where).not.toContain('$argon2');
+		}
+
+		test('a panel run that executes writes ONE row: the admin, the maintenance area, the converted ids, the counts — and no secret', async () => {
+			const before = await storedPasswords();
+			const report = (await call(migrateRqo({ ...KEYS, execute: true, after: AFTER })))
+				.data as Record<string, number>;
+			const after = await storedPasswords();
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			const row = rows[0] as ConversionRow;
+			expect(row.who).toBe(-1); // the principal that ran it (root, here)
+			expect(row.what).toBe(5); // SAVE
+			expect(row.where).toBe('dd88'); // the maintenance area
+			expect(row.host).toBe('localhost');
+			expect(Object.keys(row.data).sort()).toEqual(DATA_KEYS);
+			expect(row.data).toEqual({
+				msg: 'Dédalo v6 passwords converted to Argon2id',
+				action: LEGACY_CONVERSION_ACTION,
+				via: 'panel',
+				execute: true,
+				completed: true,
+				examined: 4,
+				converted: 3,
+				skipped: 0,
+				unconverted: 1,
+				remaining: report.remaining,
+				converted_section_ids: [999_000_781, 999_000_782, 999_000_784],
+				part: 1,
+				parts: 1,
+			});
+			expectNoSecret(row.raw, [...before.values(), ...after.values()], 'in the activity row');
+			// The accounts are named by id only.
+			for (const account of SCRATCH) expect(row.raw).not.toContain(account.username);
+		});
+
+		test('a DRY run is on record too — execute:false, its counts, NO converted id; a refused caller writes nothing', async () => {
+			const refused = await call(migrateRqo({ ...KEYS, execute: true, after: AFTER }), false);
+			expect(refused.ok).toBe(false);
+			expect(await conversionRows(base)).toEqual([]);
+			const before = await storedPasswords();
+			const dry = (await call(migrateRqo({ ...KEYS, after: AFTER }))).data as Record<
+				string,
+				number
+			>;
+			expect(dry.recoverable).toBe(3);
+			expect(await storedPasswords()).toEqual(before);
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			const row = rows[0] as ConversionRow;
+			expect(row.who).toBe(-1);
+			expect(row.what).toBe(5);
+			expect(row.where).toBe('dd88');
+			expect(Object.keys(row.data).sort()).toEqual(DATA_KEYS);
+			expect(row.data).toEqual({
+				msg: 'Dédalo v6 passwords checked (dry run, nothing written)',
+				action: LEGACY_CONVERSION_ACTION,
+				via: 'panel',
+				execute: false,
+				completed: true,
+				examined: 4,
+				converted: 0,
+				skipped: 0,
+				unconverted: 1,
+				remaining: dry.remaining,
+				converted_section_ids: [],
+				part: 1,
+				parts: 1,
+			});
+			expectNoSecret(row.raw, before.values(), 'in the dry-run activity row');
+			// A dry run with keys that decrypt nobody (a guess) is on record as well.
+			await call(
+				migrateRqo({ information: 'ZZ_GUESSED_INFORMATION', info_key: 'zz_guess', after: AFTER }),
+			);
+			const guessed = await conversionRows(base);
+			expect(guessed).toHaveLength(2);
+			expect(guessed[1]?.data).toMatchObject({ execute: false, examined: 4, unconverted: 4 });
+			expect(guessed[1]?.raw).not.toContain('ZZ_GUESSED_INFORMATION');
+			expect(guessed[1]?.raw).not.toContain('zz_guess');
+		});
+
+		test('an execute run that converts NOBODY (wrong keys) is still on record', async () => {
+			await call(
+				migrateRqo({
+					information: 'ZZ_NOBODYS_INFORMATION',
+					info_key: 'zz_nobodys_entity',
+					execute: true,
+					after: AFTER,
+				}),
+			);
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.data).toMatchObject({
+				examined: 4,
+				converted: 0,
+				unconverted: 4,
+				converted_section_ids: [],
+			});
+			expect(rows[0]?.raw).not.toContain('ZZ_NOBODYS_INFORMATION');
+			expect(rows[0]?.raw).not.toContain('zz_nobodys_entity');
+		});
+
+		test('each executed batch is its own row; together they name every converted account once', async () => {
+			let after: number | null = AFTER;
+			for (let guard = 0; after !== null && guard < 10; guard++) {
+				const report = (await call(migrateRqo({ ...KEYS, execute: true, after, limit: 1 })))
+					.data as Record<string, number | null>;
+				after = report.next_after ?? null;
+			}
+			const rows = await conversionRows(base);
+			expect(rows.map((row) => row.data.converted_section_ids)).toEqual([
+				[999_000_781],
+				[999_000_782],
+				[],
+				[999_000_784],
+			]);
+		});
+
+		test('a run that dies half way still records what it wrote', async () => {
+			const run = migrateLegacyPasswords(MATERIAL, DOOR_ACTOR, {
+				execute: true,
+				afterSectionId: AFTER,
+				beforeWrite: async (sectionId) => {
+					if (sectionId === 999_000_784) throw new Error('zz planted failure');
+				},
+			});
+			await expect(run).rejects.toThrow('zz planted failure');
+			const stored = await storedPasswords();
+			expect(isArgon2Hash(stored.get(999_000_781))).toBe(true);
+			expect(isArgon2Hash(stored.get(999_000_784))).toBe(false);
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.host).toBe('zz_door_test');
+			expect(rows[0]?.data).toMatchObject({
+				completed: false,
+				converted: 2,
+				converted_section_ids: [999_000_781, 999_000_782],
+				remaining: null,
+			});
+		});
+
+		test('a long run is several rows, none cut by the row ceiling', () => {
+			const ids = Array.from(
+				{ length: LEGACY_CONVERSION_IDS_PER_ENTRY * 2 + 7 },
+				(_, index) => 9_000_000_000_000 + index,
+			);
+			const entries = conversionActivityEntries(
+				{ userId: -1, host: 'cli', via: 'cli', osUser: 'zz_operator' },
+				{
+					execute: true,
+					completed: true,
+					examined: ids.length + 3,
+					converted: ids.length,
+					skipped: 1,
+					unconverted: 2,
+					remaining: 2,
+					convertedSectionIds: ids,
+				},
+			);
+			expect(entries).toHaveLength(3);
+			expect(entries.flatMap((entry) => entry.data.converted_section_ids as number[])).toEqual(ids);
+			expect(entries.map((entry) => [entry.data.part, entry.data.parts])).toEqual([
+				[1, 3],
+				[2, 3],
+				[3, 3],
+			]);
+			for (const entry of entries) {
+				// what the activity writer stores is the entry itself: nothing shortened or dropped
+				expect(boundActivityData(entry.data)).toEqual(entry.data);
+				expect(entry.data).toMatchObject({ converted: ids.length, os_user: 'zz_operator' });
+			}
+		});
+
+		test('the COMMAND LINE: a dry run and an --execute run each write their row as the CLI identity; nothing secret is printed or stored', async () => {
+			const before = await storedPasswords();
+			const census = await legacyPasswordCensus();
+			const cli = async (...flags: string[]) => {
+				const child = Bun.spawn(
+					[
+						process.execPath,
+						'run',
+						'scripts/migrate_v6_passwords.ts',
+						`--information=${MATERIAL.information}`,
+						`--info-key=${MATERIAL.infoKey}`,
+						...flags,
+					],
+					{
+						cwd: ROOT,
+						env: process.env as Record<string, string>,
+						stdout: 'pipe',
+						stderr: 'pipe',
+					},
+				);
+				const [out, err, code] = await Promise.all([
+					new Response(child.stdout as ReadableStream).text(),
+					new Response(child.stderr as ReadableStream).text(),
+					child.exited,
+				]);
+				return { text: `${out}\n${err}`, code };
+			};
+
+			const dry = await cli();
+			expect(dry.code, dry.text).toBe(0);
+			expect(dry.text).toContain('DRY-RUN');
+			expect(await storedPasswords()).toEqual(before);
+			const dryRows = await conversionRows(base);
+			expect(dryRows).toHaveLength(1);
+			expect(dryRows[0]?.host).toBe('cli');
+			expect(Object.keys(dryRows[0]?.data ?? {}).sort()).toEqual([...DATA_KEYS, 'os_user'].sort());
+			expect(dryRows[0]?.data).toMatchObject({
+				via: 'cli',
+				execute: false,
+				completed: true,
+				examined: census.legacy,
+				converted: 0,
+				unconverted: census.legacy - 3,
+				remaining: census.legacy,
+				converted_section_ids: [],
+			});
+
+			const run = await cli('--execute');
+			expect(run.code, run.text).toBe(0);
+			const after = await storedPasswords();
+			for (const account of SCRATCH) {
+				expect(isArgon2Hash(after.get(account.id)), account.username).toBe(
+					account.material === MATERIAL,
+				);
+			}
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(2);
+			const row = rows[1] as ConversionRow;
+			expect(row.who).toBe(-1);
+			expect(row.what).toBe(5);
+			expect(row.where).toBe('dd88');
+			expect(row.host).toBe('cli');
+			expect(Object.keys(row.data).sort()).toEqual([...DATA_KEYS, 'os_user'].sort());
+			expect(row.data).toMatchObject({
+				action: LEGACY_CONVERSION_ACTION,
+				via: 'cli',
+				execute: true,
+				completed: true,
+				examined: census.legacy,
+				converted: 3,
+				skipped: 0,
+				unconverted: census.legacy - 3,
+				remaining: census.legacy - 3,
+				converted_section_ids: [999_000_781, 999_000_782, 999_000_784],
+			});
+			expect(typeof row.data.os_user).toBe('string');
+			expect((row.data.os_user as string).length).toBeGreaterThan(0);
+			const stored = [...before.values(), ...after.values()];
+			expectNoSecret(rows.map((each) => each.raw).join('\n'), stored, 'in the activity rows');
+			expectNoSecret(`${dry.text}\n${run.text}`, stored, 'printed by the command line');
+		}, 120_000);
+	});
+
 	describe('the door', () => {
 		test('a password changed while the run was hashing is skipped — never overwritten with the old one', async () => {
 			const reset = await Bun.password.hash('an-admin-reset-it-meanwhile', 'argon2id');
-			const report = await migrateLegacyPasswords(MATERIAL, {
+			const report = await migrateLegacyPasswords(MATERIAL, DOOR_ACTOR, {
 				execute: true,
 				afterSectionId: AFTER,
 				beforeWrite: async (sectionId) => {
@@ -564,6 +930,15 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			});
 			expect(report).toMatchObject({ recoverable: 3, converted: 2, skipped: 1, failed: 1 });
 			expect((await storedPasswords()).get(999_000_782)).toBe(reset);
+			// The activity row names the accounts WRITTEN — the skipped one is not among them.
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.data).toMatchObject({
+				converted: 2,
+				skipped: 1,
+				unconverted: 1,
+				converted_section_ids: [999_000_781, 999_000_784],
+			});
 		});
 
 		test('empty keys stand for the v6 defaults (the published information string, this entity)', async () => {

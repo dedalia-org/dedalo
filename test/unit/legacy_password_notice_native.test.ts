@@ -31,7 +31,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { anonymousHealthView, buildHealthPayload } from '../../src/core/api/health_payload.ts';
 import { sql } from '../../src/core/db/postgres.ts';
-import { countLegacyPasswordAccounts, login } from '../../src/core/security/auth.ts';
+import { login } from '../../src/core/security/auth.ts';
+import {
+	countLegacyPasswordAccounts,
+	legacyPasswordCensus,
+} from '../../src/core/security/legacy_password_migration.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import {
 	currentLegacyPasswordAccounts,
@@ -57,7 +61,8 @@ const USERNAME = 'zzacl_reader';
 /** The v6 storage shape: base64 of base64 of AES blocks — not a hash, and not this test's secret. */
 const LEGACY_VALUE = Buffer.from(Buffer.alloc(32, 7).toString('base64')).toString('base64');
 
-async function setStoredPassword(value: string | null): Promise<void> {
+/** `null` removes the key; anything else is stored as the item's `value` (a string, in real data). */
+async function setStoredPassword(value: unknown): Promise<void> {
 	if (value === null) {
 		await sql.unsafe(
 			`UPDATE matrix_users SET string = string - 'dd133' WHERE section_tipo = 'dd128' AND section_id = $1`,
@@ -135,29 +140,63 @@ describe('the count', () => {
 	});
 });
 
-describe('ONE meaning of "legacy account" (the /health counter and the door\'s census)', () => {
-	test('the boot counter and legacyPasswordCensus().legacy move together, value shape by value shape', async () => {
-		const { legacyPasswordCensus } = await import(
-			'../../src/core/security/legacy_password_migration.ts'
-		);
+describe('ONE meaning of "legacy account" (the login, the /health counter and the door\'s census)', () => {
+	test('the login refusal, the boot counter and legacyPasswordCensus() agree, value shape by value shape', async () => {
 		await setStoredPassword(null);
-		const baseline = await countLegacyPasswordAccounts();
-		expect((await legacyPasswordCensus()).legacy).toBe(baseline);
-		// [stored value, is it one more legacy account]
-		const shapes: [string, boolean][] = [
-			[LEGACY_VALUE, true],
-			['not-a-v6-value-and-not-a-hash', true],
-			[' $argon2id$leading-space', true],
-			['$ARGON2ID$upper', true],
-			[await Bun.password.hash('Conforming-Passw0rd-2017!', 'argon2id'), false],
-			['$argon2i$other-variant', false],
-			['', false],
+		const baseline = await legacyPasswordCensus();
+		expect(await countLegacyPasswordAccounts()).toBe(baseline.legacy);
+		// [stored value, what it is: a legacy value / a hash / no password]
+		const shapes: [unknown, 'legacy' | 'argon2' | 'none'][] = [
+			[LEGACY_VALUE, 'legacy'],
+			['not-a-v6-value-and-not-a-hash', 'legacy'],
+			[' $argon2id$leading-space', 'legacy'],
+			['$ARGON2ID$upper', 'legacy'],
+			// not a text at all (never written by an engine; a hand-edited row)
+			[12345, 'legacy'],
+			[await Bun.password.hash('Conforming-Passw0rd-2017!', 'argon2id'), 'argon2'],
+			// another Argon2 variant is still a hash the login verifies
+			[await Bun.password.hash('Conforming-Passw0rd-2017!', { algorithm: 'argon2i' }), 'argon2'],
+			['', 'none'],
 		];
-		for (const [value, legacy] of shapes) {
+		// FLOOR: every kind is exercised.
+		expect(new Set(shapes.map(([, kind]) => kind)).size).toBe(3);
+		let ip = 20;
+		for (const [value, kind] of shapes) {
 			await setStoredPassword(value);
-			const expected = baseline + (legacy ? 1 : 0);
-			expect([value, await countLegacyPasswordAccounts()]).toEqual([value, expected]);
-			expect([value, (await legacyPasswordCensus()).legacy]).toEqual([value, expected]);
+			const shown = JSON.stringify(value);
+			// the two counts
+			const census = await legacyPasswordCensus();
+			expect([shown, 'legacy', census.legacy]).toEqual([
+				shown,
+				'legacy',
+				baseline.legacy + (kind === 'legacy' ? 1 : 0),
+			]);
+			expect([shown, 'argon2', census.argon2]).toEqual([
+				shown,
+				'argon2',
+				baseline.argon2 + (kind === 'argon2' ? 1 : 0),
+			]);
+			expect([shown, 'accounts', census.accounts]).toEqual([
+				shown,
+				'accounts',
+				baseline.accounts + (kind === 'none' ? 0 : 1),
+			]);
+			expect([shown, await countLegacyPasswordAccounts()]).toEqual([shown, census.legacy]);
+			// the login: refused either way (nobody knows a password here), and it
+			// names the account as LEGACY exactly when the counts do
+			let outcome: { ok: boolean } | null = null;
+			const lines = await captured(async () => {
+				outcome = await login(USERNAME, 'whatever-the-user-typed', `203.0.113.${ip++}`);
+			});
+			expect([shown, (outcome as unknown as { ok: boolean }).ok]).toEqual([shown, false]);
+			const saidLegacy = lines.some(
+				(line) => line.includes(USERNAME) && line.includes('legacy') && line.includes(COMMAND),
+			);
+			expect([shown, 'login says legacy', saidLegacy]).toEqual([
+				shown,
+				'login says legacy',
+				kind === 'legacy',
+			]);
 		}
 		await setStoredPassword(null);
 	});

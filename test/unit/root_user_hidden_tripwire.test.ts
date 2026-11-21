@@ -43,6 +43,9 @@
  *      (dd244 stays 1 for everyone, root included), duplicate and delete of root are
  *      still refused for every caller, and no OTHER principal gains anything on -1.
  *      Recorded as engineering/wire_contract/WC-2026-08-28-root-self-service-write.md.
+ *      NARROWED 2026-11-21 (S07, WC-2026-11-21-root-password-write-refused): the
+ *      door still admits root onto its own record, but the PASSWORD write is
+ *      refused below it, at the record-write chokepoint, for every caller.
  *
  * The EXEMPTIONS are as load-bearing as the filters: readMatrixRecord,
  * resolveLocatorLabels, getDatalist (PHP edit-mode include_negative datalists)
@@ -392,7 +395,7 @@ let tmWatermark = 0;
  * ROOT'S CREDENTIAL IS BUILT, NOT BORROWED.
  *
  * Two gates below read root's stored hash — one to prove the refusals wrote
- * nothing, one to drive the self-service rotation door end to end. Both used to
+ * nothing, one to drive root's own password save (refused since S07) end to end. Both used to
  * assert `$argon2…` against WHATEVER THE DATABASE HAPPENED TO HOLD, and the
  * install seed ships root PASSWORDLESS (`string->'dd133'` is `[]` on a freshly
  * built suite database). They passed only on a developer box where
@@ -637,12 +640,13 @@ describe('the write DOORS refuse section_id < 1 for EVERY caller, admins include
 		).toBe(false);
 	});
 
-	test('ROOT CAN ROTATE ITS OWN PASSWORD through the real save door', async () => {
-		// The whole point of layer 4, driven end to end. The value written is root's
-		// CURRENT stored hash: `hashPasswordForStorage` passes an existing `$argon2…`
-		// string through verbatim (the export/import round-trip rule), so this proves
-		// the DOOR admits the write while leaving the credential byte-identical — a
-		// gate may not rotate the suite database's root password as a side effect.
+	test('ROOT CANNOT ROTATE ITS OWN PASSWORD through the save door either (S07)', async () => {
+		// Owner ruling 2026-11-19 (WC-2026-11-21-root-password-write-refused): the
+		// self-service exception still ADMITS root onto its own record (name, email,
+		// image — next case), but the record-write chokepoint refuses dd133 of
+		// dd128/-1 for every caller. The value offered is root's CURRENT hash: even
+		// the byte-identical re-submit is refused. Every door and the sanctioned
+		// writers: root_password_write_refusal_native.
 		const before = await rootPasswordHash();
 		expect(before).toStartWith('$argon2');
 
@@ -653,8 +657,41 @@ describe('the write DOORS refuse section_id < 1 for EVERY caller, admins include
 			{ changed_data: [{ action: 'set_data', value: [{ id: 1, value: before }] }] },
 		);
 
-		expect(outcome).toEqual({ threw: false, status: 200 });
+		expect(outcome.threw).toBe(true);
+		if (outcome.threw) expect(outcome.message).toContain('root password');
 		expect(await rootPasswordHash()).toBe(before);
+	});
+
+	test('root still edits its OWN full name through the real save door (the exception that remains)', async () => {
+		const rows = (await sql.unsafe(
+			`SELECT string->'dd452' AS name FROM matrix_users WHERE section_tipo = $1 AND section_id = -1`,
+			[USERS],
+		)) as { name: unknown }[];
+		const stored = (rows[0]?.name ?? []) as { id?: number; lang?: string; value?: string }[];
+		const restore = async (): Promise<void> => {
+			await sql.unsafe(
+				stored.length === 0 && rows[0]?.name == null
+					? `UPDATE matrix_users SET string = string - 'dd452' WHERE section_tipo = $1 AND section_id = -1`
+					: `UPDATE matrix_users SET string = jsonb_set(string, '{dd452}', $2::text::jsonb, true)
+					    WHERE section_tipo = $1 AND section_id = -1`,
+				stored.length === 0 && rows[0]?.name == null ? [USERS] : [USERS, JSON.stringify(stored)],
+			);
+		};
+		try {
+			const outcome = await callDoor(
+				'save',
+				{ tipo: 'dd452', section_tipo: USERS, section_id: -1, lang: 'lg-nolan' },
+				realSuperuser,
+				{
+					changed_data: [
+						{ action: 'set_data', value: [{ id: 1, lang: 'lg-nolan', value: ROOT_RUN_TAG }] },
+					],
+				},
+			);
+			expect(outcome).toEqual({ threw: false, status: 200 });
+		} finally {
+			await restore();
+		}
 	});
 
 	test('ROOT READS ITS OWN ACCOUNT through get_data (tool_user_admin); a non-root admin still gets nothing', async () => {

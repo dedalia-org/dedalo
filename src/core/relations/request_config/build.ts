@@ -19,10 +19,10 @@
 
 import { config as dedaloConfig } from '../../../config/config.ts';
 import { selectRequestConfigStrategy } from '../../concepts/request_config.ts';
-import { isInTransaction, sql } from '../../db/postgres.ts';
+import { isInTransaction } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { RETIRED_PROPERTY_KEYS } from '../../ontology/property_census.ts';
-import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
+import { findFirstChildByModel, getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import { getSectionRealTipo } from '../../resolve/security_access_datalist.ts';
 import {
 	buildExplicitRequestConfig,
@@ -40,10 +40,12 @@ import { resolveTargetSourceFor } from './target_sources.ts';
 /**
  * Find an element's list-definition child tipo (dd_ontology, PLAIN direct
  * children — the Site-B trait's lookup is get_ar_children_of_this, never
- * resolve_virtual; class.ontology_node.php:1586-88). FIRST by order_number —
+ * resolve_virtual; class.ontology_node.php:1586-88). FIRST in sibling order —
  * PHP takes $ar_terms[0] of a children list ordered `order_number asc`
  * (class.ontology_node.php:1250-1253), and multi-child parents exist
- * (tch546×4, oh123×2, tch20×2), so the ordering is load-bearing.
+ * (tch546×4, oh123×2, tch20×2), so the ordering is load-bearing. The pick is
+ * the one ordered primitive's (ontology/resolver.ts findFirstChildByModel), so
+ * a tie on order_number resolves as everywhere else (by tipo).
  */
 const sectionListChildCache = createOntologyCache<string, string | null>();
 
@@ -61,11 +63,7 @@ export async function findSectionListChild(
 	const cacheKey = `${ownerTipo}|${model}`;
 	const cached = sectionListChildCache.get(cacheKey);
 	if (cached !== undefined) return cached;
-	const rows = (await sql`
-		SELECT tipo FROM dd_ontology WHERE parent = ${ownerTipo} AND model = ${model}
-		ORDER BY order_number ASC LIMIT 1
-	`) as { tipo: string }[];
-	const found = rows[0]?.tipo ?? null;
+	const found = (await findFirstChildByModel(ownerTipo, model))?.tipo ?? null;
 	// Not written from inside a transaction: an uncommitted ontology write must
 	// not be able to publish its answer process-wide (the resolver's own
 	// cacheWrite rule).
@@ -301,18 +299,53 @@ async function buildStrategyRequestConfig(
 	if (selectRequestConfigStrategy(sourceProperties) === 'explicit') {
 		return buildExplicitRequestConfig(sourceProperties, context);
 	}
-	// No explicit config anywhere: implicit from the COMPONENT's own
-	// relation_nodes (the classic select/radio/check_box target definition —
-	// e.g. [dd501, dd503]).
+	return buildImplicitStrategyConfig(context);
+}
+
+/**
+ * No explicit config anywhere: the IMPLICIT walk, from the source the mode
+ * names (implicitWalkSource) — else, for a component, its own relation_nodes
+ * (the classic select/radio/check_box target definition, e.g. [dd501, dd503]).
+ */
+async function buildImplicitStrategyConfig(
+	context: RequestConfigContext,
+): Promise<ParsedRequestConfigItem[]> {
+	const walkSource = await implicitWalkSource(context);
 	if (!context.ownerIsSection) {
-		return buildImplicitComponentListConfig(context.ownerTipo, context);
+		return buildImplicitComponentListConfig(walkSource ?? context.ownerTipo, context);
 	}
 	// SECTION in EDIT mode without explicit config: the FULL form tree (PHP
 	// resolve_ar_related_edit 'section' case) — every component/grouper child.
 	if (context.mode === 'edit') {
 		return buildImplicitSectionEditConfig(context);
 	}
-	return [];
+	// SECTION in any other mode: its section_list's relation nodes, when it has one.
+	return walkSource === null ? [] : buildImplicitComponentListConfig(walkSource, context);
+}
+
+/**
+ * THE IMPLICIT WALK SOURCE (PHP resolve_ar_related, trait.request_config_v5.php
+ * :186-205) — which node's relation_nodes the implicit walk reads, by MODE:
+ *
+ *   edit, related_list → null: not the section_list (a component walks its own
+ *       relations; a section builds its form tree / nothing);
+ *   EVERY other mode (list, tm, search, and any mode not named — PHP's
+ *       `default:` arm) → the owner's `section_list` child when it has one; a
+ *       section without one borrows its REAL section's (virtual fallback).
+ *
+ * One function, so no mode can be forgotten: the hop used to be taken for
+ * list / list_thesaurus only, and a config-less component in SEARCH mode walked
+ * its own relations — a different column set, and sometimes a different target,
+ * than its list (T2-RC-1). The list-mode PROPERTY swap above is a different
+ * rule (the child's explicit config replaces the owner's) and stays list-only:
+ * here only the child's relation nodes are read.
+ */
+async function implicitWalkSource(context: RequestConfigContext): Promise<string | null> {
+	if (context.mode === 'edit' || context.mode === 'related_list') return null;
+	const own = await findSectionListChild(context.ownerTipo);
+	if (own !== null || !context.ownerIsSection) return own;
+	const realTipo = await getSectionRealTipo(context.ownerTipo);
+	return realTipo === context.ownerTipo ? null : findSectionListChild(realTipo);
 }
 
 /**

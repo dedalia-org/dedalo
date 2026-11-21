@@ -26,12 +26,27 @@
  * password in the only form the engine accepts — an operator conversion of the
  * storage format, not an edit of the account — so it stamps no modification and
  * appends no Time Machine row (write_obligations_tripwire carries the reason).
+ *
+ * BUT EVERY RUN IS IN THE ACTIVITY LOG (owner ruling 2026-11-20: "actor,
+ * accounts converted (user section_ids), counts, dry/execute"): who ran it (the
+ * panel's principal; the command line's own identity), which accounts it
+ * converted (user section_ids), the counts, and whether it wrote. A DRY run is
+ * recorded too (`execute: false`, no converted id): it tries the typed key
+ * values against every account, which is worth a trace. The door writes the
+ * entry itself — a caller cannot run it unrecorded, and must name its actor to
+ * call it at all — through the engine's one activity writer (logActivity →
+ * matrix_activity, section dd542), as a SAVE on the maintenance area, like the
+ * other audited maintenance door (publication_host_setup). The entry is counts
+ * and ids: never a credential value, a hash, a plaintext or the key material.
+ * Like every activity entry it is best-effort: a failed audit write is logged
+ * on the server and does not undo (or fail) the conversion.
  */
 
+import { AREA_MAINTENANCE_TIPO } from '../concepts/area.ts';
 import { readMatrixKeyForUpdate, updateMatrixKeysData } from '../db/matrix_write.ts';
 import { sql, withTransaction } from '../db/postgres.ts';
 import { type LegacyKeyMaterial, rehashLegacyPassword } from './legacy_password.ts';
-import { isArgon2Hash } from './password_hash.ts';
+import { storedPasswordState } from './password_hash.ts';
 
 const USERS_TABLE = 'matrix_users';
 const USERS_SECTION_TIPO = 'dd128';
@@ -91,13 +106,117 @@ export interface LegacyPasswordMigrationOptions {
 	beforeWrite?: (sectionId: number) => Promise<void>;
 }
 
+/**
+ * Who runs a conversion — what its activity entry names. The panel passes its
+ * principal and the request's host; the command line has no session, so it runs
+ * as root (as every CLI migration does) from host `cli`, and adds the operating
+ * system account that typed the command.
+ */
+export interface ConversionActor {
+	userId: number;
+	/** The activity row's host (dd544). */
+	host: string;
+	via: 'panel' | 'cli';
+	/** Command line only: the OS account that ran it. */
+	osUser?: string;
+}
+
+/** The `action` every conversion entry carries — how a reader finds them. */
+export const LEGACY_CONVERSION_ACTION = 'legacy_passwords.migrate';
+/**
+ * Converted ids per activity entry. An activity row has a ceiling
+ * (activity_log.ts ACTIVITY_DATA_MAX_BYTES; a list is cut at 256 items), and the
+ * command line converts a whole table in one run: a long run is several
+ * entries, each complete, instead of one that the ceiling shortens.
+ */
+export const LEGACY_CONVERSION_IDS_PER_ENTRY = 200;
+
+/** What one run did, as its activity entries say it. */
+export interface ConversionRunFacts {
+	/** false = a dry run: it examined, and wrote nothing. */
+	execute: boolean;
+	/** false = the run threw before its end; the ids are what it had written. */
+	completed: boolean;
+	examined: number;
+	converted: number;
+	skipped: number;
+	/** The key material did not decrypt them. */
+	unconverted: number;
+	/** Legacy accounts left in the table; null when the run did not complete. */
+	remaining: number | null;
+	convertedSectionIds: readonly number[];
+}
+
+export interface ConversionActivityEntry {
+	what: 'SAVE';
+	tipo: string;
+	userId: number;
+	host: string;
+	data: Record<string, unknown>;
+}
+
+/**
+ * The activity entries of one run (dry or executed): one, or several when it converted
+ * more accounts than an entry may list. Every entry carries the run's counts;
+ * only the id list is split. PURE — and the only place the payload is built, so
+ * what an entry can hold is decided here: counts, ids, the actor. No account
+ * name, no credential.
+ */
+export function conversionActivityEntries(
+	actor: ConversionActor,
+	facts: ConversionRunFacts,
+): ConversionActivityEntry[] {
+	const ids = facts.convertedSectionIds;
+	const parts = Math.max(1, Math.ceil(ids.length / LEGACY_CONVERSION_IDS_PER_ENTRY));
+	return Array.from({ length: parts }, (_, index) => ({
+		what: 'SAVE' as const,
+		tipo: AREA_MAINTENANCE_TIPO,
+		userId: actor.userId,
+		host: actor.host,
+		data: {
+			msg: facts.execute
+				? 'Dédalo v6 passwords converted to Argon2id'
+				: 'Dédalo v6 passwords checked (dry run, nothing written)',
+			action: LEGACY_CONVERSION_ACTION,
+			via: actor.via,
+			...(actor.osUser === undefined ? {} : { os_user: actor.osUser }),
+			execute: facts.execute,
+			completed: facts.completed,
+			examined: facts.examined,
+			converted: facts.converted,
+			skipped: facts.skipped,
+			unconverted: facts.unconverted,
+			remaining: facts.remaining,
+			converted_section_ids: ids.slice(
+				index * LEGACY_CONVERSION_IDS_PER_ENTRY,
+				(index + 1) * LEGACY_CONVERSION_IDS_PER_ENTRY,
+			),
+			part: index + 1,
+			parts,
+		},
+	}));
+}
+
+/** Append a run's entries. logActivity never throws: an audit write does not undo a conversion. */
+async function recordConversion(actor: ConversionActor, facts: ConversionRunFacts): Promise<void> {
+	const { logActivity } = await import('../api/handlers/activity_log.ts');
+	for (const entry of conversionActivityEntries(actor, facts)) await logActivity(entry);
+}
+
 interface PasswordRow {
 	section_id: number;
 	username: string | null;
 	password: string;
+	/** storedPasswordState(password) === 'legacy' — classified once, at the read. */
+	legacy: boolean;
 }
 
-/** Every account holding a stored password, in id order. The values stay in this module. */
+/**
+ * Every account holding a stored password, in id order. The values stay in this
+ * module. WHICH accounts hold one, and which of those are legacy, is not decided
+ * by the statement: it fetches the value, and password_hash.ts
+ * storedPasswordState — the one definition, the login's own — classifies it.
+ */
 async function readPasswordRows(): Promise<PasswordRow[]> {
 	const rows = (await sql.unsafe(
 		`SELECT section_id,
@@ -105,21 +224,42 @@ async function readPasswordRows(): Promise<PasswordRow[]> {
 		        string->$3->0->>'value' AS password
 		   FROM matrix_users
 		  WHERE section_tipo = $1
-		    AND COALESCE(string->$3->0->>'value', '') <> ''
+		    AND string ? $3
 		  ORDER BY section_id`,
 		[USERS_SECTION_TIPO, USERNAME_COMPONENT, PASSWORD_COMPONENT],
-	)) as { section_id: unknown; username: string | null; password: string }[];
-	return rows.map((row) => ({ ...row, section_id: Number(row.section_id) }));
+	)) as { section_id: unknown; username: string | null; password: string | null }[];
+	return rows.flatMap((row) => {
+		const state = storedPasswordState(row.password);
+		if (state === 'none' || row.password === null) return [];
+		return [
+			{
+				section_id: Number(row.section_id),
+				username: row.username,
+				password: row.password,
+				legacy: state === 'legacy',
+			},
+		];
+	});
 }
 
 function censusOf(rows: readonly PasswordRow[]): LegacyPasswordCensus {
-	const argon2 = rows.filter((row) => isArgon2Hash(row.password)).length;
-	return { accounts: rows.length, argon2, legacy: rows.length - argon2 };
+	const legacy = rows.filter((row) => row.legacy).length;
+	return { accounts: rows.length, argon2: rows.length - legacy, legacy };
 }
 
 /** How many accounts hold a password, and how many of them are still legacy. Reads only. */
 export async function legacyPasswordCensus(): Promise<LegacyPasswordCensus> {
 	return censusOf(await readPasswordRows());
+}
+
+/**
+ * How many accounts the login refuses as legacy — the census's own number, for
+ * the boot and `/health` (update/boot_state.ts refreshLegacyPasswordNotice): the
+ * operator should learn of a locked-out user base from the log, not from the
+ * first user who cannot get in.
+ */
+export async function countLegacyPasswordAccounts(): Promise<number> {
+	return (await legacyPasswordCensus()).legacy;
 }
 
 /**
@@ -161,15 +301,18 @@ function selectBatch(
 	options: LegacyPasswordMigrationOptions,
 ): { pending: PasswordRow[]; batch: PasswordRow[] } {
 	const after = options.afterSectionId ?? Number.NEGATIVE_INFINITY;
-	const pending = rows.filter((row) => !isArgon2Hash(row.password) && row.section_id > after);
+	const pending = rows.filter((row) => row.legacy && row.section_id > after);
 	return { pending, batch: pending.slice(0, options.limit ?? pending.length) };
 }
 
 interface BatchOutcome {
 	recoverable: LegacyAccountRef[];
 	failed: LegacyAccountRef[];
-	converted: number;
+	/** The accounts WRITTEN, by section_id. */
+	converted: number[];
 	skipped: number;
+	/** Accounts looked at so far (the whole batch, unless the run threw). */
+	examined: number;
 }
 
 /** One account: hashed (the plaintext lives only inside rehashLegacyPassword), then — on execute — written. */
@@ -179,6 +322,7 @@ async function convertAccount(
 	options: LegacyPasswordMigrationOptions,
 	outcome: BatchOutcome,
 ): Promise<void> {
+	outcome.examined++;
 	const hash = await rehashLegacyPassword(row.password, material);
 	if (hash === null) {
 		outcome.failed.push(accountRef(row));
@@ -187,7 +331,7 @@ async function convertAccount(
 	outcome.recoverable.push(accountRef(row));
 	if (options.execute !== true) return;
 	await options.beforeWrite?.(row.section_id);
-	if (await writeHash(row.section_id, row.password, hash)) outcome.converted++;
+	if (await writeHash(row.section_id, row.password, hash)) outcome.converted.push(row.section_id);
 	else outcome.skipped++;
 }
 
@@ -198,6 +342,7 @@ async function convertAccount(
  */
 export async function migrateLegacyPasswords(
 	material: LegacyKeyMaterial,
+	actor: ConversionActor,
 	options: LegacyPasswordMigrationOptions = {},
 ): Promise<LegacyPasswordMigrationReport> {
 	const execute = options.execute === true;
@@ -205,21 +350,48 @@ export async function migrateLegacyPasswords(
 	const census = censusOf(rows);
 	const { pending, batch } = selectBatch(rows, options);
 
-	const outcome: BatchOutcome = { recoverable: [], failed: [], converted: 0, skipped: 0 };
-	for (const row of batch) {
-		await convertAccount(row, material, options, outcome);
+	const outcome: BatchOutcome = {
+		recoverable: [],
+		failed: [],
+		converted: [],
+		skipped: 0,
+		examined: 0,
+	};
+	/** The run's activity entry, dry or executed — also when the run is about to throw. */
+	const record = (completed: boolean, remaining: number | null) =>
+		recordConversion(actor, {
+			execute,
+			completed,
+			examined: outcome.examined,
+			converted: outcome.converted.length,
+			skipped: outcome.skipped,
+			unconverted: outcome.failed.length,
+			remaining,
+			convertedSectionIds: outcome.converted,
+		});
+	let remaining: number;
+	try {
+		for (const row of batch) {
+			await convertAccount(row, material, options, outcome);
+		}
+		// Counted again, not derived: it is what /health and the next reader see.
+		remaining = execute ? (await legacyPasswordCensus()).legacy : census.legacy;
+	} catch (error) {
+		// What was written before the failure stays written — and stays on record.
+		await record(false, null);
+		throw error;
 	}
+	await record(true, remaining);
 
 	return {
 		...census,
 		execute,
 		examined: batch.length,
 		recoverable: outcome.recoverable.length,
-		converted: outcome.converted,
+		converted: outcome.converted.length,
 		failed: outcome.failed.length,
 		skipped: outcome.skipped,
-		// Counted again, not derived: it is what /health and the next reader see.
-		remaining: execute ? (await legacyPasswordCensus()).legacy : census.legacy,
+		remaining,
 		// More legacy accounts lie past this batch: the next one starts after its last.
 		next_after: batch.length < pending.length ? (batch.at(-1)?.section_id ?? null) : null,
 		recoverable_accounts: outcome.recoverable,

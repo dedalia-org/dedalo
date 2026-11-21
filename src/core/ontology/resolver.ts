@@ -23,6 +23,7 @@
  */
 
 import { isValidTipo } from '../concepts/ontology.ts';
+import { DD_ONTOLOGY_SIBLING_ORDER_SQL } from '../db/dd_ontology.ts';
 import { isInTransaction, sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from './cache_factory.ts';
@@ -500,23 +501,12 @@ export function getColumnNameByModel(model: string): string | null {
 /**
  * All descendant component tipos of a section, walking the ontology subtree by
  * `parent` without crossing into nested sections/areas (same containment rule
- * as getComponentFilterTipo). Used by the RAG config to enumerate a section's
+ * as getComponentFilterTipo), in depth-first sibling order (the ONE walk,
+ * leanOrderedSubtree). Used by the RAG config to enumerate a section's
  * embeddable text components. Not cached — callers cache the filtered result.
  */
 export async function getRecursiveChildrenTipos(sectionTipo: string): Promise<string[]> {
-	const rows = (await sql`
-		WITH RECURSIVE subtree AS (
-			SELECT tipo, model FROM dd_ontology WHERE parent = ${sectionTipo}
-			UNION ALL
-			SELECT child.tipo, child.model
-			FROM dd_ontology child
-			JOIN subtree ON child.parent = subtree.tipo
-			WHERE subtree.model NOT IN ('section')
-			  AND subtree.model NOT LIKE 'area%'
-		)
-		SELECT tipo FROM subtree
-	`) as { tipo: string }[];
-	return rows.map((row) => row.tipo);
+	return (await leanOrderedSubtree(sectionTipo)).map((node) => node.tipo);
 }
 
 /**
@@ -603,11 +593,15 @@ function toSubtreeNode(row: {
 		use_machine_name: row.use_machine_name ?? null,
 		properties: row.properties,
 		relations: row.relations,
-		orderNumber:
-			row.order_number === null || row.order_number === undefined
-				? Number.POSITIVE_INFINITY
-				: Number(row.order_number),
+		orderNumber: orderNumberOf(row.order_number),
 	};
+}
+
+/** A row's order_number as a number; Infinity when the column is NULL (sorts last). */
+function orderNumberOf(orderNumber: number | string | null | undefined): number {
+	return orderNumber === null || orderNumber === undefined
+		? Number.POSITIVE_INFINITY
+		: Number(orderNumber);
 }
 
 /**
@@ -626,40 +620,12 @@ export async function getOrderedSubtree(
 	rootTipo: string,
 	options: { includeRoot?: boolean; crossSections?: boolean } = {},
 ): Promise<OntologySubtreeNode[]> {
-	const guard = options.crossSections
-		? ''
-		: `WHERE subtree.model IS DISTINCT FROM 'section' AND (subtree.model IS NULL OR subtree.model NOT LIKE 'area%')`;
-	const rows = (await sql.unsafe(
-		`WITH RECURSIVE subtree AS (
-			SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
-			FROM dd_ontology WHERE parent = $1
-			UNION ALL
-			SELECT child.tipo, child.parent, child.model, child.term, child.machine_name, child.use_machine_name, child.properties, child.relations, child.order_number
-			FROM dd_ontology child
-			JOIN subtree ON child.parent = subtree.tipo
-			${guard}
-		)
-		SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number FROM subtree`,
-		[rootTipo],
-	)) as Parameters<typeof toSubtreeNode>[0][];
-	const nodes = rows.map(toSubtreeNode);
-	const byParent = new Map<string, OntologySubtreeNode[]>();
-	for (const node of nodes) {
-		if (node.parent === null) continue;
-		const siblings = byParent.get(node.parent) ?? [];
-		siblings.push(node);
-		byParent.set(node.parent, siblings);
-	}
-	for (const siblings of byParent.values()) siblings.sort(compareSiblingOrder);
-	// Depth-first pre-order from the root using the sorted sibling lists.
-	const ordered: OntologySubtreeNode[] = [];
-	const walk = (parentTipo: string): void => {
-		for (const child of byParent.get(parentTipo) ?? []) {
-			ordered.push(child);
-			walk(child.tipo);
-		}
-	};
-	walk(rootTipo);
+	const rows = await readSubtreeRows<Parameters<typeof toSubtreeNode>[0]>(
+		rootTipo,
+		SUBTREE_FULL_COLUMNS,
+		options.crossSections === true,
+	);
+	const ordered = orderDepthFirst(rows.map(toSubtreeNode), rootTipo);
 	if (options.includeRoot) {
 		const rootRows = (await sql.unsafe(
 			`SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
@@ -672,6 +638,110 @@ export async function getOrderedSubtree(
 	return ordered;
 }
 
+/** Every column of an OntologySubtreeNode row. */
+const SUBTREE_FULL_COLUMNS = [
+	'tipo',
+	'parent',
+	'model',
+	'term',
+	'machine_name',
+	'use_machine_name',
+	'properties',
+	'relations',
+	'order_number',
+] as const;
+
+/** The columns a walk needs to ORDER and FILTER a subtree, nothing else. */
+const SUBTREE_LEAN_COLUMNS = ['tipo', 'parent', 'model', 'order_number'] as const;
+
+/**
+ * THE ONE SUBTREE READ: every descendant row of `rootTipo` (unordered — see
+ * orderDepthFirst). `crossSections` false = the section-subtree containment
+ * (no descent through a nested section / area node; the node itself is
+ * returned); true = the full structural walk.
+ */
+async function readSubtreeRows<Row>(
+	rootTipo: string,
+	columns: readonly string[],
+	crossSections: boolean,
+): Promise<Row[]> {
+	const guard = crossSections
+		? ''
+		: `WHERE subtree.model IS DISTINCT FROM 'section' AND (subtree.model IS NULL OR subtree.model NOT LIKE 'area%')`;
+	return (await sql.unsafe(
+		`WITH RECURSIVE subtree AS (
+			SELECT ${columns.join(', ')}
+			FROM dd_ontology WHERE parent = $1
+			UNION ALL
+			SELECT ${columns.map((column) => `child.${column}`).join(', ')}
+			FROM dd_ontology child
+			JOIN subtree ON child.parent = subtree.tipo
+			${guard}
+		)
+		SELECT ${columns.join(', ')} FROM subtree`,
+		[rootTipo],
+	)) as Row[];
+}
+
+/**
+ * Depth-first PRE-ORDER of a subtree's nodes from `rootTipo`, siblings in the
+ * canonical order (compareSiblingOrder) — the order PHP's recursive children
+ * walk produced, and the one every "first descendant" answer is read from.
+ */
+function orderDepthFirst<Node extends { tipo: string; parent: string | null; orderNumber: number }>(
+	nodes: readonly Node[],
+	rootTipo: string,
+): Node[] {
+	const byParent = new Map<string, Node[]>();
+	for (const node of nodes) {
+		if (node.parent === null) continue;
+		const siblings = byParent.get(node.parent) ?? [];
+		siblings.push(node);
+		byParent.set(node.parent, siblings);
+	}
+	for (const siblings of byParent.values()) siblings.sort(compareSiblingOrder);
+	const ordered: Node[] = [];
+	const walk = (parentTipo: string): void => {
+		for (const child of byParent.get(parentTipo) ?? []) {
+			ordered.push(child);
+			walk(child.tipo);
+		}
+	};
+	walk(rootTipo);
+	return ordered;
+}
+
+/** One node of the lean walk: what ordering and model filtering need. */
+interface LeanSubtreeNode {
+	tipo: string;
+	parent: string | null;
+	model: string | null;
+	orderNumber: number;
+}
+
+/**
+ * The section subtree of `rootTipo` (section containment), depth-first in
+ * sibling order, WITHOUT the heavy columns — for the walkers that only need
+ * tipos and models (getRecursiveChildrenTipos, findFirstDescendantTipoByModel).
+ */
+async function leanOrderedSubtree(rootTipo: string): Promise<LeanSubtreeNode[]> {
+	const rows = await readSubtreeRows<{
+		tipo: string;
+		parent: string | null;
+		model: string | null;
+		order_number: number | string | null;
+	}>(rootTipo, SUBTREE_LEAN_COLUMNS, false);
+	return orderDepthFirst(
+		rows.map((row) => ({
+			tipo: row.tipo,
+			parent: row.parent,
+			model: row.model,
+			orderNumber: orderNumberOf(row.order_number),
+		})),
+		rootTipo,
+	);
+}
+
 /**
  * CHILDREN-OF: the DIRECT children of one node, in canonical sibling order.
  */
@@ -681,6 +751,43 @@ export async function getChildrenNodes(parentTipo: string): Promise<OntologySubt
 		FROM dd_ontology WHERE parent = ${parentTipo}
 	`) as Parameters<typeof toSubtreeNode>[0][];
 	return rows.map(toSubtreeNode).sort(compareSiblingOrder);
+}
+
+/** The first child of a model (findFirstChildByModel): its tipo + raw properties + relations. */
+export interface FirstChildNode {
+	tipo: string;
+	properties: Record<string, unknown> | null;
+	relations: { tipo?: unknown }[] | null;
+}
+
+/**
+ * THE FIRST CHILD OF A MODEL — the ONE ordered lookup for "the `section_map` /
+ * `section_list` / `exclude_elements` … child of this node": the direct child
+ * of `parentTipo` whose STORED model is `model`, first in sibling order
+ * (DD_ONTOLOGY_SIBLING_ORDER_SQL: order_number, NULL last, tipo). Null when the
+ * node has no such child.
+ *
+ * A parent may hold several children of one model (two section_map, four
+ * section_list): the answer must not depend on the order the rows were written,
+ * which is what an unordered `LIMIT 1` read. PLAIN direct children — virtual
+ * resolution is the caller's (list_definitions/node_find.ts
+ * findSectionChildByModel, section_map.ts getSectionMap).
+ *
+ * NOT cached: every consumer caches its own derived answer on top.
+ * Gate: test/unit/ordered_child_lookup_native.test.ts.
+ */
+export async function findFirstChildByModel(
+	parentTipo: string,
+	model: string,
+): Promise<FirstChildNode | null> {
+	const rows = (await sql.unsafe(
+		`SELECT tipo, properties, relations FROM dd_ontology
+		 WHERE parent = $1 AND model = $2
+		 ORDER BY ${DD_ONTOLOGY_SIBLING_ORDER_SQL}
+		 LIMIT 1`,
+		[parentTipo, model],
+	)) as FirstChildNode[];
+	return rows[0] ?? null;
 }
 
 /** One direct child as the edit walk reads it (getChildTipoModels). */
@@ -786,10 +893,12 @@ export async function listNodesWithProperties(): Promise<NodeWithProperties[]> {
  * `get_ar_children_tipo_by_model_name_in_section(...) → first hit` shape that
  * children.ts / ts_object.ts / area/tree.ts / section_id_component.ts each
  * hand-rolled (audit S2-19). Recursive parent-link walk from `rootTipo`, NOT
- * descending through nested section/area nodes; the first match by
- * lexicographic tipo (the deterministic tiebreak the diffusion resolver
- * pinned — these are singleton-by-design components, so the tiebreak only
- * matters for pathological duplicate declarations).
+ * descending through nested section/area nodes; the first match in
+ * DEPTH-FIRST sibling order (leanOrderedSubtree — the order PHP's pre-order
+ * walk by order_number took its [0] from; T2-SC-5a). These are
+ * singleton-by-design components, so the order only matters for a section
+ * that declares the model twice — where "first by tipo" answered a different
+ * node than the one the form shows first.
  *
  * `virtualFallback` (default true): when the walk finds nothing, resolve a
  * VIRTUAL section through its real section (getSectionRealTipo) and walk that
@@ -812,21 +921,8 @@ export async function findFirstDescendantTipoByModel(
 	const cached = descendantByModelCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const walk = async (root: string): Promise<string | null> => {
-		const rows = (await sql`
-			WITH RECURSIVE subtree AS (
-				SELECT tipo, model FROM dd_ontology WHERE parent = ${root}
-				UNION ALL
-				SELECT child.tipo, child.model
-				FROM dd_ontology child
-				JOIN subtree ON child.parent = subtree.tipo
-				WHERE subtree.model NOT IN ('section')
-				  AND subtree.model NOT LIKE 'area%'
-			)
-			SELECT tipo FROM subtree WHERE model = ${model} ORDER BY tipo LIMIT 1
-		`) as { tipo: string }[];
-		return rows[0]?.tipo ?? null;
-	};
+	const walk = async (root: string): Promise<string | null> =>
+		(await leanOrderedSubtree(root)).find((node) => node.model === model)?.tipo ?? null;
 
 	let found = await walk(rootTipo);
 	if (found === null && virtualFallback) {

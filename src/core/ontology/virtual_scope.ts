@@ -17,12 +17,16 @@
  * depends only on the kernel and the resolver, so no consumer needs an import
  * seam to reach it.
  *
- * Not cached: one dd_ontology SELECT per call, so an exclude_elements edit takes
- * effect on the next call.
+ * Not cached: one dd_ontology read per call (the ordered first-child primitive),
+ * so an exclude_elements edit takes effect on the next call.
  */
 
-import { sql } from '../db/postgres.ts';
-import { getOrderedSubtree, getSectionRealTipo, type OntologySubtreeNode } from './resolver.ts';
+import {
+	findFirstChildByModel,
+	getOrderedSubtree,
+	getSectionRealTipo,
+	type OntologySubtreeNode,
+} from './resolver.ts';
 
 /**
  * Resolve a section tipo to its REAL section (for virtual sections) plus the set
@@ -41,12 +45,8 @@ export async function resolveVirtualEditScope(
 	}
 	// The FIRST exclude_elements child (by order) of the VIRTUAL section names
 	// the excluded tipos in its `relations` (PHP uses [0] only).
-	const exRows = (await sql`
-		SELECT relations FROM dd_ontology
-		WHERE parent = ${sectionTipo} AND model = 'exclude_elements'
-		ORDER BY order_number NULLS LAST, id LIMIT 1
-	`) as { relations: { tipo?: unknown }[] | null }[];
-	for (const rel of exRows[0]?.relations ?? []) {
+	const excludeNode = await findFirstChildByModel(sectionTipo, 'exclude_elements');
+	for (const rel of excludeNode?.relations ?? []) {
 		if (typeof rel?.tipo === 'string') excludeSet.add(rel.tipo);
 	}
 	return { realTipo: candidate, excludeSet };
