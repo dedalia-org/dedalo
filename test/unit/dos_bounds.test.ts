@@ -41,3 +41,35 @@ describe('DOS-02 — subtitle line wrap always terminates', () => {
 		void splitTextIntoLines;
 	});
 });
+
+describe('DOS-01 — text_area EDIT fallback is bounded before deleteMarks / stripTags', () => {
+	// tr_marks DELETE_PATTERNS carry a lazy `(.*?):data` body: every UNTERMINATED
+	// opener scans to the end of the string, so the uncapped pass is quadratic
+	// (measured 2026-11-21: 200 KB of `[svg-a-1-data:` ≈ 1.25 s, 1 MB ≈ 30 s).
+	// The edit placeholder is 700 chars, so the source is capped like the list.
+	test('1 MB of unterminated mark openers in the fallback completes fast', async () => {
+		const { shapeEditFallback } = await import(
+			'../../src/core/components/component_text_area/emit.ts'
+		);
+		const unit = '[svg-a-1-data:[index-a-1-x-data:[page-a-1-x-data:';
+		const evil = `${unit.repeat(Math.ceil(1_000_000 / unit.length))} tail`;
+		const t0 = performance.now();
+		const [shaped] = shapeEditFallback([{ id: 1, lang: 'lg-spa', value: evil }]) as Array<{
+			value: string;
+		}>;
+		expect(performance.now() - t0).toBeLessThan(1000);
+		// The placeholder is still the shaped text (≤ 700 chars + the cut marker).
+		expect(typeof shaped?.value).toBe('string');
+		expect([...(shaped?.value ?? '')].length).toBeLessThanOrEqual(703);
+	});
+
+	test('a legit transcript still loses its marks and tags', async () => {
+		const { shapeEditFallback } = await import(
+			'../../src/core/components/component_text_area/emit.ts'
+		);
+		const [shaped] = shapeEditFallback([
+			{ id: 1, lang: 'lg-spa', value: '<p>[TC_00:00:01.000_TC]Hola <b>mundo</b></p>' },
+		]) as Array<{ value: string }>;
+		expect(shaped?.value).toBe('Hola mundo');
+	});
+});

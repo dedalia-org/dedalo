@@ -33,7 +33,7 @@ import { repairBrokenTags } from './tag_integrity.ts';
 /** text_area list values are HTML-truncated (PHP get_list_value max_chars=130). */
 const TEXT_AREA_LIST_MAX_CHARS = 130;
 
-/** Max raw chars any list-preview text processor sees (DOS-01). */
+/** Max raw chars any served-preview text processor sees — list AND edit fallback (DOS-01). */
 const LIST_SOURCE_CAP = 16 * 1024;
 
 /**
@@ -112,14 +112,20 @@ function truncatePlainText(text: string, maxChars: number): string {
  * 700 chars on a word; an entry with no text carries `null`. The raw stored
  * value used to be sent: bracket marks as literals, markup, any length.
  */
-function shapeEditFallback(entries: unknown[]): unknown[] {
+export function shapeEditFallback(entries: unknown[]): unknown[] {
 	return entries.map((entry) => {
 		if (entry === null || typeof entry !== 'object') return entry;
 		const text = itemText(entry);
-		const value =
-			text === null
-				? null
-				: truncatePlainText(stripTags(deleteMarks(text)), TEXT_AREA_EDIT_FALLBACK_MAX_CHARS);
+		if (text === null) return { ...(entry as object), value: null };
+		// DOS-01 (B3 review M1): bound the source BEFORE the mark/tag passes —
+		// tr_marks DELETE_PATTERNS' lazy `(.*?):data` bodies are quadratic on
+		// unterminated openers (1 MB froze the loop ~27 s). The placeholder is
+		// 700 chars, so the same 16 KB prefix the list preview sees is plenty.
+		const capped = text.length > LIST_SOURCE_CAP ? text.slice(0, LIST_SOURCE_CAP) : text;
+		const value = truncatePlainText(
+			stripTags(deleteMarks(capped)),
+			TEXT_AREA_EDIT_FALLBACK_MAX_CHARS,
+		);
 		return { ...(entry as object), value };
 	});
 }
