@@ -352,6 +352,23 @@ describe('the record-write chokepoint refuses every write of root’s password',
 		expect((await rootString())[FULL_NAME] ?? null).toEqual(name);
 	});
 
+	test('an id that arrives as the STRING "-1" addresses the same row and is refused the same', async () => {
+		// The type says number; the SQL does not care. A door forwarding a wire value
+		// unparsed must not be the way past the rule.
+		const stringly = { ...ROOT_TARGET, sectionId: '-1' as unknown as number };
+		await expectRefused('string id, key entry', () =>
+			recordWrite.persistRecordKeys(stringly, passwordPath(FOREIGN_ITEMS), false, DERIVED),
+		);
+		await expectRefused('string id, whole record', async () =>
+			recordWrite.persistRecordColumns(
+				stringly,
+				{ string: { ...(await rootString()), [PASSWORD]: FOREIGN_ITEMS } },
+				false,
+				DERIVED,
+			),
+		);
+	});
+
 	test('CONTROL: a whole-record write that leaves the password AS STORED is not refused', async () => {
 		// The Time Machine's full-record restore carries every column; one that does
 		// not CHANGE the password is not a password write.

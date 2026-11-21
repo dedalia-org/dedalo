@@ -43,7 +43,8 @@ export const ROOT_PASSWORD_COMPONENT = 'dd133';
 
 /** Is this record the root user record? Two compares: the hot path of every other write. */
 export function isRootUserRecord(sectionTipo: string, sectionId: number): boolean {
-	return sectionId === ROOT_SECTION_ID && sectionTipo === USERS_SECTION_TIPO;
+	// Number(...): a wire value forwarded unparsed ('-1') addresses the same row.
+	return Number(sectionId) === ROOT_SECTION_ID && sectionTipo === USERS_SECTION_TIPO;
 }
 
 /**

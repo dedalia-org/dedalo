@@ -1235,9 +1235,13 @@ export async function afterRecordWrite(
 	);
 }
 
-/** §3j — is the target the root user record (dd128/-1)? Two compares, no import. */
+/**
+ * §3j — is the target the root user record (dd128/-1)? Two compares, no import.
+ * `Number(...)`: the id is a number by type, but a door that forwards a wire
+ * value unparsed would hand over '-1' — which the SQL addresses all the same.
+ */
 function isRootUserTarget(target: RecordWriteTarget): boolean {
-	return target.sectionId === -1 && target.sectionTipo === 'dd128';
+	return Number(target.sectionId) === -1 && target.sectionTipo === 'dd128';
 }
 
 /**
