@@ -20,7 +20,7 @@
 // seed-shipped ontology (dd/rsc/hierarchy/lg) stays and is spelled through `seed()`,
 // which keeps it out of the install-TLD census's `<tld><digits>` token grammar.
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config as dedaloConfig } from '../../src/config/config.ts';
 import { selectRequestConfigStrategy } from '../../src/core/concepts/request_config.ts';
 import { getNode } from '../../src/core/ontology/resolver.ts';
@@ -30,6 +30,11 @@ import {
 	type RequestConfigContext,
 } from '../../src/core/relations/request_config/explicit.ts';
 import { buildImplicitComponentListConfig } from '../../src/core/relations/request_config/implicit.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 
 const editContext = (ownerTipo: string, ownerSectionTipo: string): RequestConfigContext => ({
 	ownerTipo,
@@ -214,5 +219,163 @@ describe('default page size (buildRequestConfigForElement, PHP calculate_default
 		expect(
 			item?.sqo.limit ?? (item?.show as { sqo_config?: { limit?: number } })?.sqo_config?.limit,
 		).toBe(5);
+	});
+});
+
+/**
+ * THE IMPLICIT WALK — source, section nodes, search block (T2-RC-1 / RC-2 /
+ * RC-4, 2026-11-21). Built on its own scratch situation (`zzrqw`): the cases
+ * need a node with a section_list child AND own relations, and a relation list
+ * naming two sections — shapes the shared `test` TLD does not hold.
+ */
+const HOST = 'zzrqw1';
+const TARGET_A = 'zzrqw2';
+const TEXT_A = 'zzrqw3';
+const TEXT_B = 'zzrqw4';
+const HOST_TEXT = 'zzrqw5';
+const SELECT_WITH_LIST = 'zzrqw10';
+const SELECT_LIST_NODE = 'zzrqw11';
+const SELECT_NO_LIST = 'zzrqw12';
+const HOST_LIST_NODE = 'zzrqw20';
+const VIRTUAL_HOST = 'zzrqw30';
+const TWO_SECTIONS = 'zzrqw40';
+const TARGET_B = 'zzrqw50';
+const TEXT_C = 'zzrqw51';
+const LIST_OWNER = 'zzrqw60';
+const LIST_OWNER_NODE = 'zzrqw61';
+const LIST_OWNER_TEXT = 'zzrqw62';
+const EXPLICIT_PORTAL = 'zzrqw80';
+
+const selfDdo = (tipo: string) => ({ tipo, section_tipo: 'self', parent: 'self' });
+
+const WALK = situation({
+	name: 'implicit walk source and section nodes',
+	tld: 'zzrqw',
+	nodes: [
+		{ tipo: HOST, parent: 'test1', model: 'section' },
+		{ tipo: TARGET_A, parent: 'test1', model: 'section' },
+		{ tipo: TEXT_A, parent: TARGET_A, model: 'component_input_text', order_number: 1 },
+		{ tipo: TEXT_B, parent: TARGET_A, model: 'component_input_text', order_number: 2 },
+		{ tipo: TARGET_B, parent: 'test1', model: 'section' },
+		{ tipo: TEXT_C, parent: TARGET_B, model: 'component_input_text' },
+		{ tipo: HOST_TEXT, parent: HOST, model: 'component_input_text', order_number: 1 },
+		{
+			tipo: SELECT_WITH_LIST,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 2,
+			relations: [{ tipo: TARGET_A }, { tipo: TEXT_A }, { tipo: TEXT_B }],
+		},
+		{
+			tipo: SELECT_LIST_NODE,
+			parent: SELECT_WITH_LIST,
+			model: 'section_list',
+			relations: [{ tipo: TEXT_B }],
+		},
+		{
+			tipo: SELECT_NO_LIST,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 3,
+			relations: [{ tipo: TARGET_A }, { tipo: TEXT_A }],
+		},
+		{
+			tipo: HOST_LIST_NODE,
+			parent: HOST,
+			model: 'section_list',
+			order_number: 9,
+			relations: [{ tipo: HOST_TEXT }],
+		},
+		{
+			tipo: VIRTUAL_HOST,
+			parent: 'test1',
+			model: 'section',
+			relations: [{ tipo: HOST }, { tipo: 'test24' }],
+		},
+		{
+			tipo: TWO_SECTIONS,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 4,
+			relations: [{ tipo: TARGET_A }, { tipo: TEXT_A }, { tipo: TARGET_B }, { tipo: TEXT_C }],
+		},
+		{ tipo: LIST_OWNER, parent: 'test1', model: 'section' },
+		{ tipo: LIST_OWNER_TEXT, parent: LIST_OWNER, model: 'component_input_text' },
+		{
+			tipo: LIST_OWNER_NODE,
+			parent: LIST_OWNER,
+			model: 'section_list',
+			order_number: 9,
+			relations: [{ tipo: TARGET_A }, { tipo: LIST_OWNER_TEXT }, { tipo: TARGET_B }],
+		},
+		{
+			tipo: EXPLICIT_PORTAL,
+			parent: HOST,
+			model: 'component_portal',
+			order_number: 5,
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ source: 'section', value: [TARGET_A] }] },
+							show: { ddo_map: [selfDdo(TEXT_A)] },
+							search: { ddo_map: [selfDdo(TEXT_A)] },
+							choose: { ddo_map: [selfDdo(TEXT_B)] },
+						},
+					],
+				},
+			},
+		},
+	],
+});
+
+describe('the implicit walk (zzrqw situation)', () => {
+	beforeAll(async () => {
+		await dropSituation(WALK);
+		await ensureSituation(WALK);
+	});
+	afterAll(async () => {
+		expect(await dropSituation(WALK)).toBe(0);
+	});
+
+	const build = async (tipo: string, sectionTipo: string, mode: string, ownerIsSection = false) =>
+		buildRequestConfigForElement((await getNode(tipo))?.properties ?? null, {
+			ownerTipo: tipo,
+			ownerSectionTipo: sectionTipo,
+			mode,
+			ownerIsSection,
+		});
+	const shown = (config: Awaited<ReturnType<typeof build>>) =>
+		(config[0]?.show?.ddo_map ?? []).map((ddo) => ddo.tipo);
+
+	describe('RC-1 — the walk source is the section_list child in every mode but edit / related_list', () => {
+		test('a component with a section_list child: edit walks its own relations', async () => {
+			const config = await build(SELECT_WITH_LIST, HOST, 'edit');
+			expect(shown(config)).toEqual([TEXT_A, TEXT_B]);
+			expect(extractSqoSectionTipos(config[0])).toEqual([TARGET_A]);
+		});
+
+		test('search, tm and any other mode walk the section_list child, as list does', async () => {
+			for (const mode of ['list', 'search', 'tm', 'solved']) {
+				const config = await build(SELECT_WITH_LIST, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_B]]);
+				// the list node names no section: the component's main related one
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [TARGET_A]]);
+			}
+		});
+
+		test('related_list keeps the own relations; no section_list child = own relations', async () => {
+			expect(shown(await build(SELECT_WITH_LIST, HOST, 'related_list'))).toEqual([TEXT_A, TEXT_B]);
+			expect(shown(await build(SELECT_NO_LIST, HOST, 'search'))).toEqual([TEXT_A]);
+		});
+
+		test("a section in search mode walks its section_list (a virtual one, its real section's)", async () => {
+			const own = await build(HOST, HOST, 'search', true);
+			expect(shown(own)).toEqual([HOST_TEXT]);
+			expect(extractSqoSectionTipos(own[0])).toEqual([HOST]);
+			const virtual = await build(VIRTUAL_HOST, VIRTUAL_HOST, 'search', true);
+			expect(shown(virtual)).toEqual([HOST_TEXT]);
+			expect(extractSqoSectionTipos(virtual[0])).toEqual([VIRTUAL_HOST]);
+		});
 	});
 });

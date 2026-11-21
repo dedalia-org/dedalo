@@ -299,18 +299,53 @@ async function buildStrategyRequestConfig(
 	if (selectRequestConfigStrategy(sourceProperties) === 'explicit') {
 		return buildExplicitRequestConfig(sourceProperties, context);
 	}
-	// No explicit config anywhere: implicit from the COMPONENT's own
-	// relation_nodes (the classic select/radio/check_box target definition —
-	// e.g. [dd501, dd503]).
+	return buildImplicitStrategyConfig(context);
+}
+
+/**
+ * No explicit config anywhere: the IMPLICIT walk, from the source the mode
+ * names (implicitWalkSource) — else, for a component, its own relation_nodes
+ * (the classic select/radio/check_box target definition, e.g. [dd501, dd503]).
+ */
+async function buildImplicitStrategyConfig(
+	context: RequestConfigContext,
+): Promise<ParsedRequestConfigItem[]> {
+	const walkSource = await implicitWalkSource(context);
 	if (!context.ownerIsSection) {
-		return buildImplicitComponentListConfig(context.ownerTipo, context);
+		return buildImplicitComponentListConfig(walkSource ?? context.ownerTipo, context);
 	}
 	// SECTION in EDIT mode without explicit config: the FULL form tree (PHP
 	// resolve_ar_related_edit 'section' case) — every component/grouper child.
 	if (context.mode === 'edit') {
 		return buildImplicitSectionEditConfig(context);
 	}
-	return [];
+	// SECTION in any other mode: its section_list's relation nodes, when it has one.
+	return walkSource === null ? [] : buildImplicitComponentListConfig(walkSource, context);
+}
+
+/**
+ * THE IMPLICIT WALK SOURCE (PHP resolve_ar_related, trait.request_config_v5.php
+ * :186-205) — which node's relation_nodes the implicit walk reads, by MODE:
+ *
+ *   edit, related_list → null: not the section_list (a component walks its own
+ *       relations; a section builds its form tree / nothing);
+ *   EVERY other mode (list, tm, search, and any mode not named — PHP's
+ *       `default:` arm) → the owner's `section_list` child when it has one; a
+ *       section without one borrows its REAL section's (virtual fallback).
+ *
+ * One function, so no mode can be forgotten: the hop used to be taken for
+ * list / list_thesaurus only, and a config-less component in SEARCH mode walked
+ * its own relations — a different column set, and sometimes a different target,
+ * than its list (T2-RC-1). The list-mode PROPERTY swap above is a different
+ * rule (the child's explicit config replaces the owner's) and stays list-only:
+ * here only the child's relation nodes are read.
+ */
+async function implicitWalkSource(context: RequestConfigContext): Promise<string | null> {
+	if (context.mode === 'edit' || context.mode === 'related_list') return null;
+	const own = await findSectionListChild(context.ownerTipo);
+	if (own !== null || !context.ownerIsSection) return own;
+	const realTipo = await getSectionRealTipo(context.ownerTipo);
+	return realTipo === context.ownerTipo ? null : findSectionListChild(realTipo);
 }
 
 /**

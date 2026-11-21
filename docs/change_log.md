@@ -483,6 +483,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Searching through a field without its own configuration uses the same columns as its list.**
+
+    A relation field whose ontology node carries no request configuration, but has a list
+    definition under it, now resolves its columns from that list definition in every view except
+    the edit form — search and Time Machine included. Before, only the list view did; in search
+    the field fell back to its own relation nodes, so it could search other columns — and
+    sometimes another section — than the ones its list shows. A section without its own
+    configuration follows the same rule: in search it resolves the columns of its list definition
+    (a virtual section, those of its real section).
+
 - **Uploading a very large file no longer fails while the server is still assembling it.**
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
