@@ -109,6 +109,14 @@
  * (model_rules.ts — the rules are descriptor facets). Not drift: the projection agrees
  * with its source.
  *
+ * ALIAS TARGETS (`aliasTargetDefects`, T2-U04) — the same warning-channel shape. A
+ * `component_alias` node whose target's model is not alias-wired (alias.ts
+ * isAliasWiredTargetModel — THE law the read guard refuses by) projects exactly as its
+ * source says and is named here by its source record: every read of it will refuse
+ * (`engine.uncovered_scope`), so the operator learns it at the ontology update, not when a
+ * user opens the form. A missing, absent or chained target is NOT this channel's — the
+ * alias reader refuses those itself, and a non-grammar one is an invalid reference above.
+ *
  * SINGLE WRITER: nothing outside this module deletes a TLD's dd_ontology wholesale (rebuild,
  * retract, activation), and the re-derive has exactly ONE writer. The legacy
  * `regenerateRecordsInDdOntology` is retired onto `rebuildOntology`; the ontology update
@@ -136,6 +144,7 @@ import { sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
 import { changedDeclaredOrderTipos, declaredOrderSignature } from '../relations/order_locators.ts';
+import { isAliasWiredTargetModel } from './alias.ts';
 import {
 	isNameClassNode,
 	type MachineNameDefectKind,
@@ -159,7 +168,12 @@ import {
 	type OntologyNodeDefect,
 	parseSectionRecordToOntologyNodeWithDefects,
 } from './parser.ts';
-import { getMatrixTableFromTipo, getModelByTipo } from './resolver.ts';
+import {
+	getMatrixTableFromTipo,
+	getModelByTipo,
+	getNode,
+	runtimeModelOfStored,
+} from './resolver.ts';
 import {
 	getTldFromTipo,
 	LOCAL_ONTOLOGY_SECTION,
@@ -237,6 +251,10 @@ export interface OntologyState {
 	 * header, MODEL-RULE VIOLATIONS.
 	 */
 	modelRuleViolations: ModelRuleViolation[];
+	/** Count of own component_alias nodes whose target model is not alias-wired (a WARNING channel). */
+	aliasTargetDefectNodes: number;
+	/** Every such alias, by SOURCE record (see the module header, ALIAS TARGETS). */
+	aliasTargetDefects: AliasTargetDefectRecord[];
 	drift: OntologyDriftItem[];
 	/** No drift and the main node is present → dd_ontology matches its source. */
 	inSync: boolean;
@@ -295,6 +313,18 @@ export interface InvalidReferenceRecord {
 	value: unknown;
 }
 
+/** One component_alias whose target's model cannot be aliased (see OntologyState.aliasTargetDefects). */
+export interface AliasTargetDefectRecord {
+	/** `<section_tipo>/<section_id>` — the alias record the operator must fix. */
+	source: string;
+	/** The alias node. */
+	tipo: string;
+	/** Its `properties.alias_of`. */
+	alias_of: string;
+	/** The target's RUNTIME model — the one the engine would dispatch the alias as. */
+	targetModel: string;
+}
+
 /** One machine-name finding on a source record (see OntologyState.machineNameDefects). */
 export interface MachineNameDefectRecord {
 	/** `<section_tipo>/<section_id>` — the record the operator must fix. */
@@ -334,6 +364,8 @@ interface ParsedMatrixNodes {
 	machineNameLegacyRungs: Record<MachineNameLegacyRung, number>;
 	/** Model-rule findings of `own` nodes, judged AFTER the model fixpoint. */
 	modelRuleViolations: ModelRuleViolation[];
+	/** Unwired alias targets of `own` nodes, judged AFTER the model fixpoint. */
+	aliasTargetDefects: AliasTargetDefectRecord[];
 }
 
 /**
@@ -359,6 +391,7 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 		machineNameDefects: [],
 		machineNameLegacyRungs: emptyRungTally(),
 		modelRuleViolations: [],
+		aliasTargetDefects: [],
 	});
 	if (table === null) return empty();
 	// localontology0 records are OVERRIDES of other tlds' nodes, never nodes of
@@ -438,7 +471,63 @@ async function parseMatrixNodes(tld: string): Promise<ParsedMatrixNodes> {
 		invalidReferences,
 		...machineNameFindings(machineNames),
 		modelRuleViolations: modelRuleFindings(own, ruleSubjects),
+		aliasTargetDefects: await aliasTargetFindings(own, ruleSubjects),
 	};
+}
+
+/** The model of an alias node (ontology/alias.ts owns its contract). */
+const ALIAS_MODEL = 'component_alias';
+
+/** A node's `properties.alias_of` when it is a component_alias that states one, else null. */
+function statedAliasTarget(node: DdOntologyNode): string | null {
+	if (node.model !== ALIAS_MODEL) return null;
+	const aliasOf = (node.properties as { alias_of?: unknown } | null)?.alias_of;
+	return typeof aliasOf === 'string' && aliasOf !== '' ? aliasOf : null;
+}
+
+/**
+ * The RUNTIME model of an alias target — the node being parsed (same tld), else the
+ * projected one — or null when the alias reader refuses the target itself (it does not
+ * resolve, or it is an alias).
+ */
+async function aliasTargetRuntimeModel(
+	own: ReadonlyMap<string, DdOntologyNode>,
+	targetTipo: string,
+): Promise<string | null> {
+	const stored = own.get(targetTipo)?.model ?? (await getNode(targetTipo))?.model ?? null;
+	if (stored === null || stored === ALIAS_MODEL) return null;
+	return (await runtimeModelOfStored(targetTipo, stored)) ?? stored;
+}
+
+/** One node's finding: it is an alias whose (resolvable) target model is not alias-wired. */
+async function unwiredAliasTarget(
+	own: ReadonlyMap<string, DdOntologyNode>,
+	node: DdOntologyNode,
+): Promise<Omit<AliasTargetDefectRecord, 'source'> | null> {
+	const aliasOf = statedAliasTarget(node);
+	if (aliasOf === null) return null;
+	const targetModel = await aliasTargetRuntimeModel(own, aliasOf);
+	if (targetModel === null || (await isAliasWiredTargetModel(targetModel))) return null;
+	return { tipo: node.tipo, alias_of: aliasOf, targetModel };
+}
+
+/**
+ * Every own component_alias whose target's model is not alias-wired (alias.ts
+ * isAliasWiredTargetModel — the read guard's law). Judged AFTER the model fixpoint,
+ * like the model rules. Silent about what the alias reader refuses itself: no
+ * `alias_of`, a target that does not resolve, a target that is an alias.
+ */
+async function aliasTargetFindings(
+	own: ReadonlyMap<string, DdOntologyNode>,
+	facts: ReadonlyMap<string, RuleSubjectFacts>,
+): Promise<AliasTargetDefectRecord[]> {
+	const findings: AliasTargetDefectRecord[] = [];
+	for (const node of own.values()) {
+		const finding = await unwiredAliasTarget(own, node);
+		if (finding === null) continue;
+		findings.push({ source: facts.get(node.tipo)?.source ?? node.tipo, ...finding });
+	}
+	return findings;
 }
 
 /** What a model rule needs of a node beyond its parsed columns (see modelRuleFindings). */
@@ -647,6 +736,21 @@ function modelRuleNote(state: OntologyState): string {
 	return ` — ${state.modelRuleViolationNodes} node(s) break a model rule (an ontology bug: fix it in the master ontology, the engine does not override it): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
 }
 
+/**
+ * The warning suffix naming aliases whose target model cannot be aliased, or ''. Same cap
+ * as the notes above; the full list is `state.aliasTargetDefects`.
+ */
+function aliasTargetNote(state: OntologyState): string {
+	if (state.aliasTargetDefectNodes === 0) return '';
+	const records = state.aliasTargetDefects;
+	const named = records
+		.slice(0, TLDLESS_NAMED_LIMIT)
+		.map((item) => `${item.source} ${item.tipo} → ${item.alias_of} (${item.targetModel})`)
+		.join(', ');
+	const rest = records.length - TLDLESS_NAMED_LIMIT;
+	return ` — ${state.aliasTargetDefectNodes} component_alias node(s) point at a component whose model cannot be aliased; every read of them is refused (an ontology bug: fix alias_of in the master ontology): ${named}${rest > 0 ? ` (+${rest} more)` : ''}`;
+}
+
 /** Read every dd_ontology row for the TLD, keyed by tipo. */
 async function storedNodes(tld: string): Promise<Map<string, DdOntologyRow>> {
 	const rows = (await sql.unsafe(
@@ -796,6 +900,8 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 			machineNameLegacyRungs: emptyRungTally(),
 			modelRuleViolationNodes: 0,
 			modelRuleViolations: [],
+			aliasTargetDefectNodes: 0,
+			aliasTargetDefects: [],
 			drift: [],
 			inSync: false,
 		};
@@ -808,6 +914,7 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 		machineNameDefects,
 		machineNameLegacyRungs,
 		modelRuleViolations: ruleViolations,
+		aliasTargetDefects,
 	} = await parseMatrixNodes(tld);
 	const stored = await storedNodes(tld);
 	const mainTipo = `${tld}0`;
@@ -869,6 +976,8 @@ export async function inspectOntology(rawTld: string): Promise<OntologyState> {
 		machineNameLegacyRungs,
 		modelRuleViolationNodes: new Set(ruleViolations.map((item) => item.tipo)).size,
 		modelRuleViolations: ruleViolations,
+		aliasTargetDefectNodes: aliasTargetDefects.length,
+		aliasTargetDefects,
 		drift,
 		inSync: drift.length === 0 && mainNodeOk,
 	};
@@ -1119,7 +1228,7 @@ export async function rebuildOntology(
 	return {
 		ok: converged,
 		msg: converged
-			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}${machineNameNote(state)}${modelRuleNote(state)}`
+			? `Ontology '${tld}' rebuilt${tldlessNote(state)}${invalidReferenceNote(state)}${machineNameNote(state)}${modelRuleNote(state)}${aliasTargetNote(state)}`
 			: state.foreignNodes > 0
 				? `Ontology '${tld}' rebuilt; ${state.foreignNodes} source record(s) declare another tld and were skipped`
 				: `Ontology '${tld}' rebuilt with drift`,

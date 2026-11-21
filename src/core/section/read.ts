@@ -4081,26 +4081,18 @@ async function emitDdoDataUnbound(
 	// value/decoration hooks ride the generic literal path below.
 	const emitHook = getEmitHook(model);
 
-	// component_alias scope guard (WC-020 v1): the alias-wired emissions are
-	// the PORTAL family (expandPortal keys by dataTipo) and the generic
-	// LITERAL path (resolveComponentValue hops internally). Any other face —
-	// children/parent/related/index/select-family datalists, REPLACE emit
-	// hooks (media/section_id) — reads data by the ddo's own tipo and would
-	// silently serve the alias's EMPTY slot: refuse loudly instead
-	// (rewrite/LEDGER.md known-open gaps).
-	const { resolveDataTipo } = await import('../ontology/alias.ts');
+	// component_alias scope guard (WC-020 v1): an alias whose target model is
+	// not alias-wired (ontology/alias.ts isAliasWiredTargetModel — THE law,
+	// also asked by the ontology health report and the release gate) would
+	// read data by the ddo's own tipo and silently serve the alias's EMPTY
+	// slot: refuse loudly instead (rewrite/LEDGER.md known-open gaps).
+	const { resolveDataTipo, isAliasWiredTargetModel } = await import('../ontology/alias.ts');
 	const dataTipo = await resolveDataTipo(ddo.tipo);
-	if (dataTipo !== ddo.tipo) {
-		const aliasWired =
-			getColumnNameByModel(model) === 'relation'
-				? model === 'component_portal'
-				: emitHook?.emitItem === undefined;
-		if (!aliasWired) {
-			throw new DedaloError('engine.uncovered_scope', {
-				message: `component_alias '${ddo.tipo}': target model '${model}' is not alias-wired yet (WC-020 v1)`,
-				coordinates: { tipo: ddo.tipo, model },
-			});
-		}
+	if (dataTipo !== ddo.tipo && !(await isAliasWiredTargetModel(model))) {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `component_alias '${ddo.tipo}': target model '${model}' is not alias-wired yet (WC-020 v1)`,
+			coordinates: { tipo: ddo.tipo, model },
+		});
 	}
 	const hookContext: EmitHookContext = {
 		ddo,

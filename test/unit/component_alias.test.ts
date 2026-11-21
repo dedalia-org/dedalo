@@ -24,7 +24,7 @@ import {
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../../src/core/ontology/resolver.ts';
 import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
-import { readComponentData } from '../../src/core/section/read.ts';
+import { readComponentData, readSection } from '../../src/core/section/read.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 
 const TLD = 'zzalias';
@@ -36,6 +36,22 @@ const NO_ALIAS_OF = `${TLD}5`;
 const MISSING_TARGET = `${TLD}6`;
 const RETIRED_KEYS = `${TLD}7`;
 const BARE_ALIAS = `${TLD}8`; // alias → TARGET with NO local overrides
+// T2-U04-a — the read guard's two verdicts, one alias per target model class.
+const LITERAL_TARGET = `${TLD}9`; // component_input_text: the generic literal path — WIRED
+const LITERAL_ALIAS = `${TLD}10`;
+const SELECT_TARGET = `${TLD}11`; // a relation that is not the portal engine — refused
+const SELECT_ALIAS = `${TLD}12`;
+const SECTION_ID_TARGET = `${TLD}13`; // an emit hook that owns the emission — refused
+const SECTION_ID_ALIAS = `${TLD}14`;
+const IMAGE_TARGET = `${TLD}15`; // media: the other emission-owning hook — refused
+const IMAGE_ALIAS = `${TLD}16`;
+/** [target, its model, its alias] — provisioned in beforeAll, read in the U04-a describe. */
+const GUARD_PAIRS = [
+	[LITERAL_TARGET, 'component_input_text', LITERAL_ALIAS],
+	[SELECT_TARGET, 'component_select', SELECT_ALIAS],
+	[SECTION_ID_TARGET, 'component_section_id', SECTION_ID_ALIAS],
+	[IMAGE_TARGET, 'component_image', IMAGE_ALIAS],
+] as const;
 
 const TARGET_PROPERTIES = {
 	view: 'default',
@@ -133,6 +149,24 @@ beforeAll(async () => {
 		tld: TLD,
 		properties: { alias_of: TARGET },
 	});
+	for (const [target, model, alias] of GUARD_PAIRS) {
+		await upsertDdOntologyNode({
+			tipo: target,
+			model,
+			parent: SECTION,
+			tld: TLD,
+			is_translatable: false,
+			term: { 'lg-eng': `Guard target ${model}` },
+		});
+		await upsertDdOntologyNode({
+			tipo: alias,
+			model: 'component_alias',
+			parent: SECTION,
+			tld: TLD,
+			term: { 'lg-eng': `Guard alias of ${model}` },
+			properties: { alias_of: target },
+		});
+	}
 });
 afterAll(async () => {
 	await deleteTldNodes(TLD); // fires the hub — leaves no scratch cache state
@@ -346,5 +380,95 @@ describe('data identity — read round-trip on a scratch record (WC-020)', () =>
 		} as Rqo);
 		const own = items.find((item) => item.tipo === TARGET);
 		expect((own?.pagination as { total: number }).total).toBe(3);
+	});
+});
+
+describe('the read guard: an alias reads as its target ONLY where the emission is alias-wired (T2-U04-a)', () => {
+	const RECORD_ID = 9990002;
+	const readVia = (tipo: string) =>
+		readComponentData({
+			action: 'read',
+			source: {
+				tipo,
+				section_tipo: SECTION,
+				section_id: String(RECORD_ID),
+				mode: 'edit',
+				lang: 'lg-nolan',
+			},
+		} as Rqo);
+
+	beforeAll(async () => {
+		await sql.unsafe(
+			`INSERT INTO matrix_test (section_id, section_tipo, string, relation)
+			 VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb)`,
+			[
+				RECORD_ID,
+				SECTION,
+				JSON.stringify({
+					[LITERAL_TARGET]: [{ id: 1, lang: 'lg-nolan', value: 'held by the target' }],
+				}),
+				JSON.stringify({
+					[TARGET]: [
+						{ type: 'dd151', section_id: 11, section_tipo: SECTION, from_component_tipo: TARGET },
+					],
+					[SELECT_TARGET]: [
+						{
+							type: 'dd151',
+							section_id: 11,
+							section_tipo: SECTION,
+							from_component_tipo: SELECT_TARGET,
+						},
+					],
+				}),
+			],
+		);
+	});
+	afterAll(async () => {
+		await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
+			SECTION,
+			RECORD_ID,
+		]);
+	});
+
+	test("RESOLVED — a LITERAL target: the alias serves the target's stored value under its own tipo", async () => {
+		const own = (await readVia(LITERAL_ALIAS)).find((item) => item.tipo === LITERAL_ALIAS);
+		expect(own?.entries).toEqual([{ id: 1, lang: 'lg-nolan', value: 'held by the target' }]);
+	});
+
+	test('RESOLVED — the PORTAL target through a SECTION read (the guarded emission door itself)', async () => {
+		const { data } = await readSection({
+			action: 'read',
+			source: { tipo: SECTION, section_tipo: SECTION, mode: 'edit', lang: 'lg-nolan' },
+			sqo: {
+				section_tipo: [SECTION],
+				filter_by_locators: [{ section_tipo: SECTION, section_id: String(RECORD_ID) }],
+				limit: 1,
+				offset: 0,
+			},
+			show: { ddo_map: [{ tipo: ALIAS, section_tipo: SECTION, parent: SECTION, mode: 'edit' }] },
+		} as never);
+		const own = (data as { tipo?: string; entries?: { section_id?: unknown }[] }[]).find(
+			(item) => item.tipo === ALIAS,
+		);
+		expect(own?.entries?.map((entry) => Number(entry.section_id))).toEqual([11]);
+	});
+
+	test('REFUSED — a non-portal relation, and both emission-owning hooks: loud, typed, naming the alias', async () => {
+		// Each of these would otherwise read the ALIAS's own (empty) slot and
+		// answer a plausible empty component while the target holds the data.
+		for (const [, model, alias] of GUARD_PAIRS.slice(1)) {
+			const refusal = await refusalOf(readVia(alias));
+			expect([alias, refusal.code]).toEqual([alias, 'engine.uncovered_scope']);
+			expect(refusal.coordinates).toEqual({ tipo: alias, model });
+		}
+	});
+
+	test('the targets themselves read normally (the refusal is the alias face, not the model)', async () => {
+		const select = (await readVia(SELECT_TARGET)).find((item) => item.tipo === SELECT_TARGET);
+		expect((select?.entries as unknown[] | undefined)?.length).toBe(1);
+		const sectionId = (await readVia(SECTION_ID_TARGET)).find(
+			(item) => item.tipo === SECTION_ID_TARGET,
+		);
+		expect(sectionId).toBeDefined();
 	});
 });

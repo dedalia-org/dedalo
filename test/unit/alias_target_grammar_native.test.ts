@@ -46,18 +46,39 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { gunzipSync } from 'node:zlib';
+import { splitCopyRow } from '../../src/core/db/copy_text.ts';
+import { readDdOntologyRow } from '../../src/core/db/dd_ontology.ts';
+import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
+import { releaseDataFiles } from '../../src/core/install/release_files.ts';
+import { ONTOLOGY_RELEASE_DIR } from '../../src/core/install/seed_sources.ts';
 import {
 	clearAliasCaches,
+	isAliasWiredTargetModel,
 	resolveAliasTargetTipo,
 	resolveDataTipo,
 } from '../../src/core/ontology/alias.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+import { modelNameOf } from '../../src/core/ontology/machine_name.ts';
+import {
+	inspectOntology,
+	type OntologyState,
+	type OntologyWriteResult,
+	rebuildOntology,
+} from '../../src/core/ontology/ontology_state.ts';
+import {
+	ONTOLOGY_MODEL,
+	ONTOLOGY_PROPERTIES,
+	ONTOLOGY_TLD,
+} from '../../src/core/ontology/ontology_tipos.ts';
+import { getTermIdFromLocator } from '../../src/core/ontology/parser.ts';
 import {
 	effectiveSaveLang,
 	getModelByTipo,
 	getTranslatableByTipo,
+	runtimeModelOfStored,
 } from '../../src/core/ontology/resolver.ts';
 import {
 	dropSituation,
@@ -66,6 +87,11 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import {
+	modelTipoNamed,
+	seedMachineNameScratch,
+	sweepMachineNameScratch,
+} from '../helpers/machine_name_scratch.ts';
 
 const TLD = 'zzsurf';
 const SECTION = 'zzsurf1';
@@ -260,5 +286,264 @@ describe.if(DB_READY)('SURF-1 read — an alias target obeys the tipo grammar (G
 		});
 		expect(Object.keys(observed).length).toBe(HOSTILE_UNPLANTED.length);
 		expect(observed).toEqual(expected);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// T2-U04-b — AN ALIAS TARGET IS ALSO A MODEL THE ALIAS CAN BE: the wiring law.
+//
+// `isAliasWiredTargetModel` (ontology/alias.ts) is the ONE predicate behind the
+// read guard (component_alias.test.ts pins its two verdicts at the door). An
+// alias of an unwired model is not a defect the engine can serve around — every
+// read of it refuses — so it must be caught where it is AUTHORED:
+//   - the RELEASE gate: no component_alias of the vendored ontology
+//     (install/import/ontology/<major.minor>/) points at an unwired model;
+//   - the HEALTH report: inspectOntology / rebuildOntology name such an alias
+//     of an installation's own ontology by source record.
+// ---------------------------------------------------------------------------
+
+const ALIAS_MODEL = 'component_alias';
+const COPY_INDEX = new Map(MATRIX_COPY_COLUMNS.map((column, index) => [column, index]));
+
+/** One node of a release package, as far as the wiring law reads it. */
+interface ReleaseNode {
+	modelTipo: string | null;
+	aliasOf: unknown;
+}
+
+function copyJson(fields: (string | null)[], column: string): Record<string, unknown[]> | null {
+	const raw = fields[COPY_INDEX.get(column) as number] ?? null;
+	return raw === null ? null : (JSON.parse(raw) as Record<string, unknown[]>);
+}
+
+/** Every node record of the vendored release: tipo → its model tipo and its alias_of. */
+async function releaseNodes(): Promise<{ files: number; nodes: Map<string, ReleaseNode> }> {
+	const nodes = new Map<string, ReleaseNode>();
+	let files = 0;
+	for (const file of releaseDataFiles(ONTOLOGY_RELEASE_DIR)) {
+		if (file === 'matrix_dd.copy.gz') continue; // private-list records, not nodes
+		files++;
+		const bytes = new Uint8Array(await Bun.file(`${ONTOLOGY_RELEASE_DIR}/${file}`).arrayBuffer());
+		for (const line of gunzipSync(bytes).toString('utf8').split('\n')) {
+			if (line === '') continue;
+			const fields = splitCopyRow(line);
+			const tld = (
+				copyJson(fields, 'string')?.[ONTOLOGY_TLD]?.[0] as { value?: unknown } | undefined
+			)?.value;
+			if (typeof tld !== 'string' || tld === '') continue;
+			const modelLocator = copyJson(fields, 'relation')?.[ONTOLOGY_MODEL]?.[0];
+			const properties = (
+				copyJson(fields, 'misc')?.[ONTOLOGY_PROPERTIES]?.[0] as { value?: unknown } | undefined
+			)?.value as { alias_of?: unknown } | null | undefined;
+			nodes.set(`${tld}${fields[COPY_INDEX.get('section_id') as number]}`, {
+				modelTipo:
+					modelLocator === undefined
+						? null
+						: await getTermIdFromLocator(
+								modelLocator as Parameters<typeof getTermIdFromLocator>[0],
+							),
+				aliasOf: properties?.alias_of,
+			});
+		}
+	}
+	return { files, nodes };
+}
+
+/**
+ * A node map's verdict: every alias; the ones the WIRING LAW refuses (`unwired`); and the
+ * ones it cannot judge because the alias has no usable target in the map — no `alias_of`,
+ * an absent target, a target that is itself an alias (`untargeted`: the alias reader's own
+ * refusals, resolver.ts aliasTargetTipoOf).
+ */
+async function judgeAliases(
+	nodes: ReadonlyMap<string, ReleaseNode>,
+	modelNameOfTipo: (modelTipo: string) => Promise<string | null>,
+): Promise<{ aliases: string[]; unwired: string[]; untargeted: string[] }> {
+	const aliases: string[] = [];
+	const unwired: string[] = [];
+	const untargeted: string[] = [];
+	for (const [tipo, node] of nodes) {
+		if (node.modelTipo === null || (await modelNameOfTipo(node.modelTipo)) !== ALIAS_MODEL) {
+			continue;
+		}
+		aliases.push(tipo);
+		const target = typeof node.aliasOf === 'string' ? nodes.get(node.aliasOf) : undefined;
+		const stored =
+			target === undefined || target.modelTipo === null
+				? null
+				: await modelNameOfTipo(target.modelTipo);
+		if (stored === null || stored === ALIAS_MODEL) {
+			untargeted.push(tipo);
+			continue;
+		}
+		const runtime = (await runtimeModelOfStored(node.aliasOf as string, stored)) ?? stored;
+		if (!(await isAliasWiredTargetModel(runtime))) {
+			unwired.push(`${tipo} → ${node.aliasOf as string}: model '${runtime}' is not alias-wired`);
+		}
+	}
+	return { aliases, unwired, untargeted };
+}
+
+/**
+ * Release aliases the wiring law CANNOT judge, each with its reason — named, exact, and
+ * shrink-only (the test compares the set: a new one is red, and so is one the master
+ * ontology fixed until its line is deleted here). Reported to the owner 2026-11-21.
+ */
+const RELEASE_UNTARGETED_ALIASES: Readonly<Record<string, string>> = {
+	numisdata573:
+		'unmigrated v5 alias: alias_of (numisdata560) survives only in the legacy ontology19 propiedades; its v7 properties (ontology18) state none',
+	numisdata627:
+		'unmigrated v5 alias: alias_of (numisdata560) survives only in the legacy ontology19 propiedades; its v7 properties (ontology18) state none',
+};
+
+describe('T2-U04-b — the alias-wiring law, one predicate', () => {
+	test('the law by model class: the portal engine and the literal path are wired; nothing else', async () => {
+		const verdicts: Record<string, boolean> = {};
+		for (const model of [
+			'component_portal',
+			'component_input_text',
+			'component_text_area',
+			'component_date',
+			'component_select',
+			'component_relation_children',
+			'component_filter',
+			'component_dataframe',
+			'component_image',
+			'component_section_id',
+		]) {
+			verdicts[model] = await isAliasWiredTargetModel(model);
+		}
+		expect(verdicts).toEqual({
+			component_portal: true,
+			component_input_text: true,
+			component_text_area: true,
+			component_date: true,
+			component_select: false,
+			component_relation_children: false,
+			component_filter: false,
+			component_dataframe: false,
+			component_image: false,
+			component_section_id: false,
+		});
+	});
+
+	test('RELEASE GATE: every component_alias of the vendored ontology targets a wired model', async () => {
+		const names = new Map<string, string | null>();
+		const modelNameOfTipo = async (modelTipo: string): Promise<string | null> => {
+			if (!names.has(modelTipo)) {
+				names.set(modelTipo, modelNameOf(await readDdOntologyRow(modelTipo)).model);
+			}
+			return names.get(modelTipo) ?? null;
+		};
+		const release = await releaseNodes();
+		// Floors (measured 2026-11-21 on 7.0: 199 packages, 16k nodes, 10 aliases):
+		// a scan that read nothing, or lost the alias nodes, must not pass.
+		expect(release.files).toBeGreaterThanOrEqual(150);
+		expect(release.nodes.size).toBeGreaterThanOrEqual(10_000);
+		const verdict = await judgeAliases(release.nodes, modelNameOfTipo);
+		expect(verdict.aliases.length).toBeGreaterThanOrEqual(5);
+		// Floor of the JUDGED set: an alias scan that judged nothing proves nothing.
+		expect(verdict.aliases.length - verdict.untargeted.length).toBeGreaterThanOrEqual(5);
+		expect(verdict.unwired).toEqual([]);
+		expect(verdict.untargeted.sort()).toEqual(Object.keys(RELEASE_UNTARGETED_ALIASES).sort());
+
+		// PLANTED control through the same judge: an alias of a select, of an
+		// absent target and of another alias are named; a portal alias is not.
+		const alias = await modelTipoNamed(ALIAS_MODEL);
+		const planted = new Map<string, ReleaseNode>([
+			['zzp1', { modelTipo: await modelTipoNamed('component_select'), aliasOf: undefined }],
+			['zzp2', { modelTipo: alias, aliasOf: 'zzp1' }],
+			['zzp3', { modelTipo: await modelTipoNamed('component_portal'), aliasOf: undefined }],
+			['zzp4', { modelTipo: alias, aliasOf: 'zzp3' }],
+			['zzp5', { modelTipo: alias, aliasOf: 'zzp99' }],
+			['zzp6', { modelTipo: alias, aliasOf: 'zzp4' }],
+		]);
+		const control = await judgeAliases(planted, modelNameOfTipo);
+		expect(control.aliases).toEqual(['zzp2', 'zzp4', 'zzp5', 'zzp6']);
+		expect(control.unwired).toEqual(["zzp2 → zzp1: model 'component_select' is not alias-wired"]);
+		expect(control.untargeted).toEqual(['zzp5', 'zzp6']);
+	}, 120_000);
+});
+
+describe.if(DB_READY)('T2-U04-b — the ontology health report names an unwired alias', () => {
+	const HTLD = 'zzatw';
+	const HSECTION = `${HTLD}0`;
+	let state: OntologyState;
+	let outcome: OntologyWriteResult;
+
+	async function sweep(): Promise<void> {
+		await assertTestDatabase('alias_target_grammar_native health sweep');
+		await sweepMachineNameScratch(HTLD);
+		await clearCaches();
+	}
+
+	beforeAll(async () => {
+		await sweep();
+		const alias = await modelTipoNamed(ALIAS_MODEL);
+		const term = (value: string) => [{ id: 1, lang: 'lg-eng', value }];
+		await seedMachineNameScratch(HTLD, [
+			{ sectionId: 1, term: term('select'), modelTipo: await modelTipoNamed('component_select') },
+			{ sectionId: 2, term: term('alias of the select'), modelTipo: alias },
+			{
+				sectionId: 3,
+				term: term('text'),
+				modelTipo: await modelTipoNamed('component_input_text'),
+				translatable: false,
+			},
+			{ sectionId: 4, term: term('alias of the text'), modelTipo: alias },
+			{ sectionId: 5, term: term('alias of nothing'), modelTipo: alias },
+		]);
+		// properties.alias_of lives in the record's ontology18 (component_json → misc).
+		for (const [sectionId, aliasOf] of [
+			[2, `${HTLD}1`],
+			[4, `${HTLD}3`],
+			[5, `${HTLD}99`],
+		] as const) {
+			await sql.unsafe(
+				`UPDATE matrix_ontology SET misc = jsonb_build_object($3::text, $4::text::jsonb)
+				  WHERE section_tipo = $1 AND section_id = $2`,
+				[
+					HSECTION,
+					sectionId,
+					ONTOLOGY_PROPERTIES,
+					JSON.stringify([{ id: 1, value: { alias_of: aliasOf } }]),
+				],
+			);
+		}
+		await clearCaches();
+		outcome = await rebuildOntology(HTLD, -1);
+		state = await inspectOntology(HTLD);
+	}, 60_000);
+
+	afterAll(async () => {
+		await sweep();
+		const residue = (await sql.unsafe(
+			`SELECT (SELECT count(*)::int FROM matrix_ontology WHERE section_tipo = $1)
+			      + (SELECT count(*)::int FROM dd_ontology WHERE tld = $2) AS n`,
+			[HSECTION, HTLD],
+		)) as { n: number }[];
+		expect(residue[0]?.n).toBe(0);
+	});
+
+	test('the alias of the select is named by source record — and only it', () => {
+		expect(state.matrixNodes).toBe(5); // floor: the situation parsed
+		expect(state.aliasTargetDefects).toEqual([
+			{
+				source: `${HSECTION}/2`,
+				tipo: `${HTLD}2`,
+				alias_of: `${HTLD}1`,
+				targetModel: 'component_select',
+			},
+		]);
+		expect(state.aliasTargetDefectNodes).toBe(1);
+	});
+
+	test('a WARNING channel, never drift: the tld is in sync and the rebuild message says where the fix belongs', () => {
+		expect(state.drift).toEqual([]);
+		expect(state.inSync).toBe(true);
+		expect(outcome.ok).toBe(true);
+		expect(outcome.msg).toContain(`${HSECTION}/2 ${HTLD}2 → ${HTLD}1 (component_select)`);
+		expect(outcome.msg).toContain('master ontology');
+		expect(outcome.msg).not.toContain(`${HTLD}4`);
 	});
 });

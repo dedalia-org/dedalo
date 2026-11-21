@@ -32,7 +32,7 @@ import { isInTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { createOntologyCache } from './cache_factory.ts';
 import { registerOntologyCacheClearer } from './cache_invalidation.ts';
-import { aliasTargetTipoOf, getNode } from './resolver.ts';
+import { aliasTargetTipoOf, getColumnNameByModel, getNode } from './resolver.ts';
 
 /** v5 vocabulary retired by the v7 contract — presence on an alias throws. */
 const RETIRED_ALIAS_KEYS = ['max_records', 'look_inside', 'edit_view'] as const;
@@ -137,4 +137,31 @@ export async function getEffectivePropertiesByTipo(tipo: string): Promise<unknow
 export async function getTargetStoredModel(tipo: string): Promise<string | null> {
 	const targetTipo = await resolveAliasTargetTipo(tipo);
 	return (await getNode(targetTipo ?? tipo))?.model ?? null;
+}
+
+/**
+ * THE ALIAS-WIRING LAW (WC-020 v1, T2-U04) — may a component_alias point at a
+ * target of this RUNTIME model? ONE predicate, three askers: the read guard
+ * (section/read.ts emitDdoData — it refuses an unwired face loudly), the
+ * ontology health report (ontology_state.ts `aliasTargetDefects`) and the
+ * release gate over the vendored ontology (alias_target_grammar_native).
+ *
+ * Wired = the emission keys its data by the DATA tipo (resolveDataTipo):
+ *   - relation column: the PORTAL engine only (expandPortal). Every other
+ *     relation face — children / parent / related / index, the select-family
+ *     datalists — reads by the ddo's own tipo and would serve the alias's
+ *     EMPTY slot;
+ *   - any other column: the generic literal path (resolveComponentValue hops
+ *     internally) — so every model EXCEPT one whose emit hook OWNS the whole
+ *     emission (`emitItem`: media, section_id).
+ *
+ * The emit-hook table is read lazily (CONVENTIONS §2 rationale 1,
+ * cycle-breaking): components/emit_hooks.ts statically imports every hook
+ * module, several of which reach this module — a static edge here would close
+ * an import cycle through the ontology layer.
+ */
+export async function isAliasWiredTargetModel(model: string): Promise<boolean> {
+	if (getColumnNameByModel(model) === 'relation') return model === 'component_portal';
+	const { getEmitHook } = await import('../components/emit_hooks.ts');
+	return getEmitHook(model)?.emitItem === undefined;
 }

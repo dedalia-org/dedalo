@@ -1756,6 +1756,15 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **The ontology check names alias components that point at a component they cannot stand in for.**
+
+    A `component_alias` shows another component under its own name and configuration. That works for
+    portals and for plain value components (text, date, number…); an alias of any other kind of
+    component — a select, a media component, a section id — cannot be read, and the engine refuses
+    it when a user opens the form. The ontology status (Ontology parser tool) and the message of an
+    ontology rebuild or update now name every such alias by its source record, so it is found when
+    the ontology is updated. The fix belongs in the ontology: change the alias's `alias_of`.
+
 - **Every conversion of v6 passwords is recorded in the activity log**
 
     Converting the passwords of a migrated v6 installation left no trace of who had done it, or to which accounts.
