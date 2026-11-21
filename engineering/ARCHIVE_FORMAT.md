@@ -45,7 +45,9 @@ more thing a reader has to open.
 ## ontology.json
 
 `subtree`: the `dd_ontology` rows of every archived section and its recursive children (the
-resolver's containment rule — it does not cross into a nested section or area) — and, for a
+resolver's section containment law — it does not cross into a nested section, and leaves out a
+`box elements` container, a `component_semantic_node` or an area with its subtree:
+WC-2026-11-22-section-containment-law; their stored values still ride in the record columns) — and, for a
 VIRTUAL section, the rows of its REAL section and ITS recursive children as well (`getSectionRealTipo`,
 the one law every child-by-model lookup follows): a virtual section's own children are list and
 exclusion decorations, its records store under the real section's component tipos, so without the

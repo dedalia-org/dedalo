@@ -27,6 +27,27 @@ Standing spec for the section family, companion to `engineering/REWRITE_SPEC.md`
 > `prevent_lock`, list-column sortability) — check there before planning
 > work from this spec.
 
+> **ADDENDUM 2026-11-22 (T2-SL-3a — THE SECTION CONTAINMENT LAW).** "The
+> subtree of a section" has ONE definition, for every walker (owner ruling
+> (b): everywhere, as v6): a `box elements` container (stored `box elements`,
+> `dataframe`, `component_relation_struct`), a `component_semantic_node` and an
+> area are OUTSIDE the section with their whole subtree; a nested section is
+> returned but not entered (the declared-components census crosses it on
+> purpose; the law holds on the far side). The predicate is
+> `isOutsideSectionContainment` (`src/core/ontology/resolver.ts`), applied in
+> the one walk (`getOrderedSubtree` / `getRecursiveChildrenTipos` /
+> `findFirstDescendantTipoByModel`) and upward by `getContainingSectionTipo` /
+> `tipoInSectionContainment`. Consequence stated plainly: **`delete_data`
+> leaves the data of a component parked under a box** (v6 did the same); search
+> "any relation component", birth defaults, the observer host predicate, the
+> covered-slot restore, the media stem rules, the archive's ontology subtree
+> and the write door's fixed-slot main all ignore it. The structural walk
+> (`crossSections`: diffusion tree, ontology update) is law-free. The pair
+> honesty check `tipoBelongsToSection` is deliberately NOT the law (a root
+> reads and writes a box-parked component, as in v6). Law:
+> `engineering/wire_contract/WC-2026-11-22-section-containment-law.md`; gate:
+> `test/unit/section_containment_native.test.ts`.
+
 > **ADDENDUM 2026-08-10 (section_id is an INT).** Wherever this spec shows a
 > `section_id` as a string — stored locators, emitted context/data, echoes —
 > the canonical form is now a **safe integer** (negatives valid). Writers mint
