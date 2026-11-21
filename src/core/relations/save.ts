@@ -55,11 +55,7 @@ import {
 	dataframeDeletePolicyOf,
 	dataframeTargetsOf,
 } from './dataframe.ts';
-import {
-	historyStamp,
-	readMainSlots,
-	recordKeyChangeRows,
-} from './dataframe_slots.ts';
+import { historyStamp, readMainSlots, recordKeyChangeRows } from './dataframe_slots.ts';
 import { resolveProjectsScope } from './filter_projects.ts';
 import { componentDeclaresOrder } from './order_locators.ts';
 import {

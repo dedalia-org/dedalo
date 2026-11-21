@@ -824,6 +824,13 @@ function releasedByCollapse(
 	return released;
 }
 
+/** The items a change CARRIES: `insert` / `update` one, `set_data` its array, any other none. */
+function carriedItems(change: ChangedDataItem): unknown[] {
+	if (change.action === 'insert' || change.action === 'update') return [change.value];
+	if (change.action === 'set_data' && Array.isArray(change.value)) return change.value as unknown[];
+	return [];
+}
+
 /**
  * THE NO-FIELD REFUSAL (B3 review M2, owner ruling 2026-11-21): a value-carrying
  * change to a lang-sliced literal whose item holds its content in NONE of the
@@ -836,20 +843,14 @@ function releasedByCollapse(
  * '', or only `id` / `lang` — still collapses. Pure; the message names the
  * change and the item position, never the content.
  */
-export function fieldlessValueRefusal(
+function fieldlessValueRefusal(
 	model: string | null,
 	changedData: readonly ChangedDataItem[],
 ): string | null {
 	if (model === null || !isLangSlicedModel(model)) return null;
 	const rule = dataItemEmptinessOf(model);
 	for (const [index, change] of changedData.entries()) {
-		const items =
-			change.action === 'insert' || change.action === 'update'
-				? [change.value]
-				: change.action === 'set_data' && Array.isArray(change.value)
-					? (change.value as unknown[])
-					: [];
-		const position = items.findIndex((item) => isFieldlessValueItem(rule, item));
+		const position = carriedItems(change).findIndex((item) => isFieldlessValueItem(rule, item));
 		if (position !== -1) {
 			return `changed_data[${index}] (${change.action}) item ${position}: holds no field ${model} stores its value in`;
 		}
