@@ -15,3 +15,7 @@ never exported. All four now use the same set.
 For administrators: the raw (`dedalo_raw`) export gains a column for each such dataframe, and for
 the label dataframe of IRI fields. Ontology authors: `has_dataframe: true` is still what switches
 a text field's dataframes on.
+
+A dataframe a list or form adds to a field on its own (without the field declaring it) now
+belongs to the field in the same way: removing the field's value removes its dataframe values
+there too, and the raw export includes them.

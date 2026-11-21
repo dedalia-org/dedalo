@@ -54,6 +54,7 @@ import { DedaloError } from '../errors/dedalo_error.ts';
 import {
 	effectiveSaveLang,
 	getColumnNameByModel,
+	getMatrixTableFromTipo,
 	getModelByTipo,
 	getNode,
 	getPropertiesByTipo,
@@ -337,6 +338,41 @@ export async function readMainSlots(
 	const bag: Record<string, unknown> = {};
 	for (const row of rows) bag[row.key] = row.value;
 	return selectSlots(mainTipo, bag, extraSlots);
+}
+
+/**
+ * THE SLOT SET of `mainTipo` across a whole SECTION (B3 review M3, owner ruling
+ * 2026-11-21: a caller-injected slot is the main's like a declared one): the
+ * declared set (resolveDataframeSlotTipos) plus every key ANY record of the
+ * section holds one of the main's frames in, model-checked and sorted — the
+ * record-level discovery of readMainSlots, taken over the section. For a door
+ * whose slot set must be ONE per run, decided before its records are read
+ * (the raw export's columns and their authorization): a slot only a caller
+ * map names (the read's injected child) is found here by the frames it holds.
+ * Cost: one pass over the section's relation column.
+ */
+export async function resolveSectionSlotTipos(
+	sectionTipo: string,
+	mainTipo: string,
+): Promise<string[]> {
+	const declared = await resolveDataframeSlotTipos(mainTipo);
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	if (table === null) return declared;
+	const column = slotColumn();
+	const rows = (await sql.unsafe(
+		`SELECT DISTINCT e.key
+		 FROM "${table}" t,
+		      jsonb_each(CASE WHEN jsonb_typeof(t."${column}") = 'object' THEN t."${column}" ELSE '{}'::jsonb END) e
+		 WHERE t.section_tipo = $1
+		   AND e.value @> jsonb_build_array(jsonb_build_object('main_component_tipo', $2::text))`,
+		[sectionTipo, mainTipo],
+	)) as { key: string }[];
+	// The rows already hold a frame of the main: discoveredSlots model-checks the keys.
+	const bag: Record<string, unknown> = {};
+	for (const row of rows) {
+		bag[row.key] = [{ type: DATAFRAME_RELATION_TYPE, main_component_tipo: mainTipo }];
+	}
+	return [...declared, ...(await discoveredSlots(mainTipo, bag, declared))];
 }
 
 /**

@@ -506,6 +506,10 @@ Merged since the last release; these ship with the next one.
     the label dataframe of IRI fields. Ontology authors: `has_dataframe: true` is still what switches
     a text field's dataframes on.
 
+    A dataframe a list or form adds to a field on its own (without the field declaring it) now
+    belongs to the field in the same way: removing the field's value removes its dataframe values
+    there too, and the raw export includes them.
+
     Wire contract: `WC-2026-08-09-time-machine-restore-replays-paired-dataframe-frames`, `WC-2026-08-09-export-raw-dataframe-own-column`.
 
 - **Search filter chips past the first page show their labels.**

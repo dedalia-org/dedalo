@@ -50,7 +50,10 @@ import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { assertMatrixTable } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
-import { resolveDataframeSlotTipos } from '../../src/core/relations/dataframe_slots.ts';
+import {
+	resolveDataframeSlotTipos,
+	resolveSectionSlotTipos,
+} from '../../src/core/relations/dataframe_slots.ts';
 import { readSection } from '../../src/core/section/read.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
@@ -61,8 +64,10 @@ import {
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import { assertExportDeclarationReadable } from '../../src/diffusion/export/grid.ts';
 import { exportGridUnified } from '../../src/diffusion/export/index.ts';
 import { toolTimeMachineApplyValue } from '../../tools/tool_time_machine/server/tool_time_machine.ts';
+import { exportFrontierIdentity } from '../helpers/export_frontier_identity.ts';
 import golden from './fixtures/has_dataframe_native/list_items.golden.json';
 
 /**
@@ -704,7 +709,13 @@ describe('T2-SL-6: a literal reads the ONE declared slot set (+ a caller-injecte
 		const exportedSlots = [CHILD, SIBLING, INJECTED]
 			.filter((slot) => JSON.stringify(exported).includes(`${ZSECTION}_${slot}`))
 			.sort();
-		expect(exportedSlots).toEqual(declared);
+		// The export's column set is ONE per run: the declared slots ∪ every slot
+		// a record of the section holds LIT's frames in (B3 review M3 — the
+		// caller-injected test above left frames in INJECTED, so it is a column,
+		// empty for this record).
+		const sectionSlots = (await resolveSectionSlotTipos(ZSECTION, LIT)).sort();
+		expect(sectionSlots).toEqual(expect.arrayContaining(declared));
+		expect(exportedSlots).toEqual(sectionSlots);
 
 		// SAVE: removing the item strips its frame from every slot of the set.
 		const mark = (
@@ -751,5 +762,130 @@ describe('T2-SL-6: a literal reads the ONE declared slot set (+ a caller-injecte
 		} as never);
 		expect(restored.ok).toBe(true);
 		expect(await zRelationKeys(id)).toEqual(declared);
+	}, 60_000);
+
+	test('CROSS-DOOR, INJECTED (B3 review M3, owner ruling 2026-11-21): a caller-injected slot is in the SAME set for read, remove cascade, Time Machine and raw export', async () => {
+		// INJECTED is declared NOWHERE: a caller names it as LIT's child, the
+		// client then saves frames into it paired with LIT's items. Ruled: those
+		// frames are LIT's like a declared slot's — no door may orphan them.
+		const all = [CHILD, SIBLING, INJECTED].sort();
+		const id = await zRecord(LIT, all);
+		const callerMap = [
+			{ tipo: LIT, section_tipo: ZSECTION, parent: ZSECTION, mode: 'edit' },
+			{ tipo: INJECTED, section_tipo: ZSECTION, parent: LIT },
+		];
+
+		// READ (the caller's map names the slot)
+		expect(await readSlots(id, callerMap)).toEqual(all);
+
+		// EXPORT (dedalo_raw): a column for the injected slot too, holding its frame.
+		const exported = JSON.stringify(
+			await exportGridUnified({
+				principal: await resolvePrincipal(-1),
+				userId: -1,
+				background: false,
+				options: {
+					section_tipo: ZSECTION,
+					model: 'section',
+					data_format: 'dedalo_raw',
+					breakdown: 'default',
+					fill_the_gaps: false,
+					lang: 'lg-eng',
+					ar_ddo_to_export: [
+						{ path: [{ section_tipo: ZSECTION, component_tipo: LIT, name: LIT }] },
+					],
+					sqo: {
+						section_tipo: [ZSECTION],
+						offset: 0,
+						filter_by_locators: [{ section_tipo: ZSECTION, section_id: String(id) }],
+					},
+				},
+			} as never),
+		);
+		expect(all.filter((slot) => exported.includes(`${ZSECTION}_${slot}`))).toEqual(all);
+		expect(exported).toContain(`\\"from_component_tipo\\":\\"${INJECTED}\\"`);
+
+		// SAVE: removing the item strips its frame from the injected slot too.
+		const mark = (
+			(await sql.unsafe('SELECT COALESCE(MAX(id), 0) AS m FROM matrix_time_machine')) as {
+				m: number;
+			}[]
+		)[0]?.m;
+		const removed = await saveComponentData({
+			componentTipo: LIT,
+			sectionTipo: ZSECTION,
+			sectionId: id,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'remove', id: 1, value: null }],
+			userId: -1,
+		});
+		expect(removed.ok).toBe(true);
+		expect(await zRelationKeys(id)).toEqual([]);
+
+		// TIME MACHINE: the baseline row carries the injected slot's frame, and
+		// restoring it puts every slot back.
+		const rows = (await sql.unsafe(
+			`SELECT id, data FROM matrix_time_machine
+			  WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND id > $4 AND tm_role IS NULL
+			  ORDER BY id ASC`,
+			[ZSECTION, id, LIT, Number(mark)],
+		)) as { id: number; data: unknown }[];
+		const before = rows.find(
+			(row) => Array.isArray(row.data) && (row.data as ZItem[]).some((e) => e.type === 'dd490'),
+		);
+		expect(
+			((before?.data ?? []) as ZItem[])
+				.filter((entry) => entry.type === 'dd490')
+				.map((entry) => String(entry.from_component_tipo))
+				.sort(),
+		).toEqual(all);
+		const restored = await toolTimeMachineApplyValue({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			background: false,
+			options: {
+				section_tipo: ZSECTION,
+				section_id: id,
+				tipo: LIT,
+				lang: 'lg-nolan',
+				matrix_id: before?.id,
+			},
+		} as never);
+		expect(restored.ok).toBe(true);
+		expect(await zRelationKeys(id)).toEqual(all);
+
+		// THE DECLARATION GATE asks the SAME set: a non-admin who may read the main
+		// and its declared slots but not the injected one is refused the run (the
+		// frames would ride along as a column), and served once granted.
+		const identity = exportFrontierIdentity('has_dataframe_injected_export', 935700);
+		const granted = [ZSECTION, LIT, CHILD, SIBLING].map((tipo) => ({
+			sectionTipo: ZSECTION,
+			tipo,
+			level: 1,
+		}));
+		const rawOptions = {
+			section_tipo: ZSECTION,
+			data_format: 'dedalo_raw',
+			ar_ddo_to_export: [{ path: [{ section_tipo: ZSECTION, component_tipo: LIT, name: LIT }] }],
+			sqo: { section_tipo: [ZSECTION] },
+		};
+		try {
+			await identity.install(granted, []);
+			let refusal: unknown = null;
+			try {
+				await assertExportDeclarationReadable(identity.scoped, rawOptions, { noteRefusals: false });
+			} catch (error) {
+				refusal = error;
+			}
+			expect((refusal as { code?: unknown } | null)?.code).toBe('perm.denied');
+			expect(String(refusal)).toContain(INJECTED);
+			await identity.setScopedGrants([
+				...granted,
+				{ sectionTipo: ZSECTION, tipo: INJECTED, level: 1 },
+			]);
+			await assertExportDeclarationReadable(identity.scoped, rawOptions, { noteRefusals: false });
+		} finally {
+			await identity.remove(false);
+		}
 	}, 60_000);
 });

@@ -59,7 +59,6 @@ import {
 	historyStamp,
 	readMainSlots,
 	recordKeyChangeRows,
-	resolveDataframeSlotTipos,
 } from './dataframe_slots.ts';
 import { resolveProjectsScope } from './filter_projects.ts';
 import { componentDeclaresOrder } from './order_locators.ts';
@@ -1591,8 +1590,9 @@ export async function getRelationTypeByTipo(tipo: string): Promise<string> {
 /**
  * PHP trait.dataframe_common::remove_dataframe_data_by_id (:280-369) — the
  * server-authoritative cascade fired when ONE data item of a main component
- * is removed: every dataframe slot of the main (resolveDataframeSlotTipos —
- * relation AND literal mains, iri's fixed dd560 included) loses the frame
+ * is removed: every dataframe slot of the main (readMainSlots — relation AND
+ * literal mains, iri's fixed dd560 and caller-injected slots included) loses
+ * the frame
  * locators paired with that item (id_key contract), sibling items' frames
  * untouched.
  *
@@ -1623,11 +1623,17 @@ export async function removeDataframeDataById(
 	bulkProcessId: number | null = null,
 ): Promise<void> {
 	const { getNode } = await import('../ontology/resolver.ts');
-	// THE one slot-discovery law (dataframe_slots.ts): ontology dataframe
-	// children ∪ own show/hide ddos ∪ the model's fixed frames — so a literal
-	// main switched on with has_dataframe (no request_config of its own) and
-	// component_iri's fixed dd560 slot cascade exactly like a relation main.
-	const slotTipos = await resolveDataframeSlotTipos(mainComponentTipo);
+	// THE one slot-discovery law (dataframe_slots.ts readMainSlots — the set the
+	// Time Machine composes): ontology dataframe children ∪ own show/hide ddos ∪
+	// the model's fixed frames ∪ every key of THIS record holding one of the
+	// main's frames — so a literal main switched on with has_dataframe,
+	// component_iri's fixed dd560 slot AND a slot a caller injected (named only
+	// by a caller's map; B3 review M3, owner ruling 2026-11-21) cascade exactly
+	// like a relation main's declared slot. Read under the caller's row lock.
+	const { slots: slotTipos } = await readMainSlots(
+		{ table, sectionTipo, sectionId },
+		mainComponentTipo,
+	);
 	if (slotTipos.length === 0) return;
 
 	// Delete policy PER SLOT, read from the SLOT node (dataframeDeletePolicyOf:

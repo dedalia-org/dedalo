@@ -196,3 +196,23 @@ children only — and now answer the same:
   door narrowing or widening it alone goes red).
 - **Gate reconciliation:** TS-native only. `has_dataframe_literal` golden (child slot, oracle
   captured) is unchanged; no frozen fixture holds a config-only literal slot. No re-harvest.
+
+## Addendum 2026-11-21 — caller-injected slots join the set of every door (B3 review M3)
+
+Owner ruling 2026-11-21 (B3 Q2): a slot only a CALLER names (a `component_dataframe` injected as
+a literal's child in the request's ddo_map — the read's `literalFrameSlots`) is the main's, no
+orphans. Each door now finds it by the frames it holds, the discovery the Time Machine already
+used (`readMainSlots` — declared ∪ every key of the record holding one of the main's frames):
+
+- **Remove / clear cascade** (`src/core/relations/save.ts` `removeDataframeDataById`): the slot
+  set is `readMainSlots` of the record (was the declared set only) — removing or clearing an
+  item strips its frames from an injected slot too. Read under the caller's row lock.
+- **Raw export**: the section-wide form, `resolveSectionSlotTipos` (see
+  WC-2026-08-09-export-raw-dataframe-own-column, addendum 2026-11-21 M3).
+- **Time Machine**: unchanged (`readMainSlots` / `rowSlotTipos` already composed and restored it).
+- **Read**: unchanged — an injected slot is emitted when the caller names it.
+- **Not changed (open):** the record wipe (`delete_record.ts` `wipeDeclaredSlotsOfMains`) still
+  strips the DECLARED slots only.
+- Gate: `test/unit/has_dataframe_literal_native.test.ts` → "CROSS-DOOR, INJECTED" (read with the
+  caller's map, raw export column + frame, remove cascade, TM baseline row + restore, declaration
+  gate; red before: export column missing, cascade left the injected frame).

@@ -111,3 +111,17 @@ slot (dd560) — both were absent from a dump that claims to be lossless. Column
 set's order (children, config, fixed). Gate: the CROSS-DOOR case of
 `test/unit/has_dataframe_literal_native.test.ts`
 (see WC-2026-08-09-time-machine-restore-replays-paired-dataframe-frames, addendum 2026-11-21).
+
+## Addendum 2026-11-21 — a caller-injected slot gets its column too (B3 review M3)
+
+Owner ruling 2026-11-21 (B3 Q2): a dataframe slot a CALLER injects (a section map naming a
+`component_dataframe` as a literal's child — declared nowhere on the main) is the main's like a
+declared one, for every door. The `dedalo_raw` frame columns — and their once-per-run
+authorization — now come from `resolveSectionSlotTipos(section, main)`
+(`src/core/relations/dataframe_slots.ts`): the declared set ∪ every slot ANY record of the
+exported section holds one of the main's frames in (model-checked, sorted). The column set stays
+ONE per run (memoized per section + main; a record without frames there gets an empty cell),
+and a caller without a read grant on an injected slot is refused the run (`perm.denied` naming
+the slot), exactly like a declared one. Cost: one pass over the section's relation column per run
+(and one per declaration re-check). Gate: `has_dataframe_literal_native` → "CROSS-DOOR, INJECTED"
+(the injected frame exported; the declaration gate refuses without the grant, serves with it).
