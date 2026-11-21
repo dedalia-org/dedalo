@@ -628,7 +628,7 @@ export async function getOrderedSubtree(
 	const ordered = orderDepthFirst(rows.map(toSubtreeNode), rootTipo);
 	if (options.includeRoot) {
 		const rootRows = (await sql.unsafe(
-			`SELECT ${SUBTREE_FULL_COLUMNS.join(', ')}
+			`SELECT tipo, parent, model, term, machine_name, use_machine_name, properties, relations, order_number
 			 FROM dd_ontology WHERE tipo = $1 LIMIT 1`,
 			[rootTipo],
 		)) as Parameters<typeof toSubtreeNode>[0][];

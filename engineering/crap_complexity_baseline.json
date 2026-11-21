@@ -4,9 +4,9 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 946,
-		"functions": 16679,
-		"functionsOverCap": 643,
+		"files": 951,
+		"functions": 16815,
+		"functionsOverCap": 642,
 		"filesOverCap": 255
 	},
 	"ledger": [
@@ -239,6 +239,11 @@
 		{
 			"generated": "2026-11-14",
 			"functionsOverCap": 643,
+			"filesOverCap": 255
+		},
+		{
+			"generated": "2026-11-21",
+			"functionsOverCap": 642,
 			"filesOverCap": 255
 		}
 	],
