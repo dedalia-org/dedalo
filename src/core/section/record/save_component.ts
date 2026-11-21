@@ -88,7 +88,11 @@ import {
 	type ToolAddNewElementAccess,
 	validateRelationInsert,
 } from '../../relations/save.ts';
-import { isEmptyComponentData } from '../../resolve/data_item_emptiness.ts';
+import {
+	dataItemEmptinessOf,
+	isEmptyComponentData,
+	isFieldlessValueItem,
+} from '../../resolve/data_item_emptiness.ts';
 import {
 	lockLocatorTargets,
 	persistAppendedKeyItems,
@@ -821,6 +825,39 @@ function releasedByCollapse(
 }
 
 /**
+ * THE NO-FIELD REFUSAL (B3 review M2, owner ruling 2026-11-21): a value-carrying
+ * change to a lang-sliced literal whose item holds its content in NONE of the
+ * model's value fields (data_item_emptiness.ts isFieldlessValueItem — a locator
+ * sent to an input_text / text_area, a `{value}` item sent to a component_iri)
+ * is refused, never collapsed: the collapse below would judge it empty, store
+ * nothing and answer ok, so the caller (an importer above all) would report a
+ * write that did not happen. Judged per ITEM of `insert` / `update` / `set_data`
+ * (the actions carrying items); a genuinely empty item — a value field null or
+ * '', or only `id` / `lang` — still collapses. Pure; the message names the
+ * change and the item position, never the content.
+ */
+export function fieldlessValueRefusal(
+	model: string | null,
+	changedData: readonly ChangedDataItem[],
+): string | null {
+	if (model === null || !isLangSlicedModel(model)) return null;
+	const rule = dataItemEmptinessOf(model);
+	for (const [index, change] of changedData.entries()) {
+		const items =
+			change.action === 'insert' || change.action === 'update'
+				? [change.value]
+				: change.action === 'set_data' && Array.isArray(change.value)
+					? (change.value as unknown[])
+					: [];
+		const position = items.findIndex((item) => isFieldlessValueItem(rule, item));
+		if (position !== -1) {
+			return `changed_data[${index}] (${change.action}) item ${position}: holds no field ${model} stores its value in`;
+		}
+	}
+	return null;
+}
+
+/**
  * THE LITERAL COLLAPSE (T2-SL-4, PHP set_data_lang `is_empty_data(merged) ?
  * null : merged`): a lang-sliced literal whose WHOLE value — every language —
  * carries nothing is stored as ABSENT, never as a husk of `{id, lang, ''}`
@@ -1168,6 +1205,23 @@ export async function saveComponentData(request: SaveRequest): Promise<SaveResul
 	if (shapeRefusal !== null) {
 		throw new DedaloError('request.invalid_data', {
 			message: `saveComponentData: malformed value for ${dataModel ?? 'unknown model'} '${effectiveRequest.componentTipo}' — ${shapeRefusal}`,
+			coordinates: {
+				tipo: effectiveRequest.componentTipo,
+				model: dataModel ?? 'unknown',
+				section_tipo: effectiveRequest.sectionTipo,
+				section_id: effectiveRequest.sectionId,
+			},
+		});
+	}
+
+	// THE NO-FIELD REFUSAL (fieldlessValueRefusal above; B3 review M2). Same
+	// pre-transaction reasoning, AFTER the shape law (items are objects by then):
+	// nothing written, no counter raised, no Time Machine row.
+	const fieldless = fieldlessValueRefusal(dataModel, effectiveRequest.changedData);
+	if (fieldless !== null) {
+		throw new DedaloError('request.invalid_data', {
+			message: `saveComponentData: no value field for ${dataModel ?? 'unknown model'} '${effectiveRequest.componentTipo}' — ${fieldless}`,
+			publicMessage: fieldless,
 			coordinates: {
 				tipo: effectiveRequest.componentTipo,
 				model: dataModel ?? 'unknown',

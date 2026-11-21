@@ -31,3 +31,23 @@
   an emptied literal is absent, its rows `null`), `tm_lang_slice_restore_native` (the emptied
   row is `null`; restoring it is still a no-op), `import_create_door_native` (its fixture linked
   through a text_area, which kept a bare locator in the string key — not text, so now absent).
+
+## Addendum 2026-11-21 — a value held in NO field is refused, not collapsed (B3 review M2)
+
+- **Decision:** owner ruling 2026-11-21 (B3 Q3): refuse loudly. Gated:
+  `lang_fallback_empty_slice_native` → "T2-SL-4 review M2"; `import_create_door_native` → "LINK
+  into a TEXT field".
+- **Shape before (TS, since T2-SL-4):** a change whose item carried something but none of the
+  model's value fields — a locator sent to an input_text / text_area, `{value}` sent to a
+  component_iri — was judged empty by the collapse: `ok:true`, `data: []`, nothing stored. An
+  importer reported the record written. (Before T2-SL-4 the stray object itself was stored.)
+- **Shape after (TS):** the save door refuses it BEFORE the transaction: `request.invalid_data`
+  (`saveComponentData: no value field for <model> '<tipo>' — changed_data[i] (<action>) item j:
+  …`), nothing written, no counter raised, no Time Machine row. Judged per item of `insert` /
+  `update` / `set_data` (`fieldlessValueRefusal`, rule `isFieldlessValueItem` in
+  `data_item_emptiness.ts`: value fields `value`, or `iri` / `title` for the iri rule; `id` /
+  `lang` are identity). A genuinely empty item — a value field null / `''`, or only `id` / `lang`
+  — still collapses to absent. Importers report the record (mapped) / row (CSV) failed.
+- **Gate reconciliation:** `import_create_door_native` links through test3's portal `test80`
+  again (the "created AND linked" control restored; `authz_door_fixture` grants it at 2 to CONTROL
+  and TEXT_ONLY), and pins the text_area link as a reported failure.

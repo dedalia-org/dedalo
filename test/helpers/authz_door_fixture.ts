@@ -39,6 +39,9 @@
  *                                                   core create is SECTION level and does not)
  *                                                   + test6100.test6394=1 (test6100's time_machine_list: TM ACCESS
  *                                                   there — the create_tm_note door's served leg, T0-4 part C)
+ *                                                   + test80=2 (test3's portal → test3: the importers' LINK field,
+ *                                                   import_create_door_native 1b — a link is a locator, so it
+ *                                                   needs a relation component, never a text field)
  *   944002/944012 SECTION_ONLY     No      P        test3=2, MEDIA_COMPONENTS=0 (explicit), test101=1,
  *                                                   test126=2 (may create: its refusals are the components')
  *   944003/944013 COMPONENT_ONLY   No      P        test3=0 (explicit), MEDIA_COMPONENTS=2, test101=1
@@ -49,7 +52,7 @@
  *                                                   tool_identify, tool_rag
  *   944008/944018 LEVEL_1          No      P        test3=1 + MEDIA_COMPONENTS=1 + test101=1 (read, never write)
  *   944009/944019 TEXT_ONLY        No      P        test3=2, test17=2, AUTHZ_SUBTITLE_TEXT_AREA=2, test94=0,
- *                                                   test126=2 (may create)
+ *                                                   test126=2 (may create), test80=2 (the LINK field, as CONTROL)
  *                                                   (the transcript is writable, its AV is not)
  *   944010/944020 TRANSCRIBER      No      P        test3=2, test17=2, AUTHZ_SUBTITLE_TEXT_AREA=2, test94=1
  *                                                   (the typical transcriber: hears the AV, writes the transcript)
@@ -320,6 +323,8 @@ const CONTROL_GRANTS: [string, string, number][] = [
 	// asks it at the portal "+", duplicate, add_child and the MCP create doors.
 	// Core create is SECTION level (authorizeSectionCreate, D4 REVISED): not asked.
 	[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
+	// test3's portal → test3: the importers' LINK field (import_create_door_native 1b).
+	[AUTHZ_SECTION, AUTHZ_PORTAL, 2],
 ];
 
 /** test65's tree (children, parent link, order) writable, its filter readable. */
@@ -429,6 +434,8 @@ const IDENTITIES: readonly IdentitySpec[] = [
 			// May create in test3: its refusal on a create door (MCP find_or_create's
 			// SET field) must be the AV's, not the button's.
 			[AUTHZ_SECTION, AUTHZ_BUTTON_NEW, 2],
+			// The importers' LINK field, as CONTROL: only the NAME (test52) separates them.
+			[AUTHZ_SECTION, AUTHZ_PORTAL, 2],
 		],
 	},
 	{

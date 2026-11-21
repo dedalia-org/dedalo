@@ -70,6 +70,37 @@ export function isEmptyDataItem(rule: DataItemEmptinessRule, item: unknown): boo
 	return RULE_PREDICATES[rule](item as ItemFields);
 }
 
+/** The fields each rule reads — where an item of that rule HOLDS its value. */
+const RULE_VALUE_FIELDS: Readonly<Record<DataItemEmptinessRule, readonly string[]>> = {
+	common: ['value'],
+	string: ['value'],
+	rich_text: ['value'],
+	iri: ['iri', 'title'],
+};
+
+/** The keys every literal item carries beside its value: identity, never a value. */
+const ITEM_IDENTITY_KEYS: ReadonlySet<string> = new Set(['id', 'lang']);
+
+/**
+ * An item that CARRIES something yet holds it in NONE of the rule's value
+ * fields (B3 review M2, owner ruling 2026-11-21): a locator sent to an
+ * input_text / text_area, a `{value}` item sent to a component_iri. The rule
+ * above judges such an item empty — so a save of it would collapse to absent
+ * and answer ok with nothing written; the save door REFUSES it instead
+ * (save_component.ts fieldlessValueRefusal). "Carries something" = a
+ * non-scalar-blank field beyond the item's identity (`id`, `lang`), or a
+ * non-blank bare scalar. An item that names a value field — even null / '' —
+ * or carries only its identity is a genuine empty and is NOT this.
+ */
+export function isFieldlessValueItem(rule: DataItemEmptinessRule, item: unknown): boolean {
+	if (item === null || item === undefined) return false;
+	if (typeof item !== 'object' || Array.isArray(item)) return !isBlankScalar(item);
+	if (RULE_VALUE_FIELDS[rule].some((field) => Object.hasOwn(item, field))) return false;
+	return Object.entries(item).some(
+		([key, value]) => !ITEM_IDENTITY_KEYS.has(key) && !isBlankScalar(value),
+	);
+}
+
 /** The declared emptiness rule of a model; loud when it declares none. */
 export function dataItemEmptinessOf(model: string): DataItemEmptinessRule {
 	const rule = getComponentModel(model)?.dataItemEmptiness;

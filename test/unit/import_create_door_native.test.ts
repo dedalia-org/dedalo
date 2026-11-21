@@ -65,6 +65,7 @@ import { executeCsvImport } from '../../src/core/tools/import_csv_execute.ts';
 import { importMappedRecords, type RecordAddress } from '../../src/core/tools/import_execute.ts';
 import {
 	AUTHZ_FILTER,
+	AUTHZ_PORTAL,
 	AUTHZ_PROJECT_P,
 	AUTHZ_PROJECT_Q,
 	AUTHZ_SECTION,
@@ -186,7 +187,7 @@ async function importMatched(
  * record NAMED (test52) `name` — absent, so the link must create it. The named
  * record it creates is swept by name (it is not one of the run's createdIds).
  */
-async function importLinked(principal: Principal, name: string) {
+async function importLinked(principal: Principal, name: string, linkField = AUTHZ_PORTAL) {
 	linkNames.add(name);
 	const report = await importMappedRecords(
 		[
@@ -195,7 +196,7 @@ async function importLinked(principal: Principal, name: string) {
 				fields: [],
 				links: [
 					{
-						component_tipo: AUTHZ_TEXT_AREA,
+						component_tipo: linkField,
 						target: { sectionTipo: AUTHZ_SECTION, componentTipo: AUTHZ_TEXT },
 						text: name,
 					},
@@ -409,8 +410,9 @@ describe.if(DB_READY)(
 			expect(await recordsNamed(name)).toEqual([]);
 		});
 
-		test('MAPPED, LINK to an absent name, the served twin (CONTROL): the named record created', async () => {
+		test('MAPPED, LINK to an absent name, the served twin (CONTROL): the named record created and linked', async () => {
 			expect(await getPermissions(ids.control, AUTHZ_SECTION, AUTHZ_TEXT)).toBe(2);
+			expect(await getPermissions(ids.control, AUTHZ_SECTION, AUTHZ_PORTAL)).toBe(2);
 			const name = `zzlink served ${process.pid}`;
 			const report = await importLinked(ids.control, name);
 			expect(report.failed).toEqual([]);
@@ -418,16 +420,34 @@ describe.if(DB_READY)(
 			expect(named).toHaveLength(1);
 			const created = report.createdIds[0] as number;
 			const linked = (await sql.unsafe(
-				`SELECT relation -> '${AUTHZ_TEXT_AREA}' AS l, string -> '${AUTHZ_TEXT_AREA}' AS s FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`,
+				`SELECT relation -> '${AUTHZ_PORTAL}' AS l FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`,
 				[AUTHZ_SECTION, created],
-			)) as { l: unknown; s: unknown }[];
-			// The door under test is the NAMED record's create — asserted above. The
-			// fixture's link field is a text_area (the one component both identities
-			// may write), and a locator is not text: an all-empty literal value is
-			// stored as absent (T2-SL-4), so the host holds nothing under that key.
-			// (It used to keep the bare locator inside the text_area's string key.)
-			expect(linked[0]).toEqual({ l: null, s: null });
-			expect(importedIds.has(created)).toBe(true);
+			)) as { l: unknown }[];
+			// The link field is test3's portal → test3: the host holds ONE locator, to
+			// the record the link created.
+			const locators = (linked[0]?.l ?? []) as { section_tipo?: unknown; section_id?: unknown }[];
+			expect(locators.map((locator) => [locator.section_tipo, Number(locator.section_id)])).toEqual(
+				[[AUTHZ_SECTION, named[0]]],
+			);
+		});
+
+		test('MAPPED, LINK into a TEXT field (CONTROL): the record is reported FAILED, nothing written (B3 review M2)', async () => {
+			// A link is a locator; a text_area holds its value in `value`. The save
+			// door refuses a value the model holds in no field (owner ruling
+			// 2026-11-21), so the importer must report the record failed — it used to
+			// report it created while the host held nothing under the key.
+			const before = await rowCount();
+			const name = `zzlink text ${process.pid}`;
+			const report = await importLinked(ids.control, name, AUTHZ_TEXT_AREA);
+			expect(report.createdIds).toEqual([]);
+			expect(report.failed.map((failure) => String(failure.msg))).toEqual([
+				expect.stringContaining('the record was not written'),
+			]);
+			expect(report.failed.map((failure) => String(failure.msg))).toEqual([
+				expect.stringContaining(AUTHZ_TEXT_AREA),
+			]);
+			expect(await rowCount()).toBe(before);
+			expect(await recordsNamed(name)).toEqual([]);
 		});
 
 		// --- 1c. an ADDRESSED record (MappedRecord.address — the Zotero call-number) --

@@ -468,6 +468,7 @@ const AREA = `${ZTLD}3`;
 const FRAMED = `${ZTLD}4`;
 const SLOT = `${ZTLD}5`;
 const MULTI = `${ZTLD}6`; // a second plain literal: the pure-insert case's own key
+const ZIRI = `${ZTLD}7`; // component_iri: its value lives in `iri` / `title`, not `value`
 
 const COLLAPSE_SITUATION = situation({
 	tld: ZTLD,
@@ -504,6 +505,13 @@ const COLLAPSE_SITUATION = situation({
 			is_translatable: true,
 			term: { 'lg-eng': 'Multi' },
 		},
+		{
+			tipo: ZIRI,
+			parent: ZSECTION,
+			model: 'component_iri',
+			is_translatable: false,
+			term: { 'lg-eng': 'Iri' },
+		},
 	],
 });
 
@@ -512,7 +520,7 @@ type Stored = Record<string, unknown>;
 /** The stored key, and whether the column HOLDS the key at all. */
 async function storedKey(
 	sectionId: number,
-	column: 'string' | 'relation',
+	column: 'string' | 'relation' | 'iri',
 	key: string,
 ): Promise<{ present: boolean; value: unknown }> {
 	const rows = (await sql.unsafe(
@@ -677,5 +685,95 @@ describe('T2-SL-4: an all-empty literal value is stored as absent', () => {
 		await write(id, FRAMED, DEFAULT, '');
 		expect(await storedKey(id, 'string', FRAMED)).toEqual({ present: false, value: null });
 		expect(await frames()).toEqual([]);
+	}, 30_000);
+});
+
+describe('T2-SL-4 review M2 (owner ruling 2026-11-21): a value the model holds in NO field is refused', () => {
+	// A change whose item carries something but none of the model's value fields
+	// (a locator into input_text / text_area, a {value} item on component_iri)
+	// used to answer ok:true and store nothing (the collapse judged it empty) —
+	// before T2-SL-4 it stored the stray object. Ruled: REFUSED loudly
+	// (request.invalid_data), nothing written; a genuinely empty change still
+	// collapses to absent.
+	const LOCATOR = { type: 'dd151', section_tipo: 'test3', section_id: '1' };
+
+	beforeAll(async () => {
+		await assertTestDatabase('lang_fallback_empty_slice_native');
+		await ensureSituation(COLLAPSE_SITUATION);
+	}, 60_000);
+
+	afterAll(async () => {
+		await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe('DELETE FROM dedalo_ts_record_generation WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe(`DELETE FROM "${TABLE}" WHERE section_tipo = $1`, [ZSECTION]);
+		await sql.unsafe(`DELETE FROM matrix_activity WHERE data->>'section_tipo' = $1`, [ZSECTION]);
+		expect(await dropSituation(COLLAPSE_SITUATION)).toBe(0);
+	}, 60_000);
+
+	/** The save's refusal, or null when it did not throw. */
+	async function refusal(
+		sectionId: number,
+		tipo: string,
+		lang: string,
+		changedData: Record<string, unknown>[],
+	): Promise<{ code: unknown; message: string } | null> {
+		try {
+			await save(sectionId, tipo, lang, changedData);
+			return null;
+		} catch (error) {
+			return { code: (error as { code?: unknown }).code, message: String(error) };
+		}
+	}
+
+	test('a locator INSERTED into input_text: refused, the stored value and history untouched', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, PLAIN, DEFAULT, 'kept');
+		const before = await storedKey(id, 'string', PLAIN);
+		const mark = await tmWatermark();
+		const refused = await refusal(id, PLAIN, DEFAULT, [{ action: 'insert', value: LOCATOR }]);
+		expect(refused?.code).toBe('request.invalid_data');
+		expect(refused?.message).toContain(PLAIN);
+		expect(await storedKey(id, 'string', PLAIN)).toEqual(before);
+		expect(await tmRows(id, PLAIN, mark)).toEqual([]);
+	}, 30_000);
+
+	test('a locator set into an EMPTY text_area: refused — not a silent ok with nothing written', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		const mark = await tmWatermark();
+		const refused = await refusal(id, AREA, DEFAULT, [{ action: 'set_data', value: [LOCATOR] }]);
+		expect(refused?.code).toBe('request.invalid_data');
+		expect(await storedKey(id, 'string', AREA)).toEqual({ present: false, value: null });
+		expect(await tmRows(id, AREA, mark)).toEqual([]);
+	}, 30_000);
+
+	test('component_iri: a {value} item is refused; the same text in `iri` is stored (control)', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		const refused = await refusal(id, ZIRI, NOLAN, [
+			{ action: 'insert', value: { value: 'https://example.org/a' } },
+		]);
+		expect(refused?.code).toBe('request.invalid_data');
+		expect(await storedKey(id, 'iri', ZIRI)).toEqual({ present: false, value: null });
+		const served = await save(id, ZIRI, NOLAN, [
+			{ action: 'insert', value: { iri: 'https://example.org/a' } },
+		]);
+		expect(served.ok).toBe(true);
+		expect(((await storedKey(id, 'iri', ZIRI)).value as Stored[]).map((item) => item.iri)).toEqual([
+			'https://example.org/a',
+		]);
+	}, 30_000);
+
+	test('a genuinely EMPTY change still collapses: an item with only its identity, a null iri', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, PLAIN, DEFAULT, 'gone');
+		const cleared = await save(id, PLAIN, DEFAULT, [
+			{ action: 'update', id: 1, key: 0, value: { id: 1, lang: DEFAULT } },
+		]);
+		expect(cleared.ok).toBe(true);
+		expect(await storedKey(id, 'string', PLAIN)).toEqual({ present: false, value: null });
+		const iri = await save(id, ZIRI, NOLAN, [
+			{ action: 'insert', value: { iri: null, title: '', value: null } },
+		]);
+		expect(iri.ok).toBe(true);
+		expect(await storedKey(id, 'iri', ZIRI)).toEqual({ present: false, value: null });
 	}, 30_000);
 });

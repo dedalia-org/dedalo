@@ -1563,6 +1563,10 @@ Merged since the last release; these ship with the next one.
     Records saved before this change keep their empty items until they are next saved; every reader
     already treats them as empty.
 
+    A save that sends a text field something it cannot hold — a link to a record, or an IRI field's
+    text outside its address and title — is refused with an error and writes nothing; an import
+    reports that record or row as failed instead of written.
+
     Wire contract: `WC-2026-11-21-empty-literal-stored-absent`.
 
 - **The Update-code panel says when the database's data version blocks a code update**
