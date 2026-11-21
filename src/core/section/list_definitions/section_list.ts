@@ -25,7 +25,7 @@
 import { sql } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
-import { getModelByTipo } from '../../ontology/resolver.ts';
+import { findFirstChildByModel, getModelByTipo } from '../../ontology/resolver.ts';
 import { type ConfigDdoMapSource, flattenConfigDdoMaps } from '../../relations/config_ddo_map.ts';
 import { selectLocalConfigItem } from '../../relations/request_config/engine_select.ts';
 
@@ -130,15 +130,12 @@ export async function resolveListCellMap(tipo: string): Promise<ListCellMap> {
 	const cached = cellMapCache.get(tipo);
 	if (cached !== undefined) return cached;
 
-	const childRows = (await sql.unsafe(
-		`SELECT tipo, properties, relations FROM dd_ontology
-		 WHERE parent = $1 AND model = 'section_list' LIMIT 1`,
-		[tipo],
-	)) as { tipo: string; properties: unknown; relations: { tipo?: unknown }[] | null }[];
+	// The FIRST section_list child in sibling order (a component may hold
+	// several; an unordered pick made the cell columns depend on write order).
+	const sectionList = await findFirstChildByModel(tipo, 'section_list');
 
 	let resolved: ListCellMap;
-	const sectionList = childRows[0];
-	if (sectionList !== undefined) {
+	if (sectionList !== null) {
 		const config = await pickConfig(sectionList.properties, sectionList.tipo);
 		resolved =
 			config !== null

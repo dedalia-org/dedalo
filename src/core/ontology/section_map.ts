@@ -14,10 +14,9 @@
  * (getSectionRealTipo).
  */
 
-import { sql } from '../db/postgres.ts';
 import { createOntologyCache } from './cache_factory.ts';
 import { registerOntologyCacheClearer } from './cache_invalidation.ts';
-import { getSectionRealTipo } from './resolver.ts';
+import { findFirstChildByModel, getSectionRealTipo } from './resolver.ts';
 
 /** PHP section_map::SCOPE_FALLBACK chain. */
 export const SCOPE_FALLBACK = ['main', 'thesaurus', 'relation_list'];
@@ -34,19 +33,16 @@ registerOntologyCacheClearer(clearSectionMapCache);
 export async function getSectionMap(sectionTipo: string): Promise<Record<string, unknown> | null> {
 	const cached = sectionMapCache.get(sectionTipo);
 	if (cached !== undefined) return cached;
-	const read = async (parent: string) =>
-		(await sql.unsafe(
-			`SELECT properties FROM dd_ontology WHERE parent = $1 AND model = 'section_map' LIMIT 1`,
-			[parent],
-		)) as { properties: Record<string, unknown> | null }[];
-	let rows = await read(sectionTipo);
-	if (rows.length === 0) {
+	// The FIRST section_map child in sibling order (findFirstChildByModel): a
+	// section may hold two, and an unordered pick answered either.
+	let node = await findFirstChildByModel(sectionTipo, 'section_map');
+	if (node === null) {
 		// virtual section: borrow the REAL section's map (the one law,
 		// getSectionRealTipo — a matrix_table at relations[0] is NOT a real section)
 		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) rows = await read(real);
+		if (real !== sectionTipo) node = await findFirstChildByModel(real, 'section_map');
 	}
-	const map = rows[0]?.properties ?? null;
+	const map = node?.properties ?? null;
 	sectionMapCache.set(sectionTipo, map);
 	return map;
 }
@@ -68,6 +64,23 @@ export async function getSectionMapValue(
 		}
 	}
 	return null;
+}
+
+/**
+ * The FIRST TIPO a section_map role names (scope chain as getSectionMapValue).
+ * A role is either one tipo (`"term": "es16"`) or a list of them
+ * (`"term": ["hierarchy25", "hierarchy90"]`): a consumer that needs ONE
+ * component — the name of a root term, the term a tree row is labelled by —
+ * reads the first. Null when the role is absent, empty, or names no tipo.
+ */
+export async function getSectionMapFirstTipo(
+	sectionTipo: string,
+	scope: string,
+	key: string,
+): Promise<string | null> {
+	const value = await getSectionMapValue(sectionTipo, scope, key);
+	const first = Array.isArray(value) ? value[0] : value;
+	return typeof first === 'string' && first !== '' ? first : null;
 }
 
 /**

@@ -19,10 +19,10 @@
 
 import { config as dedaloConfig } from '../../../config/config.ts';
 import { selectRequestConfigStrategy } from '../../concepts/request_config.ts';
-import { isInTransaction, sql } from '../../db/postgres.ts';
+import { isInTransaction } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { RETIRED_PROPERTY_KEYS } from '../../ontology/property_census.ts';
-import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
+import { findFirstChildByModel, getModelByTipo, getNode } from '../../ontology/resolver.ts';
 import { getSectionRealTipo } from '../../resolve/security_access_datalist.ts';
 import {
 	buildExplicitRequestConfig,
@@ -40,10 +40,12 @@ import { resolveTargetSourceFor } from './target_sources.ts';
 /**
  * Find an element's list-definition child tipo (dd_ontology, PLAIN direct
  * children — the Site-B trait's lookup is get_ar_children_of_this, never
- * resolve_virtual; class.ontology_node.php:1586-88). FIRST by order_number —
+ * resolve_virtual; class.ontology_node.php:1586-88). FIRST in sibling order —
  * PHP takes $ar_terms[0] of a children list ordered `order_number asc`
  * (class.ontology_node.php:1250-1253), and multi-child parents exist
- * (tch546×4, oh123×2, tch20×2), so the ordering is load-bearing.
+ * (tch546×4, oh123×2, tch20×2), so the ordering is load-bearing. The pick is
+ * the one ordered primitive's (ontology/resolver.ts findFirstChildByModel), so
+ * a tie on order_number resolves as everywhere else (by tipo).
  */
 const sectionListChildCache = createOntologyCache<string, string | null>();
 
@@ -61,11 +63,7 @@ export async function findSectionListChild(
 	const cacheKey = `${ownerTipo}|${model}`;
 	const cached = sectionListChildCache.get(cacheKey);
 	if (cached !== undefined) return cached;
-	const rows = (await sql`
-		SELECT tipo FROM dd_ontology WHERE parent = ${ownerTipo} AND model = ${model}
-		ORDER BY order_number ASC LIMIT 1
-	`) as { tipo: string }[];
-	const found = rows[0]?.tipo ?? null;
+	const found = (await findFirstChildByModel(ownerTipo, model))?.tipo ?? null;
 	// Not written from inside a transaction: an uncommitted ontology write must
 	// not be able to publish its answer process-wide (the resolver's own
 	// cacheWrite rule).

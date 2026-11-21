@@ -10,8 +10,7 @@
  * the real section's definition nodes.
  */
 
-import { sql } from '../../db/postgres.ts';
-import { getSectionRealTipo } from '../../ontology/resolver.ts';
+import { findFirstChildByModel, getSectionRealTipo } from '../../ontology/resolver.ts';
 
 /** A located definition node (its tipo + raw properties + relations). */
 export interface ListDefinitionNode {
@@ -27,8 +26,8 @@ export interface ListDefinitionNode {
  *
  * - Own node FIRST: a virtual that declares its own node keeps it (even with
  *   null relations); only an ABSENT own node falls back to the real section's.
- * - FIRST BY order_number (PHP ontology_node::get_ar_children_of_this order;
- *   `tipo` breaks ties so the pick never depends on heap order) — sections with
+ * - FIRST IN SIBLING ORDER (ontology/resolver.ts findFirstChildByModel — the
+ *   one ordered primitive: order_number, NULL last, tipo) — sections with
  *   several nodes of one model exist (tch546: two relation_list, two
  *   time_machine_list).
  * - `exclude_elements` is NOT applied. For relation_list that is an owner
@@ -44,20 +43,12 @@ export async function findSectionChildByModel(
 	sectionTipo: string,
 	model: string,
 ): Promise<ListDefinitionNode | null> {
-	const read = async (parent: string) =>
-		(await sql.unsafe(
-			`SELECT tipo, properties, relations FROM dd_ontology
-			 WHERE parent = $1 AND model = $2
-			 ORDER BY order_number ASC NULLS LAST, tipo ASC
-			 LIMIT 1`,
-			[parent, model],
-		)) as ListDefinitionNode[];
-	let rows = await read(sectionTipo);
-	if (rows.length === 0) {
+	let node = await findFirstChildByModel(sectionTipo, model);
+	if (node === null) {
 		// virtual section: borrow the REAL section's definition (the one law,
 		// getSectionRealTipo — a matrix_table at relations[0] is NOT a real section).
 		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) rows = await read(real);
+		if (real !== sectionTipo) node = await findFirstChildByModel(real, model);
 	}
-	return rows[0] ?? null;
+	return node;
 }

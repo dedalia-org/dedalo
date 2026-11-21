@@ -1023,7 +1023,6 @@ const DD_ONTOLOGY_DIRECT_READ_RATCHET = new Set<string>([
 	// children.ts: getRelatedParentTipo's direct `relations` read now goes
 	// through the resolver's nodeCache (getNode) — entry retired 2026-09-05
 	// (PERF-02; the staleness self-test below enforces this pruning).
-	'src/core/relations/request_config/build.ts',
 	'src/core/relations/request_config/implicit.ts',
 	// explicit.ts: findSectionButtonTipo now reads section/buttons.ts
 	// sectionButtonRows (the create gate's rows) — entry retired 2026-11-10 (T0-2).
@@ -1049,7 +1048,6 @@ const DD_ONTOLOGY_DIRECT_READ_RATCHET = new Set<string>([
 	'src/core/area_maintenance/widgets/menu_skip_tipos.ts',
 	'src/core/search/search_related.ts',
 	'src/core/section/buttons.ts',
-	'src/core/section/list_definitions/node_find.ts',
 	'src/core/section/list_definitions/section_list.ts',
 	'src/core/section/record/create_record.ts',
 	'src/core/ts_object/ts_object.ts',
