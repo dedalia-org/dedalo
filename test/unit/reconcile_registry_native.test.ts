@@ -145,7 +145,7 @@ const MN_PLANTED_ID = 2;
 /** ddo_self_depth: one portal whose map declares 'self' at depth 2 (decision (c)). */
 const SELF_DEPTH_TLD = 'zzrs';
 /** record_missing_defaults: a section whose component declares a default (owner ruling Q3). */
-const DEFAULTS_TLD = 'zzrd';
+const DEFAULTS_TLD = 'zzmdp';
 const DEFAULTS_SECTION = `${DEFAULTS_TLD}1`;
 
 const HIER_TLD = 'zzrh';

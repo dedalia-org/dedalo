@@ -71,6 +71,7 @@ import {
 import {
 	ONTOLOGY_MODEL,
 	ONTOLOGY_PROPERTIES,
+	ONTOLOGY_PROPIEDADES_V5,
 	ONTOLOGY_TLD,
 } from '../../src/core/ontology/ontology_tipos.ts';
 import { getTermIdFromLocator } from '../../src/core/ontology/parser.ts';
@@ -308,7 +309,10 @@ const COPY_INDEX = new Map(MATRIX_COPY_COLUMNS.map((column, index) => [column, i
 /** One node of a release package, as far as the wiring law reads it. */
 interface ReleaseNode {
 	modelTipo: string | null;
+	/** `properties.alias_of` as the v7 properties (ontology18) state it. */
 	aliasOf: unknown;
+	/** The LEGACY v5 propiedades (ontology19 — reference only, read by nothing) still name one. */
+	legacyAliasOf?: boolean;
 }
 
 function copyJson(fields: (string | null)[], column: string): Record<string, unknown[]> | null {
@@ -335,7 +339,9 @@ async function releaseNodes(): Promise<{ files: number; nodes: Map<string, Relea
 			const properties = (
 				copyJson(fields, 'misc')?.[ONTOLOGY_PROPERTIES]?.[0] as { value?: unknown } | undefined
 			)?.value as { alias_of?: unknown } | null | undefined;
+			const legacy = copyJson(fields, 'misc')?.[ONTOLOGY_PROPIEDADES_V5];
 			nodes.set(`${tld}${fields[COPY_INDEX.get('section_id') as number]}`, {
+				legacyAliasOf: legacy !== undefined && JSON.stringify(legacy).includes('alias_of'),
 				modelTipo:
 					modelLocator === undefined
 						? null
@@ -385,16 +391,14 @@ async function judgeAliases(
 }
 
 /**
- * Release aliases the wiring law CANNOT judge, each with its reason — named, exact, and
- * shrink-only (the test compares the set: a new one is red, and so is one the master
- * ontology fixed until its line is deleted here). Reported to the owner 2026-11-21.
+ * Release aliases the wiring law CANNOT judge: UNMIGRATED v5 aliases — a component_alias
+ * whose v7 properties (ontology18) state no `alias_of`, the target surviving only in the
+ * legacy ontology19 propiedades. Every read of one refuses (`ontology.invalid_node`, reason
+ * 'missing'); the fix is the master ontology's (reported to the owner 2026-11-21). The
+ * count is EXACT and shrink-only: a new one is red, and so is a fixed one until this
+ * number goes down. No install tipo is named here — the gate reads the vendored files.
  */
-const RELEASE_UNTARGETED_ALIASES: Readonly<Record<string, string>> = {
-	numisdata573:
-		'unmigrated v5 alias: alias_of (numisdata560) survives only in the legacy ontology19 propiedades; its v7 properties (ontology18) state none',
-	numisdata627:
-		'unmigrated v5 alias: alias_of (numisdata560) survives only in the legacy ontology19 propiedades; its v7 properties (ontology18) state none',
-};
+const RELEASE_UNMIGRATED_ALIASES = 2;
 
 describe('T2-U04-b — the alias-wiring law, one predicate', () => {
 	test('the law by model class: the portal engine and the literal path are wired; nothing else', async () => {
@@ -445,23 +449,35 @@ describe('T2-U04-b — the alias-wiring law, one predicate', () => {
 		// Floor of the JUDGED set: an alias scan that judged nothing proves nothing.
 		expect(verdict.aliases.length - verdict.untargeted.length).toBeGreaterThanOrEqual(5);
 		expect(verdict.unwired).toEqual([]);
-		expect(verdict.untargeted.sort()).toEqual(Object.keys(RELEASE_UNTARGETED_ALIASES).sort());
+		// Every alias the law could not judge is the ONE known class (alias_of only in
+		// the legacy propiedades) — any other reason (absent target, alias of an alias)
+		// is red — and that class is counted exactly.
+		expect(
+			verdict.untargeted.filter(
+				(tipo) =>
+					release.nodes.get(tipo)?.aliasOf !== undefined ||
+					release.nodes.get(tipo)?.legacyAliasOf !== true,
+			),
+		).toEqual([]);
+		expect(verdict.untargeted.length).toBe(RELEASE_UNMIGRATED_ALIASES);
 
 		// PLANTED control through the same judge: an alias of a select, of an
 		// absent target and of another alias are named; a portal alias is not.
 		const alias = await modelTipoNamed(ALIAS_MODEL);
 		const planted = new Map<string, ReleaseNode>([
-			['zzp1', { modelTipo: await modelTipoNamed('component_select'), aliasOf: undefined }],
-			['zzp2', { modelTipo: alias, aliasOf: 'zzp1' }],
-			['zzp3', { modelTipo: await modelTipoNamed('component_portal'), aliasOf: undefined }],
-			['zzp4', { modelTipo: alias, aliasOf: 'zzp3' }],
-			['zzp5', { modelTipo: alias, aliasOf: 'zzp99' }],
-			['zzp6', { modelTipo: alias, aliasOf: 'zzp4' }],
+			['zzawt1', { modelTipo: await modelTipoNamed('component_select'), aliasOf: undefined }],
+			['zzawt2', { modelTipo: alias, aliasOf: 'zzawt1' }],
+			['zzawt3', { modelTipo: await modelTipoNamed('component_portal'), aliasOf: undefined }],
+			['zzawt4', { modelTipo: alias, aliasOf: 'zzawt3' }],
+			['zzawt5', { modelTipo: alias, aliasOf: 'zzawt99' }],
+			['zzawt6', { modelTipo: alias, aliasOf: 'zzawt4' }],
 		]);
 		const control = await judgeAliases(planted, modelNameOfTipo);
-		expect(control.aliases).toEqual(['zzp2', 'zzp4', 'zzp5', 'zzp6']);
-		expect(control.unwired).toEqual(["zzp2 → zzp1: model 'component_select' is not alias-wired"]);
-		expect(control.untargeted).toEqual(['zzp5', 'zzp6']);
+		expect(control.aliases).toEqual(['zzawt2', 'zzawt4', 'zzawt5', 'zzawt6']);
+		expect(control.unwired).toEqual([
+			"zzawt2 → zzawt1: model 'component_select' is not alias-wired",
+		]);
+		expect(control.untargeted).toEqual(['zzawt5', 'zzawt6']);
 	}, 120_000);
 });
 

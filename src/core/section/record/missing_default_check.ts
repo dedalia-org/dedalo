@@ -217,7 +217,7 @@ export const RECORD_MISSING_DEFAULTS_RECONCILE: ReconcileDefinition = {
 	schedule: 'operator',
 	applyRefused: {
 		reason:
-			'report-only by owner ruling (Q3, 2026-11-19): a default is written at record creation and a read never writes; whether an existing record should take it cannot be told from a value a curator cleared on purpose, so the listed records are filled deliberately with the propagate tool (tool_propagate_component_data), never by this check',
+			'report-only by owner ruling (Q3, 2026-11-19): a default is written at record creation and a read never writes; whether an existing record should take it cannot be told from a value a curator cleared on purpose, so the listed records are filled deliberately with the propagate-component-data tool, never by this check',
 	},
 	sources: ['src/core/section/record/missing_default_check.ts'],
 	run: runMissingDefaults,

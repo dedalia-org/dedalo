@@ -170,8 +170,20 @@ describe('render class — the save half', () => {
 		});
 		expect(await storedItems(NUMBER, 'number')).toEqual(numberBefore);
 		expect(getRenderClass('component_iri')).toBe('url');
-		await saveInto(IRI, PAYLOAD);
-		expect(await storedValues(IRI, 'iri')).toEqual([PAYLOAD]);
+		// An iri item's value lives in `iri` (an item with neither `iri` nor `title`
+		// holds nothing, and an all-empty value is stored as absent — T2-SL-4).
+		const iriSaved = await saveComponentData({
+			componentTipo: IRI,
+			sectionTipo: SECTION,
+			sectionId: RECORD_ID,
+			lang: 'lg-nolan',
+			changedData: [{ action: 'insert', id: null, value: { id: null, iri: PAYLOAD } }],
+			userId: -1,
+		});
+		expect(iriSaved.ok, JSON.stringify(iriSaved)).toBe(true);
+		expect(
+			((await storedItems(IRI, 'iri')) ?? []).map((item) => (item as { iri?: unknown }).iri),
+		).toEqual([PAYLOAD]);
 	}, 30000);
 
 	test("the legacy html_text alias saves as 'html' too (one class, through the alias hop)", async () => {
