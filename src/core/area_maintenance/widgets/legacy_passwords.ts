@@ -13,9 +13,10 @@
  *   - `migrate`    runs THE SAME DOOR as the command line
  *                  (core/security/legacy_password_migration.ts) with the v6 key
  *                  material the admin types, dry unless `execute: true`, in
- *                  batches, and answers a per-run report. A run that executes
- *                  is recorded in the activity log by the door (the admin, the
- *                  converted user ids, the counts — owner ruling 2026-11-20).
+ *                  batches, and answers a per-run report. Every batch, dry
+ *                  or executed, is recorded in the activity log by the door
+ *                  (the admin, the converted user ids, the counts, dry/execute
+ *                  — owner ruling 2026-11-20).
  *
  * NEVER ON THE WIRE, IN A LOG OR IN A REPORT: a stored password value (old or
  * new), a plaintext, or the key material that was typed (it is read from the
@@ -110,7 +111,7 @@ async function legacyPasswordsMigrate(
 		Math.max(integerOption(options, 'limit') ?? LEGACY_PASSWORDS_BATCH, 1),
 		LEGACY_PASSWORDS_BATCH,
 	);
-	// The door records an executed run in the activity log, under this actor.
+	// The door records the run (dry or executed) in the activity log, under this actor.
 	const actor = {
 		userId: principal.userId,
 		host: hostFromClientIp(currentRequestContext()?.clientIp),

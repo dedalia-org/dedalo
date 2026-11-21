@@ -27,8 +27,8 @@
  * THE DOOR is src/core/security/legacy_password_migration.ts — this file is its
  * command line (arguments, the v6 config reader, the printed report). The
  * maintenance area's "Legacy passwords" panel runs the same door from the server.
- * An --execute run is recorded in the activity log by the door (who, which user
- * ids, the counts — never a credential).
+ * Every run, dry or --execute, is recorded in the activity log by the door (who,
+ * which user ids, the counts, dry/execute — never a credential).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -83,8 +83,8 @@ function keyMaterialFromConfig(
 }
 
 /**
- * WHO the activity log names for a run from here (the door writes the entry on
- * --execute): the command line has no session, so it is root — as every CLI
+ * WHO the activity log names for a run from here (the door writes the entry,
+ * dry or --execute): the command line has no session, so it is root — as every CLI
  * migration is — from host `cli`, plus the operating-system account that typed
  * the command (absent where the OS will not name it).
  */

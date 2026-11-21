@@ -27,15 +27,19 @@
  * storage format, not an edit of the account — so it stamps no modification and
  * appends no Time Machine row (write_obligations_tripwire carries the reason).
  *
- * BUT EVERY RUN THAT EXECUTES IS IN THE ACTIVITY LOG (owner ruling 2026-11-20):
- * who ran it (the panel's principal; the command line's own identity), which
- * accounts it converted (user section_ids), the counts. The door writes the
+ * BUT EVERY RUN IS IN THE ACTIVITY LOG (owner ruling 2026-11-20: "actor,
+ * accounts converted (user section_ids), counts, dry/execute"): who ran it (the
+ * panel's principal; the command line's own identity), which accounts it
+ * converted (user section_ids), the counts, and whether it wrote. A DRY run is
+ * recorded too (`execute: false`, no converted id): it tries the typed key
+ * values against every account, which is worth a trace. The door writes the
  * entry itself — a caller cannot run it unrecorded, and must name its actor to
  * call it at all — through the engine's one activity writer (logActivity →
  * matrix_activity, section dd542), as a SAVE on the maintenance area, like the
  * other audited maintenance door (publication_host_setup). The entry is counts
  * and ids: never a credential value, a hash, a plaintext or the key material.
- * A dry run converts nothing and writes no entry.
+ * Like every activity entry it is best-effort: a failed audit write is logged
+ * on the server and does not undo (or fail) the conversion.
  */
 
 import { AREA_MAINTENANCE_TIPO } from '../concepts/area.ts';
@@ -127,8 +131,10 @@ export const LEGACY_CONVERSION_ACTION = 'legacy_passwords.migrate';
  */
 export const LEGACY_CONVERSION_IDS_PER_ENTRY = 200;
 
-/** What one executed run did, as its activity entries say it. */
+/** What one run did, as its activity entries say it. */
 export interface ConversionRunFacts {
+	/** false = a dry run: it examined, and wrote nothing. */
+	execute: boolean;
 	/** false = the run threw before its end; the ids are what it had written. */
 	completed: boolean;
 	examined: number;
@@ -150,7 +156,7 @@ export interface ConversionActivityEntry {
 }
 
 /**
- * The activity entries of one executed run: one, or several when it converted
+ * The activity entries of one run (dry or executed): one, or several when it converted
  * more accounts than an entry may list. Every entry carries the run's counts;
  * only the id list is split. PURE — and the only place the payload is built, so
  * what an entry can hold is decided here: counts, ids, the actor. No account
@@ -168,11 +174,13 @@ export function conversionActivityEntries(
 		userId: actor.userId,
 		host: actor.host,
 		data: {
-			msg: 'Dédalo v6 passwords converted to Argon2id',
+			msg: facts.execute
+				? 'Dédalo v6 passwords converted to Argon2id'
+				: 'Dédalo v6 passwords checked (dry run, nothing written)',
 			action: LEGACY_CONVERSION_ACTION,
 			via: actor.via,
 			...(actor.osUser === undefined ? {} : { os_user: actor.osUser }),
-			execute: true,
+			execute: facts.execute,
 			completed: facts.completed,
 			examined: facts.examined,
 			converted: facts.converted,
@@ -349,19 +357,18 @@ export async function migrateLegacyPasswords(
 		skipped: 0,
 		examined: 0,
 	};
-	/** The run's activity entry (execute only) — also when the run is about to throw. */
+	/** The run's activity entry, dry or executed — also when the run is about to throw. */
 	const record = (completed: boolean, remaining: number | null) =>
-		execute
-			? recordConversion(actor, {
-					completed,
-					examined: outcome.examined,
-					converted: outcome.converted.length,
-					skipped: outcome.skipped,
-					unconverted: outcome.failed.length,
-					remaining,
-					convertedSectionIds: outcome.converted,
-				})
-			: Promise.resolve();
+		recordConversion(actor, {
+			execute,
+			completed,
+			examined: outcome.examined,
+			converted: outcome.converted.length,
+			skipped: outcome.skipped,
+			unconverted: outcome.failed.length,
+			remaining,
+			convertedSectionIds: outcome.converted,
+		});
 	let remaining: number;
 	try {
 		for (const row of batch) {

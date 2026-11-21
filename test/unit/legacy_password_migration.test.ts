@@ -35,11 +35,13 @@
  *  - a password changed while the run was hashing is skipped, never overwritten;
  *  - a malformed key option is refused without echoing it;
  *  - the command line is the same door (it holds no statement of its own);
- *  - EVERY EXECUTE RUN IS IN THE ACTIVITY LOG (owner ruling 2026-11-20) — from
- *    the panel and from the command line: who ran it, which accounts (user
- *    section_ids) it converted, the counts — and no credential value, hash,
- *    plaintext or typed key in the row. A dry run converts nothing and writes
- *    no row.
+ *  - EVERY RUN IS IN THE ACTIVITY LOG (owner ruling 2026-11-20: "actor,
+ *    accounts converted (user section_ids), counts, dry/execute") — from the
+ *    panel and from the command line: who ran it, which accounts (user
+ *    section_ids) it converted, the counts, and whether it wrote — and no
+ *    credential value, hash, plaintext or typed key in the row. A DRY run is on
+ *    record too (`execute: false`, no converted id): it tries key values
+ *    against every account. Only a refused caller leaves nothing.
  *
  * Scratch for these legs: four more dd128 records at ids this file owns,
  * planted before each test and swept after — never an installed account.
@@ -690,15 +692,49 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			for (const account of SCRATCH) expect(row.raw).not.toContain(account.username);
 		});
 
-		test('a DRY run writes no row; neither does a refused caller', async () => {
-			const dry = await call(migrateRqo({ ...KEYS, after: AFTER }));
-			expect((dry.data as Record<string, unknown>).recoverable).toBe(3);
+		test('a DRY run is on record too — execute:false, its counts, NO converted id; a refused caller writes nothing', async () => {
 			const refused = await call(migrateRqo({ ...KEYS, execute: true, after: AFTER }), false);
 			expect(refused.ok).toBe(false);
 			expect(await conversionRows(base)).toEqual([]);
-			// POSITIVE CONTROL: the same request, executed by the admin, does write one.
-			await call(migrateRqo({ ...KEYS, execute: true, after: AFTER }));
-			expect(await conversionRows(base)).toHaveLength(1);
+			const before = await storedPasswords();
+			const dry = (await call(migrateRqo({ ...KEYS, after: AFTER }))).data as Record<
+				string,
+				number
+			>;
+			expect(dry.recoverable).toBe(3);
+			expect(await storedPasswords()).toEqual(before);
+			const rows = await conversionRows(base);
+			expect(rows).toHaveLength(1);
+			const row = rows[0] as ConversionRow;
+			expect(row.who).toBe(-1);
+			expect(row.what).toBe(5);
+			expect(row.where).toBe('dd88');
+			expect(Object.keys(row.data).sort()).toEqual(DATA_KEYS);
+			expect(row.data).toEqual({
+				msg: 'Dédalo v6 passwords checked (dry run, nothing written)',
+				action: LEGACY_CONVERSION_ACTION,
+				via: 'panel',
+				execute: false,
+				completed: true,
+				examined: 4,
+				converted: 0,
+				skipped: 0,
+				unconverted: 1,
+				remaining: dry.remaining,
+				converted_section_ids: [],
+				part: 1,
+				parts: 1,
+			});
+			expectNoSecret(row.raw, before.values(), 'in the dry-run activity row');
+			// A dry run with keys that decrypt nobody (a guess) is on record as well.
+			await call(
+				migrateRqo({ information: 'ZZ_GUESSED_INFORMATION', info_key: 'zz_guess', after: AFTER }),
+			);
+			const guessed = await conversionRows(base);
+			expect(guessed).toHaveLength(2);
+			expect(guessed[1]?.data).toMatchObject({ execute: false, examined: 4, unconverted: 4 });
+			expect(guessed[1]?.raw).not.toContain('ZZ_GUESSED_INFORMATION');
+			expect(guessed[1]?.raw).not.toContain('zz_guess');
 		});
 
 		test('an execute run that converts NOBODY (wrong keys) is still on record', async () => {
@@ -769,6 +805,7 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			const entries = conversionActivityEntries(
 				{ userId: -1, host: 'cli', via: 'cli', osUser: 'zz_operator' },
 				{
+					execute: true,
 					completed: true,
 					examined: ids.length + 3,
 					converted: ids.length,
@@ -792,7 +829,7 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			}
 		});
 
-		test('the COMMAND LINE: an --execute run writes the row as the CLI identity; a dry run writes none; nothing secret is printed or stored', async () => {
+		test('the COMMAND LINE: a dry run and an --execute run each write their row as the CLI identity; nothing secret is printed or stored', async () => {
 			const before = await storedPasswords();
 			const census = await legacyPasswordCensus();
 			const cli = async (...flags: string[]) => {
@@ -824,7 +861,20 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			expect(dry.code, dry.text).toBe(0);
 			expect(dry.text).toContain('DRY-RUN');
 			expect(await storedPasswords()).toEqual(before);
-			expect(await conversionRows(base)).toEqual([]);
+			const dryRows = await conversionRows(base);
+			expect(dryRows).toHaveLength(1);
+			expect(dryRows[0]?.host).toBe('cli');
+			expect(Object.keys(dryRows[0]?.data ?? {}).sort()).toEqual([...DATA_KEYS, 'os_user'].sort());
+			expect(dryRows[0]?.data).toMatchObject({
+				via: 'cli',
+				execute: false,
+				completed: true,
+				examined: census.legacy,
+				converted: 0,
+				unconverted: census.legacy - 3,
+				remaining: census.legacy,
+				converted_section_ids: [],
+			});
 
 			const run = await cli('--execute');
 			expect(run.code, run.text).toBe(0);
@@ -835,8 +885,8 @@ describe('the conversion from the server — the legacy_passwords widget and its
 				);
 			}
 			const rows = await conversionRows(base);
-			expect(rows).toHaveLength(1);
-			const row = rows[0] as ConversionRow;
+			expect(rows).toHaveLength(2);
+			const row = rows[1] as ConversionRow;
 			expect(row.who).toBe(-1);
 			expect(row.what).toBe(5);
 			expect(row.where).toBe('dd88');
@@ -857,7 +907,7 @@ describe('the conversion from the server — the legacy_passwords widget and its
 			expect(typeof row.data.os_user).toBe('string');
 			expect((row.data.os_user as string).length).toBeGreaterThan(0);
 			const stored = [...before.values(), ...after.values()];
-			expectNoSecret(row.raw, stored, 'in the activity row');
+			expectNoSecret(rows.map((each) => each.raw).join('\n'), stored, 'in the activity rows');
 			expectNoSecret(`${dry.text}\n${run.text}`, stored, 'printed by the command line');
 		}, 120_000);
 	});

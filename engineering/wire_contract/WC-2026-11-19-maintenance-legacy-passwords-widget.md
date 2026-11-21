@@ -38,17 +38,24 @@
   under the row's lock and only over the value that was read (a password
   changed meanwhile is `skipped`). As before, it is not a Time Machine event:
   the value is the same password in the only form the login accepts.
-- **Activity log (owner ruling 2026-11-20):** every run that EXECUTES — panel
+- **Activity log (owner ruling 2026-11-20):** every run, DRY OR EXECUTED — panel
   or command line — appends an activity row (`matrix_activity`, section dd542)
   through `logActivity`, written by the door itself: WHO = the actor (the
   panel's principal; the command line = root `-1`), WHAT = `SAVE` (dd42 code
   5), WHERE = `dd88`, host = the request's (`cli` for the command line), and
   `dd551` = `{ msg, action: 'legacy_passwords.migrate', via: 'panel'|'cli',
-  os_user? (cli), execute: true, completed, examined, converted, skipped,
+  os_user? (cli), execute: true|false, completed, examined, converted, skipped,
   unconverted, remaining, converted_section_ids: [int…], part, parts }`.
   At most 200 ids per row (a longer run is `parts` rows, so the row ceiling
   never shortens one); a run that throws records what it had written
-  (`completed: false`, `remaining: null`). A dry run writes no row. No account
+  (`completed: false`, `remaining: null`). A DRY run is recorded too (the
+  ruling asks for `dry/execute`; it tries the typed key values against every
+  account): `execute: false`, `converted: 0`, `converted_section_ids: []`, its
+  own `msg`. The panel walks the table in batches of 25, one request each:
+  EACH BATCH is its own row (`part`/`parts` split one request's id list, they
+  do not number the batches of a click). The write is best-effort like every
+  activity row: `logActivity` logs a failed insert on the server and the
+  conversion stands. Only a refused caller leaves no row. No account
   name, credential value, hash, plaintext or key material is in the row.
 - **Reason:** an installation whose operator has no shell on the server could
   not convert its accounts at all, and nothing but the boot log said how many
@@ -61,8 +68,8 @@
   the panel and the run; the count; dry by default; execute converts the
   planted accounts the keys decrypt and reports the rest; the report's exact
   keys; batches; no credential on the wire or in the log; the skip; the command
-  line is the same door; the activity row of an executed run from the panel
-  and from the spawned command line, its exact keys, no secret in it, none for
-  a dry run or a refused caller).
+  line is the same door; the activity row of an executed run AND of a dry
+  run, from the panel and from the spawned command line, its exact keys, no
+  secret in it, none for a refused caller).
 - **Fixture interaction (DEC-14b):** NO re-harvest — the gates filter the new
   id out of the TS side before diffing.

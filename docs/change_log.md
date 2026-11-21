@@ -1687,7 +1687,7 @@ Merged since the last release; these ship with the next one.
 
     Converting the passwords of a migrated v6 installation left no trace of who had done it, or to which accounts.
 
-    A conversion that writes — **Convert passwords** in the Maintenance area's **Legacy passwords** panel, or `bun run dedalo:migrate-passwords --execute` — now leaves an entry in the Activity section: who ran it (the administrator logged into the panel; for the command line, `root` from host `cli`, with the operating-system account that typed the command), the section ids of the user records converted, and the counts — examined, converted, skipped, not convertible, still remaining. The entry never holds a password, a hash or the two v6 key values. A dry run (**Check**, or the command without `--execute`) converts nothing and leaves no entry. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
+    A conversion that writes — **Convert passwords** in the Maintenance area's **Legacy passwords** panel, or `bun run dedalo:migrate-passwords --execute` — now leaves an entry in the Activity section: who ran it (the administrator logged into the panel; for the command line, `root` from host `cli`, with the operating-system account that typed the command), the section ids of the user records converted, and the counts — examined, converted, skipped, not convertible, still remaining. The entry never holds a password, a hash or the two v6 key values. A dry run (**Check**, or the command without `--execute`) converts nothing and is recorded as well, marked as a dry run with no converted record. The panel works through the accounts 25 at a time and leaves one entry per batch. See [Migrate the passwords](./install/migrating_from_v6.md#62-migrate-the-passwords).
 
     Wire contract: `WC-2026-11-19-maintenance-legacy-passwords-widget`.
 
@@ -1734,6 +1734,14 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **Login reads an empty or malformed stored password the same way everywhere**
+
+    The login, the legacy-password count and the conversion each had their own idea of which stored values are a Dédalo v6 password, and they disagreed on two shapes.
+
+    An account whose stored password is empty text is now treated as having no password by all three: the login refuses it and the Activity section records the attempt as a user that does not exist, where it used to say *legacy password hash* while the count did not include it. An account whose stored password is not text at all (a number, a list) is now refused as a legacy value and counted as one, where the login used to fail with a server error. What the person at the login form sees is unchanged: the same refusal as for any wrong user or password.
+
+    Wire contract: `WC-2026-11-19-legacy-aes-lazy-rehash-retired`.
 
 - **The Update data panel speaks the administrator's language throughout**
 
