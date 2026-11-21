@@ -1879,16 +1879,6 @@
 			"skipped": 0,
 			"assertions": 161
 		},
-		"test/unit/error_report_ip_gate.test.ts": {
-			"tests": 3,
-			"skipped": 0,
-			"assertions": 15
-		},
-		"test/unit/error_report_receiver.test.ts": {
-			"tests": 13,
-			"skipped": 0,
-			"assertions": 103
-		},
 		"test/unit/error_report_xss_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
@@ -3043,11 +3033,6 @@
 			"tests": 11,
 			"skipped": 0,
 			"assertions": 146
-		},
-		"test/unit/ip_allowlist.test.ts": {
-			"tests": 19,
-			"skipped": 0,
-			"assertions": 282
 		},
 		"test/unit/iri_dataframe_native.test.ts": {
 			"tests": 3,
