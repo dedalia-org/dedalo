@@ -1773,6 +1773,8 @@ Merged since the last release; these ship with the next one.
     ontology rebuild or update now name every such alias by its source record, so it is found when
     the ontology is updated. The fix belongs in the ontology: change the alias's `alias_of`.
 
+    Wire contract: `WC-2026-11-21-ontology-alias-target-defects`.
+
 - **Maintenance lists the records that lack a field's default value; the manual states when a default is written.**
 
     A field's default value (`dato_default` in the ontology) is written when a record is

@@ -3,6 +3,7 @@ title: The ontology check names alias components that point at a component they 
 type: added
 audience: admin
 date: 2026-11-21
+wc: WC-2026-11-21-ontology-alias-target-defects
 ---
 A `component_alias` shows another component under its own name and configuration. That works for
 portals and for plain value components (text, date, number…); an alias of any other kind of
