@@ -39,7 +39,7 @@ import { ARGON2_OPTIONS, needsPasswordRehash } from './argon2_params.ts';
 import { MIGRATE_PASSWORDS_COMMAND } from './legacy_password_command.ts';
 import { isArgon2Hash, storedPasswordState } from './password_hash.ts';
 import { resolvePrincipal } from './permissions.ts';
-import { runWithoutAccountRevocation } from './revocation.ts';
+import { LOGIN_COST_UPGRADE_SCOPE, runWithoutAccountRevocation } from './revocation.ts';
 import { endUserSessions } from './session_media.ts';
 import {
 	buildAccountThrottleKey,
@@ -150,7 +150,7 @@ async function rehashStoredPassword(
 		// destroy the session the login is in the middle of issuing: a correct password
 		// that sometimes does not log you in. ALS-scoped, so the suppression is
 		// request-local and cannot bleed into a concurrent, genuine password change.
-		const result = await runWithoutAccountRevocation('login password cost upgrade', () =>
+		const result = await runWithoutAccountRevocation(LOGIN_COST_UPGRADE_SCOPE, () =>
 			saveComponentData({
 				componentTipo: PASSWORD_COMPONENT,
 				sectionTipo: USERS_SECTION_TIPO,

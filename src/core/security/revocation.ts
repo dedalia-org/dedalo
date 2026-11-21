@@ -140,6 +140,13 @@ export const ACCOUNT_TRANSITION_COMPONENTS: ReadonlySet<string> = new Set([
  */
 const revocationSuppression = new AsyncLocalStorage<string>();
 
+/**
+ * The reason the ONE sanctioned caller runs under (auth.ts rehashStoredPassword). Named,
+ * because root_password_guard.ts admits root's dd133 write under THIS scope only — a
+ * second suppression scope, whatever its purpose, does not open root's password.
+ */
+export const LOGIN_COST_UPGRADE_SCOPE = 'login password cost upgrade';
+
 /** Run `fn` with the revocation seam suppressed; `reason` is logged if it fires. */
 export function runWithoutAccountRevocation<T>(reason: string, fn: () => T): T {
 	return revocationSuppression.run(reason, fn);

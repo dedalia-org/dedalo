@@ -58,6 +58,10 @@ import {
 	type Principal,
 	resolvePrincipal,
 } from '../../src/core/security/permissions.ts';
+import {
+	LOGIN_COST_UPGRADE_SCOPE,
+	runWithoutAccountRevocation,
+} from '../../src/core/security/revocation.ts';
 import { refuseRootPasswordWrite } from '../../src/core/security/root_password_guard.ts';
 import { ensureSuiteLoginPassword } from '../../src/core/test_data/suite_login.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
@@ -660,6 +664,28 @@ describe('the sanctioned writers of root’s password still write it', () => {
 			await plantRootPassword(keep);
 		}
 	}, 60000);
+
+	test('ANOTHER revocation-suppression scope does not admit the write: the exception is the cost upgrade, by name', async () => {
+		// The exception rides the revocation-suppression scope, whose own purpose is
+		// different ("this write is not an account transition"). A second scope with any
+		// other reason must not open root's password.
+		await expectRefused('key entry under a foreign suppression scope', () =>
+			runWithoutAccountRevocation('gate: not the cost upgrade', () =>
+				recordWrite.persistRecordKeys(ROOT_TARGET, passwordPath(FOREIGN_ITEMS), false, DERIVED),
+			),
+		);
+		expect(() =>
+			runWithoutAccountRevocation('gate: not the cost upgrade', () =>
+				refuseRootPasswordWrite({ sectionTipo: USERS, sectionId: ROOT_ID }, [PASSWORD], 'gate'),
+			),
+		).toThrow();
+		// CONTROL: the named scope is the one that passes.
+		expect(() =>
+			runWithoutAccountRevocation(LOGIN_COST_UPGRADE_SCOPE, () =>
+				refuseRootPasswordWrite({ sectionTipo: USERS, sectionId: ROOT_ID }, [PASSWORD], 'gate'),
+			),
+		).not.toThrow();
+	});
 
 	test('the cost-upgrade scope has exactly ONE caller in the engine: the login', () => {
 		// The scope is the one hole in the refusal; a second caller would be a second door.

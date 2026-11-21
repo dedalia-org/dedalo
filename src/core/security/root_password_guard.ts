@@ -20,7 +20,8 @@
  *     password, proved a millisecond earlier, re-hashed at the current cost —
  *     not a change of the credential. It is recognised by the scope it already
  *     runs in (revocation.ts runWithoutAccountRevocation — "this dd133 write is
- *     not an account transition", ONE caller, ALS-scoped, request-local).
+ *     not an account transition", ONE caller, ALS-scoped, request-local), read
+ *     BY NAME (LOGIN_COST_UPGRADE_SCOPE): another suppression scope is refused.
  *     Without it a root password set by the manual procedure at a lower cost
  *     would stay below target forever.
  *   - the writers that do not pass the chokepoint at all, by design: the
@@ -34,7 +35,7 @@
  */
 
 import { DedaloError } from '../errors/dedalo_error.ts';
-import { accountRevocationSuppressedBy } from './revocation.ts';
+import { accountRevocationSuppressedBy, LOGIN_COST_UPGRADE_SCOPE } from './revocation.ts';
 
 const USERS_SECTION_TIPO = 'dd128';
 const ROOT_SECTION_ID = -1;
@@ -60,7 +61,9 @@ export function refuseRootPasswordWrite(
 ): void {
 	if (!isRootUserRecord(target.sectionTipo, target.sectionId)) return;
 	if (!changedKeys.includes(ROOT_PASSWORD_COMPONENT)) return;
-	if (accountRevocationSuppressedBy() !== undefined) return;
+	// The cost upgrade BY NAME — not "any suppression scope": that scope's own purpose is
+	// the revocation seam, and a second one must not open this door with it.
+	if (accountRevocationSuppressedBy() === LOGIN_COST_UPGRADE_SCOPE) return;
 	throw new DedaloError('record.root_password_write_refused', {
 		coordinates: {
 			section_tipo: target.sectionTipo,
