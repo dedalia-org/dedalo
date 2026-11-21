@@ -314,7 +314,10 @@ The root user is different. Its record never appears in the Users section, it is
     WHERE section_tipo = 'dd128' AND section_id = -1;
     ```
 
-    The statement must report `UPDATE 1`. It does not end root's open sessions: log out of them, or restart the server.
+    The statement must report `UPDATE 1`.
+
+    !!! warning "Root sessions that are already open stay open"
+        This procedure changes the password only. It does not end a root session that is already open, and restarting the server does not end it either: sessions are stored on disk and outlive a restart. An open root session keeps working with the old login until someone logs out of it, or until it expires — after `SESSION_TTL_SECONDS` without activity, or `SESSION_ABSOLUTE_TTL_SECONDS` after it was created, whichever comes first. If you are changing the password because a root session may be in someone else's hands, log out of every root session you can reach and do not count on the change alone to close the others.
 
 3. **Log in as root** with the new password to confirm the change took effect.
 
