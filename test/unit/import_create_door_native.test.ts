@@ -409,7 +409,7 @@ describe.if(DB_READY)(
 			expect(await recordsNamed(name)).toEqual([]);
 		});
 
-		test('MAPPED, LINK to an absent name, the served twin (CONTROL): the named record created and linked', async () => {
+		test('MAPPED, LINK to an absent name, the served twin (CONTROL): the named record created', async () => {
 			expect(await getPermissions(ids.control, AUTHZ_SECTION, AUTHZ_TEXT)).toBe(2);
 			const name = `zzlink served ${process.pid}`;
 			const report = await importLinked(ids.control, name);
@@ -421,7 +421,13 @@ describe.if(DB_READY)(
 				`SELECT relation -> '${AUTHZ_TEXT_AREA}' AS l, string -> '${AUTHZ_TEXT_AREA}' AS s FROM ${TABLE} WHERE section_tipo = $1 AND section_id = $2`,
 				[AUTHZ_SECTION, created],
 			)) as { l: unknown; s: unknown }[];
-			expect(JSON.stringify(linked[0])).toContain(String(named[0]));
+			// The door under test is the NAMED record's create — asserted above. The
+			// fixture's link field is a text_area (the one component both identities
+			// may write), and a locator is not text: an all-empty literal value is
+			// stored as absent (T2-SL-4), so the host holds nothing under that key.
+			// (It used to keep the bare locator inside the text_area's string key.)
+			expect(linked[0]).toEqual({ l: null, s: null });
+			expect(importedIds.has(created)).toBe(true);
 		});
 
 		// --- 1c. an ADDRESSED record (MappedRecord.address — the Zotero call-number) --

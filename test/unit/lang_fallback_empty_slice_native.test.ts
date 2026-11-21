@@ -36,6 +36,12 @@ import { resolveCellItems } from '../../src/core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { readComponentData } from '../../src/core/section/read.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { saveComponentData } from '../../src/core/section/record/save_component.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
@@ -389,5 +395,240 @@ describe('doors: a cleared translation shows the fallback', () => {
 			resolveCellItems(SECTION, recordId, INPUT_TEXT, OTHER, []),
 		);
 		expect(parts).toEqual(['Main']);
+	}, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// T2-SL-4 — THE WRITE SIDE: an all-empty literal value is stored as ABSENT.
+//
+// PHP set_data_lang: `is_empty_data(merged) ? null : merged` — when the merge
+// of every language carries no value the key is removed, not kept as a husk of
+// `{id, lang, value: ''}` items. The engine kept the husk: a record whose only
+// translation was cleared still "had" the component (search `!*`, exports,
+// diffusion and the fallback all had to know about husks). The collapse sits at
+// the ONE literal write seam (save_component.ts collapsedEmptyLiteral), judged
+// by the same per-model rule as the read (data_item_emptiness.ts); the item ids
+// it releases run the same frame cascade as a `remove`.
+//
+// SITUATION `zzslc` (scratch section on test1 → matrix_test): PLAIN / AREA are
+// translatable literals; FRAMED is a has_dataframe literal with its SLOT child.
+// ---------------------------------------------------------------------------
+
+const ZTLD = 'zzslc';
+const ZSECTION = `${ZTLD}1`;
+const PLAIN = `${ZTLD}2`;
+const AREA = `${ZTLD}3`;
+const FRAMED = `${ZTLD}4`;
+const SLOT = `${ZTLD}5`;
+const MULTI = `${ZTLD}6`; // a second plain literal: the pure-insert case's own key
+
+const COLLAPSE_SITUATION = situation({
+	tld: ZTLD,
+	name: 'literal_empty_collapse',
+	nodes: [
+		{ tipo: ZSECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Collapse' } },
+		{
+			tipo: PLAIN,
+			parent: ZSECTION,
+			model: 'component_input_text',
+			is_translatable: true,
+			term: { 'lg-eng': 'Plain' },
+		},
+		{
+			tipo: AREA,
+			parent: ZSECTION,
+			model: 'component_text_area',
+			is_translatable: true,
+			term: { 'lg-eng': 'Area' },
+		},
+		{
+			tipo: FRAMED,
+			parent: ZSECTION,
+			model: 'component_input_text',
+			is_translatable: true,
+			term: { 'lg-eng': 'Framed' },
+			properties: { has_dataframe: true },
+		},
+		{ tipo: SLOT, parent: FRAMED, model: 'component_dataframe', term: { 'lg-eng': 'Slot' } },
+		{
+			tipo: MULTI,
+			parent: ZSECTION,
+			model: 'component_input_text',
+			is_translatable: true,
+			term: { 'lg-eng': 'Multi' },
+		},
+	],
+});
+
+type Stored = Record<string, unknown>;
+
+/** The stored key, and whether the column HOLDS the key at all. */
+async function storedKey(
+	sectionId: number,
+	column: 'string' | 'relation',
+	key: string,
+): Promise<{ present: boolean; value: unknown }> {
+	const rows = (await sql.unsafe(
+		`SELECT COALESCE("${column}", '{}'::jsonb) ? $3 AS present, "${column}"->$3 AS value
+		   FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+		[ZSECTION, sectionId, key],
+	)) as { present: boolean; value: unknown }[];
+	expect(rows).toHaveLength(1);
+	return rows[0] as { present: boolean; value: unknown };
+}
+
+async function save(
+	sectionId: number,
+	tipo: string,
+	lang: string,
+	changedData: Record<string, unknown>[],
+	callerDataframe?: { main_component_tipo: string; id_key: number },
+): Promise<{ ok: boolean; data?: unknown; message?: string }> {
+	return saveComponentData({
+		componentTipo: tipo,
+		sectionTipo: ZSECTION,
+		sectionId,
+		lang,
+		changedData: changedData as never,
+		userId: -1,
+		...(callerDataframe === undefined ? {} : { callerDataframe }),
+	});
+}
+
+/** Write one language's value: the first write inserts, a later one updates id 1. */
+async function write(sectionId: number, tipo: string, lang: string, value: string): Promise<void> {
+	const saved = await save(sectionId, tipo, lang, [
+		{ action: 'update', id: 1, key: 0, value: { id: 1, value } },
+	]);
+	expect(saved.ok).toBe(true);
+}
+
+async function tmRows(sectionId: number, tipo: string, afterId: number): Promise<Stored[]> {
+	return (await sql.unsafe(
+		`SELECT lang, data FROM matrix_time_machine
+		  WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND id > $4 AND tm_role IS NULL
+		  ORDER BY id ASC`,
+		[ZSECTION, sectionId, tipo, afterId],
+	)) as Stored[];
+}
+
+async function tmWatermark(): Promise<number> {
+	const rows = (await sql.unsafe('SELECT COALESCE(MAX(id), 0) AS m FROM matrix_time_machine')) as {
+		m: number;
+	}[];
+	return Number(rows[0]?.m ?? 0);
+}
+
+describe('T2-SL-4: an all-empty literal value is stored as absent', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('lang_fallback_empty_slice_native');
+		await ensureSituation(COLLAPSE_SITUATION);
+		expect(await getMatrixTableFromTipo(ZSECTION)).toBe(TABLE);
+	}, 60_000);
+
+	afterAll(async () => {
+		await sql.unsafe('DELETE FROM matrix_time_machine WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe('DELETE FROM dedalo_ts_record_generation WHERE section_tipo = $1', [ZSECTION]);
+		await sql.unsafe(`DELETE FROM "${TABLE}" WHERE section_tipo = $1`, [ZSECTION]);
+		await sql.unsafe(`DELETE FROM matrix_activity WHERE data->>'section_tipo' = $1`, [ZSECTION]);
+		expect(await dropSituation(COLLAPSE_SITUATION)).toBe(0);
+	}, 60_000);
+
+	test('clearing the ONLY language removes the key; the history records the lane becoming absent', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, PLAIN, DEFAULT, 'only');
+		expect((await storedKey(id, 'string', PLAIN)).value).toEqual([
+			{ id: 1, lang: DEFAULT, value: 'only' },
+		]);
+		const mark = await tmWatermark();
+		const saved = await save(id, PLAIN, DEFAULT, [
+			{ action: 'update', id: 1, key: 0, value: { id: 1, value: '' } },
+		]);
+		expect(saved.ok).toBe(true);
+		expect(saved.data).toEqual([]);
+		expect(await storedKey(id, 'string', PLAIN)).toEqual({ present: false, value: null });
+		// ONE visible row of the cleared language, holding no value.
+		const rows = await tmRows(id, PLAIN, mark);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.lang).toBe(DEFAULT);
+		expect(rows[0]?.data ?? []).toEqual([]);
+	}, 30_000);
+
+	test('clearing ONE of two languages keeps both items; clearing the last one removes the key', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, PLAIN, DEFAULT, 'main');
+		await write(id, PLAIN, OTHER, 'other');
+		await write(id, PLAIN, OTHER, '');
+		// The cleared translation stays an item: its id stays paired with the editor.
+		expect((await storedKey(id, 'string', PLAIN)).value).toEqual([
+			{ id: 1, lang: DEFAULT, value: 'main' },
+			{ id: 1, lang: OTHER, value: '' },
+		]);
+		await write(id, PLAIN, DEFAULT, '   '); // whitespace: empty by the string rule
+		expect(await storedKey(id, 'string', PLAIN)).toEqual({ present: false, value: null });
+	}, 30_000);
+
+	test("values stay values: '0' is kept, and a set_data of [] on the only language removes the key", async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, PLAIN, DEFAULT, '0');
+		expect((await storedKey(id, 'string', PLAIN)).value).toEqual([
+			{ id: 1, lang: DEFAULT, value: '0' },
+		]);
+		expect((await save(id, PLAIN, DEFAULT, [{ action: 'set_data', value: [] }])).ok).toBe(true);
+		expect(await storedKey(id, 'string', PLAIN)).toEqual({ present: false, value: null });
+	}, 30_000);
+
+	test('a pure INSERT that leaves the value all-empty rewrites the key away (a stored husk does not survive it)', async () => {
+		// A husk as records written before the collapse hold it (SQL-seeded: no
+		// current door writes one): an empty insert in another language is a pure
+		// append, and the collapse must still turn it into the key's removal.
+		const id = await createSectionRecord(ZSECTION, -1);
+		await sql.unsafe(
+			`UPDATE "${TABLE}" SET string = COALESCE(string, '{}'::jsonb) || jsonb_build_object($3::text, $4::text::jsonb)
+			  WHERE section_tipo = $1 AND section_id = $2`,
+			[ZSECTION, id, MULTI, JSON.stringify([{ id: 1, lang: OTHER, value: '' }])],
+		);
+		const saved = await save(id, MULTI, DEFAULT, [{ action: 'insert', value: { value: '' } }]);
+		expect(saved.ok).toBe(true);
+		expect(saved.data).toEqual([]);
+		expect(await storedKey(id, 'string', MULTI)).toEqual({ present: false, value: null });
+	}, 30_000);
+
+	test("text_area: the editor's ghost markup is empty — the key is removed", async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		await write(id, AREA, DEFAULT, '<p>text</p>');
+		expect((await storedKey(id, 'string', AREA)).present).toBe(true);
+		await write(id, AREA, DEFAULT, '<p></p>');
+		expect(await storedKey(id, 'string', AREA)).toEqual({ present: false, value: null });
+	}, 30_000);
+
+	test('has_dataframe: the released item id cascades its frames; a kept item keeps them', async () => {
+		const id = await createSectionRecord(ZSECTION, -1);
+		const target = await createSectionRecord(ZSECTION, -1);
+		await write(id, FRAMED, DEFAULT, 'main');
+		await write(id, FRAMED, OTHER, 'other');
+		const framed = await save(
+			id,
+			SLOT,
+			NOLAN,
+			[{ action: 'insert', value: { section_tipo: ZSECTION, section_id: target } }],
+			{ main_component_tipo: FRAMED, id_key: 1 },
+		);
+		expect(framed.ok).toBe(true);
+		const frames = async (): Promise<number[]> =>
+			(((await storedKey(id, 'relation', SLOT)).value as Stored[] | null) ?? []).map((entry) =>
+				Number(entry.id_key),
+			);
+		expect(await frames()).toEqual([1]);
+
+		// One of two languages cleared: the item is kept, so is its frame.
+		await write(id, FRAMED, OTHER, '');
+		expect((await storedKey(id, 'string', FRAMED)).present).toBe(true);
+		expect(await frames()).toEqual([1]);
+
+		// The last language cleared: the key is removed and item 1's frames go with it.
+		await write(id, FRAMED, DEFAULT, '');
+		expect(await storedKey(id, 'string', FRAMED)).toEqual({ present: false, value: null });
+		expect(await frames()).toEqual([]);
 	}, 30_000);
 });

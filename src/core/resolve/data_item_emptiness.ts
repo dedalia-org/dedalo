@@ -5,6 +5,10 @@
  * cleared translation is persisted as `{id, lang, value: ''}` (the save keeps
  * the item, so its id stays paired with the editor and the dataframes), and a
  * rich-text editor leaves `<p></p>` behind. Those slices hold items and no value.
+ * The WRITE asks the same question of the whole value (T2-SL-4,
+ * save_component.ts literal collapse): when EVERY language is empty the key is
+ * stored as absent — a husk slice survives only beside a language that holds a
+ * value (and in records written before the collapse existed).
  *
  * Each model DECLARES its rule (descriptor `dataItemEmptiness`; every
  * classSupportsTranslation model must — descriptor_completeness_tripwire):

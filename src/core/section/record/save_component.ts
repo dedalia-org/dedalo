@@ -88,6 +88,7 @@ import {
 	type ToolAddNewElementAccess,
 	validateRelationInsert,
 } from '../../relations/save.ts';
+import { isEmptyComponentData } from '../../resolve/data_item_emptiness.ts';
 import {
 	lockLocatorTargets,
 	persistAppendedKeyItems,
@@ -794,6 +795,64 @@ interface AppliedRemove {
 	targetId: number | string;
 	/** The entries the remove dropped (a slot's frame entries; ignored for a main). */
 	removedEntries: unknown[];
+}
+
+/**
+ * The item ids an all-empty literal collapse RELEASES (T2-SL-4): every id the
+ * stored value held, once each (translated items share ids), minus the ones a
+ * `remove` of the same batch already released. Each is a remove to the frame
+ * cascade — the item is gone from every language, so are the frames paired
+ * with it.
+ */
+function releasedByCollapse(
+	storedItems: readonly unknown[],
+	alreadyRemoved: readonly AppliedRemove[],
+): AppliedRemove[] {
+	const seen = new Set(alreadyRemoved.map((remove) => String(remove.targetId)));
+	const released: AppliedRemove[] = [];
+	for (const item of storedItems) {
+		const id = (item as { id?: unknown } | null)?.id;
+		if ((typeof id !== 'number' && typeof id !== 'string') || id === '') continue;
+		if (seen.has(String(id))) continue;
+		seen.add(String(id));
+		released.push({ targetId: id, removedEntries: [] });
+	}
+	return released;
+}
+
+/**
+ * THE LITERAL COLLAPSE (T2-SL-4, PHP set_data_lang `is_empty_data(merged) ?
+ * null : merged`): a lang-sliced literal whose WHOLE value — every language —
+ * carries nothing is stored as ABSENT, never as a husk of `{id, lang, ''}`
+ * items. Judged by the model's own emptiness rule (data_item_emptiness.ts —
+ * the read's question), over the items the batch settled, once per save: the
+ * per-key write is this engine's only literal writer, so every action passes
+ * here. A save that changes nothing collapses nothing.
+ *
+ * Collapsed: the items become `[]`, the key is written as null (removed) by
+ * the full per-key write (never the append branch), and every id the stored
+ * value held is pushed onto `appliedRemoves` — the frames paired with a
+ * released item cascade exactly as a `remove` of it would.
+ */
+function collapseEmptyLiteral(input: {
+	/** Only a lang-sliced literal collapses (a relation, a dataframe slot, a date never does). */
+	langSliced: boolean;
+	model: string;
+	changedData: readonly unknown[];
+	items: unknown[];
+	storedItems: readonly unknown[];
+	appliedRemoves: AppliedRemove[];
+	rewrites: boolean;
+}): { items: unknown[]; rewrites: boolean; keyValue: (items: unknown[]) => unknown[] | null } {
+	const collapsed =
+		input.langSliced &&
+		input.changedData.length > 0 &&
+		isEmptyComponentData(input.model, input.items);
+	if (!collapsed) {
+		return { items: input.items, rewrites: input.rewrites, keyValue: (items) => items };
+	}
+	input.appliedRemoves.push(...releasedByCollapse(input.storedItems, input.appliedRemoves));
+	return { items: [], rewrites: true, keyValue: () => null };
 }
 
 /**
@@ -2028,12 +2087,15 @@ async function applySaveComponentData(
 			// lang. A caller that means one language sends the remaining items as
 			// `set_data` (lang-sliced) or removes by id.
 			//
-			// No dataframe cascade, exactly as the branch it replaces (PHP
+			// No dataframe cascade HERE, exactly as the branch it replaces (PHP
 			// update_data_value :4235-4243 does not cascade on the clear-all path
-			// either): the paired frames of the cleared items are left in their
-			// slots. That is INHERITED, not endorsed — it is the same orphan the
-			// old path made, and it stays a known gap rather than an unreviewed
-			// extra deletion smuggled into a data-loss fix.
+			// either): for a relation or an unsliced literal the paired frames of
+			// the cleared items are left in their slots. That is INHERITED, not
+			// endorsed — it is the same orphan the old path made, and it stays a
+			// known gap rather than an unreviewed extra deletion smuggled into a
+			// data-loss fix. A LANG-SLICED literal is the exception since T2-SL-4:
+			// its cleared value is all-empty, so the literal collapse below removes
+			// the key and cascades the released ids (releasedByCollapse).
 			hasRemovals = true;
 			items = [];
 			continue;
@@ -2216,10 +2278,22 @@ async function applySaveComponentData(
 		for (const item of items) addTimeToDateItem(item);
 	}
 
-	const hasUpdates = await needsFullArrayWrite(
+	// THE LITERAL COLLAPSE (T2-SL-4, collapseEmptyLiteral): an all-empty
+	// lang-sliced literal is stored as ABSENT; the ids it releases join the
+	// batch's removes.
+	const collapse = collapseEmptyLiteral({
+		langSliced,
+		model,
 		changedData,
-		hasRemovals || hasReorders || hasReplacingInserts,
-		() => declaredOrderInserts(atomicInserts, column, componentTipo, sectionTipo),
+		items,
+		storedItems: storedValue,
+		appliedRemoves,
+		rewrites: hasRemovals || hasReorders || hasReplacingInserts,
+	});
+	items = collapse.items;
+
+	const hasUpdates = await needsFullArrayWrite(changedData, collapse.rewrites, () =>
+		declaredOrderInserts(atomicInserts, column, componentTipo, sectionTipo),
 	);
 	// The write chokepoint (section_record/record_write.ts) merges the record's
 	// modified-audit stamps (dd197/dd201) into the SAME update as the value —
@@ -2289,7 +2363,8 @@ async function applySaveComponentData(
 		const echo = writtenKeyEcho(componentTipo);
 		await persistRecordKeys(
 			writeTarget,
-			[{ column, key: componentTipo, value: items }],
+			// A collapsed literal is written as null: the key is REMOVED.
+			[{ column, key: componentTipo, value: collapse.keyValue(items) }],
 			auditStamp,
 			{ actor: userId, receipt, onWritten: echo.capture },
 		);

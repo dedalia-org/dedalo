@@ -817,7 +817,9 @@ describe('a restore that changes nothing leaves NO trace (history records change
 		await save(TRANSLATABLE, id, 'lg-eng', [{ action: 'remove', id: 1, value: null }]);
 		const rows = await tmRows(id, TRANSLATABLE);
 		const empty = rows[rows.length - 1];
-		expect(empty?.data as unknown[]).toEqual([]);
+		// The emptied literal is stored ABSENT (T2-SL-4): its row is the row of an
+		// emptied component, null.
+		expect(empty?.data).toBeNull();
 		expect(await restoreDelta(id, TRANSLATABLE, 'lg-eng', empty?.id as number)).toEqual({
 			tm: 0,
 			activity: 0,

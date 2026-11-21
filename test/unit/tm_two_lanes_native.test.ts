@@ -641,11 +641,13 @@ describe('WRITES: one row per lane touched, never a copy per language, never und
 		const mark = await watermark();
 		await save(id, LMAIN, SPA, [{ action: 'remove', id: 1, value: null }]);
 		// FLOOR: the TS remove strips the id in all languages (save_component.ts cascadeAppliedRemoves)
-		expect(await stored(id, 'string', LMAIN)).toEqual([]);
+		// — and a literal left with no value is stored ABSENT (T2-SL-4), so every
+		// lane's row is the row of an emptied component: null.
+		expect(await stored(id, 'string', LMAIN)).toBeUndefined();
 		expect(framesRoles(await liveFrames(L, id))).toEqual([]);
 		const rows = await visibleRows(LMAIN, id, mark);
 		expect(rows.map((row) => row.lang).sort()).toEqual([ENG, FRA, NOLAN, SPA]);
-		for (const row of rows) expect(row.data).toEqual([]);
+		for (const row of rows) expect(row.data).toBeNull();
 		expect(await anyRowCount(LSLOT, id)).toBe(0);
 	}, 60_000);
 });
@@ -1597,12 +1599,13 @@ describe('(10) the order and completeness of the lanes', () => {
 		const mark = await watermark();
 		await save(id, XMAIN, NOLAN, [{ action: 'remove', id: 1, value: null }]);
 		// FLOOR: the remove reached every language and stripped the frame
-		expect(await stored(id, 'string', XMAIN)).toEqual([]);
+		// (the emptied literal is stored ABSENT — T2-SL-4 — so both rows are null)
+		expect(await stored(id, 'string', XMAIN)).toBeUndefined();
 		expect(await liveFrames(X, id)).toEqual([]);
 		const rows = await visibleRows(XMAIN, id, mark);
 		expect(rows.map((row) => [row.lang, row.data])).toEqual([
-			[NOLAN, []],
-			[ELL, []],
+			[NOLAN, null],
+			[ELL, null],
 		]);
 	}, 60_000);
 

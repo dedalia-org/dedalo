@@ -1522,6 +1522,21 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **A text field cleared in every language is stored as absent, not as an empty item.**
+
+    Clearing the last value of a text field (input text, text area, e-mail, IRI) used to leave an
+    empty item behind in the record, so the record still "had" the field: a search for records
+    *without* a value could miss it, and exports carried an empty cell item. The field is now
+    removed from the record when no language holds a value, as version 6 did; a translation cleared
+    beside a language that still has text is kept as before, so its fallback keeps working. The
+    frames (dataframe values) paired with an item removed this way are removed with it, and the Time
+    Machine records the field becoming empty.
+
+    Records saved before this change keep their empty items until they are next saved; every reader
+    already treats them as empty.
+
+    Wire contract: `WC-2026-11-21-empty-literal-stored-absent`.
+
 - **The Update-code panel says when the database's data version blocks a code update**
 
     A code update is refused unless the database is at the data version the running code declares. The *Update code* panel did not show that: it could read "Ready to update", and the reason arrived only as the refusal after you pressed Update.
@@ -2208,7 +2223,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 93 entries"
+??? note "Wire contract — 94 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2300,6 +2315,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-window-features-grammar`
+    - `WC-2026-11-21-empty-literal-stored-absent`
     - `WC-2026-11-21-implicit-section-node-never-a-column`
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
