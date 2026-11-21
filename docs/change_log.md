@@ -493,6 +493,18 @@ Merged since the last release; these ship with the next one.
     configuration follows the same rule: in search it resolves the columns of its list definition
     (a virtual section, those of its real section).
 
+- **Search filter chips past the first page show their labels.**
+
+    A relation field used as a search filter resolved the label of only its first page of chosen
+    records (ten, or the field's own page size): the eleventh chip, and every chip on a later page,
+    appeared empty. Every chosen record now resolves, whatever the page size.
+
+    For API consumers: `resolve_data` no longer applies `sqo.limit` / `sqo.offset` to the injected
+    `source.value` — they are echoed in `pagination` — and a `source.value` of more than 1000
+    locators is refused (`request.invalid_source`).
+
+    Wire contract: `WC-2026-11-21-resolve-data-injected-value-bound`.
+
 - **Uploading a very large file no longer fails while the server is still assembling it.**
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
@@ -2196,7 +2208,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 92 entries"
+??? note "Wire contract — 93 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2289,6 +2301,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-window-features-grammar`
     - `WC-2026-11-21-implicit-section-node-never-a-column`
+    - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
 
 ## 7.0.0-beta.8 — 2026-11-08

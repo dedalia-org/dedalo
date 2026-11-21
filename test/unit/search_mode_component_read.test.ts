@@ -65,6 +65,17 @@ const TWIN_USERNAME = 'zz_search_twin';
 const TWIN_USER_ID_2 = 999902; // second picker target (multi-chip reconcile test)
 const TWIN_USERNAME_2 = 'zz_search_twin_2';
 const TWIN_ACTIVITY_IDS = [999901, 999902];
+// Three more picker targets: the T2-SL-1 gate injects FIVE chips past a page of two.
+const EXTRA_TWIN_USERS = [
+	[999903, 'zz_search_twin_3'],
+	[999904, 'zz_search_twin_4'],
+	[999905, 'zz_search_twin_5'],
+] as const;
+const ALL_TWIN_USERS = [
+	[TWIN_USER_ID, TWIN_USERNAME],
+	[TWIN_USER_ID_2, TWIN_USERNAME_2],
+	...EXTRA_TWIN_USERS,
+] as const;
 
 let ctx: ApiRequestContext;
 
@@ -73,20 +84,16 @@ async function deleteTwins(): Promise<void> {
 		`DELETE FROM matrix_activity WHERE section_tipo = $1 AND section_id IN (${TWIN_ACTIVITY_IDS.join(',')})`,
 		[ACTIVITY],
 	);
-	await sql.unsafe('DELETE FROM matrix_users WHERE section_tipo = $1 AND section_id IN ($2, $3)', [
-		USERS,
-		TWIN_USER_ID,
-		TWIN_USER_ID_2,
-	]);
+	await sql.unsafe(
+		`DELETE FROM matrix_users WHERE section_tipo = $1 AND section_id IN (${ALL_TWIN_USERS.map(([id]) => id).join(',')})`,
+		[USERS],
+	);
 }
 
 async function seedTwins(): Promise<void> {
 	// Idempotent: clear any leftover from a crashed run first.
 	await deleteTwins();
-	for (const [userId, username] of [
-		[TWIN_USER_ID, TWIN_USERNAME],
-		[TWIN_USER_ID_2, TWIN_USERNAME_2],
-	] as const) {
+	for (const [userId, username] of ALL_TWIN_USERS) {
 		await sql.unsafe(
 			`INSERT INTO matrix_users (section_id, section_tipo, string, relation)
 			 VALUES ($1, $2, $3::text::jsonb, '{}'::jsonb)`,
@@ -202,8 +209,13 @@ function typeaheadRqo(q: string): Rqo {
 }
 
 /** The resolve_data chip echo (same shape as the search_ save echo). */
-function echoRqo(injectedSectionId: number | string): Rqo {
+function echoRqo(
+	injectedSectionId: number | string | (number | string)[],
+	sqo?: Record<string, unknown>,
+): Rqo {
+	const ids = Array.isArray(injectedSectionId) ? injectedSectionId : [injectedSectionId];
 	return {
+		...(sqo === undefined ? {} : { sqo }),
 		action: 'read',
 		dd_api: 'dd_core_api',
 		prevent_lock: true,
@@ -217,13 +229,11 @@ function echoRqo(injectedSectionId: number | string): Rqo {
 			mode: 'search',
 			lang: 'lg-eng',
 			action: 'resolve_data',
-			value: [
-				{
-					section_tipo: USERS,
-					section_id: injectedSectionId,
-					from_component_tipo: WHO_PORTAL,
-				},
-			],
+			value: ids.map((id) => ({
+				section_tipo: USERS,
+				section_id: id,
+				from_component_tipo: WHO_PORTAL,
+			})),
 		},
 	} as unknown as Rqo;
 }
@@ -314,6 +324,43 @@ describe('search-mode component read (Activity dd542 Who picker)', () => {
 			| { entries?: { value?: unknown }[] }
 			| undefined;
 		expect(usernameItem?.entries?.[0]?.value).toBe(TWIN_USERNAME);
+	});
+
+	test('T2-SL-1: every injected chip resolves its child data past the page; pagination is an echo', async () => {
+		// PHP resolve_data: set_data(source.value) is the FULL injected value and
+		// sqo.limit/offset are only stamped on the element. The engine sliced the
+		// injected locators by sqo.limit with no offset, so the chips beyond one
+		// page (page 2 of a search-mode portal, or an 11th chip) had no label.
+		const ids = ALL_TWIN_USERS.map(([id]) => id);
+		const { body } = await dispatchRqo(echoRqo(ids, { limit: 2, offset: 2 }), ctx);
+		const data = (body as { data?: { data?: Record<string, unknown>[] } }).data?.data ?? [];
+		const mainItem = data.find((item) => item.tipo === WHO_PORTAL) as
+			| { entries?: Record<string, unknown>[]; pagination?: Record<string, unknown> }
+			| undefined;
+		expect(mainItem?.entries?.map((entry) => entry.section_id)).toEqual(ids);
+		expect(mainItem?.entries?.map((entry) => entry.id)).toEqual([1, 2, 3, 4, 5]);
+		// One child row per injected locator, each stamped with its target.
+		const labels = data
+			.filter((item) => item.tipo === USERNAME)
+			.map((item) => [
+				Number(item.section_id),
+				(item.entries as { value?: unknown }[])?.[0]?.value,
+			]);
+		expect(labels).toEqual(ALL_TWIN_USERS.map(([id, name]) => [id, name]));
+		// The request's page is echoed, never applied; total is the injected count.
+		expect(mainItem?.pagination).toEqual({ total: 5, limit: 2, offset: 2 });
+	});
+
+	test('T2-SL-1: an oversized source.value is refused loudly (request.invalid_source)', async () => {
+		const { CLIENT_MAX_LOCATOR_PINS } = await import('../../src/core/concepts/sqo.ts');
+		const atBound = Array.from({ length: CLIENT_MAX_LOCATOR_PINS }, () => TWIN_USER_ID);
+		const accepted = await dispatchRqo(echoRqo(atBound), ctx);
+		expect((accepted.body as { ok?: boolean }).ok).toBe(true);
+		const refused = await dispatchRqo(echoRqo([...atBound, TWIN_USER_ID_2]), ctx);
+		const refusedBody = refused.body as { ok?: boolean; error?: { code?: string } };
+		expect(refusedBody.ok).toBe(false);
+		expect(refusedBody.error?.code).toBe('request.invalid_source');
+		expect(refused.status).toBe(400);
 	});
 
 	test("save on the 'search_1' host echoes int entries under the synthetic id", async () => {

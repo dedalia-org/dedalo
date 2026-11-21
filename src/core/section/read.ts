@@ -38,7 +38,12 @@ import {
 } from '../concepts/rqo.ts';
 import { isConsultationOnlySection, TIME_MACHINE_SECTION_TIPO } from '../concepts/section.ts';
 import { canonicalizeStoredSectionId, classifyWireSectionId } from '../concepts/section_id.ts';
-import { isSingleRecordPin, mergeSessionSqo, sanitizeClientSqo } from '../concepts/sqo.ts';
+import {
+	CLIENT_MAX_LOCATOR_PINS,
+	isSingleRecordPin,
+	mergeSessionSqo,
+	sanitizeClientSqo,
+} from '../concepts/sqo.ts';
 import type { MatrixRecord } from '../db/matrix.ts';
 import { memoizedReadMatrixRecord, runWithRecordMemo } from '../db/record_memo.ts';
 import type { TmCoords } from '../db/time_machine.ts';
@@ -2755,11 +2760,24 @@ export async function resolveSearchDataEmission(
 	// Request-scoped data lang, never a hardcoded install default (S2-28): an
 	// RQO that omits lang resolves the session's active data language.
 	const lang = source.lang ?? currentDataLang();
-	const limit =
-		typeof rqo.sqo?.limit === 'number' ? rqo.sqo.limit : dedaloConfig.features.maxRowsPerPage;
 	let injected = Array.isArray((source as { value?: unknown }).value)
 		? ((source as { value?: unknown }).value as Record<string, unknown>[])
 		: [];
+	// THE ONE BOUND of this door (T2-SL-1). Every injected locator is expanded
+	// (below), so the client-supplied array is the work this request does: one
+	// past the cap is refused loudly, never trimmed to a page that looks whole.
+	if (injected.length > CLIENT_MAX_LOCATOR_PINS) {
+		throw new DedaloError('request.invalid_source', {
+			message: `resolveSearchData: source.value carries ${injected.length} locators (max ${CLIENT_MAX_LOCATOR_PINS})`,
+			coordinates: { tipo, section_tipo: sectionTipo },
+		});
+	}
+	// The request's page is an ECHO (PHP dd_core_api 'resolve_data': set_data
+	// takes the FULL injected value; sqo.limit/offset are only stamped on the
+	// element for the client paginator). It never slices the injected value.
+	const echoedLimit =
+		typeof rqo.sqo?.limit === 'number' ? rqo.sqo.limit : dedaloConfig.features.maxRowsPerPage;
+	const echoedOffset = typeof rqo.sqo?.offset === 'number' ? rqo.sqo.offset : 0;
 	// §7.4 per-record projects (tenant) ACL on the client-injected target locators
 	// (foundation audit AUTHZ-02): a non-admin must not resolve the child values of
 	// a record outside their projects filter by injecting its locator as a search
@@ -2842,7 +2860,15 @@ export async function resolveSearchDataEmission(
 
 	await expandPortal(
 		syntheticRecord,
-		{ tipo, section_tipo: sectionTipo, parent: 'self', mode: 'search', limit } as Ddo,
+		// EVERY injected locator is expanded: the page size is the injected count
+		// (a sliced expansion left the chips past one page without child data).
+		{
+			tipo,
+			section_tipo: sectionTipo,
+			parent: 'self',
+			mode: 'search',
+			limit: injected.length,
+		} as Ddo,
 		model,
 		childDdos,
 		'search',
@@ -2864,6 +2890,7 @@ export async function resolveSearchDataEmission(
 	const mainItem = data.find((item) => (item as DataItem).tipo === tipo) as DataItem | undefined;
 	if (mainItem !== undefined) {
 		mainItem.entries = injected.map((locator, index) => ({ ...locator, id: index + 1 }));
+		mainItem.pagination = { total: injected.length, limit: echoedLimit, offset: echoedOffset };
 		(mainItem as Record<string, unknown>).row_section_id = undefined;
 	}
 

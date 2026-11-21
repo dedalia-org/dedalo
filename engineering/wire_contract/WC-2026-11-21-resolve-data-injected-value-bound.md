@@ -1,0 +1,21 @@
+# WC-2026-11-21-resolve-data-injected-value-bound — search-mode `resolve_data` expands every injected locator, echoes the page, and refuses an oversized `source.value`
+
+- **Date:** 2026-11-21 (T2-SL-1).
+- **Decision:** T2 triage row SL-1 (needs_code); DEC-12 (gated:
+  `test/unit/search_mode_component_read.test.ts` → the two "T2-SL-1" cases).
+- **Shape before (TS):** `resolve_data` (a relation component in `search` mode resolving the
+  locators the client injects in `source.value` — the filter chips) sliced the injected locators
+  by `sqo.limit` (default: the edit page size) with no offset, so only the first page of chips got
+  child data (labels); the main item's `pagination` was `{ total, limit, offset: 0 }`.
+- **Shape before (PHP):** the full injected value resolved, unpaginated; `sqo.limit` /
+  `sqo.offset` only stamped on the element. No size bound.
+- **Shape after (TS):** every injected locator resolves its child data; the main item's
+  `pagination` is `{ total: <injected count>, limit: <sqo.limit, else the default page size>,
+  offset: <sqo.offset, else 0> }` — an echo, never applied. A `source.value` of more than
+  `CLIENT_MAX_LOCATOR_PINS` (1000, the same cap as `sqo.filter_by_locators`) locators is refused:
+  `request.invalid_source`, 400, nothing resolved.
+- **Reason:** a chip without a label is a filter the user cannot read; and since the whole value
+  is the work of the request, its size is bounded loudly instead of trimmed to a page that looks
+  complete. The bound is the one divergence from PHP.
+- **Gate reconciliation:** TS-native only. No frozen fixture replays a `resolve_data` with more
+  locators than its page (`resolve_data` differentials unchanged); no re-harvest, no fixture edit.
