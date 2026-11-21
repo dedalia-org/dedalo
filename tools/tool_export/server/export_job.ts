@@ -493,6 +493,8 @@ export async function runExportArtifact(run: ExportArtifactRun): Promise<ExportA
 			sections: exportReadSections(options),
 			options,
 			recordScope,
+			// the frame columns the grid's gate authorized: re-asked by every later read
+			frameColumns: grid.frameColumns,
 			applicationLang: run.applicationLang,
 			backgroundJobId: run.backgroundJobId ?? null,
 			indexEvery: run.indexEvery,

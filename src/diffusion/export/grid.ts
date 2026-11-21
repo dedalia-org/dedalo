@@ -883,6 +883,14 @@ export interface OpenedExportGrid {
 	 */
 	frontierGrants: ReadonlyMap<string, { section_tipo: string; component_tipo: string }>;
 	/**
+	 * The dedalo_raw DATAFRAME COLUMNS the declaration gate authorized and the
+	 * walk emits ([] in any other format) — fixed when the grid opens. A
+	 * finished export records them (tool_export manifest `frame_columns`) so
+	 * every later read re-asks exactly these columns (access.ts
+	 * exportStillReadable), never a fresh discovery.
+	 */
+	frameColumns: readonly ExportFrameColumns[];
+	/**
 	 * THE EXTERNAL-SOURCE SUMMARY (FIX 4, 2026-09-24 — external_prefetch.ts):
 	 * every component_external cell the walk resolved DEGRADED (the source could
 	 * not answer, the circuit was open, a stale copy was served, the service is
@@ -981,32 +989,129 @@ export interface ExportDeclarationGateOptions {
 	 * passes false: its refusal is an answer, not a narrowed walk.
 	 */
 	noteRefusals?: boolean;
+	/**
+	 * The dataframe column set a FINISHED export recorded (tool_export manifest
+	 * `frame_columns`): the gate re-asks EXACTLY these columns and never
+	 * re-discovers them. Absent = the build: the gate resolves the set itself
+	 * (resolveExportFrameColumns) and returns it.
+	 */
+	frameColumns?: readonly ExportFrameColumns[];
 }
+
+/**
+ * One `dedalo_raw` main's DATAFRAME COLUMNS (B3-fix review MEDIUM 1): the slot
+ * set of (`section_tipo`, `component_tipo`) the export emits one raw column
+ * each for. The slot set is partly DISCOVERED in stored data (a caller-injected
+ * slot holding the main's frames — dataframe_slots.ts resolveSectionSlotTipos),
+ * so it can change while an export lives: it is taken ONCE, by the declaration
+ * gate, and that one set is what the build emits, what the manifest records
+ * and what every re-check re-asks.
+ */
+export interface ExportFrameColumns {
+	section_tipo: string;
+	component_tipo: string;
+	frame_tipos: string[];
+}
+
+/** What the declaration gate authorized beyond the declared segments. */
+export interface ExportDeclaration {
+	/** The dedalo_raw frame columns, one entry per distinct top (section, main); [] in any other format. */
+	frameColumns: ExportFrameColumns[];
+}
+
+/**
+ * The TOP (section, component) of a declared ddo path, read EXACTLY as the
+ * raw build reads its column's first step (a list → its first element, never
+ * normalized further) — so the gate's frame set and the build's lookup key on
+ * the same pair. Null when either side is empty (the build emits nothing then).
+ */
+function rawTopPairOf(path: unknown): { section: string; component: string } | null {
+	const first = (Array.isArray(path) ? path[0] : undefined) as
+		| { section_tipo?: unknown; component_tipo?: unknown }
+		| undefined;
+	const rawSection = first?.section_tipo;
+	const section = String(Array.isArray(rawSection) ? (rawSection[0] ?? '') : (rawSection ?? ''));
+	const component = String(first?.component_tipo ?? '');
+	return section === '' || component === '' ? null : { section, component };
+}
+
+/** The lookup key of one frame column set. */
+const frameColumnsKey = (section: string, component: string): string =>
+	`${section}\u0000${component}`;
+
+/**
+ * Resolve the dedalo_raw frame columns of every declared ddo (one scan per
+ * distinct top pair) — the BUILD's half of the set; a re-check never calls it.
+ */
+async function resolveExportFrameColumns(
+	exportDdos: readonly ExportDdoInput[],
+): Promise<ExportFrameColumns[]> {
+	const resolved = new Map<string, ExportFrameColumns>();
+	for (const ddo of exportDdos) {
+		const top = rawTopPairOf(ddo?.path);
+		if (top === null) continue;
+		const key = frameColumnsKey(top.section, top.component);
+		if (resolved.has(key)) continue;
+		resolved.set(key, {
+			section_tipo: top.section,
+			component_tipo: top.component,
+			frame_tipos: await resolveSectionSlotTipos(top.section, top.component),
+		});
+	}
+	return [...resolved.values()];
+}
+
+/** A detached copy of a frame column set (the gate never hands out the caller's objects). */
+const copyFrameColumns = (columns: readonly ExportFrameColumns[]): ExportFrameColumns[] =>
+	columns.map((column) => ({
+		section_tipo: column.section_tipo,
+		component_tipo: column.component_tipo,
+		frame_tipos: [...column.frame_tipos],
+	}));
 
 /**
  * THE EXPORT DECLARATION GATE — what an export ASKS FOR, authorized before a
  * single record is read: Gate A (every SQO target section) + Gate B (every
  * declared ddo path segment, on its (section, component) grant) + the
  * `dedalo_raw` dataframe columns. Global admins are exempt. Throws
- * `perm.denied`, fail closed.
+ * `perm.denied`, fail closed. Answers the frame column set it authorized
+ * (resolved here for a build, the recorded one for a re-check — global
+ * admins included, the build emits it): the build emits exactly that set.
  *
  * ONE function, called by `openExportGrid` (the build) AND by every later
  * re-check of a finished export (tool_export's export_job.ts
  * exportStillReadable — preview, file build, listing, download), so the
  * re-check can never be stricter or looser than the gate that let the build
- * through.
+ * through — over the SAME frame columns (`gate.frameColumns`).
  */
 export async function assertExportDeclarationReadable(
 	principal: Principal,
 	options: Record<string, unknown>,
 	gate: ExportDeclarationGateOptions = {},
+): Promise<ExportDeclaration> {
+	const dataFormat = String(options.data_format ?? 'value');
+	const declaredDdos = Array.isArray(options.ar_ddo_to_export)
+		? (options.ar_ddo_to_export as ExportDdoInput[])
+		: [];
+	const frameColumns =
+		gate.frameColumns !== undefined
+			? copyFrameColumns(gate.frameColumns)
+			: dataFormat === 'dedalo_raw'
+				? await resolveExportFrameColumns(declaredDdos)
+				: [];
+	if (principal.isGlobalAdmin) return { frameColumns };
+	await assertDeclaredSegmentsReadable(principal, options, gate);
+	await assertFrameColumnsReadable(principal, frameColumns, gate);
+	return { frameColumns };
+}
+
+/** Gate A + Gate B of `assertExportDeclarationReadable` (non-admins only). */
+async function assertDeclaredSegmentsReadable(
+	principal: Principal,
+	options: Record<string, unknown>,
+	gate: ExportDeclarationGateOptions,
 ): Promise<void> {
-	if (principal.isGlobalAdmin) return;
 	const sectionTipo = String(options.section_tipo ?? options.tipo ?? '');
-	const rawFormat = String(options.data_format ?? 'value');
-	const dataFormat = ['value', 'grid_value', 'dedalo_raw'].includes(rawFormat)
-		? rawFormat
-		: 'value';
 	const exportDdos = Array.isArray(options.ar_ddo_to_export)
 		? (options.ar_ddo_to_export as ExportDdoInput[])
 		: [];
@@ -1098,44 +1203,52 @@ export async function assertExportDeclarationReadable(
 				});
 			}
 		}
-		// THE dedalo_raw DATAFRAME COLUMNS (2026-08-28). In that format
-		// buildEntries mints and FILLS one raw cell per
-		// `resolveSectionSlotTipos(topSection, topComponent)` frame (declared ∪
-		// caller-injected slots holding the main's frames) — real components, with
-		// their own stored data, that appear in NO ddo path and therefore never
-		// reached Gate B. They are authorized HERE, once per run, on the same
-		// key: a caller who may not read the frame component may not receive a
-		// column of its data because the main component happened to be
-		// exportable.
-		if (dataFormat === 'dedalo_raw') {
-			const firstSegment = declaredPath[0];
-			const topSection = resolveDeclaredTipo(firstSegment?.section_tipo);
-			const topComponent = resolveDeclaredTipo(firstSegment?.component_tipo);
-			if (topSection !== null && topComponent !== null) {
-				for (const frameTipo of await resolveSectionSlotTipos(topSection, topComponent)) {
-					// The SAME declaration gate as the segments above — a frame is
-					// a declared column of this export, just one the tool UI cannot
-					// spell, so it is authorized on the bare grant too.
-					if ((await getPermissions(principal, topSection, frameTipo)) >= 1) {
-						continue;
-					}
-					note({
-						surface: 'export',
-						door: 'tool_export',
-						sectionTipo: topSection,
-						componentTipo: frameTipo,
-						key: 'component',
-					});
-					throw new DedaloError('perm.denied', {
-						message: `tool_export: dedalo_raw would emit the dataframe column ${topSection}.${frameTipo} of ${topSection}.${topComponent}, which this caller holds no read grant on`,
-						coordinates: {
-							tool: 'tool_export',
-							section_tipo: topSection,
-							tipo: frameTipo,
-						},
-					});
-				}
+	}
+}
+
+/**
+ * THE dedalo_raw DATAFRAME COLUMNS (2026-08-28) of `assertExportDeclarationReadable`
+ * (non-admins only). In that format buildEntries mints and FILLS one raw cell
+ * per frame column — real components, with their own stored data, that appear
+ * in NO ddo path and therefore never reached Gate B. They are authorized HERE,
+ * on the same key: a caller who may not read the frame component may not
+ * receive a column of its data because the main component happened to be
+ * exportable. The set is the one the gate answers (ExportFrameColumns): the
+ * build emits exactly it and a re-check re-asks exactly the recorded one.
+ */
+async function assertFrameColumnsReadable(
+	principal: Principal,
+	frameColumns: readonly ExportFrameColumns[],
+	gate: ExportDeclarationGateOptions,
+): Promise<void> {
+	const exportScope: FrontierScope = { principal, surface: 'export', door: 'tool_export' };
+	for (const {
+		section_tipo: topSection,
+		component_tipo: topComponent,
+		frame_tipos,
+	} of frameColumns) {
+		for (const frameTipo of frame_tipos) {
+			// The SAME declaration gate as the segments — a frame is a declared
+			// column of this export, just one the tool UI cannot spell, so it is
+			// authorized on the bare grant too.
+			if ((await getPermissions(principal, topSection, frameTipo)) >= 1) continue;
+			if (gate.noteRefusals !== false) {
+				noteFrontierRefusal(exportScope, {
+					surface: 'export',
+					door: 'tool_export',
+					sectionTipo: topSection,
+					componentTipo: frameTipo,
+					key: 'component',
+				});
 			}
+			throw new DedaloError('perm.denied', {
+				message: `tool_export: dedalo_raw would emit the dataframe column ${topSection}.${frameTipo} of ${topSection}.${topComponent}, which this caller holds no read grant on`,
+				coordinates: {
+					tool: 'tool_export',
+					section_tipo: topSection,
+					tipo: frameTipo,
+				},
+			});
 		}
 	}
 }
@@ -1231,8 +1344,10 @@ async function openExportGridInScope(
 	sqo.offset = 0;
 
 	// The declaration gate (TOOLS-02 Gate A + Gate B + the dedalo_raw frames) —
-	// ONE function, shared with every re-check of a finished export.
-	await assertExportDeclarationReadable(context.principal, options);
+	// ONE function, shared with every re-check of a finished export. Its frame
+	// column set is the run's: the build emits exactly it (frameSlotsOf) and the
+	// export records it (OpenedExportGrid.frameColumns).
+	const declaration = await assertExportDeclarationReadable(context.principal, options);
 
 	const builtSelection = await buildSearchSql(sqo, {
 		principal: context.principal.isGlobalAdmin ? undefined : context.principal,
@@ -1315,15 +1430,24 @@ async function openExportGridInScope(
 		}
 	};
 
-	// The dedalo_raw frame columns of a main, ONCE per run (resolveSectionSlotTipos
-	// scans the section): the same set the declaration gate authorized.
-	const frameSlotSets = new Map<string, Promise<string[]>>();
-	const frameSlotsOf = (section: string, main: string): Promise<string[]> => {
-		const key = `${section}:${main}`;
-		let slots = frameSlotSets.get(key);
+	// The dedalo_raw frame columns of a main: THE set the declaration gate
+	// authorized (B3-fix review MEDIUM 1) — never a second scan, which could
+	// name a slot a concurrent save filled after the gate ran. A main the gate
+	// holds no set for is an invariant break (both key on rawTopPairOf), refused
+	// loudly rather than exported without its frames or with unauthorized ones.
+	const frameSlotSets = new Map(
+		declaration.frameColumns.map((column) => [
+			frameColumnsKey(column.section_tipo, column.component_tipo),
+			column.frame_tipos,
+		]),
+	);
+	const frameSlotsOf = (section: string, main: string): string[] => {
+		const slots = frameSlotSets.get(frameColumnsKey(section, main));
 		if (slots === undefined) {
-			slots = resolveSectionSlotTipos(section, main);
-			frameSlotSets.set(key, slots);
+			throw new DedaloError('internal.invariant', {
+				message: `tool_export: dedalo_raw column ${section}.${main} has no frame column set from the declaration gate`,
+				coordinates: { tool: 'tool_export', section_tipo: section, tipo: main },
+			});
 		}
 		return slots;
 	};
@@ -1412,13 +1536,15 @@ async function openExportGridInScope(
 				// own-config ddos ∪ the model's fixed frames ∪ every slot a record
 				// of the section holds the main's frames in — a caller-injected
 				// slot included — the set the read, the save cascade and the Time
-				// Machine answer), resolved ONCE per run and main (frameSlotsOf) —
-				// so the column set is the same for every record of the run, framed
-				// or not, and is the set the declaration gate authorized
+				// Machine answer), taken ONCE per run, by the declaration gate
+				// (frameSlotsOf reads the set it authorized; a slot filled after the
+				// gate ran waits for the next export) — so the column set is the same
+				// for every record of the run, framed or not, and is the set the
+				// manifest records for every re-check
 				// — and dedalo_raw stays a LOSSLESS dump: the tool UI cannot declare
 				// a dataframe step itself (atoms.ts hasDeclaredDataframeStep), so
 				// without this the frames would leave no column at all.
-				for (const frameTipo of await frameSlotsOf(firstSection, topComponent)) {
+				for (const frameTipo of frameSlotsOf(firstSection, topComponent)) {
 					entries.push({
 						kind: 'raw',
 						ddoIndex,
@@ -1589,6 +1715,7 @@ async function openExportGridInScope(
 		lines: closingLines(protocolLines(), cursor),
 		unresolved,
 		frontierGrants: run.atoms.frontierGrants,
+		frameColumns: declaration.frameColumns,
 		externalDegradation: () => degradation.snapshot(),
 	};
 }

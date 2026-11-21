@@ -158,6 +158,7 @@ const INIT = {
 	sections: ['test3'],
 	options: { data_format: 'standard', breakdown: 'rows' },
 	recordScope: 'store-gate-scope',
+	frameColumns: [],
 	applicationLang: 'lg-eng',
 };
 

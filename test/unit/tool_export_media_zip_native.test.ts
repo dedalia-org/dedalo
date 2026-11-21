@@ -318,6 +318,7 @@ async function endedJob(
 		options,
 		// A's real scope: leg L reaches the job through the owned-job door.
 		recordScope: await exportRecordScope(await resolvePrincipal(sb.userA)),
+		frameColumns: [],
 		applicationLang: 'lg-eng',
 	});
 	const writer = await store.openSpoolWriter(job, { indexEvery: 4 });

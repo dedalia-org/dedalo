@@ -136,7 +136,11 @@ import { isTempSibling, tempPathFor } from '../../../src/core/files/temp_path.ts
 import { mediaRootIsMarked } from '../../../src/core/media/test_media_root.ts';
 import { getBackgroundJob } from '../../../src/core/tools/background.ts';
 import { getRoots as getToolRoots } from '../../../src/core/tools/paths.ts';
-import { type ExportExternalDegradation, rowMediaOf } from '../../../src/diffusion/api/export.ts';
+import {
+	type ExportExternalDegradation,
+	type ExportFrameColumns,
+	rowMediaOf,
+} from '../../../src/diffusion/api/export.ts';
 
 // ---------------------------------------------------------------------------
 // Names, formats, grammar
@@ -177,7 +181,7 @@ const SPOOL_DATA_FILES: readonly string[] = [
 ];
 
 /** The ExportManifest keys that live in request.json (immutable, caller-sized). */
-export const MANIFEST_REQUEST_KEYS = ['options', 'sections'] as const;
+export const MANIFEST_REQUEST_KEYS = ['options', 'sections', 'frame_columns'] as const;
 
 /** The MUTABLE part of a manifest — what manifest.json holds. */
 export type ExportJobState = Omit<ExportManifest, (typeof MANIFEST_REQUEST_KEYS)[number]>;
@@ -189,6 +193,8 @@ export interface ExportJobRequest {
 	user_id: number;
 	options: Record<string, unknown>;
 	sections: string[];
+	/** See ExportManifest.frame_columns (absent on a request written before 2026-11-21). */
+	frame_columns?: ExportFrameColumns[];
 }
 
 /** The state half of a manifest (the request keys dropped — never written into manifest.json). */
@@ -359,6 +365,15 @@ export interface ExportManifest {
 	/** The export options as the job ran them. */
 	options: Record<string, unknown>;
 	/**
+	 * The dedalo_raw DATAFRAME COLUMNS the build's declaration gate authorized
+	 * and the walk emitted (grid.ts OpenedExportGrid.frameColumns; [] in any
+	 * other format) — fixed when the grid opened, so it lives in request.json.
+	 * Every later read re-asks exactly these (access.ts exportStillReadable);
+	 * a manifest without the list (written before 2026-11-21) is bound to none
+	 * (fail closed). Optional in the type because the disk may lack it.
+	 */
+	frame_columns?: ExportFrameColumns[];
+	/**
 	 * The owner's RECORD SCOPE when the walk ran (access.ts exportRecordScope:
 	 * global-admin flag; else projects + the dd478 record allow-list). Every later read asks it again and a
 	 * different answer is not-found: the spool holds the records THAT scope
@@ -461,6 +476,8 @@ export interface ExportJobInit {
 	options: Record<string, unknown>;
 	/** The owner's record scope when the walk starts (access.ts exportRecordScope). */
 	recordScope: string;
+	/** The opened grid's frame columns (grid.ts OpenedExportGrid.frameColumns) — required: every job records its set. */
+	frameColumns: readonly ExportFrameColumns[];
 	applicationLang: string;
 	backgroundJobId?: string | null;
 	indexEvery?: number;
@@ -1966,6 +1983,9 @@ export function openArtifactStore(options: ArtifactStoreOptions = {}): ArtifactS
 			options:
 				request.options !== null && typeof request.options === 'object' ? request.options : {},
 			sections: Array.isArray(request.sections) ? request.sections : [],
+			// RAW, never defaulted: a request without it must stay without it
+			// (access.ts refuses an unrecorded set — fail closed).
+			frame_columns: request.frame_columns,
 		}) as ExportManifest;
 
 	const readManifest = async (job: ArtifactJobRef): Promise<ExportManifest> =>
@@ -1986,6 +2006,7 @@ export function openArtifactStore(options: ArtifactStoreOptions = {}): ArtifactS
 		user_id: manifest.user_id,
 		options: manifest.options,
 		sections: [...(manifest.sections ?? [])],
+		...(manifest.frame_columns === undefined ? {} : { frame_columns: manifest.frame_columns }),
 	});
 
 	const writeManifest = async (job: ArtifactJobRef, manifest: ExportManifest): Promise<void> => {
@@ -2083,6 +2104,11 @@ export function openArtifactStore(options: ArtifactStoreOptions = {}): ArtifactS
 				section_tipo: init.sectionTipo,
 				sections: [...init.sections],
 				options: init.options,
+				frame_columns: init.frameColumns.map((column) => ({
+					section_tipo: column.section_tipo,
+					component_tipo: column.component_tipo,
+					frame_tipos: [...column.frame_tipos],
+				})),
 				record_scope: init.recordScope,
 				application_lang: init.applicationLang,
 				created_at: now,

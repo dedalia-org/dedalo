@@ -210,6 +210,12 @@ used (`readMainSlots` — declared ∪ every key of the record holding one of th
 - **Raw export**: the section-wide form, `resolveSectionSlotTipos` (see
   WC-2026-08-09-export-raw-dataframe-own-column, addendum 2026-11-21 M3).
 - **Time Machine**: unchanged (`readMainSlots` / `rowSlotTipos` already composed and restored it).
+  OPEN (B3-fix review LOW 3): the history LIST's as-of frame view still keys on the DECLARED
+  set — `src/core/resolve/read_tm.ts` `snapshotDeclaredSlots` / `snapshotCellEmission` — so a
+  main whose only slot is caller-injected keeps the shared emission in its list cell (no as-of
+  frame view); `dataframe_slots.ts` `declaringParent` is declared-only too. Stored data is not
+  affected: frames carry `from_component_tipo` and are attributed, and bulk revert merges the
+  named slots.
 - **Read**: unchanged — an injected slot is emitted when the caller names it.
 - **Record wipe** (`delete_data`, `src/core/section/record/delete_record.ts`
   `wipeDeclaredSlotsOfMains`): each walked main's slot set is `slotsFromBag` of the locked

@@ -759,6 +759,7 @@ const STORE_WRITE_DRIVERS: Record<string, (store: Store, mod: StoreModule) => Pr
 			sections: ['test3'],
 			options: {},
 			recordScope: 'tripwire',
+			frameColumns: [],
 			applicationLang: 'lg-eng',
 		}),
 	writeManifest: (store) =>

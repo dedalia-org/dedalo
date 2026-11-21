@@ -15,7 +15,10 @@
  *    `sqo.section_tipo` entry (every principal, a non-string entry refused);
  *  - the engine's declaration gate, `assertExportDeclarationReadable`
  *    (src/diffusion/export/grid.ts — Gate A + Gate B + the dedalo_raw frames,
- *    global admins exempt), the very function `openExportGrid` ran.
+ *    global admins exempt), the very function `openExportGrid` ran — over the
+ *    dedalo_raw frame columns the build RECORDED (`frame_columns`), never a
+ *    fresh discovery of them; a manifest without the list is bound to none
+ *    (fail closed).
  *
  * Then the grants the WALK consulted beyond the declaration:
  *
@@ -68,7 +71,10 @@ import {
 	type Principal,
 } from '../../../src/core/security/permissions.ts';
 import { isToolGranted } from '../../../src/core/tools/security.ts';
-import { assertExportDeclarationReadable } from '../../../src/diffusion/api/export.ts';
+import {
+	assertExportDeclarationReadable,
+	type ExportFrameColumns,
+} from '../../../src/diffusion/api/export.ts';
 import { type ExportManifest, exportExpired } from './artifact_store.ts';
 import { assertExportSqoSections } from './tool_export.ts';
 
@@ -127,6 +133,7 @@ export async function exportStillReadable(
 		| 'options'
 		| 'record_scope'
 		| 'frontier_grants'
+		| 'frame_columns'
 		| 'status'
 		| 'ended_at'
 		| 'updated_at'
@@ -148,14 +155,47 @@ export async function exportStillReadable(
 		...(manifest.options !== null && typeof manifest.options === 'object' ? manifest.options : {}),
 		section_tipo: sectionTipo,
 	};
+	// The frame columns the BUILD's gate authorized and emitted — re-asked as
+	// recorded, never re-discovered (the discovered half of the set follows
+	// stored data, so a fresh scan could omit a column the export still holds).
+	const frameColumns = recordedFrameColumns(manifest.frame_columns);
+	if (frameColumns === null) return false;
 	try {
 		await assertExportSqoSections(principal, options);
-		await assertExportDeclarationReadable(principal, options, { noteRefusals: false });
+		await assertExportDeclarationReadable(principal, options, {
+			noteRefusals: false,
+			frameColumns,
+		});
 	} catch (error) {
 		if (isDedaloError(error) && error.code === 'perm.denied') return false;
 		throw error;
 	}
 	return runtimeFrontierGrantsHeld(principal, manifest.frontier_grants);
+}
+
+/**
+ * The manifest's `frame_columns`, validated: a list of { section_tipo,
+ * component_tipo, frame_tipos[] } with non-empty strings throughout. Anything
+ * else — absent (a manifest written before the set was recorded), not a list,
+ * a malformed entry — is null: the export is bound to no set (fail closed).
+ */
+function recordedFrameColumns(value: unknown): ExportFrameColumns[] | null {
+	if (!Array.isArray(value)) return null;
+	const columns: ExportFrameColumns[] = [];
+	const tipo = (candidate: unknown): candidate is string =>
+		typeof candidate === 'string' && candidate !== '';
+	for (const entry of value) {
+		const column = entry as Partial<ExportFrameColumns> | null;
+		if (column === null || typeof column !== 'object') return null;
+		if (!tipo(column.section_tipo) || !tipo(column.component_tipo)) return null;
+		if (!Array.isArray(column.frame_tipos) || !column.frame_tipos.every(tipo)) return null;
+		columns.push({
+			section_tipo: column.section_tipo,
+			component_tipo: column.component_tipo,
+			frame_tipos: [...column.frame_tipos],
+		});
+	}
+	return columns;
 }
 
 /**

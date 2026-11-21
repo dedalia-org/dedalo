@@ -102,6 +102,7 @@ async function builtReaderJob(): Promise<ArtifactJobRef> {
 		sections: [ACL_GRANTED_SECTION],
 		options: { data_format: 'standard' },
 		recordScope: await exportRecordScope(await resolvePrincipal(ACL_NON_ADMIN_USER_ID)),
+		frameColumns: [],
 		applicationLang: 'lg-eng',
 	});
 	jobs.push(job);

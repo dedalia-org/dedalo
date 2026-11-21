@@ -781,6 +781,7 @@ describe('B2. a wide export: the preview is bounded in COLUMNS too', () => {
 			sections: [SECTION],
 			options: { section_tipo: SECTION, data_format: 'value', breakdown: 'columns' },
 			recordScope: await exportRecordScope(reader),
+			frameColumns: [],
 			applicationLang: APP_LANG,
 		});
 		const writer = await store.openSpoolWriter(job, { indexEvery: 2 });

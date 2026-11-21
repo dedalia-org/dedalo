@@ -120,8 +120,34 @@ declared one, for every door. The `dedalo_raw` frame columns — and their once-
 authorization — now come from `resolveSectionSlotTipos(section, main)`
 (`src/core/relations/dataframe_slots.ts`): the declared set ∪ every slot ANY record of the
 exported section holds one of the main's frames in (model-checked, sorted). The column set stays
-ONE per run (memoized per section + main; a record without frames there gets an empty cell),
-and a caller without a read grant on an injected slot is refused the run (`perm.denied` naming
-the slot), exactly like a declared one. Cost: one pass over the section's relation column per run
-(and one per declaration re-check). Gate: `has_dataframe_literal_native` → "CROSS-DOOR, INJECTED"
+ONE per run (taken once, by the declaration gate — see the B3-fix addendum below; a record
+without frames there gets an empty cell), and a caller without a read grant on an injected slot
+is refused the run (`perm.denied` naming the slot), exactly like a declared one. Cost: one pass
+over the section's relation column per run (none per re-check, see below). Gate: `has_dataframe_literal_native` → "CROSS-DOOR, INJECTED"
 (the injected frame exported; the declaration gate refuses without the grant, serves with it).
+
+## Addendum 2026-11-21 — one frame column set per export: gated, emitted, recorded, re-asked (B3-fix review MEDIUM 1)
+
+The injected half of the set is DISCOVERED in stored data, so it can change while an export
+lives. It is now taken ONCE, by the declaration gate: `assertExportDeclarationReadable`
+(`src/diffusion/export/grid.ts`) answers the set it authorized (`ExportFrameColumns`, one entry per
+distinct top section + main, keyed exactly as the build reads its column's first step), the
+build emits exactly that set (never a second scan — a slot a concurrent save fills after the
+gate waits for the next export; a main the gate holds no set for is `internal.invariant`), and
+`OpenedExportGrid.frameColumns` carries it to tool_export, whose manifest records it
+(`frame_columns`, in the immutable `request.json`). Every later read (`access.ts`
+`exportStillReadable`) re-asks EXACTLY the recorded columns through the same gate
+(`gate.frameColumns`) — a column the export holds is refused once its grant is revoked, even
+after every frame left its slot. A manifest without the list (or a malformed one) is bound to
+none: not-found (fail closed; exports written before 2026-11-21 are re-run, TS-era data carries
+no compatibility). Gate: `has_dataframe_literal_native` → "CROSS-DOOR, INJECTED — the raw
+export frame columns are ONE set per export" (red before: a frame saved after the gate got an
+unauthorized column; the re-check passed after the frames left and the grant was revoked).
+
+Stated scope (review LOW 2): the discovery scans EVERY record of the exported section, not only
+those the caller's projects / record allow-list reach. A project-scoped caller is therefore
+refused the run (`perm.denied` naming the slot tipo) when a record they cannot read holds frames
+of the main in a slot they hold no grant on — the same answer a declared slot gets, whatever the
+records hold. What the refusal discloses is that such frames exist somewhere in the section;
+the slot tipo itself is ontology, not data.
+

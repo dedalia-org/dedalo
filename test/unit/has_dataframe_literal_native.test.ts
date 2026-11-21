@@ -46,6 +46,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { assertMatrixTable } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
@@ -66,9 +69,13 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertExportDeclarationReadable } from '../../src/diffusion/export/grid.ts';
-import { exportGridUnified } from '../../src/diffusion/export/index.ts';
+import { exportGridUnified, openExportGrid } from '../../src/diffusion/export/index.ts';
+import { exportStillReadable } from '../../tools/tool_export/server/access.ts';
+import { openArtifactStore } from '../../tools/tool_export/server/artifact_store.ts';
+import { runExportArtifact } from '../../tools/tool_export/server/export_job.ts';
 import { toolTimeMachineApplyValue } from '../../tools/tool_time_machine/server/tool_time_machine.ts';
 import { exportFrontierIdentity } from '../helpers/export_frontier_identity.ts';
+import { markExportArtifactsRoot } from '../helpers/media_scratch_root.ts';
 import golden from './fixtures/has_dataframe_native/list_items.golden.json';
 
 /**
@@ -900,6 +907,100 @@ describe('T2-SL-6: a literal reads the ONE declared slot set (+ a caller-injecte
 			]);
 			await assertExportDeclarationReadable(identity.scoped, rawOptions, { noteRefusals: false });
 		} finally {
+			await identity.remove(false);
+		}
+	}, 60_000);
+
+	test('CROSS-DOOR, INJECTED — the raw export frame columns are ONE set per export: the build emits the set its gate authorized, and every re-check re-asks exactly the set the build recorded (B3-fix review MEDIUM 1)', async () => {
+		// The slot set includes slots DISCOVERED in stored data (resolveSectionSlotTipos),
+		// so it can change while an export lives. Pinned: the set is taken ONCE,
+		// at the gate — the build emits no column the gate did not authorize, and
+		// a later re-check judges the columns the export HOLDS, not a fresh scan.
+		const declared = [CHILD, SIBLING].sort();
+		const stripInjected = () =>
+			sql.unsafe(
+				`UPDATE "${ZTABLE}" SET relation = relation - $2::text WHERE section_tipo = $1 AND relation ? $2`,
+				[ZSECTION, INJECTED],
+			);
+		await stripInjected(); // no record of the section holds an INJECTED frame
+		const id = await zRecord(LIT, declared);
+		const rawOptions = {
+			section_tipo: ZSECTION,
+			data_format: 'dedalo_raw',
+			breakdown: 'default',
+			fill_the_gaps: false,
+			lang: 'lg-eng',
+			ar_ddo_to_export: [{ path: [{ section_tipo: ZSECTION, component_tipo: LIT, name: LIT }] }],
+			sqo: {
+				section_tipo: [ZSECTION],
+				offset: 0,
+				filter_by_locators: [{ section_tipo: ZSECTION, section_id: String(id) }],
+			},
+		};
+
+		// (a) BUILD vs GATE: a save lands a frame of the main in INJECTED after
+		// the gate ran (the export is open, no record read yet). The run emits
+		// the gate's columns — never one its gate did not see.
+		const opened = await openExportGrid({
+			principal: await resolvePrincipal(-1),
+			options: rawOptions,
+			applicationLang: 'lg-eng',
+		} as never);
+		await sql.unsafe(
+			`UPDATE "${ZTABLE}" SET relation = COALESCE(relation, '{}'::jsonb) || $3::text::jsonb
+			  WHERE section_tipo = $1 AND section_id = $2`,
+			[ZSECTION, id, JSON.stringify({ [INJECTED]: [zFrame(INJECTED, LIT, id)] })],
+		);
+		const lines: unknown[] = [];
+		for await (const line of opened.lines) lines.push(line);
+		const built = JSON.stringify(lines);
+		expect(declared.filter((slot) => built.includes(`${ZSECTION}_${slot}`))).toEqual(declared);
+		expect(built).not.toContain(`${ZSECTION}_${INJECTED}`);
+		expect(built).not.toContain(`\\"from_component_tipo\\":\\"${INJECTED}\\"`);
+
+		// (b) RE-CHECK vs BUILD: a non-admin builds while INJECTED holds frames
+		// (granted, so its column is authorized and recorded). Later every frame
+		// leaves INJECTED and the grant is revoked: the export still HOLDS that
+		// column, so the re-check must refuse it — a fresh scan would not see it.
+		const identity = exportFrontierIdentity('has_dataframe_injected_recheck', 935710);
+		const granted = [ZSECTION, LIT, CHILD, SIBLING, INJECTED].map((tipo) => ({
+			sectionTipo: ZSECTION,
+			tipo,
+			level: 1,
+		}));
+		const dir = mkdtempSync(join(tmpdir(), 'dedalo_df_recheck_'));
+		try {
+			await identity.install(granted, []);
+			const store = openArtifactStore({
+				root: markExportArtifactsRoot(join(dir, 'artifacts')),
+				quotaBytes: 0,
+				ttlHours: 24,
+			});
+			const userId = identity.scoped.userId;
+			const summary = await runExportArtifact({
+				store,
+				principal: identity.scoped,
+				userId,
+				options: rawOptions,
+				applicationLang: 'lg-eng',
+			});
+			const job = store.jobRef(userId, summary.job_id);
+			const manifest = await store.readManifest(job);
+			const ttl = { ttlHours: 24 };
+			expect(await exportStillReadable(identity.scoped, manifest, ttl)).toBe(true);
+			await stripInjected();
+			// no frame left anywhere: a fresh scan no longer names INJECTED
+			expect(await resolveSectionSlotTipos(ZSECTION, LIT)).not.toContain(INJECTED);
+			expect(await exportStillReadable(identity.scoped, manifest, ttl)).toBe(true);
+			await identity.setScopedGrants(granted.filter((grant) => grant.tipo !== INJECTED));
+			expect(await exportStillReadable(identity.scoped, manifest, ttl)).toBe(false);
+			// A manifest that recorded no frame set is bound to none (fail closed).
+			await identity.setScopedGrants(granted);
+			expect(await exportStillReadable(identity.scoped, manifest, ttl)).toBe(true);
+			const { frame_columns: _dropped, ...withoutSet } = manifest;
+			expect(await exportStillReadable(identity.scoped, withoutSet, ttl)).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
 			await identity.remove(false);
 		}
 	}, 60_000);

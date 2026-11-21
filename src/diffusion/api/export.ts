@@ -7,10 +7,12 @@
  */
 
 export type {
+	ExportDeclaration,
 	ExportDeclarationGateOptions,
 	ExportExternalDegradation,
 	ExportExternalDegradedCell,
 	ExportExternalDegradedState,
+	ExportFrameColumns,
 	ExportGridContext,
 	ExportGridRunOptions,
 	ExportRowMediaAddress,

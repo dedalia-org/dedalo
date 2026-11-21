@@ -73,6 +73,7 @@ const INIT = {
 	sections: ['test3'],
 	options: { data_format: 'standard', breakdown: 'rows' },
 	recordScope: 'writer-gate',
+	frameColumns: [],
 	applicationLang: 'lg-eng',
 };
 const ORIGIN = 'https://example.test';

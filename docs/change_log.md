@@ -510,6 +510,8 @@ Merged since the last release; these ship with the next one.
     belongs to the field in the same way: removing the field's value removes its dataframe values
     there too, emptying the record's data clears them, and the raw export includes them.
 
+    Exports made before this update can no longer be opened from the export list; run them again.
+
     Wire contract: `WC-2026-08-09-time-machine-restore-replays-paired-dataframe-frames`, `WC-2026-08-09-export-raw-dataframe-own-column`.
 
 - **Search filter chips past the first page show their labels.**

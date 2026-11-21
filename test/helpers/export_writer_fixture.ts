@@ -56,6 +56,7 @@ export async function endedExportJob(
 		// The writers never read it; a door (access.ts) would refuse this
 		// placeholder — a fixture job is for writers, not for the doors.
 		recordScope: 'writer-fixture',
+		frameColumns: [],
 		applicationLang: 'lg-eng',
 	});
 	const writer = await store.openSpoolWriter(job, { indexEvery: 4 });

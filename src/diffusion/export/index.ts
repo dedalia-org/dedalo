@@ -27,7 +27,9 @@ export type {
 	ExportExternalDegradedState,
 } from './external_prefetch.ts';
 export type {
+	ExportDeclaration,
 	ExportDeclarationGateOptions,
+	ExportFrameColumns,
 	ExportGridContext,
 	ExportGridRunOptions,
 	OpenedExportGrid,

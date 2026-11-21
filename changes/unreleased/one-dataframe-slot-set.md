@@ -19,3 +19,5 @@ a text field's dataframes on.
 A dataframe a list or form adds to a field on its own (without the field declaring it) now
 belongs to the field in the same way: removing the field's value removes its dataframe values
 there too, emptying the record's data clears them, and the raw export includes them.
+
+Exports made before this update can no longer be opened from the export list; run them again.
