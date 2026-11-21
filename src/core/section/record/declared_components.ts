@@ -21,9 +21,12 @@
  * THE SET: the section's own component subtree ∪ its REAL section's
  * (getSectionRealTipo — a virtual section's records store the real section's
  * components even when the virtual one declares a component of its own), each
- * walk CROSSING nested section/area nodes (PHP delete_data empties every
- * declared component key of the record). Deduplicated by tipo, own first, in
- * ontology order.
+ * walk CROSSING nested section nodes (PHP delete_data empties every declared
+ * component key of the record) under the section containment law
+ * (ontology/resolver.ts: a node under a `box elements` container, a
+ * `component_semantic_node` or an area is not a component of the section —
+ * getOrderedSubtree crossNestedSections; T2-SL-3a). Deduplicated by tipo, own
+ * first, in ontology order.
  *
  * A TLD ROOT `<tld>0` (section_id part '0' — an ontology main section, whose
  * records live in matrix_ontology and store the ontology-record components of
@@ -67,7 +70,7 @@ function isComponentNode(node: { model?: string | null }): boolean {
 }
 
 /**
- * The census walk: every root's subtree (crossing nested sections), each passed
+ * The census walk: every root's section subtree (crossing nested sections), each passed
  * through `prune` first. Own subtree first, real second: the first walk to
  * reach a tipo keeps it.
  */
@@ -78,7 +81,7 @@ async function walkDeclaredComponents(
 	const seen = new Set<string>();
 	const components: DeclaredComponent[] = [];
 	for (const root of await declarationRoots(sectionTipo)) {
-		for (const node of prune(await getOrderedSubtree(root, { crossSections: true }))) {
+		for (const node of prune(await getOrderedSubtree(root, { crossNestedSections: true }))) {
 			if (!isComponentNode(node) || seen.has(node.tipo)) continue;
 			seen.add(node.tipo);
 			components.push({ tipo: node.tipo, model: node.model as string });

@@ -26,9 +26,18 @@
  * SHARED synthetic hierarchy to trigger the inverse sweep and left the fixture
  * two rows short (1298 of 1300) for every later gate — the exact
  * consume-a-shared-fixture failure the suite's own law forbids.
+ *
+ * (!) OWN SECTION. The holder section is this file's scratch `zzrscoh1`
+ * (records in matrix_test), its one component an autocomplete_hi carrying
+ * test205's definition. It used to be test3/test205 — but test205 is parked
+ * under the `box elements` container test115, OUTSIDE test3 by the section
+ * containment law (T2-SL-3a, owner ruling (b): the v6 law, everywhere): the
+ * record WIPE no longer empties it (delete_data leaves data of box-parked
+ * components, as v6), so the wipe door had nothing to test there, and test3
+ * holds no autocomplete_hi inside the section.
  */
 
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { deletePortalLocator } from '../../src/core/relations/save.ts';
 import {
@@ -37,13 +46,50 @@ import {
 } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { SYNTHETIC_HIERARCHY_A_TLD } from '../../src/core/test_data/synthetic_hierarchy_constants.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
 
-const SECTION = 'test3';
+const SECTION = 'zzrscoh1';
 const TABLE = 'matrix_test';
 /** `getNode(...).model` is component_autocomplete_hi — the model the save's index branch tests. */
-const HI_TIPO = 'test205';
+const HI_TIPO = 'zzrscoh2';
+
+/** The holder section + its autocomplete_hi, a direct child (inside the section by the law). */
+const S = situation({
+	name: 'relation_search coherence holder',
+	tld: 'zzrscoh',
+	nodes: [
+		// test24 = the matrix_test table.
+		{ tipo: SECTION, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{
+			tipo: HI_TIPO,
+			parent: SECTION,
+			model: 'component_autocomplete_hi',
+			order_number: 1,
+			// test205's request_config: the targets are the active hierarchies.
+			properties: {
+				source: {
+					request_config: [
+						{
+							sqo: { section_tipo: [{ value: [2], source: 'hierarchy_types' }] },
+							show: {
+								ddo_map: [{ tipo: 'hierarchy25', parent: HI_TIPO, section_tipo: 'self' }],
+								sqo_config: { limit: 5 },
+								fields_separator: ', ',
+								value_with_parents: true,
+							},
+						},
+					],
+				},
+			},
+		},
+	],
+});
 const THESAURUS = `${SYNTHETIC_HIERARCHY_A_TLD}1`;
 const HIERARCHY_TABLE = 'matrix_hierarchy';
 /** The parent component of this hierarchy (read from the fixture's own rows). */
@@ -98,6 +144,11 @@ async function removeOwnTerm(): Promise<void> {
 }
 
 describe('relation_search coherence across every removal door', () => {
+	beforeAll(async () => {
+		await dropSituation(S);
+		await ensureSituation(S);
+	});
+
 	beforeEach(async () => {
 		await cleanScratchRecord(SECTION, HOLDER_ID, TABLE);
 		await removeOwnTerm();
@@ -148,6 +199,7 @@ describe('relation_search coherence across every removal door', () => {
 	afterAll(async () => {
 		await cleanScratchRecord(SECTION, HOLDER_ID, TABLE);
 		await removeOwnTerm();
+		expect(await dropSituation(S)).toBe(0);
 	});
 
 	test('deletePortalLocator leaves no orphaned ancestors', async () => {

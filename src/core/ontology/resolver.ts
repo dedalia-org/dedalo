@@ -500,8 +500,8 @@ export function getColumnNameByModel(model: string): string | null {
 
 /**
  * All descendant component tipos of a section, walking the ontology subtree by
- * `parent` without crossing into nested sections/areas (same containment rule
- * as getComponentFilterTipo), in depth-first sibling order (the ONE walk,
+ * `parent` under THE SECTION CONTAINMENT LAW (no box-elements / semantic-node /
+ * area subtree, nested sections not entered), in depth-first sibling order (the ONE walk,
  * leanOrderedSubtree). Used by the RAG config to enumerate a section's
  * embeddable text components. Not cached — callers cache the filtered result.
  */
@@ -608,22 +608,33 @@ function orderNumberOf(orderNumber: number | string | null | undefined): number 
  * ORDERED SUBTREE WALK: every descendant of `rootTipo` in depth-first
  * pre-order, siblings ordered by the canonical policy (compareSiblingOrder).
  *
- * Containment: by default the walk does NOT descend through nested section /
- * area nodes (the standard section-subtree rule shared with
- * getComponentFilterTipo; the pruned node itself IS returned). Pass
- * `crossSections: true` for a full structural walk (the diffusion-map shape).
+ * Containment (THE SECTION CONTAINMENT LAW below): by default the walk is the
+ * SECTION subtree — box-elements / semantic-node / area subtrees are not part
+ * of it, and a nested section is returned but not entered. Pass
+ * `crossNestedSections: true` to enter nested sections under the same law, or
+ * `crossSections: true` for the full STRUCTURAL walk, law-free (the
+ * diffusion-map shape).
  *
  * NOT cached — the full-tree consumers cache their derived structures; the
  * per-lookup consumers use the cached findFirstDescendantTipoByModel below.
  */
 export async function getOrderedSubtree(
 	rootTipo: string,
-	options: { includeRoot?: boolean; crossSections?: boolean } = {},
+	options: {
+		includeRoot?: boolean;
+		crossSections?: boolean;
+		crossNestedSections?: boolean;
+	} = {},
 ): Promise<OntologySubtreeNode[]> {
+	const scope: SubtreeScope = options.crossSections
+		? 'structural'
+		: options.crossNestedSections
+			? 'section_crossing_nested'
+			: 'section';
 	const rows = await readSubtreeRows<Parameters<typeof toSubtreeNode>[0]>(
 		rootTipo,
 		SUBTREE_FULL_COLUMNS,
-		options.crossSections === true,
+		scope,
 	);
 	const ordered = orderDepthFirst(rows.map(toSubtreeNode), rootTipo);
 	if (options.includeRoot) {
@@ -637,6 +648,58 @@ export async function getOrderedSubtree(
 	}
 	return ordered;
 }
+
+// ---------------------------------------------------------------------------
+// THE SECTION CONTAINMENT LAW (T2-SL-3a) — what "the subtree of a section" is,
+// for EVERY walker in this module and every consumer of them. One definition:
+//
+//   1. OUTSIDE the section — the node AND everything under it are not returned:
+//        - `box elements` containers (runtime model; the stored legacy models
+//          `dataframe` and `component_relation_struct` read as it —
+//          STRUCTURAL_MODEL_REPLACEMENT_MAP),
+//        - `component_semantic_node` (a v5 artefact),
+//        - areas (`area`, `area_*`).
+//      PHP section::get_ar_recursive_children's default exclusions
+//      (class.section.php:1074-1078), subtree skip included.
+//   2. A NESTED SECTION is returned but not entered — its children belong to
+//      it. A walker that must cross it (the declared-components census: a
+//      record stores what nested sections declare) says so
+//      (`crossNestedSections`); rule 1 still applies on the far side.
+//
+// The STRUCTURAL walk (`crossSections: true`: the diffusion tree, the ontology
+// schema export) is not a section walk and applies neither rule.
+// Gate: test/unit/section_containment_native.test.ts.
+// ---------------------------------------------------------------------------
+
+/** Runtime model of the layout-only containers that are outside a section. */
+const BOX_ELEMENTS_MODEL = 'box elements';
+
+/** STORED models outside a section (rule 1), areas apart — they match by prefix. */
+const OUTSIDE_SECTION_STORED_MODELS: readonly string[] = [
+	BOX_ELEMENTS_MODEL,
+	...Object.entries(STRUCTURAL_MODEL_REPLACEMENT_MAP)
+		.filter(([, runtimeModel]) => runtimeModel === BOX_ELEMENTS_MODEL)
+		.map(([storedModel]) => storedModel),
+	'component_semantic_node',
+];
+
+/**
+ * Rule 1 as a predicate, over a STORED or a runtime model: is a node of this
+ * model outside the section it hangs under (itself and its subtree)?
+ */
+export function isOutsideSectionContainment(model: string | null): boolean {
+	if (model === null) return false;
+	return OUTSIDE_SECTION_STORED_MODELS.includes(model) || model.startsWith('area');
+}
+
+/** Rule 1 as SQL over `<alias>.model` (true = the row is inside). Models are code constants. */
+function insideSectionContainmentSql(alias: string): string {
+	const models = OUTSIDE_SECTION_STORED_MODELS.map((model) => `'${model}'`).join(', ');
+	return `(${alias}.model IS NULL OR (${alias}.model NOT IN (${models}) AND ${alias}.model NOT LIKE 'area%'))`;
+}
+
+/** Which subtree a walk reads (see THE SECTION CONTAINMENT LAW). */
+type SubtreeScope = 'section' | 'section_crossing_nested' | 'structural';
 
 /** Every column of an OntologySubtreeNode row. */
 const SUBTREE_FULL_COLUMNS = [
@@ -655,28 +718,31 @@ const SUBTREE_FULL_COLUMNS = [
 const SUBTREE_LEAN_COLUMNS = ['tipo', 'parent', 'model', 'order_number'] as const;
 
 /**
- * THE ONE SUBTREE READ: every descendant row of `rootTipo` (unordered — see
- * orderDepthFirst). `crossSections` false = the section-subtree containment
- * (no descent through a nested section / area node; the node itself is
- * returned); true = the full structural walk.
+ * THE ONE SUBTREE READ: every descendant row of `rootTipo` in `scope`
+ * (unordered — see orderDepthFirst). The containment law is applied HERE, in
+ * the walk itself, so a pruned node's subtree is never read.
  */
 async function readSubtreeRows<Row>(
 	rootTipo: string,
 	columns: readonly string[],
-	crossSections: boolean,
+	scope: SubtreeScope,
 ): Promise<Row[]> {
-	const guard = crossSections
-		? ''
-		: `WHERE subtree.model IS DISTINCT FROM 'section' AND (subtree.model IS NULL OR subtree.model NOT LIKE 'area%')`;
+	const structural = scope === 'structural';
+	const anchorGuard = structural ? '' : `AND ${insideSectionContainmentSql('dd_ontology')}`;
+	const descentGuards = [
+		...(structural ? [] : [insideSectionContainmentSql('child')]),
+		...(scope === 'section' ? [`subtree.model IS DISTINCT FROM 'section'`] : []),
+	];
+	const descentGuard = descentGuards.length === 0 ? '' : `WHERE ${descentGuards.join(' AND ')}`;
 	return (await sql.unsafe(
 		`WITH RECURSIVE subtree AS (
 			SELECT ${columns.join(', ')}
-			FROM dd_ontology WHERE parent = $1
+			FROM dd_ontology WHERE parent = $1 ${anchorGuard}
 			UNION ALL
 			SELECT ${columns.map((column) => `child.${column}`).join(', ')}
 			FROM dd_ontology child
 			JOIN subtree ON child.parent = subtree.tipo
-			${guard}
+			${descentGuard}
 		)
 		SELECT ${columns.join(', ')} FROM subtree`,
 		[rootTipo],
@@ -720,7 +786,7 @@ interface LeanSubtreeNode {
 }
 
 /**
- * The section subtree of `rootTipo` (section containment), depth-first in
+ * The section subtree of `rootTipo` (THE SECTION CONTAINMENT LAW), depth-first in
  * sibling order, WITHOUT the heavy columns — for the walkers that only need
  * tipos and models (getRecursiveChildrenTipos, findFirstDescendantTipoByModel).
  */
@@ -730,7 +796,7 @@ async function leanOrderedSubtree(rootTipo: string): Promise<LeanSubtreeNode[]> 
 		parent: string | null;
 		model: string | null;
 		order_number: number | string | null;
-	}>(rootTipo, SUBTREE_LEAN_COLUMNS, false);
+	}>(rootTipo, SUBTREE_LEAN_COLUMNS, 'section');
 	return orderDepthFirst(
 		rows.map((row) => ({
 			tipo: row.tipo,
@@ -892,8 +958,9 @@ export async function listNodesWithProperties(): Promise<NodeWithProperties[]> {
  * FIRST DESCENDANT BY MODEL: the classic
  * `get_ar_children_tipo_by_model_name_in_section(...) → first hit` shape that
  * children.ts / ts_object.ts / area/tree.ts / section_id_component.ts each
- * hand-rolled (audit S2-19). Recursive parent-link walk from `rootTipo`, NOT
- * descending through nested section/area nodes; the first match in
+ * hand-rolled (audit S2-19). Recursive parent-link walk from `rootTipo` under
+ * THE SECTION CONTAINMENT LAW (a component parked under a box-elements
+ * container is not "of the section"; nested sections not entered); the first match in
  * DEPTH-FIRST sibling order (leanOrderedSubtree — the order PHP's pre-order
  * walk by order_number took its [0] from; T2-SC-5a). These are
  * singleton-by-design components, so the order only matters for a section
@@ -1214,7 +1281,21 @@ const ancestorSectionCache = createOntologyCache<string, string | null>();
 export async function getAncestorSectionTipo(tipo: string): Promise<string | null> {
 	const cached = ancestorSectionCache.get(tipo);
 	if (cached !== undefined) return cached;
-	const rows = (await sql`
+	const chain = await readSectionwardChain(tipo);
+	const section = chain.find((link) => link.model === 'section')?.tipo ?? null;
+	cacheWrite(ancestorSectionCache, tipo, section);
+	return section;
+}
+
+/**
+ * The parent chain of `tipo`, itself first, up to and including its first
+ * ancestor of model 'section' (or to the chain's end / the depth cap when it
+ * reaches none) — the ONE upward read both ancestry answers share.
+ */
+async function readSectionwardChain(
+	tipo: string,
+): Promise<{ tipo: string; model: string | null }[]> {
+	return (await sql`
 		WITH RECURSIVE up AS (
 			SELECT tipo, parent, model, 0 AS depth FROM dd_ontology WHERE tipo = ${tipo}
 			UNION ALL
@@ -1222,11 +1303,8 @@ export async function getAncestorSectionTipo(tipo: string): Promise<string | nul
 			FROM dd_ontology d JOIN up ON d.tipo = up.parent
 			WHERE up.model IS DISTINCT FROM 'section' AND up.depth < 24
 		)
-		SELECT tipo FROM up WHERE model = 'section' LIMIT 1
-	`) as { tipo: string }[];
-	const section = rows[0]?.tipo ?? null;
-	cacheWrite(ancestorSectionCache, tipo, section);
-	return section;
+		SELECT tipo, model FROM up ORDER BY depth
+	`) as { tipo: string; model: string | null }[];
 }
 
 /**
@@ -1240,9 +1318,60 @@ export async function getAncestorSectionTipo(tipo: string): Promise<string | nul
  * A tipo whose chain reaches no section belongs to none. Consumers: the area
  * caller declaration (area/read.ts) and the subdatum read floor
  * (security/read_floor.ts).
+ *
+ * NOT the section containment law: a component parked under a `box elements`
+ * container still answers true here (its pair is honest — the ontology does
+ * tie it to the section). The law decides what the section's WALKERS return;
+ * this check decides whether a client named a real pair, and v6 let a root
+ * read and write a box-parked component (T2-SL-3a; the permission half is
+ * the security-access datalist's own walk). The law's upward form is
+ * {@link tipoInSectionContainment}.
  */
 export async function tipoBelongsToSection(tipo: string, sectionTipo: string): Promise<boolean> {
 	const ownSection = await getAncestorSectionTipo(tipo);
+	if (ownSection === null) return false;
+	if (ownSection === sectionTipo) return true;
+	return (await getSectionRealTipo(sectionTipo)) === ownSection;
+}
+
+/**
+ * THE SECTION CONTAINMENT LAW, upward: the section `tipo` is a node OF — its
+ * first section ancestor — or null when the chain reaches none OR crosses a
+ * node the law puts outside a section ({@link isOutsideSectionContainment}:
+ * a `box elements` container, a `component_semantic_node`, an area) before
+ * reaching it. Exactly the inverse of the section walk: `tipo` is in
+ * getRecursiveChildrenTipos(S) iff this answers S (a nested section — itself
+ * and its nodes — answers the nested section). Cached; hub-cleared on any dd_ontology write.
+ */
+const containingSectionCache = createOntologyCache<string, string | null>();
+
+export async function getContainingSectionTipo(tipo: string): Promise<string | null> {
+	const cached = containingSectionCache.get(tipo);
+	if (cached !== undefined) return cached;
+	let section: string | null = null;
+	for (const link of await readSectionwardChain(tipo)) {
+		if (link.model === 'section') {
+			section = link.tipo;
+			break;
+		}
+		if (isOutsideSectionContainment(link.model)) break;
+	}
+	cacheWrite(containingSectionCache, tipo, section);
+	return section;
+}
+
+/**
+ * {@link tipoBelongsToSection} under THE SECTION CONTAINMENT LAW: is `tipo` a
+ * node of section `sectionTipo` that the section's walkers return
+ * (virtual-aware the same way)? The predicate for a door that must agree with
+ * a walk — the write door's fixed-slot main (a named main is valid iff the
+ * every-main walk would list it).
+ */
+export async function tipoInSectionContainment(
+	tipo: string,
+	sectionTipo: string,
+): Promise<boolean> {
+	const ownSection = await getContainingSectionTipo(tipo);
 	if (ownSection === null) return false;
 	if (ownSection === sectionTipo) return true;
 	return (await getSectionRealTipo(sectionTipo)) === ownSection;

@@ -99,7 +99,7 @@ import {
 	getModelByTipo,
 	getRecursiveChildrenTipos,
 	getSectionRealTipo,
-	tipoBelongsToSection,
+	tipoInSectionContainment,
 } from '../ontology/resolver.ts';
 import { assertValidTipo } from '../search/identifier_gate.ts';
 import { sectionButtonRows } from '../section/buttons.ts';
@@ -369,11 +369,15 @@ function invalidFrameMain(door: string, target: Target, reason: string): DedaloE
 /**
  * Is `mainTipo` a valid main of fixed slot `target.componentTipo` on this
  * section: a component OF the record's section (virtual-aware) whose model
- * declares the slot (a shared slot accepts any such model — F7).
+ * declares the slot (a shared slot accepts any such model — F7). "Of the
+ * section" under THE SECTION CONTAINMENT LAW (tipoInSectionContainment), the
+ * same law the every-main walk below reads (getRecursiveChildrenTipos): a named
+ * main is valid iff `everyMain` would list it — a main parked under a
+ * `box elements` container is neither (T2-SL-3a).
  */
 async function isValidFrameMain(mainTipo: string, target: Target): Promise<boolean> {
 	if (!modelDeclaresFixedSlot(await getModelByTipo(mainTipo), target.componentTipo)) return false;
-	return tipoBelongsToSection(mainTipo, target.sectionTipo);
+	return tipoInSectionContainment(mainTipo, target.sectionTipo);
 }
 
 /** Every component of the record's section that is a valid main of the slot. */

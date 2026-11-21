@@ -9,7 +9,11 @@
  *     of record 1 (same shapes, own data.section_id).
  *  2. ontology coverage (DB) — every data-bearing component of the test3
  *     subtree is populated on record 1 OR consciously ledgered; no fixture
- *     key is an orphan (subtree tipo or declared extra).
+ *     key is an orphan (subtree tipo, box-parked tipo or declared extra). The
+ *     subtree is the SECTION subtree (the containment law, T2-SL-3a): the
+ *     components parked under the `box elements` container test115 are not
+ *     in it — they are listed apart (OUTSIDE_SECTION_TIPOS) and the gate
+ *     proves each one is box-parked, i.e. outside by the law, not by mistake.
  *  3. restore round-trip (DB) — restoreCanonicalTest3() reproduces the
  *     fixture exactly (parsed deep-equality via canonicalTest3Drift) and the
  *     engine READS every populated record-1 component (entries non-empty).
@@ -25,7 +29,11 @@ import { describe, expect, test } from 'bun:test';
 import { MATRIX_JSONB_COLUMNS } from '../../src/core/db/matrix.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { ddDateToSeconds } from '../../src/core/media/file_date.ts';
-import { getColumnNameByModel, getOrderedSubtree } from '../../src/core/ontology/resolver.ts';
+import {
+	getColumnNameByModel,
+	getContainingSectionTipo,
+	getOrderedSubtree,
+} from '../../src/core/ontology/resolver.ts';
 import { readComponentData } from '../../src/core/section/read.ts';
 import {
 	BASE_RECORD_IDS,
@@ -37,6 +45,7 @@ import {
 	COMPONENT_DATA_COLUMNS,
 	EXTRA_COMPONENT_TIPOS,
 	LEDGERED_EMPTY_TIPOS,
+	OUTSIDE_SECTION_TIPOS,
 	REQUIRED_SHAPES,
 	SUITE_ISOLATION_RECORDS,
 } from '../../src/core/test_data/manifest.ts';
@@ -233,7 +242,11 @@ describe('2. ontology coverage (DB)', () => {
 				const columnValue = rec[column];
 				if (columnValue === null || typeof columnValue !== 'object') continue;
 				for (const tipo of Object.keys(columnValue as Record<string, unknown>)) {
-					if (!subtreeTipos.has(tipo) && EXTRA_COMPONENT_TIPOS[tipo] === undefined) {
+					const admitted =
+						subtreeTipos.has(tipo) ||
+						EXTRA_COMPONENT_TIPOS[tipo] !== undefined ||
+						OUTSIDE_SECTION_TIPOS[tipo] !== undefined;
+					if (!admitted) {
 						orphans.push(`${tipo} (${column} on test3/${rec.section_id})`);
 					}
 				}
@@ -245,6 +258,29 @@ describe('2. ontology coverage (DB)', () => {
 		for (const tipo of Object.keys(LEDGERED_EMPTY_TIPOS)) {
 			expect(subtreeTipos.has(tipo), `ledgered tipo ${tipo} left the section`).toBe(true);
 		}
+	});
+
+	test('box-parked tipos: exactly the data-bearing components the containment law puts outside test3', async () => {
+		// The law (T2-SL-3a, owner ruling (b)): a component under a `box elements`
+		// container (test115) is not of the section. The STRUCTURAL walk still
+		// reaches it; the SECTION walk and the upward law do not.
+		const sectionTipos = new Set(
+			(await getOrderedSubtree(CANONICAL_SECTION_TIPO)).map((node) => node.tipo as string),
+		);
+		const parked: string[] = [];
+		for (const node of await getOrderedSubtree(CANONICAL_SECTION_TIPO, { crossSections: true })) {
+			const model = node.model;
+			if (typeof model !== 'string' || !model.startsWith('component_')) continue;
+			const column = getColumnNameByModel(model);
+			if (column === null || !(COMPONENT_DATA_COLUMNS as readonly string[]).includes(column)) {
+				continue;
+			}
+			if (sectionTipos.has(node.tipo)) continue;
+			if ((await getContainingSectionTipo(node.tipo)) !== null) continue; // a nested section's
+			parked.push(node.tipo);
+		}
+		expect(parked.length).toBeGreaterThan(0); // test115 is populated: not vacuous
+		expect([...parked].sort()).toEqual(Object.keys(OUTSIDE_SECTION_TIPOS).sort());
 	});
 });
 

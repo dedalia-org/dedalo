@@ -91,7 +91,6 @@ export const LEDGERED_EMPTY_TIPOS: Readonly<Record<string, string>> = {
 	test25: 'component_relation_index — index locators are written by tag-indexing tools on demand',
 	test54:
 		'component_relation_related — no canonical related record; write tests provision their own',
-	test56: 'component_relation_related — secondary related slot, same as test54',
 	test60:
 		'component_dataframe — frames pair with a master item; dataframe gates provision their own',
 	test68: 'component_inverse — computed from inverse relations at read, nothing stored',
@@ -99,12 +98,29 @@ export const LEDGERED_EMPTY_TIPOS: Readonly<Record<string, string>> = {
 	test201: 'component_relation_children — see test71',
 	test169:
 		'component_relation_model — targets dd922 records and the shared dev DB has none; no canonical value',
+	test212: 'component_info — computes from its source (test52) at read, nothing stored',
+	test215: 'component_external — value comes from an external service, no canonical stored value',
+};
+
+/**
+ * test3 components PARKED UNDER the `box elements` container test115 — OUTSIDE
+ * the section by THE SECTION CONTAINMENT LAW (ontology/resolver.ts, T2-SL-3a,
+ * owner ruling (b) 2026-11-21: the v6 law, everywhere). No section walker
+ * returns them (edit form, search, declared components, the record wipe), so
+ * they are not coverage-counted; the fixture may still STORE them — the
+ * record keeps what it holds (delete_data leaves data of box-parked
+ * components, as v6) and the pair check still admits a root read/write. The
+ * coverage gate asserts each one IS in test3's structural subtree and is NOT
+ * in its section subtree — the reason it is listed here.
+ */
+export const OUTSIDE_SECTION_TIPOS: Readonly<Record<string, string>> = {
+	test97:
+		'component_text_area — pdf transcription text with [page-n] tag markup (stored on record 1: REQUIRED_SHAPES)',
+	test56: 'component_relation_related — secondary related slot, same as test54',
 	test204: 'component_portal — auxiliary portal slot, no canonical content',
 	test205:
 		'component_autocomplete_hi — hierarchical picker exercised against real hierarchies, not stored here',
 	test9: 'component_autocomplete_hi — see test205',
-	test212: 'component_info — computes from its source (test52) at read, nothing stored',
-	test215: 'component_external — value comes from an external service, no canonical stored value',
 	test84: 'component_text_area — geo tag-source slot (observed by test100), no canonical text',
 	test98:
 		'component_text_area — image draw-tag source slot (observed by test99), no canonical text',
