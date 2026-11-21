@@ -508,7 +508,7 @@ Merged since the last release; these ship with the next one.
 
     A dataframe a list or form adds to a field on its own (without the field declaring it) now
     belongs to the field in the same way: removing the field's value removes its dataframe values
-    there too, and the raw export includes them.
+    there too, emptying the record's data clears them, and the raw export includes them.
 
     Wire contract: `WC-2026-08-09-time-machine-restore-replays-paired-dataframe-frames`, `WC-2026-08-09-export-raw-dataframe-own-column`.
 
@@ -2284,7 +2284,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 95 entries"
+??? note "Wire contract — 96 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2378,6 +2378,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-window-features-grammar`
     - `WC-2026-11-21-empty-literal-stored-absent`
     - `WC-2026-11-21-implicit-section-node-never-a-column`
+    - `WC-2026-11-21-ontology-alias-target-defects`
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`

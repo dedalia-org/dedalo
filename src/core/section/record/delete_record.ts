@@ -61,7 +61,6 @@ import {
 	readKeyImage,
 	recordMainBackfill,
 	recordMainHistory,
-	resolveDataframeSlotTipos,
 	restoreSlot,
 	type SlotImages,
 	type SlotTarget,
@@ -840,7 +839,8 @@ async function unwipedSlotMain(
  * request_config ddo) would keep the main's frames as orphans pairing no item.
  * For EVERY non-slot component of the walked subtree — a wiped main, and an
  * EMPTY one too (a frame saved before its item, or left behind by a `clear`) —
- * each declared slot the walk did not empty loses that main's OWN frames
+ * each slot of the main (declared or holding its frames — a caller-injected one)
+ * the walk did not empty loses that main's OWN frames
  * (restoreSlot with none recorded — other mains' frames stay; an empty result
  * removes the key). The removed frames join `emptiedFrames` (the slot's delete
  * policy), and the slot joins `wiped` carrying the mains that stripped it
@@ -864,7 +864,13 @@ async function wipeDeclaredSlotsOfMains(
 			.map((key) => key.tipo),
 	);
 	for (const main of mains) {
-		const slots = (await resolveDataframeSlotTipos(main)).filter((slot) => !done.has(slot));
+		// THE one slot set (dataframe_slots.ts slotsFromBag — declared ∪ every key of
+		// the locked snapshot holding one of the main's frames, the discovery of the
+		// cascade and the Time Machine): a CALLER-INJECTED slot outside the section
+		// subtree loses the wiped main's frames too (B3 review M3, owner ruling
+		// 2026-11-21: no orphans).
+		const { slots: mainSlots } = await slotsFromBag(main, bag);
+		const slots = mainSlots.filter((slot) => !done.has(slot));
 		for (const slot of slots) {
 			stripWipedMainFrames({ bag, written, emptiedFrames }, slot, main);
 		}

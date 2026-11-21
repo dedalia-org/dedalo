@@ -211,8 +211,13 @@ used (`readMainSlots` — declared ∪ every key of the record holding one of th
   WC-2026-08-09-export-raw-dataframe-own-column, addendum 2026-11-21 M3).
 - **Time Machine**: unchanged (`readMainSlots` / `rowSlotTipos` already composed and restored it).
 - **Read**: unchanged — an injected slot is emitted when the caller names it.
-- **Not changed (open):** the record wipe (`delete_record.ts` `wipeDeclaredSlotsOfMains`) still
-  strips the DECLARED slots only.
+- **Record wipe** (`delete_data`, `src/core/section/record/delete_record.ts`
+  `wipeDeclaredSlotsOfMains`): each walked main's slot set is `slotsFromBag` of the locked
+  snapshot (the same discovery, in memory) — an injected slot OUTSIDE the section subtree (which
+  the walk never empties) loses the wiped main's frames too; one inside the subtree is emptied
+  wholesale as before.
 - Gate: `test/unit/has_dataframe_literal_native.test.ts` → "CROSS-DOOR, INJECTED" (read with the
   caller's map, raw export column + frame, remove cascade, TM baseline row + restore, declaration
-  gate; red before: export column missing, cascade left the injected frame).
+  gate; red before: export column missing, cascade left the injected frame) + "CROSS-DOOR,
+  INJECTED — the RECORD WIPE" (a frame of the main in a slot under another section; red before:
+  the wipe left it).

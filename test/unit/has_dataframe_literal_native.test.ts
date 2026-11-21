@@ -56,6 +56,7 @@ import {
 } from '../../src/core/relations/dataframe_slots.ts';
 import { readSection } from '../../src/core/section/read.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { deleteSectionData } from '../../src/core/section/record/delete_record.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
@@ -519,6 +520,11 @@ const CHILD = `${ZTLD}3`;
 const SIBLING = `${ZTLD}4`;
 const INJECTED = `${ZTLD}5`;
 const PLAIN = `${ZTLD}6`;
+// A component_dataframe OUTSIDE the section's subtree (under a second scratch
+// section): a caller may name any slot, and the record wipe walks only the
+// section's own components — the injected-slot orphan case of the wipe.
+const OUTSIDE = `${ZTLD}7`;
+const OTHER_SECTION = `${ZTLD}8`;
 const ZTABLE = 'matrix_test';
 
 const SLOT_SITUATION = situation({
@@ -547,6 +553,13 @@ const SLOT_SITUATION = situation({
 		{ tipo: SIBLING, parent: ZSECTION, model: 'component_dataframe', term: { 'lg-eng': 'Sib' } },
 		{ tipo: INJECTED, parent: ZSECTION, model: 'component_dataframe', term: { 'lg-eng': 'Inj' } },
 		{ tipo: PLAIN, parent: ZSECTION, model: 'component_input_text', term: { 'lg-eng': 'Plain' } },
+		{ tipo: OTHER_SECTION, parent: 'test1', model: 'section', term: { 'lg-eng': 'Elsewhere' } },
+		{
+			tipo: OUTSIDE,
+			parent: OTHER_SECTION,
+			model: 'component_dataframe',
+			term: { 'lg-eng': 'Out' },
+		},
 	],
 });
 
@@ -619,7 +632,9 @@ async function zRelationKeys(id: number): Promise<string[]> {
 	return Object.entries(rows[0]?.relation ?? {})
 		.filter(
 			([key, value]) =>
-				[CHILD, SIBLING, INJECTED].includes(key) && Array.isArray(value) && value.length > 0,
+				[CHILD, SIBLING, INJECTED, OUTSIDE].includes(key) &&
+				Array.isArray(value) &&
+				value.length > 0,
 		)
 		.map(([key]) => key)
 		.sort();
@@ -887,5 +902,23 @@ describe('T2-SL-6: a literal reads the ONE declared slot set (+ a caller-injecte
 		} finally {
 			await identity.remove(false);
 		}
+	}, 60_000);
+
+	test("CROSS-DOOR, INJECTED — the RECORD WIPE (delete_data) strips a wiped main's frames from an injected slot OUTSIDE the section subtree too (no orphans)", async () => {
+		// The subtree walk empties INJECTED (a component of the section) wholesale;
+		// OUTSIDE is no component of ZSECTION, so only the slot set of LIT can
+		// reach it — the same discovery as the cascade / TM (frames of the main).
+		const id = await zRecord(LIT, [CHILD, INJECTED, OUTSIDE]);
+		expect(await zRelationKeys(id)).toEqual([CHILD, INJECTED, OUTSIDE].sort());
+		const wiped = await deleteSectionData(ZSECTION, id, -1);
+		expect(wiped.refused).toBeUndefined();
+		expect(wiped.deleted).toEqual([id]);
+		expect(await zRelationKeys(id)).toEqual([]);
+		// The main itself left with its frames (control: the wipe ran).
+		const rows = (await sql.unsafe(
+			`SELECT string FROM "${ZTABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+			[ZSECTION, id],
+		)) as { string: Record<string, unknown> | null }[];
+		expect(rows[0]?.string?.[LIT] ?? null).toBeNull();
 	}, 60_000);
 });
