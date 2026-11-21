@@ -899,6 +899,14 @@ function ownUserRecordForcedLevel(principal: Principal, tipo: string): number | 
  *
  * Divergence from the frozen PHP, recorded as
  * `engineering/wire_contract/WC-2026-08-28-root-self-service-write.md`.
+ *
+ * NARROWED 2026-11-21 (S07, owner ruling 2026-11-19 —
+ * WC-2026-11-21-root-password-write-refused): root's PASSWORD is no longer among
+ * the EFFECTS. This predicate and the level are unchanged (dd133 stays self-editable
+ * for every other account, and root's write still passes this door), but the
+ * record-write chokepoint refuses dd133 of dd128/-1 for every caller
+ * (security/root_password_guard.ts); the password is changed by the documented
+ * manual procedure.
  */
 export function isSelfServiceAccountWrite(
 	principal: Principal,

@@ -288,27 +288,33 @@ The root user password is established during the initial installation process an
 
 Ordinary users do not need this procedure: an administrator sets a new password by editing the user record in the Users section (the write engine hashes it with Argon2id on save — `src/core/section/record/save_component.ts` via `src/core/security/password_hash.ts`), and users can recover a forgotten password themselves from the login screen — see [Password recovery](password_recovery.md).
 
-The root user is different. For security reasons it is not accessible via the Dédalo web interface, it is excluded from the self-service recovery flow, and changing its password is not exposed through the maintenance panel. Resetting root's password is therefore a manual database task, requiring:
+The root user is different. Its record never appears in the Users section, it is excluded from the self-service recovery flow, and **the application refuses to change its password**: no save, import, tool or Time Machine restore writes it, whoever is logged in — root included. The attempt answers the error `record.root_password_write_refused` and changes nothing (root still edits its own name, email and image). Changing root's password is therefore a manual database task, requiring:
 
 1. Server access using the GNU/Linux account created for the Dédalo installation.
 2. Privileged access to the Dédalo PostgreSQL database.
 
 #### Steps
 
-1. **Compute a fresh Argon2id hash**, using the same algorithm the server verifies against (`Bun.password`, no external tooling needed):
+1. **Compute a fresh Argon2id hash**, using the same algorithm and cost the server uses (`Bun.password`, no external tooling needed). Run it from the installation directory, as the installation's account, and type the password when asked — it is not echoed and never reaches the shell history:
 
-    ```ts
-    console.log(await Bun.password.hash('my-new-root-password'));
-    // => $argon2id$v=19$m=65536,t=2,p=1$...
+    ```bash
+    read -rsp 'New root password: ' DEDALO_NEW_ROOT_PW; echo; export DEDALO_NEW_ROOT_PW
+    bun -e "console.log(await Bun.password.hash(process.env.DEDALO_NEW_ROOT_PW, {algorithm: 'argon2id', memoryCost: 65536, timeCost: 3}))"
+    unset DEDALO_NEW_ROOT_PW
+    # => $argon2id$v=19$m=65536,t=3,p=1$...
     ```
+
+    Choose a password that meets the password policy the application shows when a password is typed: this procedure does not check it.
 
 2. **Write the hash into `matrix_users`.** The password component is `dd133`; root is `section_id = -1`. This overwrites the first stored item's value with the freshly computed hash (see `src/core/security/auth.ts` `findUserByUsername`, which reads `string->'dd133'->0->'value'`):
 
     ```sql
     UPDATE matrix_users
-    SET string = jsonb_set(string, '{dd133,0,value}', '"$argon2id$v=19$m=65536,t=2,p=1$..."'::jsonb)
+    SET string = jsonb_set(string, '{dd133,0,value}', '"$argon2id$v=19$m=65536,t=3,p=1$..."'::jsonb)
     WHERE section_tipo = 'dd128' AND section_id = -1;
     ```
+
+    The statement must report `UPDATE 1`. It does not end root's open sessions: log out of them, or restart the server.
 
 3. **Log in as root** with the new password to confirm the change took effect.
 

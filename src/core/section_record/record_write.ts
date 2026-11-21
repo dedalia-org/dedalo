@@ -106,6 +106,16 @@
  *      ambient owner lock deadlocks against its delete). The lock-mode law beside it: every writer's row lock is
  *      `FOR NO KEY UPDATE` (never conflicts with KEY SHARE); `FOR UPDATE` only
  *      where the row is deleted.
+ *   3j. ROOT'S PASSWORD IS NOT WRITTEN HERE (S07, owner ruling 2026-11-19 —
+ *      WC-2026-11-21-root-password-write-refused; security/root_password_guard.ts):
+ *      a write that CHANGES dd133 of the root user record (dd128/-1) is refused
+ *      (`record.root_password_write_refused`, 403, nothing written) by EVERY
+ *      entry — the key entries and the atomic append (a path naming the key),
+ *      the whole-record write (the key's stored value differs, judged under the
+ *      row lock) and the birth (the columns carry it). No principal is read: no
+ *      caller is admitted, root included. The one write let through is the
+ *      login-time cost upgrade (same password, re-hashed), recognised by its own
+ *      scope. Gate: test/unit/root_password_write_refusal_native.test.ts.
  *   4. THE COMPONENT_IMAGE SVG ENVELOPE — a `media`-column write persists any
  *      `svg_file_data` its items carry to the .svg overlay file BEFORE the row
  *      write (PHP component_image::save → create_svg_file, which likewise
@@ -756,6 +766,12 @@ async function writeKeyEntry(
 	mode: KeyWriteMode,
 ): Promise<void> {
 	assertSavePathNotEmpty(target, givenPath, mode.door);
+	// 3j. ROOT'S PASSWORD — before anything is read, locked or hashed further.
+	await refuseRootPasswordChange(
+		target,
+		givenPath.map((item) => item.key),
+		mode.door,
+	);
 	// 3f. THE KEY SAVE RULES — before anything reads the values: the envelope,
 	//    the observed `after`, the derived index and the UPDATE all see the key
 	//    as it will be STORED (a declared-order portal: sorted).
@@ -1004,6 +1020,7 @@ export async function persistAppendedKeyItems(
 	audit: AuditStamp,
 	derived: WriteDerivation,
 ): Promise<void> {
+	await refuseRootPasswordChange(target, [key], 'persistAppendedKeyItems');
 	await assertAppendableKey(target, column, key);
 	await withTransaction(async () => {
 		// §3h — the inserts' targets locked FIRST, before anything locks the row.
@@ -1216,6 +1233,43 @@ export async function afterRecordWrite(
 		obligations.receipt,
 		obligations.touchedKeys,
 	);
+}
+
+/** §3j — is the target the root user record (dd128/-1)? Two compares, no import. */
+function isRootUserTarget(target: RecordWriteTarget): boolean {
+	return target.sectionId === -1 && target.sectionTipo === 'dd128';
+}
+
+/**
+ * §3j — refuse a write that changes root's password (dd133 among `changedKeys`
+ * of the root user record). Every other target returns at once; the rule itself
+ * lives in security/root_password_guard.ts (dynamic import: only a write onto
+ * the root record pays it, and the security layer stays out of this module's
+ * static graph, as the reaction below does).
+ */
+async function refuseRootPasswordChange(
+	target: RecordWriteTarget,
+	changedKeys: readonly string[],
+	door: string,
+): Promise<void> {
+	if (!isRootUserTarget(target)) return;
+	const { refuseRootPasswordWrite } = await import('../security/root_password_guard.ts');
+	refuseRootPasswordWrite(target, changedKeys, door);
+}
+
+/**
+ * §3j for a COLUMN write: the keys whose stored value `values` changes against
+ * `liveColumns` (a birth: `{}` — every key carried is a change). The diff is
+ * computed for the root record only.
+ */
+async function refuseRootPasswordColumns(
+	target: RecordWriteTarget,
+	values: MatrixWriteValues,
+	liveColumns: Record<string, unknown>,
+	door: string,
+): Promise<void> {
+	if (!isRootUserTarget(target)) return;
+	await refuseRootPasswordChange(target, changedComponentKeys(values, liveColumns), door);
 }
 
 /**
@@ -1671,6 +1725,9 @@ export async function persistRecordColumns(
 		await convertRestoredColumns(target, values, liveColumns, 'persistRecordColumns');
 		const pinned = await pinCoveredObserverSlots(values, bagOf(liveColumns.relation));
 		await rederiveHiIndex(values, liveColumns);
+		// 3j. ROOT'S PASSWORD — judged against the LIVE row, under its lock: a
+		//    whole-record write that leaves dd133 as stored is not a password write.
+		await refuseRootPasswordColumns(target, values, liveColumns, 'persistRecordColumns');
 		await askChangedKeysDoor(door, target, audit, values, liveColumns);
 		mergeAuditStamps(values, target.sectionTipo, audit);
 		const changes = wholeRecordChanges(values, liveColumns, pinned);
@@ -1862,6 +1919,9 @@ async function writeBirth(
 	door: string,
 ): Promise<MatrixWriteValues | null> {
 	const values: MatrixWriteValues = { ...columns };
+	// 3j. ROOT'S PASSWORD — a birth at root's address may not carry one (nothing
+	//    is stored to compare with: every key the columns hold is a change).
+	await refuseRootPasswordColumns(target, values, {}, door);
 	// §3f — every declared-order key is born sorted (the index below is derived
 	// from the bag as stored).
 	await applySaveRulesToBag(target, values);

@@ -1366,6 +1366,14 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **The `root` password can no longer be changed from inside the application**
+
+    Until now `root` could type a new password for its own account in the application, like any other user. A session is not proof of the person: an unattended `root` session, or a tool running as `root`, could replace the installation's most privileged password without knowing the current one.
+
+    Now no part of the application writes that password — not the user form, not an import, not a tool, not a Time Machine restore of the `root` record — whoever is logged in, `root` included. The attempt is refused with a message and nothing is changed. `root` still edits its own name, email and image. The password is changed with the manual procedure, which needs access to the server and the database: see [Changing the root password](./administration/users_and_permissions.md#changing-the-root-password). Nothing changes for any other account, the conversion of v6 passwords converts `root`'s too as before, and there is nothing to do on update.
+
+    Wire contract: `WC-2026-11-21-root-password-write-refused`.
+
 - **An external service's API addresses are no longer sent to the browser, and may not carry a query string**
 
     A section bound to an external record service declares the service's addresses in its `api_config`: `api_url`, `api_url_search` and `ui_base_url`. The first two are called by the Dédalo server, never by the browser, yet both were sent to every browser that opened the section — and an access key written into one of them as `?apikey=…` went with it.
@@ -2156,7 +2164,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 90 entries"
+??? note "Wire contract — 91 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2248,6 +2256,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-window-features-grammar`
+    - `WC-2026-11-21-root-password-write-refused`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

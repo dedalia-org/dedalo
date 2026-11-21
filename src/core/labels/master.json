@@ -316,6 +316,7 @@
 	"error_record_in_use": "The record is being edited by another user",
 	"error_record_lang_not_installed": "Write refused: '${lang}' is not a language this installation declares",
 	"error_record_remove_without_id": "This delete did not name the item to remove, so nothing was removed",
+	"error_record_root_password_write_refused": "The root password cannot be changed from the application. Follow the manual procedure in the administration manual",
 	"error_record_temporal_action_refused": "The action is not available on a temporal instance",
 	"error_recovery_artifact_unusable": "The backup artifact is not a usable restore point; nothing was written",
 	"error_recovery_restore_failed": "The restore failed; the sidecar was dropped and the target database is untouched",

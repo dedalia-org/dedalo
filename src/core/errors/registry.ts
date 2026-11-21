@@ -3308,6 +3308,24 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 	},
+	'record.root_password_write_refused': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_record_root_password_write_refused',
+		// S07 (owner ruling 2026-11-19, WC-2026-11-21-root-password-write-refused):
+		// a write that changes the password component (dd133) of the root user
+		// record (dd128/-1), refused by the record-write chokepoint for EVERY
+		// principal, root included, through every door (save, import, tool, Time
+		// Machine). Root's password is changed by the documented manual procedure
+		// only. Nothing is written. Not in the `perm.*` domain on purpose: the
+		// client's policy for that domain replaces the page, and this refusal
+		// answers one field of a record the user may otherwise edit.
+		message:
+			'The root password cannot be changed from the application; follow the documented manual procedure',
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'record.lang_not_installed': {
 		category: 'caller',
 		status: 400,

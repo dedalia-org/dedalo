@@ -119,3 +119,14 @@ behaviourally:
   history is never touched;
 - dd244 and dd132 on root's own record are still refused **for root itself**;
 - duplicate and delete of -1 are still refused for a granted global admin AND for root.
+
+## Addendum 2026-11-21 — the password leaves the exception's effects (S07)
+
+Owner ruling 2026-11-19 (RC plan decision 13, option c): the "narrower alternative"
+rejected above is now the rule **for the password only**. The door described here is
+unchanged — root is still admitted onto its own record for the self-editable
+components — but a write that changes `dd133` of `dd128/-1` is refused below it, at
+the record-write chokepoint, for every caller: `WC-2026-11-21-root-password-write-refused`.
+The gate case "root rotates its own password through the REAL save door" is flipped
+to that refusal; root's own full-name save is the case that proves the exception
+still admits root.
