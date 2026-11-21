@@ -19,6 +19,8 @@
  *   - findSectionListChild             (relations/request_config/build.ts)
  *   - readDdOntologyFirstListNodeTipos (db/dd_ontology.ts — must agree with it)
  *   - findFirstDescendantTipoByModel   (ontology/resolver.ts — depth-first)
+ *   - getRecursiveChildrenTipos        (ontology/resolver.ts — the same walk)
+ *   - resolveVirtualEditScope          (ontology/virtual_scope.ts — tied exclude_elements)
  *
  * SITUATION (`zzoc`, scratch TLD, no records), dropped in afterAll with
  * residue asserted 0.
@@ -29,8 +31,10 @@ import { readDdOntologyFirstListNodeTipos } from '../../src/core/db/dd_ontology.
 import {
 	findFirstChildByModel,
 	findFirstDescendantTipoByModel,
+	getRecursiveChildrenTipos,
 } from '../../src/core/ontology/resolver.ts';
 import { getSectionMap, getSectionMapFirstTipo } from '../../src/core/ontology/section_map.ts';
+import { resolveVirtualEditScope } from '../../src/core/ontology/virtual_scope.ts';
 import { findSectionListChild } from '../../src/core/relations/request_config/build.ts';
 import { findSectionChildByModel } from '../../src/core/section/list_definitions/node_find.ts';
 import { resolveListCellMap } from '../../src/core/section/list_definitions/section_list.ts';
@@ -64,6 +68,23 @@ const GROUP_SECOND = 'zzoc140';
 const DATE_IN_FIRST_GROUP = 'zzoc159';
 const DATE_IN_SECOND_GROUP = 'zzoc141';
 const DATE_SIBLING_LATE = 'zzoc151';
+/**
+ * A node with NO model, holding a component: the ONE subtree walk descends
+ * through it (only a nested section / area stops the walk).
+ */
+const MODELLESS_SECTION = 'zzoc200';
+const MODELLESS_NODE = 'zzoc201';
+const DATE_UNDER_MODELLESS = 'zzoc202';
+/**
+ * A VIRTUAL section whose two exclude_elements children TIE on order_number;
+ * the higher tipo is written first (so it holds the lower row id).
+ */
+const REAL_SECTION = 'zzoc300';
+const REAL_FIELD_A = 'zzoc301';
+const REAL_FIELD_B = 'zzoc302';
+const VIRTUAL_SECTION = 'zzoc310';
+const EXCLUDE_HIGH_TIPO = 'zzoc312';
+const EXCLUDE_LOW_TIPO = 'zzoc311';
 
 const S = situation({
 	name: 'ordered child lookup',
@@ -125,6 +146,39 @@ const S = situation({
 		{ tipo: GROUP_FIRST, parent: DEEP_SECTION, model: 'section_group', order_number: 1 },
 		{ tipo: DATE_SIBLING_LATE, parent: GROUP_FIRST, model: 'component_date', order_number: 2 },
 		{ tipo: DATE_IN_FIRST_GROUP, parent: GROUP_FIRST, model: 'component_date', order_number: 1 },
+		{ tipo: MODELLESS_SECTION, parent: 'test1', model: 'section' },
+		{
+			tipo: MODELLESS_NODE,
+			parent: MODELLESS_SECTION,
+			// a model-less row: `model` NULL; model_tipo names a tipo that is no
+			// model node (ensureSituation resolves only an absent model_tipo)
+			model: null as unknown as string,
+			model_tipo: 'zzoc999',
+		},
+		{ tipo: DATE_UNDER_MODELLESS, parent: MODELLESS_NODE, model: 'component_date' },
+		{ tipo: REAL_SECTION, parent: 'test1', model: 'section' },
+		{ tipo: REAL_FIELD_A, parent: REAL_SECTION, model: 'component_input_text', order_number: 1 },
+		{ tipo: REAL_FIELD_B, parent: REAL_SECTION, model: 'component_input_text', order_number: 2 },
+		{
+			tipo: VIRTUAL_SECTION,
+			parent: 'test1',
+			model: 'section',
+			relations: [{ tipo: REAL_SECTION }],
+		},
+		{
+			tipo: EXCLUDE_HIGH_TIPO,
+			parent: VIRTUAL_SECTION,
+			model: 'exclude_elements',
+			order_number: 1,
+			relations: [{ tipo: REAL_FIELD_A }],
+		},
+		{
+			tipo: EXCLUDE_LOW_TIPO,
+			parent: VIRTUAL_SECTION,
+			model: 'exclude_elements',
+			order_number: 1,
+			relations: [{ tipo: REAL_FIELD_B }],
+		},
 	],
 });
 
@@ -195,6 +249,26 @@ describe('same tie-break everywhere (T2-SC-5a)', () => {
 		// order it is the first component of the first group
 		expect(await findFirstDescendantTipoByModel(DEEP_SECTION, 'component_date')).toBe(
 			DATE_IN_FIRST_GROUP,
+		);
+	});
+
+	test('the virtual edit scope reads the same tied exclude_elements child', async () => {
+		const scope = await resolveVirtualEditScope(VIRTUAL_SECTION);
+		expect(scope.realTipo).toBe(REAL_SECTION);
+		// the lower tipo wins the tie, not the row written first
+		expect((await findFirstChildByModel(VIRTUAL_SECTION, 'exclude_elements'))?.tipo).toBe(
+			EXCLUDE_LOW_TIPO,
+		);
+		expect([...scope.excludeSet]).toEqual([REAL_FIELD_B]);
+	});
+
+	test('the subtree walk descends through a node with no model', async () => {
+		expect(await getRecursiveChildrenTipos(MODELLESS_SECTION)).toEqual([
+			MODELLESS_NODE,
+			DATE_UNDER_MODELLESS,
+		]);
+		expect(await findFirstDescendantTipoByModel(MODELLESS_SECTION, 'component_date')).toBe(
+			DATE_UNDER_MODELLESS,
 		);
 	});
 });

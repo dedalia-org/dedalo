@@ -11,3 +11,5 @@ Before, some reads took whichever the database returned first, so the section ma
 list columns in use could change after an ontology update without the ontology having
 changed. The same order now decides which field is "the first of its model" inside a
 section: the first in form order, where it used to be the lowest identifier.
+That walk now also looks inside a node that has no model, as the form tree already did;
+only a nested section or area stops it.
