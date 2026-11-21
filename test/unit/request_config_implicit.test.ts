@@ -414,4 +414,29 @@ describe('the implicit walk (zzrqw situation)', () => {
 			]);
 		});
 	});
+
+	// RC-2 (owner ruling, NOT ported — WC-2026-10-30 addendum 2026-11-21): the
+	// engine synthesizes no search.sqo_config; the picker size is the designed 25.
+	describe('RC-2 — a search block without sqo_config stays without', () => {
+		test('explicit config: search.sqo_config is absent in every mode, choose limit is 25', async () => {
+			for (const mode of ['edit', 'search', 'list']) {
+				const [item] = await build(EXPLICIT_PORTAL, HOST, mode);
+				expect(item?.search?.ddo_map.map((ddo) => ddo.tipo)).toEqual([TEXT_A]);
+				expect(
+					item?.search !== null && item?.search !== undefined && 'sqo_config' in item.search,
+				).toBe(false);
+				expect(
+					(item?.choose as { sqo_config?: { limit?: unknown } } | null)?.sqo_config?.limit,
+				).toBe(25);
+			}
+		});
+
+		test('implicit config: no search block at all', async () => {
+			for (const mode of ['edit', 'search']) {
+				const [item] = await build(SELECT_NO_LIST, HOST, mode);
+				expect(item).toBeDefined();
+				expect(item?.search).toBeNull();
+			}
+		});
+	});
 });
