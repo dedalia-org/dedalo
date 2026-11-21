@@ -5,9 +5,9 @@
 		"fingerprint": "f5ee5260187de451599495a828a844e2536e299e20a5006ad91a7ad4e89de833"
 	},
 	"measured": {
-		"tier_files": 1484,
-		"tier_tests": 24071,
-		"tier_pass": 24022,
+		"tier_files": 1486,
+		"tier_tests": 24128,
+		"tier_pass": 24079,
 		"tier_skip": 49,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -950,9 +950,9 @@
 			"assertions": 20
 		},
 		"test/unit/component_change_value_refresh.test.ts": {
-			"tests": 10,
+			"tests": 11,
 			"skipped": 0,
-			"assertions": 48
+			"assertions": 61
 		},
 		"test/unit/component_data_null_filter.test.ts": {
 			"tests": 5,
@@ -1332,7 +1332,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 24,
 			"skipped": 0,
-			"assertions": 1360
+			"assertions": 1361
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -1852,7 +1852,7 @@
 		"test/unit/engine_tree_closure_native.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 23
+			"assertions": 24
 		},
 		"test/unit/engineering_currency_tripwire.test.ts": {
 			"tests": 3,
@@ -1872,7 +1872,7 @@
 		"test/unit/error_envelope_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 3113
+			"assertions": 3124
 		},
 		"test/unit/error_registry_native.test.ts": {
 			"tests": 15,
@@ -3092,7 +3092,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 48057
+			"assertions": 48167
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -3120,14 +3120,14 @@
 			"assertions": 58
 		},
 		"test/unit/legacy_password_migration.test.ts": {
-			"tests": 21,
+			"tests": 28,
 			"skipped": 0,
-			"assertions": 120
+			"assertions": 256
 		},
 		"test/unit/legacy_password_notice_native.test.ts": {
-			"tests": 12,
+			"tests": 14,
 			"skipped": 0,
-			"assertions": 132
+			"assertions": 197
 		},
 		"test/unit/lint_scope_local_only_untracked_tripwire.test.ts": {
 			"tests": 3,
@@ -3237,7 +3237,7 @@
 		"test/unit/machine_name_rung_ratchet_native.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 114
+			"assertions": 115
 		},
 		"test/unit/machine_name_save_rules.test.ts": {
 			"tests": 35,
@@ -4467,7 +4467,7 @@
 		"test/unit/production_entrypoint_coverage_tripwire.test.ts": {
 			"tests": 5,
 			"skipped": 0,
-			"assertions": 29
+			"assertions": 28
 		},
 		"test/unit/production_import_tripwire.test.ts": {
 			"tests": 34,
@@ -5240,9 +5240,9 @@
 			"assertions": 259
 		},
 		"test/unit/request_config_implicit.test.ts": {
-			"tests": 13,
+			"tests": 22,
 			"skipped": 0,
-			"assertions": 37
+			"assertions": 77
 		},
 		"test/unit/request_config_permission_gate.test.ts": {
 			"tests": 8,
@@ -5305,9 +5305,9 @@
 			"assertions": 147
 		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
-			"tests": 28,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 62
+			"assertions": 64
 		},
 		"test/unit/rqo_scalar_bound_tripwire.test.ts": {
 			"tests": 10,
