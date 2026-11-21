@@ -1989,15 +1989,18 @@ describe('delete_data empties a wiped main’s frames in EVERY declared slot —
 	/** Kinds whose slot is NOT a component of the section (the subtree walk never reaches it). */
 	const outside = new Set([IRI_SLOT, XSLOT]);
 	/**
-	 * The foreign main's frames in a slot outside the subtree: a main that does
-	 * not declare the slot (FMAIN in XSLOT) keeps them — not this wipe's to
-	 * take; IMAIN2 declares dd560 (the model's fixed slot) and is a field of the
-	 * same record, so its frames leave with it (every field's frames go).
+	 * The foreign main's frames in a slot outside the subtree leave too: the
+	 * foreign main is a field of the same record, so the wipe empties it and its
+	 * frames would pair no item. IMAIN2 declares dd560 (the model's fixed slot);
+	 * FMAIN does NOT declare XSLOT but holds frames there — a caller-injected
+	 * slot, the main's like a declared one (B3 review M3, owner ruling
+	 * 2026-11-21: one slot set, no orphans; was: FMAIN's kept). Every field's
+	 * frames go.
 	 */
 	const expectForeign = (kind: Kind, before: unknown, after: unknown): void => {
 		if (!outside.has(kind.slot)) return;
 		expect(foreignOf(kind, before).length).toBeGreaterThan(0); // FLOOR
-		expect(foreignOf(kind, after)).toEqual(kind.slot === IRI_SLOT ? [] : foreignOf(kind, before));
+		expect(foreignOf(kind, after)).toEqual([]);
 	};
 
 	for (const kind of [...KINDS, xKind]) {
