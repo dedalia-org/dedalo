@@ -4254,6 +4254,11 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/ordered_child_lookup_native.test.ts": {
+			"tests": 10,
+			"skipped": 0,
+			"assertions": 28
+		},
 		"test/unit/origin_limiter_native.test.ts": {
 			"tests": 49,
 			"skipped": 0,
@@ -5293,6 +5298,11 @@
 			"tests": 15,
 			"skipped": 0,
 			"assertions": 37
+		},
+		"test/unit/root_password_write_refusal_native.test.ts": {
+			"tests": 27,
+			"skipped": 0,
+			"assertions": 147
 		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
 			"tests": 28,
