@@ -55,6 +55,7 @@ await ensureSituation(S);
 const table = (await getMatrixTableFromTipo(SECTION)) || 'matrix_test';
 let id = 0;
 let translatedId = 0;
+let fallbackId = 0;
 try {
   id = await insertMatrixRecordWithCounter(table, SECTION, {});
   // What the editor sends: the url the upload endpoint answered (webBase).
@@ -106,6 +107,36 @@ try {
   const translatedRecord = await readMatrixRecord(table, SECTION, translatedId);
   const translatedItem = ((translatedRecord && translatedRecord.columns.string &&
     translatedRecord.columns.string[TEXT_AREA]) || []).find((e) => e && e.lang === 'lg-spa');
+  // The LIST faces (T2-D03-b): the value AND the cross-language fallback go
+  // through one served-text helper (rebase -> tag render -> truncate). The
+  // fallback skipped the rebase, so a list cell showing another language's
+  // text served the stored relative src (a 404 on a split-origin install).
+  const storedLang = config.lang.dataLangDefault;
+  const otherLang = config.menu.projectsDefaultLangs.find((lang) => lang !== storedLang);
+  fallbackId = await insertMatrixRecordWithCounter(table, SECTION, {
+    string: { [TEXT_AREA]: [{ id: 1, lang: storedLang,
+      value: '<p><img src="/dedalo/' + config.mediaDir + '/image/web/pic.jpg"> caption</p>' }] },
+  });
+  const listRead = async (lang) => {
+    const list = await readSection({
+      action: 'read',
+      source: { tipo: SECTION, section_tipo: SECTION, mode: 'list', lang },
+      sqo: {
+        section_tipo: [SECTION],
+        filter_by_locators: [{ section_tipo: SECTION, section_id: String(fallbackId) }],
+        limit: 1,
+        offset: 0,
+      },
+      show: { ddo_map: [{ tipo: TEXT_AREA, section_tipo: SECTION, parent: SECTION, mode: 'list', lang }] },
+    });
+    const cell = list.data.find((e) => e.tipo === TEXT_AREA && e.section_id === fallbackId);
+    if (cell === undefined) throw new Error('the list read emitted no ' + TEXT_AREA + ' cell (' + lang + ')');
+    return cell;
+  };
+  const listValueCell = await listRead(storedLang);
+  const listFallbackCell = await listRead(otherLang);
+  const listValue = ((listValueCell.entries || [])[0] || {}).value;
+  const listFallback = ((listFallbackCell.fallback_value || [])[0] || {}).value;
   const item = data.find((e) => e.tipo === TEXT_AREA && e.section_id === id);
   if (item === undefined) throw new Error('the edit read emitted no ' + TEXT_AREA + ' item');
   const served = ((item.entries || []).find((v) => v && v.value) || {}).value;
@@ -117,11 +148,14 @@ try {
       echoSrc: srcOf(echoed, 'the save echo'),
       servedSrc: srcOf(served, 'the edit read'),
       translatedSrc: srcOf(translatedItem && translatedItem.value, 'the translated row'),
+      listValueSrc: srcOf(listValue, 'the list value'),
+      listFallbackSrc: srcOf(listFallback, 'the list fallback'),
     }),
   );
 } finally {
   if (id > 0) await deleteMatrixRecord(table, SECTION, id);
   if (translatedId > 0) await deleteMatrixRecord(table, SECTION, translatedId);
+  if (fallbackId > 0) await deleteMatrixRecord(table, SECTION, fallbackId);
   await sql\`DELETE FROM matrix_time_machine WHERE section_tipo = \${SECTION}\`;
   // The dd542 activity row the dispatch save appended (dd546 = the saved tipo).
   await sql.unsafe(
@@ -141,6 +175,10 @@ interface Probe {
 	servedSrc: string;
 	/** The same `sent` src written by automatic translation (the second door). */
 	translatedSrc: string;
+	/** A LIST cell's own value (the requested language holds the text). */
+	listValueSrc: string;
+	/** A LIST cell's cross-language fallback (T2-D03-b: it skipped the rebase). */
+	listFallbackSrc: string;
 }
 
 function probe(mediaWebBase: string): Probe {
@@ -169,6 +207,9 @@ describe('component_text_area <img src>: stored relative, served on webBase', ()
 		expect(result.echoSrc).toBe(result.servedSrc);
 		// T1-14: automatic translation stores the same relative form as a save.
 		expect(result.translatedSrc).toBe(result.storedSrc);
+		// T2-D03-b: both list faces are served on webBase — value and fallback.
+		expect(result.listValueSrc).toBe(result.servedSrc);
+		expect(result.listFallbackSrc).toBe(result.servedSrc);
 	}, 120_000);
 
 	test('SAME ORIGIN (key unset) — stored and served are the relative url (no-op)', () => {
@@ -178,5 +219,7 @@ describe('component_text_area <img src>: stored relative, served on webBase', ()
 		expect(result.servedSrc).toBe(relative);
 		expect(result.echoSrc).toBe(relative);
 		expect(result.translatedSrc).toBe(relative);
+		expect(result.listValueSrc).toBe(relative);
+		expect(result.listFallbackSrc).toBe(relative);
 	}, 120_000);
 });

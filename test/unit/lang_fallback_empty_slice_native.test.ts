@@ -368,10 +368,57 @@ describe('doors: a cleared translation shows the fallback', () => {
 		}
 	}, 60_000);
 
-	test('R10 text_area EDIT read: a <p></p> slice gets the fallback', async () => {
+	test('R10 text_area EDIT read: a <p></p> slice gets the fallback — as placeholder TEXT (T2-SL-5)', async () => {
 		const item = await readItem(TEXT_AREA);
 		expect(item.entries).toEqual([GHOST_AREA]);
-		expect(item.fallback_value).toEqual([MAIN_AREA]);
+		// PHP get_fallback_edit_value: the placeholder is text, never markup.
+		expect(item.fallback_value).toEqual([{ ...MAIN_AREA, value: 'Main text' }]);
+	}, 30_000);
+
+	test('T2-SL-5 text_area EDIT fallback: marks removed, tags stripped, cut at 700 on a word', async () => {
+		// The raw other-language transcript was sent whole: bracket marks as
+		// literals, markup as markup, any length — into a placeholder.
+		const words = 'word '.repeat(200).trimEnd();
+		const raw =
+			'<p>Main [TC_00:00:01.000_TC]<strong>bold</strong> ' +
+			`[index-n-1-label-data::data]texts[/index-n-1-label-data::data] ${words}</p>`;
+		const id = await createSectionRecord(SECTION, -1);
+		try {
+			expect(
+				await updateMatrixRecord(TABLE, SECTION, id, {
+					string: {
+						[TEXT_AREA]: [
+							{ id: 1, lang: DEFAULT, value: raw },
+							{ id: 2, lang: DEFAULT, value: '' },
+							{ id: 3, lang: DEFAULT, value: `<p>${words}</p>` },
+							GHOST_AREA,
+						],
+					},
+				}),
+			).toBe('updated');
+			const items = (await runWithRequestLangs({ applicationLang: OTHER, dataLang: OTHER }, () =>
+				readComponentData({
+					source: { tipo: TEXT_AREA, section_tipo: SECTION, section_id: id, mode: 'edit' },
+				} as never),
+			)) as Item[];
+			const item = items.find((e) => e.tipo === TEXT_AREA && String(e.section_id) === String(id));
+			// 'Main bold texts ' (16) + 136 × 'word ' = 696 chars, so chars 696-699
+			// are a whole 137th 'word' and char 700 is the space after it: the cut
+			// is the last space INSIDE the first 700 chars (the 137th word goes — a
+			// limit of 701 would keep it), and the ellipsis says it was cut.
+			expect(item?.fallback_value).toEqual([
+				{ id: 1, lang: DEFAULT, value: `Main bold texts ${'word '.repeat(136).trimEnd()}...` },
+				// an item with no text carries null (PHP), and stays in its position
+				{ id: 2, lang: DEFAULT, value: null },
+				// the other side of the limit: 140 × 'word ' puts a space AT char 699,
+				// the last one inside 700 — a limit of 699 would drop the 140th word
+				{ id: 3, lang: DEFAULT, value: `${'word '.repeat(140).trimEnd()}...` },
+			]);
+		} finally {
+			await cleanScratchRecord(SECTION, id, TABLE);
+			await sql`DELETE FROM matrix_activity
+				WHERE data->>'section_tipo' = ${SECTION} AND data->>'section_id' = ${String(id)}`;
+		}
 	}, 30_000);
 
 	test('C40 (owner 2026-11-13): text_area LIST judges emptiness too — a <p></p> slice carries the fallback', async () => {

@@ -505,6 +505,19 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-21-resolve-data-injected-value-bound`.
 
+- **An empty text area shows the other language's text as plain text, and list previews load their images from the media server.**
+
+    When a text area has no text in the language you are editing, the editor shows the text of
+    another language as a grey placeholder. That placeholder carried the whole stored text: timecode
+    and indexation marks appeared as bracketed codes and the text was not shortened. It is now the
+    readable text only, shortened to 700 characters.
+
+    On installations that serve media from a separate address, a list cell showing another
+    language's text loaded its embedded images from the wrong address (they appeared broken); they
+    now load like every other image.
+
+    Wire contract: `WC-2026-11-21-text-area-edit-fallback-is-text`.
+
 - **Uploading a very large file no longer fails while the server is still assembling it.**
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
@@ -2223,7 +2236,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 94 entries"
+??? note "Wire contract — 95 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2319,6 +2332,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-implicit-section-node-never-a-column`
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
+    - `WC-2026-11-21-text-area-edit-fallback-is-text`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

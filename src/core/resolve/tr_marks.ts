@@ -100,6 +100,18 @@ const DELETE_PATTERNS: RegExp[] = [
 	/\[(lang)-([a-z])-([0-9]{1,6})(-([^-]{0,22}))?-data:(.*?):data\]/g,
 ];
 
+/**
+ * PHP TR::deleteMarks (every family, its defaults): the text without its
+ * Dédalo bracket marks — what a plain-text face of a transcript shows.
+ */
+export function deleteMarks(text: string): string {
+	let clean = text;
+	for (const pattern of DELETE_PATTERNS) {
+		clean = clean.replace(pattern, '');
+	}
+	return clean;
+}
+
 /** PHP TC2seg: '00:01:25.627' → 85.627 (missing parts default 0). */
 export function tcToSeconds(tc: string): number {
 	const match = /([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(\.([0-9]{1,3}))?/.exec(tc);
@@ -125,10 +137,7 @@ export function secondsToTc(seconds: number): string {
 
 /** PHP TR::get_chars_info: strip marks + html, decode entities, count. */
 export function charsInfo(rawText: string): { total_chars: number; total_chars_no_spaces: number } {
-	let clean = rawText.trim();
-	for (const pattern of DELETE_PATTERNS) {
-		clean = clean.replace(pattern, '');
-	}
+	let clean = deleteMarks(rawText.trim());
 	// strip_tags, then htmlspecialchars_decode + &nbsp; → space — ONE pass, so a
 	// literal `&amp;lt;` counts as `&lt;` (4 chars), not `<` (CodeQL #7935).
 	clean = decodeHtmlSpecialChars(stripTags(clean), { nbsp: ' ' });

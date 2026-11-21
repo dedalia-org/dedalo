@@ -9,6 +9,8 @@
  *   the value is present or no cross-lang fallback exists; other literals
  *   attach it only when a fallback resolved). In LIST mode too the trigger is
  *   the slice's EMPTINESS (owner C40 2026-11-13; PHP's list counted items);
+ * - EDIT fallbacks are placeholder TEXT (PHP get_fallback_edit_value: marks
+ *   deleted, tags stripped, 700 chars — shapeEditFallback);
  * - LIST values follow the record's ORIGINAL language (the related
  *   component_select_lang, e.g. rsc263), equivalence-aware.
  */
@@ -16,6 +18,8 @@
 import { appServedMediaSrc } from '../../media/web_base_src.ts';
 import type { DataItem } from '../../resolve/component_data.ts';
 import { readComponentItems } from '../../resolve/component_data.ts';
+import { stripTags } from '../../resolve/html_text.ts';
+import { deleteMarks } from '../../resolve/tr_marks.ts';
 import { truncateHtml } from '../../resolve/truncate_html.ts';
 import type { ComponentEmitHook, EmitHookContext } from '../emit_hooks.ts';
 import { getOriginalLang, resolveRecordTextLang } from './original_lang.ts';
@@ -48,20 +52,76 @@ function svgTagMemoOf(context: EmitHookContext): SvgTagPathMemo {
 	return memo;
 }
 
-/** The list rendering of one stored string: tags → <img>, then HTML-truncate. */
-async function renderListString(value: string, context: EmitHookContext): Promise<string> {
+/**
+ * THE SERVED TEXT PREVIEW (T2-D03-b) — the ONE way a stored rich text becomes a
+ * truncated fragment for the engine's own client, in this order:
+ *   1. REBASE its media src onto webBase (web_base_src.ts appServedMediaSrc —
+ *      the stored form is same-origin relative, WC-042);
+ *   2. RENDER its Dédalo tags to `<img>` (svg glyph URLs rooted on webBase too);
+ *   3. HTML-TRUNCATE to `maxChars` (so a tag is never split).
+ * Every caller that truncates served rich text goes through here: a caller of
+ * truncateHtml on a raw stored value skips step 1 and serves a relative src
+ * the app origin cannot resolve on a split-origin install. (The list
+ * fallback did exactly that.)
+ */
+export async function servedTextPreview(
+	value: string,
+	maxChars: number,
+	memo: SvgTagPathMemo,
+): Promise<string> {
 	// DOS-01 (2026-07-28 audit): bound the input BEFORE the tag processors —
 	// addTagImgOnTheFly's mark/HTML regexes, like truncateHtml, are super-linear
-	// on adversarial CKEditor markup (a 200 KB value froze the loop ~19 s). This
-	// is a ≤130-char preview, so capping a large prefix loses no preview content.
-	// The svg pre-scan runs on the capped slice too.
+	// on adversarial CKEditor markup (a 200 KB value froze the loop ~19 s). A
+	// preview is a few hundred chars, so capping a large prefix loses no preview
+	// content. The svg pre-scan runs on the capped slice too.
 	const capped = value.length > LIST_SOURCE_CAP ? value.slice(0, LIST_SOURCE_CAP) : value;
-	// THE AUDIENCE: this is the list value the engine serves to ITS OWN client,
-	// so svg glyph URLs root on config.media.webBase (split-origin installs —
-	// WC-042; see SvgTagAudience). The path itself is the locator's full media
-	// path (T0-10, WC-2026-11-11-svg-tag-url-full-media-path).
-	const rendered = await renderTagsWithResolvedSvg(capped, 'served', svgTagMemoOf(context));
-	return truncateHtml(TEXT_AREA_LIST_MAX_CHARS, rendered);
+	// THE AUDIENCE: the engine's OWN client, so svg glyph URLs root on
+	// config.media.webBase (split-origin installs — WC-042; see SvgTagAudience).
+	// The path itself is the locator's full media path (T0-10,
+	// WC-2026-11-11-svg-tag-url-full-media-path).
+	const rendered = await renderTagsWithResolvedSvg(appServedMediaSrc(capped), 'served', memo);
+	return truncateHtml(maxChars, rendered);
+}
+
+/** The LIST rendering of one stored string (the 130-char served preview). */
+function renderListString(value: string, context: EmitHookContext): Promise<string> {
+	return servedTextPreview(value, TEXT_AREA_LIST_MAX_CHARS, svgTagMemoOf(context));
+}
+
+/** PHP get_fallback_edit_value max_chars: the edit placeholder's length. */
+const TEXT_AREA_EDIT_FALLBACK_MAX_CHARS = 700;
+
+/**
+ * Cut plain text at the last space before `maxChars` and mark the cut with
+ * `...` (PHP component_string_common::truncate_text). Counted in CODE POINTS:
+ * PHP measured the "is it longer?" test in BYTES, so a multibyte text well
+ * under the limit lost its last word — not reproduced.
+ */
+function truncatePlainText(text: string, maxChars: number): string {
+	const chars = [...text];
+	if (chars.length <= maxChars) return text;
+	const head = chars.slice(0, maxChars);
+	const lastSpace = head.lastIndexOf(' ');
+	const cut = (lastSpace === -1 ? head : head.slice(0, lastSpace)).join('');
+	return cut === '' ? cut : `${cut}...`;
+}
+
+/**
+ * EDIT fallback entries as PHP get_fallback_edit_value shapes them (T2-SL-5):
+ * the placeholder is TEXT — Dédalo marks deleted, every tag stripped, cut at
+ * 700 chars on a word; an entry with no text carries `null`. The raw stored
+ * value used to be sent: bracket marks as literals, markup, any length.
+ */
+function shapeEditFallback(entries: unknown[]): unknown[] {
+	return entries.map((entry) => {
+		if (entry === null || typeof entry !== 'object') return entry;
+		const text = itemText(entry);
+		const value =
+			text === null
+				? null
+				: truncatePlainText(stripTags(deleteMarks(text)), TEXT_AREA_EDIT_FALLBACK_MAX_CHARS);
+		return { ...(entry as object), value };
+	});
 }
 
 /** The non-empty stored string of one item, or null when there is nothing to render. */
@@ -94,9 +154,9 @@ async function serveTextItem(item: unknown, context: EmitHookContext): Promise<u
 	const text = itemText(item);
 	if (text === null) return item;
 	// Stored media src are relative; this client may load media from another
-	// origin (TODO-067, WC-042 — same rebase as the svg tags below).
-	const rebased = appServedMediaSrc(text);
-	const next = context.ddoMode === 'list' ? await renderListString(rebased, context) : rebased;
+	// origin (TODO-067, WC-042). LIST: the served preview (it rebases first).
+	const next =
+		context.ddoMode === 'list' ? await renderListString(text, context) : appServedMediaSrc(text);
 	if (next === text) return item;
 	return { ...(item as object), value: next };
 }
@@ -291,6 +351,9 @@ export const textAreaEmitHook: ComponentEmitHook = {
 		}
 
 		if (context.ddoMode !== 'edit') return;
+		if (Array.isArray(item.fallback_value)) {
+			item.fallback_value = shapeEditFallback(item.fallback_value);
+		}
 		// Property-gated: the common case costs one cached ontology lookup.
 		// Dynamic imports keep the cold path lazy and add no static edge into
 		// the emit_hooks registry SCC.
