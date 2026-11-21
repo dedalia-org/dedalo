@@ -1100,8 +1100,16 @@ export async function assertExportDeclarationReadable(
 				? await resolveExportFrameColumns(declaredDdos)
 				: [];
 	if (principal.isGlobalAdmin) return { frameColumns };
-	await assertDeclaredSegmentsReadable(principal, options, gate);
-	await assertFrameColumnsReadable(principal, frameColumns, gate);
+	const exportScope: FrontierScope = {
+		principal,
+		surface: 'export',
+		door: 'tool_export',
+	};
+	const note = (refusal: FrontierRefusal): void => {
+		if (gate.noteRefusals !== false) noteFrontierRefusal(exportScope, refusal);
+	};
+	await assertDeclaredSegmentsReadable(principal, options, note);
+	await assertFrameColumnsReadable(principal, frameColumns, note);
 	return { frameColumns };
 }
 
@@ -1109,7 +1117,7 @@ export async function assertExportDeclarationReadable(
 async function assertDeclaredSegmentsReadable(
 	principal: Principal,
 	options: Record<string, unknown>,
-	gate: ExportDeclarationGateOptions,
+	note: (refusal: FrontierRefusal) => void,
 ): Promise<void> {
 	const sectionTipo = String(options.section_tipo ?? options.tipo ?? '');
 	const exportDdos = Array.isArray(options.ar_ddo_to_export)
@@ -1132,14 +1140,6 @@ async function assertDeclaredSegmentsReadable(
 	// `typeof seg.section_tipo === 'string' && typeof seg.component_tipo === 'string'`,
 	// so every other shape — absent, null, ARRAY — was silently SKIPPED past a
 	// gate the resolver then ignored.
-	const note = (refusal: FrontierRefusal): void => {
-		if (gate.noteRefusals !== false) noteFrontierRefusal(exportScope, refusal);
-	};
-	const exportScope: FrontierScope = {
-		principal,
-		surface: 'export',
-		door: 'tool_export',
-	};
 	for (const targetSectionTipo of getSectionTipos(
 		sqo as unknown as Parameters<typeof getSectionTipos>[0],
 	)) {
@@ -1219,9 +1219,8 @@ async function assertDeclaredSegmentsReadable(
 async function assertFrameColumnsReadable(
 	principal: Principal,
 	frameColumns: readonly ExportFrameColumns[],
-	gate: ExportDeclarationGateOptions,
+	note: (refusal: FrontierRefusal) => void,
 ): Promise<void> {
-	const exportScope: FrontierScope = { principal, surface: 'export', door: 'tool_export' };
 	for (const {
 		section_tipo: topSection,
 		component_tipo: topComponent,
@@ -1232,15 +1231,13 @@ async function assertFrameColumnsReadable(
 			// column of this export, just one the tool UI cannot spell, so it is
 			// authorized on the bare grant too.
 			if ((await getPermissions(principal, topSection, frameTipo)) >= 1) continue;
-			if (gate.noteRefusals !== false) {
-				noteFrontierRefusal(exportScope, {
-					surface: 'export',
-					door: 'tool_export',
-					sectionTipo: topSection,
-					componentTipo: frameTipo,
-					key: 'component',
-				});
-			}
+			note({
+				surface: 'export',
+				door: 'tool_export',
+				sectionTipo: topSection,
+				componentTipo: frameTipo,
+				key: 'component',
+			});
 			throw new DedaloError('perm.denied', {
 				message: `tool_export: dedalo_raw would emit the dataframe column ${topSection}.${frameTipo} of ${topSection}.${topComponent}, which this caller holds no read grant on`,
 				coordinates: {
@@ -1445,8 +1442,8 @@ async function openExportGridInScope(
 		const slots = frameSlotSets.get(frameColumnsKey(section, main));
 		if (slots === undefined) {
 			throw new DedaloError('internal.invariant', {
-				message: `tool_export: dedalo_raw column ${section}.${main} has no frame column set from the declaration gate`,
-				coordinates: { tool: 'tool_export', section_tipo: section, tipo: main },
+				message: `export: dedalo_raw column ${section}.${main} has no frame column set from the declaration gate`,
+				coordinates: { section_tipo: section, tipo: main },
 			});
 		}
 		return slots;
