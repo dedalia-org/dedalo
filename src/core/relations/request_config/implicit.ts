@@ -15,8 +15,8 @@
  * Faithful rules ported here:
  * - component_relation_parent/children are NOT resolvable implicitly — throw
  *   (PHP :88; their nodes must carry explicit config);
- * - the first 'section'-model relation node becomes the TARGET SECTION and
- *   is stripped from the ddo list (clean_and_extract_related);
+ * - every 'section'-model relation node is stripped from the ddo list and the
+ *   LAST one is the TARGET SECTION (clean_and_extract_related);
  * - 'exclude_elements' marker nodes and the deprecated dd249 security
  *   component are skipped (clean_and_extract_related :531-538);
  * - component_filter always targets the projects section (PHP :261-264);
@@ -196,16 +196,19 @@ const NEVER_A_COLUMN_MODELS: ReadonlySet<string | null> = new Set([
 export interface ImplicitRelationLink {
 	tipo: string;
 	model: string;
-	/** The target section found BEFORE this node (null until one appears). */
+	/** The walk's target section — the same on every link (null when the walk named none). */
 	sectionTipo: string | null;
 }
 
 /**
  * THE implicit relation walk (PHP clean_and_extract_related + build_legacy_ddo_map),
- * principal-free and ontology-only: the first 'section'-model relation node of
- * `sourceTipo` is the TARGET SECTION (stripped); marker nodes, inert label
- * nodes and the deprecated dd249 are skipped; everything else survives in
- * ontology order (PHP keeps non-component nodes in the map). Shared by the
+ * principal-free and ontology-only: every 'section'-model relation node of
+ * `sourceTipo` is stripped — a section is never a column — and the LAST one is
+ * the TARGET SECTION (T2-RC-4; WC-2026-11-21-implicit-section-node-never-a-column.
+ * The same rule serves a SECTION owner's section_list until owner ruling M3b
+ * decides whether a section's own list may retarget at all). Marker nodes,
+ * inert label nodes and the deprecated dd249 are skipped; everything else
+ * survives in ontology order (PHP keeps non-component nodes in the map). Shared by the
  * edit/list builder below (which then applies the per-user STEP 5 filter) and
  * the export/flat children seam (relations/config_children.ts, whose consumers
  * filter per call — the export through its frontier, the interactive flat
@@ -215,17 +218,21 @@ export async function implicitRelationWalk(
 	sourceTipo: string,
 ): Promise<{ targetSectionTipo: string | null; links: ImplicitRelationLink[] }> {
 	let targetSectionTipo: string | null = null;
-	const links: ImplicitRelationLink[] = [];
+	const columns: { tipo: string; model: string }[] = [];
 	for (const node of await ontologyRelationNodes(sourceTipo)) {
 		const link = await modelledLink(node);
 		if (link === null) continue;
-		if (link.model === 'section' && targetSectionTipo === null) {
-			targetSectionTipo = link.tipo; // PHP clean_and_extract_related :508
+		if (link.model === 'section') {
+			// A section node is NEVER a column; each one found replaces the
+			// target, so the LAST wins (PHP clean_and_extract_related :531-535).
+			targetSectionTipo = link.tipo;
 			continue;
 		}
 		if (isNeverAColumn(link)) continue;
-		links.push({ tipo: link.tipo, model: link.model, sectionTipo: targetSectionTipo });
+		columns.push(link);
 	}
+	// One target for the whole map, wherever its node stood among the columns.
+	const links = columns.map((link) => ({ ...link, sectionTipo: targetSectionTipo }));
 	return { targetSectionTipo, links };
 }
 
@@ -288,9 +295,9 @@ export async function implicitComponentChildren(
 
 /**
  * Implicit config from a node's ontology relation nodes (PHP resolve_ar_related_*
- * + clean_and_extract_related + build_legacy_ddo_map): the first
- * section-model node is the TARGET SECTION (stripped from the map), the rest
- * become ddos with mode forced 'list'. `sourceTipo` is the section_list
+ * + clean_and_extract_related + build_legacy_ddo_map): the section-model
+ * nodes are stripped from the map and the last one is the TARGET SECTION, the
+ * rest become ddos with mode forced 'list'. `sourceTipo` is the section_list
  * child (list mode) or the COMPONENT ITSELF (edit mode / no section_list).
  */
 export async function buildImplicitComponentListConfig(

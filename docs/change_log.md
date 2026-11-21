@@ -1753,6 +1753,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A relation list that names two sections resolves to the last one, and never shows a section as a column.**
+
+    When the ontology relations of a field without its own request configuration — or of a
+    list definition — name more than one section, the engine now takes the LAST one as the target
+    section and shows none of them as a column. Before, it took the first and emitted the others
+    as columns that no view could draw, and the columns were read from the wrong section. An
+    ontology whose nodes name a single section is unaffected.
+
+    Wire contract: `WC-2026-11-21-implicit-section-node-never-a-column`.
+
 - **Login reads an empty or malformed stored password the same way everywhere**
 
     The login, the legacy-password count and the conversion each had their own idea of which stored values are a Dédalo v6 password, and they disagreed on two shapes.
@@ -2184,7 +2194,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 91 entries"
+??? note "Wire contract — 92 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2276,6 +2286,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
     - `WC-2026-11-19-window-features-grammar`
+    - `WC-2026-11-21-implicit-section-node-never-a-column`
     - `WC-2026-11-21-root-password-write-refused`
 
 ## 7.0.0-beta.8 — 2026-11-08

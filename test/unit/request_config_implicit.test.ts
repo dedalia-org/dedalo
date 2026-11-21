@@ -378,4 +378,40 @@ describe('the implicit walk (zzrqw situation)', () => {
 			expect(extractSqoSectionTipos(virtual[0])).toEqual([VIRTUAL_HOST]);
 		});
 	});
+
+	describe('RC-4 — a section node is never a column; the LAST one is the target', () => {
+		test('component owner: two section nodes → none is a ddo, the last is the target', async () => {
+			const config = await build(TWO_SECTIONS, HOST, 'edit');
+			const ddoMap = config[0]?.show?.ddo_map ?? [];
+			expect(ddoMap.map((ddo) => ddo.tipo)).toEqual([TEXT_A, TEXT_C]);
+			expect(ddoMap.filter((ddo) => ddo.model === 'section')).toEqual([]);
+			expect(extractSqoSectionTipos(config[0])).toEqual([TARGET_B]);
+			for (const ddo of ddoMap) expect(ddo.section_tipo).toBe(TARGET_B);
+		});
+
+		// The section-owner half ships the v6 rule (last wins) until owner ruling M3b.
+		test('section owner (v6 rule until M3b): the last section node of its list is the target', async () => {
+			const config = await build(LIST_OWNER, LIST_OWNER, 'list', true);
+			const ddoMap = config[0]?.show?.ddo_map ?? [];
+			expect(ddoMap.map((ddo) => ddo.tipo)).toEqual([LIST_OWNER_TEXT]);
+			expect(extractSqoSectionTipos(config[0])).toEqual([TARGET_B]);
+			expect(ddoMap[0]?.section_tipo).toBe(TARGET_B);
+		});
+
+		test('the principal-free walk: no section link, one target on every link', async () => {
+			const { implicitComponentChildren, implicitRelationWalk } = await import(
+				'../../src/core/relations/request_config/implicit.ts'
+			);
+			expect((await implicitComponentChildren(TWO_SECTIONS)).map((child) => child.tipo)).toEqual([
+				TEXT_A,
+				TEXT_C,
+			]);
+			const walk = await implicitRelationWalk(TWO_SECTIONS);
+			expect(walk.targetSectionTipo).toBe(TARGET_B);
+			expect(walk.links).toEqual([
+				{ tipo: TEXT_A, model: 'component_input_text', sectionTipo: TARGET_B },
+				{ tipo: TEXT_C, model: 'component_input_text', sectionTipo: TARGET_B },
+			]);
+		});
+	});
 });
