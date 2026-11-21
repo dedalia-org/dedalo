@@ -116,6 +116,7 @@
  * (`engine.uncovered_scope`), so the operator learns it at the ontology update, not when a
  * user opens the form. A missing, absent or chained target is NOT this channel's — the
  * alias reader refuses those itself, and a non-grammar one is an invalid reference above.
+ * Wire: WC-2026-11-21-ontology-alias-target-defects.
  *
  * SINGLE WRITER: nothing outside this module deletes a TLD's dd_ontology wholesale (rebuild,
  * retract, activation), and the re-derive has exactly ONE writer. The legacy

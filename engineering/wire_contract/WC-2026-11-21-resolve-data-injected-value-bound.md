@@ -19,3 +19,16 @@
   complete. The bound is the one divergence from PHP.
 - **Gate reconciliation:** TS-native only. No frozen fixture replays a `resolve_data` with more
   locators than its page (`resolve_data` differentials unchanged); no re-harvest, no fixture edit.
+
+## Addendum 2026-11-21 — the cost the bound admits (B3 review L1)
+
+- **The bound is a COST bound, stated:** one `resolve_data` request may fully expand up to
+  `CLIENT_MAX_LOCATOR_PINS` (1000) injected locators — each one a target record load plus every
+  child ddo of the portal's search config emitted for it (no page applies to the injected value),
+  so the work and the response grow linearly with the value, times the width of the child map.
+  Beyond it the request is refused (`request.invalid_source`), never trimmed.
+- **Measured 2026-11-21** (suite DB, root, `dd543` → `dd128`, one display child `dd132`,
+  distinct scratch targets, warm): 10 locators 3 ms / 6.7 KB, 100 → 8 ms / 37 KB, 1000 → 88 ms /
+  342 KB. Linear, well inside an ordinary list read; no measured case justifies a lower bound, so
+  it stays at the shared `filter_by_locators` cap. Lower it only on a measured case (a wide child
+  map, a cold cache) that shows otherwise.
