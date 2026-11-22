@@ -7,6 +7,7 @@
  * chips/search lose them).
  */
 
+import { AREAS_DENY_GUARDED_MODELS } from '../../concepts/area.ts';
 import { sql } from '../../db/postgres.ts';
 import { getModelByTipo } from '../../ontology/resolver.ts';
 import { failAction, type WidgetModule, type WidgetResponse } from './support.ts';
@@ -23,10 +24,11 @@ import { failAction, type WidgetModule, type WidgetResponse } from './support.ts
  * Asserting the query results instead would pin INSTALLED ontology content.
  */
 async function getGuardedAreaTipos(): Promise<string[]> {
-	const rows = (await sql.unsafe(
-		`SELECT tipo FROM dd_ontology WHERE model IN ('area_root', 'area_maintenance', 'area_admin')`,
-		[],
-	)) as { tipo: string }[];
+	// the guarded MODELS are the deny law's own list (concepts/area.ts) — the
+	// static AREAS_DENY is guarded by the same one in applyAreasDeny
+	const rows = (await sql.unsafe('SELECT tipo FROM dd_ontology WHERE model = ANY($1::text[])', [
+		[...AREAS_DENY_GUARDED_MODELS],
+	])) as { tipo: string }[];
 	return rows.map((row) => row.tipo);
 }
 
@@ -43,8 +45,10 @@ export interface AreaListClassification {
  * content instead of the decision).
  *
  * The two loops are ASYMMETRIC ON PURPOSE and must stay that way:
- *  - DENY: a guarded tipo (model area_root / area_maintenance / area_admin)
- *    is diverted into `removed_guarded` and never reaches `areas_deny`.
+ *  - DENY: a guarded tipo (AREAS_DENY_GUARDED_MODELS: area_root /
+ *    area_maintenance / area_admin) is diverted into `removed_guarded` and
+ *    never reaches `areas_deny` (the walk's applyAreasDeny ignores one in the
+ *    static AREAS_DENY too).
  *    Denying `area_maintenance` removes the very dashboard that could undo
  *    the denial — recovery is hand-editing ts_state.json on the server.
  *  - ALLOW: the SAME tipo survives into `areas_allow`. Allow-listing a

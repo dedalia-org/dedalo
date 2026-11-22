@@ -65,11 +65,6 @@ import {
 
 /** Leg A — picks that do not order by the sibling order, owned by a later batch. */
 const PICK_EXEMPTIONS: Record<string, { count: number; reason: string }> = {
-	'src/core/resolve/security_access_datalist.ts': {
-		count: 1,
-		reason:
-			'SC-5b, B9 removes it — the menu root-model pick (`WHERE model = ${rootModel} LIMIT 1`) is unordered; B9 owns the file and lands it with O15-1.',
-	},
 	'src/core/section/buttons.ts': {
 		count: 1,
 		reason:

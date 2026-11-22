@@ -17,9 +17,11 @@
  *    by `order_number`, keeping only nodes whose model is area/section/
  *    section_tool (and never login/tools/section_list/filter). Recursion only
  *    descends into kept nodes.
- * 3. Deny list (config `areas.deny`) removes specific tipos from the result but
- *    keeps their descendants (PHP checks deny only when ADDING a node, never
- *    when recursing).
+ * 3. Deny list (AREAS_DENY / the config_areas override): THE AREAS DENY LAW
+ *    (concepts/area.ts applyAreasDeny, shared with the permissions tree) — a
+ *    denied area hides itself AND its whole subtree at every depth; the root,
+ *    admin and maintenance areas are never hidden (anti-lockout).
+ *    WC-2026-11-22-areas-deny-subtree.
  *
  * THE MENU FILTER (menu::get_tree_datalist)
  * 4. skip_tipos: grouping wrappers hidden from the menu. A skipped node is
@@ -49,15 +51,17 @@ import {
 	AREA_CHILD_EXCLUDE_MODELS,
 	AREA_CHILD_INCLUDE_MODELS,
 	AREA_ONTOLOGY_TIPO,
+	applyAreasDeny,
 	areaBehaviorOf,
 	isAreaModel,
 	MENU_ROOT_MODEL_ORDER,
 } from '../../concepts/area.ts';
+import { DD_ONTOLOGY_SIBLING_ORDER_SQL } from '../../db/dd_ontology.ts';
 import { sql } from '../../db/postgres.ts';
 import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import { resolveLabel } from '../../ontology/labels.ts';
-import { getModelByTipo } from '../../ontology/resolver.ts';
+import { compareSiblingOrder, getModelByTipo } from '../../ontology/resolver.ts';
 import { canAccessOntologyArea } from '../../security/permissions.ts';
 import { buildSectionToolContext } from '../../tools/section_tool_context.ts';
 
@@ -181,10 +185,14 @@ export async function collectAreaRows(): Promise<OntologyAreaRow[]> {
 	// then walk it in memory — far cheaper than a query per node.
 	const wantedModels = [...ROOT_AREA_MODELS, ...CHILDREN_INCLUDE_MODELS];
 	const placeholders = wantedModels.map((_, index) => `$${index + 1}`).join(', ');
+	// Rows in THE sibling order (DD_ONTOLOGY_SIBLING_ORDER_SQL), so the root
+	// pick below (`rows.find` per root model) is the ordered one — the same row
+	// the permissions tree picks (T2-SC-5b).
 	const rows = (await sql.unsafe(
 		`SELECT tipo, model, parent, order_number, id, term, properties
 		 FROM dd_ontology
-		 WHERE model IN (${placeholders})`,
+		 WHERE model IN (${placeholders})
+		 ORDER BY ${DD_ONTOLOGY_SIBLING_ORDER_SQL}`,
 		wantedModels,
 	)) as OntologyAreaRow[];
 
@@ -195,10 +203,10 @@ export async function collectAreaRows(): Promise<OntologyAreaRow[]> {
 		if (siblings === undefined) childrenByParent.set(row.parent, [row]);
 		else siblings.push(row);
 	}
-	// Sibling order: order_number, then id as a stable tie-breaker (PHP walks the
-	// ontology children in stored tree order, which order_number encodes).
+	// THE sibling order (resolver.ts compareSiblingOrder: order_number, NULL
+	// last, tipo) — the order the permissions tree walks too.
 	for (const siblings of childrenByParent.values()) {
-		siblings.sort((a, b) => (a.order_number ?? 0) - (b.order_number ?? 0) || a.id - b.id);
+		siblings.sort((a, b) => compareSiblingOrder(siblingKey(a), siblingKey(b)));
 	}
 
 	const collected: OntologyAreaRow[] = [];
@@ -219,6 +227,7 @@ export async function collectAreaRows(): Promise<OntologyAreaRow[]> {
 
 	// Roots in the fixed model order; each root is a singleton in the ontology.
 	for (const rootModel of ROOT_AREA_MODELS) {
+		// the FIRST row of the model in sibling order (rows arrive ordered)
 		const rootRow = rows.find((row) => row.model === rootModel);
 		if (rootRow === undefined) continue; // model not defined on this install
 		collected.push(rootRow);
@@ -227,6 +236,14 @@ export async function collectAreaRows(): Promise<OntologyAreaRow[]> {
 
 	areaWalkCache.set('walk', collected);
 	return collected;
+}
+
+/** A walk row as compareSiblingOrder reads it (NULL order_number sorts last). */
+function siblingKey(row: OntologyAreaRow): { orderNumber: number; tipo: string } {
+	return {
+		orderNumber: row.order_number === null ? Number.POSITIVE_INFINITY : Number(row.order_number),
+		tipo: row.tipo,
+	};
 }
 
 /**
@@ -240,16 +257,15 @@ async function getOntologyAreas(): Promise<AreaNode[]> {
 	const { getEffectiveAreasDeny } = await import('../../resolve/server_state.ts');
 	const denySet = new Set(getEffectiveAreasDeny(config.menu.areasDeny));
 
-	// Deny removes the specific node but not its already-collected descendants.
-	return collected
-		.filter((row) => !denySet.has(row.tipo))
-		.map((row) => ({
-			tipo: row.tipo,
-			model: row.model,
-			parent: row.parent,
-			label: resolveLabel(row.term) ?? '',
-			properties: row.properties as AreaNode['properties'],
-		}));
+	// THE AREAS DENY LAW (concepts/area.ts applyAreasDeny — the one filter the
+	// permissions tree applies too): a denied area hides itself AND its subtree.
+	return applyAreasDeny(collected, denySet).map((row) => ({
+		tipo: row.tipo,
+		model: row.model,
+		parent: row.parent,
+		label: resolveLabel(row.term) ?? '',
+		properties: row.properties as AreaNode['properties'],
+	}));
 }
 
 /** One node of the UNfiltered area catalog (PHP area::build_area_state_node). */

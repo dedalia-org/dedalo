@@ -18,8 +18,14 @@
  *   2. SIBLING ORDER — children walk depth-first pre-order by `order_number`.
  *   3. MODEL FILTER — only area/section/section_tool are kept, and recursion
  *      descends ONLY into kept nodes (a section_list child is not a doorway).
- *   4. DENY — removes the named node but KEEPS its descendants, re-parented by
- *      the skip rule below (PHP checks deny when ADDING, never when recursing).
+ *   4. DENY — THE AREAS DENY LAW (concepts/area.ts applyAreasDeny, owner ruling
+ *      Q4 (b), WC-2026-11-22-areas-deny-subtree): a denied area hides itself
+ *      AND its whole subtree at every depth — a denied ROOT and a denied child
+ *      alike — and the menu and the permissions tree (security_access_datalist)
+ *      answer IDENTICALLY; the root/admin/maintenance areas are never hidden
+ *      (anti-lockout — a static AREAS_DENY is validated by no save).
+ *   4b. ROOT PICK — a root is the FIRST node of its model in THE sibling order,
+ *      in both walks (T2-SC-5b).
  *   5. SKIP — a skipped wrapper is dropped and its children are re-parented to
  *      the first non-skipped ancestor.
  *   6. LABEL — resolved from the ontology `term` map in the application
@@ -85,10 +91,20 @@ const BEHIND_THE_WALL = 'zzmenu6';
 const SKIPPED_WRAPPER = 'zzmenu7';
 /** Its child, which must survive and be RE-PARENTED to AREA_B. */
 const REPARENTED = 'zzmenu8';
-/** The denied node — dropped itself, while its child survives. */
+/** The denied node (depth 2 under the root) — dropped with its whole subtree. */
 const DENIED = 'zzmenu9';
-/** The denied node's child: must still be emitted. */
+/** The denied node's child: hidden with it. */
 const DENIED_CHILD = 'zzmenu10';
+/** An area under the denied node … */
+const DENIED_AREA_CHILD = 'zzmenu15';
+/** … and a section under THAT (depth 4): hidden too — "at every depth". */
+const DENIED_GRANDCHILD = 'zzmenu16';
+/** The subtree hung under a deniable ROOT (the area_activity root, discovered). */
+const ACT_AREA = 'zzmenu11';
+const ACT_SECTION = 'zzmenu12';
+const ACT_INNER_AREA = 'zzmenu13';
+const ACT_INNER_SECTION = 'zzmenu14';
+const ACT_SUBTREE = [ACT_AREA, ACT_SECTION, ACT_INNER_AREA, ACT_INNER_SECTION];
 
 const OURS = new Set([
 	AREA_A,
@@ -100,12 +116,15 @@ const OURS = new Set([
 	REPARENTED,
 	DENIED,
 	DENIED_CHILD,
+	DENIED_AREA_CHILD,
+	DENIED_GRANDCHILD,
+	...ACT_SUBTREE,
 ]);
 
 const term = (english: string) => ({ 'lg-eng': english, 'lg-spa': `${english} (es)` });
 
 /** Built in `beforeAll`, once the ambient root is known. */
-const menuSituation = (root: string) =>
+const menuSituation = (root: string, activityRoot: string) =>
 	situation({
 		tld: 'zzmenu',
 		name: 'menu tree_datalist walk',
@@ -158,10 +177,55 @@ const menuSituation = (root: string) =>
 				order_number: 1,
 				term: term('Denied child'),
 			},
+			{
+				tipo: DENIED_AREA_CHILD,
+				model: 'area',
+				parent: DENIED,
+				order_number: 2,
+				term: term('Denied area child'),
+			},
+			{
+				tipo: DENIED_GRANDCHILD,
+				model: 'section',
+				parent: DENIED_AREA_CHILD,
+				order_number: 1,
+				term: term('Denied grandchild'),
+			},
+			// under the deniable activity ROOT
+			{
+				tipo: ACT_AREA,
+				model: 'area',
+				parent: activityRoot,
+				order_number: 9001,
+				term: term('Activity area'),
+			},
+			{
+				tipo: ACT_SECTION,
+				model: 'section',
+				parent: ACT_AREA,
+				order_number: 1,
+				term: term('Activity section'),
+			},
+			{
+				tipo: ACT_INNER_AREA,
+				model: 'area',
+				parent: ACT_AREA,
+				order_number: 2,
+				term: term('Activity inner area'),
+			},
+			{
+				tipo: ACT_INNER_SECTION,
+				model: 'section',
+				parent: ACT_INNER_AREA,
+				order_number: 1,
+				term: term('Activity inner section'),
+			},
 		],
 	});
 
-let MENU_SITUATION = menuSituation('dd1');
+let MENU_SITUATION = menuSituation('dd1', 'dd1');
+/** The area_activity root (deniable: not a guarded model). */
+let ACTIVITY_ROOT = '';
 
 /** The ontology root every area root is parented to (seed-shipped, install-invariant). */
 const ONTOLOGY_ROOT = 'dd1';
@@ -178,6 +242,9 @@ interface MenuItem {
 let emitted: MenuItem[] = [];
 let fullList: MenuItem[] = [];
 let restoreState: { areas_deny: string[] | null; menu_skip_tipos: string[] | null };
+/** The deny / skip this file states on top of the deployment's own. */
+let baseDeny: string[] = [];
+let baseSkip: string[] = [];
 
 async function readMenu(): Promise<MenuItem[]> {
 	// The walk memoizes its bulk ontology read; this file writes ontology, so the
@@ -185,6 +252,26 @@ async function readMenu(): Promise<MenuItem[]> {
 	await clearOntologyDerivedCaches();
 	const { tree_datalist } = await getMenuTreeDatalist(SUPERUSER);
 	return tree_datalist as unknown as MenuItem[];
+}
+
+/** The permissions tree's tipos (the superuser = unfiltered datalist). */
+async function readPermissionsTree(): Promise<Set<string>> {
+	await clearOntologyDerivedCaches();
+	return new Set((await getSecurityAccessDatalist(SUPERUSER)).map((item) => item.tipo));
+}
+
+/** Menu + permissions tree under `extraDeny` on top of this file's deny; state restored after. */
+async function readBothWith(
+	extraDeny: readonly string[],
+): Promise<{ menu: Set<string>; tree: Set<string> }> {
+	setServerState({ areas_deny: [...baseDeny, ...extraDeny], menu_skip_tipos: baseSkip });
+	try {
+		const menu = new Set((await readMenu()).map((item) => item.tipo));
+		return { menu, tree: await readPermissionsTree() };
+	} finally {
+		setServerState({ areas_deny: baseDeny, menu_skip_tipos: baseSkip });
+		await clearOntologyDerivedCaches();
+	}
 }
 
 beforeAll(async () => {
@@ -195,7 +282,13 @@ beforeAll(async () => {
 	`) as { tipo: string }[];
 	ROOT = rootRows[0]?.tipo ?? '';
 	expect(ROOT, 'this ontology declares no area_root — the menu has no tree to walk').not.toBe('');
-	MENU_SITUATION = menuSituation(ROOT);
+	const activityRows = (await sql`
+		SELECT tipo FROM dd_ontology WHERE model = 'area_activity'
+		ORDER BY order_number ASC NULLS LAST, tipo COLLATE "C" ASC LIMIT 1
+	`) as { tipo: string }[];
+	ACTIVITY_ROOT = activityRows[0]?.tipo ?? '';
+	expect(ACTIVITY_ROOT, 'this ontology declares no area_activity root').not.toBe('');
+	MENU_SITUATION = menuSituation(ROOT, ACTIVITY_ROOT);
 	await ensureSituation(MENU_SITUATION);
 	const before = getServerState();
 	restoreState = {
@@ -204,10 +297,9 @@ beforeAll(async () => {
 	};
 	// Deny and skip are RUNTIME state, so the gate can state them instead of
 	// depending on whatever this deployment configured.
-	setServerState({
-		areas_deny: [...(before.areas_deny ?? []), DENIED],
-		menu_skip_tipos: [...(before.menu_skip_tipos ?? []), SKIPPED_WRAPPER],
-	});
+	baseDeny = [...(before.areas_deny ?? []), DENIED];
+	baseSkip = [...(before.menu_skip_tipos ?? []), SKIPPED_WRAPPER];
+	setServerState({ areas_deny: baseDeny, menu_skip_tipos: baseSkip });
 	fullList = await readMenu();
 	emitted = fullList.filter((item) => OURS.has(item.tipo));
 });
@@ -222,10 +314,10 @@ afterAll(async () => {
 describe('menu tree_datalist — the walk laws (built ontology)', () => {
 	test('ANTI-VACUITY: the built subtree really is in the menu', () => {
 		expect(fullList.length).toBeGreaterThan(0);
-		// Five of the nine built nodes are emitted; the other four are the point of
-		// the filter/deny/skip laws below.
+		// Four plus the activity subtree of the fifteen built nodes are emitted;
+		// the rest are the point of the filter/deny/skip laws below.
 		expect(emitted.map((item) => item.tipo).sort()).toEqual(
-			[AREA_A, AREA_B, SECTION_A, REPARENTED, DENIED_CHILD].sort(),
+			[AREA_A, AREA_B, SECTION_A, REPARENTED, ...ACT_SUBTREE].sort(),
 		);
 	});
 
@@ -238,10 +330,59 @@ describe('menu tree_datalist — the walk laws (built ontology)', () => {
 		expect(tipos).not.toContain(BEHIND_THE_WALL);
 	});
 
-	test('DENY: the named node goes, its descendants stay', () => {
+	test('DENY: the named node goes WITH its whole subtree, at every depth', () => {
 		const tipos = emitted.map((item) => item.tipo);
-		expect(tipos).not.toContain(DENIED);
-		expect(tipos).toContain(DENIED_CHILD);
+		for (const hidden of [DENIED, DENIED_CHILD, DENIED_AREA_CHILD, DENIED_GRANDCHILD]) {
+			expect(tipos).not.toContain(hidden);
+		}
+		// non-vacuity: the denied node's sibling branch (B's skip child) stays
+		expect(tipos).toContain(REPARENTED);
+	});
+
+	test('DENY: the menu and the permissions tree answer IDENTICALLY (one applyAreasDeny)', async () => {
+		const tree = await readPermissionsTree();
+		const menu = new Set(emitted.map((item) => item.tipo));
+		// every built area/section the walk reaches: in the menu iff in the tree.
+		// (the skip wrapper is a MENU transform only; the non-menu models are
+		// never walked by either.)
+		const comparable = [...OURS].filter(
+			(tipo) => tipo !== SKIPPED_WRAPPER && tipo !== NOT_A_MENU_MODEL && tipo !== BEHIND_THE_WALL,
+		);
+		const disagreements = comparable.filter((tipo) => menu.has(tipo) !== tree.has(tipo));
+		expect(disagreements).toEqual([]);
+		// non-vacuity on both sides of the law
+		expect(tree.has(DENIED_GRANDCHILD)).toBe(false);
+		expect(tree.has(AREA_A)).toBe(true);
+	});
+
+	test('DENY a ROOT: the root and its subtree at every depth go, from both', async () => {
+		const { menu, tree } = await readBothWith([ACTIVITY_ROOT]);
+		for (const hidden of [ACTIVITY_ROOT, ...ACT_SUBTREE]) {
+			expect(menu.has(hidden), `menu still offers ${hidden}`).toBe(false);
+			expect(tree.has(hidden), `permissions tree still lists ${hidden}`).toBe(false);
+		}
+		// and back: the state was the deny, not a broken walk
+		const after = await readBothWith([]);
+		for (const tipo of [ACTIVITY_ROOT, ...ACT_SUBTREE]) expect(after.tree.has(tipo)).toBe(true);
+		for (const tipo of ACT_SUBTREE) expect(after.menu.has(tipo)).toBe(true);
+	});
+
+	test('ANTI-LOCKOUT: a deny list naming the guarded areas (a static AREAS_DENY is validated by no save) hides none of them', async () => {
+		const { sql } = await import('../../src/core/db/postgres.ts');
+		const guarded = (
+			(await sql`
+				SELECT tipo FROM dd_ontology WHERE model IN ('area_root', 'area_maintenance', 'area_admin')
+			`) as { tipo: string }[]
+		).map((row) => row.tipo);
+		expect(guarded.length).toBeGreaterThanOrEqual(3);
+		const { menu, tree } = await readBothWith(guarded);
+		// the root (and what hangs under it), the admin and maintenance roots stay
+		expect(tree.has(ROOT)).toBe(true);
+		expect(menu.has(ROOT)).toBe(true);
+		expect(menu.has(AREA_A)).toBe(true);
+		for (const tipo of guarded.filter((t) => t === 'dd88' || t === 'dd207')) {
+			expect(tree.has(tipo), `guarded ${tipo} hidden`).toBe(true);
+		}
 	});
 
 	test('SKIP: the wrapper goes and its child is RE-PARENTED to the first surviving ancestor', () => {
@@ -253,20 +394,14 @@ describe('menu tree_datalist — the walk laws (built ontology)', () => {
 		expect(reparented?.parent).toBe(AREA_B);
 	});
 
-	test('DENY does NOT re-parent — only SKIP does (measured 2026-08-20)', () => {
-		// The two drop rules are NOT the same rule, and this is the difference.
-		// SKIP re-parents its orphans (asserted above); DENY does not: the child
-		// keeps the stored parent of a node that is no longer in the list, so the
-		// client cannot attach it and the branch simply does not render.
-		//
-		// PHP behaves the same way — deny is checked when ADDING a node, never
-		// when recursing, and the menu transform re-parents only across SKIPPED
-		// ancestors. Pinned as behaviour, not endorsed as a design: a caller that
-		// assumed every `parent` resolves to an emitted item would be wrong here.
-		const child = emitted.find((item) => item.tipo === DENIED_CHILD);
-		expect(child).toBeDefined();
-		expect(child?.parent).toBe(DENIED);
-		expect(emitted.some((item) => item.tipo === DENIED)).toBe(false);
+	test('DENY leaves no orphan — every emitted item of ours hangs off an emitted parent', () => {
+		// The old rule kept a denied node's child with the stored parent of a node
+		// no longer in the list (an unattachable entry). The subtree rule removes
+		// the branch whole, so every parent below the root resolves.
+		const listed = new Set(fullList.map((item) => item.tipo));
+		for (const item of emitted) {
+			expect(item.parent === null || listed.has(item.parent), `${item.tipo} orphaned`).toBe(true);
+		}
 	});
 
 	test('SIBLING ORDER: children follow order_number, not declaration or id order', () => {
@@ -280,8 +415,8 @@ describe('menu tree_datalist — the walk laws (built ontology)', () => {
 	test('DEPTH-FIRST PRE-ORDER: a node is followed by its own subtree before its sibling', () => {
 		const order = emitted.map((item) => item.tipo);
 		// B's subtree (REPARENTED, DENIED_CHILD) lands before A, its later sibling.
+		expect(order.indexOf(REPARENTED)).toBeGreaterThan(-1);
 		expect(order.indexOf(REPARENTED)).toBeLessThan(order.indexOf(AREA_A));
-		expect(order.indexOf(DENIED_CHILD)).toBeLessThan(order.indexOf(AREA_A));
 		// and A's own child follows A.
 		expect(order.indexOf(SECTION_A)).toBeGreaterThan(order.indexOf(AREA_A));
 	});
@@ -341,6 +476,31 @@ describe('menu tree_datalist — the walk laws (built ontology)', () => {
 		for (const tipo of dead) {
 			expect(catalog.has(tipo)).toBe(true);
 			expect(permissions.has(tipo)).toBe(true);
+		}
+	});
+
+	test('ROOT PICK (T2-SC-5b): two nodes of a root model → BOTH walks pick the first in sibling order', async () => {
+		// A second `area_graph` (the dead root nobody navigates) with the LOWER
+		// order_number, written AFTER the seed's (so heap / id order answers the
+		// seed's). Built and dropped inside this test.
+		const dup = situation({
+			tld: 'zzmdup',
+			name: 'menu duplicate root model',
+			nodes: [{ tipo: 'zzmdup1', model: 'area_graph', parent: ONTOLOGY_ROOT, order_number: 0 }],
+		});
+		const seedGraph = (await collectAreaRows()).find((row) => row.model === 'area_graph')?.tipo;
+		expect(seedGraph, 'the seed ships an area_graph root').toBeDefined();
+		await ensureSituation(dup);
+		try {
+			await clearOntologyDerivedCaches();
+			const walkRoot = (await collectAreaRows()).find((row) => row.model === 'area_graph')?.tipo;
+			const tree = await readPermissionsTree();
+			expect(walkRoot).toBe('zzmdup1');
+			expect(tree.has('zzmdup1')).toBe(true);
+			expect(tree.has(seedGraph as string)).toBe(false);
+		} finally {
+			expect(await dropSituation(dup)).toBe(0);
+			await clearOntologyDerivedCaches();
 		}
 	});
 

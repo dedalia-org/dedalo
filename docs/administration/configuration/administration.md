@@ -212,8 +212,9 @@ AREAS_DENY=["dd137","rsc1","hierarchy20"]
 MENU_SKIP_TIPOS=["dd349","dd355","numisdata1","tch188"]
 ```
 
-- `AREAS_DENY` — areas removed from the ontology before the access check. There is
-  no allow-list: denial is absolute.
+- `AREAS_DENY` — areas removed from the menu and the profile permissions, each
+  with everything under it. There is no allow-list: denial is absolute. The root,
+  administration and maintenance areas can never be denied.
 - `MENU_SKIP_TIPOS` — areas that stay reachable but are hidden from the menu.
 
 !!! tip "You can also change these at runtime"
@@ -223,7 +224,7 @@ MENU_SKIP_TIPOS=["dd349","dd355","numisdata1","tch188"]
 
 ### What an area denial means
 
-Areas refer to different parts of the ontology. Every area has a specific, unique `tipo` (typology of indirect programming object). When an area is denied, it is removed from the menu and no user — not even the root user — can reach it: the deny list is applied *before* the security access check and strips those tipos from the ontology. Dédalo keeps some private areas in the ontology as internal lists of values, such as the Yes/No list, which must not be edited; those are denied by default.
+Areas refer to different parts of the ontology. Every area has a specific, unique `tipo` (typology of indirect programming object). When an area is denied, it is removed from the menu and from the profile permissions tree for every user — not even the root user sees it — and so is everything under it, at any depth: its child areas and the sections they hold. The root, administration and maintenance areas are never hidden: denying them would remove the page where the list is changed. Dédalo keeps some private areas in the ontology as internal lists of values, such as the Yes/No list, which must not be edited; those are denied by default.
 
 !!! warning "Denial is not a permission"
     A denied area is removed from the ontology *before* the security check runs, so

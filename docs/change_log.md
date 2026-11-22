@@ -1781,6 +1781,28 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** none.
 
+- **A denied area now hides everything under it, in the menu and in the profile permissions.**
+
+    Denying an area (the `AREAS_DENY` setting, or the area configuration panel in the maintenance
+    area) used to hide only the denied area itself: what was under it stayed in the profile
+    permissions, and under a denied top-level area the whole branch stayed listed. Now a denied
+    area is hidden together with its whole subtree — its child areas and the sections they
+    hold, at any depth — and the menu and the profile permissions always hide the same things.
+
+    With the shipped default (`["dd137","rsc1","hierarchy20"]`) this means the private value lists
+    (the Yes/No list and its siblings) and the resources base section are no longer offered in the
+    profile permissions. Grants already saved on them are kept.
+
+    The root, administration and maintenance areas can never be hidden: a setting that names one
+    of them is ignored, so a mistaken value can no longer lock you out of the page where it is
+    changed.
+
+    **Action needed:** none, unless you relied on granting a section that sits under a denied area —
+    then remove that area from the list. Details:
+    [What an area denial means](./administration/configuration/administration.md#what-an-area-denial-means).
+
+    Wire contract: `WC-2026-11-22-areas-deny-subtree`.
+
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
     Clearing the last value of a text field (input text, text area, e-mail, IRI) used to leave an
@@ -2131,6 +2153,19 @@ Merged since the last release; these ship with the next one.
     Observers configured only with `filter` behave as before.
 
     **Action needed:** none.
+
+- **The profile permissions no longer offer fields that are not part of the section.**
+
+    The permissions of a profile listed, inside a section, fields that the section does not show:
+    fields parked in a layout container under a group, fields under an area or semantic node placed
+    in the section, and the fields of a section nested inside it. Granting the section also granted
+    them. The permissions now list exactly the fields that belong to the section — the same ones its
+    edit form, search and import use — and a nested section is listed without its own fields (it is
+    granted on its own).
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-22-permissions-tree-containment`.
 
 - **"Thumbnails in similar-object, identification and characterisation results follow the media web address."**
 
@@ -2661,7 +2696,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 110 entries"
+??? note "Wire contract — 112 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2761,11 +2796,13 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-areas-deny-subtree`
     - `WC-2026-11-22-diffusion-dataframe-hop`
     - `WC-2026-11-22-diffusion-ddo-empty-value`
     - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-indexation-fragment-served`
     - `WC-2026-11-22-media-icons-tc`
+    - `WC-2026-11-22-permissions-tree-containment`
     - `WC-2026-11-22-properties-label-override-chain`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`

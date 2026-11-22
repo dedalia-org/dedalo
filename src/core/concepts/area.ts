@@ -121,6 +121,105 @@ export const AREA_CHILD_EXCLUDE_MODELS: ReadonlySet<string> = new Set([
 	'filter',
 ]);
 
+// --- THE AREAS DENY LAW (T2-O15-1, owner ruling Q4 (b), 2026-11-19) ---------
+
+/**
+ * Area models no deny can hide (ANTI-LOCKOUT): denying the root, the admin
+ * area or the maintenance area would remove the very dashboard that undoes
+ * the denial. ONE list for both deny sources — the config_areas save strips
+ * them (`removed_guarded`), and {@link applyAreasDeny} ignores them in the
+ * STATIC `AREAS_DENY` too, which no save ever validated.
+ */
+export const AREAS_DENY_GUARDED_MODELS: ReadonlySet<string> = new Set([
+	'area_root',
+	'area_maintenance',
+	'area_admin',
+]);
+
+/** One walked area row as the deny law reads it (the menu walk and the permissions tree). */
+export interface AreaDenyRow {
+	tipo: string;
+	model: string | null;
+	/** The walk parent ('' / null / a non-walked tipo end the chain). */
+	parent: string | null;
+}
+
+/**
+ * THE AREAS DENY LAW — the ONE filter the menu (api/handlers/menu.ts) and the
+ * permissions tree (resolve/security_access_datalist.ts) apply to their area
+ * walk, so the two answer identically (gate: menu_tree_datalist_native).
+ *
+ * A denied area hides ITSELF AND ITS WHOLE SUBTREE, at every depth (owner
+ * ruling Q4 (b); PHP dropped a denied ROOT's descendants but kept a denied
+ * child's, and the TS walk used to keep both — WC-2026-11-22-areas-deny-subtree).
+ * A row whose model is guarded ({@link AREAS_DENY_GUARDED_MODELS}) is never
+ * hidden — not by its own deny, not by an ancestor's — and what it hides below
+ * it is decided from it again (the guard breaks the inherited chain).
+ *
+ * `rows` is a walk in any order: the chain is followed through `parent` over
+ * the rows themselves (a parent that is not a row ends it), with a cycle guard.
+ * Order is preserved.
+ */
+export function applyAreasDeny<Row extends AreaDenyRow>(
+	rows: readonly Row[],
+	deny: ReadonlySet<string>,
+): Row[] {
+	if (deny.size === 0) return [...rows];
+	const byTipo = new Map<string, Row>();
+	for (const row of rows) if (!byTipo.has(row.tipo)) byTipo.set(row.tipo, row);
+	const memo = new Map<string, boolean>();
+	return rows.filter((row) => !isDeniedRow(row, byTipo, deny, memo));
+}
+
+/** One row's answer: climb to the first known (or the chain's end), then decide downwards. */
+function isDeniedRow<Row extends AreaDenyRow>(
+	start: Row,
+	byTipo: ReadonlyMap<string, Row>,
+	deny: ReadonlySet<string>,
+	memo: Map<string, boolean>,
+): boolean {
+	const { chain, inherited } = climbUndecided(start, byTipo, memo);
+	let answer = inherited;
+	for (let index = chain.length - 1; index >= 0; index--) {
+		const row = chain[index] as Row;
+		// a guarded row is never hidden, and breaks the inherited chain below it
+		answer = !isAreasDenyGuarded(row.model) && (answer || deny.has(row.tipo));
+		memo.set(row.tipo, answer);
+	}
+	return answer;
+}
+
+/** The rows from `start` up to the first one already decided (cycle-safe), and that answer. */
+function climbUndecided<Row extends AreaDenyRow>(
+	start: Row,
+	byTipo: ReadonlyMap<string, Row>,
+	memo: ReadonlyMap<string, boolean>,
+): { chain: Row[]; inherited: boolean } {
+	const chain: Row[] = [];
+	const seen = new Set<string>();
+	let row: Row | undefined = start;
+	while (row !== undefined && !memo.has(row.tipo) && !seen.has(row.tipo)) {
+		seen.add(row.tipo);
+		chain.push(row);
+		row = walkParent(row, byTipo);
+	}
+	// a cycle (seen, undecided) inherits nothing: nothing above it decides
+	return { chain, inherited: memo.get(row?.tipo ?? '') === true };
+}
+
+/** The walked parent row, or undefined at the chain's end. */
+function walkParent<Row extends AreaDenyRow>(
+	row: Row,
+	byTipo: ReadonlyMap<string, Row>,
+): Row | undefined {
+	return row.parent === null ? undefined : byTipo.get(row.parent);
+}
+
+/** Whether a row of this model is out of every deny's reach (anti-lockout). */
+export function isAreasDenyGuarded(model: string | null): boolean {
+	return model !== null && AREAS_DENY_GUARDED_MODELS.has(model);
+}
+
 /**
  * The dashboard section walk excludes section_tool on TOP of the menu exclude
  * set (PHP get_dashboard_child_sections exclude list) — the dashboard counts

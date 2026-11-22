@@ -108,14 +108,19 @@ the `areas.deny` list.
 
 ### The deny/allow config
 
-The menu subtracts the installation's **deny list** (`areas.deny`) from the walk.
-A denied tipo is removed from the result but its descendants are *kept* — deny is
-checked when a node is added, not when the walk recurses through it.
+The menu subtracts the installation's **deny list** (`AREAS_DENY`, or its
+runtime override) from the walk: a denied area is removed **together with its
+whole subtree, at every depth** — its child areas and the sections they hold.
+The profile permissions tree applies the very same filter
+(`applyAreasDeny` in `src/core/concepts/area.ts`), so what the menu hides the
+permissions tree does not offer either. `area_root`, `area_maintenance` and
+`area_admin` are never hidden, whichever list names them.
 
 The deny/allow lists are runtime-editable through the `config_areas` maintenance
 widget (`src/core/area_maintenance/widgets/config_areas.ts`), which persists the
 override to `../private/ts_state.json`. The widget is anti-lockout guarded:
-`area_root`, `area_maintenance` and `area_admin` cannot be denied. When no
+`area_root`, `area_maintenance` and `area_admin` cannot be denied (and one named
+in the static `AREAS_DENY` is ignored). When no
 override is set, the static catalog config applies, so an untouched installation
 sees the default menu.
 

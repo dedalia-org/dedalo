@@ -15,8 +15,8 @@
  * PORT NOTES / PHP ORACLE MAPPING
  * - area::get_areas() → getAreas(): root area models in the FIXED menu order
  *   (PHP get_ar_root_area_tipos), each root's descendants via the
- *   include/exclude model walk (get_ar_children_areas_recursive), with the
- *   installation config_areas deny applied. `model` = get_model_by_tipo (the
+ *   include/exclude model walk (get_ar_children_areas_recursive), then THE
+ *   AREAS DENY LAW (concepts/area.ts applyAreasDeny, the menu's own filter). `model` = get_model_by_tipo (the
  *   resolved model), `label` = get_term(DEDALO_APPLICATION_LANG, fallback).
  * - get_datalist(): the area loop with ar_check dedup by `tipo_parent`, the
  *   rolling `ar_parent` chain (array_search / array_splice), the datalist_item
@@ -76,14 +76,17 @@ import { config } from '../../config/config.ts';
 import {
 	AREA_CHILD_EXCLUDE_MODELS,
 	AREA_CHILD_INCLUDE_MODELS,
+	applyAreasDeny,
 	MENU_ROOT_MODEL_ORDER,
 } from '../concepts/area.ts';
+import { DD_ONTOLOGY_SIBLING_ORDER_SQL } from '../db/dd_ontology.ts';
 import { isInTransaction, sql } from '../db/postgres.ts';
 import { createOntologyCache } from '../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../ontology/cache_invalidation.ts';
 import { resolveLabel } from '../ontology/labels.ts';
 import {
 	getModelByTipo,
+	isOutsideSectionContainment,
 	runtimeModelOfStored,
 	sectionRealTipoFromRelations,
 } from '../ontology/resolver.ts';
@@ -141,6 +144,8 @@ interface SnapshotReader extends OntologyReader {
 	labelOf(tipo: string): string | null;
 	parentOf(tipo: string): string | null;
 	realSectionTipo(tipo: string): Promise<string>;
+	/** The first node of a STORED model in THE sibling order (the area-root pick), or null. */
+	firstOfModel(model: string): { tipo: string; parent: string | null } | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -148,18 +153,20 @@ interface SnapshotReader extends OntologyReader {
 // -----------------------------------------------------------------------------
 
 /**
- * ontology_node::get_ar_children_of_this — direct children tipos ordered by
- * order_number ASC (PHP dd_ontology_db_manager::search order=true, which emits
- * exactly `ORDER BY order_number ASC`, Postgres default NULLS LAST). Per-node,
- * cached — the grant expansion's source (a section at a time, not the tree).
+ * ontology_node::get_ar_children_of_this — direct children tipos in THE sibling
+ * order (DD_ONTOLOGY_SIBLING_ORDER_SQL: order_number, NULL last, tipo — PHP
+ * emitted `ORDER BY order_number ASC` and left a tie to the heap; T2-SC-5).
+ * Per-node, cached — the grant expansion's source (a section at a time, not
+ * the tree).
  */
 const childrenOfCache = createOntologyCache<string, string[]>();
 async function getChildrenOfThis(tipo: string): Promise<string[]> {
 	const cached = childrenOfCache.get(tipo);
 	if (cached !== undefined) return cached;
-	const rows = (await sql`
-		SELECT tipo FROM dd_ontology WHERE parent = ${tipo} ORDER BY order_number ASC, id ASC
-	`) as { tipo: string }[];
+	const rows = (await sql.unsafe(
+		`SELECT tipo FROM dd_ontology WHERE parent = $1 ORDER BY ${DD_ONTOLOGY_SIBLING_ORDER_SQL}`,
+		[tipo],
+	)) as { tipo: string }[];
 	const result = rows.map((row) => row.tipo);
 	if (!isInTransaction()) childrenOfCache.set(tipo, result);
 	return result;
@@ -182,22 +189,28 @@ interface SnapshotRow {
 
 /**
  * ONE query for the whole ontology the ACL tree walks (the cold-build cost was
- * ~3 sequential queries per node over a ~13k-node tree). Rows come ordered by
- * order_number ASC (NULLS LAST, the per-parent query's order), so grouping
- * them by parent in scan order yields each node's children in the order
- * getChildrenOfThis returns. Labels resolve in `lang` through THE label law
- * (resolveLabel — what labelByTipo applies to the same `term` column).
+ * ~3 sequential queries per node over a ~13k-node tree). Rows come in THE
+ * sibling order (DD_ONTOLOGY_SIBLING_ORDER_SQL, the per-parent query's order),
+ * so grouping them by parent in scan order yields each node's children in the
+ * order getChildrenOfThis returns, and the first row of a model in scan order
+ * is the ordered area-root pick (T2-SC-5b — the menu picks the same row).
+ * Labels resolve in `lang` through THE label law (resolveLabel — what
+ * labelByTipo applies to the same `term` column).
  */
 async function loadOntologySnapshot(lang: string): Promise<SnapshotReader> {
-	const rows = (await sql`
-		SELECT tipo, parent, model, relations, properties, term
-		FROM dd_ontology
-		ORDER BY order_number ASC, id ASC
-	`) as (SnapshotRow & { tipo: string })[];
+	const rows = (await sql.unsafe(
+		`SELECT tipo, parent, model, relations, properties, term
+		 FROM dd_ontology
+		 ORDER BY ${DD_ONTOLOGY_SIBLING_ORDER_SQL}`,
+	)) as (SnapshotRow & { tipo: string })[];
 	const byTipo = new Map<string, SnapshotRow>();
 	const children = new Map<string, string[]>();
+	const firstByModel = new Map<string, { tipo: string; parent: string | null }>();
 	for (const row of rows) {
 		if (!byTipo.has(row.tipo)) byTipo.set(row.tipo, row);
+		if (row.model !== null && !firstByModel.has(row.model)) {
+			firstByModel.set(row.model, { tipo: row.tipo, parent: row.parent });
+		}
 		if (row.parent === null) continue;
 		const list = children.get(row.parent);
 		if (list === undefined) children.set(row.parent, [row.tipo]);
@@ -230,6 +243,7 @@ async function loadOntologySnapshot(lang: string): Promise<SnapshotReader> {
 			(byTipo.get(tipo)?.properties as Record<string, unknown> | null | undefined) ?? null,
 		labelOf: (tipo) => resolveLabel(byTipo.get(tipo)?.term ?? null, lang),
 		parentOf: (tipo) => byTipo.get(tipo)?.parent ?? null,
+		firstOfModel: (model) => firstByModel.get(model) ?? null,
 		realSectionTipo: (tipo) => {
 			let real = realTipos.get(tipo);
 			if (real === undefined) {
@@ -265,29 +279,26 @@ async function getExcludeElementsChildren(
 }
 
 /**
- * ontology_node::get_ar_recursive_children(tipo, exclude_models) — depth-first
- * descendants (excluding the starting node), skipping any subtree whose model is
- * in the exclude list. Used to expand grouper excludes during resolve_virtual.
+ * ontology_node::get_ar_recursive_children — depth-first descendants of `tipo`
+ * (excluding the starting node) under THE SECTION CONTAINMENT LAW
+ * (ontology/resolver.ts — T2-SL-3b): a box-elements / semantic-node / area
+ * node is not part of the section, neither it nor its subtree
+ * (isOutsideSectionContainment, the law's one predicate); a nested section is
+ * returned but not entered. Used by the grant expansion and to expand grouper
+ * excludes during resolve_virtual. Gate: security_access_containment_native
+ * (equal to the resolver's own section walk, getRecursiveChildrenTipos).
  */
-const RECURSIVE_DEFAULT_EXCLUDE_MODELS: ReadonlySet<string> = new Set([
-	'box elements',
-	'area',
-	'component_semantic_node',
-]);
 async function getArRecursiveChildren(
 	reader: OntologyReader,
 	tipo: string,
-	excludeModels: ReadonlySet<string>,
 	collector: string[],
-	isRecursion = false,
 ): Promise<string[]> {
-	if (isRecursion) collector.push(tipo);
 	for (const childTipo of await reader.childrenOf(tipo)) {
-		if (excludeModels.size > 0) {
-			const model = await reader.modelOf(childTipo);
-			if (model !== null && excludeModels.has(model)) continue;
-		}
-		await getArRecursiveChildren(reader, childTipo, excludeModels, collector, true);
+		const model = await reader.modelOf(childTipo);
+		if (isOutsideSectionContainment(model)) continue;
+		collector.push(childTipo);
+		if (model === 'section') continue; // rule 2: a nested section's children are its own
+		await getArRecursiveChildren(reader, childTipo, collector);
 	}
 	return collector;
 }
@@ -357,18 +368,13 @@ const GRANT_CHILD_MODEL_REQUIRED: readonly string[] = [
  * recursive=TRUE, search_exact=false) as called by set_section_permissions.
  *
  * count(required) > 1 && recursive ⇒ the source is get_ar_recursive_children
- * (the DEEP walk through section_group/tab groupers, minus the default
- * box-elements/area/semantic-node excludes), then the model filter. The caller
+ * (the DEEP walk through section_group/tab groupers, under THE SECTION
+ * CONTAINMENT LAW), then the model filter. The caller
  * resolves the real section first (PHP does), so resolve_virtual is false here
  * and NO exclude_elements subtraction runs — matching the oracle.
  */
 export async function getGrantChildrenTipos(realSectionTipo: string): Promise<string[]> {
-	const recursiveChildren = await getArRecursiveChildren(
-		LIVE_READER,
-		realSectionTipo,
-		RECURSIVE_DEFAULT_EXCLUDE_MODELS,
-		[],
-	);
+	const recursiveChildren = await getArRecursiveChildren(LIVE_READER, realSectionTipo, []);
 	return filterChildrenByModels(LIVE_READER, recursiveChildren, GRANT_CHILD_MODEL_REQUIRED);
 }
 
@@ -395,14 +401,9 @@ async function getSectionChildrenResolveVirtual(
 			excludeSet.add(excludedTipo);
 			const model = await reader.modelOf(excludedTipo);
 			if (model === 'section_group' || model === 'section_tab' || model === 'tab') {
-				const grouperChildren: string[] = [];
-				await getArRecursiveChildren(
-					reader,
-					excludedTipo,
-					RECURSIVE_DEFAULT_EXCLUDE_MODELS,
-					grouperChildren,
-				);
-				for (const grouperChild of grouperChildren) excludeSet.add(grouperChild);
+				for (const grouperChild of await getArRecursiveChildren(reader, excludedTipo, [])) {
+					excludeSet.add(grouperChild);
+				}
 			}
 		}
 	}
@@ -429,13 +430,17 @@ async function getSectionChildrenNoVirtual(
 // get_children_recursive_security_access
 // -----------------------------------------------------------------------------
 
-/** Hard-coded model names never included in the permission tree (PHP ar_exclude_model). */
+/**
+ * Hard-coded model names never included in the permission tree (PHP
+ * ar_exclude_model). Its `component_semantic_node` / `box_elements` entries
+ * (the latter a misspelling: the runtime model is `box elements`, so a box
+ * under a grouper was walked and its components granted) are THE SECTION
+ * CONTAINMENT LAW now, applied with the law's own predicate below (T2-SL-3b).
+ */
 const AR_EXCLUDE_MODEL: ReadonlySet<string> = new Set([
 	'component_security_administrator',
 	'section_list',
 	'search_list',
-	'component_semantic_node',
-	'box_elements',
 	'exclude_elements',
 	'edit_view',
 ]);
@@ -475,6 +480,8 @@ async function getChildrenRecursiveSecurityAccess(
 	for (const elementTipo of childTipos) {
 		if (excludeTipos?.has(elementTipo)) continue;
 		const model = await reader.modelOf(elementTipo);
+		// THE SECTION CONTAINMENT LAW (resolver.ts): outside the section, subtree too.
+		if (isOutsideSectionContainment(model)) continue;
 		if (model !== null && AR_EXCLUDE_MODEL.has(model)) continue;
 		if (AR_EXCLUDE_COMPONENTS.has(elementTipo)) continue;
 
@@ -486,6 +493,8 @@ async function getChildrenRecursiveSecurityAccess(
 			parent: tipo,
 		});
 
+		// the law's rule 2: a nested section is listed, never entered
+		if (model === 'section') continue;
 		const sub = await getChildrenRecursiveSecurityAccess(reader, elementTipo, excludeTipos);
 		for (const item of sub) elements.push(item);
 	}
@@ -594,12 +603,13 @@ async function getElementDatalist(
 /**
  * area::get_areas() — the ordered area/section list. Root area models in the
  * fixed menu order, each root's descendants via the include/exclude model walk,
- * with the config_areas deny applied (both to roots and descendants).
+ * then THE AREAS DENY LAW (concepts/area.ts applyAreasDeny — the menu's own
+ * filter: a denied area hides itself and its whole subtree; guarded root
+ * models never hidden).
  *
- * The root lookup stays one query per root MODEL (ontology_utils::
- * get_ar_tipo_by_model, `LIMIT 1` first match) — a fixed handful, and the
- * database's own first-match choice is the oracle's; the descendant walk reads
- * the snapshot.
+ * The root of each model is the FIRST node of that model in THE sibling order
+ * (the snapshot's scan order — T2-SC-5b; PHP's `LIMIT 1` answered by heap
+ * order), the row the menu picks too.
  */
 async function getAreas(reader: SnapshotReader, denySet: ReadonlySet<string>): Promise<AreaObj[]> {
 	const areas: AreaObj[] = [];
@@ -617,26 +627,19 @@ async function getAreas(reader: SnapshotReader, denySet: ReadonlySet<string>): P
 		for (const childTipo of await reader.childrenOf(parentTipo)) {
 			const model = (await reader.modelOf(childTipo)) ?? '';
 			if (!AREA_CHILD_INCLUDE_MODELS.has(model) || AREA_CHILD_EXCLUDE_MODELS.has(model)) continue;
-			if (!denySet.has(childTipo)) {
-				areas.push(await toAreaObj(childTipo, reader.parentOf(childTipo) ?? parentTipo));
-			}
+			areas.push(await toAreaObj(childTipo, reader.parentOf(childTipo) ?? parentTipo));
 			await walkChildren(childTipo);
 		}
 	};
 
 	for (const rootModel of MENU_ROOT_MODEL_ORDER) {
-		const rootRows = (await sql`
-			SELECT tipo, parent FROM dd_ontology WHERE model = ${rootModel} LIMIT 1
-		`) as { tipo: string; parent: string | null }[];
-		const rootRow = rootRows[0];
-		if (rootRow === undefined) continue; // model not defined on this install
-		if (!denySet.has(rootRow.tipo)) {
-			areas.push(await toAreaObj(rootRow.tipo, rootRow.parent));
-		}
+		const rootRow = reader.firstOfModel(rootModel);
+		if (rootRow === null) continue; // model not defined on this install
+		areas.push(await toAreaObj(rootRow.tipo, rootRow.parent));
 		await walkChildren(rootRow.tipo);
 	}
 
-	return areas;
+	return applyAreasDeny(areas, denySet);
 }
 
 // -----------------------------------------------------------------------------
