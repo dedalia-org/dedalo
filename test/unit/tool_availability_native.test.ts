@@ -26,6 +26,7 @@ const loader = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/tools/loa
 const { toolIsAvailable } = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/tools/registry.ts'))});
 // The full availability context (T2-B5 O11-4, d9ced4da7f): the hook judges the
 // element's REAL section (sectionTipo) and mode — for a section element both are its own.
+const component = (tipo, sectionTipo) => ({ calledClass: 'component_input_text', tipo, sectionTipo, mode: 'edit', isComponent: true, hasToolConfig: false });
 const section = (tipo) => ({ calledClass: 'section', tipo, sectionTipo: tipo, mode: 'edit', isComponent: false, hasToolConfig: false });
 console.log(JSON.stringify({
 	failedRecorded: await loader.toolModuleFailedToLoad('tool_zz_load_fails'),
@@ -33,6 +34,10 @@ console.log(JSON.stringify({
 	failedAvailable: await toolIsAvailable('tool_zz_load_fails', section('test3')),
 	hookIn: await toolIsAvailable('tool_zz_hook_gated', section('test3')),
 	hookOut: await toolIsAvailable('tool_zz_hook_gated', section('test2')),
+	// A COMPONENT element: its tipo is NOT its section. The hook must judge the
+	// element's REAL section (sectionTipo), never the tipo standing in for it.
+	componentIn: await toolIsAvailable('tool_zz_hook_gated', component('test3_zz_component', 'test3')),
+	componentOut: await toolIsAvailable('tool_zz_hook_gated', component('test3', 'test2')),
 	noModule: await toolIsAvailable('tool_zz_no_module_on_disk', section('test3')),
 }));
 process.exit(0);`;
@@ -65,6 +70,13 @@ describe('tool availability fails closed on a failed module load', () => {
 	test('a loaded module still owns the decision through its hook', () => {
 		expect(out.hookIn).toBe(true);
 		expect(out.hookOut).toBe(false);
+	});
+
+	test('the hook judges a COMPONENT element by its section, not its tipo (tipo ≠ sectionTipo)', () => {
+		// in-section component whose own tipo is not the admitted section → admitted
+		expect(out.componentIn).toBe(true);
+		// a component whose TIPO spells the admitted section, in another section → refused
+		expect(out.componentOut).toBe(false);
 	});
 
 	test('a tool with no server module keeps the always-available fallback', () => {
