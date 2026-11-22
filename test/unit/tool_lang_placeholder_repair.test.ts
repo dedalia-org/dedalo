@@ -587,6 +587,32 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		}
 	});
 
+	test('segment_markdown: an escaped backtick opens no code span — the sentences around it are still cut (F2)', () => {
+		const sentences = Array.from(
+			{ length: 12 },
+			(_, i) => `Sentence ${i} is long enough to count.`,
+		);
+		sentences[0] = 'The mark \\` opens nothing.';
+		sentences[11] = 'Nor does this \\` one.';
+		const segments = segment_markdown(sentences.join(' '), 120) as Array<{ text: string }>;
+		expect(segments.length).toBeGreaterThan(2);
+	});
+
+	test('segment_markdown: a backtick range holding a block token never suppresses the block cut (F2)', () => {
+		const segments = segment_markdown('[[[1]]]x`y[[[2]]][[[3]]]z`w[[[4]]]', 250, {
+			block_kinds: new Map([
+				['[[[1]]]', 'open'],
+				['[[[2]]]', 'close'],
+				['[[[3]]]', 'open'],
+				['[[[4]]]', 'close'],
+			]),
+		}) as Array<{ text: string }>;
+		expect(segments.map((segment) => segment.text)).toEqual([
+			'[[[1]]]x`y[[[2]]]',
+			'[[[3]]]z`w[[[4]]]',
+		]);
+	});
+
 	test('a line break the model wrote into a segment that had none is ONE space', () => {
 		expect(collapse_model_breaks('uno', 'uno\n\ndos')).toBe('uno dos');
 		expect(collapse_model_breaks('uno', ' uno \n dos\n')).toBe('uno dos');
@@ -706,6 +732,13 @@ describe('browser_models.js — the one code copy of the register.json model cat
 			{ ...base, name: 'b', offered_by_default: true },
 		] as unknown as typeof BROWSER_MODELS;
 		expect(offered_models(configured).map((model: { name: string }) => model.name)).toEqual(['b']);
+	});
+
+	test('no model is never offered: a null / undefined hole in a hand-edited list (F8)', () => {
+		expect(is_offered(null as unknown as (typeof BROWSER_MODELS)[number])).toBe(false);
+		expect(is_offered(undefined as unknown as (typeof BROWSER_MODELS)[number])).toBe(false);
+		const holed = [null, { ...BROWSER_MODELS[0]!, name: 'b' }] as unknown as typeof BROWSER_MODELS;
+		expect(offered_models(holed).map((model: { name: string }) => model.name)).toEqual(['b']);
 	});
 
 	test('a model whose licence forbids the use is catalogued but not offered by default, with its reason', () => {

@@ -272,12 +272,46 @@ export const token_problems = (block_tokens, output_text) => {
 }; //end token_problems
 
 /**
+ * LONGEST_CYCLE
+ * The most consecutive repeats of any `size`-word cycle in a word list.
+ * @param {string[]} words
+ * @param {number} size
+ * @returns {number}
+ */
+const longest_cycle = (words, size) => {
+	let longest = 0;
+	for (let start = 0; start + size <= words.length; start++) {
+		let repeats = 1;
+		let next = start + size;
+		while (next + size <= words.length) {
+			let same = true;
+			for (let i = 0; i < size; i++) {
+				if (words[next + i] !== words[start + i]) {
+					same = false;
+					break;
+				}
+			}
+			if (!same) {
+				break;
+			}
+			repeats++;
+			next += size;
+		}
+		longest = Math.max(longest, repeats);
+	}
+	return longest;
+}; //end longest_cycle
+
+/**
  * DETECT_REPETITION
- * Detect that greedy decoding fell into a loop. (v6 55c816b41c, verbatim logic.)
+ * Detect that greedy decoding fell into a loop. (v6 55c816b41c)
  *
  * Real degeneration is usually an n-gram CYCLE — 'सामान्य भन्दा सामान्य भन्दा …' — where no
  * two adjacent words are equal, so this scans for a repeating cycle of any length up to
- * MAX_CYCLE_WORDS (which subsumes the unigram case), over the whole text.
+ * MAX_CYCLE_WORDS (which subsumes the unigram case), over the whole text. A cycle is a loop
+ * only when the SOURCE has no cycle of that length repeated as often (A1-02 re-review: a
+ * record that itself repeats — 'la la la la la', '[sic] [sic] [sic] [sic] [sic]' — was
+ * refused as a loop however faithfully it was translated).
  * @param {string} text          - Translated text to check.
  * @param {string} [source_text] - The text it was translated FROM; a wildly longer output
  *   is degenerate whatever the n-gram scan says.
@@ -293,35 +327,16 @@ export const detect_repetition = (text, source_text) => {
 	}
 
 	const words = text.trim().split(/\s+/);
+	const source_words = source_text ? source_text.trim().split(/\s+/) : [];
 
 	for (let size = 1; size <= MAX_CYCLE_WORDS; size++) {
 		const min_repeats = size === 1 ? MIN_UNIGRAM_REPEATS : MIN_CYCLE_REPEATS;
 		if (words.length < size * min_repeats) {
 			break;
 		}
-
-		for (let start = 0; start + size * min_repeats <= words.length; start++) {
-			let repeats = 1;
-			let next = start + size;
-
-			while (next + size <= words.length) {
-				let same = true;
-				for (let i = 0; i < size; i++) {
-					if (words[next + i] !== words[start + i]) {
-						same = false;
-						break;
-					}
-				}
-				if (!same) {
-					break;
-				}
-				repeats++;
-				next += size;
-			}
-
-			if (repeats >= min_repeats) {
-				return true;
-			}
+		const repeats = longest_cycle(words, size);
+		if (repeats >= min_repeats && repeats > longest_cycle(source_words, size)) {
+			return true;
 		}
 	}
 
@@ -377,10 +392,34 @@ const clean_output = (raw, source, known) => {
 		return '';
 	});
 
-	const text = restore_wrapping_emphasis(source, conform_emphasis(source, collapse_model_breaks(source, normalised)));
+	const text = restore_wrapping_emphasis(
+		source,
+		conform_emphasis(source, collapse_model_breaks(source, strip_added_paragraph(source, normalised))),
+	);
 
 	return { text, invented };
 }; //end clean_output
+
+/**
+ * STRIP_ADDED_PARAGRAPH
+ * The <p>…</p> a model wraps around its answer (v6 55c816b41c), removed ONLY where the
+ * segment it translated did not begin / end with that text itself: a source that literally
+ * reads '<p>texto</p>' keeps it (A1-02 re-review — stripped unconditionally after the
+ * fact, in markdown_to_html, the source's own text was lost).
+ * @param {string} source - The block text sent to the model.
+ * @param {string} output - The model's answer.
+ * @returns {string}
+ */
+export const strip_added_paragraph = (source, output) => {
+	let text = output;
+	if (!/^\s*<p>/i.test(source)) {
+		text = text.replace(/^\s*<p>\s*/i, '');
+	}
+	if (!/<\/p>\s*$/i.test(source)) {
+		text = text.replace(/\s*<\/p>\s*$/i, '');
+	}
+	return text;
+}; //end strip_added_paragraph
 
 /**
  * COLLAPSE_MODEL_BREAKS
@@ -537,9 +576,34 @@ export const run_blocks = async (options) => {
 		failed_blocks,
 	};
 
+	// parts[k] = { prefix, text, suffix } (document-wide tokens), or null for a failed block.
+	// Where two translated blocks meet across an emphasis run that balancing closed and
+	// reopened (build_blocks closed / reopened), the added delimiters are removed again, so
+	// the run comes back as ONE run (A1-02 re-review) — only when both are still there.
 	const join_parts = () =>
 		parts
-			.map((part, k) => (part === null ? '' : (blocks[k].sep || '') + part))
+			.map((part, k) => {
+				if (part === null) {
+					return '';
+				}
+				let text = part.text;
+				const next = parts[k + 1];
+				const closed = blocks[k].closed || '';
+				if (closed && next && text.endsWith(closed) && next.text.startsWith(blocks[k + 1].reopened || '\u0000')) {
+					text = text.slice(0, text.length - closed.length);
+				}
+				const previous = parts[k - 1];
+				const reopened = blocks[k].reopened || '';
+				if (
+					reopened &&
+					previous &&
+					text.startsWith(reopened) &&
+					previous.text.endsWith(blocks[k - 1].closed || '\u0000')
+				) {
+					text = text.slice(reopened.length);
+				}
+				return (blocks[k].sep || '') + part.prefix + text + part.suffix;
+			})
 			.join('')
 			.replace(/^[ \t\r\n]+/, '');
 
@@ -556,9 +620,11 @@ export const run_blocks = async (options) => {
 			const outcome = await process_block(translate, block, { label, is_cancelled });
 
 			// hoisted tokens are document-wide already: attached AFTER the mapping
-			parts.push(
-				(block.prefix || '') + to_global_tokens(outcome.text, block.restore_map) + (block.suffix || ''),
-			);
+			parts.push({
+				prefix: block.prefix || '',
+				text: to_global_tokens(outcome.text, block.restore_map),
+				suffix: block.suffix || '',
+			});
 
 			const to_global = (token) => block.restore_map?.[token] || token;
 			repair_stats.repaired.push(...outcome.repaired.map(to_global));

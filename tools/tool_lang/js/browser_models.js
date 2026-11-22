@@ -125,11 +125,12 @@ export const offered_models = (configured) => {
  * IS_OFFERED
  * offered_by_default is a STRICT boolean (A1-02 re-review): absent → offered (the
  * documented default), true → offered, false or ANY other value (the string 'false', 0,
- * null) → not offered. A hand-edited config never offers a model by a truthy accident.
- * @param {BrowserModel} model
+ * null) → not offered. A hand-edited config never offers a model by a truthy accident. No
+ * model (null / undefined — a hole in a hand-edited list) is never offered.
+ * @param {BrowserModel|null|undefined} model
  * @returns {boolean}
  */
 export const is_offered = (model) =>
-	model?.offered_by_default === undefined || model.offered_by_default === true; //end is_offered
+	model != null && (model.offered_by_default === undefined || model.offered_by_default === true); //end is_offered
 
 // @license-end

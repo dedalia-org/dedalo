@@ -35,14 +35,29 @@
  * Dédalo mark. A restored tag is the source tag as the browser SERIALISES it (DOMParser +
  * outerHTML: attribute quoting and entities normalised, the same form an editor saves) — not
  * a byte copy of the stored string; the model only sees (and translates) the text between
- * them. <pre> (code) is one atom and is not translated. A top-level <p> or a <strong>/<em>
- * (any MD_INLINE_TAGS element) that carries an attribute is shielded too, so the attribute
- * survives; emphasis INSIDE <code> is shielded (Markdown has no emphasis in code).
- * Whitespace-only text is LAYOUT only where HTML gives it no meaning — a child of ul/ol/
- * table/thead/tbody/tfoot/tr (NO_TEXT_PARENTS) or between two block siblings — and is
- * dropped there; anywhere else it is one space, so '<strong>Roma</strong> <em>antigua</em>'
- * never welds. A shielded block whose content is only whitespace (a '<p> </p>' spacer)
- * keeps a NBSP, its height. Private-use characters U+E000–E008 of the TEXT (epigraphic
+ * them. <pre> (code) is one atom and is not translated; so is every HTML comment, and every
+ * element with nothing to translate (a '<p> </p>' spacer, an empty cell: no text but
+ * whitespace and NBSP), restored as written.
+ *
+ * A <p> or a <strong>/<b>/<em>/<i>/<u>/<code> (MD_INLINE_TAGS) is shielded instead of
+ * written as Markdown wherever Markdown would not read back the same markup: an attribute,
+ * edge whitespace, a block inside it (a <strong> wrapping a <p>), nested or adjacent
+ * emphasis, emphasis inside <code>, a <br> or another <code> inside <code>. <b>/<i> stay
+ * <b>/<i>: emphasis_tags_of picks the family name the record uses most, markdown_to_html
+ * writes that name back, and the other name is shielded. The inline/block split is the HTML
+ * phrasing-content set (PHRASING_CONTENT_TAGS) plus the obsolete phrasing tags old records
+ * carry (LEGACY_INLINE_TAGS); an unknown plain tag name is a block.
+ *
+ * WHITESPACE IS KEPT EXACTLY. Whitespace-only text with an inline element or text on both
+ * sides is a WORD space and travels as text does ('<strong>Roma</strong> <em>antigua</em>'
+ * never welds); every other whitespace-only text — indentation, the newline between two
+ * blocks, a space at the edge of a run — is an atom restored byte for byte. Inside text a
+ * newline run is one space (a model returns prose, not line layout): that, and the
+ * serialiser's normal form, is the whole difference an identity model leaves
+ * (test/unit/tool_lang_identity_roundtrip.test.ts — N∘W). NBSP is a character, decoded from
+ * &nbsp; before conversion: the model sees it, nothing adds or drops one. Loose top-level
+ * text and inline elements are bracketed by two empty block tokens, so a cut can isolate
+ * them and nothing wraps them in a <p>. Private-use characters U+E000–E008 of the TEXT (epigraphic
  * fonts) are escaped around this module's own stand-ins (escape_pua/unescape_pua), never
  * deleted. segment_markdown cuts at every block-token edge (block_token_cuts), so each list
  * item / paragraph of a shielded container is its own segment, free of structural tokens
@@ -121,43 +136,115 @@ const VOID_TAGS = new Set([
 const BLOCK_VOID_TAGS = new Set(['hr']);
 
 /**
- * IS_BLOCK_TAG
- * Is a shielded element block-level? Unknown tags are (their content cannot weld onto a
- * paragraph); known inline ones and inline void ones are not.
+ * PHRASING CONTENT (WHATWG HTML §3.2.5.2.5): every element the standard allows inside a
+ * paragraph — the INLINE elements. Shielded, their start and end tags are a pair of tokens
+ * inside the running text; shielded as a block, they would split the paragraph and drop the
+ * word spaces around them. The list is the standard's, complete (A1-02 re-review: strike,
+ * big, tt… were missing, so a paragraph split at each of them); `area`, `link`, `meta` are
+ * phrasing in context and listed. Autonomous custom elements (a '-' in the name) are
+ * phrasing too: see is_inline_tag.
+ * @type {Set<string>}
+ */
+export const PHRASING_CONTENT_TAGS = new Set([
+	'a',
+	'abbr',
+	'area',
+	'audio',
+	'b',
+	'bdi',
+	'bdo',
+	'br',
+	'button',
+	'canvas',
+	'cite',
+	'code',
+	'data',
+	'datalist',
+	'del',
+	'dfn',
+	'em',
+	'embed',
+	'i',
+	'iframe',
+	'img',
+	'input',
+	'ins',
+	'kbd',
+	'label',
+	'link',
+	'map',
+	'mark',
+	'math',
+	'meta',
+	'meter',
+	'noscript',
+	'object',
+	'output',
+	'picture',
+	'progress',
+	'q',
+	'ruby',
+	's',
+	'samp',
+	'script',
+	'select',
+	'slot',
+	'small',
+	'span',
+	'strong',
+	'sub',
+	'sup',
+	'svg',
+	'template',
+	'textarea',
+	'time',
+	'u',
+	'var',
+	'video',
+	'wbr',
+]);
+
+/**
+ * Inline elements that are not phrasing content of today's standard but are rendered inline
+ * (WHATWG HTML §15 Rendering): the ruby internals, and the obsolete presentational elements
+ * (§16) a heritage record written by an older editor still carries.
+ * @type {Set<string>}
+ */
+export const LEGACY_INLINE_TAGS = new Set([
+	'rb',
+	'rp',
+	'rt',
+	'rtc',
+	'acronym',
+	'big',
+	'blink',
+	'font',
+	'marquee',
+	'nobr',
+	'strike',
+	'tt',
+]);
+
+/**
+ * IS_INLINE_TAG
+ * Phrasing content, a legacy inline element, an autonomous custom element ('-' in the name,
+ * phrasing per the standard) or a namespaced name ('o:p' — what a word processor pastes; the
+ * HTML parser makes it an unknown element, which every browser renders inline). A plain
+ * unknown name is not phrasing content and stays block-level.
  * @param {string} tag - lower-case tag name
  * @returns {boolean}
  */
-const is_block_tag = (tag) =>
-	BLOCK_VOID_TAGS.has(tag) || (!INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
+export const is_inline_tag = (tag) =>
+	PHRASING_CONTENT_TAGS.has(tag) || LEGACY_INLINE_TAGS.has(tag) || tag.includes('-') || tag.includes(':');
 
 /**
- * Elements with no Markdown equivalent that are INLINE: their start and end tags become a
- * pair of tokens inside the running text.
- * @type {Set<string>}
+ * IS_BLOCK_TAG
+ * Is a shielded element block-level? Everything that is not inline (is_inline_tag) and not
+ * an inline void element; <hr> is a block.
+ * @param {string} tag - lower-case tag name
+ * @returns {boolean}
  */
-const INLINE_SHIELD_TAGS = new Set([
-	'a',
-	'span',
-	'sub',
-	'sup',
-	'small',
-	'mark',
-	'del',
-	's',
-	'ins',
-	'abbr',
-	'cite',
-	'q',
-	'kbd',
-	'samp',
-	'var',
-	'dfn',
-	'time',
-	'bdi',
-	'bdo',
-	'font',
-	'label',
-]);
+export const is_block_tag = (tag) => BLOCK_VOID_TAGS.has(tag) || (!VOID_TAGS.has(tag) && !is_inline_tag(tag));
 
 /**
  * The elements html_to_markdown writes as Markdown inline syntax even inside a shielded
@@ -182,6 +269,47 @@ const MD_EMPHASIS_TAGS = new Set(['strong', 'b', 'em', 'i', 'u']);
 const NO_TEXT_PARENTS = new Set(['ul', 'ol', 'menu', 'dl', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'colgroup']);
 
 /**
+ * The Markdown delimiter of each emphasis tag family.
+ * @type {Object<string,string>}
+ */
+const EMPHASIS_DELIMITER = { strong: '**', b: '**', em: '*', i: '*', u: '__' };
+
+/** The tags '**' and '*' are written as when nothing says otherwise. */
+const DEFAULT_EMPHASIS_TAGS = Object.freeze({ bold: 'strong', italic: 'em' });
+
+/**
+ * EMPHASIS_TAGS_OF
+ * Which tag of each family a document uses MOST ('<b>' or '<strong>' for '**', '<i>' or
+ * '<em>' for '*'; a tie keeps strong/em). Markdown has one bold and one italic, and the
+ * translation must give back the source's own tag names (A1-02 re-review: '<b>' came back
+ * '<strong>', CKEditor's '<i>' came back '<em>'): the majority name travels as Markdown and
+ * markdown_to_html writes it back with that name; the other name, if the document also
+ * has it, is shielded.
+ * @param {string} html
+ * @returns {{bold:string, italic:string}}
+ */
+export const emphasis_tags_of = (html) => {
+	const counts = { strong: 0, b: 0, em: 0, i: 0 };
+	const visit = (node) => {
+		if (node.nodeType !== 1) {
+			return;
+		}
+		const tag = node.tagName.toLowerCase();
+		if (Object.hasOwn(counts, tag)) {
+			counts[tag]++;
+		}
+		for (const child of Array.from(node.childNodes)) {
+			visit(child);
+		}
+	};
+	visit(new DOMParser().parseFromString(String(html), 'text/html').body);
+	return {
+		bold: counts.b > counts.strong ? 'b' : 'strong',
+		italic: counts.i > counts.em ? 'i' : 'em',
+	};
+}; //end emphasis_tags_of
+
+/**
  * IS_BLOCK_ELEMENT
  * Is a DOM node a block-level element (a paragraph, a shielded block)? Emphasis, code,
  * inline shielded tags and inline void elements are not.
@@ -196,33 +324,44 @@ const is_block_element = (node) => {
 	return !MD_INLINE_TAGS.has(tag) && is_block_tag(tag);
 };
 
+/** ASCII whitespace only (U+00A0 is content). */
+const ASCII_WHITESPACE_ONLY_RE = /^[ \t\n\r\f]*$/;
+
+/**
+ * IS_SKIPPED_NEIGHBOUR
+ * A comment or a whitespace-only text node: neither makes its neighbour inline or block.
+ * @param {Node} node
+ * @returns {boolean}
+ */
+const is_skipped_neighbour = (node) =>
+	node.nodeType === 8 || (node.nodeType === 3 && ASCII_WHITESPACE_ONLY_RE.test(node.textContent));
+
 /**
  * ELEMENT_NEIGHBOUR
- * The nearest sibling of a node in one direction, skipping comments.
+ * The nearest sibling of a node in one direction, skipping comments and whitespace-only text.
  * @param {Node} node
  * @param {'previousSibling'|'nextSibling'} direction
  * @returns {Node|null}
  */
 const element_neighbour = (node, direction) => {
 	let sibling = node[direction];
-	while (sibling && sibling.nodeType === 8) {
+	while (sibling && is_skipped_neighbour(sibling)) {
 		sibling = sibling[direction];
 	}
 	return sibling;
 };
 
 /**
- * IS_LAYOUT_WHITESPACE
- * A whitespace-only text node (ASCII whitespace: U+00A0 is content, the editor's empty
- * paragraph) that is LAYOUT, not a word space (A1-02 re-review): directly inside an element
- * that admits no text (NO_TEXT_PARENTS), or standing only between block-level siblings (and
- * the edges of its parent). Every other whitespace — between two inline elements
- * ('<strong>Roma</strong> <em>antigua</em>'), alone in an element ('<p> </p>') — is a
- * space and is kept, collapsed to one.
- * @param {Node} node - a text node
+ * IN_BLOCK_CONTEXT
+ * Does a whitespace-only text node or a comment stand BETWEEN BLOCKS (A1-02 re-review):
+ * directly inside an element that admits no text (NO_TEXT_PARENTS), or with only
+ * block-level siblings (and the edges of its parent) on both sides? Such whitespace is
+ * LAYOUT, never a word space, and such a comment belongs to no paragraph. Whitespace between
+ * two inline elements ('<strong>Roma</strong> <em>antigua</em>') is a word space.
+ * @param {Node} node - a text node or a comment
  * @returns {boolean}
  */
-const is_layout_whitespace = (node) => {
+const in_block_context = (node) => {
 	const parent = node.parentElement;
 	if (parent && NO_TEXT_PARENTS.has(parent.tagName.toLowerCase())) {
 		return true;
@@ -235,8 +374,97 @@ const is_layout_whitespace = (node) => {
 	return (!previous || is_block_element(previous)) && (!next || is_block_element(next));
 };
 
-/** ASCII whitespace only (U+00A0 is content). */
-const ASCII_WHITESPACE_ONLY_RE = /^[ \t\n\r\f]*$/;
+/**
+ * IS_WORD_SPACE
+ * Is a whitespace-only text node a WORD space — an inline sibling on BOTH sides
+ * ('<strong>Roma</strong> <em>antigua</em>')? It belongs to the text and travels as text
+ * does (a newline run is one space; anything else as written). Whitespace with a block, or nothing, on one side is not between words: it is
+ * restored exactly and never sent (layout between blocks — in_block_context — or the edge of
+ * a run of text: '<li>\n  <strong>a</strong>\n</li>').
+ * @param {Node} node - a whitespace-only text node
+ * @returns {boolean}
+ */
+const is_word_space = (node) => {
+	const parent = node.parentElement;
+	if (parent && NO_TEXT_PARENTS.has(parent.tagName.toLowerCase())) {
+		return false;
+	}
+	const previous = element_neighbour(node, 'previousSibling');
+	const next = element_neighbour(node, 'nextSibling');
+	return Boolean(previous && next && !is_block_element(previous) && !is_block_element(next));
+};
+
+/**
+ * HAS_TRANSLATABLE_TEXT
+ * Does an element carry any text a model could translate? Whitespace — U+00A0 included, the
+ * editor's spacer — and markup are not text; a [[[n]]] token (a Dédalo mark) is.
+ * @param {Element} node
+ * @returns {boolean}
+ */
+const has_translatable_text = (node) => /\S/.test(node.textContent);
+
+/**
+ * EDGE_LEAF
+ * The first or last leaf of an element, descending through first/last children.
+ * @param {Node} node
+ * @param {'first'|'last'} side
+ * @returns {Node|null}
+ */
+const edge_leaf = (node, side) => {
+	let current = node;
+	for (;;) {
+		const children = Array.from(current.childNodes);
+		if (children.length === 0) {
+			return current === node ? null : current;
+		}
+		current = side === 'first' ? children[0] : children[children.length - 1];
+		if (current.nodeType !== 1 || VOID_TAGS.has(current.tagName.toLowerCase())) {
+			return current;
+		}
+	}
+};
+
+/**
+ * HAS_EDGE_SPACE
+ * Does an element's content begin or end with whitespace (U+00A0 included) or a <br>? A
+ * Markdown paragraph or emphasis run is trimmed at both ends, so such an element cannot
+ * travel as Markdown without losing them.
+ * @param {Element} node
+ * @returns {boolean}
+ */
+const has_edge_space = (node) => {
+	if (/^\s|\s$/.test(node.textContent)) {
+		return true;
+	}
+	return ['first', 'last'].some((side) => {
+		const leaf = edge_leaf(node, side);
+		return leaf !== null && leaf.nodeType === 1 && leaf.tagName.toLowerCase() === 'br';
+	});
+};
+
+/**
+ * HAS_DESCENDANT_TAG
+ * @param {Element} node
+ * @param {string} tag - lower-case tag name
+ * @returns {boolean}
+ */
+const has_descendant_tag = (node, tag) =>
+	Array.from(node.childNodes).some(
+		(child) => child.nodeType === 1 && (child.tagName.toLowerCase() === tag || has_descendant_tag(child, tag)),
+	);
+
+/**
+ * HAS_BLOCK_DESCENDANT
+ * Does an element contain a block-level element? Emphasis wrapping blocks
+ * ('<em><p>A.</p><p>B.</p></em>') cannot be Markdown emphasis, which never spans blocks.
+ * @param {Element} node
+ * @returns {boolean}
+ */
+const has_block_descendant = (node) =>
+	Array.from(node.childNodes).some(
+		(child) => child.nodeType === 1 && (is_block_element(child) || has_block_descendant(child)),
+	);
+
 
 /**
  * Private-use characters standing in, inside process_inline, for a backslash-escaped
@@ -313,14 +541,28 @@ const escape_html = (text) =>
  *   Block:  <p> → \n\n  |  <br> → \n
  *   Inline: <strong>/<b> → **  |  <em>/<i> → *  |  <u> → __  |  <code> → `code`
  *   Shielded (see the header): every other element — headings, lists, quotes, rules,
- *   tables, <div> included — as tokens from options.shield; <pre> as one atom. Also
- *   shielded (A1-02 re-review): a <p>/<strong>/<em>/<u>/<code>… that carries ATTRIBUTES
- *   (<p style="text-align:center">, <strong class>) — Markdown would drop them — and
- *   emphasis INSIDE <code> (Markdown is not read there: '**x**' would be saved literally).
+ *   tables, <div> included — as tokens from options.shield; <pre> as one atom. Also shielded
+ *   (A1-02 re-reviews), because Markdown cannot carry them exactly:
+ *     - a <p> or <strong>/<em>/<u>/<code>… with ATTRIBUTES, or whose content begins or ends
+ *       with whitespace or a <br> (a Markdown paragraph or emphasis run is trimmed);
+ *     - emphasis INSIDE <code> (Markdown is not read there: '**x**' would be saved literally);
+ *     - emphasis WRAPPING a block ('<em><p>A.</p><p>B.</p></em>'), as an inline pair:
+ *       Markdown emphasis never spans blocks;
+ *     - emphasis Markdown would read back as other markup (is_markdown_emphasis: the other
+ *       tag name of the family, nested or adjacent emphasis), code holding a <br> (a code
+ *       span never spans a line) or another code.
+ *   A <br> right after another <br> is an atom ('\n\n' would be a paragraph break).
+ *   An element with NO translatable text (has_translatable_text: '<p> </p>', '<p>&nbsp;</p>',
+ *   '<li></li>', '<td>\n</td>', '<p><br></p>') is ONE atom, restored exactly as the source.
+ *   A comment is an atom too.
  *
- * Whitespace-only text: layout (is_layout_whitespace — inside a <ul>/<tr>…, or between
- * block siblings) is dropped; any other is ONE space, so '<strong>Roma</strong>
- * <em>antigua</em>' keeps its word space inside a shielded <li> or <h2>.
+ * Whitespace-only text: a WORD space (is_word_space — inline siblings on both sides) is ONE
+ * space, so '<strong>Roma</strong> <em>antigua</em>' keeps it; any other — LAYOUT between
+ * blocks (in_block_context: inside a <ul>/<tr>…, or between block siblings) or the edge of a
+ * run of text — is an atom, restored exactly and never sent.
+ *
+ * Loose top-level text (no <p> around it: 'texto<br>más' — legacy records) is bracketed by
+ * a pair of EMPTY block tokens, so markdown_to_html gives it no <p> it never had.
  *
  * <br> is a single '\n' (v6 55c816b41c): '\n\n' is a paragraph boundary, the strongest cut
  * of segment_markdown, and emitting it cut any inline element containing a <br> in half.
@@ -328,20 +570,22 @@ const escape_html = (text) =>
  * Text nodes: Markdown metacharacters (\ * _ `) are backslash-escaped so literal characters
  * survive; [ and ] are not (v6: escaping them made the model reproduce the backslashes). A
  * raw newline inside a text node is whitespace in HTML, so it travels as a space — left as
- * '\n' it would come back as a <br>. A whitespace-only <p> emits U+00A0, so the paragraph
- * survives the round-trip (markdown_to_html writes it as &nbsp;).
+ * '\n' it would come back as a <br>.
  *
  * @param {string} html - HTML with Dédalo marks already replaced by [[[n]]] tokens.
  * @param {Object} [options]
+ * @param {{bold:string, italic:string}} [options.emphasis_tags] - the tag names '**' and '*'
+ *   stand for (emphasis_tags_of; default strong/em); the other name is shielded.
  * @param {Function} [options.shield] - ({html, kind, block, pair}) => token. Called for
  *   each start tag (kind 'open'), end tag ('close', pair = the open's token) and void or
- *   raw element ('atom'); `block` is true for a block-level element. Without it, an
- *   element that needs shielding THROWS — it cannot be represented in Markdown, and it
- *   must never travel to the model as markup.
+ *   raw element, comment, layout whitespace or text-less element ('atom'); `block` is true
+ *   for a block-level one. Without it, anything that needs shielding THROWS — it cannot be
+ *   represented in Markdown, and it must never travel to the model as markup.
  * @returns {string} Markdown, trimmed, runs of 3+ newlines collapsed to 2.
  */
 export function html_to_markdown(html, options = {}) {
 	const shield = options.shield;
+	const emphasis_tags = options.emphasis_tags || DEFAULT_EMPHASIS_TAGS;
 
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(html, 'text/html');
@@ -357,6 +601,44 @@ export function html_to_markdown(html, options = {}) {
 
 	// how many <code> elements enclose the node being walked (emphasis in there is shielded)
 	let code_depth = 0;
+
+	// the Markdown emphasis delimiters open around the node being walked
+	const open_delimiters = [];
+
+	/**
+	 * IS_MARKDOWN_EMPHASIS (inner)
+	 * Can an emphasis element travel as Markdown and come back as exactly itself? Not when
+	 * (A1-02 re-review — each one came back as different markup):
+	 *   - its name is not the one the document's Markdown stands for ('<b>' in a '<strong>'
+	 *     document: emphasis_tags_of);
+	 *   - the same delimiter is already open around it ('<u>a<u>b</u></u>' → '__a__b____');
+	 *   - it touches another emphasis element: directly after one ('<em>c</em><em>d</em>' →
+	 *     '*c**d*', read as bold), or with one as its first or last child
+	 *     ('<em><strong>a</strong></em>' → '***a***', read back strong-outside).
+	 * (A run cut at a <br> or a sentence comes back whole: run_blocks strips the delimiters
+	 * balancing added where the two halves meet.)
+	 * @param {Element} node
+	 * @param {string} tag
+	 * @returns {boolean}
+	 */
+	const is_markdown_emphasis = (node, tag) => {
+		if ((tag === 'strong' || tag === 'b') && tag !== emphasis_tags.bold) {
+			return false;
+		}
+		if ((tag === 'em' || tag === 'i') && tag !== emphasis_tags.italic) {
+			return false;
+		}
+		if (open_delimiters.includes(EMPHASIS_DELIMITER[tag])) {
+			return false;
+		}
+		const is_emphasis = (other) => other?.nodeType === 1 && MD_EMPHASIS_TAGS.has(other.tagName.toLowerCase());
+		const children = Array.from(node.childNodes);
+		return !(
+			is_emphasis(node.previousSibling) ||
+			is_emphasis(children[0]) ||
+			is_emphasis(children[children.length - 1])
+		);
+	};
 
 	/**
 	 * ESCAPE_MD (inner)
@@ -396,6 +678,19 @@ export function html_to_markdown(html, options = {}) {
 	};
 
 	/**
+	 * ATOM (inner)
+	 * One atom token for markup restored as it was; a block one outside every shielded
+	 * element is set apart as its own Markdown block.
+	 * @param {string} markup
+	 * @param {boolean} block
+	 * @returns {string}
+	 */
+	const atom = (markup, block) => {
+		const token = call_shield({ html: markup, kind: 'atom', block, pair: null });
+		return block && shield_depth === 0 ? `\n\n${token}\n\n` : token;
+	};
+
+	/**
 	 * START_TAG (inner)
 	 * The element's start tag exactly as the browser serialises it.
 	 * @param {Element} node
@@ -417,25 +712,17 @@ export function html_to_markdown(html, options = {}) {
 	const shield_element = (node, block) => {
 		const tag = node.tagName.toLowerCase();
 
-		const set_apart = block && shield_depth === 0;
-
 		if (RAW_ATOM_TAGS.has(tag) || VOID_TAGS.has(tag)) {
-			const atom = call_shield({ html: node.outerHTML, kind: 'atom', block, pair: null });
-			return set_apart ? `\n\n${atom}\n\n` : atom;
+			return atom(node.outerHTML, block);
 		}
+
+		const set_apart = block && shield_depth === 0;
 
 		const open = call_shield({ html: start_tag(node), kind: 'open', block, pair: null });
 
 		shield_depth++;
-		// whitespace-only children are judged by walk (is_layout_whitespace): layout is
-		// dropped, a word space is kept
-		const walked = walk_children(node);
+		const inner = walk_children(node);
 		shield_depth--;
-
-		// a block whose only content is a space is an editor's spacer (<p>&nbsp;</p> — the
-		// driver turns &nbsp; into a space before this): U+00A0, as a top-level <p> does, so
-		// it keeps its height (a plain space collapses to nothing)
-		const inner = block && walked !== '' && ASCII_WHITESPACE_ONLY_RE.test(walked) ? '\u00A0' : walked;
 
 		const close = call_shield({ html: `</${tag}>`, kind: 'close', block, pair: open });
 
@@ -455,9 +742,20 @@ export function html_to_markdown(html, options = {}) {
 				return '';
 			}
 			if (ASCII_WHITESPACE_ONLY_RE.test(text)) {
-				return is_layout_whitespace(node) ? '' : ' ';
+				// a word space is text: it travels under the rule of all text (a newline run is one
+				// space); any other whitespace (layout between blocks, the edge of a run of text)
+				// is kept exactly, out of the model's reach
+				if (is_word_space(node)) {
+					return text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ');
+				}
+				return atom(text, in_block_context(node));
 			}
 			return escape_md(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
+		}
+
+		if (node.nodeType === 8) {
+			// a comment is restored where it stood, never sent
+			return atom(`<!--${node.textContent}-->`, in_block_context(node));
 		}
 
 		if (node.nodeType !== 1) {
@@ -466,15 +764,41 @@ export function html_to_markdown(html, options = {}) {
 
 		const tag = node.tagName.toLowerCase();
 
-		// a Markdown-form element with attributes: Markdown would drop them — shielded,
-		// restored as the source tag (A1-02 re-review)
-		if ((tag === 'p' || MD_INLINE_TAGS.has(tag)) && node.attributes.length > 0) {
-			return shield_element(node, tag === 'p');
+		if (tag === 'br' && shield_depth === 0) {
+			// a <br> right after another is an atom: two '\n' would be a paragraph break, and
+			// '<br><br>' came back as a new <p> (A1-02 re-review)
+			const previous = node.previousSibling;
+			if (previous?.nodeType === 1 && previous.tagName.toLowerCase() === 'br') {
+				return atom(node.outerHTML, false);
+			}
+			return '\n';
 		}
 
-		// emphasis inside <code>: a code span is literal, '**x**' would be saved as text
-		if (code_depth > 0 && MD_EMPHASIS_TAGS.has(tag)) {
+		// code inside code: one code span cannot hold another ('``x``')
+		if (tag === 'code' && code_depth > 0) {
 			return shield_element(node, false);
+		}
+
+		// nothing to translate (a spacer, an empty cell, an image paragraph): ONE atom,
+		// restored exactly — never a synthetic &nbsp;, never dropped
+		if (!VOID_TAGS.has(tag) && !RAW_ATOM_TAGS.has(tag) && !has_translatable_text(node)) {
+			return atom(node.outerHTML, is_block_element(node));
+		}
+
+		if (MD_INLINE_TAGS.has(tag) || tag === 'p') {
+			const block = tag === 'p';
+			// what Markdown cannot carry: attributes, edge whitespace or <br>, emphasis inside
+			// code, emphasis wrapping blocks, emphasis Markdown would read back as other
+			// markup (A1-02 re-reviews)
+			if (
+				node.attributes.length > 0 ||
+				has_edge_space(node) ||
+				(MD_EMPHASIS_TAGS.has(tag) && (code_depth > 0 || !is_markdown_emphasis(node, tag))) ||
+				(tag === 'code' && has_descendant_tag(node, 'br')) ||
+				(!block && has_block_descendant(node))
+			) {
+				return shield_element(node, block);
+			}
 		}
 
 		if (shield_depth > 0 && !MD_INLINE_TAGS.has(tag)) {
@@ -482,29 +806,19 @@ export function html_to_markdown(html, options = {}) {
 		}
 
 		switch (tag) {
-			case 'p': {
-				const inner = walk_children(node);
-				return `${inner.trim() ? inner : ' '}\n\n`;
-			}
-
-			case 'br':
-				return '\n';
+			case 'p':
+				return `\n\n${walk_children(node)}\n\n`;
 
 			case 'strong':
-			case 'b': {
-				const inner = walk_children(node);
-				return inner.trim() ? `**${inner}**` : inner;
-			}
-
+			case 'b':
 			case 'em':
-			case 'i': {
-				const inner = walk_children(node);
-				return inner.trim() ? `*${inner}*` : inner;
-			}
-
+			case 'i':
 			case 'u': {
+				const delimiter = EMPHASIS_DELIMITER[tag];
+				open_delimiters.push(delimiter);
 				const inner = walk_children(node);
-				return inner.trim() ? `__${inner}__` : inner;
+				open_delimiters.pop();
+				return `${delimiter}${inner}${delimiter}`;
 			}
 
 			case 'code': {
@@ -515,8 +829,8 @@ export function html_to_markdown(html, options = {}) {
 			}
 
 			default:
-				// no Markdown equivalent: shielded (an unknown tag is treated as block-level
-				// unless it is a known inline one, so its content cannot weld onto a paragraph)
+				// no Markdown equivalent: shielded (block-level unless it is inline — see
+				// is_inline_tag — so a block's content cannot weld onto a paragraph)
 				return shield_element(node, is_block_tag(tag));
 		}
 	};
@@ -528,9 +842,57 @@ export function html_to_markdown(html, options = {}) {
 	 */
 	const walk_children = (node) => Array.from(node.childNodes).map(walk).join('');
 
-	const md = Array.from(doc.body.childNodes).map(walk).join('');
+	/**
+	 * IS_IN_LOOSE_RUN (inner)
+	 * Does a top-level node belong to a run of loose inline content (text outside any <p>)?
+	 * Block elements, layout whitespace and comments between blocks are set apart instead.
+	 * @param {Node} node
+	 * @returns {boolean}
+	 */
+	const is_in_loose_run = (node) => {
+		if (node.nodeType === 1) {
+			return !is_block_element(node);
+		}
+		if (node.nodeType === 8) {
+			return !in_block_context(node);
+		}
+		if (node.nodeType === 3) {
+			return !(ASCII_WHITESPACE_ONLY_RE.test(node.textContent) && in_block_context(node));
+		}
+		return false;
+	};
 
-	return ascii_trim(md).replace(/\n{3,}/g, '\n\n');
+	// top level: each run of loose inline content is bracketed by a pair of EMPTY block
+	// tokens, so it comes back without a <p> it never had
+	const parts = [];
+	let run = [];
+	const flush_run = () => {
+		if (run.length === 0) {
+			return;
+		}
+		const nodes = run;
+		run = [];
+		const text = nodes.map(walk).join('');
+		// only whitespace text: nothing to bracket (a <br> alone is something — '\n')
+		if (nodes.every((node) => node.nodeType === 3) && ascii_trim(text) === '') {
+			parts.push(text);
+			return;
+		}
+		const open = call_shield({ html: '', kind: 'open', block: true, pair: null });
+		const close = call_shield({ html: '', kind: 'close', block: true, pair: open });
+		parts.push(`\n\n${open}${text}${close}\n\n`);
+	};
+	for (const node of Array.from(doc.body.childNodes)) {
+		if (is_in_loose_run(node)) {
+			run.push(node);
+			continue;
+		}
+		flush_run();
+		parts.push(walk(node));
+	}
+	flush_run();
+
+	return ascii_trim(parts.join('')).replace(/\n{3,}/g, '\n\n');
 } //end html_to_markdown
 
 /**
@@ -547,12 +909,15 @@ export function html_to_markdown(html, options = {}) {
  *                       shielded block element: <p><ul> is not valid HTML)
  *   anything else     → <p>, a single \n inside becoming <br>
  *
- * A <p>…</p> the model wrapped around a block is stripped (v6 55c816b41c): it would
- * otherwise be saved as the literal text '<p>'.
+ * A '<p>' in the text is TEXT (escaped): the wrapper a model adds around its answer is
+ * stripped per block, where the segment it translated is known (block_runner.js
+ * clean_output) — stripped here, a source's own literal '<p>texto</p>' was lost.
  *
  * @param {string} md - Markdown from the model.
  * @param {Object} [options]
  * @param {Set<string>} [options.block_tokens] - tokens that stand for a block-level tag.
+ * @param {{bold:string, italic:string}} [options.emphasis_tags] - the tag names '**' and '*'
+ *   are written as (emphasis_tags_of the source; default strong/em).
  * @returns {string} HTML ('' for falsy input).
  */
 export function markdown_to_html(md, options = {}) {
@@ -561,6 +926,7 @@ export function markdown_to_html(md, options = {}) {
 	}
 
 	const block_tokens = options.block_tokens || new Set();
+	const emphasis_tags = options.emphasis_tags || DEFAULT_EMPHASIS_TAGS;
 	const starts_with_block_token = (block) => {
 		const first = block.match(/^\[\[\[\d+\]\]\]/);
 		return first !== null && block_tokens.has(first[0]);
@@ -573,9 +939,7 @@ export function markdown_to_html(md, options = {}) {
 	const html_blocks = [];
 
 	for (const raw_block of raw_blocks) {
-		const block = ascii_trim(raw_block)
-			.replace(/^<p>\s*/i, '')
-			.replace(/\s*<\/p>$/i, '');
+		const block = ascii_trim(raw_block);
 		if (!block) {
 			continue;
 		}
@@ -584,7 +948,7 @@ export function markdown_to_html(md, options = {}) {
 
 		// The lines are joined BEFORE process_inline (v6 55c816b41c): run per line, the
 		// inline rules (which exclude newlines) could never match emphasis spanning a <br>.
-		const inline_html = with_line_breaks(process_inline(lines.join(LINE_BREAK_STANDIN)));
+		const inline_html = with_line_breaks(process_inline(lines.join(LINE_BREAK_STANDIN), emphasis_tags));
 
 		// a shielded block element: its own tags are its structure
 		if (starts_with_block_token(block)) {
@@ -627,10 +991,13 @@ const with_line_breaks = (html) => html.split(LINE_BREAK_STANDIN).join('<br>');
  * @param {string} text - Inline Markdown (line breaks as LINE_BREAK_STANDIN).
  * @returns {string} HTML ('' for falsy input).
  */
-function process_inline(text) {
+function process_inline(text, emphasis_tags = DEFAULT_EMPHASIS_TAGS) {
 	if (!text) {
 		return '';
 	}
+
+	const B = emphasis_tags.bold;
+	const I = emphasis_tags.italic;
 
 	// 1. set the escaped metacharacters aside
 	let out = text.replace(/\\([\\*_[\]`])/g, (_match, char) => ESCAPE_STANDINS[char]);
@@ -648,15 +1015,15 @@ function process_inline(text) {
 	});
 
 	// 4. bold+italic, and emphasis at the edge of a bold run
-	out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-	out = out.replace(/\*\*([^*\n]*)\*([^*\n]+)\*\*\*/g, '<strong>$1<em>$2</em></strong>');
-	out = out.replace(/\*\*\*([^*\n]+)\*([^*\n]*)\*\*/g, '<strong><em>$1</em>$2</strong>');
+	out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, `<${B}><${I}>$1</${I}></${B}>`);
+	out = out.replace(/\*\*([^*\n]*)\*([^*\n]+)\*\*\*/g, `<${B}>$1<${I}>$2</${I}></${B}>`);
+	out = out.replace(/\*\*\*([^*\n]+)\*([^*\n]*)\*\*/g, `<${B}><${I}>$1</${I}>$2</${B}>`);
 
 	// 5. bold
-	out = out.replace(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, '<strong>$1</strong>');
+	out = out.replace(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, `<${B}>$1</${B}>`);
 
 	// 6. italic
-	out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+	out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, `<${I}>$1</${I}>`);
 
 	// 7. underline
 	out = out.replace(/__([^_\n]+)__/g, '<u>$1</u>');
@@ -875,11 +1242,30 @@ const HARD_MAX_CHARS = 800;
  */
 const segment_protected_ranges = (md) => {
 	const ranges = [];
-	const patterns = [/\[[^[\]]*\]\([^)\s]*\)/g, /`[^`\n]*`/g];
+	for (const match of md.matchAll(/\[[^[\]]*\]\([^)\s]*\)/g)) {
+		ranges.push([match.index, match.index + match[0].length]);
+	}
 
-	for (const pattern of patterns) {
-		for (const match of md.matchAll(pattern)) {
-			ranges.push([match.index, match.index + match[0].length]);
+	// inline code: an UNESCAPED backtick to the next unescaped one on the same line. '\`' is
+	// a literal backtick of the text (escape_md) — an apostrophe in 'l`Hospitalet' — and
+	// opens nothing (A1-02 re-review: read as a code span, two of them swallowed the block
+	// cuts between list items)
+	let open_at = -1;
+	for (let i = 0; i < md.length; i++) {
+		const char = md[i];
+		if (char === '\\') {
+			i++;
+			continue;
+		}
+		if (char === '\n') {
+			open_at = -1;
+		} else if (char === '`') {
+			if (open_at === -1) {
+				open_at = i;
+			} else {
+				ranges.push([open_at, i + 1]);
+				open_at = -1;
+			}
 		}
 	}
 
@@ -1156,8 +1542,14 @@ export function segment_markdown(md, max_chars = 250, options = {}) {
 	}
 
 	const ranges = segment_protected_ranges(md);
+	// a protected range that carries a token is no reason to keep a block cut: a real link or
+	// code span never holds a block tag, so such a range is text that only looks like one
+	const token_free_ranges = ranges.filter(([start, end]) => !/\[\[\[\d+\]\]\]/.test(md.slice(start, end)));
 	const structural = [
-		...new Set([...structural_boundaries(md, ranges), ...block_token_cuts(md, options.block_kinds, ranges)]),
+		...new Set([
+			...structural_boundaries(md, ranges),
+			...block_token_cuts(md, options.block_kinds, token_free_ranges),
+		]),
 	].sort((a, b) => a - b);
 	const sentences = sentence_cuts(md, ranges);
 

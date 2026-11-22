@@ -427,6 +427,7 @@ else {
 			);
 			build.onLoad({ filter: /.*/, namespace: 'tool-lang-md-stub' }, () => ({
 				contents:
+					"export const emphasis_tags_of = () => ({ bold: 'strong', italic: 'em' });\n" +
 					'export const html_to_markdown = (html) => String(html);\n' +
 					'export const markdown_to_html = (markdown) => String(markdown);\n' +
 					"export const segment_markdown = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean).map((text) => ({ text, sep: '' }));\n" +

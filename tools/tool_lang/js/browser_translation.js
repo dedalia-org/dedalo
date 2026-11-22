@@ -77,7 +77,7 @@
 	import {error_text} from '../../../core/common/js/render_api_error.js'
 	import {render_value} from '../../../core/common/js/utils/render_escape.js'
 	import {tr} from '../../../core/common/js/tr.js'
-	import {html_to_markdown, markdown_to_html, marks_in_text_nodes, segment_markdown} from './markdown_utils.js'
+	import {emphasis_tags_of, html_to_markdown, markdown_to_html, marks_in_text_nodes, segment_markdown} from './markdown_utils.js'
 	import {extract_placeholders, has_token_shaped_text, make_placeholder, normalize_placeholders, placeholder_re} from './placeholders.js'
 
 
@@ -565,7 +565,7 @@ export const source_has_token_shaped_text = function(source_text) {
 *     Headings, lists, quotes, rules, tables and <div> are shielded too: block structure
 *     comes from the source, never from Markdown syntax the model writes (A1-02 re-review).
 * @param {string} source_text - The source HTML (marks intact, &nbsp; already cleaned).
-* @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>, block_kinds:Map<string,string>}}
+* @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>, block_kinds:Map<string,string>, emphasis_tags:Object}}
 *   placeholders: token → what it restores (a mark's bytes, or a serialised tag); descriptors: one per token,
 *   shield tokens flagged `shield: true`; block_tokens: the tokens of block-level tags;
 *   block_kinds: block token → 'open'|'close'|'atom' (segment_markdown cuts at their edges).
@@ -606,9 +606,12 @@ export const source_to_markdown = function(source_text) {
 		return token
 	}
 
-	const md = html_to_markdown(safe_source_text, { shield })
+	// the source's own bold/italic tag names, so the Markdown comes back as them
+	const emphasis_tags = emphasis_tags_of(safe_source_text)
 
-	return { md, placeholders, descriptors, block_tokens, block_kinds }
+	const md = html_to_markdown(safe_source_text, { shield, emphasis_tags })
+
+	return { md, placeholders, descriptors, block_tokens, block_kinds, emphasis_tags }
 }//end source_to_markdown
 
 
@@ -668,8 +671,12 @@ const MD_DELIMITERS = ['**', '__', '*']
 * sentence.
 *   in :  ['**Line one', 'Line two**']
 *   out:  ['**Line one**', '**Line two**']
+* The delimiters added are returned per chunk (closed / reopened): they are not the
+* source's, and run_blocks removes them again where two translated chunks meet, so one
+* emphasis run cut at a sentence comes back as ONE run (A1-02 re-review: '<b>a. b</b>'
+* came back '<b>a.</b> <b>b</b>').
 * @param {string[]} chunks - Markdown chunks, in document order.
-* @returns {string[]}
+* @returns {Array<{text:string, closed:string, reopened:string}>}
 */
 const balance_markdown_chunks = function(chunks) {
 
@@ -678,7 +685,8 @@ const balance_markdown_chunks = function(chunks) {
 
 	return chunks.map(function(chunk){
 
-		const text = carried.join('') + chunk
+		const reopened	= carried.join('')
+		const text		= reopened + chunk
 
 		const open = []
 		for (let i = 0; i < text.length; i++) {
@@ -706,7 +714,9 @@ const balance_markdown_chunks = function(chunks) {
 		// close what is still open, innermost first, and carry it into the next chunk
 		carried = open.slice()
 
-		return text + open.slice().reverse().join('')
+		const closed = open.slice().reverse().join('')
+
+		return { text : text + closed, closed, reopened }
 	})
 }//end balance_markdown_chunks
 
@@ -720,7 +730,9 @@ const balance_markdown_chunks = function(chunks) {
 * The most reliable way to stop the model corrupting a marker is not to show it one. A
 * Dédalo mark overwhelmingly sits at a segment edge — a timecode opening a segment, an index
 * close ending one — and an edge marker's position in the translation is not in question.
-* Whitespace between the edge markers and the body stays with the marker, so
+* Whitespace between the edge markers and the body stays with the marker, and edge
+* whitespace with no marker is hoisted too (A1-02 re-review: the worker trims the model's
+* answer, so a space before a <br> or at the end of a cell was lost), so
 * prefix + body + suffix reproduces the chunk exactly. A chunk made ENTIRELY of markers is
 * left whole (block_runner.js returns it without a model call).
 * @param {string} chunk - Markdown chunk carrying document-wide [[[n]]] tokens.
@@ -728,12 +740,12 @@ const balance_markdown_chunks = function(chunks) {
 */
 const hoist_edge_placeholders = function(chunk) {
 
-	const leading	= chunk.match(/^(?:\s*\[\[\[\d+\]\]\])+\s*/)
+	const leading	= chunk.match(/^(?:\s*\[\[\[\d+\]\]\])*\s*/)
 	const prefix	= leading ? leading[0] : ''
 
 	let body = chunk.slice(prefix.length)
 
-	const trailing	= body.match(/\s*(?:\[\[\[\d+\]\]\]\s*)+$/)
+	const trailing	= body.match(/\s*(?:\[\[\[\d+\]\]\]\s*)*$/)
 	const suffix	= trailing ? trailing[0] : ''
 
 	body = body.slice(0, body.length - suffix.length)
@@ -763,7 +775,8 @@ const hoist_edge_placeholders = function(chunk) {
 * with four <br> into twenty-five <p>.
 * @param {Array<{text:string, sep:string}>} segments - from segment_markdown.
 * @param {Array} descriptors - Document-wide descriptors (source_to_markdown).
-* @returns {Array<{text:string, placeholders:Array, restore_map:Object, prefix:string, suffix:string, sep:string}>}
+* `closed` / `reopened` are the emphasis delimiters balancing added (balance_markdown_chunks).
+* @returns {Array<{text:string, placeholders:Array, restore_map:Object, prefix:string, suffix:string, sep:string, closed:string, reopened:string}>}
 */
 export const build_blocks = function(segments, descriptors) {
 
@@ -771,7 +784,7 @@ export const build_blocks = function(segments, descriptors) {
 
 	const balanced = balance_markdown_chunks(segments.map(item => item.text))
 
-	return balanced.map(function(chunk, index){
+	return balanced.map(function({ text : chunk, closed, reopened }, index){
 
 		const hoisted = hoist_edge_placeholders(chunk)
 
@@ -813,7 +826,9 @@ export const build_blocks = function(segments, descriptors) {
 			restore_map		: restore_map,
 			prefix			: hoisted.prefix,
 			suffix			: hoisted.suffix,
-			sep				: segments[index].sep
+			sep				: segments[index].sep,
+			closed			: closed,
+			reopened		: reopened
 		}
 	})
 }//end build_blocks
@@ -993,6 +1008,7 @@ const is_degenerate = function(source_text, restored_text) {
 *   stray                 — main-thread tokens that map to nothing
 *   outside_text          — marks that ended up inside markup rather than text
 *   structure_moved       — block tags out of their source order (structure_out_of_order)
+*   tags_crossed          — tags that close inside another opened after them (tags_crossed)
 *   degenerate            — the result is a repetition loop (is_degenerate)
 * SAVED WITH WARNINGS (Q2: save-with-warning, no accept/discard step):
 *   repaired / reordered  — positions WE chose
@@ -1001,7 +1017,7 @@ const is_degenerate = function(source_text, restored_text) {
 * @param {string} source_text   - The original HTML value (marks intact).
 * @param {string} restored_text - The translated HTML value, restored and reordered.
 * @param {Object} extra         - { repaired, unrepairable, duplicated, residual, reordered,
-*   tags_missing, stray, outside_text, structure_moved }
+*   tags_missing, stray, outside_text, structure_moved, tags_crossed }
 * @returns {Object} the report; `refused` and `uncertain_count` decide.
 */
 export const validate_translation = function(source_text, restored_text, extra) {
@@ -1037,6 +1053,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		stray			: extra?.stray || [],
 		outside_text	: extra?.outside_text || 0,
 		structure_moved	: extra?.structure_moved || 0,
+		tags_crossed	: extra?.tags_crossed || 0,
 		degenerate		: is_degenerate(source_text, restored_text),
 		repaired		: extra?.repaired || [],
 		reordered		: extra?.reordered || [],
@@ -1054,6 +1071,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		report.stray.length>0 ||
 		report.outside_text>0 ||
 		report.structure_moved>0 ||
+		report.tags_crossed>0 ||
 		report.degenerate===true
 
 	// positions or presence WE decided rather than the model: saved, and reported
@@ -1064,6 +1082,170 @@ export const validate_translation = function(source_text, restored_text, extra) 
 
 	return report
 }//end validate_translation
+
+
+
+/**
+* TAGS_CROSSED
+* How many tags of the result close INSIDE another that opened after them (A1-02
+* re-review): '<span>a <sub>b</span> c</sub>', or emphasis crossing a shielded tag
+* ('<strong>a <span>b</strong> c</span>'). Each half is present once and in order — the
+* other checks pass — and the browser would still rebuild the markup into something the
+* source never had. Counted over the shielded open/close tokens and the tags
+* markdown_to_html emits (<p>, <strong>/<b>, <em>/<i>, <u>, <code> — the model's own '<' is escaped
+* text), on the HTML BEFORE the tokens are restored; any count above zero REFUSES the run.
+* The source is well nested by construction (a DOM, walked), so its own count is zero.
+* @param {string} html - markdown_to_html output, tokens not yet restored.
+* @param {Array} descriptors - source_to_markdown descriptors.
+* @returns {number}
+*/
+export const tags_crossed = function(html, descriptors) {
+
+	const pair_of = new Map()
+	for (const descriptor of descriptors) {
+		if (descriptor.shield && descriptor.pair && (descriptor.kind==='open' || descriptor.kind==='close')) {
+			pair_of.set(descriptor.token, descriptor)
+		}
+	}
+
+	const stack		= []
+	const broken	= new Set() // opens already counted as crossed: their close is not counted again
+	let crossed		= 0
+	for (const match of String(html).matchAll(/\[\[\[\d+\]\]\]|<(\/?)(p|strong|b|em|i|u|code)>/g)) {
+		let id		= null
+		let closing	= false
+		if (match[0].startsWith('[[[')) {
+			const descriptor = pair_of.get(match[0])
+			if (!descriptor) {
+				continue // a Dédalo mark or an atom: no nesting of its own
+			}
+			closing	= descriptor.kind==='close'
+			id		= closing ? descriptor.pair : descriptor.token
+		}else{
+			closing	= match[1]==='/'
+			id		= match[2]
+		}
+		if (!closing) {
+			stack.push(id)
+			continue
+		}
+		const at = stack.lastIndexOf(id)
+		if (at===-1) {
+			if (broken.has(id)) {
+				broken.delete(id)
+			}else{
+				crossed++ // a close whose open never opened
+			}
+			continue
+		}
+		// every tag still open above it is crossed by this close
+		for (const crossed_id of stack.slice(at + 1)) {
+			broken.add(crossed_id)
+			crossed++
+		}
+		stack.length = at
+	}
+
+	return crossed
+}//end tags_crossed
+
+
+
+/**
+* PREPARE_TRANSLATION
+* The source HTML as the blocks the worker translates — the pre-run half of the one
+* pipeline (finish_translation is the other; the identity round-trip gate runs both):
+*   &nbsp; decoded to U+00A0 (the character the browser makes of it; escape_html writes it
+*   back as &nbsp;, so '10&nbsp;km' stays '10&nbsp;km' — A1-02 re-review, it used to become
+*   '10 km'), the token-collision check, source_to_markdown, segment_markdown with the block
+*   cuts, build_blocks.
+* @param {string} source_text - The source HTML, marks intact.
+* @returns {Object} { refused: 'token_collision' } or { clean_source_text, md, placeholders,
+*   descriptors, block_tokens, block_kinds, segments, blocks, to_html }
+*/
+export const prepare_translation = function(source_text) {
+
+	const clean_source_text = String(source_text).replace(/&nbsp;/g, '\u00A0')
+
+	// the source's own text must not look like a token (it would be read back as one)
+	if (source_has_token_shaped_text(clean_source_text)) {
+		return { refused : 'token_collision' }
+	}
+
+	// shield the Dédalo marks and every tag without a Markdown form behind [[[n]]] tokens,
+	// and convert the rest to Markdown (see source_to_markdown)
+	const { md, placeholders, descriptors, block_tokens, block_kinds, emphasis_tags } = source_to_markdown(clean_source_text)
+	if (has_token_shaped_text(md)) {
+		// two tokens (or a token and a bracket of the text) that touch can form one
+		return { refused : 'token_collision' }
+	}
+
+	// segment, then one block per segment (balanced, edges hoisted, tokens renumbered)
+	// SEGMENT_MAX_CHARS is small on purpose (v6 55c816b41c): TranslateGemma is a
+	// sentence-level model and 1000-character blocks were the dominant cause of its
+	// repetition loops; at this size nearly every mark sits at a segment edge, where it is
+	// hoisted out of the model's way. The cost is more model calls per record.
+	// Every edge of a shielded block tag is a cut too (block_kinds): an item, a cell, a
+	// paragraph of a shielded block is its own segment, its structural tokens hoisted.
+	const segments	= segment_markdown(md, SEGMENT_MAX_CHARS, { block_kinds })
+	const blocks	= build_blocks(segments, descriptors)
+
+	// mark html for markdown_to_html: a shielded block-level element is not wrapped in <p>
+	// and '**' / '*' as the source's own tag names
+	const to_html = (markdown) => markdown_to_html(markdown, { block_tokens, emphasis_tags })
+
+	return { clean_source_text, md, placeholders, descriptors, block_tokens, block_kinds, emphasis_tags, segments, blocks, to_html }
+}//end prepare_translation
+
+
+
+/**
+* FINISH_TRANSLATION
+* The worker's accumulated Markdown as the HTML to save, and the report that decides
+* whether it may be saved — the post-run half of the one pipeline:
+*   shielded tag pairs the translation reversed go back in order (tokens); Markdown → HTML
+*   (every character the model wrote escaped); nesting checked (tags_crossed); marks and
+*   tags restored — every token exactly once; reversed Dédalo mark pairs put back in order;
+*   validate_translation (the marks counted against the source directly — repair_stats
+*   alone is not trusted).
+* @param {Object} prepared - prepare_translation() output.
+* @param {string} translated_md - document-wide-token Markdown (the worker's accumulated_text).
+* @param {Object} [repair_stats] - the worker's { repaired, unrepairable, duplicated, residual }.
+* @returns {{restored_text:string, report:Object}}
+*/
+export const finish_translation = function(prepared, translated_md, repair_stats) {
+
+	const { clean_source_text, md, placeholders, descriptors, block_tokens, to_html } = prepared
+
+	const ordered_tokens	= reorder_inverted_tokens(String(translated_md ?? ''), descriptors)
+	const html_tokens		= to_html(ordered_tokens.text)
+	const restored			= restore_placeholders(html_tokens, placeholders)
+
+	// translation can reverse a paired mark (close before open) — put it
+	// back in order before validating and saving, and report it
+	const ordered		= reorder_inverted_pairs(restored.text)
+	const restored_text	= ordered.text
+
+	const stats			= repair_stats || {}
+	const shield_tokens	= new Set(descriptors.filter(item => item.shield).map(item => item.token))
+	const outside_count	= (html) =>
+		extract_dedalo_marks(html).length - marks_in_text_nodes(html, extract_dedalo_marks).length
+
+	const report = validate_translation(clean_source_text, restored_text, {
+		repaired		: stats.repaired || [],
+		unrepairable	: stats.unrepairable || [],
+		duplicated		: [...(stats.duplicated || []), ...restored.duplicated],
+		residual		: stats.residual || [],
+		reordered		: [...ordered.reordered, ...ordered_tokens.reordered],
+		tags_missing	: restored.missing.filter(token => shield_tokens.has(token)),
+		stray			: restored.residual,
+		structure_moved	: structure_out_of_order(md, ordered_tokens.text, block_tokens),
+		tags_crossed	: tags_crossed(html_tokens, descriptors),
+		outside_text	: Math.max(0, outside_count(restored_text) - outside_count(clean_source_text))
+	})
+
+	return { restored_text, report }
+}//end finish_translation
 
 
 
@@ -1119,6 +1301,14 @@ export const mark_report_lines = function(report, get_label) {
 		lines.push(
 			get_label('tags_out_of_order', report.structure_moved)
 			|| `${report.structure_moved} tags of the text's structure (paragraphs, list items, table cells) came back out of order`
+		)
+	}
+
+	// tags that close inside another one: the browser would rebuild markup the source never had
+	if (report.tags_crossed>0) {
+		lines.push(
+			get_label('tags_crossed', report.tags_crossed)
+			|| `${report.tags_crossed} tags came back wrongly nested (closing inside another tag)`
 		)
 	}
 
@@ -1422,44 +1612,17 @@ export const translate_component_browser = async function(options) {
 			}
 		}
 
-	// clean hard coded spaces
-	// &nbsp; entities confuse the markdown converter and appear verbatim in the
-	// model input; replace them with regular spaces before further processing.
-		const clean_source_text = source_text.replace(/&nbsp;/g, ' ')
-
-	// the source's own text must not look like a token (it would be read back as one)
-		if (source_has_token_shaped_text(clean_source_text)) {
+	// source → tokens + Markdown → segments → blocks (prepare_translation); a source whose
+	// own text looks like a token is refused before the model starts
+		const prepared = prepare_translation(source_text)
+		if (prepared.refused) {
 			return refuse_before_run([
 				get_label('translation_token_collision')
 					|| 'Translation refused: the text contains [[[n]]]-like sequences that the translation markers would be confused with',
 				get_label('nothing_saved') || 'Nothing was saved. The existing text in the target language is unchanged.'
 			])
 		}
-
-	// shield the Dédalo marks and every tag without a Markdown form behind [[[n]]] tokens,
-	// and convert the rest to Markdown (see source_to_markdown)
-		const { md, placeholders, descriptors, block_tokens, block_kinds } = source_to_markdown(clean_source_text)
-		if (has_token_shaped_text(md)) {
-			// two tokens (or a token and a bracket of the text) that touch can form one
-			return refuse_before_run([
-				get_label('translation_token_collision')
-					|| 'Translation refused: the text contains [[[n]]]-like sequences that the translation markers would be confused with',
-				get_label('nothing_saved') || 'Nothing was saved. The existing text in the target language is unchanged.'
-			])
-		}
-
-	// segment, then one block per segment (balanced, edges hoisted, tokens renumbered)
-	// SEGMENT_MAX_CHARS is small on purpose (v6 55c816b41c): TranslateGemma is a
-	// sentence-level model and 1000-character blocks were the dominant cause of its
-	// repetition loops; at this size nearly every mark sits at a segment edge, where it is
-	// hoisted out of the model's way. The cost is more model calls per record.
-		// every edge of a shielded block tag is a cut too (block_kinds): an item, a cell, a
-		// paragraph of a shielded block is its own segment, its structural tokens hoisted
-		const segments	= segment_markdown(md, SEGMENT_MAX_CHARS, { block_kinds })
-		const blocks	= build_blocks(segments, descriptors)
-
-	// mark html for markdown_to_html: a shielded block-level element is not wrapped in <p>
-		const to_html = (markdown) => markdown_to_html(markdown, { block_tokens })
+		const { blocks } = prepared
 
 	// reusable worker (model cached across calls)
 		const translate_worker = get_browser_worker()
@@ -1607,7 +1770,7 @@ export const translate_component_browser = async function(options) {
 		* @return {string}
 		*/
 		const preview_html = function(accumulated) {
-			return restore_placeholders(to_html(accumulated), placeholders).text
+			return restore_placeholders(prepared.to_html(accumulated), prepared.placeholders).text
 		}
 
 		/**
@@ -1664,16 +1827,9 @@ export const translate_component_browser = async function(options) {
 			// the raw data payload for non-streaming worker implementations.
 			const translated_md = data.accumulated_text ?? String(data)
 
-			// shielded tag pairs the translation reversed go back in order (tokens), then
-			// markdown -> HTML (every character the model wrote escaped), then the marks and
-			// tags are restored — every token exactly once, or the run is refused
-			const ordered_tokens	= reorder_inverted_tokens(translated_md, descriptors)
-			const restored			= restore_placeholders(to_html(ordered_tokens.text), placeholders)
-
-			// translation can reverse a paired mark (close before open) — put it
-			// back in order before validating and saving, and report it
-			const ordered		= reorder_inverted_pairs(restored.text)
-			const restored_text	= ordered.text
+			// tokens back in order, Markdown → HTML, marks and tags restored, validated
+			// (finish_translation — the one chain, the identity round-trip gate runs it too)
+			const { restored_text, report } = finish_translation(prepared, translated_md, data.repair_stats)
 
 			// REFUSAL 2 — the run produced no text at all.
 			// The source was checked non-empty before the worker was started, so an
@@ -1689,23 +1845,9 @@ export const translate_component_browser = async function(options) {
 			}
 
 			// REFUSAL 3 — a mark or tag cannot be accounted for, a mark sits outside the
-			// text, or the result is a loop. The marks are counted against the source
-			// directly; repair_stats alone is not trusted.
-			const shield_tokens = new Set(descriptors.filter(item => item.shield).map(item => item.token))
-			const repair_stats	= data.repair_stats || {}
-			const outside_count = (html) =>
-				extract_dedalo_marks(html).length - marks_in_text_nodes(html, extract_dedalo_marks).length
-			const report = validate_translation(clean_source_text, restored_text, {
-				repaired		: repair_stats.repaired || [],
-				unrepairable	: repair_stats.unrepairable || [],
-				duplicated		: [...(repair_stats.duplicated || []), ...restored.duplicated],
-				residual		: repair_stats.residual || [],
-				reordered		: [...ordered.reordered, ...ordered_tokens.reordered],
-				tags_missing	: restored.missing.filter(token => shield_tokens.has(token)),
-				stray			: restored.residual,
-				structure_moved	: structure_out_of_order(md, ordered_tokens.text, block_tokens),
-				outside_text	: Math.max(0, outside_count(restored_text) - outside_count(clean_source_text))
-			})
+			// text, the structure moved or crossed, or the result is a loop (report, from
+			// finish_translation: the marks are counted against the source directly;
+			// repair_stats alone is not trusted).
 			const mark_lines = mark_report_lines(report, get_label)
 			if (report.refused) {
 				refuse_run([

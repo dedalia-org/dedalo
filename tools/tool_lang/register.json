@@ -2024,6 +2024,61 @@
           },
           {
             "lang": "lg-ara",
+            "name": "tags_crossed",
+            "value": "%s من الوسوم عادت متداخلة بشكل خاطئ (تُغلق داخل وسم آخر)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "tags_crossed",
+            "value": "%s etiquetes han tornat mal niades (es tanquen dins d’una altra etiqueta)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "tags_crossed",
+            "value": "%s Tags kamen falsch verschachtelt zurück (sie schließen innerhalb eines anderen Tags)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "tags_crossed",
+            "value": "%s ετικέτες επέστρεψαν λάθος εμφωλευμένες (κλείνουν μέσα σε άλλη ετικέτα)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "tags_crossed",
+            "value": "%s tags came back wrongly nested (closing inside another tag)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "tags_crossed",
+            "value": "%s etiketa gaizki habiaratuta itzuli dira (beste etiketa baten barruan ixten dira)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "tags_crossed",
+            "value": "%s balises sont revenues mal imbriquées (elles se ferment à l’intérieur d’une autre balise)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "tags_crossed",
+            "value": "%s tag sono tornati annidati in modo errato (si chiudono dentro un altro tag)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "tags_crossed",
+            "value": "%s ट्यागहरू गलत तरिकाले नेस्ट भएर फर्किए (अर्को ट्यागभित्र बन्द हुन्छन्)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "tags_crossed",
+            "value": "%s etiquetas voltaram mal aninhadas (fecham dentro de outra etiqueta)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "tags_crossed",
+            "value": "%s etiquetas volvieron mal anidadas (se cierran dentro de otra etiqueta)"
+          },
+          {
+            "lang": "lg-ara",
             "name": "translation_no_model",
             "value": "لم تبدأ الترجمة: لا يقدّم هذا التثبيت أي نموذج ترجمة في المتصفح"
           },

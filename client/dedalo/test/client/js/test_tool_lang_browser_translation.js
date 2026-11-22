@@ -494,17 +494,44 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		}
 	});
 
-	it('an empty spacer paragraph inside a div survives (a space, and the editor’s &nbsp;)', async () => {
+	it('an empty spacer paragraph inside a div comes back exactly (a space stays a space, &nbsp; stays &nbsp;)', async () => {
 		window.Worker = make_fake_worker(IDENTITY);
 
-		const run = await run_translation({ source: '<div><p> </p><p>&nbsp;</p><p>Texto.</p></div>' });
+		const source = '<div><p> </p><p>&nbsp;</p><p>Texto.</p></div>';
+		const run = await run_translation({ source });
 
 		assert.isNull(run.rejected, run.status_text);
-		// both come back as the editor's spacer: a plain space would collapse the paragraph
-		assert.equal(saved_value(run.saves), '<div><p>&nbsp;</p><p>&nbsp;</p><p>Texto.</p></div>');
+		// a paragraph with nothing to translate is one atom: no synthetic &nbsp;, no lost line
+		assert.equal(saved_value(run.saves), source);
 	});
 
-	it('layout whitespace between list items / cells is dropped, never sent or saved as text', async () => {
+	it('identity round-trip in the REAL browser: the pipeline gives back what it took (parse5 twin: tool_lang_identity_roundtrip)', async () => {
+		// the browser's own reading of an HTML value: what an editor would show and save
+		const as_browser = (html) => new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
+		for (const source of [
+			'<ul>\n  <li>uno <strong>dos</strong></li>\n  <li><p>tres <em>cuatro</em></p><ul><li>anidado</li></ul></li>\n  <li></li>\n</ul>',
+			'<blockquote><em><p>Primera frase.</p><p>Segunda frase.</p></em></blockquote>',
+			'<ul><li><strong>a <div>b</div> c</strong></li></ul>',
+			'<div><strong>uno<p>dos</p></strong><em>x</em></div>',
+			'<p>uno <strike>dos</strike> <big>tres</big> <tt>cuatro</tt> cinco</p>',
+			'<p>10&nbsp;km y <b>negrita</b> e <i>cursiva</i></p>',
+			'<div>\n</div><p class="c"> </p><p>x <!-- comentario --> y</p>',
+			'<ul><li>l`Hospitalet</li><li>d`Urgell</li></ul>',
+			'<p>&lt;p&gt;texto&lt;/p&gt;</p>',
+			'Línea uno<br>línea dos<br><br>línea tres',
+			'<p>pua \uE000 \uE007\uE008ib</p>',
+			'<table>\n<tr><td> </td><td><strong>a</strong> <em>b</em></td></tr>\n</table>',
+			'<p><strong>a</strong>  <em>b</em> y <span class="k">c</span>   <sub>d</sub></p>',
+		]) {
+			window.Worker = make_fake_worker(IDENTITY);
+			dispose_browser_worker();
+			const run = await run_translation({ source });
+			assert.isNull(run.rejected, `${source}: ${run.status_text}`);
+			assert.equal(as_browser(saved_value(run.saves)), as_browser(source), source);
+		}
+	});
+
+	it('layout whitespace between list items / cells is kept exactly, never sent', async () => {
 		const sent = [];
 		window.Worker = make_fake_worker({
 			translate: async (text) => {
@@ -513,10 +540,11 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 			},
 		});
 
-		const run = await run_translation({ source: '<ul>\n  <li>Uno.</li>\n  <li>Dos.</li>\n</ul>' });
+		const source = '<ul>\n  <li>Uno.</li>\n  <li>Dos.</li>\n</ul>';
+		const run = await run_translation({ source });
 
 		assert.isNull(run.rejected, run.status_text);
-		assert.equal(saved_value(run.saves), '<ul><li>Uno.</li><li>Dos.</li></ul>');
+		assert.equal(saved_value(run.saves), source);
 		assert.deepEqual(sent, ['Uno.', 'Dos.']);
 	});
 
