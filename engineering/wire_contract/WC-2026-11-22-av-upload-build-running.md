@@ -50,3 +50,15 @@
   target). The panel renders either through `handle_api_error`. **Owner-confirmed
   2026-11-22**: the 400 → 409 change for the own-tier-busy refusal is the ruled
   shape, not a provisional one.
+- **Addendum 2026-11-22 (owner ruling 5, cross-process):** the refusal holds
+  across server instances. Every component-scoped holder (upload claim, ingest
+  transcode, per-quality build) also takes a per-component lock FILE with
+  O_EXCL in the shared processes dir (`<DEDALO_MEDIA_PROCESSES_DIR>/component_locks/`,
+  `src/core/media/component_lock.ts`) — memory first, then the file, released
+  together. A lock held by another LIVE instance answers the same
+  `media.build_running` (409); a stale one (dead pid on the same host, heartbeat
+  older than 120 s, unreadable and old, this instance's own leftover) is
+  reclaimed under a second O_EXCL mutex and logged. Requirement: every instance
+  serving one media tree shares one processes dir
+  (`engineering/PRODUCTION.md` §8.1). No wire shape changes. Gate:
+  `test/unit/media_component_lock_native.test.ts`.

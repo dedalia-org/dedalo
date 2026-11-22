@@ -1511,6 +1511,26 @@ claim/sweep cadences (run them in a dedicated instance/host instead). The
 delete-propagation executor registers regardless. `DEDALO_DIFFUSION_MAX_RUNNERS`
 (default 2) is enforced atomically inside the claim statement.
 
+### 8.1 Several instances, one media tree: share the processes dir
+
+Media jobs run IN-PROCESS, each instance with its own registry. What keeps two
+instances from building the same av component at once (an upload on one
+replacing the master under a transcode on the other — A1-01) is a per-component
+LOCK FILE in the media processes dir (`DEDALO_MEDIA_PROCESSES_DIR`, default
+`../private/processes`, subdirectory `component_locks/`; `src/core/media/component_lock.ts`).
+So every instance that serves the same media tree MUST point
+`DEDALO_MEDIA_PROCESSES_DIR` at ONE shared directory, on a filesystem with an
+atomic exclusive create and rename (any local filesystem; NFSv3+ for a network
+share). Instances with separate processes dirs see each other's builds as free —
+the guard degrades to per-instance, silently.
+
+The lock file names its holder (host, pid, instance, start, heartbeat refreshed
+every 15 s). A lock is reclaimed — and logged `[media lock] reclaimed …` — when
+its holder's pid is dead on the same host, or its heartbeat is older than
+120 s (a dead or hung host). Keep the hosts' clocks NTP-synchronized: a clock
+skew near the 120 s bound makes a live remote lock look stale. A crash leaves
+nothing to clean by hand: the next acquire reclaims it.
+
 ## 9. Residue lifecycle (S3-46/62/63/64)
 
 Automatic: media pfiles reconciled at boot + pruned after 30 days (terminal);

@@ -621,6 +621,10 @@ Merged since the last release; these ship with the next one.
     quality — while the field is busy. Wait for the job in the activity tray to finish, then try
     again. Other fields of the same record are not affected. See [Upload](./using/tools/using_upload.md).
 
+    The rule holds across server instances: when several instances serve the same installation, they
+    must share one media processes directory (`DEDALO_MEDIA_PROCESSES_DIR`), where the per-field build
+    locks live. See [the configuration reference](./administration/configuration/config.md).
+
     Wire contract: `WC-2026-11-22-av-upload-build-running`.
 
 - **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**

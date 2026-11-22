@@ -1183,6 +1183,8 @@ Every media job writes a small JSON file with its state (progress, errors, resul
 
 By default Dédalo writes them to \`processes/\` inside the private directory, which the server creates on demand. Change it when the private directory is on a read-only or network volume, or when several installations share one host and their job files must stay apart. The server needs read/write access to the directory as its owner.
 
+The directory also holds the audio/video build locks (\`component_locks/\`): one build per field at a time. When several server instances serve the SAME installation and media files, they must all use ONE shared processes directory, on a filesystem with atomic exclusive file creation (any local disk; NFS version 3 or later), and their clocks must be synchronized — otherwise each instance can start a build of the same field.
+
 \`\`\`bash
 DEDALO_MEDIA_PROCESSES_DIR="/var/lib/dedalo/processes"
 \`\`\``,

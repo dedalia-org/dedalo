@@ -76,6 +76,14 @@ import {
 	type RequestContext,
 	runWithRequestContext,
 } from '../security/request_context.ts';
+import {
+	acquireComponentLock,
+	type ComponentLockContext,
+	type ComponentLockHandle,
+	componentLockBusy,
+	refreshComponentLock,
+	releaseComponentLock,
+} from './component_lock.ts';
 import { runWithJobSignal } from './job_scope.ts';
 import {
 	resolveProcessesDir,
@@ -353,6 +361,20 @@ export function jobTargetKey(target: JobTarget): string {
 function componentScopeKey(target: JobTarget): string {
 	return jobTargetKey({ ...target, quality: '*' });
 }
+
+/**
+ * The CROSS-PROCESS lock key of a component-scoped target (component_lock.ts):
+ * the component, every tier — section|id|component|lang.
+ */
+function componentLockKey(target: JobTarget): string {
+	return [target.section_tipo, target.section_id, target.component_tipo, target.lang ?? ''].join(
+		'|',
+	);
+}
+
+/** Heartbeat of a held component lock, and the age past which another instance reclaims it. */
+const COMPONENT_LOCK_HEARTBEAT_MS = 15_000;
+const COMPONENT_LOCK_STALE_AFTER_MS = 120_000;
 
 /**
  * The key PREFIX every target on one record shares.
@@ -813,6 +835,11 @@ export interface MediaJobManagerOptions {
 	/** Per-lane deadline in ms; 0 disables. Per-submit override: `JobSubmitMeta.deadlineMs`. */
 	deadlinesMs?: Partial<Record<JobLane, number>>;
 	clock?: () => number;
+	/** This manager's identity in a component lock file (default: random per manager). */
+	instanceId?: string;
+	/** Component-lock heartbeat period and stale bound (ms) — see component_lock.ts. */
+	lockHeartbeatMs?: number;
+	lockStaleAfterMs?: number;
 }
 
 /** What a submit site must declare. `lane` is REQUIRED — see `submit`. */
@@ -894,12 +921,25 @@ export class MediaJobManager {
 	private readonly deadlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	/** Submit-site terminal callbacks by job id (JobSubmitMeta.onTerminal) — fired once, then dropped. */
 	private readonly terminalCallbacks = new Map<string, (record: JobRecord) => void>();
+	/**
+	 * CROSS-PROCESS component locks held by this manager, by holder (claim or
+	 * job) id — taken with the in-memory index (memory first, then the file) for
+	 * every `scope: 'component'` holder, released with it (component_lock.ts).
+	 */
+	private readonly fileLocks = new Map<string, ComponentLockHandle>();
+	private readonly instance: string;
+	private readonly lockHeartbeatMs: number;
+	private readonly lockStaleAfterMs: number;
+	private heartbeat: ReturnType<typeof setInterval> | null = null;
 
 	constructor(options: MediaJobManagerOptions = {}) {
 		this.budgets = resolveLaneMap(options.budgets, DEFAULT_LANE_BUDGETS, 1);
 		this.deadlinesMs = resolveLaneMap(options.deadlinesMs, DEFAULT_LANE_DEADLINES_MS, 0);
 		for (const lane of JOB_LANES) this.lanes[lane] = { active: 0, queue: [] };
 		this.clock = options.clock ?? (() => Math.round(globalThis.performance.now()));
+		this.instance = options.instanceId ?? crypto.randomUUID();
+		this.lockHeartbeatMs = options.lockHeartbeatMs ?? COMPONENT_LOCK_HEARTBEAT_MS;
+		this.lockStaleAfterMs = options.lockStaleAfterMs ?? COMPONENT_LOCK_STALE_AFTER_MS;
 	}
 
 	/** Allocate a deterministic job id (no Date/Math.random — resume-safe). */
@@ -986,10 +1026,86 @@ export class MediaJobManager {
 		this.indexKeys(record.id, record.target);
 	}
 
-	/** Drop a job from the live-by-target index (called on EVERY terminal path). */
+	/** Drop a job from the live-by-target index AND its component lock (EVERY terminal path). */
 	private unindexLive(record: JobRecord): void {
 		if (record.target === undefined) return;
 		this.unindexKeys(record.id, record.target);
+		this.dropFileLock(record.id);
+	}
+
+	/** Where and as whom this manager takes component locks (the SHARED processes dir). */
+	private lockContext(): ComponentLockContext {
+		return {
+			dir: join(processesDir(), 'component_locks'),
+			instance: this.instance,
+			staleAfterMs: this.lockStaleAfterMs,
+			holdsInMemory: (token) => [...this.fileLocks.values()].some((held) => held.token === token),
+		};
+	}
+
+	/**
+	 * Take the cross-process lock for a component-scoped holder, AFTER the
+	 * in-memory check passed. False when another instance holds the component.
+	 * An unscoped target takes no lock (true).
+	 */
+	private takeFileLock(holderId: string, target: JobTarget): boolean {
+		if (target.scope !== 'component') return true;
+		const handle = acquireComponentLock(componentLockKey(target), holderId, this.lockContext());
+		if (handle === null) return false;
+		this.fileLocks.set(holderId, handle);
+		this.armHeartbeat();
+		return true;
+	}
+
+	/** Give a holder's component lock back (never throws: called on terminal paths). */
+	private dropFileLock(holderId: string): void {
+		const handle = this.fileLocks.get(holderId);
+		if (handle === undefined) return;
+		this.fileLocks.delete(holderId);
+		if (this.fileLocks.size === 0) this.disarmHeartbeat();
+		try {
+			releaseComponentLock(handle);
+		} catch (error) {
+			console.error(
+				`[media lock] releasing ${handle.key} (${holderId}) failed: ${(error as Error).message}`,
+			);
+		}
+	}
+
+	/** A job ADOPTING a claim keeps the claim's lock file: the component is never free in between. */
+	private moveFileLock(fromId: string, toId: string): void {
+		const handle = this.fileLocks.get(fromId);
+		if (handle === undefined) return;
+		this.fileLocks.delete(fromId);
+		this.fileLocks.set(toId, handle);
+	}
+
+	/** Refresh every held lock's heartbeat while any is held (unref'd: never keeps the process up). */
+	private armHeartbeat(): void {
+		if (this.heartbeat !== null) return;
+		this.heartbeat = setInterval(() => this.refreshFileLocks(), this.lockHeartbeatMs);
+		this.heartbeat.unref?.();
+	}
+
+	private disarmHeartbeat(): void {
+		if (this.heartbeat === null) return;
+		clearInterval(this.heartbeat);
+		this.heartbeat = null;
+	}
+
+	/** One heartbeat pass; a lock no longer ours (reclaimed past the bound) is logged. */
+	private refreshFileLocks(): void {
+		for (const [holderId, handle] of this.fileLocks) {
+			try {
+				if (!refreshComponentLock(handle)) {
+					console.error(
+						`[media lock] ${handle.key} (${holderId}) was reclaimed by another instance`,
+					);
+				}
+			} catch (error) {
+				console.error(`[media lock] heartbeat ${handle.key} failed: ${(error as Error).message}`);
+			}
+		}
 	}
 
 	/** Enter one holder (a job id or a claim id) under every key its target occupies. */
@@ -1040,6 +1156,8 @@ export class MediaJobManager {
 		if (this.occupiedByOther(target, null)) return null;
 		this.counter += 1;
 		const id = `claim_${process.pid}_${this.counter}`;
+		// Memory first, then the file: another INSTANCE may hold the component.
+		if (!this.takeFileLock(id, target)) return null;
 		this.claims.set(id, target);
 		this.indexKeys(id, target);
 		return { id, target, release: () => this.releaseClaim(id) };
@@ -1051,6 +1169,7 @@ export class MediaJobManager {
 		if (target === undefined) return;
 		this.claims.delete(id);
 		this.unindexKeys(id, target);
+		this.dropFileLock(id);
 	}
 
 	/**
@@ -1058,10 +1177,24 @@ export class MediaJobManager {
 	 * validate the claim, refuse a busy target, then release the claim — the
 	 * caller indexes the job in the SAME tick, so nothing can slip in between.
 	 */
-	private admitTargeted(meta: JobSubmitMeta): void {
+	private admitTargeted(meta: JobSubmitMeta, jobId: string): void {
 		const claimId = meta.claim === undefined ? null : this.assertClaimHeld(meta.claim, meta.target);
 		if (meta.exclusive === true) this.assertTargetFree(meta.target, claimId);
-		if (claimId !== null) this.releaseClaim(claimId);
+		if (claimId !== null) {
+			this.moveFileLock(claimId, jobId);
+			this.releaseClaim(claimId);
+		} else if (meta.exclusive === true && meta.target !== undefined) {
+			this.assertFileLockTaken(jobId, meta.target);
+		}
+	}
+
+	/** The exclusive submit's cross-process half: another instance holding the component refuses. */
+	private assertFileLockTaken(jobId: string, target: JobTarget): void {
+		if (this.takeFileLock(jobId, target)) return;
+		throw new DedaloError('media.build_running', {
+			message: `media job submit: '${jobTargetKey(target)}' is held by another server instance`,
+			coordinates: { target: jobTargetKey(target) },
+		});
 	}
 
 	/** A claim handed to submit must still be held and name the job's own target. */
@@ -1103,12 +1236,14 @@ export class MediaJobManager {
 	 *
 	 * THE LIMIT, stated rather than discovered: a SECOND server instance sharing
 	 * ../private/processes (a deployment `isStaleLiveRecord` explicitly
-	 * contemplates) has its own registry, so each instance could admit a build for
-	 * the same target. The cost is a wasted duplicate encode whose loser is
-	 * discarded by the atomic rename — never corruption — but if this ever needs
-	 * to be exact, the fix is to promote media jobs onto the durable queue, not to
-	 * bolt a lock onto this map. The same limit bounds the av upload refusal
-	 * (A1-01): an upload on instance B does not see a transcode on instance A.
+	 * contemplates) has its own registry, so THIS question answers for this
+	 * instance only — for a generic target the cost is a wasted duplicate encode
+	 * whose loser is discarded by the atomic rename, never corruption. The av
+	 * build family (`scope: 'component'`, A1-01) does NOT live with that limit:
+	 * its claims and exclusive submits also take the cross-process component lock
+	 * file (component_lock.ts; `isOccupied` asks it), so an upload on instance B
+	 * sees a transcode on instance A — provided both share the processes dir
+	 * (engineering/PRODUCTION.md §8.1).
 	 *
 	 * A held CLAIM (claimTarget) counts as live: an av upload between its check
 	 * and its transcode submit occupies the tier exactly as the job will.
@@ -1119,12 +1254,17 @@ export class MediaJobManager {
 
 	/**
 	 * Would `target` be refused right now? The exclusive guard's own question
-	 * (every key it occupies: tier, companion tiers, the component when scoped),
-	 * for a pre-flight that must answer BEFORE it awaits anything. A question,
-	 * not a reservation: the answer that holds is the exclusive submit's.
+	 * (every key it occupies: tier, companion tiers, the component when scoped —
+	 * and, scoped, the cross-process component lock of ANOTHER instance), for a
+	 * pre-flight that must answer BEFORE it awaits anything. A question, not a
+	 * reservation: the answer that holds is the exclusive submit's.
 	 */
 	isOccupied(target: JobTarget): boolean {
-		return this.occupiedByOther(target, null);
+		if (this.occupiedByOther(target, null)) return true;
+		return (
+			target.scope === 'component' &&
+			componentLockBusy(componentLockKey(target), this.lockContext())
+		);
 	}
 
 	/**
@@ -1237,9 +1377,11 @@ export class MediaJobManager {
 	 */
 	submit(kind: string, worker: JobWorker, meta: JobSubmitMeta): JobRecord {
 		assertNotReadOnlyRequest('MediaJobManager.submit');
-		// Before anything is registered: a refusal here leaves no trace.
-		this.admitTargeted(meta);
+		// The id first (a refused submit spends one counter value, nothing else),
+		// so the component lock is taken under the job's own name. Then, before
+		// anything is registered: a refusal here leaves no trace.
 		const id = this.nextId(kind);
+		this.admitTargeted(meta, id);
 		// The worker's identity, read NOW — the request's synchronous flow is the
 		// only moment it is the submitter's (JobRunScope).
 		const scope = captureJobRunScope(id);

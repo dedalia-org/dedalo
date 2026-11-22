@@ -3293,8 +3293,9 @@ export const ERROR_REGISTRY = {
 	},
 	// A version build (the ingest transcode or a per-quality build of ANY tier)
 	// or an upload in flight holds the av COMPONENT an upload or another build
-	// targets — one build per component (A1-01; v6 component_av build lock,
-	// is_build_locked, tool_upload :80). Replacing the master while ffmpeg reads
+	// targets — one build per component, across every server instance sharing
+	// the processes dir (A1-01; v6 component_av build lock, is_build_locked,
+	// tool_upload :80; the cross-process half is media/component_lock.ts). Replacing the master while ffmpeg reads
 	// it lets the encode of the OLD master win the default tier.
 	// Refused BEFORE the move: the staged upload is discarded, the original
 	// untouched. Not retryable: the running transcode takes minutes, an
