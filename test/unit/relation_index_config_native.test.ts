@@ -205,6 +205,31 @@ describe('thesaurus tree badge count honors the inverse question', () => {
 		);
 		expect(excluded.total).toBe(baseExcluded); // scratch pointer filtered out
 	});
+
+	// T2 THES-06: a group label is the pointing section's label in the REQUEST
+	// application lang (labelByTipo's request-scoped default) — never the install
+	// structure lang. test3 is labelled differently in lg-eng and lg-spa.
+	test('group labels follow the request application lang', async () => {
+		const { getCountDataGroupBy } = await import('../../src/core/ts_object/ts_object.ts');
+		const { runWithRequestLangs } = await import('../../src/core/resolve/request_lang.ts');
+		const { clearLabelCache } = await import('../../src/core/ontology/labels.ts');
+		const labelIn = async (applicationLang: string): Promise<string | null | undefined> => {
+			const counted = await runWithRequestLangs({ applicationLang, dataLang: 'lg-eng' }, () =>
+				getCountDataGroupBy(TARGET.section_tipo, TARGET.section_id, FILTERED_TIPO, {} as never),
+			);
+			return counted.totals_group.find((group) => group.key === 'test3')?.label;
+		};
+		const rows = (await sql.unsafe(`SELECT term FROM dd_ontology WHERE tipo = 'test3'`)) as {
+			term: Record<string, string>;
+		}[];
+		const english = rows[0]?.term['lg-eng'];
+		const spanish = rows[0]?.term['lg-spa'];
+		expect(typeof english).toBe('string');
+		expect(english).not.toBe(spanish);
+		clearLabelCache();
+		expect(await labelIn('lg-eng')).toBe(english);
+		expect(await labelIn('lg-spa')).toBe(spanish);
+	});
 });
 
 describe('relation_index resolver computes in EDIT mode', () => {

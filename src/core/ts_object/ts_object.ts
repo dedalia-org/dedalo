@@ -40,7 +40,7 @@ import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
 import { DedaloError } from '../errors/index.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
-import { labelByTipo, ONTOLOGY_LABEL_FALLBACK_LANG } from '../ontology/labels.ts';
+import { labelByTipo } from '../ontology/labels.ts';
 import {
 	HIERARCHY_BUTTON_NEW,
 	HIERARCHY_MAIN_SECTION,
@@ -366,15 +366,13 @@ export async function getCountDataGroupBy(
 	const totalsGroup: { key: string; label: string | null; value: number }[] = [];
 	for (const group of counted.totals_group ?? []) {
 		const key = group.key[0] ?? '';
-		// The label chain in the label-fallback lang (the old private copy read
-		// the structure lang first), null when the node has none — S2-27:
-		// resolved through the cached canonical label module instead of a raw
-		// per-call query.
-		totalsGroup.push({
-			key,
-			label: await labelByTipo(key, ONTOLOGY_LABEL_FALLBACK_LANG),
-			value: group.value,
-		});
+		// The pointing section's label in the REQUEST application lang, through
+		// the one ontology label chain (labels.ts resolveLabel: requested →
+		// equivalent → label-fallback lang → …), null when the node has none
+		// (T2 THES-06: it used to be pinned to the install's label-fallback
+		// lang, so every user read the group names in one language). S2-27:
+		// the cached canonical label module, not a raw per-call query.
+		totalsGroup.push({ key, label: await labelByTipo(key), value: group.value });
 	}
 	return { total: counted.total, totals_group: totalsGroup };
 }
