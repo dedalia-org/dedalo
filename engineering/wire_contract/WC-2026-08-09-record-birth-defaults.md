@@ -266,3 +266,35 @@ divergence from PHP.
   the run writes nothing; apply refused; scope) + the registry's pair proof
   (`reconcile_registry_native` PLANTERS.record_missing_defaults).
 - **Gate reconciliation:** TS-native only; no fixture, no re-harvest.
+
+## Addendum 2026-11-22 — the tree's "+" adds no flag value of its own (T2 THES-04/05, owner M4)
+
+- **Before:** `add_child` (`src/core/ts_object/ts_api.ts`) staged `dd64/1` (Yes) on the
+  section_map's `thesaurus.is_descriptor` and `thesaurus.is_indexable` components AFTER the
+  create door had seeded the record — overwriting a declared `dato_default` (a component
+  declaring `dd64/2` was born `/1`), inventing a value where none was declared, writing the
+  section_id as the STRING `'1'`, and logging the re-written birth state as a save (one Time
+  Machine row per flag).
+- **After:** the hardcode and both writes are deleted. A tree-created term carries exactly
+  what this entry's birth seed writes: a declared `dato_default` (int section_id, no Time
+  Machine row — the birth state is not a change, §Reason 3); NOTHING for a flag whose
+  component declares no default. The section_map warnings (`Invalid section_map
+  'is_descriptor' / 'is_indexable' property from section`) are unchanged.
+- **Ruling:** owner 2026-11-19 (M4) — no `dato_default` is added to the master ontology's
+  flag components (rsc678, rsc1027, rsc1032, rsc1033, hierarchy4): "the default is not
+  correct in there; the user must handle these properties manually". So on the shipped
+  ontology a new tree term's is_descriptor / is_indexable start EMPTY. Consequence, stated:
+  a child with no is_descriptor value is listed under its parent (the children list reads
+  every child) but counts as neither descriptor nor non-descriptor
+  (`relations/children.ts getChildrenOfType`), so it does not light `has_descriptor_children`
+  until a curator sets the flag.
+- **THES-05:** the string id disappeared with the hardcode. Its sibling at
+  `ontology_write.ts` (the registry row's project-filter locator, `section_id: '1'`) was
+  verified canonical: it passes `relationLocator`, which stores `canonicalizeStoredSectionId`
+  (int).
+- **Gate:** `test/unit/ts_api_mutations_native.test.ts` — *addChild — the flags are what the
+  ontology declares* on the `zztad` situation: declared `/2` → `/2`; undeclared → no key;
+  declared `/1` → one item, int id, zero Time Machine rows for the flag key (the parent link,
+  add_child's own write, keeps its one). Red before on every leg; mutations (hardcode on the
+  undeclared flag only; on the declared flag only, int id) red.
+- **Gate reconciliation:** TS-native only; no fixture, no re-harvest.

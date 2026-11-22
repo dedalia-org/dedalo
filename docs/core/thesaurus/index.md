@@ -244,7 +244,7 @@ loop: removing the link that closes it, or adding a broader term that does not
 touch it, is accepted.
 
 3. **Recorded writes.** Every key a tree mutation writes (a parent link, an
-   order value, a new term's defaults) goes through the record-write chokepoint
+   order value, a new term's ontology TLD) goes through the record-write chokepoint
    in the same transaction (`persistTreeKeys` → `persistRecordKeys`): the
    record's *modified by* / *modified date* stamps move, the derived index and
    the post-write chain (save event, observers) run, and the Time Machine keeps
@@ -295,7 +295,7 @@ sequenceDiagram
     end
 ```
 
-- **`add_child`** (`addChild`, `ts_api.ts`) validates everything (section map flags, parent component resolution) *before* creating the record; creation, default `is_descriptor`/`is_indexable` values, ontology TLD inheritance and the parent link are one atomic unit. The record is created via `createSectionRecord` (`src/core/section/record/create_record.ts`). The new child's order is assigned under the parent lock.
+- **`add_child`** (`addChild`, `ts_api.ts`) validates everything (section map flags, parent component resolution) *before* creating the record; creation, ontology TLD inheritance and the parent link are one atomic unit. The record is created via `createSectionRecord` (`src/core/section/record/create_record.ts`), so the new term is born with exactly the defaults its components declare (`dato_default`) — `add_child` writes no `is_descriptor`/`is_indexable` value of its own: a flag whose component declares no default is left empty for the curator to set. The new child's order is assigned under the parent lock.
 - **`update_parent_data`** (`updateParentData`) rejects moving a node under itself or under its own descendant with `tree.cycle`. An unlocked pre-check (`isAncestor`) answers the ordinary case before the transaction opens; the authoritative check is the locked walk inside `moveParent()` (`src/core/relations/parent.ts`), which also catches a racing move (see *The lock law* above).
 - **`save_order`** (`saveOrder`) rewrites sibling order values per parent context in one transaction; unchanged values are skipped (no time-machine noise). Repeating the same order is a no-op. Backed by `sortChildren`/`recalculateSiblingOrders` (`src/core/relations/parent.ts`). The order is rewritten 1..n from the list the client sends, so under the parent lock that list must be exactly the parent's current children — no sibling missing, none foreign, none repeated — or the call answers `409 resource.conflict` ("the list of terms is out of date") and writes nothing; the client then restores its local order. A node with more than one page of children is reordered only once all its pages are loaded. See `WC-2026-11-07-save-order-complete-list`.
 - **Delete** is only allowed for terms without children (the delete dialog lists existing relations first); it removes the record, updates the parent's children data and destroys the client instance. It is **not** one of the five tree actions — term delete goes through the generic section-record delete path, which enforces the same children-exist refusal (see [`sections`](../sections/sections.md#bulk-delete--the-delete-api-action)).

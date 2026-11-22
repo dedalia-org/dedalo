@@ -222,6 +222,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-section-containment-law`.
 
+- **A term added from the thesaurus tree is no longer marked descriptor and indexable automatically.**
+
+    The "+" of the thesaurus tree used to set *descriptor* and *indexable* to Yes on every new
+    term, even where the thesaurus defines another default (a term defined to start as a
+    non-descriptor was created as a descriptor). A new term now starts with exactly the
+    defaults its thesaurus defines. Where the thesaurus defines none — the case for the
+    standard thesauri — both fields start empty: set them on the new term yourself. Until
+    *descriptor* is set, the term is listed under its parent but is not counted as a descriptor
+    or a non-descriptor.
+
+    Wire contract: `WC-2026-08-09-record-birth-defaults`.
+
 - **"Zotero import: a whole-number call number is the record number — checked, and refused when it would overwrite another reference."**
 
     Zotero has no identifier you can edit, so the record number of a reference is read from its
