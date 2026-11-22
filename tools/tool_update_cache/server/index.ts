@@ -42,12 +42,12 @@
  *   re-running the save path's derivation.
  */
 
-import { isDerivedModel } from '../../../src/core/components/registry.ts';
+import { isDerivedModel, regenerateStoredItems } from '../../../src/core/components/registry.ts';
 import { isMediaModel, mediaTypeOf } from '../../../src/core/concepts/media.ts';
 import { DedaloError, isDedaloError, ok } from '../../../src/core/errors/index.ts';
 import type { StoredMediaItem } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
-import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { buildSectionElementsContext } from '../../../src/core/resolve/section_elements_context.ts';
 import type { Principal } from '../../../src/core/security/permissions.ts';
 import { authorizeRecordAccess, type RecordGrant } from '../../../src/core/security/write_door.ts';
@@ -217,7 +217,9 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	const { createSectionRecord } = await import('../../../src/core/section/record/create_record.ts');
 	const { BULK_PROCESS_TIPOS } = await import('../../../src/core/concepts/section.ts');
 	const { getTermByTipo } = await import('../../../src/core/ontology/resolver.ts');
-	const labelLang = typeof ctx.options.lang === 'string' ? ctx.options.lang : 'lg-eng';
+	// The run label is read by the operator: the REQUEST's application lang
+	// (T2-OX7-1a) — never a client-sent `lang` option nor a hard 'lg-eng'.
+	const labelLang = currentApplicationLang();
 	const componentNames = await Promise.all(
 		regenerable.map(async (sel) => {
 			const tipo = String(sel.tipo ?? '');
@@ -786,7 +788,10 @@ async function resaveUnderRowLock(
 			// canonicalStoredItems): a PHP-era numeric-string number is cast as PHP's
 			// set_data did, so re-saving what the record holds is never refused as
 			// malformed (WC-2026-10-03-save-refuses-malformed-value-shape).
-			const items = canonicalStoredItems(column, readComponentItems(record, dataTipo, model) ?? []);
+			const stored = canonicalStoredItems(
+				column,
+				readComponentItems(record, dataTipo, model) ?? [],
+			);
 			// NOTHING STORED, NOTHING TO REGENERATE. An absent (or empty) key has no
 			// value a derivation could refresh — and re-saving it would store `[]`
 			// over ABSENCE, which the undo log (canonicalJson keeps the two apart)
@@ -794,7 +799,18 @@ async function resaveUnderRowLock(
 			// by the sweep" history row for every record of a sparse component. WC
 			// …-bulk-revert-undo-log §2: a re-save that changes nothing leaves
 			// history untouched.
-			if (items.length === 0) return 'empty';
+			if (stored.length === 0) return 'empty';
+			// THE MODEL'S REGENERATE NORMALISATION (T2-LIF-1/2, descriptor facet
+			// `regenerate` — v6 regenerate_component): applied to the items AS THEY
+			// STAND UNDER THE LOCK, in the transaction that writes them — an old
+			// text_area time code gains its milliseconds, a component_json value
+			// stored as a JSON string is decoded. A record the facet REFUSES (a
+			// string that is not JSON) is that record's verdict: reported, nothing
+			// written (v6 aborted the whole component's regenerate there). A read
+			// never decodes: this door is the repair.
+			const regenerated = regenerateStoredItems(model, stored);
+			if ('refused' in regenerated) throw new ResaveRefused(regenerated.refused);
+			const items = regenerated.items;
 			// The stored array carries EVERY language; set_data is lang-sliced (PHP
 			// set_data_lang), so a translatable literal is re-saved one lang group at
 			// a time — a single flat save would re-stamp every translation onto

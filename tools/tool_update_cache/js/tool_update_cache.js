@@ -249,8 +249,10 @@ tool_update_cache.prototype.get_components_list = async function() {
 *       background_running     : true,
 *       section_tipo           : string,
 *       components_selection   : [{ tipo, regenerate_options }, …],
-*       lang                   : page_globals.dedalo_application_lang
+*       sqo                    : the caller list's live sqo
 *     }
+*   (no `lang`: the server labels the run in the request's application
+*   language — T2-OX7-1a)
 *   }
 *
 * Worker config:
@@ -314,8 +316,7 @@ tool_update_cache.prototype.update_cache = function() {
 				background_running		: true, // set run in background CLI
 				section_tipo			: section_tipo,
 				components_selection	: components_selection,
-				sqo						: caller_sqo,
-				lang					: page_globals.dedalo_application_lang
+				sqo						: caller_sqo
 			}
 		}
 

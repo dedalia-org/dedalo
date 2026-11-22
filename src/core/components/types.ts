@@ -286,6 +286,28 @@ export type ImportAppendPolicy =
 export type ItemGateId = 'geo_entry';
 
 /**
+ * The REGENERATE IDs a descriptor may name in `regenerate`: the model's own
+ * normalisation of a STORED value, applied by tool_update_cache's regenerate
+ * (resaveUnderRowLock) to the items read UNDER THE ROW LOCK, before the re-save
+ * (the PHP/v6 `regenerate_component()` overrides of the literal models).
+ * PURE over the items: `(items) → { items, changed }` or a per-record
+ * `{ refused }` — a refused record is reported in the run summary and nothing
+ * is written to it (PHP aborted the WHOLE component's regenerate there). Same
+ * DATA shape as `itemGate`: the ID resolves to its implementation in
+ * registry.ts (REGENERATE_IMPLEMENTATIONS), so a descriptor imports no code.
+ * It never runs on a read (no read-time decode). Adding one = add the ID here +
+ * its implementation entry. Pinned by descriptor_completeness_tripwire.
+ *
+ * - 'text_area_legacy_tc': an old time code `[TC_hh:mm:ss_TC]` (no
+ *   milliseconds) becomes `[TC_hh:mm:ss.000_TC]` (v6
+ *   class.component_text_area.php regenerate_component, same regex).
+ * - 'json_string_decode': an item whose `value` is a JSON STRING (PHP-era
+ *   double encoding) is decoded; a string that is not JSON refuses the record
+ *   (v6 class.component_json.php regenerate_component).
+ */
+export type RegenerateId = 'text_area_legacy_tc' | 'json_string_decode';
+
+/**
  * One component model's declarative descriptor. Only the fields the engines
  * actually READ live here; heavier per-model behavior is linked out via file
  * comments (see the DISCIPLINE note above).
@@ -533,4 +555,11 @@ export interface ComponentModel {
 	 * descriptor_completeness_tripwire (the set of record, the append law).
 	 */
 	readonly derived?: true;
+	/**
+	 * The model's REGENERATE normalisation (see RegenerateId), applied only by
+	 * tool_update_cache's regenerate under the row lock — never on a read.
+	 * Omitted = a regenerate re-saves the stored value as it stands. Consumer:
+	 * registry.ts regenerateStoredItems.
+	 */
+	readonly regenerate?: RegenerateId;
 }

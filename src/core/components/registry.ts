@@ -84,6 +84,7 @@ import type {
 	ComponentModel,
 	ImportAppendPolicy,
 	ItemGateId,
+	RegenerateId,
 	RenderClass,
 } from './types.ts';
 
@@ -357,6 +358,89 @@ export function importAppendOfDescriptor(
 		});
 	}
 	return canonical.importAppend;
+}
+
+/**
+ * What a model's regenerate normalisation made of a record's stored items: the
+ * items to re-save (and whether any differs from what was stored), or the
+ * per-record refusal sentence — nothing is written to a refused record.
+ */
+export type RegenerateOutcome =
+	| { readonly items: unknown[]; readonly changed: boolean }
+	| { readonly refused: string };
+
+/** An old time code with no milliseconds (v6 `$old_tc_pattern`, verbatim). */
+const LEGACY_TC = /\[TC_([0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2})_TC\]/g;
+
+/** Map every item's string `value` through `next`; null = refuse with the item's id. */
+function mapItemValues(
+	items: readonly unknown[],
+	next: (value: string) => { value: unknown } | null,
+	refusal: (id: unknown) => string,
+): RegenerateOutcome {
+	let changed = false;
+	const out: unknown[] = [];
+	for (const item of items) {
+		if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+			out.push(item);
+			continue;
+		}
+		const value = (item as { value?: unknown }).value;
+		if (typeof value !== 'string') {
+			out.push(item);
+			continue;
+		}
+		const mapped = next(value);
+		if (mapped === null) return { refused: refusal((item as { id?: unknown }).id) };
+		if (Object.is(mapped.value, value)) {
+			out.push(item);
+			continue;
+		}
+		changed = true;
+		out.push({ ...(item as Record<string, unknown>), value: mapped.value });
+	}
+	return { items: out, changed };
+}
+
+/** THE implementations of the `regenerate` facet (see RegenerateId). Pure. */
+const REGENERATE_IMPLEMENTATIONS: Readonly<
+	Record<RegenerateId, (items: readonly unknown[]) => RegenerateOutcome>
+> = {
+	text_area_legacy_tc: (items) =>
+		mapItemValues(
+			items,
+			(value) => ({ value: value.replace(LEGACY_TC, '[TC_$1.000_TC]') }),
+			() => 'unreachable',
+		),
+	json_string_decode: (items) =>
+		mapItemValues(
+			items,
+			(value) => {
+				try {
+					return { value: JSON.parse(value) as unknown };
+				} catch {
+					return null;
+				}
+			},
+			(id) =>
+				`item ${String(id ?? '?')} stores a string that is not JSON — not regenerated (check the value by hand)`,
+		),
+};
+
+/** Whether a RegenerateId names an implementation (the completeness gate asks). */
+export function hasRegenerateImplementation(id: string): boolean {
+	return Object.hasOwn(REGENERATE_IMPLEMENTATIONS, id);
+}
+
+/**
+ * The model's regenerate normalisation of a record's STORED items
+ * (`regenerate` facet, alias-following): tool_update_cache applies it under the
+ * row lock before the re-save. A model with none answers the items unchanged.
+ */
+export function regenerateStoredItems(model: string, items: readonly unknown[]): RegenerateOutcome {
+	const id = resolveCanonical(model)?.regenerate;
+	if (id === undefined) return { items: [...items], changed: false };
+	return REGENERATE_IMPLEMENTATIONS[id](items);
 }
 
 /**

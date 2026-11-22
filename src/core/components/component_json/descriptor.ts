@@ -15,5 +15,7 @@ export const component_json: ComponentModel = {
 	searchBuilder: 'json',
 	importValueProperty: true,
 	importConform: 'json',
+	// update_cache regenerate: a value stored as a JSON STRING is decoded (v6 regenerate_component).
+	regenerate: 'json_string_decode',
 	flatValue: 'json', // export/panel cell = each stored item as JSON (PHP get_export_value base)
 };

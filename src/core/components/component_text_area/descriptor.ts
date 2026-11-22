@@ -18,4 +18,6 @@ export const component_text_area: ComponentModel = {
 	importValueProperty: true,
 	emitHook: 'text_area',
 	importConform: 'text_area',
+	// update_cache regenerate: old TC marks get their milliseconds (v6 regenerate_component).
+	regenerate: 'text_area_legacy_tc',
 };

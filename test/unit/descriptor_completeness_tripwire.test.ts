@@ -52,9 +52,11 @@ import {
 	getImportAppendPolicy,
 	getRenderClass,
 	getSearchBuilderFamily,
+	hasRegenerateImplementation,
 	importAppendOfDescriptor,
 	isDerivedModel,
 	isMonovalueModel,
+	regenerateStoredItems,
 	relationDataModels,
 	renderClassOfDescriptor,
 } from '../../src/core/components/registry.ts';
@@ -1090,5 +1092,94 @@ describe('descriptor completeness (S2-26 tripwire)', () => {
 		expect(derived).toContain('component_autocomplete_hi');
 		expect(derived).toContain('component_portal');
 		expect(derived).not.toContain('component_input_text');
+	});
+});
+
+/**
+ * THE `regenerate` FACET (T2-LIF-1/2): the literal models whose PHP/v6
+ * regenerate_component normalised the STORED value before re-saving. The set is
+ * PINNED against v6 (class.component_text_area.php / class.component_json.php
+ * regenerate_component — the two literal overrides; the media, portal-external
+ * and relation regenerates are tool_update_cache branches of their own), and each
+ * implementation is driven on real items — an id, not a spelling.
+ */
+describe('the regenerate facet (T2-LIF-1/2)', () => {
+	const V6_REGENERATE: Record<string, string> = {
+		component_json: 'json_string_decode',
+		component_text_area: 'text_area_legacy_tc',
+	};
+
+	test('the declared set equals the v6 literal overrides, and every id names an implementation', () => {
+		const declared: Record<string, string> = {};
+		for (const descriptor of allComponentModels()) {
+			if (descriptor.regenerate === undefined) continue;
+			declared[descriptor.model] = descriptor.regenerate;
+			expect(
+				hasRegenerateImplementation(descriptor.regenerate),
+				`${descriptor.model} names a regenerate implementation that does not exist: '${descriptor.regenerate}'`,
+			).toBe(true);
+		}
+		expect(declared).toEqual(V6_REGENERATE);
+		// FLOOR: the walk really read descriptors (an empty registry passes `toEqual({})`).
+		expect(allComponentModels().length).toBeGreaterThan(30);
+	});
+
+	test('text_area: an old [TC_hh:mm:ss_TC] gains its milliseconds; a current one and other text are untouched', () => {
+		const stored = [
+			{
+				id: 1,
+				lang: 'lg-spa',
+				value: '<p>[TC_00:00:01_TC] hola [TC_1:2:3_TC] y [TC_00:00:04.500_TC]</p>',
+			},
+			{ id: 2, lang: 'lg-eng', value: '<p>no marks</p>' },
+		];
+		const outcome = regenerateStoredItems('component_text_area', stored);
+		expect(outcome).toEqual({
+			changed: true,
+			items: [
+				{
+					id: 1,
+					lang: 'lg-spa',
+					value: '<p>[TC_00:00:01.000_TC] hola [TC_1:2:3.000_TC] y [TC_00:00:04.500_TC]</p>',
+				},
+				stored[1],
+			],
+		});
+		// Alias-following: a legacy alias regenerates as its canonical model.
+		expect(regenerateStoredItems('component_html_text', stored)).toEqual(outcome);
+		expect(regenerateStoredItems('component_text_area', [stored[1]])).toEqual({
+			changed: false,
+			items: [stored[1]],
+		});
+	});
+
+	test('json: a value stored as a JSON string is decoded; an invalid string REFUSES the record; a decoded value is untouched', () => {
+		expect(
+			regenerateStoredItems('component_json', [
+				{ id: 1, value: '{"a":1}' },
+				{ id: 2, value: { b: 2 } },
+			]),
+		).toEqual({
+			changed: true,
+			items: [
+				{ id: 1, value: { a: 1 } },
+				{ id: 2, value: { b: 2 } },
+			],
+		});
+		const refused = regenerateStoredItems('component_json', [
+			{ id: 1, value: { ok: true } },
+			{ id: 7, value: '{not json' },
+		]);
+		expect('refused' in refused && refused.refused.includes('item 7')).toBe(true);
+		expect(regenerateStoredItems('component_json', [{ id: 1, value: { a: 1 } }])).toEqual({
+			changed: false,
+			items: [{ id: 1, value: { a: 1 } }],
+		});
+	});
+
+	test('positive control: a model with no facet answers its items unchanged (the facet is what acts)', () => {
+		const items = [{ id: 1, lang: 'lg-spa', value: '[TC_00:00:01_TC]' }];
+		expect(regenerateStoredItems('component_input_text', items)).toEqual({ changed: false, items });
+		expect(getComponentModel('component_input_text')?.regenerate).toBeUndefined();
 	});
 });

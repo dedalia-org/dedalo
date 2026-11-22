@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { perRecordLockWaitMs } from '../../src/core/media/tools/files_info_persist.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
@@ -96,7 +97,7 @@ interface SweepResult {
 	errors: string[];
 }
 
-async function runSweep(id: number): Promise<SweepResult> {
+async function runSweep(id: number, tipo: string = TEXT): Promise<SweepResult> {
 	const loaded = await getLoadedTool('tool_update_cache');
 	const handler = mustGet(loaded?.module.apiActions.update_cache, 'update_cache').handler;
 	const response = await handler({
@@ -105,7 +106,7 @@ async function runSweep(id: number): Promise<SweepResult> {
 		background: false,
 		options: {
 			section_tipo: SECTION,
-			components_selection: [{ tipo: TEXT }],
+			components_selection: [{ tipo }],
 			sqo: {
 				section_tipo: [SECTION],
 				filter_by_locators: [{ section_tipo: SECTION, section_id: String(id) }],
@@ -231,5 +232,97 @@ describe('update_cache re-saves the value stored under the row lock, never its s
 		expect(result.regenerated).toBe(0);
 		expect(await stored(id)).toEqual(seeded);
 		expect(await runRowCount(id, result.bulk_process_id)).toBe(0);
+	}, 90_000);
+});
+
+// --- T2-LIF-1/2: the model's regenerate facet, applied UNDER THE LOCK ----------
+
+const TEXT_AREA = 'test17'; // component_text_area (string column)
+const JSON_TIPO = 'test18'; // component_json (misc column)
+
+async function seedKey(id: number, column: string, tipo: string, value: unknown): Promise<void> {
+	await sql.unsafe(
+		`UPDATE "${table}" SET "${column}" = COALESCE("${column}", '{}'::jsonb) || jsonb_build_object($3::text, $4::text::jsonb)
+		  WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, id, tipo, JSON.stringify(value)],
+	);
+}
+
+async function storedKey(id: number, column: string, tipo: string): Promise<unknown> {
+	const rows = (await sql.unsafe(
+		`SELECT "${column}"->$3 AS v FROM "${table}" WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, id, tipo],
+	)) as { v: unknown }[];
+	return rows[0]?.v ?? null;
+}
+
+describe('T2-LIF-1/2: update_cache applies the model regenerate facet under the row lock', () => {
+	test('text_area: an old [TC_00:00:01_TC] is stored as [TC_00:00:01.000_TC] (one undo pair)', async () => {
+		const id = await newRecord();
+		await seedKey(id, 'string', TEXT_AREA, [
+			{ id: 1, lang: 'lg-spa', value: '<p>[TC_00:00:01_TC] hola</p>' },
+		]);
+		const result = await runSweep(id, TEXT_AREA);
+		expect(result.errors).toEqual([]);
+		expect(result.regenerated).toBe(1);
+		const items = (await storedKey(id, 'string', TEXT_AREA)) as { value?: string }[];
+		expect(items[0]?.value).toContain('[TC_00:00:01.000_TC]');
+		expect(items[0]?.value).not.toContain('[TC_00:00:01_TC]');
+		expect(await runRowCount(id, result.bulk_process_id)).toBeGreaterThan(0);
+	}, 90_000);
+
+	test('json: {value:\'{"a":1}\'} is stored DECODED as {value:{a:1}}', async () => {
+		const id = await newRecord();
+		await seedKey(id, 'misc', JSON_TIPO, [{ id: 1, lang: 'lg-nolan', value: '{"a":1}' }]);
+		const result = await runSweep(id, JSON_TIPO);
+		expect(result.errors).toEqual([]);
+		expect(result.regenerated).toBe(1);
+		const items = (await storedKey(id, 'misc', JSON_TIPO)) as { value?: unknown }[];
+		expect(items[0]?.value).toEqual({ a: 1 });
+	}, 90_000);
+
+	test('json: a string that is not JSON REFUSES that record — reported, stored value untouched, no undo pair', async () => {
+		const id = await newRecord();
+		const seeded = [{ id: 1, lang: 'lg-nolan', value: '{not json' }];
+		await seedKey(id, 'misc', JSON_TIPO, seeded);
+		const result = await runSweep(id, JSON_TIPO);
+		expect(result.regenerated).toBe(0);
+		expect(result.errors.some((line) => line.includes(`#${id}`) && line.includes('not JSON'))).toBe(
+			true,
+		);
+		expect(await storedKey(id, 'misc', JSON_TIPO)).toEqual(seeded);
+		expect(await runRowCount(id, result.bulk_process_id)).toBe(0);
+	}, 90_000);
+
+	test('a text_area with nothing to normalise writes NOTHING (no undo pair)', async () => {
+		const id = await newRecord();
+		const first = await runSweep(id, TEXT_AREA).catch(() => null); // empty record: nothing stored → nothing to regenerate
+		expect(first?.regenerated ?? 0).toBe(0);
+		await seedKey(id, 'string', TEXT_AREA, [
+			{ id: 1, lang: 'lg-spa', value: '<p>[TC_00:00:01.000_TC] already current</p>' },
+		]);
+		const before = await storedKey(id, 'string', TEXT_AREA);
+		const result = await runSweep(id, TEXT_AREA);
+		expect(result.errors).toEqual([]);
+		expect(await storedKey(id, 'string', TEXT_AREA)).toEqual(before);
+		expect(await runRowCount(id, result.bulk_process_id)).toBe(0);
+	}, 90_000);
+});
+
+describe('T2-OX7-1a: the run label is resolved in the REQUEST application lang', () => {
+	test('a sweep under lg-spa labels its dd800 run with the lg-spa section term (not the install default, not a client `lang`)', async () => {
+		const id = await newRecord();
+		await seed(id, [{ id: 1, lang: 'lg-spa', value: 'label lang probe' }]);
+		const result = await runWithRequestLangs(
+			{ applicationLang: 'lg-spa', dataLang: 'lg-spa' },
+			() => runSweep(id),
+		);
+		const rows = (await sql.unsafe(
+			`SELECT string->'dd796' AS v FROM "${bulkTable}" WHERE section_tipo = 'dd800' AND section_id = $1`,
+			[result.bulk_process_id],
+		)) as { v: { value?: string }[] | null }[];
+		const label = rows[0]?.v?.[0]?.value ?? '';
+		expect(label).toContain('Unit Test Section');
+		expect(label).not.toContain('Test Unit (data on matrix_test)');
 	}, 90_000);
 });
