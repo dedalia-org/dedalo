@@ -351,8 +351,16 @@ export interface JobTarget {
 	 * and shares its sh/target files), and a tier-scoped guard let a 1080
 	 * build run while an upload replaced the master it was reading (A1-01).
 	 * Like `also_qualities` it widens what the holder BLOCKS, never its name.
+	 *
+	 * `'component_all'`: the WHOLE component in EVERY lang (A1-01 review F4) —
+	 * the record-wide hold of a delete, a wipe or a Time Machine restore, which
+	 * moves the files of every lang. It refuses while any lang of the component
+	 * is held, and every `'component'` holder of any lang refuses while it is
+	 * held — on this instance (memory keys) and on every other (the all-langs
+	 * lock file). A CLAIM only, taken through `claimWholeComponents` (never
+	 * `claimTarget`, never a job).
 	 */
-	scope?: 'component';
+	scope?: 'component' | 'component_all';
 	/** Human tier name for the activity tray (never used for identity). */
 	label?: string;
 }
@@ -381,14 +389,49 @@ function componentScopeKey(target: JobTarget): string {
 	return jobTargetKey({ ...target, quality: '*' });
 }
 
+/** The section|id|component part every component-level key starts with. */
+function componentKeyBase(target: JobTarget): string {
+	return [target.section_tipo, target.section_id, target.component_tipo].join('|');
+}
+
+/**
+ * The key EVERY `'component'` holder also occupies, whatever its lang — what a
+ * whole-component (`'component_all'`) claim probes. Four fields (a target key
+ * has five), so it never collides with one.
+ */
+function componentAnyLangKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|*any*`;
+}
+
+/**
+ * The key a whole-component (`'component_all'`) claim occupies — what every
+ * `'component'` holder of any lang probes. Four fields, never a target key.
+ */
+function componentAllLangsKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|*all*`;
+}
+
+/** The lock-file lang of a whole-component claim (`*` is never a lang). */
+const ALL_LANGS_LOCK_LANG = '*';
+
 /**
  * The CROSS-PROCESS lock key of a component-scoped target (component_lock.ts):
- * the component, every tier — section|id|component|lang.
+ * the component, every tier — section|id|component|lang; for a whole-component
+ * claim section|id|component|*.
  */
 function componentLockKey(target: JobTarget): string {
-	return [target.section_tipo, target.section_id, target.component_tipo, target.lang ?? ''].join(
-		'|',
-	);
+	const lang = target.scope === 'component_all' ? ALL_LANGS_LOCK_LANG : (target.lang ?? '');
+	return `${componentKeyBase(target)}|${lang}`;
+}
+
+/** The all-langs lock key of a target's component — what a per-lang holder checks after taking its own. */
+function allLangsLockKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|${ALL_LANGS_LOCK_LANG}`;
+}
+
+/** Does this target take a cross-process component lock? */
+function takesFileLock(target: JobTarget): boolean {
+	return target.scope === 'component' || target.scope === 'component_all';
 }
 
 /** Heartbeat of a held component lock, and the age past which another instance reclaims it. */
@@ -1037,17 +1080,44 @@ export class MediaJobManager {
 		};
 	}
 
-	/**
-	 * Every key a job OCCUPIES: its own tier, any companion tier the same job
-	 * also writes (`also_qualities` — the ingest transcode's audio tier), and
-	 * the whole component when it is component-scoped (`scope`).
-	 */
-	private occupiedKeys(target: JobTarget): string[] {
+	/** The tier keys of a target: its own tier and every companion tier (`also_qualities`). */
+	private tierKeys(target: JobTarget): string[] {
 		const keys = [jobTargetKey(target)];
 		for (const quality of target.also_qualities ?? []) {
 			keys.push(jobTargetKey({ ...target, quality }));
 		}
-		if (target.scope === 'component') keys.push(componentScopeKey(target));
+		return keys;
+	}
+
+	/**
+	 * Every key a holder OCCUPIES: its own tier, any companion tier the same job
+	 * also writes (`also_qualities` — the ingest transcode's audio tier), and,
+	 * component-scoped, the component in its lang plus the any-lang marker; a
+	 * whole-component claim occupies the all-langs key alone.
+	 */
+	private occupiedKeys(target: JobTarget): string[] {
+		if (target.scope === 'component_all') return [componentAllLangsKey(target)];
+		const keys = this.tierKeys(target);
+		if (target.scope === 'component') {
+			keys.push(componentScopeKey(target), componentAnyLangKey(target));
+		}
+		return keys;
+	}
+
+	/**
+	 * Every key whose holder REFUSES this target — not the same set it occupies:
+	 * a per-lang holder is refused by its own tiers, its lang's component and a
+	 * whole-component claim (never by another lang's marker); a whole-component
+	 * claim is refused by another whole-component claim and by any lang's holder.
+	 */
+	private probeKeys(target: JobTarget): string[] {
+		if (target.scope === 'component_all') {
+			return [componentAllLangsKey(target), componentAnyLangKey(target)];
+		}
+		const keys = this.tierKeys(target);
+		if (target.scope === 'component') {
+			keys.push(componentScopeKey(target), componentAllLangsKey(target));
+		}
 		return keys;
 	}
 
@@ -1076,7 +1146,13 @@ export class MediaJobManager {
 	 * releases it.
 	 */
 	private unindexAtTerminal(record: JobRecord): void {
-		if (record.target?.scope === 'component' && this.activeWorkers.has(record.id)) return;
+		if (
+			record.target !== undefined &&
+			takesFileLock(record.target) &&
+			this.activeWorkers.has(record.id)
+		) {
+			return;
+		}
 		this.unindexLive(record);
 	}
 
@@ -1095,11 +1171,23 @@ export class MediaJobManager {
 	 * Take the cross-process lock for a component-scoped holder, AFTER the
 	 * in-memory check passed. False when another instance holds the component.
 	 * An unscoped target takes no lock (true).
+	 *
+	 * A per-lang holder then checks the component's ALL-LANGS lock (a record
+	 * delete/restore on another instance): busy → its own lock is given back and
+	 * it refuses. The whole-component side does the mirror check after
+	 * publishing its own lock (claimWholeComponents) — each side publishes BEFORE
+	 * it looks, so of two racing holders at least one sees the other (both may
+	 * refuse; never both proceed).
 	 */
 	private takeFileLock(holderId: string, target: JobTarget): boolean {
-		if (target.scope !== 'component') return true;
-		const handle = acquireComponentLock(componentLockKey(target), holderId, this.lockContext());
+		if (!takesFileLock(target)) return true;
+		const context = this.lockContext();
+		const handle = acquireComponentLock(componentLockKey(target), holderId, context);
 		if (handle === null) return false;
+		if (target.scope === 'component' && componentLockBusy(allLangsLockKey(target), context)) {
+			releaseComponentLock(handle);
+			return false;
+		}
 		this.fileLocks.set(holderId, handle);
 		this.armHeartbeat();
 		return true;
@@ -1193,13 +1281,42 @@ export class MediaJobManager {
 	 * component is someone else's now.
 	 */
 	private assertHolds(record: JobRecord): void {
-		if (record.target?.scope !== 'component') return;
-		const handle = this.fileLocks.get(record.id);
+		if (record.target === undefined) return;
+		this.assertFileLockHeld(record.id, record.target, 'media job');
+	}
+
+	/**
+	 * A HELD CLAIM's hold check (A1-01 review F3) — the claim's twin of
+	 * assertHolds: a component-scoped claim must still hold its lock in memory
+	 * AND on disk. A claim already released or adopted by its job answers
+	 * nothing (the job's own check takes over). Throws media.build_running when
+	 * another instance reclaimed it.
+	 */
+	assertClaimHolds(claimId: string): void {
+		const target = this.claims.get(claimId);
+		if (target === undefined) return;
+		this.assertFileLockHeld(claimId, target, 'media claim');
+	}
+
+	/**
+	 * Run `work` under `claim`'s hold check: every publication step inside it
+	 * (media/atomic.ts writeAtomically, the files_info write-back) asks
+	 * assertClaimHolds immediately before it acts — so an operation whose claim
+	 * was lost while it awaited publishes nothing after the loss.
+	 */
+	runUnderClaim<T>(claim: JobTargetClaim, work: () => T): T {
+		return runWithJobHold(() => this.assertClaimHolds(claim.id), work);
+	}
+
+	/** The shared hold check: a file-locked holder's lock must still be ours on disk. */
+	private assertFileLockHeld(holderId: string, target: JobTarget, what: string): void {
+		if (!takesFileLock(target)) return;
+		const handle = this.fileLocks.get(holderId);
 		if (handle !== undefined && componentLockIsOurs(handle)) return;
-		if (handle !== undefined) this.loseFileLock(record.id, handle);
+		if (handle !== undefined) this.loseFileLock(holderId, handle);
 		throw new DedaloError('media.build_running', {
-			message: `media job ${record.id}: the component lock of '${jobTargetKey(record.target)}' was lost — nothing published`,
-			coordinates: { target: jobTargetKey(record.target) },
+			message: `${what} ${holderId}: the component lock of '${jobTargetKey(target)}' was lost — nothing published`,
+			coordinates: { target: jobTargetKey(target) },
 		});
 	}
 
@@ -1232,7 +1349,7 @@ export class MediaJobManager {
 	 * and a component-scoped target occupies the whole component.
 	 */
 	private occupiedByOther(target: JobTarget, exceptId: string | null): boolean {
-		for (const key of this.occupiedKeys(target)) {
+		for (const key of this.probeKeys(target)) {
 			for (const holder of this.liveByTarget.get(key) ?? []) {
 				if (holder !== exceptId) return true;
 			}
@@ -1248,6 +1365,17 @@ export class MediaJobManager {
 	 * in `submit({claim})` or `release()` it (try/finally).
 	 */
 	claimTarget(target: JobTarget): JobTargetClaim | null {
+		if (target.scope === 'component_all') {
+			throw new DedaloError('internal.invariant', {
+				message: 'claimTarget: a whole-component claim is taken through claimWholeComponents',
+				coordinates: { target: jobTargetKey(target) },
+			});
+		}
+		return this.claimHeld(target);
+	}
+
+	/** The claim proper: memory check, the file lock, the index entry — one synchronous step. */
+	private claimHeld(target: JobTarget): JobTargetClaim | null {
 		if (this.occupiedByOther(target, null)) return null;
 		this.counter += 1;
 		const id = `claim_${process.pid}_${this.counter}`;
@@ -1256,6 +1384,65 @@ export class MediaJobManager {
 		this.claims.set(id, target);
 		this.indexKeys(id, target);
 		return { id, target, release: () => this.releaseClaim(id) };
+	}
+
+	/**
+	 * CLAIM WHOLE av components — every lang — of one record (A1-01 review F4):
+	 * the hold a record delete, a data wipe or a Time Machine restore takes over
+	 * the components whose files it moves. One synchronous step: each
+	 * component's all-langs claim (memory, then its all-langs lock file), then
+	 * ONE listing of the record's lock files, after every all-langs lock is
+	 * published, refusing when any lang of any of them is held by another
+	 * instance. Null when anything is held; every claim already taken is given
+	 * back. The caller releases the claims (AvRecordHold).
+	 */
+	claimWholeComponents(
+		sectionTipo: string,
+		sectionId: number,
+		componentTipos: readonly string[],
+		tier: string,
+	): JobTargetClaim[] | null {
+		const claims: JobTargetClaim[] = [];
+		const giveBack = (): null => {
+			for (const claim of claims) claim.release();
+			return null;
+		};
+		for (const componentTipo of componentTipos) {
+			const claim = this.claimHeld({
+				section_tipo: sectionTipo,
+				section_id: sectionId,
+				component_tipo: componentTipo,
+				lang: null,
+				quality: tier,
+				label: tier,
+				scope: 'component_all',
+			});
+			if (claim === null) return giveBack();
+			claims.push(claim);
+		}
+		if (this.anyLangLockBusy(sectionTipo, sectionId, componentTipos)) return giveBack();
+		return claims;
+	}
+
+	/**
+	 * Is any per-lang lock of these components of one record held (by another
+	 * instance — this one's holders were refused in memory)? ONE directory
+	 * listing for the record; the all-langs locks themselves are skipped.
+	 */
+	private anyLangLockBusy(
+		sectionTipo: string,
+		sectionId: number,
+		componentTipos: readonly string[],
+	): boolean {
+		const context = this.lockContext();
+		const wanted = new Set(componentTipos);
+		const prefix = recordKeyPrefix(sectionTipo, sectionId);
+		for (const key of componentLockKeysWithPrefix(context.dir, prefix)) {
+			const [componentTipo = '', lang] = key.slice(prefix.length).split('|');
+			if (lang === ALL_LANGS_LOCK_LANG || !wanted.has(componentTipo)) continue;
+			if (componentLockBusy(key, context)) return true;
+		}
+		return false;
 	}
 
 	/** End a held claim (idempotent: an adopted or released claim is a no-op). */
@@ -1273,7 +1460,7 @@ export class MediaJobManager {
 	 * caller indexes the job in the SAME tick, so nothing can slip in between.
 	 */
 	private admitTargeted(meta: JobSubmitMeta, jobId: string): void {
-		const claimId = meta.claim === undefined ? null : this.assertClaimHeld(meta.claim, meta.target);
+		const claimId = this.adoptableClaimId(meta);
 		if (meta.exclusive === true) this.assertTargetFree(meta.target, claimId);
 		if (claimId !== null) {
 			this.moveFileLock(claimId, jobId);
@@ -1281,6 +1468,25 @@ export class MediaJobManager {
 		} else if (meta.exclusive === true && meta.target !== undefined) {
 			this.assertFileLockTaken(jobId, meta.target);
 		}
+	}
+
+	/**
+	 * The claim a submit may adopt (null when it hands none): held, naming the
+	 * job's own target, and — review F3 — still OURS on disk (a claim another
+	 * instance reclaimed while its holder awaited the upload's move, posterframe
+	 * and persist is not adopted). A whole-component target is never a job.
+	 */
+	private adoptableClaimId(meta: JobSubmitMeta): string | null {
+		if (meta.target?.scope === 'component_all') {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: a whole-component target is a claim, never a job',
+				coordinates: { target: jobTargetKey(meta.target) },
+			});
+		}
+		if (meta.claim === undefined) return null;
+		const claimId = this.assertClaimHeld(meta.claim, meta.target);
+		this.assertClaimHolds(claimId);
+		return claimId;
 	}
 
 	/** The exclusive submit's cross-process half: another instance holding the component refuses. */
@@ -1348,30 +1554,6 @@ export class MediaJobManager {
 	}
 
 	/**
-	 * Every LANG a component-scoped holder holds on one av component of one
-	 * record right now — read from the lock files, which EVERY component-scoped
-	 * holder takes (this instance's claims and jobs included), so one listing
-	 * answers for all instances. A record-wide hold (a delete, a restore: av_component_claim.ts
-	 * holdRecordAvComponents) asks it so a build in a lang the record's data does
-	 * not name yet (a first upload of a translatable component) is held too. A
-	 * listing, not a judgement: a stale lock's lang is listed, and the claim that
-	 * follows judges (and reclaims) it. null = the untranslatable slot.
-	 */
-	liveComponentLangs(
-		sectionTipo: string,
-		sectionId: number,
-		componentTipo: string,
-	): (string | null)[] {
-		const prefix = `${recordKeyPrefix(sectionTipo, sectionId)}${componentTipo}|`;
-		const langs = new Set<string | null>();
-		for (const key of componentLockKeysWithPrefix(this.lockContext().dir, prefix)) {
-			const lang = key.slice(prefix.length);
-			langs.add(lang === '' ? null : lang);
-		}
-		return [...langs];
-	}
-
-	/**
 	 * Would `target` be refused right now? The exclusive guard's own question
 	 * (every key it occupies: tier, companion tiers, the component when scoped —
 	 * and, scoped, the cross-process component lock of ANOTHER instance), for a
@@ -1380,9 +1562,11 @@ export class MediaJobManager {
 	 */
 	isOccupied(target: JobTarget): boolean {
 		if (this.occupiedByOther(target, null)) return true;
+		if (target.scope !== 'component') return false;
+		const context = this.lockContext();
 		return (
-			target.scope === 'component' &&
-			componentLockBusy(componentLockKey(target), this.lockContext())
+			componentLockBusy(componentLockKey(target), context) ||
+			componentLockBusy(allLangsLockKey(target), context)
 		);
 	}
 

@@ -341,9 +341,9 @@ export interface SectionMediaFilesOptions {
 	 * The caller's RECORD-WIDE av hold (A1-01 review M3: av_component_claim.ts
 	 * holdRecordAvComponents), taken BEFORE it wrote anything so a busy component
 	 * refused the whole delete / restore. The two movers move an av identity's
-	 * files only under a hold: this one (a lang it does not cover yet is taken
-	 * here), or — without it — the mover's own for the pass. Ignored by the
-	 * read-only walks.
+	 * files only under a hold of its whole component: this one (a component it
+	 * does not cover yet is taken here), or — without it — the mover's own for
+	 * the pass. Ignored by the read-only walks.
 	 */
 	avHold?: AvRecordHold;
 }
@@ -369,13 +369,14 @@ async function withMoverAvHold<T>(
 
 /**
  * The movers' av rule: an av identity's files move only while the hold has its
- * (component, lang) slot. A slot another holder has (a build, an upload, a
- * conform) THROWS `media.build_running` — the walk reports it as that
- * component's error and its files stay where they are (recoverable: re-run the
- * sweep), never moved under a build writing them. Other models pass.
+ * WHOLE component (every lang), re-checked on disk per identity (A1-01 review
+ * F3). A component another holder has (a build, an upload, a conform), or a
+ * hold reclaimed meanwhile, THROWS `media.build_running` — the walk reports it
+ * as that component's error and its files stay where they are (recoverable:
+ * re-run the sweep), never moved under a build writing them. Other models pass.
  */
 function requireMoverSlot(hold: AvRecordHold, spec: MediaTypeSpec, identity: MediaIdentity): void {
-	if (spec.model === 'component_av') hold.require(identity.componentTipo, identity.lang);
+	if (spec.model === 'component_av') hold.require(identity.componentTipo);
 }
 
 /**

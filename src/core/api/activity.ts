@@ -157,7 +157,8 @@ function targetFieldsOf(
 			lang: target.lang ?? null,
 		},
 		also_qualities: target.also_qualities ?? [],
-		scope: target.scope ?? null,
+		// A job is never whole-component (`'component_all'` is a claim only — jobs.ts).
+		scope: target.scope === 'component' ? 'component' : null,
 	};
 }
 

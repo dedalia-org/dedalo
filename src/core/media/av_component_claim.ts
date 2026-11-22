@@ -12,7 +12,10 @@
  * none can run while a build or an upload owns the component, and no build or
  * upload can start while one runs. The claim is the arbiter's own
  * (`mediaJobs.claimTarget`): in memory AND the cross-process lock file
- * (component_lock.ts). Released in a `finally`.
+ * (component_lock.ts). Released in a `finally`. The work runs UNDER the claim
+ * (`mediaJobs.runUnderClaim`): its publication steps re-check, immediately
+ * before they act, that the claim's lock is still ours on disk — an operation
+ * whose hold another instance reclaimed while it awaited publishes nothing.
  *
  * NOT for code already running under the component's hold: the ingest (its
  * upload claim) and the transcode job call the same thumb/posterframe cores —
@@ -68,7 +71,7 @@ export async function withAvComponentClaim<T>(
 		});
 	}
 	try {
-		return await work();
+		return await mediaJobs.runUnderClaim(claim, work);
 	} finally {
 		claim.release();
 	}
@@ -77,30 +80,22 @@ export async function withAvComponentClaim<T>(
 /** The claim's tier word for a record-wide hold (a delete or a restore sweep). */
 const RECORD_HOLD_TIER = 'record_media';
 
-/** One (component, lang) slot's key inside a record hold. */
-function slotKey(componentTipo: string, lang: string | null): string {
-	return `${componentTipo}|${lang ?? ''}`;
-}
-
 /**
- * The claim lang of a slot: `lg-nolan` (a v6-era item's "no language") IS the
- * untranslatable slot every av build of the component claims as null — kept
- * apart, a build on null would not refuse a sweep of the `lg-nolan` item.
- */
-function slotLang(lang: string | null): string | null {
-	return lang === 'lg-nolan' ? null : lang;
-}
-
-/**
- * A RECORD-WIDE av hold (A1-01 review M3): the component claims a record delete,
- * a data wipe or a Time Machine restore holds over every av component it moves
- * files of — so the delete/restore cannot move files a build is writing, and no
- * build or upload can start on the record while it moves them.
+ * A RECORD-WIDE av hold (A1-01 review M3, F4): the WHOLE av components — every
+ * lang, the untranslatable slot and any lang a build may start later — that a
+ * record delete, a data wipe or a Time Machine restore moves files of. Taken as
+ * whole-component claims (`mediaJobs.claimWholeComponents`, scope
+ * `'component_all'`): while held, no build or upload of ANY lang of those
+ * components can start, on this instance or another, and the hold itself
+ * refused while any lang was held. So the delete/restore cannot move files a
+ * build is writing, including a build in a lang the record did not name yet.
  *
- * `take` adds one (component, lang) slot (true when held — already or now —
- * false when another holder has it); the file movers call it per identity they
- * are about to touch, so a lang the caller did not foresee is held, or refused,
- * there. `release` gives every slot back (idempotent; after it `take` refuses).
+ * `takeComponents` adds components all-or-none (true when held — already or
+ * now — false when another holder has any lang of one). `require` is the
+ * movers' per-identity question: a component not held yet is taken or refused;
+ * one already held is RE-CHECKED on disk (review F3), so a hold another
+ * instance reclaimed while the sweep awaited refuses the next move. `release`
+ * gives everything back (idempotent; after it nothing is taken).
  */
 export class AvRecordHold {
 	private readonly claims = new Map<string, JobTargetClaim>();
@@ -111,38 +106,34 @@ export class AvRecordHold {
 		readonly sectionId: number,
 	) {}
 
-	take(componentTipo: string, itemLang: string | null): boolean {
+	takeComponents(componentTipos: readonly string[]): boolean {
 		if (this.released) return false;
-		const lang = slotLang(itemLang);
-		const key = slotKey(componentTipo, lang);
-		if (this.claims.has(key)) return true;
-		const claim = mediaJobs.claimTarget(
-			avComponentTarget(
-				{ sectionTipo: this.sectionTipo, sectionId: this.sectionId, componentTipo, lang },
-				RECORD_HOLD_TIER,
-			),
+		const missing = [...new Set(componentTipos)].filter((tipo) => !this.claims.has(tipo));
+		if (missing.length === 0) return true;
+		const claims = mediaJobs.claimWholeComponents(
+			this.sectionTipo,
+			this.sectionId,
+			missing,
+			RECORD_HOLD_TIER,
 		);
-		if (claim === null) return false;
-		this.claims.set(key, claim);
+		if (claims === null) return false;
+		for (const claim of claims) this.claims.set(claim.target.component_tipo, claim);
 		return true;
 	}
 
-	/** Take a slot or throw `media.build_running` (nothing else is released). */
-	require(componentTipo: string, lang: string | null): void {
-		if (this.take(componentTipo, lang)) return;
-		const target = avComponentTarget(
-			{
-				sectionTipo: this.sectionTipo,
-				sectionId: this.sectionId,
-				componentTipo,
-				lang: slotLang(lang),
-			},
-			RECORD_HOLD_TIER,
-		);
-		throw new DedaloError('media.build_running', {
-			message: `record media refused: a build or another operation holds ${jobTargetKey(target)}`,
-			coordinates: { target: jobTargetKey(target) },
-		});
+	/**
+	 * Hold `componentTipo` (every lang) or throw `media.build_running` — and, when
+	 * it is already held, re-check that its lock is still ours on disk (throws the
+	 * same code when it was reclaimed). Nothing else is released.
+	 */
+	require(componentTipo: string): void {
+		const held = this.claims.get(componentTipo);
+		if (held !== undefined) {
+			mediaJobs.assertClaimHolds(held.id);
+			return;
+		}
+		if (this.takeComponents([componentTipo])) return;
+		throw recordHoldRefusal(this.sectionTipo, this.sectionId, [componentTipo]);
 	}
 
 	release(): void {
@@ -152,24 +143,25 @@ export class AvRecordHold {
 	}
 }
 
-/** The langs of a media column value's items (null for an item without one). */
-function itemLangs(items: unknown): (string | null)[] {
-	if (!Array.isArray(items)) return [];
-	return items.map((item) => {
-		const lang = (item as { lang?: unknown } | null)?.lang;
-		return typeof lang === 'string' && lang !== '' ? lang : null;
+/** The record hold's refusal (409 `media.build_running`). */
+function recordHoldRefusal(
+	sectionTipo: string,
+	sectionId: number,
+	componentTipos: readonly string[],
+): DedaloError {
+	const target = `${sectionTipo}|${sectionId}|${componentTipos.join(',')}`;
+	return new DedaloError('media.build_running', {
+		message: `record media refused: a build or another operation holds an av component of ${target}`,
+		coordinates: { target },
 	});
 }
 
 /**
- * HOLD every av component of a record, or refuse with `media.build_running` —
- * BEFORE the caller writes anything (a delete, a wipe, an undelete). The
- * components: the av components the section DECLARES (an upload in progress has
- * written no media key yet) plus any av key the media column holds. The langs
- * per component: the
- * untranslatable slot, every lang its items name, and every lang a live holder
- * holds right now (`liveComponentLangs` — this instance and the lock files).
- * On a refusal every slot already taken is given back. The caller releases the
+ * HOLD every av component of a record — whole, every lang — or refuse with
+ * `media.build_running` BEFORE the caller writes anything (a delete, a wipe, an
+ * undelete). The components: the av components the section DECLARES (an upload
+ * in progress has written no media key yet) plus any av key the media column
+ * holds. All or none: on a refusal nothing stays held. The caller releases the
  * hold in a `finally` AFTER its file sweep, passing it to the mover
  * (`SectionMediaFilesOptions.avHold`).
  */
@@ -179,20 +171,9 @@ export async function holdRecordAvComponents(
 	mediaColumn: unknown,
 ): Promise<AvRecordHold> {
 	const components = await recordAvComponents(sectionTipo, mediaColumn);
-	const media = (mediaColumn ?? {}) as Record<string, unknown>;
 	const hold = new AvRecordHold(sectionTipo, sectionId);
-	try {
-		for (const componentTipo of components) {
-			const langs = new Set<string | null>([
-				null,
-				...itemLangs(media[componentTipo]),
-				...mediaJobs.liveComponentLangs(sectionTipo, sectionId, componentTipo),
-			]);
-			for (const lang of langs) hold.require(componentTipo, lang);
-		}
-	} catch (error) {
-		hold.release();
-		throw error;
+	if (!hold.takeComponents(components)) {
+		throw recordHoldRefusal(sectionTipo, sectionId, components);
 	}
 	return hold;
 }

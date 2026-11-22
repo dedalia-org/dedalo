@@ -525,13 +525,29 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 	// ingest that starts no transcode, or by the caller (releaseBuildClaim).
 	const claim = claimAvBuildTarget(input, pathOpts);
 	try {
-		const ingested = await ingestStaged(input, pathOpts, quality, claim);
+		const ingested = await ingestUnderClaim(input, pathOpts, quality, claim);
 		if (ingested.startTranscode === null) claim?.release();
 		return { ...ingested, releaseBuildClaim: () => claim?.release() };
 	} catch (error) {
 		claim?.release();
 		throw error;
 	}
+}
+
+/**
+ * The ingest UNDER its av claim (A1-01 review F3): every publication step of it
+ * (the posterframe/thumb mint's atomic renames) re-checks that the claim's lock
+ * is still ours on disk, and its transcode submit refuses to adopt a claim
+ * another instance reclaimed meanwhile. No claim (every non-av model): as is.
+ */
+function ingestUnderClaim(
+	input: IngestInput,
+	pathOpts: MediaPathOptions,
+	quality: string | undefined,
+	claim: JobTargetClaim | null,
+): Promise<Omit<IngestResult, 'releaseBuildClaim'>> {
+	const run = () => ingestStaged(input, pathOpts, quality, claim);
+	return claim === null ? run() : mediaJobs.runUnderClaim(claim, run);
 }
 
 /**

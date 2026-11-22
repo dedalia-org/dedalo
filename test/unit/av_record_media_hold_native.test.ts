@@ -18,14 +18,23 @@
  * instance" = a second MediaJobManager on the same processes dir.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { AvRecordHold, holdRecordAvComponents } from '../../src/core/media/av_component_claim.ts';
 import { avIngestTarget } from '../../src/core/media/av_versions.ts';
+import { componentLockFileName } from '../../src/core/media/component_lock.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { removeSectionMediaFiles } from '../../src/core/media/file_ops.ts';
 import { MediaJobManager, mediaJobs } from '../../src/core/media/jobs.ts';
@@ -35,6 +44,7 @@ import {
 	type MediaIdentity,
 	requireMediaRoot,
 } from '../../src/core/media/path.ts';
+import { resolveProcessesDir } from '../../src/core/media/test_media_root.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import {
@@ -253,7 +263,7 @@ describe('the record delete holds its av components', () => {
 		expect(componentFree(s)).toBe(true);
 	}, 60_000);
 
-	test('ANOTHER INSTANCE building a lang the record does not name refuses it too (the lock files are listed)', async () => {
+	test('ANOTHER INSTANCE building a lang the record does not name refuses it too (the lock files are listed once)', async () => {
 		const s = await situation();
 		const other = new MediaJobManager({ instanceId: 'a101-m3-other', lockHeartbeatMs: 0 });
 		const claim = mustGet(
@@ -266,19 +276,41 @@ describe('the record delete holds its av components', () => {
 			'neighbour claim',
 		);
 		try {
-			expect(mediaJobs.liveComponentLangs(SECTION, s.identity.sectionId, AV_COMPONENT)).toEqual([
-				'lg-spa',
-			]);
 			const refused = await refusalOf(deleteSectionRecord(SECTION, s.identity.sectionId, -1));
 			expect(refused.code).toBe('media.build_running');
 			expect(await rowExists(s.identity.sectionId)).toBe(true);
-			// The slots the refused hold had already taken were given back.
+			// The components the refused hold had already taken were given back.
 			expect(componentFree(s)).toBe(true);
+			expect(componentFree(s, 'lg-fra')).toBe(true);
 		} finally {
 			claim.release();
 			neighbour.release();
 		}
 		expect(componentFree(s, 'lg-spa')).toBe(true);
+	}, 60_000);
+
+	test('WHILE the delete holds the record, a build in ANY lang is refused — here and on another instance (F4)', async () => {
+		const s = await situation();
+		const other = new MediaJobManager({ instanceId: 'a101-f4-other', lockHeartbeatMs: 0 });
+		const hold = await holdRecordAvComponents(SECTION, s.identity.sectionId, {
+			[AV_COMPONENT]: [{ lang: null }],
+		});
+		try {
+			// A lang the record's data never named, started AFTER the hold was taken.
+			expect(componentFree(s, 'lg-fra')).toBe(false);
+			const fresh = avIngestTarget(av, { ...s.identity, lang: 'lg-fra' });
+			expect(other.claimTarget(fresh)).toBeNull();
+			expect(other.isOccupied(fresh)).toBe(true);
+			expect(other.claimTarget(avIngestTarget(av, s.identity))).toBeNull();
+		} finally {
+			hold.release();
+		}
+		const after = mustGet(
+			other.claimTarget(avIngestTarget(av, { ...s.identity, lang: 'lg-fra' })),
+			'freed',
+		);
+		after.release();
+		expect(componentFree(s, 'lg-fra')).toBe(true);
 	}, 60_000);
 });
 
@@ -360,7 +392,7 @@ describe('the movers and the hold itself', () => {
 		hold.release();
 		expect(componentFree(s)).toBe(true);
 		expect(componentFree(s, 'lg-eng')).toBe(true);
-		expect(hold.take(AV_COMPONENT, null)).toBe(false);
+		expect(hold.takeComponents([AV_COMPONENT])).toBe(false);
 		expect(componentFree(s)).toBe(true);
 		// An av key the section does NOT declare (test81 lives in test158) is held
 		// too when the media column names it.
@@ -375,9 +407,46 @@ describe('the movers and the hold itself', () => {
 			busy.release();
 		}
 		const fresh = new AvRecordHold(SECTION, s.identity.sectionId);
-		expect(fresh.take(AV_COMPONENT, null)).toBe(true);
-		expect(fresh.take(AV_COMPONENT, null)).toBe(true);
+		expect(fresh.takeComponents([AV_COMPONENT])).toBe(true);
+		expect(fresh.takeComponents([AV_COMPONENT])).toBe(true);
 		fresh.release();
+		expect(componentFree(s)).toBe(true);
+	}, 60_000);
+
+	test('a mover whose hold was RECLAIMED meanwhile moves nothing more (re-checked per identity, F3)', async () => {
+		const s = await situation();
+		const hold = await holdRecordAvComponents(SECTION, s.identity.sectionId, null);
+		const lock = join(
+			resolveProcessesDir(process.env.DEDALO_MEDIA_PROCESSES_DIR, '/unused'),
+			'component_locks',
+			componentLockFileName(`${SECTION}|${s.identity.sectionId}|${AV_COMPONENT}|*`),
+		);
+		const thief = JSON.stringify({
+			key: 'thief',
+			host: 'elsewhere.invalid#boot#1',
+			pid: 1,
+			instance: 'inst-far',
+			token: 'thief',
+			started_at: 0,
+		});
+		rmSync(lock);
+		writeFileSync(lock, thief);
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			const outcome = await removeSectionMediaFiles(
+				SECTION,
+				s.identity.sectionId,
+				{ [AV_COMPONENT]: [{ lang: null }] },
+				{ avHold: hold },
+			);
+			expect(outcome.errors.some((error) => error.includes('was lost'))).toBe(true);
+			expect(existsSync(s.tier)).toBe(true);
+		} finally {
+			hold.release();
+			errors.mockRestore();
+		}
+		expect(readFileSync(lock, 'utf8')).toBe(thief); // the new owner's lock untouched
+		rmSync(lock);
 		expect(componentFree(s)).toBe(true);
 	}, 60_000);
 });

@@ -173,3 +173,28 @@
   a third acquirer); replacement between check and rename put back; orphan
   sweep (+ changing sibling kept, neighbour untouched, observations forgotten);
   HOST_ID boot part.
+- **Addendum 2026-11-22 (second review F4/F3, whole components + claims that
+  re-check):** (F4) the record hold (delete, wipe, Time Machine undelete) is no
+  longer a set of per-lang slots listed at hold time: it takes WHOLE-COMPONENT
+  claims (`JobTarget.scope: 'component_all'`, a claim only —
+  `MediaJobManager.claimWholeComponents`; `claimTarget` and `submit` refuse it
+  with `internal.invariant`). In memory a per-lang holder occupies an any-lang
+  marker and probes the all-langs key, a whole claim occupies the all-langs key
+  and probes the marker; on disk the whole claim takes the lock
+  `section|id|component|*`, then lists the record's lock files ONCE and refuses
+  if any lang lock of its components is live; a per-lang holder, after taking
+  its lock, refuses if the all-langs lock is live (each side publishes before it
+  looks: of two racing holders at least one sees the other). So a build or an
+  upload in ANY lang — one the record never named included — is refused while a
+  delete/restore holds the record, and vice versa. `liveComponentLangs` is
+  gone. (F3) claims re-check their hold: `withAvComponentClaim` and the av
+  ingest run their work under `mediaJobs.runUnderClaim` (the job-hold scope, so
+  `writeAtomically` and the files_info write-back re-check the claim's lock on
+  disk), a submit refuses to ADOPT a claim whose lock was reclaimed, and
+  `AvRecordHold.require` re-checks an already-held component per identity the
+  movers touch (a reclaimed hold stops the sweep: that component reported, its
+  files left in place). All refusals are 409 `media.build_running`; no new wire
+  shape (`scope` on an activity row stays `'component' | null`). Gates:
+  `media_component_lock_native` (36 → 45), `av_record_media_hold_native`
+  (9 → 11), `av_upload_build_guard_native` (+1: a claim reclaimed mid-ingest
+  publishes no picture and its transcode is not started).

@@ -1567,11 +1567,21 @@ component nobody acquires again keeps its residue until someone does; the
 files are a few hundred bytes each. A shutdown releases the locks of every held
 job and claim.
 
+A record delete, a data wipe or a Time Machine undelete holds each av
+component of the record WHOLE — every language — through one more lock per
+component, `<section>|<id>|<component>|*`: taken, it refuses while any
+language's lock of that component is live, and every per-language build or
+upload refuses while it is held.
+
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and
 FAILS, and its two publication steps refuse on their own — the atomic rename of
 an encoded tier and the files_info write-back re-check the lock immediately
-before they act — so nothing it produced after the loss is published.
+before they act — so nothing it produced after the loss is published. The same
+check covers the synchronous av operations (an upload's ingest, conform
+headers, deleting a quality, the poster frame): they run under their claim, and
+a claim found reclaimed publishes nothing more and is never handed on to a
+transcode.
 
 **Filesystem stall risk.** The lock calls are SYNCHRONOUS by design: the job
 manager's claim, exclusive submit and pre-flight are synchronous APIs, and the

@@ -33,8 +33,16 @@
  * root from config), job pfiles in a marked scratch processes dir.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, describe, expect, mock, spyOn, test } from 'bun:test';
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { uploadMedia } from '../../src/ai/mcp/tools/media.ts';
 import { config } from '../../src/config/config.ts';
@@ -46,6 +54,7 @@ import {
 	submitAvTranscode,
 	submitAvVersionBuild,
 } from '../../src/core/media/av_versions.ts';
+import { componentLockFileName } from '../../src/core/media/component_lock.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
 import { ingestAndPersistDeferred } from '../../src/core/media/ingest/ingest_and_persist.ts';
@@ -410,6 +419,50 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 				quality: 'audio',
 			});
 			expect(result.startTranscode).toBeNull();
+			expect(componentFree(identity)).toBe(true);
+		},
+		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'an upload whose claim is RECLAIMED mid-ingest publishes no picture and starts no transcode (review F3)',
+		async () => {
+			const identity = await recordWithOriginal();
+			await writeVideo(stagedPath('stolen.mp4', ROOT));
+			const lock = join(
+				ROOT,
+				'processes',
+				'component_locks',
+				componentLockFileName(`${SECTION}|${identity.sectionId}|${AV_COMPONENT}|`),
+			);
+			const pending = ingest(identity, 'stolen.mp4');
+			// The claim and the master move are one synchronous step; the picture
+			// mint awaits ffmpeg — another instance reclaims the component there.
+			for (let i = 0; i < 200 && !existsSync(lock); i += 1) await Bun.sleep(1);
+			const thief = JSON.stringify({
+				key: 'thief',
+				host: 'elsewhere.invalid#boot#1',
+				pid: 1,
+				instance: 'inst-far',
+				token: 'thief',
+				started_at: 0,
+			});
+			rmSync(lock);
+			writeFileSync(lock, thief);
+			const errors = spyOn(console, 'error').mockImplementation(() => {});
+			try {
+				const result = await pending;
+				expect(result.derivativeErrors.some((error) => error.includes('was lost'))).toBe(true);
+				const before = liveJobsOf(identity);
+				const refused = refusalOfSync(() => mustGet(result.startTranscode, 'startTranscode')());
+				expect(refused.code).toBe('media.build_running');
+				expect(liveJobsOf(identity)).toBe(before);
+				result.releaseBuildClaim();
+			} finally {
+				errors.mockRestore();
+			}
+			expect(readFileSync(lock, 'utf8')).toBe(thief); // the new owner's lock untouched
+			rmSync(lock);
 			expect(componentFree(identity)).toBe(true);
 		},
 		60_000,

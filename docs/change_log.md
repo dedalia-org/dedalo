@@ -637,7 +637,9 @@ Merged since the last release; these ship with the next one.
     Deleting a record, emptying its data, and restoring a deleted record from the
     [time machine](./using/tools/using_time_machine.md) wait the same way: while one of the record's
     audio/video fields is being built or uploaded, they are refused with the same message and nothing
-    is deleted, emptied or restored. Try again when the job has finished.
+    is deleted, emptied or restored. Try again when the job has finished. While such a delete or restore
+    is moving the record's files, no build or upload of its audio/video fields can start, in any
+    language.
 
     Media versions now shows this before you click: while one quality of an audio/video field is being
     built, the rebuild buttons of its other qualities are greyed out, and hovering one says why. They

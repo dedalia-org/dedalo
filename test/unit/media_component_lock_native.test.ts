@@ -43,6 +43,7 @@ import { join } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { writeAtomically } from '../../src/core/media/atomic.ts';
+import { AvRecordHold, withAvComponentClaim } from '../../src/core/media/av_component_claim.ts';
 import { persistTranscodedOrReport } from '../../src/core/media/av_versions.ts';
 import {
 	acquireComponentLock,
@@ -740,6 +741,189 @@ describe('host identity', () => {
 		if (process.platform === 'linux' || process.platform === 'darwin') {
 			expect(boot?.length ?? 0).toBeGreaterThan(8);
 		}
+	});
+});
+
+/** A per-lang component target of record `sectionId`. */
+const langTarget = (sectionId: number, lang: string, component = 'test94'): JobTarget => ({
+	...target(sectionId, component),
+	lang,
+});
+
+/** Steal the lock at `path` for a far, live owner (another instance reclaimed it). */
+function stealLock(path: string, token = 'thief'): void {
+	rmSync(path);
+	writeFileSync(
+		path,
+		JSON.stringify({ key: 'stolen', started_at: Date.now(), ...FAR, token }),
+	);
+	writeFileSync(heartbeatPath(path, token), JSON.stringify({ beat: 0, holder: 'x' }));
+}
+
+/** Drop a stolen lock and its heartbeat. */
+function dropStolen(path: string, token = 'thief'): void {
+	rmSync(path, { force: true });
+	rmSync(heartbeatPath(path, token), { force: true });
+}
+
+/** Run `fn` while the locks dir refuses every write: a refusal that touches no file passes, one that does throws. */
+function withLocksDirReadOnly<T>(fn: () => T): T {
+	chmodSync(LOCKS, 0o500);
+	try {
+		return fn();
+	} finally {
+		chmodSync(LOCKS, 0o750);
+	}
+}
+
+describe('claims re-check their hold (F3)', () => {
+	test('work UNDER a claim whose lock was stolen does not rename its output into place', async () => {
+		const a = manager('inst-a');
+		const claim = mustGet(a.claimTarget(target(60)), 'claim');
+		const out = join(OUT, 'claim_60.mp4');
+		stealLock(lockPath(60));
+		const refused = await refusalOf(
+			a.runUnderClaim(claim, () =>
+				writeAtomically(out, async (temp) => writeFileSync(temp, 'conformed')),
+			),
+		);
+		expect(refused.code).toBe('media.build_running');
+		expect(existsSync(out)).toBe(false);
+		quietErrors(() => claim.release());
+		expect(lockOwner(60).token).toBe('thief'); // the new owner's lock untouched
+		dropStolen(lockPath(60));
+	});
+
+	test('a claim still held publishes; a released claim checks nothing', async () => {
+		const a = manager('inst-a');
+		const claim = mustGet(a.claimTarget(target(61)), 'claim');
+		const out = join(OUT, 'claim_61.mp4');
+		await a.runUnderClaim(claim, () =>
+			writeAtomically(out, async (temp) => writeFileSync(temp, 'ok')),
+		);
+		expect(existsSync(out)).toBe(true);
+		claim.release();
+		expect(() => a.assertClaimHolds(claim.id)).not.toThrow();
+		rmSync(out);
+	});
+
+	test('a claim whose lock was stolen is never ADOPTED by its job', () => {
+		const a = manager('inst-a');
+		const claim = mustGet(a.claimTarget(target(62)), 'claim');
+		stealLock(lockPath(62));
+		const refused = quietErrors(() =>
+			refusalOfSync(() =>
+				a.submit('test_lock_job', async () => null, {
+					lane: 'media',
+					target: target(62),
+					exclusive: true,
+					claim,
+				}),
+			),
+		);
+		expect(refused.code).toBe('media.build_running');
+		quietErrors(() => claim.release());
+		expect(lockOwner(62).token).toBe('thief');
+		dropStolen(lockPath(62));
+	});
+
+	test('withAvComponentClaim runs its operation under the claim: a stolen hold publishes nothing', async () => {
+		const av = mustGet(mediaTypeOf('component_av'), 'av spec');
+		const identity = { sectionTipo: 'test3', sectionId: 63, componentTipo: 'test94', lang: null };
+		const out = join(OUT, 'conform_63.mp4');
+		const refused = await quietErrors(() =>
+			refusalOf(
+				withAvComponentClaim(av, identity, 'conform', async () => {
+					stealLock(lockPath(63)); // reclaimed while the operation awaited
+					await writeAtomically(out, async (temp) => writeFileSync(temp, 'remuxed'));
+				}),
+			),
+		);
+		expect(refused.code).toBe('media.build_running');
+		expect(existsSync(out)).toBe(false);
+		expect(lockOwner(63).token).toBe('thief');
+		dropStolen(lockPath(63));
+	});
+
+	test('a record hold re-checks a component it already holds: reclaimed meanwhile → refused', () => {
+		const hold = new AvRecordHold('test3', 64);
+		expect(hold.takeComponents(['test94'])).toBe(true);
+		expect(() => hold.require('test94')).not.toThrow();
+		const all = join(LOCKS, componentLockFileName('test3|64|test94|*'));
+		stealLock(all);
+		expect(quietErrors(() => refusalOfSync(() => hold.require('test94'))).code).toBe(
+			'media.build_running',
+		);
+		quietErrors(() => hold.release());
+		expect(JSON.parse(readFileSync(all, 'utf8')).token).toBe('thief');
+		dropStolen(all);
+	});
+});
+
+describe('whole-component claims: every lang (F4)', () => {
+	test('while held, a build in ANY lang is refused — on this instance and on another; released, both pass', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		const claims = mustGet(a.claimWholeComponents('test3', 65, ['test94'], 'record_media'), 'all');
+		for (const lang of ['lg-fra', 'lg-eng']) {
+			expect(a.claimTarget(langTarget(65, lang))).toBeNull();
+			expect(b.claimTarget(langTarget(65, lang))).toBeNull();
+			expect(b.isOccupied(langTarget(65, lang))).toBe(true);
+		}
+		expect(b.claimTarget(target(65))).toBeNull();
+		// Another component of the record is not held.
+		const neighbour = mustGet(b.claimTarget(target(65, 'test81')), 'neighbour');
+		neighbour.release();
+		for (const claim of claims) claim.release();
+		for (const m of [a, b]) {
+			const freed = mustGet(m.claimTarget(langTarget(65, 'lg-fra')), 'freed');
+			freed.release();
+		}
+	});
+
+	test('any lang held — here or elsewhere — refuses the whole claim, and nothing it took stays held', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		for (const holder of [a, b]) {
+			const lang = mustGet(holder.claimTarget(langTarget(66, 'lg-deu')), 'lang claim');
+			expect(a.claimWholeComponents('test3', 66, ['test81', 'test94'], 'record_media')).toBeNull();
+			const other = mustGet(b.claimTarget(target(66, 'test81')), 'test81 given back');
+			other.release();
+			lang.release();
+		}
+		const claims = mustGet(
+			a.claimWholeComponents('test3', 66, ['test81', 'test94'], 'record_media'),
+			'free now',
+		);
+		expect(b.claimWholeComponents('test3', 66, ['test94'], 'record_media')).toBeNull();
+		for (const claim of claims) claim.release();
+	});
+
+	test('on ONE instance the refusals are answered in memory, before any lock file is touched', () => {
+		const a = manager('inst-a');
+		const whole = mustGet(a.claimWholeComponents('test3', 67, ['test94'], 'record_media'), 'all');
+		expect(withLocksDirReadOnly(() => a.claimTarget(langTarget(67, 'lg-ita')))).toBeNull();
+		for (const claim of whole) claim.release();
+		const lang = mustGet(a.claimTarget(langTarget(68, 'lg-ita')), 'lang');
+		expect(
+			withLocksDirReadOnly(() => a.claimWholeComponents('test3', 68, ['test94'], 'record_media')),
+		).toBeNull();
+		lang.release();
+	});
+
+	test('a whole-component target is a claim only: never claimTarget, never a job', () => {
+		const a = manager('inst-a');
+		const whole: JobTarget = { ...target(69), scope: 'component_all' };
+		expect(refusalOfSync(() => a.claimTarget(whole)).code).toBe('internal.invariant');
+		expect(
+			refusalOfSync(() =>
+				a.submit('test_lock_job', async () => null, {
+					lane: 'media',
+					target: whole,
+					exclusive: true,
+				}),
+			).code,
+		).toBe('internal.invariant');
 	});
 });
 
