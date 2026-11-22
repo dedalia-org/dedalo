@@ -30,9 +30,10 @@
  * branch (the dd128-aware pair — cross-write:r3); an undelete (no live row) is
  * a record lifecycle effect, authorized at the section. After the restore
  * commits: the record's deleted media files are put back (restoreSectionMedia),
- * the section's stored navigation SQO is dropped from the caller's session
- * (session_store.ts dropSessionSqo — a stale filter / offset), and the activity
- * row is appended. The restored snapshot row is KEPT as history: the recover
+ * the activity row is appended, and the section's stored navigation SQO is
+ * dropped from the caller's session (dropRestoredSectionSqo — a stale filter /
+ * offset; best-effort, a store failure is logged, never fails the restore). The
+ * restored snapshot row is KEPT as history: the recover
  * writes its own whole-record row, which supersedes it — the deleted-records
  * list offers only a record's latest snapshot, and only while the record is not
  * live (resolve/read_tm.ts deletedListPredicate;
@@ -489,6 +490,33 @@ async function logRecoverActivity(
 	});
 }
 
+/**
+ * After a section restore COMMITTED and its activity row is written: forget the
+ * section's stored navigation SQO (PHP unset of
+ * $_SESSION['dedalo']['config']['sqo'][section_tipo], T2 O16-03), so the next
+ * list read does not carry a filter / offset the restore made stale. A
+ * background or session-less caller has none to drop.
+ *
+ * Best-effort BY CONTRACT (PHP's unset cannot fail; here the session store can,
+ * e.g. SQLite busy past its timeout): the stored SQO is a navigation
+ * convenience, so a failed drop is LOGGED and the caller still gets ok for the
+ * restore that landed — the degraded outcome is the stale filter / offset kept
+ * until the user changes it. Never a reason to answer an error for committed
+ * data, nor to lose the audit row (written before this runs).
+ */
+function dropRestoredSectionSqo(sectionTipo: string): void {
+	const session = currentRequestContext()?.session;
+	if (session === undefined || session === null) return;
+	try {
+		dropSessionSqo(session, sectionTipo);
+	} catch (error) {
+		console.error(
+			`[tool_time_machine] drop of the stored SQO of ${sectionTipo} after a restore FAILED (restore kept)`,
+			error,
+		);
+	}
+}
+
 /** A snapshot with its section ids int-canonical (WC-2026-08-10 D6.2). */
 async function canonicalImage(data: unknown): Promise<unknown> {
 	const container = { value: data };
@@ -670,12 +698,6 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// Throws on refusal (the dispatch catch converts), so the activity row is
 		// appended only for a restore that actually landed.
 		await restoreSection(tmRow.data, tmRow.id, sectionTipo, sectionId, userId, door);
-		// COMMITTED: forget the section's stored navigation SQO (PHP unset of
-		// $_SESSION['dedalo']['config']['sqo'][section_tipo], T2 O16-03), so the
-		// next list read does not carry a filter / offset the restore made stale.
-		// A background or session-less caller has none to drop.
-		const session = currentRequestContext()?.session;
-		if (session !== undefined && session !== null) dropSessionSqo(session, sectionTipo);
 		await logRecoverActivity(
 			context,
 			'RECOVER SECTION',
@@ -690,6 +712,7 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 			},
 			sectionTipo,
 		);
+		dropRestoredSectionSqo(sectionTipo);
 		return ok(true, { requestId: toolRequestId(context) });
 	}
 

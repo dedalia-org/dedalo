@@ -106,6 +106,7 @@ async function newestWholeRow(): Promise<number> {
 
 let recordId = 0;
 let firstDelete = 0;
+let secondDeleteId = 0;
 let sessionToken = '';
 let session: Session;
 
@@ -131,8 +132,50 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+	// The recovers' RECOVER SECTION activity rows address our scratch section
+	// (misc.dd551) — dropSituation sweeps records + TM rows, not dd542.
+	const { sql } = await import('../../src/core/db/postgres.ts');
+	await sql.unsafe(
+		`DELETE FROM matrix_activity WHERE section_tipo = 'dd542'
+		   AND misc->'dd551'->0->'value'->>'section_tipo' = $1`,
+		[SECTION],
+	);
 	expect(await dropSituation(SITUATION)).toBe(0);
 });
+
+/** RECOVER SECTION (dd42 code 13) activity rows addressing our record. */
+async function recoverActivityCount(): Promise<number> {
+	const { sql } = await import('../../src/core/db/postgres.ts');
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM matrix_activity
+		 WHERE section_tipo = 'dd542'
+		   AND relation->'dd545'->0->>'section_id' = '13'
+		   AND misc->'dd551'->0->'value'->>'section_tipo' = $1
+		   AND misc->'dd551'->0->'value'->>'section_id' = $2`,
+		[SECTION, String(recordId)],
+	)) as { n: number }[];
+	return Number(rows[0]?.n ?? 0);
+}
+
+/** apply_value of one whole-record TM row, as `asSession`'s request. */
+async function recoverAs(asSession: Session, matrixId: number) {
+	return runWithRequestContext(
+		{ session: asSession, requestId: 'tm-recover-lifecycle', clientIp: '127.0.0.1' },
+		async () =>
+			toolTimeMachineApplyValue({
+				principal: await resolvePrincipal(USER_ID),
+				userId: USER_ID,
+				options: {
+					section_tipo: SECTION,
+					section_id: recordId,
+					tipo: SECTION,
+					lang: 'lg-nolan',
+					matrix_id: matrixId,
+				},
+				background: false,
+			}),
+	);
+}
 
 describe('recover a deleted record through apply_value', () => {
 	test('precondition: the deleted record is listed, once', async () => {
@@ -143,23 +186,10 @@ describe('recover a deleted record through apply_value', () => {
 	});
 
 	test('the recover lands: the record lives again', async () => {
-		const response = await runWithRequestContext(
-			{ session, requestId: 'tm-recover-lifecycle', clientIp: '127.0.0.1' },
-			async () =>
-				toolTimeMachineApplyValue({
-					principal: await resolvePrincipal(USER_ID),
-					userId: USER_ID,
-					options: {
-						section_tipo: SECTION,
-						section_id: recordId,
-						tipo: SECTION,
-						lang: 'lg-nolan',
-						matrix_id: firstDelete,
-					},
-					background: false,
-				}),
-		);
+		const before = await recoverActivityCount();
+		const response = await recoverAs(session, firstDelete);
 		expect(response.ok).toBe(true);
+		expect(await recoverActivityCount()).toBe(before + 1);
 		const record = await readMatrixRecord(TABLE, SECTION, recordId);
 		expect((record?.columns.string as Record<string, unknown> | null)?.[TEXT]).toEqual([
 			{ id: 1, lang: 'lg-nolan', value: 'kept' },
@@ -200,5 +230,23 @@ describe('recover a deleted record through apply_value', () => {
 		const secondDelete = await newestWholeRow();
 		expect(secondDelete).toBeGreaterThan(firstDelete);
 		expect(await deletedList()).toEqual({ ids: [secondDelete], count: 1 });
+		secondDeleteId = secondDelete;
+	});
+
+	test('a failing session-SQO drop never fails a committed restore, nor loses its audit row', async () => {
+		// The session store refuses (e.g. SQLite busy past its timeout): the drop
+		// is a navigation convenience AFTER COMMIT — the restore answers ok and
+		// its RECOVER SECTION row is written.
+		const lockedSession = { ...session } as Session;
+		Object.defineProperty(lockedSession, 'tokenHash', {
+			get() {
+				throw new Error('database is locked');
+			},
+		});
+		const before = await recoverActivityCount();
+		const response = await recoverAs(lockedSession, secondDeleteId);
+		expect(response.ok).toBe(true);
+		expect(await readMatrixRecord(TABLE, SECTION, recordId)).not.toBeNull();
+		expect(await recoverActivityCount()).toBe(before + 1);
 	});
 });

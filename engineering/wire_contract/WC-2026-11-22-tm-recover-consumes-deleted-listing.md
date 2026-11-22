@@ -44,7 +44,9 @@ deleted twice was listed twice. The session SQO was kept (ledgered).
 - After a section recover COMMITS, `apply_value` drops the section's entry from the caller's
   session `sqo_session` (stored row and in-memory map; other sections' entries stay), so the
   next list read of the section starts with no stored filter / offset. A request without a
-  session (CLI, harness) drops nothing.
+  session (CLI, harness) drops nothing. The drop runs after the RECOVER SECTION activity row
+  and is best-effort: a session-store failure (e.g. SQLite busy) is logged, the restore still
+  answers `ok` and keeps its audit row (gate: `tm_recover_lifecycle_native`, locked-store case).
 
 ## Reason
 
