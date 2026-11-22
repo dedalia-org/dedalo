@@ -557,6 +557,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-media-icons-tc`.
 
+- **A thesaurus term missing in your language now shows in another of your project languages, marked as untranslated, and shows every value it holds.**
+
+    When a term has no value in the language you work in, Dédalo looks for it in the thesaurus's own language, then in the language-neutral value, then in each of your project languages in order, and shows the first one it finds. Before, the tree, portals and exports each followed a different rule: a term could show empty in one place and in another language elsewhere. In the tree, a term shown from another language is highlighted as untranslated; exports and publications receive the plain text, never the highlight. A value held only in a language that none of your projects uses is no longer shown.
+
+    A term that holds two values in the same language now shows both, separated by ` | `, instead of only the first one. The labels of the indexation groups in the tree now follow your interface language.
+
+    Wire contract: `WC-2026-11-22-term-fallback-chain`.
+
 - **Searching through a field without its own configuration uses the same columns as its list.**
 
     A relation field whose ontology node carries no request configuration, but has a list
@@ -2376,7 +2384,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 99 entries"
+??? note "Wire contract — 100 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2477,6 +2485,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-media-icons-tc`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
+    - `WC-2026-11-22-term-fallback-chain`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

@@ -26,13 +26,25 @@
  * Situation: `zztrm` scratch TLD on matrix_test, built by ensureSituation and
  * dropped after (residue asserted 0). Identity: exportFrontierIdentity at its
  * own explicit ids (935100+), swept strictly.
+ *
+ * THE STRING-FRAGMENT LAW (T2 THES-01/02/03, 2026-11-22) — its own `zztfl`
+ * situation, last block: a literal term part is EVERY non-empty item of its
+ * lang slice (the flat reader's ' | ' glue), and an empty slice falls back
+ * requested lang → the hierarchy's main lang → lg-nolan → the project langs
+ * in config order — the same law for the section_map term
+ * (getTermByLocator), the explicit ddo_map label (getDdoValueByLocator) and
+ * the tree's term element. A fallback supplies text plus an `untranslated`
+ * flag (getTermTextByLocator); the tree decorates it AFTER escaping, the
+ * text every export / publication reads (getTermByLocator) never carries it.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
 import type { ApiRequestContext } from '../../src/core/api/handler_context.ts';
 import { coreApiActions } from '../../src/core/api/handlers/dd_core_api.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import type { CellFrontier } from '../../src/core/resolve/relation_list.ts';
+import { resolveCellValue } from '../../src/core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
@@ -47,7 +59,9 @@ import {
 	clearTermCache,
 	getDdoValueByLocator,
 	getTermByLocator,
+	getTermTextByLocator,
 } from '../../src/core/ts_object/term_resolver.ts';
+import { buildNodeData } from '../../src/core/ts_object/ts_object.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import {
 	clearFrontierIdentityCaches,
@@ -692,5 +706,182 @@ describe.if(DB_READY)('T1-32 — term parts drawn from non-literal components', 
 		expect(outcome.status).toBe(200);
 		const data = (outcome.body as { data: Record<string, unknown> }).data;
 		expect(data[`${H1}_2`]).toBe('Target one | Target two');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// THE STRING-FRAGMENT LAW (T2 THES-01/02/03)
+// ---------------------------------------------------------------------------
+
+const FL = 'zztfl1';
+const FL_TERM = 'zztfl2';
+const FL_MAP = 'zztfl3';
+const FL_LIST = 'zztfl4';
+// a section whose term is an autocomplete_hi onto FL — the flat reader a
+// relation cell / an export column reads a term through
+const FR = 'zztfl10';
+const FR_REL = 'zztfl11';
+const FR_MAP = 'zztfl12';
+
+/**
+ * The langs, from the INSTALL's config (never module literals): the request
+ * lang, the hierarchy main lang of a TLD with no hierarchy registry row
+ * (term_resolver getMainLang's tail: lg-eng), and THIRD — the LAST project lang
+ * that is neither, so a hit proves the walk reached the end of the chain.
+ */
+const MAIN = 'lg-eng';
+const PROJECT = config.menu.projectsDefaultLangs.filter((code) => code !== MAIN);
+const REQ = PROJECT[0] as string;
+const THIRD = PROJECT[PROJECT.length - 1] as string;
+
+const fl = situation({
+	name: 'T2 THES-01/02/03 term string-fragment law',
+	tld: 'zztfl',
+	nodes: [
+		{ tipo: FL, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{ tipo: FL_TERM, parent: FL, model: 'component_input_text', is_translatable: true },
+		{
+			tipo: FL_MAP,
+			parent: FL,
+			model: 'section_map',
+			properties: { thesaurus: { term: FL_TERM } },
+		},
+		{
+			tipo: FL_LIST,
+			parent: FL,
+			model: 'section_list_thesaurus',
+			properties: { show: { ddo_map: [{ tipo: FL_TERM, type: 'term' }] } },
+		},
+		{ tipo: FR, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{
+			tipo: FR_REL,
+			parent: FR,
+			model: 'component_autocomplete_hi',
+			properties: termConfig(FL),
+		},
+		{ tipo: FR_MAP, parent: FR, model: 'section_map', properties: { thesaurus: { term: FR_REL } } },
+	],
+	records: [
+		// 1. only in THIRD — the end of the chain
+		{
+			section_tipo: FL,
+			section_id: 1,
+			columns: { string: { [FL_TERM]: [{ id: 1, lang: THIRD, value: 'Third only' }] } },
+		},
+		// 2. two values in the request lang (+ an empty one, + another lang)
+		{
+			section_tipo: FL,
+			section_id: 2,
+			columns: {
+				string: {
+					[FL_TERM]: [
+						{ id: 1, lang: REQ, value: 'One' },
+						{ id: 2, lang: THIRD, value: 'Elsewhere' },
+						{ id: 3, lang: REQ, value: 'Two' },
+						{ id: 4, lang: REQ, value: ' ' },
+					],
+				},
+			},
+		},
+		// 3. lg-nolan only, on a translatable component
+		{
+			section_tipo: FL,
+			section_id: 3,
+			columns: { string: { [FL_TERM]: [{ id: 1, lang: 'lg-nolan', value: 'No lang' }] } },
+		},
+		// 4. the main lang beats a later project lang (chain order)
+		{
+			section_tipo: FL,
+			section_id: 4,
+			columns: {
+				string: {
+					[FL_TERM]: [
+						{ id: 1, lang: THIRD, value: 'Third' },
+						{ id: 2, lang: MAIN, value: 'Main' },
+					],
+				},
+			},
+		},
+		{ section_tipo: FR, section_id: 1, columns: { relation: { [FR_REL]: link(FR_REL, FL, [1]) } } },
+	],
+});
+
+const ADMIN_PRINCIPAL = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as const;
+
+const inReq = <T>(work: () => Promise<T>) =>
+	runWithRequestLangs({ applicationLang: REQ, dataLang: REQ }, work);
+
+async function treeTermOf(sectionId: number): Promise<string> {
+	const node = await inReq(() => buildNodeData(FL, sectionId, {}, null, ADMIN_PRINCIPAL));
+	const element = node.ar_elements.find((entry) => entry.type === 'term');
+	if (element === undefined) throw new Error(`node ${sectionId} has no term element`);
+	return String(element.value);
+}
+
+describe.if(DB_READY)('T2 THES-01/02/03 — the term string-fragment law', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('term_resolver_model_flat_native');
+		await dropSituation(fl);
+		await ensureSituation(fl);
+		clearTermCache();
+	}, 60_000);
+
+	afterAll(async () => {
+		await assertTestDatabase('term_resolver_model_flat_native');
+		clearTermCache();
+		expect(await dropSituation(fl)).toBe(0);
+	});
+
+	test('precondition: three distinct langs from the install config', () => {
+		expect(new Set([REQ, MAIN, THIRD, 'lg-nolan']).size).toBe(4);
+	});
+
+	test('a term held only in the LAST project lang resolves, flagged untranslated', async () => {
+		expect(await inReq(() => getTermByLocator({ section_tipo: FL, section_id: 1 }, REQ))).toBe(
+			'Third only',
+		);
+		expect(
+			await inReq(() => getTermTextByLocator({ section_tipo: FL, section_id: 1 }, REQ)),
+		).toEqual({ text: 'Third only', untranslated: true });
+	});
+
+	test('every non-empty item of the lang renders, a direct hit is not flagged', async () => {
+		expect(
+			await inReq(() => getTermTextByLocator({ section_tipo: FL, section_id: 2 }, REQ)),
+		).toEqual({ text: 'One | Two', untranslated: false });
+	});
+
+	test('chain order: lg-nolan is reached; the main lang wins over a later project lang', async () => {
+		expect(
+			await inReq(() => getTermTextByLocator({ section_tipo: FL, section_id: 3 }, REQ)),
+		).toEqual({ text: 'No lang', untranslated: true });
+		expect(
+			await inReq(() => getTermTextByLocator({ section_tipo: FL, section_id: 4 }, REQ)),
+		).toEqual({ text: 'Main', untranslated: true });
+	});
+
+	test('the ddo_map label reads the same law (one law, two doors)', async () => {
+		const ddo = (sectionId: number) =>
+			inReq(() =>
+				getDdoValueByLocator({ section_tipo: FL, section_id: sectionId }, [FL_TERM], ', ', REQ),
+			);
+		expect(await ddo(1)).toBe('Third only');
+		expect(await ddo(2)).toBe('One | Two');
+		expect(await ddo(4)).toBe('Main');
+	});
+
+	test('the tree decorates the flag AFTER escaping; a direct hit is plain', async () => {
+		expect(await treeTermOf(1)).toBe('<mark>Third only</mark>');
+		expect(await treeTermOf(2)).toBe('One | Two');
+		expect(await treeTermOf(4)).toBe('<mark>Main</mark>');
+	});
+
+	test('what an export / publication reads carries no markup', async () => {
+		// getTermByLocator is the export parents chain's and the diffusion
+		// resolver's door; resolveCellValue the flat reader of an export cell
+		const plain = await inReq(() => getTermByLocator({ section_tipo: FL, section_id: 1 }, REQ));
+		expect(plain).not.toContain('<');
+		const cell = await inReq(() => resolveCellValue(FR, 1, FR_REL, REQ, []));
+		expect(cell).toBe('Third only');
 	});
 });

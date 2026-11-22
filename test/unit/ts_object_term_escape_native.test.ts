@@ -22,6 +22,7 @@
  */
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
 import {
 	dropSituation,
 	ensureSituation,
@@ -39,6 +40,20 @@ const ADMIN = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as const;
 
 const HOSTILE = '<img src=x onerror=alert(1)>';
 const FALLBACK = `<b>x</b> & 'y'`;
+/**
+ * A configured project lang that is neither a request data lang this file reads
+ * in (the default) nor the zztte main lang (lg-eng: no hierarchy row) — so only
+ * the project-lang rung can supply it. A lang no project declares renders
+ * nothing (THES-01: the chain stops at the project langs).
+ */
+const FALLBACK_LANG = (() => {
+	const langs = config.menu.projectsDefaultLangs.filter(
+		(code) => code !== 'lg-eng' && code !== config.lang.dataLangDefault,
+	);
+	const last = langs.at(-1);
+	if (last === undefined) throw new Error('no project lang besides the default and lg-eng');
+	return last;
+})();
 
 const labelItems = (value: string) =>
 	['lg-spa', 'lg-eng', 'lg-cat'].map((lang, index) => ({ id: index + 1, lang, value }));
@@ -74,12 +89,13 @@ const S = situation({
 			columns: { string: { [LABEL]: labelItems(HOSTILE), [CODE]: nolan('aa') } },
 		},
 		{
-			// 2. label only in a lang no request uses → the untranslated fallback
+			// 2. label only in a project lang the request does not use → the
+			//    untranslated fallback (the project-lang rung, THES-01)
 			section_tipo: SECTION,
 			section_id: 2,
 			columns: {
 				string: {
-					[LABEL]: [{ id: 1, lang: 'lg-tlh', value: FALLBACK }],
+					[LABEL]: [{ id: 1, lang: FALLBACK_LANG, value: FALLBACK }],
 					[CODE]: nolan('aa'),
 				},
 			},

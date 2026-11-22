@@ -34,6 +34,7 @@
 
 import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
+import { getFlatValueFamily } from '../components/registry.ts';
 import type { RenderClass } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
@@ -84,14 +85,13 @@ import {
 	getDdoValueByLocator,
 	getTermByLocator,
 	invalidateNode as invalidateTermNode,
+	stringTermFragment,
 	type TermLocator,
 } from './term_resolver.ts';
 
 // DEDALO_DATA_LANG is read PER REQUEST via currentDataLang() at each use site
 // (S2-11): PHP passes the per-request data lang (class.ts_object.php:1441-1445);
 // a module-level capture froze the install default for every session.
-/** DEDALO_DATA_LANG_DEFAULT — the main-lang fallback for untranslated term data. */
-const DATA_LANG_DEFAULT = config.lang.dataLangDefault;
 /** DEDALO_ONTOLOGY_SECTION_TIPO — the ontology main section root. */
 const ONTOLOGY_SECTION_TIPO = 'ontology35';
 
@@ -546,21 +546,6 @@ async function svgElementUrl(
 	} catch {
 		return '';
 	}
-}
-
-/** get_component_data_fallback: main-lang → nolan → any non-empty (PHP :310). */
-function componentDataFallbackValue(items: Record<string, unknown>[]): string {
-	const pick = (lang: string): string => {
-		const item = items.find((entry) => (entry.lang ?? 'lg-nolan') === lang);
-		return typeof item?.value === 'string' ? item.value : '';
-	};
-	let value = pick(DATA_LANG_DEFAULT);
-	if (value === '') value = pick('lg-nolan');
-	if (value === '') {
-		const any = items.find((entry) => typeof entry.value === 'string' && entry.value !== '');
-		value = (any?.value as string | undefined) ?? '';
-	}
-	return value;
 }
 
 /**
@@ -1099,11 +1084,21 @@ async function resolveElementValue(
 			// ruling 2026-11-11, WC-2026-11-12-tree-term-escaped). Caches above
 			// hold raw text; the accumulated elementObj.value is already escaped.
 			let elementValue: string;
-			if (componentData.length === 0) {
-				// lang fallback: main-lang → nolan → any, decorated as untranslated.
-				const rawItems = readItemsFromRecord(record, elementTipo, model);
-				const fallback = escapeHtml(toStr(componentDataFallbackValue(rawItems)));
-				elementValue = fallback === '' ? '' : `<mark>${fallback}</mark>`;
+			if (getFlatValueFamily(model) === 'string') {
+				// A literal part: THE string-fragment law (term_resolver.ts — every
+				// item of the lang, then requested → hierarchy main → lg-nolan →
+				// project langs); its `untranslated` flag is the ONE source of the
+				// `<mark>` decoration, applied after escaping (THES-02).
+				const part = await stringTermFragment(
+					sectionTipo,
+					elementTipo,
+					readItemsFromRecord(record, elementTipo, model),
+					currentDataLang(),
+				);
+				const escaped = escapeHtml(part.text);
+				elementValue = part.untranslated && escaped !== '' ? `<mark>${escaped}</mark>` : escaped;
+			} else if (componentData.length === 0) {
+				elementValue = '';
 			} else {
 				const first = componentData[0] as { value?: unknown } | string | undefined;
 				elementValue = escapeHtml(
