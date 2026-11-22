@@ -30,6 +30,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../src/core/search/search_statement.ts';
 import { buildSearchSql as buildSearchStatement } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
@@ -51,6 +52,8 @@ const PORTAL = `${TLD}5`; // component_portal → SECTION (multi-hop path)
 const PASSWORD = `${TLD}6`; // component_password — a SECRET, never a sort key (C39)
 const IRI = `${TLD}7`; // component_iri — {iri, title} frames, no .value scalar (C39)
 const LANG = 'lg-eng';
+/** The second data lang of the T2-SL-2 case: its values sort the OTHER way round. */
+const OTHER_LANG = 'lg-spa';
 
 const SITUATION = situation({
 	tld: TLD,
@@ -129,15 +132,18 @@ beforeAll(async () => {
 	for (const key of Object.keys(ids) as (keyof typeof ids)[]) {
 		ids[key] = await createSectionRecord(SECTION, -1);
 	}
-	const values: [number, number, string, string][] = [
-		[ids.r1, 30, 'c', 'gamma'],
-		[ids.r2, 10, 'a', 'alpha'],
-		[ids.r3, 20, 'b', 'beta'],
+	// The lg-spa text sorts the reverse way of the lg-eng one (r1 < r3 < r2),
+	// so an order resolved in the wrong data lang is visible (T2-SL-2).
+	const values: [number, number, string, string, string][] = [
+		[ids.r1, 30, 'c', 'gamma', 'a-uno'],
+		[ids.r2, 10, 'a', 'alpha', 'c-dos'],
+		[ids.r3, 20, 'b', 'beta', 'b-tres'],
 	];
-	for (const [id, number, key, text] of values) {
+	for (const [id, number, key, text, otherText] of values) {
 		await save(NUMBER, id, 'lg-nolan', [{ value: number }]);
 		await save(JSON_TIPO, id, 'lg-nolan', [{ value: { k: key } }]);
 		await save(TEXT, id, LANG, [{ value: text, lang: LANG }]);
+		await save(TEXT, id, OTHER_LANG, [{ value: otherText, lang: OTHER_LANG }]);
 	}
 	const link = (target: number) => [
 		{
@@ -292,6 +298,24 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 			ids.r2,
 			ids.r0,
 		]);
+	});
+
+	test('T2-SL-2: an order WITHOUT lang sorts in the REQUEST data lang, not the install DATA_LANG', async () => {
+		// Two request data langs, one translatable column, no `lang` on the order
+		// entry: each request must get the order of ITS slice. The install
+		// default (a module constant before T2-SL-2) answered the same order to
+		// both, so one of the two lanes was always wrong.
+		const order = [{ direction: 'ASC', path: [step(TEXT)] }];
+		const inLang = (dataLang: string) =>
+			runWithRequestLangs({ applicationLang: dataLang, dataLang }, () => ordered(all(), order));
+		expect(await inLang(LANG)).toEqual([ids.r2, ids.r3, ids.r1, ids.r0]);
+		expect(await inLang(OTHER_LANG)).toEqual([ids.r1, ids.r3, ids.r2, ids.r0]);
+		// An explicit order `lang` still wins over the request lang.
+		expect(
+			await runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
+				ordered(all(), [{ direction: 'ASC', path: [step(TEXT)], lang: OTHER_LANG }]),
+			),
+		).toEqual([ids.r1, ids.r3, ids.r2, ids.r0]);
 	});
 
 	test('SQL shape: lang predicate only on the lang-sliced model', async () => {

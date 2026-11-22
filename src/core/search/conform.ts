@@ -20,7 +20,6 @@
  * ledger, not a bug.
  */
 
-import { readString } from '../../config/readers.ts';
 import { getSearchBuilderFamily } from '../components/registry.ts';
 import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { isReferencedByLeaf, type SqoFilterLeaf, type SqoFilterNode } from '../concepts/sqo.ts';
@@ -63,9 +62,6 @@ import {
 	type SqlTipo,
 } from './identifier_gate.ts';
 import { requireRelationIndex, searchStoreCovers } from './search_store.ts';
-
-/** Default data language of the installation (PHP DEDALO_DATA_LANG). */
-const _DEFAULT_DATA_LANG = readString('DATA_LANG');
 
 /**
  * NON-relation fragment builders, keyed by the descriptor's `searchBuilder`

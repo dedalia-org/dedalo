@@ -29,7 +29,6 @@
  */
 
 import { config } from '../../config/config.ts';
-import { readString } from '../../config/readers.ts';
 import { getComponentModel, isLangSlicedModel } from '../components/registry.ts';
 import type { Sqo } from '../concepts/sqo.ts';
 import { getSectionTipos } from '../concepts/sqo.ts';
@@ -44,6 +43,7 @@ import {
 	getModelByTipo,
 	getTranslatableByTipo,
 } from '../ontology/resolver.ts';
+import { currentDataLang } from '../resolve/request_lang.ts';
 import { getUserFilterRecords } from '../security/filter_records.ts';
 import { FRONTIER_VISIBLE_TABLES, type SqlFrontierScope } from '../security/frontier_scope.ts';
 import {
@@ -73,8 +73,6 @@ import {
 	substituteUsed,
 } from './params.ts';
 import { createSearchStatement, runSearch, type SearchStatement } from './search_statement.ts';
-
-const DEFAULT_DATA_LANG = readString('DATA_LANG');
 
 /** Named-token prefix of a filter chain's hop ACL (`_ACL1_`…, NamedTokenCollector). */
 const HOP_ACL_TOKEN_PREFIX = 'ACL';
@@ -242,7 +240,10 @@ async function orderSelectExpression(input: {
 		return `(jsonb_path_query_first(${source}, '$[*].value') #>> '{}') AS ${sortAlias}`;
 	}
 	const translatable = await getTranslatableByTipo(input.componentTipo);
-	const lang = langRaw ?? (translatable ? DEFAULT_DATA_LANG : 'lg-nolan');
+	// T2-SL-2: an order entry without `lang` sorts in the REQUEST data lang (PHP
+	// DEDALO_DATA_LANG is per-request) — never the install DATA_LANG, which
+	// answered every session the same slice.
+	const lang = langRaw ?? (translatable ? currentDataLang() : 'lg-nolan');
 	return `(jsonb_path_query_first(${source}, '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
 }
 

@@ -615,6 +615,14 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-indexation-fragment-served`.
 
+- **Sorting a list by a translatable field follows your data language.**
+
+    A list sorted by a translatable field (a title, a name) used the installation's
+    configured data language to compare the values, whatever language the user had
+    chosen in the menu — a user working in English saw the rows in the order of their
+    Spanish values. The sort now compares the values in the user's current data
+    language. A sort that names its own language is unchanged.
+
 - **"A field that points to a list shared between installations (yes/no and the other common lists) no longer offers non-root users the buttons to open or edit that list's records."**
 
     The common lists stored with the system's own records are maintained centrally; only the root
