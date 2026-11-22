@@ -195,6 +195,29 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **"Activating or repairing a hierarchy links its root term only when it is unambiguous — the one term without a parent — and keeps every valid root."**
+
+    The *General term* of a hierarchy is the root its thesaurus tree hangs from. When it was
+    missing, or pointed at a record that does not exist, while the hierarchy's section already held
+    terms, **Activate / repair** (and the installer's activation) linked the term with the lowest
+    number — which could be any imported term, not the root. Now:
+
+    - it links the **one term that has no parent**;
+    - when several terms have no parent, or none has, it **changes nothing** and the *General term*
+      line of the status panel says **root ambiguous** — choose the root yourself in the
+      hierarchy's *General term* field, then repair again;
+    - a *General term* holding several roots keeps **every** root that exists; only links to
+      records that no longer exist are removed, and each one removed is listed;
+    - a newly created root is named after the hierarchy also when the section declares several
+      term fields (the first one is used), and never through a field that is not a text field.
+
+    **Action needed:** three thesauri shipped with Dédalo hold more than one term without a
+    parent — Spain (`es`), Cuba (`cu`) and France (`fr`). Installing one of them now ends with
+    *root ambiguous*: open its hierarchy record and choose its root term (for Spain, *Espanya*).
+    Details: [Hierarchy tool](./using/tools/using_hierarchy.md#tips-and-gotchas).
+
+    Wire contract: `WC-2026-11-22-hierarchy-root-link-rule`.
+
 - **"A field placed inside a `box elements` container of the ontology is no longer treated as a field of its section — deleting a record's data leaves it, and searches and lookups ignore it, as in v6."**
 
     In the ontology, a `box elements` node (and the older `dataframe` and
@@ -2362,7 +2385,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 99 entries"
+??? note "Wire contract — 100 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2460,6 +2483,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-media-icons-tc`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`

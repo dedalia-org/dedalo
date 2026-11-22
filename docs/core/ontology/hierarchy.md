@@ -215,17 +215,27 @@ exactly that on most hierarchy records, pointing at `<tld>1`/1, which does not e
 that TLD's thesaurus is imported. A locator whose target is missing is treated as **absent**,
 and the root is created.
 
-**Resolve or create; never assume an id.** If the locator's target exists it is kept (and
-re-stamped to the canonical shape). Otherwise, if the section already holds terms — an
-imported thesaurus — its existing root is linked. Only when the section is *empty* is a root
-created, and it takes whatever id the counter allocates.
+**Resolve or create; never assume an id.** Every stored locator whose target exists is kept
+(and re-stamped to the canonical shape) — a general term may hold several roots; only the
+locators that dangle, point outside the section or repeat a record are dropped, and each one
+dropped is named in the outcome. When no locator is valid:
+
+- the section is **empty** → a root is created, with whatever id the counter allocates;
+- exactly **one** record of the section has no parent (an imported thesaurus) → that record is
+  linked as the root;
+- **several** records have no parent, or **none** has (every record hangs under another) →
+  nothing is written, and the *General term* check reports **root ambiguous** — link the right
+  record in the hierarchy's *General term* field yourself. A record's id says nothing about
+  its place in the tree, so the engine does not guess.
 
 A created root is **named after the hierarchy** (`hierarchy5`, every language item it holds),
 because an unnamed root renders as an empty row at the top of the tree. The term component is
 read from the target section's `section_map` — `hierarchy52` declares
 `{thesaurus: {term: 'hierarchy25', model: 'hierarchy27', …}}` — and **never hard-coded**: a
 hierarchy built on a real section other than `hierarchy20` names a different component, and
-`getSectionMap()` already resolves a virtual section to its real one. Naming is **fill-only**:
+`getSectionMap()` already resolves a virtual section to its real one. When the map lists
+several term components, the first one is used. Only a text component stored in the `string`
+column can carry the name; any other model is reported and left untouched. Naming is **fill-only**:
 an existing term (imported, or edited by a curator) is never overwritten, which is also what
 makes it safe to run on every `ensureHierarchy` and lets it backfill roots created earlier.
 

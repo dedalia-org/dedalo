@@ -26,7 +26,7 @@
  * twin is created directly so each test starts from a known, hostile shape.
  */
 
-import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
 import {
@@ -37,6 +37,11 @@ import {
 import { deleteOntologyByTld } from '../../src/core/ontology/ontology_delete.ts';
 import { getSectionMapValue } from '../../src/core/ontology/section_map.ts';
 import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 
 const TLD = 'zz';
 const SECTION = 'hierarchy1';
@@ -61,6 +66,57 @@ async function rootLocator(componentTipo: string): Promise<Record<string, unknow
 		[SECTION, SCRATCH_ID, componentTipo],
 	)) as { loc: Record<string, unknown> | null }[];
 	return rows[0]?.loc ?? null;
+}
+
+/**
+ * Insert terms straight into a hierarchy section: [section_id, parent id | null].
+ * The parent link is the hierarchy20 component_relation_parent (hierarchy36) —
+ * what makes a record "parentless" (a root candidate) or not.
+ */
+async function insertTerms(sectionTipo: string, terms: [number, number | null][]): Promise<void> {
+	for (const [id, parent] of terms) {
+		const relation =
+			parent === null
+				? {}
+				: {
+						hierarchy36: [
+							{
+								id: 1,
+								type: 'dd47',
+								section_id: parent,
+								section_tipo: sectionTipo,
+								from_component_tipo: 'hierarchy36',
+							},
+						],
+					};
+		await sql.unsafe(
+			`INSERT INTO matrix_hierarchy (section_id, section_tipo, string, relation)
+			 VALUES ($1, $2, '{}'::jsonb, $3::text::jsonb)`,
+			[id, sectionTipo, JSON.stringify(relation)],
+		);
+	}
+}
+
+/** Overwrite one registry relation key (an operator edit / a damaged row). */
+async function setRegistryRelation(componentTipo: string, items: unknown[] | null): Promise<void> {
+	await sql.unsafe(
+		items === null
+			? `UPDATE "${TABLE}" SET relation = relation - $3 WHERE section_tipo = $1 AND section_id = $2`
+			: `UPDATE "${TABLE}" SET relation = relation || jsonb_build_object($3::text, $4::text::jsonb)
+			   WHERE section_tipo = $1 AND section_id = $2`,
+		items === null
+			? [SECTION, SCRATCH_ID, componentTipo]
+			: [SECTION, SCRATCH_ID, componentTipo, JSON.stringify(items)],
+	);
+	await clearOntologyDerivedCaches();
+}
+
+async function rootLocators(componentTipo: string): Promise<Record<string, unknown>[]> {
+	const rows = (await sql.unsafe(
+		`SELECT relation->$3 AS items FROM "${TABLE}" WHERE section_tipo = $1 AND section_id = $2`,
+		[SECTION, SCRATCH_ID, componentTipo],
+	)) as { items: Record<string, unknown>[] | null }[];
+	return rows[0]?.items ?? [];
 }
 
 /** Seed the registry twin. `presetRoot` reproduces the seed's DANGLING hierarchy45. */
@@ -184,12 +240,12 @@ describe('ensureHierarchy', () => {
 		await seedRegistry(true);
 		await ensureHierarchy(SCRATCH_ID, USER_ID); // provision the ontology first
 		// Simulate an imported thesaurus whose root is NOT id 1 (hard-coded ids are the disease).
+		// 9 hangs under 7, so 7 is the ONLY parentless record — the root (Q7 (b)).
 		await sql.unsafe('DELETE FROM matrix_hierarchy WHERE section_tipo = $1', [`${TLD}1`]);
-		await sql.unsafe(
-			`INSERT INTO matrix_hierarchy (section_id, section_tipo, string, relation)
-			 VALUES (7, $1, '{}'::jsonb, '{}'::jsonb), (9, $1, '{}'::jsonb, '{}'::jsonb)`,
-			[`${TLD}1`],
-		);
+		await insertTerms(`${TLD}1`, [
+			[7, null],
+			[9, 7],
+		]);
 		await sql.unsafe(
 			`UPDATE "${TABLE}" SET relation = relation - 'hierarchy45'
 			 WHERE section_tipo = $1 AND section_id = $2`,
@@ -199,7 +255,7 @@ describe('ensureHierarchy', () => {
 		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
 
 		expect(outcome.ok).toBe(true);
-		// the EXISTING root (lowest id) is linked; no third record is minted
+		// the EXISTING root (the parentless one) is linked; no third record is minted
 		expect(await terms(`${TLD}1`)).toEqual([7, 9]);
 		// int-canonical stored address (WC-2026-08-10-section-id-int-canonical)
 		expect(await rootLocator('hierarchy45')).toMatchObject({ section_id: 7 });
@@ -405,5 +461,303 @@ describe('foreign target sections (hierarchy53 / hierarchy58)', () => {
 		expect(second.applied).toEqual([]);
 		expect(await terms(`${TLD}2`)).toHaveLength(1);
 		expect(await terms(`${TLD}1`)).toHaveLength(1);
+	});
+});
+
+/**
+ * 6. THE ROOT LINK RULE (T2 OX4-02, owner Q7 (b), 2026-11-19;
+ *    WC-2026-11-22-hierarchy-root-link-rule). A missing or dangling general-term
+ *    link in a section that ALREADY holds terms links the ONLY record without a
+ *    parent; several such records, or none, change nothing and are reported as
+ *    "root ambiguous" for the operator to choose. The old rule linked the lowest
+ *    section_id — any imported term, a child as easily as the root.
+ */
+describe('root link rule — the only parentless record (Q7 (b))', () => {
+	async function provisionedWithoutRootLink(): Promise<void> {
+		await seedRegistry(true);
+		await ensureHierarchy(SCRATCH_ID, USER_ID); // provision zz0/zz1/zz2
+		await sql.unsafe('DELETE FROM matrix_hierarchy WHERE section_tipo = $1', [`${TLD}1`]);
+		await setRegistryRelation('hierarchy45', null);
+	}
+
+	test('ONE parentless record → linked, even when it is not the lowest id', async () => {
+		await provisionedWithoutRootLink();
+		await insertTerms(`${TLD}1`, [
+			[7, 9], // a child of 9 — lowest id, NOT the root
+			[9, null],
+		]);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(true);
+		expect(await rootLocators('hierarchy45')).toEqual([
+			{
+				id: 1,
+				type: 'dd48',
+				section_id: 9,
+				section_tipo: `${TLD}1`,
+				from_component_tipo: 'hierarchy45',
+			},
+		]);
+		expect(await terms(`${TLD}1`)).toEqual([7, 9]); // nothing minted
+	});
+
+	test('SEVERAL parentless records → nothing written, "root ambiguous" reported', async () => {
+		await provisionedWithoutRootLink();
+		await insertTerms(`${TLD}1`, [
+			[7, null],
+			[9, null],
+		]);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(false);
+		expect(outcome.errors.join(' ')).toContain('root ambiguous');
+		expect(await rootLocators('hierarchy45')).toEqual([]); // no link written
+		expect(await terms(`${TLD}1`)).toEqual([7, 9]); // nothing minted
+		const root = check(outcome.state, 'root_term');
+		expect(root?.ok).toBe(false);
+		expect(root?.detail).toContain('root ambiguous');
+		// inspect (the status panel) reports it too, as a pure read
+		expect(check(await inspectHierarchy(SCRATCH_ID), 'root_term')?.detail).toContain(
+			'root ambiguous',
+		);
+	});
+
+	test('NO parentless record (a parent cycle) → nothing written, "root ambiguous"', async () => {
+		await provisionedWithoutRootLink();
+		await insertTerms(`${TLD}1`, [
+			[7, 9],
+			[9, 7],
+		]);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(false);
+		expect(outcome.errors.join(' ')).toContain('root ambiguous');
+		expect(await rootLocators('hierarchy45')).toEqual([]);
+		expect(await terms(`${TLD}1`)).toEqual([7, 9]);
+	});
+
+	test('a DANGLING link over an ambiguous section is left as it is (change nothing)', async () => {
+		await provisionedWithoutRootLink();
+		await insertTerms(`${TLD}1`, [
+			[7, null],
+			[9, null],
+		]);
+		const dangling = {
+			id: 1,
+			type: 'dd151',
+			section_id: 999,
+			section_tipo: `${TLD}1`,
+			from_component_tipo: 'hierarchy45',
+		};
+		await setRegistryRelation('hierarchy45', [dangling]);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(false);
+		expect(await rootLocators('hierarchy45')).toEqual([dangling]);
+	});
+});
+
+/**
+ * 7. EVERY VALID ROOT LOCATOR SURVIVES (T2 OX4-03). The registry's general-term
+ *    component may hold several root locators; ensure used to read the FIRST
+ *    and rewrite the key with one — a bare-but-valid first locator cost every
+ *    other root its link, and a dangling first one made ensure link the lowest
+ *    record over a perfectly valid second locator. Now each valid locator is
+ *    kept (re-stamped to the canonical shape) and only the dangling ones are
+ *    dropped, each named in `applied`.
+ */
+describe('several root locators (OX4-03)', () => {
+	async function provisionedWithTwoRecords(): Promise<number> {
+		await seedRegistry(true);
+		await ensureHierarchy(SCRATCH_ID, USER_ID);
+		const first = Number((await rootLocator('hierarchy45'))?.section_id);
+		await insertTerms(`${TLD}1`, [[first + 6, null]]);
+		return first;
+	}
+
+	test('two valid roots, the first BARE → both survive, both re-stamped', async () => {
+		const first = await provisionedWithTwoRecords();
+		const second = first + 6;
+		await setRegistryRelation('hierarchy45', [
+			{ section_id: first, section_tipo: `${TLD}1` }, // bare: no id/type/from_component_tipo
+			{
+				id: 2,
+				type: 'dd48',
+				section_id: second,
+				section_tipo: `${TLD}1`,
+				from_component_tipo: 'hierarchy45',
+			},
+		]);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(true);
+		expect(check(outcome.state, 'root_term')?.ok).toBe(true);
+		const stored = await rootLocators('hierarchy45');
+		expect(stored.map((item) => Number(item.section_id))).toEqual([first, second]);
+		for (const item of stored) {
+			expect(item).toMatchObject({
+				type: 'dd48',
+				section_tipo: `${TLD}1`,
+				from_component_tipo: 'hierarchy45',
+			});
+		}
+		// distinct item ids (the bare one got a fresh id, the second kept its own)
+		expect(new Set(stored.map((item) => item.id)).size).toBe(2);
+		expect(stored[1]?.id).toBe(2);
+	});
+
+	test('a DANGLING first locator is dropped and named; the valid second one is kept', async () => {
+		const first = await provisionedWithTwoRecords();
+		const second = first + 6;
+		const valid = {
+			id: 2,
+			type: 'dd48',
+			section_id: second,
+			section_tipo: `${TLD}1`,
+			from_component_tipo: 'hierarchy45',
+		};
+		await setRegistryRelation('hierarchy45', [
+			{
+				id: 1,
+				type: 'dd48',
+				section_id: 999,
+				section_tipo: `${TLD}1`,
+				from_component_tipo: 'hierarchy45',
+			},
+			valid,
+		]);
+		// before ensure the check is not ok: one locator dangles
+		expect(check(await inspectHierarchy(SCRATCH_ID), 'root_term')?.ok).toBe(false);
+
+		const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+		expect(outcome.ok).toBe(true);
+		// the VALID root (not the lowest record, `first`) is the one kept
+		expect(await rootLocators('hierarchy45')).toEqual([valid]);
+		expect(outcome.applied.join(' ')).toContain(`${TLD}1/999`);
+		expect(check(outcome.state, 'root_term')?.ok).toBe(true);
+	});
+});
+
+/**
+ * 8. THE ROOT IS NAMED THROUGH THE FIRST TERM TIPO (T2 OX4-01). A section_map
+ *    `term` may be a LIST of tipos (`["hierarchy25","hierarchy90"]`); naming read
+ *    it as one string, found none, and left every such root unnamed. And only a
+ *    literal STRING-column component can carry the hierarchy's name (hierarchy5
+ *    items are `{id, lang, value}` strings): a term naming e.g. a number component
+ *    used to receive those string items in its `number` column.
+ *
+ * Root-only hierarchies (hierarchy53 → a defined `zzhst` section), so the term
+ * map is the scratch section's own, not hierarchy20's.
+ */
+const NAMING = situation({
+	tld: 'zzhst',
+	name: 'hierarchy_state root naming',
+	nodes: [
+		{ tipo: 'zzhst1', parent: 'test1', model: 'section', term: { 'lg-eng': 'zz names' } },
+		{
+			tipo: 'zzhst2',
+			parent: 'zzhst1',
+			model: 'section_map',
+			properties: { thesaurus: { term: ['zzhst3', 'zzhst4'] } },
+		},
+		{
+			tipo: 'zzhst3',
+			parent: 'zzhst1',
+			model: 'component_input_text',
+			term: { 'lg-eng': 'zz name a' },
+			is_translatable: true,
+		},
+		{
+			tipo: 'zzhst4',
+			parent: 'zzhst1',
+			model: 'component_input_text',
+			term: { 'lg-eng': 'zz name b' },
+			is_translatable: true,
+		},
+		// a New button: the root-only mint asks the acting user's create rule (F2)
+		{ tipo: 'zzhst8', parent: 'zzhst1', model: 'button_new', term: { 'lg-eng': 'zz new' } },
+		{ tipo: 'zzhst5', parent: 'test1', model: 'section', term: { 'lg-eng': 'zz numbers' } },
+		{ tipo: 'zzhst9', parent: 'zzhst5', model: 'button_new', term: { 'lg-eng': 'zz new' } },
+		{
+			tipo: 'zzhst6',
+			parent: 'zzhst5',
+			model: 'section_map',
+			properties: { thesaurus: { term: 'zzhst7' } },
+		},
+		{
+			tipo: 'zzhst7',
+			parent: 'zzhst5',
+			model: 'component_number',
+			term: { 'lg-eng': 'zz number' },
+		},
+	],
+});
+
+describe('root naming through the section_map term (OX4-01)', () => {
+	beforeAll(() => ensureSituation(NAMING));
+	afterAll(async () => {
+		expect(await dropSituation(NAMING)).toBe(0);
+	});
+
+	async function rootOnlyOn(sectionTipo: string): Promise<void> {
+		await seedRegistry(false);
+		await sql.unsafe(
+			`UPDATE "${TABLE}" SET string = string || $3::text::jsonb
+			 WHERE section_tipo = $1 AND section_id = $2`,
+			[
+				SECTION,
+				SCRATCH_ID,
+				JSON.stringify({ hierarchy53: [{ id: 1, lang: 'lg-nolan', value: sectionTipo }] }),
+			],
+		);
+		await clearOntologyDerivedCaches();
+	}
+
+	async function columnOf(sectionTipo: string, id: number, column: string, tipo: string) {
+		const rows = (await sql.unsafe(
+			`SELECT "${column}"->$3 AS value FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`,
+			[sectionTipo, id, tipo],
+		)) as { value: unknown }[];
+		return rows[0]?.value ?? null;
+	}
+
+	test('an ARRAY term → the root is named through its FIRST tipo', async () => {
+		await rootOnlyOn('zzhst1');
+		try {
+			const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+			expect(outcome.ok).toBe(true);
+			const rootId = Number((await rootLocator('hierarchy45'))?.section_id);
+			expect(rootId).toBeGreaterThan(0);
+			expect(await columnOf('zzhst1', rootId, 'string', 'zzhst3')).toEqual([
+				{ id: 1, lang: 'lg-eng', value: 'ZZ Scratch' },
+			]);
+			expect(await columnOf('zzhst1', rootId, 'string', 'zzhst4')).toBeNull();
+			expect(outcome.applied.join(' ')).not.toContain('unnamed');
+		} finally {
+			await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1', ['zzhst1']);
+		}
+	});
+
+	test('a term naming a NON-string component → root left unnamed, nothing written there', async () => {
+		await rootOnlyOn('zzhst5');
+		try {
+			const outcome = await ensureHierarchy(SCRATCH_ID, USER_ID);
+
+			const rootId = Number((await rootLocator('hierarchy45'))?.section_id);
+			expect(rootId).toBeGreaterThan(0); // the root exists — naming is non-fatal
+			expect(await columnOf('zzhst5', rootId, 'number', 'zzhst7')).toBeNull();
+			expect(await columnOf('zzhst5', rootId, 'string', 'zzhst7')).toBeNull();
+			const unnamed = outcome.applied.find((line) => line.includes('unnamed'));
+			expect(unnamed).toContain('zzhst7');
+		} finally {
+			await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1', ['zzhst5']);
+		}
 	});
 });

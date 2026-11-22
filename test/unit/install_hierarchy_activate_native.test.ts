@@ -216,14 +216,30 @@ async function sweepTld(tld: string): Promise<void> {
 
 /**
  * Two terms of `sectionTipo` as COPY text (MATRIX_COPY_COLUMNS order), rendered by
- * psql itself from rows inserted and removed here — the shape a vendored dump has.
+ * psql itself from rows inserted and removed here — the shape a vendored dump has:
+ * term 1 is the root, term 2 its child (hierarchy36). Activation links the ONLY
+ * term without a parent (the root link rule, WC-2026-11-22-hierarchy-root-link-rule).
  */
 async function twoTermsCopyText(sectionTipo: string): Promise<string> {
 	const conn = connFromConfig();
 	for (const id of [1, 2]) {
+		const relation =
+			id === 1
+				? {}
+				: {
+						hierarchy36: [
+							{
+								id: 1,
+								type: 'dd47',
+								section_id: 1,
+								section_tipo: sectionTipo,
+								from_component_tipo: 'hierarchy36',
+							},
+						],
+					};
 		await sql.unsafe(
-			'INSERT INTO matrix_hierarchy (section_id, section_tipo, data) VALUES ($1, $2, $3::text::jsonb)',
-			[id, sectionTipo, encodeForJsonb({ marker: 'release' })],
+			'INSERT INTO matrix_hierarchy (section_id, section_tipo, data, relation) VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb)',
+			[id, sectionTipo, encodeForJsonb({ marker: 'release' }), encodeForJsonb(relation)],
 		);
 	}
 	const res = await runPsql(conn, [
