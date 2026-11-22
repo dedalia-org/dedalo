@@ -78,6 +78,21 @@ describe('tipo_match: PHP tipo_in_array over a compiled list', () => {
 		expect(String(warn.mock.calls[0]?.[0])).toContain('/unclosed[/');
 	});
 
+	test('stateful / non-PHP flags (g, y, d, v) are malformed — a compiled matcher is stateless', () => {
+		// PHP preg_match rejects `g`/`y` (unknown modifier); a shared JS RegExp with
+		// `g`/`y` carries lastIndex between calls, so one compiled list would answer
+		// true, false, true… across requests (B5 review L1).
+		for (const flag of ['g', 'y', 'd', 'v']) {
+			const matcher = compileTipoMatcher([`/^test[0-9]+$/${flag}`], 'tool_zz');
+			for (let round = 0; round < 4; round++) expect(matcher.matches('test3')).toBe(false);
+		}
+		expect(warn).toHaveBeenCalledTimes(4);
+		// the PHP∩JS flags (i, m, s, u) still compile, and answer the same every time
+		const shared = compileTipoMatcher(['/^TEST[0-9]+$/imsu'], 'tool_zz');
+		for (let round = 0; round < 4; round++) expect(shared.matches('test3')).toBe(true);
+		expect(warn).toHaveBeenCalledTimes(4);
+	});
+
 	test('non-string entries are skipped (reported), the rest of the list still works', () => {
 		const matcher = compileTipoMatcher([['nested'], 42, 'dd5'], 'tool_zz');
 		expect(matcher.matches('dd5')).toBe(true);

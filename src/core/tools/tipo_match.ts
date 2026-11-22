@@ -14,7 +14,8 @@
  * (cached) rows, so a pattern is parsed once per registry load, not per element
  * tested — and a MALFORMED one (unbalanced, unknown flag, a `/` that is not a
  * delimited pattern) is reported once, at that moment, naming its owner, and
- * then never matches (PHP's failed preg_match). A non-string entry is reported
+ * then never matches (PHP's failed preg_match). Flags are the PHP∩JS set
+ * (i, m, s, u): a stateful `g`/`y` is malformed, so a matcher is stateless. A non-string entry is reported
  * and skipped the same way.
  *
  * Pure: no SQL, no config, no request state, no module caches.
@@ -38,6 +39,14 @@ export interface TipoMatcher {
 /** A delimited PHP-style pattern: `/body/flags`. */
 const DELIMITED_PATTERN = /^\/(.*)\/([a-z]*)$/s;
 
+/**
+ * The flags both engines read alike (PHP preg modifiers ∩ JS RegExp flags).
+ * Any other is MALFORMED: PHP rejects `g`/`y`, and on a compiled, SHARED
+ * RegExp they would carry `lastIndex` from one request's test into the next
+ * (true, false, true… for the same tipo); `d`/`v` are JS-only.
+ */
+const PORTABLE_FLAGS = /^[imsu]*$/;
+
 /** One compiled form of one list value. */
 type CompiledValue =
 	| { readonly kind: 'tld'; readonly tld: string }
@@ -53,6 +62,7 @@ function reportUnusable(owner: string, value: unknown, why: string): void {
 function compileRegex(value: string): RegExp | null {
 	const delimited = DELIMITED_PATTERN.exec(value);
 	if (delimited === null) return null;
+	if (!PORTABLE_FLAGS.test(delimited[2] as string)) return null;
 	try {
 		return new RegExp(delimited[1] as string, delimited[2]);
 	} catch {
