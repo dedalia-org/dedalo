@@ -45,10 +45,8 @@ import { withTransaction } from '../../../src/core/db/postgres.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { getMediaFileDate, withDedaloTime } from '../../../src/core/media/file_date.ts';
 import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
-import {
-	processUploadedFile,
-	requireMediaSpec,
-} from '../../../src/core/media/ingest/process_uploaded_file.ts';
+import { ingestAndPersist } from '../../../src/core/media/ingest/ingest_and_persist.ts';
+import { requireMediaSpec } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { resolveStagedName } from '../../../src/core/media/ingest/staged_files.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import { cropCoinPair } from '../../../src/core/media/tools/crop_coin_pair.ts';
@@ -1018,34 +1016,32 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 			section_tipo: targetSectionTipo,
 			section_id: targetSectionId,
 		});
-		const result = await processUploadedFile({
-			spec,
-			identity,
-			pathOpts,
-			userId: ctx.userId,
-			keyDir,
-			tmpName,
-			extension,
-			quality: customTargetQuality,
-		});
-		const { persistUploadedMedia, nameKeysForQuality } = await import(
+		// THE ingest door: ingest, persist, then the av transcode — the av build
+		// claim released whatever throws (ingest_and_persist.ts).
+		const { nameKeysForQuality } = await import(
 			'../../../src/core/media/tools/files_info_persist.ts'
 		);
-		await persistUploadedMedia({
-			sectionTipo: identity.sectionTipo,
-			sectionId: identity.sectionId,
-			componentTipo: identity.componentTipo,
-			lang: identity.lang,
-			filesInfo: result.filesInfo,
-			// The name the operator recognises. NOTE it is not always human-readable:
-			// a dropzone row restored from the server listing carries the SANITIZED
-			// staged name, because that is what the listing reports.
-			originalFileName: originalFileName || result.originalFileName,
-			originalNormalizedName: result.originalFileName,
-			// Provenance follows the tier the file landed in (PHP :778) — an import
-			// into a non-original tier records no original_*/modified_* names.
-			nameKeys: nameKeysForQuality(spec, customTargetQuality),
-		});
+		const result = await ingestAndPersist(
+			{
+				spec,
+				identity,
+				pathOpts,
+				userId: ctx.userId,
+				keyDir,
+				tmpName,
+				extension,
+				quality: customTargetQuality,
+			},
+			{
+				// The name the operator recognises. NOTE it is not always human-readable:
+				// a dropzone row restored from the server listing carries the SANITIZED
+				// staged name, because that is what the listing reports.
+				originalFileName,
+				// Provenance follows the tier the file landed in (PHP :778) — an import
+				// into a non-original tier records no original_*/modified_* names.
+				nameKeys: nameKeysForQuality(spec, customTargetQuality),
+			},
+		);
 		// A derivative failure is NOT an import failure: the original landed and
 		// is now indexed by the persist above, so the file counts as imported and
 		// the missing tiers can be rebuilt (tool_media_versions / repair). Report
@@ -1060,9 +1056,6 @@ async function importFiles(ctx: ToolActionContext): Promise<ToolResponse> {
 				`${originalFileName || result.originalFileName}: imported, but a derivative could not be built — ${message}`,
 			);
 		}
-		// AFTER the persist commits: an av transcode writes its own files_info
-		// back, and must not race the write above (IngestResult.startTranscode).
-		result.startTranscode?.();
 	};
 
 	/**

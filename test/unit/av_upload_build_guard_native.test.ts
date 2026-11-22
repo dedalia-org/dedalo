@@ -40,6 +40,7 @@ import { toErrorEnvelope } from '../../src/core/errors/convert.ts';
 import { submitAvTranscode, submitAvVersionBuild } from '../../src/core/media/av_versions.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { ingestAndPersistDeferred } from '../../src/core/media/ingest/ingest_and_persist.ts';
 import { processUploadedFile } from '../../src/core/media/ingest/process_uploaded_file.ts';
 import { type JobTarget, MediaJobManager, mediaJobs } from '../../src/core/media/jobs.ts';
 import {
@@ -460,6 +461,53 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 	);
 });
 
+describe('A1-01 the ingest door (ingest_and_persist.ts)', () => {
+	test.if(HAVE_FFMPEG)(
+		'deferred: the build claim is held until the caller settles it — release frees it, start adopts it',
+		async () => {
+			const identity = await recordWithOriginal();
+			const busy = (): boolean => {
+				const probe = mediaJobs.claimTarget({
+					...ingestTarget(identity),
+					also_qualities: ['audio'],
+				});
+				probe?.release();
+				return probe === null;
+			};
+			await writeVideo(stagedPath('deferred_a.mp4', ROOT));
+			const released = await ingestAndPersistDeferred({
+				spec: av,
+				identity,
+				pathOpts,
+				userId: USER_ID,
+				keyDir: KEY_DIR,
+				tmpName: 'deferred_a.mp4',
+				extension: 'mp4',
+			});
+			expect(busy()).toBe(true);
+			released.transcode.release();
+			expect(busy()).toBe(false);
+
+			await writeVideo(stagedPath('deferred_b.mp4', ROOT));
+			const started = await ingestAndPersistDeferred({
+				spec: av,
+				identity,
+				pathOpts,
+				userId: USER_ID,
+				keyDir: KEY_DIR,
+				tmpName: 'deferred_b.mp4',
+				extension: 'mp4',
+			});
+			const jobId = mustGet(started.transcode.start(), 'deferred transcode job');
+			started.transcode.release(); // after start: a no-op, the JOB holds the slot
+			expect(liveJobsOf(identity)).toBe(1);
+			await awaitJob(jobId);
+			expect(busy()).toBe(false);
+		},
+		120_000,
+	);
+});
+
 describe('A1-01 the tool_upload wire', () => {
 	async function callUpload(sectionId: number, tmpName: string): Promise<unknown> {
 		const loaded = await getLoadedTool('tool_upload');
@@ -589,5 +637,99 @@ describe('A1-01 the MCP upload door', () => {
 			claim?.release();
 		},
 		60_000,
+	);
+});
+
+describe('A1-01 the tool_import_files door', () => {
+	afterEach(() => {
+		mock.module('../../src/core/media/tools/files_info_persist.ts', () => REAL_FILES_INFO_PERSIST);
+	});
+
+	async function callImport(sectionId: number, tmpName: string) {
+		const loaded = await getLoadedTool('tool_import_files');
+		const importFiles = mustGet(loaded?.module.apiActions.import_files, 'import_files');
+		const response = await importFiles.handler({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			background: true,
+			options: {
+				section_tipo: SECTION,
+				tipo: AV_COMPONENT,
+				section_id: sectionId,
+				key_dir: KEY_DIR,
+				// Pre-matched (`section_id` per file): the import writes onto the
+				// scratch record this case created, never a fresh one.
+				files_data: [{ name: tmpName, tmp_name: tmpName, section_id: sectionId }],
+			},
+		});
+		return response.data as { imported: number; errors: string[] };
+	}
+
+	test.if(HAVE_FFMPEG)(
+		'ingestAndPersistDeferred: a persist that throws gives the build target back',
+		async () => {
+			const identity = await recordWithOriginal();
+			await writeVideo(stagedPath('deferred_fail.mp4', ROOT));
+			mock.module('../../src/core/media/tools/files_info_persist.ts', () => ({
+				...REAL_FILES_INFO_PERSIST,
+				persistUploadedMedia: async () => {
+					throw new Error('a101: injected persist failure');
+				},
+			}));
+			await expect(
+				ingestAndPersistDeferred({
+					spec: av,
+					identity,
+					pathOpts,
+					userId: USER_ID,
+					keyDir: KEY_DIR,
+					tmpName: 'deferred_fail.mp4',
+					extension: 'mp4',
+				}),
+			).rejects.toThrow('a101: injected persist failure');
+			const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
+			expect(claim).not.toBeNull();
+			claim?.release();
+		},
+		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'import_files: a persist that throws gives the build target back, and the next import proceeds',
+		async () => {
+			const sectionId = await createSectionRecord(SECTION, -1);
+			scratchIds.push(sectionId);
+			const identity: MediaIdentity = {
+				componentTipo: AV_COMPONENT,
+				sectionTipo: SECTION,
+				sectionId,
+				lang: null,
+			};
+			const first = `${sectionId}-imp1.mp4`;
+			await writeVideo(stagedPath(first, undefined, -1));
+			mock.module('../../src/core/media/tools/files_info_persist.ts', () => ({
+				...REAL_FILES_INFO_PERSIST,
+				persistUploadedMedia: async () => {
+					throw new Error('a101: injected persist failure');
+				},
+			}));
+			const failed = await callImport(sectionId, first);
+			// The batch reports the file's failure (it never aborts on one file)…
+			expect(failed.imported).toBe(0);
+			expect(failed.errors.join(' ')).toContain('a101: injected persist failure');
+			// …and the component is NOT left refusing every later upload.
+			mock.module(
+				'../../src/core/media/tools/files_info_persist.ts',
+				() => REAL_FILES_INFO_PERSIST,
+			);
+			const second = `${sectionId}-imp2.mp4`;
+			await writeVideo(stagedPath(second, undefined, -1));
+			const passed = await callImport(sectionId, second);
+			expect(passed.errors).toEqual([]);
+			expect(passed.imported).toBe(1);
+			for (const job of mediaJobs.jobsForRecord(SECTION, sectionId)) await awaitJob(job.id);
+			expect(mediaJobs.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+		},
+		120_000,
 	);
 });

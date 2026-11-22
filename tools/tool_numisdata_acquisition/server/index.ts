@@ -22,16 +22,14 @@ import {
 import { type HarvestDeps, harvestFetch } from '../../../src/core/harvest/harvest.ts';
 import { stagingDir } from '../../../src/core/media/ingest/add_file.ts';
 import {
-	processUploadedFile,
-	requireMediaSpec,
-} from '../../../src/core/media/ingest/process_uploaded_file.ts';
+	type DeferredTranscode,
+	ingestAndPersistDeferred,
+} from '../../../src/core/media/ingest/ingest_and_persist.ts';
+import { requireMediaSpec } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { receiveUpload } from '../../../src/core/media/ingest/upload.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
 import { cropCoinPair } from '../../../src/core/media/tools/crop_coin_pair.ts';
-import {
-	nameKeysForQuality,
-	persistUploadedMedia,
-} from '../../../src/core/media/tools/files_info_persist.ts';
+import { nameKeysForQuality } from '../../../src/core/media/tools/files_info_persist.ts';
 import { labelByTipo } from '../../../src/core/ontology/labels.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../../src/core/ontology/tld.ts';
@@ -675,62 +673,61 @@ async function importImagePair(
 	const created: CreatedImage[] = [];
 	// Transcodes start only once EVERY face is in: a face started and then rolled back (its
 	// record deleted because the other face failed) would transcode a file for a gone record.
-	const startTranscodes: (() => unknown)[] = [];
-	for (const output of outcome.outputs) {
-		if (output.portalComponentTipo === undefined) continue;
-		const save = await saveComponentData({
-			componentTipo: output.portalComponentTipo,
-			sectionTipo: T().object,
-			sectionId,
-			lang: NO_LANG,
-			userId: context.userId,
-			principal: context.principal,
-			// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
-			// access asks the SECTION level + target_sections, not the New button.
-			toolCreateAccess: toolAddNewElementAccess(context.principal, 'tool_numisdata_acquisition'),
-			changedData: [{ action: 'add_new_element', id: null, value: T().imageSection }],
-		});
-		const createdSectionId = (save as { ok: boolean; created_section_id?: number })
-			.created_section_id;
-		if (!save.ok || createdSectionId === undefined) {
-			throw new DedaloError('record.save_failed', {
-				coordinates: { component_tipo: output.portalComponentTipo, section_id: sectionId },
-				cause: save,
+	// Each pending one holds its component's av build claim until it is SETTLED: started
+	// below, or released in the `finally` when a later face throws (ingest_and_persist.ts).
+	const pending: DeferredTranscode[] = [];
+	try {
+		for (const output of outcome.outputs) {
+			if (output.portalComponentTipo === undefined) continue;
+			const save = await saveComponentData({
+				componentTipo: output.portalComponentTipo,
+				sectionTipo: T().object,
+				sectionId,
+				lang: NO_LANG,
+				userId: context.userId,
+				principal: context.principal,
+				// T0-2 / D3 REVISED: the portal create is a TOOL's — the server-minted
+				// access asks the SECTION level + target_sections, not the New button.
+				toolCreateAccess: toolAddNewElementAccess(context.principal, 'tool_numisdata_acquisition'),
+				changedData: [{ action: 'add_new_element', id: null, value: T().imageSection }],
 			});
+			const createdSectionId = (save as { ok: boolean; created_section_id?: number })
+				.created_section_id;
+			if (!save.ok || createdSectionId === undefined) {
+				throw new DedaloError('record.save_failed', {
+					coordinates: { component_tipo: output.portalComponentTipo, section_id: sectionId },
+					cause: save,
+				});
+			}
+			// Tracked BEFORE its file is processed: the portal add_new_element above already created
+			// and linked this rsc170 record, so from here on a failure of THIS face or of a later one
+			// must delete it again (importImagesForLot's all-or-nothing cleanup).
+			createdIds.push(createdSectionId);
+			const { identity, pathOpts } = await resolveMediaToolContext({
+				component_tipo: T().imageComponent,
+				section_tipo: T().imageSection,
+				section_id: createdSectionId,
+			});
+			// THE ingest door, deferred: ingest + persist now, the transcode settled above.
+			const ingested = await ingestAndPersistDeferred(
+				{
+					spec,
+					identity,
+					pathOpts,
+					userId: context.userId,
+					keyDir: IMPORT_KEY_DIR,
+					tmpName: output.tmpName,
+					extension,
+				},
+				{ originalFileName: output.fileName, nameKeys: nameKeysForQuality(spec, undefined) },
+			);
+			pending.push(ingested.transcode);
+			created.push({ portalTipo: output.portalComponentTipo, sectionId: createdSectionId });
 		}
-		// Tracked BEFORE its file is processed: the portal add_new_element above already created
-		// and linked this rsc170 record, so from here on a failure of THIS face or of a later one
-		// must delete it again (importImagesForLot's all-or-nothing cleanup).
-		createdIds.push(createdSectionId);
-		const { identity, pathOpts } = await resolveMediaToolContext({
-			component_tipo: T().imageComponent,
-			section_tipo: T().imageSection,
-			section_id: createdSectionId,
-		});
-		const result = await processUploadedFile({
-			spec,
-			identity,
-			pathOpts,
-			userId: context.userId,
-			keyDir: IMPORT_KEY_DIR,
-			tmpName: output.tmpName,
-			extension,
-		});
-		await persistUploadedMedia({
-			sectionTipo: identity.sectionTipo,
-			sectionId: identity.sectionId,
-			componentTipo: identity.componentTipo,
-			lang: identity.lang,
-			filesInfo: result.filesInfo,
-			originalFileName: output.fileName,
-			originalNormalizedName: result.originalFileName,
-			nameKeys: nameKeysForQuality(spec, undefined),
-		});
-		if (result.startTranscode) startTranscodes.push(result.startTranscode);
-		created.push({ portalTipo: output.portalComponentTipo, sectionId: createdSectionId });
+		for (const transcode of pending) transcode.start();
+	} finally {
+		for (const transcode of pending) transcode.release();
 	}
-
-	for (const startTranscode of startTranscodes) startTranscode();
 	return created;
 }
 

@@ -16,16 +16,11 @@ import {
 	toErrorBody,
 } from '../../../src/core/errors/index.ts';
 import { harvestFetch } from '../../../src/core/harvest/harvest.ts';
-import {
-	processUploadedFile,
-	requireMediaSpec,
-} from '../../../src/core/media/ingest/process_uploaded_file.ts';
+import { ingestAndPersist } from '../../../src/core/media/ingest/ingest_and_persist.ts';
+import { requireMediaSpec } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { receiveUpload } from '../../../src/core/media/ingest/upload.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
-import {
-	nameKeysForQuality,
-	persistUploadedMedia,
-} from '../../../src/core/media/tools/files_info_persist.ts';
+import { nameKeysForQuality } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getColumnNameByModel, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { getAlpha2FromCode } from '../../../src/core/resolve/lang_names.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
@@ -830,26 +825,19 @@ async function importDocumentForPublication(
 		section_tipo: PUBLICATION_TIPO,
 		section_id: sectionId,
 	});
-	const result = await processUploadedFile({
-		spec,
-		identity,
-		pathOpts,
-		userId: context.userId,
-		keyDir: IMPORT_KEY_DIR,
-		tmpName: staged.tmpName,
-		extension: 'pdf',
-	});
-	await persistUploadedMedia({
-		sectionTipo: identity.sectionTipo,
-		sectionId: identity.sectionId,
-		componentTipo: identity.componentTipo,
-		lang: identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: fileName,
-		originalNormalizedName: result.originalFileName,
-		nameKeys: nameKeysForQuality(spec, undefined),
-	});
-	result.startTranscode?.();
+	// THE ingest door: ingest, persist, then the deferred jobs (ingest_and_persist.ts).
+	await ingestAndPersist(
+		{
+			spec,
+			identity,
+			pathOpts,
+			userId: context.userId,
+			keyDir: IMPORT_KEY_DIR,
+			tmpName: staged.tmpName,
+			extension: 'pdf',
+		},
+		{ originalFileName: fileName, nameKeys: nameKeysForQuality(spec, undefined) },
+	);
 	return { documentImported: true, documentError: null };
 }
 
