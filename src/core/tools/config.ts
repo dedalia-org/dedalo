@@ -46,6 +46,18 @@ export function resetConfigCache(): void {
 }
 
 /**
+ * The tool a Tools-configuration / register record configures: its FIRST name
+ * item (dd1326[0].value), a non-empty string — else none. THE ONE naming rule:
+ * the reader below and the v6→v7 config move (tool_config_move.ts) both use it,
+ * so the move can never write into a record the reader does not read as the
+ * tool's (review MED-2).
+ */
+export function configRecordToolName(nameItems: { value?: unknown }[] | null): string | null {
+	const name = nameItems?.[0]?.value;
+	return typeof name === 'string' && name !== '' ? name : null;
+}
+
+/**
  * Read a config map from a matrix_tools section: {tool name → config object}.
  * `configTipo` is the json component holding the config (dd1633 for defaults on
  * dd1324, dd999 for install config on dd996).
@@ -61,8 +73,8 @@ async function readConfigMap(sectionTipo: string, configTipo: string): Promise<C
 	}[];
 	const map: ConfigMap = new Map();
 	for (const row of rows) {
-		const name = row.name_items?.[0]?.value;
-		if (name === undefined || name === '') continue;
+		const name = configRecordToolName(row.name_items);
+		if (name === null) continue;
 		const value = row.config_items?.[0]?.value;
 		map.set(name, value !== undefined && value !== null ? (value as ConfigObject) : null);
 	}

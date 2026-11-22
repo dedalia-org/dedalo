@@ -46,7 +46,7 @@
   `tool_diffusion` through the engine's write doors (one transaction, TM-audited): created when no
   record names the tool, written when the record has the key absent/empty, kept when it already
   holds a non-empty value (v6 read the tool config first), refused (`resource.conflict`) when two
-  records name the tool.
+  records name the tool. Shape checks and record naming: see the MED-2 addendum.
 - **Reason:** the define was a live v6 publication guard that v7 had silently dropped; a hidden
   panel is no refusal to a caller who posts the tipo by hand, so the server door enforces it.
 - **Gate reconciliation:** no parity fixture covers an install with the key set (the frozen store
@@ -85,3 +85,33 @@ re-queue (`queue.sweepStaleJobs`) both start a run without passing `diffuse`. No
 Gate: `diffusion_excluded_elements_native` F (requeue refused + row unchanged, with a
 non-excluded control that requeues; sweeper fails the excluded lost run with the code while the
 non-excluded one is re-queued; malformed list → `tool.config_invalid`).
+
+## Addendum 2026-11-22 — review MED-2: the migration uses the reader's shape rule and naming rule
+
+v6 used the define and the tool-config value only when `is_array`, silently ignoring anything
+else; the first migration had no shape check at all. Now ONE parse,
+`src/config/element_tipo_list.ts` `parseElementTipoList` (absent/null → empty list; an array of
+non-empty strings → that list; anything else → malformed), is the reader's
+(`parseExcludedElements`) AND the migration's (`V6_MIGRATION` rule `toolConfig.parse`, carried by
+every planned move):
+
+- **A define that is not a list** is NOT moved: `planToolConfigMoves` returns it in `invalid`
+  with its value, and the report prints it under *TOOL_CONFIG NOT MOVED* (set by hand). The move
+  door refuses such a value too (`tool.config_invalid`), should one reach it.
+- **A malformed STORED value** (dd996 `EXCLUDE_DIFFUSION_ELEMENTS` not a list) is treated as
+  EMPTY — the v6-faithful option: v6 ignored it and applied the define — so a valid define is
+  written over it, outcome `replaced`, the old value returned (`replaced`) and printed. (The
+  alternative, refusing naming both values, was not taken.)
+- **A stored dd999 config that is not an OBJECT** (an array, a string…) is REFUSED with
+  `tool.config_invalid` naming the dd996 record — never merged into as `{}` (which overwrote it
+  silently). Nothing is written.
+- **Which record is the tool's** is decided by `configRecordToolName` (`core/tools/config.ts`):
+  the FIRST dd1326 name item, a non-empty string — the one rule `readConfigMap` now reads by too.
+  The old `@>` match could pick a record naming the tool in a later item, which the reader never
+  reads as the tool's config: the move landed where no read reached it.
+- The door answers `{outcome, sectionId, replaced?}` (was the bare outcome).
+
+Gate: `diffusion_excluded_elements_native` E (string/number/mixed/empty-string defines not moved
+and reported with the value; malformed stored value replaced and reported; non-object config
+refused, value unchanged; a decoy naming the tool second is not written into — a record of its
+own is created and the reader sees it; the door refuses a malformed value to move).

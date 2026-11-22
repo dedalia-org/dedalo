@@ -29,10 +29,20 @@
  *      the list is malformed. Controls: a non-excluded element requeues / re-queues.
  *   E. migration: a v6 config's define is planned as a TOOL_CONFIG move and the
  *      move lands where the reader reads (created / kept / written / empty).
+ *      Review MED-2: the plan runs the READER's parse — a non-list define is not
+ *      moved, it is reported with its value; a malformed stored value is v6's
+ *      "ignored" (replaced, old value reported); a stored non-object config is
+ *      refused naming the record; the record is named the way the reader names
+ *      it (name_items[0], a decoy naming the tool second is not it).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { planToolConfigMoves, V6_MIGRATION } from '../../src/config/migration_map.ts';
+import { parseElementTipoList } from '../../src/config/element_tipo_list.ts';
+import {
+	planToolConfigMoves,
+	type ToolConfigMovePlan,
+	V6_MIGRATION,
+} from '../../src/config/migration_map.ts';
 import { extractDefines } from '../../src/config/php_defines.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
@@ -64,7 +74,7 @@ import type { VirtualTreeNode } from '../../src/diffusion/plan/virtual_tree.ts';
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
-import { withScratchToolConfig } from '../helpers/tool_config_fixture.ts';
+import { SCRATCH_CONFIG_ID, withScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 import {
 	dropZzdifDomain,
 	ensureZzdifDomain,
@@ -449,35 +459,64 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				},
 			]).records;
 
+		/** The one move a v6 config with `value` plans (refused when none is planned). */
+		const plannedMove = (value: string): ToolConfigMovePlan => {
+			const [move] = planToolConfigMoves(v6Config(value)).moves;
+			if (move === undefined) throw new Error(`no move planned for ${value}`);
+			return move;
+		};
+
+		/** Apply `move` (optionally with another value) through the migration's door, as root. */
+		const apply = (move: ToolConfigMovePlan, value: unknown = move.value) =>
+			moveValueIntoToolConfig({
+				toolName: move.tool,
+				key: move.key,
+				value,
+				parse: move.parse,
+				userId: -1,
+			});
+
 		test('classified TOOL_CONFIG, and planned as a move into tool_diffusion', () => {
 			expect(V6_MIGRATION.EXCLUDE_DIFFUSION_ELEMENTS?.cls).toBe('TOOL_CONFIG');
 			const plan = planToolConfigMoves(v6Config(`['${EXCLUDED}']`));
 			expect(plan.runtime).toEqual([]);
-			expect(plan.moves).toEqual([
-				{
-					from: 'EXCLUDE_DIFFUSION_ELEMENTS',
-					tool: EXCLUSION_TOOL,
-					key: EXCLUSION_KEY,
-					value: [EXCLUDED],
-				},
-			]);
+			expect(plan.invalid).toEqual([]);
+			expect(plan.moves).toHaveLength(1);
+			expect(plan.moves[0]).toMatchObject({
+				from: 'EXCLUDE_DIFFUSION_ELEMENTS',
+				tool: EXCLUSION_TOOL,
+				key: EXCLUSION_KEY,
+				value: [EXCLUDED],
+			});
+			// The plan carries the READER's parse (one shape rule, two doors).
+			expect(plan.moves[0]?.parse).toBe(parseElementTipoList);
+		});
+
+		test('MED-2: a define that is not a list is NOT moved — reported with its value', () => {
+			for (const literal of [`'${EXCLUDED}'`, '7', `['${EXCLUDED}', 7]`, "['']"]) {
+				const plan = planToolConfigMoves(v6Config(literal));
+				expect(plan.moves, literal).toEqual([]);
+				expect(plan.invalid, literal).toHaveLength(1);
+				expect(plan.invalid[0], literal).toContain('EXCLUDE_DIFFUSION_ELEMENTS');
+				// The value is NAMED, so the operator can set it by hand.
+				const value = v6Config(literal).get('EXCLUDE_DIFFUSION_ELEMENTS')?.value;
+				expect(plan.invalid[0], literal).toContain(JSON.stringify(value));
+			}
+			// FLOOR: the same planner DOES plan a list.
+			expect(planToolConfigMoves(v6Config(`['${EXCLUDED}']`)).moves).toHaveLength(1);
 		});
 
 		test('no record → CREATED, and the reader (and the door) see it; a second run KEEPS it', async () => {
-			const [move] = planToolConfigMoves(v6Config(`['${EXCLUDED}']`)).moves;
-			if (move === undefined) throw new Error('no move planned');
-			const apply = (value: unknown) =>
-				moveValueIntoToolConfig({ toolName: move.tool, key: move.key, value, userId: -1 });
+			const move = plannedMove(`['${EXCLUDED}']`);
 			try {
-				expect(await apply(move.value)).toBe('created');
-				// The only record naming the tool (beforeAll proved none existed): ours.
-				const created = await diffusionConfigRecords();
-				track(created);
-				expect(created).toHaveLength(1);
+				const created = await apply(move);
+				expect(created.outcome).toBe('created');
+				track([created.sectionId as number]);
+				expect(await diffusionConfigRecords()).toEqual([created.sectionId as number]);
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 				expect(await panelElements()).not.toContain(EXCLUDED);
 				// The tool config already holds a non-empty list: v6 read it first.
-				expect(await apply(['zzdif999'])).toBe('kept');
+				expect((await apply(move, ['zzdif999'])).outcome).toBe('kept');
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 			} finally {
 				await sweepTrackedConfigRecords();
@@ -485,39 +524,106 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 		});
 
 		test('a record with an EMPTY list → WRITTEN into it (v6 fell back to the define)', async () => {
+			const move = plannedMove(`['${EXCLUDED}']`);
 			await withScratchToolConfig(
 				EXCLUSION_TOOL,
 				{ other_option: 'kept', [EXCLUSION_KEY]: [] },
 				async () => {
-					expect(
-						await moveValueIntoToolConfig({
-							toolName: EXCLUSION_TOOL,
-							key: EXCLUSION_KEY,
-							value: [EXCLUDED],
-							userId: -1,
-						}),
-					).toBe('written');
-					expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
+					const written = await apply(move);
+					expect(written.outcome).toBe('written');
 					// The save audited the scratch record (TM + activity): tracked by its id.
-					const written = await diffusionConfigRecords();
-					track(written);
-					expect(written).toHaveLength(1);
+					track([written.sectionId as number]);
+					expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 				},
 			);
 			await sweepTrackedConfigRecords();
 		});
 
+		test('MED-2: a MALFORMED stored value is treated as empty (v6 ignored it): REPLACED, old value reported', async () => {
+			const move = plannedMove(`['${EXCLUDED}']`);
+			await withScratchToolConfig(
+				EXCLUSION_TOOL,
+				{ other_option: 'kept', [EXCLUSION_KEY]: { type: 'array', value: 'zzdif80' } },
+				async () => {
+					// FLOOR: the reader refuses what is stored now.
+					expect(await excludedDiffusionElements().catch((error: unknown) => error)).toBeInstanceOf(
+						DedaloError,
+					);
+					const replaced = await apply(move);
+					track([replaced.sectionId as number]);
+					expect(replaced.outcome).toBe('replaced');
+					expect(replaced.replaced).toBe('zzdif80');
+					expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
+				},
+			);
+			await sweepTrackedConfigRecords();
+		});
+
+		test('MED-2: a stored config that is not an OBJECT is REFUSED, naming the record — never overwritten as {}', async () => {
+			const move = plannedMove(`['${EXCLUDED}']`);
+			const stored = ['zz_not_an_object'];
+			await withScratchToolConfig(EXCLUSION_TOOL, stored as never, async () => {
+				const refused = await apply(move).catch((error: unknown) => error);
+				expect(refused).toBeInstanceOf(DedaloError);
+				expect((refused as DedaloError).code).toBe(CONFIG_FAULT);
+				expect((refused as DedaloError).publicMessage).toContain(String(SCRATCH_CONFIG_ID));
+				// Nothing written: the stored value is what it was.
+				const rows = (await sql`
+					SELECT misc->'dd999'->0->'value' AS value FROM matrix_tools
+					WHERE section_tipo = 'dd996' AND section_id = ${SCRATCH_CONFIG_ID}`) as {
+					value: unknown;
+				}[];
+				expect(rows[0]?.value).toEqual(stored);
+			});
+		});
+
+		test('MED-2: the migration names a record the SAME way the reader does (name_items[0])', async () => {
+			const move = plannedMove(`['${EXCLUDED}']`);
+			// A record whose FIRST name is another tool and whose SECOND item names
+			// tool_diffusion: the reader does not read it as tool_diffusion's config.
+			const decoyId = SCRATCH_CONFIG_ID + 1;
+			await assertTestDatabase('diffusion_excluded_elements_native decoy');
+			const taken = (await sql`
+				SELECT 1 FROM matrix_tools WHERE section_tipo = 'dd996' AND section_id = ${decoyId}`) as unknown[];
+			if (taken.length > 0) throw new Error(`dd996 ${decoyId} exists — not this file's to use`);
+			track([decoyId]);
+			try {
+				await sql`
+					INSERT INTO matrix_tools (section_id, section_tipo, string, misc)
+					VALUES (${decoyId}, 'dd996',
+						${JSON.stringify({
+							dd1326: [
+								{ id: 1, value: 'zz_other_tool' },
+								{ id: 2, value: EXCLUSION_TOOL },
+							],
+						})}::text::jsonb,
+						${JSON.stringify({ dd999: [{ id: 1, value: { [EXCLUSION_KEY]: [] } }] })}::text::jsonb)`;
+				resetConfigCache();
+				// FLOOR: the reader sees no tool_diffusion config in it.
+				expect((await excludedDiffusionElements()).size).toBe(0);
+				const result = await apply(move);
+				track([result.sectionId as number]);
+				// Not written into the decoy (the reader would never see it): a record of its own.
+				expect(result.outcome).toBe('created');
+				expect(result.sectionId).not.toBe(decoyId);
+				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
+			} finally {
+				await sweepTrackedConfigRecords();
+			}
+		});
+
+		test('MED-2: the door itself REFUSES a malformed value to move (one rule even past the planner)', async () => {
+			const move = plannedMove(`['${EXCLUDED}']`);
+			const refused = await apply(move, EXCLUDED).catch((error: unknown) => error);
+			expect(refused).toBeInstanceOf(DedaloError);
+			expect((refused as DedaloError).code).toBe(CONFIG_FAULT);
+			expect(await diffusionConfigRecords()).toHaveLength(0);
+		});
+
 		test('an empty define moves nothing', async () => {
-			const [move] = planToolConfigMoves(v6Config('[]')).moves;
-			expect(move?.value).toEqual([]);
-			expect(
-				await moveValueIntoToolConfig({
-					toolName: EXCLUSION_TOOL,
-					key: EXCLUSION_KEY,
-					value: move?.value,
-					userId: -1,
-				}),
-			).toBe('empty');
+			const move = plannedMove('[]');
+			expect(move.value).toEqual([]);
+			expect((await apply(move)).outcome).toBe('empty');
 			expect(await diffusionConfigRecords()).toHaveLength(0);
 		});
 	});

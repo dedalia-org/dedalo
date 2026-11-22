@@ -308,7 +308,7 @@ Every constant it found is grouped. Values are never printed, so the report is s
 | `ALIAS` | v7 has its own name for it; the value carries over | nothing |
 | `RENAMED` | the name changed **and the old one is retired** | nothing — the tool writes the new name |
 | `RESHAPED` | the name and/or the value shape changed | nothing — the tool converts it |
-| `TOOL_CONFIG` | v7 keeps it, but in a tool's configuration in the database, not in `.env` — today only `EXCLUDE_DIFFUSION_ELEMENTS`, which becomes the `EXCLUDE_DIFFUSION_ELEMENTS` key of `tool_diffusion` in **Tools configuration** | nothing — `--execute` writes it after the database is restored, and prints whether it created the record, wrote the key, or kept a value the tool configuration already held (v6 read that one first) |
+| `TOOL_CONFIG` | v7 keeps it, but in a tool's configuration in the database, not in `.env` — today only `EXCLUDE_DIFFUSION_ELEMENTS`, which becomes the `EXCLUDE_DIFFUSION_ELEMENTS` key of `tool_diffusion` in **Tools configuration** | nothing — `--execute` writes it after the database is restored, and prints whether it created the record, wrote the key, kept a value the tool configuration already held (v6 read that one first), or replaced a stored value that was not a list (v6 ignored it — the old value is printed). A define that is not a list of element tipos is NOT moved: the report lists it, with its value, under *TOOL_CONFIG NOT MOVED* — set it by hand |
 | `DROPPED` | v7 has no such setting, with the reason | nothing. See [what changed in v7](../whats_changed_v7.md#settings-that-are-gone) |
 | `COMMENTED OUT` | you had deliberately left it at the default | nothing |
 | **`NOT MIGRATABLE`** | **the v6 value is computed at runtime** | **set it by hand — see [5.2](#52-hand-set-keys)** |
@@ -348,7 +348,7 @@ A good config boots, answers `/health`, and shows a configured install in **main
 - new keys are appended under a dated comment block
 - the previous file is backed up to `.env.bak.<timestamp>`
 - the write is atomic, and the file stays `0600`
-- a `TOOL_CONFIG` setting is written into the database instead (the Tools configuration record of its tool, one transaction, recorded in Time Machine). It needs the restored database from Phase B, and it refuses — writing nothing — if two Tools configuration records configure the same tool
+- a `TOOL_CONFIG` setting is written into the database instead (the Tools configuration record of its tool, one transaction, recorded in Time Machine). It needs the restored database from Phase B, and it refuses — writing nothing — if two Tools configuration records configure the same tool, or if the tool's record holds a configuration that is not an object (the record is named)
 
 It refuses to run if anything is still `UNKNOWN`, or if a **boot-critical** key (`ENTITY`, the `DB_*` set, and the language block) is unresolved — a configured install without those crash-loops, and it is better to find out now.
 

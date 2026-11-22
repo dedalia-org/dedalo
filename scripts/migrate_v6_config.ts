@@ -82,19 +82,22 @@ async function applyToolConfigMoves(moves: readonly ToolConfigMovePlan[]): Promi
 	if (moves.length === 0) return;
 	const { moveValueIntoToolConfig } = await import('../src/core/tools/tool_config_move.ts');
 	for (const move of moves) {
-		const outcome = await moveValueIntoToolConfig({
+		const result = await moveValueIntoToolConfig({
 			toolName: move.tool,
 			key: move.key,
 			value: move.value,
+			parse: move.parse,
 			userId: -1,
 		});
+		const record = result.sectionId === undefined ? '' : ` (dd996 record ${result.sectionId})`;
 		const said = {
 			empty: 'empty in v6 — nothing to move',
 			kept: 'the tool configuration already holds a value (v6 read it first) — kept, define not applied',
 			written: 'written into the existing Tools configuration record',
+			replaced: `written over a MALFORMED value v6 ignored — the old value was ${JSON.stringify(result.replaced)}`,
 			created: 'a Tools configuration record was created for the tool',
-		}[outcome];
-		console.log(`  ${move.from} → ${move.tool} config '${move.key}': ${said}`);
+		}[result.outcome];
+		console.log(`  ${move.from} → ${move.tool} config '${move.key}': ${said}${record}`);
 	}
 }
 
@@ -156,7 +159,9 @@ async function main(): Promise<void> {
 
 	// --- TOOL_CONFIG: moved into a tool's configuration (the database) ------------
 	const toolConfig = planToolConfigMoves(extracted.records);
-	notMigratable.push(...toolConfig.runtime);
+	// Not moved: computed at runtime, or not the shape v7 reads (v6 ignored it) —
+	// set by hand in Tools configuration (dd996), never in the .env.
+	const toolConfigNotMoved = [...toolConfig.runtime, ...toolConfig.invalid];
 
 	// --- DEDALO_DIFFUSION_LANGS: DERIVED, never pinned ----------------------------
 	// A stock v6 config says `define('DEDALO_DIFFUSION_LANGS', DEDALO_PROJECTS_DEFAULT_LANGS)`
@@ -321,6 +326,16 @@ async function main(): Promise<void> {
 		);
 	}
 
+	if (toolConfigNotMoved.length > 0) {
+		console.log(
+			'\x1b[33m!! TOOL_CONFIG NOT MOVED — computed at runtime, or not the shape v7 reads\x1b[0m',
+		);
+		console.log("   (v6 ignored a value that is not a list). Set it by hand in the tool's");
+		console.log('   Tools configuration record (dd996), NOT in the .env:');
+		for (const item of toolConfigNotMoved) console.log(`   ${item}`);
+		console.log('');
+	}
+
 	if (notMigratable.length > 0) {
 		console.log('\x1b[33m!! NOT MIGRATABLE — the v6 value is computed at runtime\x1b[0m');
 		console.log('   ($_SERVER, dirname(), a function call). The v7 engine needs these set');
@@ -399,7 +414,7 @@ async function main(): Promise<void> {
 	renameSync(tmp, target);
 
 	console.log(`\n✔ wrote ${fresh.length} key(s) to ${target}`);
-	if (notMigratable.length > 0 || missing.length > 0) {
+	if (notMigratable.length > 0 || missing.length > 0 || toolConfigNotMoved.length > 0) {
 		console.log('  Remember the hand-set keys listed above before booting.');
 	}
 	if (execute) {

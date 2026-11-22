@@ -29,6 +29,7 @@
  * migration runs on.
  */
 
+import { parseElementTipoList } from './element_tipo_list.ts';
 import { PHP_KEY_ALIASES, RETIRED_ENV_KEYS } from './env.ts';
 
 export type MigrationClass = 'SAME' | 'ALIAS' | 'RENAMED' | 'RESHAPED' | 'DROPPED' | 'TOOL_CONFIG';
@@ -41,8 +42,17 @@ export interface MigrationRule {
 	readonly transform?: (value: unknown) => unknown;
 	/** DROPPED only — why, shown verbatim in the migration report. */
 	readonly reason?: string;
-	/** TOOL_CONFIG only — the tool and the config key the value moves into. */
-	readonly toolConfig?: { readonly tool: string; readonly key: string };
+	/**
+	 * TOOL_CONFIG only — the tool and the config key the value moves into, and
+	 * `parse`: the READER's shape rule for that key (`null` = malformed), run on
+	 * the define while planning and on the stored value while moving, so the
+	 * migration can never move what the reader refuses (review MED-2).
+	 */
+	readonly toolConfig?: {
+		readonly tool: string;
+		readonly key: string;
+		readonly parse: (value: unknown) => unknown[] | null;
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -567,10 +577,17 @@ const TOOL_CONFIG: Readonly<Record<string, MigrationRule>> = {
 	// excluded_elements.ts, owner ruling 2026-11-22 R3) — which also refuses a
 	// publication to a listed element at the server door. The define's value is
 	// moved there unless the tool config already holds a non-empty list (v6 read
-	// that first). Gate: test/unit/diffusion_excluded_elements_native.test.ts.
+	// that first). v6 used either value only when `is_array`: a define that is not
+	// a list is NOT moved (reported with its value), a malformed stored value is
+	// replaced as v6 ignored it — `parse` is the reader's own rule.
+	// Gate: test/unit/diffusion_excluded_elements_native.test.ts.
 	EXCLUDE_DIFFUSION_ELEMENTS: {
 		cls: 'TOOL_CONFIG',
-		toolConfig: { tool: 'tool_diffusion', key: 'EXCLUDE_DIFFUSION_ELEMENTS' },
+		toolConfig: {
+			tool: 'tool_diffusion',
+			key: 'EXCLUDE_DIFFUSION_ELEMENTS',
+			parse: parseElementTipoList,
+		},
 	},
 };
 
@@ -580,28 +597,38 @@ export interface ToolConfigMovePlan {
 	readonly tool: string;
 	readonly key: string;
 	readonly value: unknown;
+	/** The reader's shape rule for the key (see MigrationRule.toolConfig). */
+	readonly parse: (value: unknown) => unknown[] | null;
 }
 
 /**
- * The TOOL_CONFIG moves a v6 config's defines call for: literal values become
- * moves; a runtime-computed value (cannot be baked) is named in `runtime`. The
- * migration CLI prints both and applies the moves on `--execute`.
+ * The TOOL_CONFIG moves a v6 config's defines call for: literal values of the
+ * right shape become moves; a runtime-computed value (cannot be baked) is named
+ * in `runtime`; a literal the READER would refuse (`parse` → null — v6 ignored
+ * it) is NOT moved and is named, with its value, in `invalid`. The migration
+ * CLI prints all three and applies the moves on `--execute`.
  */
 export function planToolConfigMoves(
 	records: ReadonlyMap<string, { readonly kind: string; readonly value: unknown }>,
-): { moves: ToolConfigMovePlan[]; runtime: string[] } {
+): { moves: ToolConfigMovePlan[]; runtime: string[]; invalid: string[] } {
 	const moves: ToolConfigMovePlan[] = [];
 	const runtime: string[] = [];
+	const invalid: string[] = [];
 	for (const [name, record] of records) {
 		const target = V6_MIGRATION[name]?.toolConfig;
 		if (target === undefined) continue;
+		const where = `${target.tool} config '${target.key}'`;
 		if (record.kind === 'runtime') {
-			runtime.push(`${name} → ${target.tool} config '${target.key}'`);
-			continue;
+			runtime.push(`${name} → ${where}`);
+		} else if (target.parse(record.value) === null) {
+			invalid.push(
+				`${name} = ${JSON.stringify(record.value)} → ${where}: not the shape v7 reads (v6 ignored it) — NOT moved`,
+			);
+		} else {
+			moves.push({ from: name, ...target, value: record.value });
 		}
-		moves.push({ from: name, tool: target.tool, key: target.key, value: record.value });
 	}
-	return { moves, runtime };
+	return { moves, runtime, invalid };
 }
 
 // ---------------------------------------------------------------------------

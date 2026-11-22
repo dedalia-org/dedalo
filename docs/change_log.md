@@ -2202,7 +2202,8 @@ Merged since the last release; these ship with the next one.
     failed instead). A publication already queued before the element was listed still runs.
     A value that is not a list of element tipos refuses all of these, with
     `tool.config_invalid`, until it is fixed. Unpublishing is never blocked. The v6 → v7 configuration migration moves the
-    old define into this key on `--execute`. See the
+    old define into this key on `--execute` — only when it is a list, as v6 only used it
+    then; any other value is reported, with the value, and not moved. See the
     [tool_diffusion reference](./development/tools/reference/tool_diffusion.md) and
     [Migrating from v6](./install/migrating_from_v6.md).
 

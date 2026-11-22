@@ -39,6 +39,7 @@
  * where the value lives (the zotero_map precedent).
  */
 
+import { parseElementTipoList } from '../../config/element_tipo_list.ts';
 import { DedaloError } from '../../core/errors/index.ts';
 import { getToolConfigValue } from '../../core/tools/config.ts';
 import {
@@ -58,15 +59,16 @@ export const EXCLUSION_KEY = 'EXCLUDE_DIFFUSION_ELEMENTS';
  * non-empty strings → that set; anything else REFUSES (tool.config_invalid).
  */
 export function parseExcludedElements(raw: unknown): ReadonlySet<string> {
-	if (raw === undefined || raw === null) return new Set();
-	if (!Array.isArray(raw) || !raw.every((tipo) => typeof tipo === 'string' && tipo !== '')) {
+	// THE shape rule, shared with the v6→v7 migration's move (review MED-2).
+	const tipos = parseElementTipoList(raw);
+	if (tipos === null) {
 		// A CONFIG fault (the operator's), never the caller's request (review LOW-7).
 		throw new DedaloError('tool.config_invalid', {
 			message: `${EXCLUSION_TOOL} config ${EXCLUSION_KEY} is not a list of element tipos: ${JSON.stringify(raw)}`,
 			publicMessage: `The ${EXCLUSION_TOOL} configuration '${EXCLUSION_KEY}' (Tools configuration, dd996) must be a list of diffusion element tipos, e.g. ["oh63"]. Fix it there.`,
 		});
 	}
-	return new Set(raw as string[]);
+	return new Set(tipos);
 }
 
 /** The installation's excluded element tipos (tool configuration, per request — config-cached). */

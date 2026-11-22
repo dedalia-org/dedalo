@@ -20,7 +20,7 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 import { resetConfigCache } from '../../src/core/tools/config.ts';
 
 /** The dd996 record this helper owns (deleted before every install and after). */
-const SCRATCH_CONFIG_ID = 990071;
+export const SCRATCH_CONFIG_ID = 990071;
 
 async function deleteScratchRow(): Promise<void> {
 	await sql`DELETE FROM matrix_tools WHERE section_tipo = 'dd996' AND section_id = ${SCRATCH_CONFIG_ID}`;
