@@ -76,7 +76,8 @@ async function changeAllTimecodes(ctx: ToolActionContext): Promise<ToolResponse>
 	const offsetSeconds = Number(ctx.options.offset_seconds ?? 0);
 	if (componentTipo === '' || sectionTipo === '' || lang === '') {
 		throw new DedaloError('request.invalid_options', {
-			publicMessage: 'component_tipo, section_tipo and lang are required (the write door checks the section_id)',
+			publicMessage:
+				'component_tipo, section_tipo and lang are required (the write door checks the section_id)',
 		});
 	}
 	if (!Number.isFinite(offsetSeconds)) {
