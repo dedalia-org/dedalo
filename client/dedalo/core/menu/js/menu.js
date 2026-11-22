@@ -10,7 +10,7 @@
 	import {open_window} from '../../common/js/utils/index.js'
 	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
 	import {render_menu, render_section_label} from './render_menu.js'
-	import {response_data} from '../../common/js/api_error.js'
+	import {request_failed, response_data} from '../../common/js/api_error.js'
 
 
 
@@ -538,7 +538,8 @@ menu.prototype.update_section_label = function(options) {
 * persisting the user's language preference for either the interface language
 * or the data content language. After the server confirms the change, the
 * 'change_lang' event is published so that open sections can invalidate their
-* own caches and reload with the new language.
+* own caches and reload with the new language — only when the server stored the
+* change (a refusal, ok:false, publishes nothing: no cache is stale).
 *
 * The request is routed through a web worker (`use_worker: true`) to keep the
 * main thread responsive during the network call.
@@ -568,8 +569,12 @@ menu.prototype.change_lang = async function(options) {
 		})
 
 	// change_lang
-	// section is looking for this event to delete cache
-	event_manager.publish('change_lang', lang_value)
+	// section is looking for this event to delete cache — published ONLY when the
+	// server STORED the change (T2 chain review): a refused change leaves every
+	// cache valid, so it must not make sections drop and reload them.
+	if (!request_failed(api_response)) {
+		event_manager.publish('change_lang', lang_value)
+	}
 
 
 	return api_response

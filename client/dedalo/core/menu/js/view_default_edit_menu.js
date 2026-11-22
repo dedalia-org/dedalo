@@ -457,7 +457,8 @@ const get_content_data_edit = function(self) {
 				change_lang({
 					lang_type	: 'dedalo_application_lang',
 					lang_value	: this.value,
-					self		: self
+					self		: self,
+					select		: this
 				})
 			},
 			selected	: page_globals.dedalo_application_lang,
@@ -484,7 +485,8 @@ const get_content_data_edit = function(self) {
 					change_lang({
 						lang_type	: 'dedalo_data_lang',
 						lang_value	: this.value,
-						self		: self
+						self		: self,
+						select		: this
 					})
 				},
 				selected	: page_globals.dedalo_data_lang,
@@ -931,7 +933,9 @@ export const data_lang_options = function(globals, prefix) {
 * installation does not offer) it does NOT reload: the failure was already
 * published and rendered by the error policy, and a reload would wipe that
 * message before anyone could read it — the user saw the page snap back with no
-* reason. The loading state is cleared instead.
+* reason. The loading state is cleared instead, and the selector (when given)
+* is set back to the session's value (`page_globals[lang_type]`), so it never
+* shows a language the session does not hold.
 *
 * Sets the `#main` element's CSS class to 'loading' while the API call
 * is in flight to provide visual feedback.
@@ -941,6 +945,7 @@ export const data_lang_options = function(globals, prefix) {
 *     'dedalo_application_lang' (UI strings) or 'dedalo_data_lang' (record data)
 *   @param {string} options.lang_value - BCP-47-style language code, e.g. 'lg-spa'
 *   @param {Object} options.self       - Menu instance with a change_lang() method
+*   @param {HTMLSelectElement} [options.select] - the selector that changed; reset on a refusal
 *   @param {Function} [options.reload] - the reload (default window.location.reload(false));
 *     a seam for the client suite, which must not reload its own frame
 * @returns {Promise<boolean>} true when the change was stored (and the reload fired), false when refused
@@ -951,6 +956,7 @@ export const change_lang = async function(options) {
 		const lang_type		= options.lang_type
 		const lang_value	= options.lang_value
 		const self			= options.self
+		const select		= options.select || null
 		const reload		= options.reload || (() => window.location.reload(false))
 
 	// set page style as loading
@@ -969,6 +975,10 @@ export const change_lang = async function(options) {
 		if (request_failed(api_response)) {
 			if (main) {
 				main.classList.remove('loading')
+			}
+			// the selector shows what the session HOLDS, not the refused choice
+			if (select && typeof page_globals[lang_type] === 'string') {
+				select.value = page_globals[lang_type]
 			}
 			return false
 		}

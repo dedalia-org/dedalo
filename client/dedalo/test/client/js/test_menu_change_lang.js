@@ -14,6 +14,10 @@
 * 2. change_lang does NOT reload the page when the server REFUSES (ok:false):
 *    the refusal is published as 'api_error' (the error policy renders it) and a
 *    reload would wipe it before anyone read it. A stored change still reloads.
+* 3. A REFUSED change publishes NO 'change_lang' event (sections drop their
+*    caches on it — nothing is stale after a refusal) and sets the selector
+*    back to the session's value; a stored change publishes it once (T2 chain
+*    review).
 *
 * Against the SUITE server (real page_globals, real change_lang). Nothing is
 * stored: the refused value is refused, the accepted one is the session's
@@ -66,6 +70,62 @@ describe('menu language selectors (re-review item 2)', function() {
 		if (main) {
 			assert.isFalse(main.classList.contains('loading'), 'loading state cleared')
 		}
+	})
+
+	// one refused change_lang call, observed by both tests below
+	const refuse_with_selector = async function() {
+		const session_lang = page_globals.dedalo_data_lang
+		const select = document.createElement('select')
+		for (const value of [session_lang, 'lg-zzzq']) {
+			const option = document.createElement('option')
+			option.value = value
+			select.appendChild(option)
+		}
+		select.value = 'lg-zzzq' // what the user picked
+		const changes = []
+		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang))
+		let stored
+		try {
+			stored = await change_lang({
+				lang_type	: 'dedalo_data_lang',
+				lang_value	: 'lg-zzzq',
+				self		: {change_lang: menu.prototype.change_lang},
+				select		: select,
+				reload		: () => {}
+			})
+		} finally {
+			event_manager.unsubscribe(token)
+		}
+		return {stored, changes, select, session_lang}
+	}
+
+	it('a REFUSED change publishes no change_lang (no cache is dropped)', async function() {
+		const {stored, changes} = await refuse_with_selector()
+		assert.strictEqual(stored, false)
+		assert.deepEqual(changes, [], 'no cache-drop event for a refused change')
+	})
+
+	it('a REFUSED change resets the selector to the session value', async function() {
+		const {stored, select, session_lang} = await refuse_with_selector()
+		assert.strictEqual(stored, false)
+		assert.strictEqual(select.value, session_lang, 'the selector shows the language the session holds')
+	})
+
+	it('a STORED change publishes change_lang once (control)', async function() {
+		const changes = []
+		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang))
+		try {
+			const stored = await change_lang({
+				lang_type	: 'dedalo_data_lang',
+				lang_value	: page_globals.dedalo_data_lang, // the session's own: a no-op write
+				self		: {change_lang: menu.prototype.change_lang},
+				reload		: () => {}
+			})
+			assert.strictEqual(stored, true)
+		} finally {
+			event_manager.unsubscribe(token)
+		}
+		assert.deepEqual(changes, [page_globals.dedalo_data_lang])
 	})
 
 	it('a STORED change reloads (control)', async function() {
