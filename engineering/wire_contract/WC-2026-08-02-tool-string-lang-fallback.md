@@ -54,3 +54,16 @@ alone, since adding one is new content, not a fix. `tool_dev_template`'s missing
 `lg-spa` LABEL was left alone deliberately: `user_tools_differential` pins it as
 "Development Template", so translating it is a fixture-visible change and belongs
 to whoever re-cuts that gate.
+
+## Addendum 2026-11-22 — the dd1372 tool labels take the declared alias leg (T2 batch B5: O11-3)
+
+The SINGLE-LANG contract of the dd1372 tool labels (`buildToolElementContext`,
+`toolLabelsInLang`) gains ONE leg: per key the requested lang lacks, the entry of its
+declared linguistic alias (`lang_alias.translationLangOf`, `DEDALO_LANG_EQUIVALENCES` —
+`lg-vlca` reads `lg-cat`), served with its stored `lang`. PHP did the same
+(`lang::get_label_lang`) and then fell back to the first stored entry; that last step stays
+retired. The alias is the same language under another name, so the client's
+name-match-is-right-language reading (`get_tool_label`) holds. Directional: `lg-cat` never
+reads `lg-vlca`. The frozen `tool_element_context_differential` requests `lg-spa` only (no
+alias) — unchanged, no re-harvest. Gate: `test/unit/tool_context_labels_lang.test.ts` (alias
+leg: own entry first, the rest from Catalan, directional).
