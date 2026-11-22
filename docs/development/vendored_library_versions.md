@@ -77,11 +77,11 @@ they were prose (eight found 2026-08-28, five more 2026-10-02).
 
 | id | Package | Version | Installed as | Notes |
 |---|---|---|---|---|
-| three | `three` | 0.186.1 | dependency | `examples/jsm/` reached via the client import map. |
-| d3 | `d3` | 7.9.0 | dependency | The version does not appear in the URL. |
-| jsoneditor | `vanilla-jsoneditor` | 3.13.0 | dependency |  |
+| three | `three` | 0.187.0 | dependency | `examples/jsm/` reached via the client import map. |
+| d3 | `d3` | 7.9.2 | dependency | The version does not appear in the URL. |
+| jsoneditor | `vanilla-jsoneditor` | 3.13.1 | dependency |  |
 | leaflet | `leaflet` | 1.9.4 | dependency |  |
-| geoman | `@geoman-io/leaflet-geoman-free` | 2.20.4 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
+| geoman | `@geoman-io/leaflet-geoman-free` | 2.20.8 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
 | turf | `@turf/turf` | 7.4.0 | dependency | Was bundled *inside* leaflet's `dist/`; now its own dep. |
 | split | `split.js` | 1.6.5 | dependency | Used by the indexation tool. |
 | iro | `@jaames/iro` | 5.5.2 | dependency |  |

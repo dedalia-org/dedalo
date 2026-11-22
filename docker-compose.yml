@@ -216,7 +216,7 @@ services:
   # start until the engine has written those files (restart: unless-stopped makes
   # it retry).
   nginx:
-    image: nginx:1.31.8-alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
+    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
     restart: unless-stopped
     depends_on:
       - dedalo
@@ -289,7 +289,7 @@ services:
   # NOTE: creating the database is NOT enough. No code creates the RAG schema —
   # apply the DDL from docs/core/ai/rag_cookbook.md by hand, once.
   pgvector:
-    image: pgvector/pgvector:0.8.7-pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
+    image: pgvector/pgvector:0.8.7-pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
     profiles: ["rag"]
     restart: unless-stopped
     environment:
