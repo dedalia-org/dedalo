@@ -49,6 +49,18 @@
   2026-10-29, which said "never translated"; toponymy still shows its main lang
   first). A value only in a non-project lang now shows nothing on the ddo door
   (before: shown). Two values in one lang show both, `A | B`.
+  - DATA consumers inherit the same chain through `getTermByLocator` (text only,
+    the flag dropped by design): the diffusion resolver's iconography scene terms
+    (`src/diffusion/resolve/resolver.ts`, per publication lang), the export parents
+    chain (`src/diffusion/export/atoms.ts`), the text-area person / info tag labels
+    (`component_text_area/tags_persons.ts`, `tags_info.ts`) and `get_section_terms`
+    (`dd_core_api`). So a term held only in a project lang other than the
+    publication / export lang (and absent in main and lg-nolan) is now PUBLISHED in
+    that other lang's text under the requested lang's row — before, the section_map
+    door stopped at the main lang and the row carried an empty / null term (the
+    diffusion projection's own exact → nolan → main → any ladder then never runs,
+    the value is no longer empty). Ruled as one law for every door (T2 owner
+    decisions §6, plan B6 "export, diffusion, RAG never [markup]").
 - **Gate reconciliation:** native gates —
   `test/unit/term_resolver_model_flat_native.test.ts` (*the term string-fragment
   law*, `zztfl` situation: third-lang resolve + flag, `One | Two`, nolan, main
@@ -58,7 +70,10 @@
   `ts_term_resolver_native` (one chain; the non-project stop on a `lg-tlh` scratch
   row), `thesaurus_portal_label_lang_native` (project-lang rung + non-project
   stop), `ts_object_term_escape_native` (fallback record in a configured project
-  lang). Parity: the tree gates (`ts_node_read_differential`,
+  lang). The PUBLISHED value: `tool_export_parents_native` (*THES-01 — the published
+  chain reads the one term fallback chain*: an ancestor named only in a later project
+  lang is exported as that text, plain; one named only in a non-project lang is not;
+  red before on the project-lang leg; mutations no-project-rung / any-tail red). Parity: the tree gates (`ts_node_read_differential`,
   `ts_search_differential`) are already banked red in
   `engineering/parity_baseline.json`; no fixture edit, no re-harvest (the frozen
   store is read-only; the gates compare the emitted shape, which is unchanged).

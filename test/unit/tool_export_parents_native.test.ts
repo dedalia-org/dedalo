@@ -31,11 +31,13 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { restoreCanonicalTest3 } from '../../src/core/test_data/seed.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
+import { clearTermCache } from '../../src/core/ts_object/term_resolver.ts';
 import {
 	toolExportComponentsWithParent,
 	toolExportGetExportGrid,
@@ -525,6 +527,67 @@ describe('WC-049 parents chain — value format (addendum 2026-09-25)', () => {
 		);
 		expect(JSON.stringify(off)).toBe(JSON.stringify(without));
 		expect(parentsColumns(without.columns)).toHaveLength(0);
+	});
+});
+
+/**
+ * THES-01 on a PUBLISHED value (B6 review M2): the parents chain reads each
+ * ancestor through getTermByLocator — the door the diffusion resolver and every
+ * export share — so it carries the one term fallback chain
+ * (WC-2026-11-22-term-fallback-chain): export lang → hierarchy main lang →
+ * lg-nolan → the project langs in config order, then STOP; plain text, never
+ * markup. Langs come from the install config, never module literals.
+ */
+describe('THES-01 — the published chain reads the one term fallback chain', () => {
+	const EXPORT_LANG = config.menu.dataLang;
+	// the test TLD has no hierarchy registry row → term_resolver getMainLang's tail
+	const MAIN = 'lg-eng';
+	const FAR = [...config.menu.projectsDefaultLangs]
+		.reverse()
+		.find((code) => code !== EXPORT_LANG && code !== MAIN) as string;
+	// a real lang code no project declares (the configured list never holds Klingon)
+	const NON_PROJECT = 'lg-tlh';
+
+	const chainWithParentIn = async (lang: string): Promise<string | undefined> => {
+		let cell: string | undefined;
+		await withSlotsRestored(
+			[
+				['string', 2, LITERAL],
+				['string', 1, LITERAL],
+			],
+			async () => {
+				await setColumnSlot('string', 2, LITERAL, [{ id: 1, lang, value: 'Far parent' }]);
+				await setColumnSlot('string', 1, LITERAL, [{ id: 1, lang: EXPORT_LANG, value: 'Root B' }]);
+				clearTermCache(); // the slots were written behind the engine's back
+				try {
+					const { columns, rows } = await runExport(
+						exportOptions('grid_value', [ddo(PORTAL, { value_with_parents: true })], {
+							lang: EXPORT_LANG,
+						}),
+					);
+					const parents = parentsColumns(columns);
+					expect(parents).toHaveLength(1);
+					cell = cellOf(rows, (parents[0] as ProtocolLine).i as number);
+				} finally {
+					clearTermCache();
+				}
+			},
+		);
+		return cell;
+	};
+
+	test('precondition: the export lang, the main lang, a later project lang and a non-project lang are four', () => {
+		expect(typeof FAR).toBe('string');
+		expect(config.menu.projectsDefaultLangs).not.toContain(NON_PROJECT);
+		expect(new Set([EXPORT_LANG, MAIN, FAR, NON_PROJECT, 'lg-nolan']).size).toBe(5);
+	});
+
+	test('an ancestor named only in a later PROJECT lang publishes that text, plain', async () => {
+		expect(await chainWithParentIn(FAR)).toBe('Far parent > Root B');
+	});
+
+	test('an ancestor named only in a NON-project lang is not published — the chain stops', async () => {
+		expect(await chainWithParentIn(NON_PROJECT)).toBe('Root B');
 	});
 });
 
