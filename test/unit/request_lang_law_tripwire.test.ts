@@ -25,13 +25,18 @@
  * A DELIBERATE install-language read (a scope SEED: dispatch, a scheduler or
  * an indexer opening its own scope; a test-data generator; the installer
  * deriving the configuration itself) is a NAMED EXEMPTION next to the code,
- * on the offending line or the line directly above it:
+ * as a `//` comment:
  *
  *     // lang-law-exempt(<name>): <reason, ≥ 20 chars>
  *
- * verified here: every marker covers a real offender (a stale marker is red),
- * names are unique, reasons are stated. There is no list of exempt files in
- * this test — moving the reason away from the code is how it rots.
+ * A STANDALONE marker (the comment is alone on its line) covers ONLY the next
+ * line; a TRAILING marker (code before it on the line) covers ONLY its own
+ * line. A marker is a real comment — the same scanner that blanks comments
+ * finds it, so the text inside a string or template literal is never one.
+ * Verified here: every marker covers EXACTLY ONE offender (none = stale, two =
+ * one name hiding a second read), names are unique, reasons are stated. There
+ * is no list of exempt files in this test — moving the reason away from the
+ * code is how it rots.
  *
  * Anti-vacuity: the corpus is floored, the detector must find the request-lang
  * module's own fallback read (allowed by definition, so it proves the scanner
@@ -57,12 +62,20 @@ const REQUEST_LANG_MODULE = 'src/core/resolve/request_lang.ts';
 /** Corpus floor: a walk that reads fewer files is a broken walk, not a smaller engine. */
 const CORPUS_FLOOR = 1000;
 
+/** One comment span of a source text: [start, end) offsets, the `//` or `/*` included. */
+interface CommentSpan {
+	start: number;
+	end: number;
+}
+
 /**
  * Blank every comment (line + block) to spaces, keeping newlines and every
- * string/template literal intact, so offsets still map to source lines.
+ * string/template literal intact, so offsets still map to source lines; and
+ * report where each comment was (the marker scanner reads ONLY those spans).
  */
-function stripComments(source: string): string {
+function scanComments(source: string): { code: string; comments: CommentSpan[] } {
 	let out = '';
+	const comments: CommentSpan[] = [];
 	let index = 0;
 	const length = source.length;
 	/** Template-literal nesting: each entry is the brace depth of an open `${`. */
@@ -111,11 +124,13 @@ function stripComments(source: string): string {
 		if (char === '/' && next === '/') {
 			const end = source.indexOf('\n', index);
 			const stop = end === -1 ? length : end;
+			comments.push({ start: index, end: stop });
 			out += blank(source.slice(index, stop));
 			index = stop;
 		} else if (char === '/' && next === '*') {
 			const end = source.indexOf('*/', index + 2);
 			const stop = end === -1 ? length : end + 2;
+			comments.push({ start: index, end: stop });
 			out += blank(source.slice(index, stop));
 			index = stop;
 		} else if (char === '"' || char === "'") {
@@ -140,7 +155,12 @@ function stripComments(source: string): string {
 			index += 1;
 		}
 	}
-	return out;
+	return { code: out, comments };
+}
+
+/** {@link scanComments}' code half: comments blanked, offsets kept. */
+function stripComments(source: string): string {
+	return scanComments(source).code;
 }
 
 /** A language code literal that is not the no-language constant. */
@@ -191,33 +211,56 @@ function findOffenders(file: string, source: string, rules: { rule1: boolean }):
 interface Marker {
 	file: string;
 	line: number;
+	/** The ONE line it exempts: the next line (standalone) or its own (trailing). */
+	coveredLine: number;
 	name: string;
 	reason: string;
 }
 
-const MARKER = /\/\/\s*lang-law-exempt\(([a-z0-9_.-]+)\):\s*(.*)$/;
+/** A marker comment, from its `//` to the end of the line. */
+const MARKER = /^\/\/\s*lang-law-exempt\(([a-z0-9_.-]+)\):\s*(.*)$/;
 
-/** The exemption markers of one source text (read from the RAW text: they are comments). */
+/**
+ * The exemption markers of one source text — read ONLY inside real `//`
+ * comment spans (scanComments), so marker-shaped text in a string or a
+ * template literal is never a marker.
+ */
 function findMarkers(file: string, source: string): Marker[] {
+	const { code, comments } = scanComments(source);
+	const codeLines = code.split('\n');
 	const markers: Marker[] = [];
-	source.split('\n').forEach((text, index) => {
-		const match = MARKER.exec(text);
-		if (match !== null) {
-			markers.push({
-				file,
-				line: index + 1,
-				name: match[1] as string,
-				reason: (match[2] ?? '').trim(),
-			});
-		}
-	});
+	for (const span of comments) {
+		const match = MARKER.exec(source.slice(span.start, span.end));
+		if (match === null) continue;
+		const line = source.slice(0, span.start).split('\n').length;
+		const standalone = (codeLines[line - 1] ?? '').trim() === '';
+		markers.push({
+			file,
+			line,
+			coveredLine: standalone ? line + 1 : line,
+			name: match[1] as string,
+			reason: (match[2] ?? '').trim(),
+		});
+	}
 	return markers;
 }
 
-/** A marker covers an offender on its own line or on the line directly below it. */
+/** A marker covers an offender on its ONE covered line. */
 const covers = (marker: Marker, offender: Offender): boolean =>
-	marker.file === offender.file &&
-	(offender.line === marker.line || offender.line === marker.line + 1);
+	marker.file === offender.file && offender.line === marker.coveredLine;
+
+/** Markers covering no offender (stale) and more than one (ambiguous). */
+function dishonestMarkers(
+	markers: readonly Marker[],
+	offenders: readonly Offender[],
+): { stale: string[]; ambiguous: string[] } {
+	const label = (marker: Marker) => `${marker.file}:${marker.line} ${marker.name}`;
+	const count = (marker: Marker) => offenders.filter((offender) => covers(marker, offender)).length;
+	return {
+		stale: markers.filter((marker) => count(marker) === 0).map(label),
+		ambiguous: markers.filter((marker) => count(marker) > 1).map(label),
+	};
+}
 
 function corpus(): { file: string; source: string }[] {
 	// The shared write-path lister (src, tools, scripts; .test.ts excluded) —
@@ -267,11 +310,10 @@ describe('request-language law (T2 B10)', () => {
 		expect(UNEXEMPTED).toEqual([]);
 	});
 
-	test('every exemption is honest: covers a real offender, unique name, stated reason', () => {
-		const stale = MARKERS.filter(
-			(marker) => !OFFENDERS.some((offender) => covers(marker, offender)),
-		).map((marker) => `${marker.file}:${marker.line} ${marker.name}`);
+	test('every exemption is honest: covers exactly one offender, unique name, stated reason', () => {
+		const { stale, ambiguous } = dishonestMarkers(MARKERS, OFFENDERS);
 		expect(stale).toEqual([]);
+		expect(ambiguous).toEqual([]);
 		const names = MARKERS.map((marker) => marker.name);
 		expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
 		const reasonless = MARKERS.filter((marker) => marker.reason.length < 20).map(
@@ -341,18 +383,86 @@ describe('the detector, driven on synthetic text (positive + negative controls)'
 		expect(rulesOf('const s = `a ${b ? `c` : d} e`; f(config.menu.dataLang);')).toEqual([1]);
 	});
 
-	test('a marker covers its own line and the line below, nothing else', () => {
-		const source = [
-			'// lang-law-exempt(seed.one): the scope seed reads the install default by design',
-			'const a = config.menu.dataLang;',
-			'',
-			'const b = config.menu.dataLang;',
-		].join('\n');
+	/** The offender lines of `source` no marker covers, plus its dishonest markers. */
+	const judge = (source: string) => {
 		const offenders = findOffenders('s.ts', source, { rule1: true });
 		const markers = findMarkers('s.ts', source);
-		expect(offenders.map((offender) => offender.line)).toEqual([2, 4]);
-		expect(markers.map((marker) => marker.name)).toEqual(['seed.one']);
-		const uncovered = offenders.filter((offender) => !markers.some((m) => covers(m, offender)));
-		expect(uncovered.map((offender) => offender.line)).toEqual([4]);
+		return {
+			offenders: offenders.map((offender) => offender.line),
+			markers: markers.map((marker) => marker.name),
+			uncovered: offenders
+				.filter((offender) => !markers.some((m) => covers(m, offender)))
+				.map((offender) => offender.line),
+			...dishonestMarkers(markers, offenders),
+		};
+	};
+
+	test('a STANDALONE marker covers the next line only', () => {
+		const verdict = judge(
+			[
+				'// lang-law-exempt(seed.one): the scope seed reads the install default by design',
+				'const a = config.menu.dataLang;',
+				'const b = config.menu.dataLang;',
+			].join('\n'),
+		);
+		expect(verdict.offenders).toEqual([2, 3]);
+		expect(verdict.markers).toEqual(['seed.one']);
+		expect(verdict.uncovered).toEqual([3]);
+		expect(verdict.stale).toEqual([]);
+	});
+
+	test('a TRAILING marker covers its own line only — never the next', () => {
+		const verdict = judge(
+			[
+				'const a = config.menu.dataLang; // lang-law-exempt(seed.two): the scope seed reads the install default',
+				'const b = config.menu.dataLang;',
+			].join('\n'),
+		);
+		expect(verdict.markers).toEqual(['seed.two']);
+		expect(verdict.uncovered).toEqual([2]);
+		expect(verdict.stale).toEqual([]);
+		// Trailing a line with no offender: stale, even with one right below it.
+		const stale = judge(
+			[
+				'const ok = 1; // lang-law-exempt(seed.three): the scope seed reads the install default',
+				'const b = config.menu.dataLang;',
+			].join('\n'),
+		);
+		expect(stale.uncovered).toEqual([2]);
+		expect(stale.stale).toEqual(['s.ts:1 seed.three']);
+	});
+
+	test('a marker covering TWO offenders is ambiguous (red): one name, one read', () => {
+		const verdict = judge(
+			[
+				'// lang-law-exempt(seed.four): the scope seed reads the install default by design',
+				'f({ a: config.menu.applicationLang, b: config.menu.dataLang });',
+			].join('\n'),
+		);
+		expect(verdict.offenders).toEqual([2, 2]);
+		expect(verdict.uncovered).toEqual([]);
+		expect(verdict.ambiguous).toEqual(['s.ts:1 seed.four']);
+	});
+
+	test('marker-shaped text in a string or template literal is NOT a marker', () => {
+		for (const fake of [
+			"const s = '// lang-law-exempt(fake.one): a string that only looks like a marker';",
+			'const s = "// lang-law-exempt(fake.two): a string that only looks like a marker";',
+			'const s = `// lang-law-exempt(fake.three): a template that only looks like a marker`;',
+			'const s = `\n// lang-law-exempt(fake.four): a template line that only looks like a marker\n`;',
+		]) {
+			const verdict = judge([fake, 'const b = config.menu.dataLang;'].join('\n'));
+			expect(verdict.markers, fake).toEqual([]);
+			expect(verdict.uncovered.length, fake).toBe(1);
+		}
+		// A marker inside a block comment is not the `//` shape either.
+		const block = judge(
+			[
+				'/* lang-law-exempt(fake.five): a block comment is not the marker shape */',
+				'const b = config.menu.dataLang;',
+			].join('\n'),
+		);
+		expect(block.markers).toEqual([]);
+		expect(block.uncovered).toEqual([2]);
 	});
 });
