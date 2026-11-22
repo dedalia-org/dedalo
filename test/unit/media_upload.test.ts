@@ -390,9 +390,11 @@ describe('media ingest — every disk-writing path records files_info', () => {
 				if (stat(full).isDirectory()) walk(full);
 				else if (full.endsWith('.ts')) {
 					const text = read(full, 'utf8');
-					// Only files that pull the ENGINE in — tool_import_dedalo_csv has a
-					// local action of the same name that is unrelated.
-					if (text.includes('ingest/process_uploaded_file.ts') && text.includes(`${INGEST}(`)) {
+					// Only files that pull the ENGINE in (any import spelling — the
+					// ingest door imports it as './process_uploaded_file.ts') —
+					// tool_import_dedalo_csv has a local action of the same name
+					// that is unrelated.
+					if (/from '[^']*process_uploaded_file\.ts'/.test(text) && text.includes(`${INGEST}(`)) {
 						out.push(full.slice(root.length + 1));
 					}
 				}
@@ -406,8 +408,14 @@ describe('media ingest — every disk-writing path records files_info', () => {
 		const { readFileSync: read } = require('node:fs') as typeof import('node:fs');
 		const root = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
 		const callers = ingestCallers();
-		// The scan must find the known callers, or it is passing vacuously.
-		expect(callers.length, 'the scan found no ingest callers — it is broken').toBeGreaterThan(1);
+		// The scan must find the known caller, or it is passing vacuously. Since
+		// A1-01 the ingest DOOR (ingest/ingest_and_persist.ts) is the engine's ONE
+		// caller — ingest_door_tripwire holds that nothing else imports it — so
+		// the door is what must persist, and every tool reaches the engine
+		// through it.
+		expect(callers, 'the scan found no ingest callers — it is broken').toContain(
+			'src/core/media/ingest/ingest_and_persist.ts',
+		);
 
 		const missing = callers.filter((file) => !read(`${root}/${file}`, 'utf8').includes(PERSIST));
 		expect(
