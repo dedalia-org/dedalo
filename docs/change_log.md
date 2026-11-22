@@ -2190,6 +2190,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-diffusion-ddo-empty-value`, `WC-2026-11-22-diffusion-dataframe-hop`.
 
+- **Diffusion elements excluded in the tool configuration are hidden and refused again.**
+
+    v6's `EXCLUDE_DIFFUSION_ELEMENTS` hid the listed diffusion elements from the
+    publication panel; v7 had dropped the setting, so every element was offered and
+    published to. It is back as the `EXCLUDE_DIFFUSION_ELEMENTS` key of `tool_diffusion`
+    in **Tools configuration**: a listed element (or an alias of it) shows no panel, and
+    the server refuses a publication to it with `diffusion.element_excluded`, however the
+    request is sent. A value that is not a list of element tipos refuses both until it is
+    fixed. Unpublishing is never blocked. The v6 → v7 configuration migration moves the
+    old define into this key on `--execute`. See the
+    [tool_diffusion reference](./development/tools/reference/tool_diffusion.md) and
+    [Migrating from v6](./install/migrating_from_v6.md).
+
+    Wire contract: `WC-2026-11-22-diffusion-excluded-elements`.
+
 - **"Publication: the Download button of a file publication's report works when media is served from another address."**
 
     After a file publication (RDF, XML, JSON…), the report's **Download** button opened the merged
@@ -2813,7 +2828,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 115 entries"
+??? note "Wire contract — 116 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2916,6 +2931,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-areas-deny-subtree`
     - `WC-2026-11-22-diffusion-dataframe-hop`
     - `WC-2026-11-22-diffusion-ddo-empty-value`
+    - `WC-2026-11-22-diffusion-excluded-elements`
     - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-indexation-fragment-served`
     - `WC-2026-11-22-maintenance-access-predicate`

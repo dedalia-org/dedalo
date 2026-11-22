@@ -3096,6 +3096,19 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: false,
 	},
+	// The installation's tool_diffusion configuration lists this element in
+	// EXCLUDE_DIFFUSION_ELEMENTS (owner ruling 2026-11-22, R3): the `diffuse`
+	// door refuses it before anything is queued (diffusion/api/excluded_elements.ts).
+	'diffusion.element_excluded': {
+		category: 'permission',
+		status: 403,
+		label_key: 'error_diffusion_element_excluded',
+		message:
+			"Publishing to this diffusion element is disabled in this installation's tool_diffusion configuration",
+		severity: 'warn',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'diffusion.invalid_target': {
 		category: 'caller',
 		status: 400,

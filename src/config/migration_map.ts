@@ -14,6 +14,9 @@
  *            would refuse the boot (`RETIRED_ENV_KEYS`)
  *   RESHAPED name and/or VALUE SHAPE differ; a transform runs
  *   DROPPED  no TS consumer — always with a reason, printed in the report
+ *   TOOL_CONFIG  the v7 home is a TOOL-CONFIG key, not an env key: the value is
+ *            MOVED into the tool's Tools-configuration record (dd996) by
+ *            `--execute` (core/tools/tool_config_move.ts), never into the .env
  *
  * ALIAS and RENAMED are DERIVED from the tables in `env.ts` rather than
  * restated, so a future rename cannot fall out of step with the migration.
@@ -28,7 +31,7 @@
 
 import { PHP_KEY_ALIASES, RETIRED_ENV_KEYS } from './env.ts';
 
-export type MigrationClass = 'SAME' | 'ALIAS' | 'RENAMED' | 'RESHAPED' | 'DROPPED';
+export type MigrationClass = 'SAME' | 'ALIAS' | 'RENAMED' | 'RESHAPED' | 'DROPPED' | 'TOOL_CONFIG';
 
 export interface MigrationRule {
 	readonly cls: MigrationClass;
@@ -38,6 +41,8 @@ export interface MigrationRule {
 	readonly transform?: (value: unknown) => unknown;
 	/** DROPPED only — why, shown verbatim in the migration report. */
 	readonly reason?: string;
+	/** TOOL_CONFIG only — the tool and the config key the value moves into. */
+	readonly toolConfig?: { readonly tool: string; readonly key: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -498,7 +503,6 @@ const DROPPED: Readonly<Record<string, MigrationRule>> = {
 			'DEDALO_PUBLICATION_CLEAN_URL',
 			'DEDALO_PUBLICATION_ALERT',
 			'DIFFUSION_CUSTOM',
-			'EXCLUDE_DIFFUSION_ELEMENTS',
 			'DEDALO_DIFFUSION_SERVICE_CMD',
 			'DEDALO_DIFFUSION_SOCKET_PATH',
 			'DEDALO_DIFFUSION_INTERNAL_TOKEN',
@@ -553,6 +557,54 @@ const DROPPED: Readonly<Record<string, MigrationRule>> = {
 };
 
 // ---------------------------------------------------------------------------
+// TOOL_CONFIG — moved into a tool's configuration, not the .env.
+// ---------------------------------------------------------------------------
+
+const TOOL_CONFIG: Readonly<Record<string, MigrationRule>> = {
+	// v6 tool_diffusion hid the diffusion elements listed here (its own tool
+	// config first, this define as the fallback). v7 reads ONE place, the
+	// tool_diffusion config key of the SAME spelling (src/diffusion/api/
+	// excluded_elements.ts, owner ruling 2026-11-22 R3) — which also refuses a
+	// publication to a listed element at the server door. The define's value is
+	// moved there unless the tool config already holds a non-empty list (v6 read
+	// that first). Gate: test/unit/diffusion_excluded_elements_native.test.ts.
+	EXCLUDE_DIFFUSION_ELEMENTS: {
+		cls: 'TOOL_CONFIG',
+		toolConfig: { tool: 'tool_diffusion', key: 'EXCLUDE_DIFFUSION_ELEMENTS' },
+	},
+};
+
+/** One planned move of a v6 define into a tool config key. */
+export interface ToolConfigMovePlan {
+	readonly from: string;
+	readonly tool: string;
+	readonly key: string;
+	readonly value: unknown;
+}
+
+/**
+ * The TOOL_CONFIG moves a v6 config's defines call for: literal values become
+ * moves; a runtime-computed value (cannot be baked) is named in `runtime`. The
+ * migration CLI prints both and applies the moves on `--execute`.
+ */
+export function planToolConfigMoves(
+	records: ReadonlyMap<string, { readonly kind: string; readonly value: unknown }>,
+): { moves: ToolConfigMovePlan[]; runtime: string[] } {
+	const moves: ToolConfigMovePlan[] = [];
+	const runtime: string[] = [];
+	for (const [name, record] of records) {
+		const target = V6_MIGRATION[name]?.toolConfig;
+		if (target === undefined) continue;
+		if (record.kind === 'runtime') {
+			runtime.push(`${name} → ${target.tool} config '${target.key}'`);
+			continue;
+		}
+		moves.push({ from: name, tool: target.tool, key: target.key, value: record.value });
+	}
+	return { moves, runtime };
+}
+
+// ---------------------------------------------------------------------------
 // The assembled map
 // ---------------------------------------------------------------------------
 
@@ -578,7 +630,7 @@ function build(): Readonly<Record<string, MigrationRule>> {
 		map[retired] = { cls: 'RENAMED', target: replacement };
 	}
 
-	Object.assign(map, RESHAPED, DROPPED);
+	Object.assign(map, RESHAPED, DROPPED, TOOL_CONFIG);
 	return Object.freeze(map);
 }
 

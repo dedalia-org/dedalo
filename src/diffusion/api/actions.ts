@@ -552,6 +552,13 @@ export async function diffuseAction(rqo: Rqo, principal: Principal): Promise<Api
 		refuse('perm.denied', 'Insufficient permissions to diffuse this section');
 	}
 
+	// R3 (owner ruling 2026-11-22): an element the installation EXCLUDED
+	// (tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS) is refused HERE, at the server
+	// door, before anything is queued — hiding its panel is no refusal to a
+	// caller who posts the tipo by hand (excluded_elements.ts).
+	const { assertPublishableElement } = await import('./excluded_elements.ts');
+	await assertPublishableElement(elementTipo);
+
 	// Staged-cutover routing (DIFFUSION_PLAN P5 step 2): when the deployment
 	// pins DEDALO_DIFFUSION_NATIVE_ELEMENTS (a list of element tipos, or the
 	// single value 'all'), elements outside the list refuse LOUDLY — they still

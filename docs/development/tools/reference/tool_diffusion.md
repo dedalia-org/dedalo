@@ -62,6 +62,17 @@ All operational work is performed by **`dd_diffusion_api`**, registered in `src/
 
 > The `diffuse` request is built around a **SQO** (the search query object describing which records to publish). In `edit` mode it is a single-record SQO (`limit: 1`, `filter_by_locators`); in list mode it reuses `self.caller.rqo.sqo`, i.e. the user's current section selection/filter.
 
+### Excluding diffusion elements (`EXCLUDE_DIFFUSION_ELEMENTS`)
+
+An installation can withdraw diffusion elements from publication with one key of the tool's configuration: `EXCLUDE_DIFFUSION_ELEMENTS`, a list of diffusion element tipos, set in the **Tools configuration** record (dd996) of `tool_diffusion` (`{"EXCLUDE_DIFFUSION_ELEMENTS": ["<element tipo>"]}`, or the `{"value": [...]}` option form). It is read per request through `getToolConfigValue` (`src/diffusion/api/excluded_elements.ts`), and it has two effects:
+
+| Action | Effect of a listed element |
+| --- | --- |
+| `get_diffusion_info` | Its panels are omitted from `section_diffusion_nodes`. |
+| `diffuse` | Refused before anything is queued, with `diffusion.element_excluded` (HTTP 403). A hidden panel is not the guard: a request naming the tipo by hand is refused too. |
+
+An element matches when its own tipo is listed or, for a `diffusion_element_alias`, when the real element it resolves to is listed — so listing a real element also withdraws its aliases. A value that is not a list of non-empty strings makes both actions refuse with `request.invalid_options` until it is fixed; it is never read as "nothing excluded". Delete propagation and `retry_pending_deletions` are not affected: records already published can always be unpublished. A v6 installation's `EXCLUDE_DIFFUSION_ELEMENTS` define is moved into this key by the configuration migration ([Migrating from v6](../../../install/migrating_from_v6.md)).
+
 ## How it is registered & surfaced
 
 `tools/tool_diffusion/register.json` is a **column-keyed dump** (`string`/`relation`/`misc`/… keyed by component tipo — a seeded matrix-row snapshot, not a hand-authored file); `importTools()` passes it through as-is (see [register.json reference](../register_json.md)). The essentials it carries:

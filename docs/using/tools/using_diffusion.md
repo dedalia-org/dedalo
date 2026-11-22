@@ -53,6 +53,9 @@ Diffusion is a **section toolbar** button, but it does not appear on every secti
 !!! tip
     If a target was offline when records were deleted, the deletions queue up as **pending deletions**. Come back to the panel and press **Retry** once the target is reachable so the public data stays consistent.
 
+!!! note "A target is missing from the panel"
+    An administrator can withdraw diffusion elements from publication in the tool's configuration (the `EXCLUDE_DIFFUSION_ELEMENTS` key of `tool_diffusion` in **Tools configuration**). A withdrawn element shows no panel, and the server refuses a publication to it even when the request is sent by other means. Records already published to it can still be unpublished. See the [tool_diffusion developer reference](../../development/tools/reference/tool_diffusion.md#excluding-diffusion-elements-exclude_diffusion_elements).
+
 !!! note
     Diffusion does not do the writing itself — the diffusion system and its API own every data operation. The panel only reads the configuration and launches the work.
 

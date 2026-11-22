@@ -28,7 +28,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseEnvFile, privateDir } from '../src/config/env.ts';
-import { encodeEnvValue, type MigrationRule, V6_MIGRATION } from '../src/config/migration_map.ts';
+import {
+	encodeEnvValue,
+	type MigrationRule,
+	planToolConfigMoves,
+	type ToolConfigMovePlan,
+	V6_MIGRATION,
+} from '../src/config/migration_map.ts';
 import { type DefineRecord, extractDefines } from '../src/config/php_defines.ts';
 
 const SOURCE_FILES = ['config.php', 'config_db.php', 'config_areas.php', 'config_core.php'];
@@ -66,7 +72,33 @@ interface Planned {
 	readonly rule: MigrationRule;
 }
 
-function main(): void {
+/**
+ * Apply the TOOL_CONFIG moves (`--execute` only): each value goes into its tool's
+ * Tools-configuration record through the engine's write door, as root (`-1`, as
+ * every CLI migration runs). Imported HERE, after the .env exists — the door
+ * boots the engine config, which this script otherwise never loads.
+ */
+async function applyToolConfigMoves(moves: readonly ToolConfigMovePlan[]): Promise<void> {
+	if (moves.length === 0) return;
+	const { moveValueIntoToolConfig } = await import('../src/core/tools/tool_config_move.ts');
+	for (const move of moves) {
+		const outcome = await moveValueIntoToolConfig({
+			toolName: move.tool,
+			key: move.key,
+			value: move.value,
+			userId: -1,
+		});
+		const said = {
+			empty: 'empty in v6 — nothing to move',
+			kept: 'the tool configuration already holds a value (v6 read it first) — kept, define not applied',
+			written: 'written into the existing Tools configuration record',
+			created: 'a Tools configuration record was created for the tool',
+		}[outcome];
+		console.log(`  ${move.from} → ${move.tool} config '${move.key}': ${said}`);
+	}
+}
+
+async function main(): Promise<void> {
 	const configDir = arg('config-dir');
 	const outPath = arg('out');
 	const execute = Bun.argv.includes('--execute');
@@ -99,6 +131,8 @@ function main(): void {
 			unknown.push(name);
 			continue;
 		}
+		// Moved into a tool's configuration, not the .env — planned below.
+		if (rule.cls === 'TOOL_CONFIG') continue;
 		if (rule.cls === 'DROPPED') {
 			const reason = rule.reason ?? 'no reason recorded';
 			const bucket = droppedByReason.get(reason) ?? [];
@@ -119,6 +153,10 @@ function main(): void {
 		}
 		planned.push({ key: rule.target as string, value, from: name, rule });
 	}
+
+	// --- TOOL_CONFIG: moved into a tool's configuration (the database) ------------
+	const toolConfig = planToolConfigMoves(extracted.records);
+	notMigratable.push(...toolConfig.runtime);
 
 	// --- DEDALO_DIFFUSION_LANGS: DERIVED, never pinned ----------------------------
 	// A stock v6 config says `define('DEDALO_DIFFUSION_LANGS', DEDALO_PROJECTS_DEFAULT_LANGS)`
@@ -165,6 +203,14 @@ function main(): void {
 		const names = byClass(cls);
 		if (names.length === 0) continue;
 		console.log(`\x1b[1m${cls}\x1b[0m (${names.length}): ${names.join(', ')}\n`);
+	}
+
+	if (toolConfig.moves.length > 0) {
+		console.log(
+			`\x1b[1mTOOL_CONFIG\x1b[0m (${toolConfig.moves.length}) — moved into the tool's Tools configuration record (dd996), not the .env; applied by --execute only: ${toolConfig.moves
+				.map((m) => `${m.from} → ${m.tool} '${m.key}'`)
+				.join(', ')}\n`,
+		);
 	}
 
 	for (const [reason, names] of droppedByReason) {
@@ -330,6 +376,7 @@ function main(): void {
 	}
 	if (fresh.length === 0) {
 		console.log('\n✔ nothing to add — the target already carries every migrated key.');
+		if (execute) await applyToolConfigMoves(toolConfig.moves);
 		process.exit(0);
 	}
 
@@ -355,7 +402,14 @@ function main(): void {
 	if (notMigratable.length > 0 || missing.length > 0) {
 		console.log('  Remember the hand-set keys listed above before booting.');
 	}
+	if (execute) {
+		await applyToolConfigMoves(toolConfig.moves);
+	} else if (toolConfig.moves.length > 0) {
+		console.log(
+			'  The TOOL_CONFIG move(s) listed above go to the database: --execute applies them.',
+		);
+	}
 	process.exit(0);
 }
 
-main();
+await main();

@@ -5,7 +5,9 @@
  *
  * - get_diffusion_info ......... PHP dd_diffusion_api::get_diffusion_info
  *   (:355): { section_diffusion_nodes[], resolve_levels } — one accordion
- *   panel per node. Node shape per diffusion_utils::get_section_diffusion_nodes:
+ *   panel per node, minus the elements tool_diffusion's
+ *   EXCLUDE_DIFFUSION_ELEMENTS lists (excluded_elements.ts). Node shape per
+ *   diffusion_utils::get_section_diffusion_nodes:
  *   { tipo, model, label, parents[], children[] } with per-child related
  *   info. The old Bun engine additionally stamped per-node readiness; we stamp
  *   `connection_status` (diffusion_utils::get_connection_status :971, WC-065):
@@ -33,6 +35,7 @@ import type { VirtualPathItem, VirtualTreeNode } from '../plan/virtual_tree.ts';
 import { buildVirtualDiffusionTree, getDatabaseNameForElement } from '../plan/virtual_tree.ts';
 import { getTargetDatabaseStatus, type TargetDatabaseStatus } from '../targets/mariadb/db.ts';
 import { WRITER_REGISTRY } from '../writers/registry.ts';
+import { excludedDiffusionElements, isExcludedElement } from './excluded_elements.ts';
 
 /** One child field descriptor (PHP get_section_diffusion_nodes children map). */
 interface DiffusionNodeChild {
@@ -101,17 +104,43 @@ export function toWirePathItem(item: VirtualPathItem): {
 	return wire;
 }
 
-/** The diffusion element that owns `node` (nearest in the parents path). */
+/** The diffusion element path item that owns `node` (nearest in the parents path). */
+function elementItemOf(node: VirtualTreeNode): VirtualPathItem | null {
+	for (const pathItem of node.parents) {
+		if (pathItem.model === 'diffusion_element' || pathItem.model === 'diffusion_element_alias') {
+			return pathItem;
+		}
+	}
+	return null;
+}
+
+/** The diffusion element that owns `node`, with its declared output type. */
 function elementOf(
 	node: VirtualTreeNode,
 	elementTypesByTipo: Map<string, string>,
 ): { tipo: string; type: string | null } | null {
-	for (const pathItem of node.parents) {
-		if (pathItem.model === 'diffusion_element' || pathItem.model === 'diffusion_element_alias') {
-			return { tipo: pathItem.tipo, type: elementTypesByTipo.get(pathItem.tipo) ?? null };
-		}
-	}
-	return null;
+	const item = elementItemOf(node);
+	return item === null
+		? null
+		: { tipo: item.tipo, type: elementTypesByTipo.get(item.tipo) ?? null };
+}
+
+/**
+ * The panels of `sectionTipo` an installation has NOT excluded: a panel whose
+ * owning element (its tipo, or the real element an alias resolves to) is listed
+ * in tool_diffusion's EXCLUDE_DIFFUSION_ELEMENTS is dropped (v6
+ * tool_diffusion::get_diffusion_info, R3 — excluded_elements.ts). Exported for
+ * its gate.
+ */
+export function selectPublishablePanelNodes(
+	nodes: VirtualTreeNode[],
+	sectionTipo: string,
+	excluded: ReadonlySet<string>,
+): VirtualTreeNode[] {
+	return selectPanelNodes(nodes, sectionTipo).filter((node) => {
+		const item = elementItemOf(node);
+		return item === null || !isExcludedElement(item, excluded);
+	});
 }
 
 /**
@@ -210,13 +239,23 @@ export function selectPanelNodes(nodes: VirtualTreeNode[], sectionTipo: string):
 	return selected;
 }
 
-/** PHP get_diffusion_info result payload for one section. */
-export async function buildDiffusionInfo(sectionTipo: string): Promise<{
+/**
+ * PHP get_diffusion_info result payload for one section. `domainName` is the
+ * same seam `buildVirtualDiffusionTree` has (a gate names its own scratch
+ * domain); production omits it and gets the configured DEDALO_DIFFUSION_DOMAIN.
+ */
+export async function buildDiffusionInfo(
+	sectionTipo: string,
+	domainName?: string,
+): Promise<{
 	section_diffusion_nodes: SectionDiffusionNode[];
 	resolve_levels: number;
 }> {
 	const resolveLevels = Math.max(0, Number(readString('DEDALO_DIFFUSION_RESOLVE_LEVELS')) || 2);
-	const tree = await buildVirtualDiffusionTree();
+	const tree =
+		domainName === undefined
+			? await buildVirtualDiffusionTree()
+			: await buildVirtualDiffusionTree(domainName);
 	if (tree === null) {
 		return { section_diffusion_nodes: [], resolve_levels: resolveLevels };
 	}
@@ -231,8 +270,9 @@ export async function buildDiffusionInfo(sectionTipo: string): Promise<{
 		}
 	}
 
+	const excluded = await excludedDiffusionElements();
 	const items: SectionDiffusionNode[] = [];
-	for (const node of selectPanelNodes(tree.nodes, sectionTipo)) {
+	for (const node of selectPublishablePanelNodes(tree.nodes, sectionTipo, excluded)) {
 		const children: DiffusionNodeChild[] = [];
 		for (const childTipo of node.childrenTipos) {
 			const childNode = await tree.index.nodeOf(childTipo);

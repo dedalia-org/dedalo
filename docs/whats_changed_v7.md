@@ -225,6 +225,15 @@ client honors.
     `X-Forwarded-For` to identify the client. Setting one where you meant the other
     is a security bug, not a migration.
 
+**It moved into a tool's configuration, in the database**
+
+`EXCLUDE_DIFFUSION_ELEMENTS` — v6 read this list from the `tool_diffusion` Tools
+configuration first and fell back to the define. v7 keeps only the Tools
+configuration key of the same name: the migration's `--execute` moves the define's
+value there (reported as `TOOL_CONFIG`). A listed diffusion element is hidden from
+the publication panel **and** refused by the server; see the
+[tool_diffusion reference](development/tools/reference/tool_diffusion.md#excluding-diffusion-elements-exclude_diffusion_elements).
+
 **Retired after the cutover**
 
 `DEDALO_ENGINE_OWNS_INSTALL` — the TS engine is the only engine now, so ownership
