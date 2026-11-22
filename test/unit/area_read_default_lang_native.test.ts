@@ -12,11 +12,19 @@
  * from the engine's own dd areas (no install TLD, no record read).
  */
 
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchAreaRead } from '../../src/core/area/read.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { requireSuiteMariadb, SUITE_MARIADB_DATABASES } from '../helpers/suite_mariadb.ts';
+
+// The maintenance area read builds the diffusion_server_control widget, which
+// opens a pool per diffusion target: acquire the lane's suite MariaDB first
+// (PUB-05) so those pools are proved to land there.
+beforeAll(async () => {
+	await requireSuiteMariadb(import.meta.path, SUITE_MARIADB_DATABASES());
+}, 120_000); // a cold suite MariaDB lane installs and starts a server
 
 /** One area per read behavior: maintenance, dashboard, tree. */
 const MODELS = ['area_maintenance', 'area_root', 'area_thesaurus'] as const;

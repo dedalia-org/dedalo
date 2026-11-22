@@ -37,6 +37,7 @@ import {
 	ONTOLOGY_AREA_OPEN_USER_IDS,
 	removeMaintenancePersonas,
 } from '../helpers/maintenance_persona_fixture.ts';
+import { requireSuiteMariadb, SUITE_MARIADB_DATABASES } from '../helpers/suite_mariadb.ts';
 
 const DD88 = 'dd88';
 const DD5 = 'dd5';
@@ -138,6 +139,12 @@ async function doorsFor(userId: number): Promise<Record<string, boolean>> {
 	};
 }
 
+// The dd_diffusion_api door (lang_sweep) and the maintenance area's
+// diffusion_server_control widget open a pool per diffusion target: acquire the
+// lane's suite MariaDB first (PUB-05) so those pools are proved to land there.
+beforeAll(async () => {
+	await requireSuiteMariadb(import.meta.path, SUITE_MARIADB_DATABASES());
+}, 120_000); // a cold suite MariaDB lane installs and starts a server
 beforeAll(installMaintenancePersonas);
 afterAll(async () => {
 	for (const token of mintedTokens.splice(0)) destroySession(token);
