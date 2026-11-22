@@ -349,15 +349,41 @@ export async function inverseHostTargets(
 }
 
 /**
+ * The targets whose section hosts `observerTipo` (isObserverHostSection, one
+ * read per section). A saved value may point anywhere; an info widget computed
+ * — and a TM row written — on a record whose section does not declare the
+ * observer is pollution, never a recompute.
+ */
+async function hostedTargets(
+	observerTipo: string,
+	targets: readonly ObservableTarget[],
+): Promise<ObservableTarget[]> {
+	const hostBySection = new Map<string, boolean>();
+	const hosted: ObservableTarget[] = [];
+	for (const target of targets) {
+		const sectionTipo = String(target.section_tipo);
+		let isHost = hostBySection.get(sectionTipo);
+		if (isHost === undefined) {
+			isHost = await isObserverHostSection(observerTipo, sectionTipo);
+			hostBySection.set(sectionTipo, isHost);
+		}
+		if (isHost) hosted.push(target);
+	}
+	return hosted;
+}
+
+/**
  * THE INFO OBSERVER'S TARGETS (T2-WID-1). PHP update_observer_data runs the
  * same config switch for EVERY observer after its filter step: `base` is that
  * step's result (the SQO-filter search over the host, or the saved record for
  * `filter:false` / no filter), then the table above decides — self ⇒ `base`;
  * self_and_observable ⇒ `base` + the saved value's locators; observable ⇒ the
  * saved value's locators ALONE (it replaces the filter result, PHP case b);
- * inverse ⇒ the records referencing the saved one, host-filtered (an info
- * widget computed on a record that does not declare it is meaningless —
- * the host predicate every other resolver obeys). The observable half carries
+ * inverse ⇒ the records referencing the saved one. Every locator-derived
+ * target (observable AND inverse) is host-filtered ({@link hostedTargets}: an
+ * info widget computed on a record that does not declare it is meaningless —
+ * the host predicate every other resolver obeys); `base` is the filter step's,
+ * unchanged. The observable half carries
  * the REMOVED locators too, as the set_dato_external resolver does: a target
  * the saved record stopped pointing at shows a stale widget until recomputed.
  * Deduplicated in first-seen order (each target writes one TM row).
@@ -371,16 +397,18 @@ export async function configuredInfoTargets(input: {
 	readonly observableRemoved: readonly ObservableTarget[];
 }): Promise<ObservableTarget[]> {
 	const resolver = observerTargetResolverOf(input.server.config ?? undefined);
+	const observable = (): Promise<ObservableTarget[]> =>
+		hostedTargets(input.observerTipo, [...input.observableSaved, ...input.observableRemoved]);
 	let targets: ObservableTarget[];
 	switch (resolver) {
 		case 'self':
 			targets = [...input.base];
 			break;
 		case 'self_and_observable':
-			targets = [...input.base, ...input.observableSaved, ...input.observableRemoved];
+			targets = [...input.base, ...(await observable())];
 			break;
 		case 'observable':
-			targets = [...input.observableSaved, ...input.observableRemoved];
+			targets = await observable();
 			break;
 		case 'inverse':
 			targets = await inverseHostTargets(input.observerTipo, input.saved, undefined);

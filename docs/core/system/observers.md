@@ -236,7 +236,10 @@ table as a `set_dato_external` edge (below): with no `config` the first step is
 the target list; `use_observable_dato` adds (`use_self_section: true`) or
 substitutes (`use_self_section: false`) everything the saved data points at —
 and what it stopped pointing at, whose widget changed too; `use_inverse_relations`
-substitutes every record that references the saved one and declares the observer.
+substitutes every record that references the saved one. Either way a record is a
+target only when its section declares the observer: a locator into any other
+section is skipped, so no widget is computed and no Time Machine row is written
+there.
 
 For a `set_dato_external` edge one closed table decides, checked top to bottom:
 

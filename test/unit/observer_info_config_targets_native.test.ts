@@ -45,6 +45,8 @@ const INFO_OBSERVABLE = 'zzoic4';
 const INFO_INVERSE = 'zzoic5';
 /** Info observer IN A, observing A's portal, SAME record (filter:false): the self control. */
 const INFO_SELF = 'zzoic7';
+/** A section that does NOT declare INFO_OBSERVABLE: an observable locator into it is no target. */
+const SECTION_C = 'zzoic8';
 
 const SITUATION = situation({
 	name: 'zzoic info observer config targets',
@@ -67,6 +69,7 @@ const SITUATION = situation({
 			properties: { observe: [{ component_tipo: PORTAL, server: { filter: false } }] },
 		},
 		{ tipo: SECTION_B, model: 'section', parent: 'dd14' },
+		{ tipo: SECTION_C, model: 'section', parent: 'dd14' },
 		{ tipo: TEXT_B, model: 'component_input_text', parent: SECTION_B },
 		{
 			tipo: INFO_OBSERVABLE,
@@ -86,6 +89,7 @@ const SITUATION = situation({
 		{ section_tipo: SECTION_A, section_id: 1, columns: { relation: {} } },
 		{ section_tipo: SECTION_B, section_id: 1, columns: { relation: {} } },
 		{ section_tipo: SECTION_B, section_id: 2, columns: { relation: {} } },
+		{ section_tipo: SECTION_C, section_id: 1, columns: { relation: {} } },
 	],
 });
 
@@ -177,5 +181,22 @@ describe.if(DB_READY)('info observer targets follow server.config (T2-WID-1)', (
 			await historyRows(SECTION_B, 2, INFO_INVERSE),
 			'the saved record (not a host of the observer) got the recompute',
 		).toBe(before.b2);
+	}, 60_000);
+
+	test('host predicate: an observable locator into a section that does not declare the observer gets no row', async () => {
+		const before = {
+			b1: await historyRows(SECTION_B, 1, INFO_OBSERVABLE),
+			c1: await historyRows(SECTION_C, 1, INFO_OBSERVABLE),
+		};
+		await save(PORTAL, SECTION_A, 1, [
+			{ type: 'dd151', section_tipo: SECTION_B, section_id: 1, from_component_tipo: PORTAL },
+			{ type: 'dd151', section_tipo: SECTION_C, section_id: 1, from_component_tipo: PORTAL },
+		]);
+		// FLOOR: the hosted target in the same save was recomputed.
+		expect(await historyRows(SECTION_B, 1, INFO_OBSERVABLE)).toBe(before.b1 + 1);
+		expect(
+			await historyRows(SECTION_C, 1, INFO_OBSERVABLE),
+			'a TM row for the observer landed on a section that does not host it',
+		).toBe(before.c1);
 	}, 60_000);
 });
