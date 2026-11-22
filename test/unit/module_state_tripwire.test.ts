@@ -1576,10 +1576,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 					'Four termByTipo() REPORT LABELS. The fifth read — this door’s write language, audit DATA-01’s primary site — was removed by P0-7; it now reads currentDataLang().',
 			},
 		],
-		[
-			'tools/tool_propagate_component_data/server/index.ts',
-			{ count: 1, reason: 'A termByTipo() report label for the progress panel.' },
-		],
 		// ── OPEN: the same defect class, outside P0-7's edit scope ───────────
 		[
 			'tools/tool_posterframe/server/index.ts',
@@ -1598,9 +1594,11 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 	 * chokepoint's declared-set read (the set is built in src/config/, which this
 	 * census exempts, and no longer takes DEDALO_DATA_LANG as an input at all) and
 	 * the data half of the ALS accessor (currentDataLang() now falls back to
-	 * config.lang.dataLangDefault, which is not a config.menu read).
+	 * config.lang.dataLangDefault, which is not a config.menu read). 22 → 21
+	 * (T2-OX7-1a): tool_propagate_component_data's report label reads the
+	 * request's currentApplicationLang().
 	 */
-	const CENSUS_TOTAL = 22;
+	const CENSUS_TOTAL = 21;
 
 	const LANG_READ = /config\.menu\.(?:dataLang|applicationLang)\b/;
 

@@ -21,7 +21,10 @@
 // input_text tipo, so it now names the generic `test52`.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { termByTipo } from '../../src/core/ontology/labels.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import type { ToolActionContext, ToolResponse } from '../../src/core/tools/module.ts';
@@ -324,5 +327,37 @@ describe('propagate_component_data — background wire', () => {
 		expectPropagated(values[IDS[0] as number], 'ABORTED-RUN');
 		// The records the abort skipped keep their seeded value.
 		expect(values[IDS[2] as number]).toEqual([{ id: 1, lang: LANG, value: `ORIGINAL-${IDS[2]}` }]);
+	});
+});
+
+describe('T2-OX7-1a: the section label speaks the REQUEST application lang', () => {
+	test('section_label is the term in the request lang, not the install DEDALO_APPLICATION_LANG', async () => {
+		// The request lang is chosen to DIFFER from the install default and to name
+		// the section differently — otherwise the two readings coincide and the
+		// case proves nothing.
+		const requestLang = config.menu.applicationLang === 'lg-spa' ? 'lg-eng' : 'lg-spa';
+		// The LABELLED section is the declared one (test3: named per language);
+		// the rows are still this file's scratch records.
+		const labelled = 'test3';
+		const wanted = await termByTipo(labelled, requestLang);
+		const installTerm = await termByTipo(labelled, config.menu.applicationLang);
+		expect(wanted).not.toBe(installTerm);
+		const run = await handler();
+		const response = await runWithRequestLangs(
+			{ applicationLang: requestLang, dataLang: LANG },
+			() =>
+				run(
+					contextOf(
+						optionsFor({
+							section_tipo: labelled,
+							action: 'delete',
+							propagate_data_value: [{ lang: LANG, value: 'never stored' }],
+						}),
+					),
+				),
+		);
+		const data = response.data as { section_label: string; bulk_process_id?: unknown };
+		if (typeof data.bulk_process_id === 'number') mintedBulkIds.push(data.bulk_process_id);
+		expect(data.section_label).toBe(wanted);
 	});
 });

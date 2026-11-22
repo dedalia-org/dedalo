@@ -51,7 +51,6 @@
  * until it ends (decision D5).
  */
 
-import { config } from '../../../src/config/config.ts';
 import { isDerivedModel, isMonovalueModel } from '../../../src/core/components/registry.ts';
 import { regionOf } from '../../../src/core/concepts/lang_region.ts';
 import { BULK_PROCESS_TIPOS } from '../../../src/core/concepts/section.ts';
@@ -69,6 +68,7 @@ import {
 	getModelByTipo,
 } from '../../../src/core/ontology/resolver.ts';
 import { readComponentItems } from '../../../src/core/resolve/component_data.ts';
+import { currentApplicationLang } from '../../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../../src/core/search/search_statement.ts';
 import { buildSearchSql } from '../../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../../src/core/section/record/create_record.ts';
@@ -341,7 +341,9 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 		});
 	}
 
-	const sectionLabel = await termByTipo(sectionTipo, config.menu.applicationLang);
+	// The label the operator reads: the REQUEST's application lang (T2-OX7-1a) —
+	// never the install DEDALO_APPLICATION_LANG (a job runs in its request's langs).
+	const sectionLabel = await termByTipo(sectionTipo, currentApplicationLang());
 	const bulkLabel = String(options.bulk_process_label ?? `Propagate ${action} to ${componentTipo}`);
 	const bulkProcessId = await createBulkProcess(bulkLabel, userId);
 	const target: PropagateTarget = {
