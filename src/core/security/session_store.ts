@@ -496,10 +496,37 @@ export function getSession(rawToken: string): Session | null {
  * not save it. Taking the write lock up front keeps the timeout in play.
  */
 export function setSessionSqo(session: Session, sqoId: string, sqo: unknown): void {
+	rewriteSessionSqo(session, (map) => {
+		map[sqoId] = sqo;
+	});
+}
+
+/**
+ * Forget ONE section's navigation SQO on a live session (PHP
+ * `unset($_SESSION['dedalo']['config']['sqo'][$sqo_id])`): the next read of that
+ * section starts from no stored filter / offset. The other sections' entries
+ * stay. Called by tool_time_machine after a section restore COMMITS (T2 O16-03):
+ * the stored query may hold a pager / filter state the restore made stale.
+ * Same read-merge-write as setSessionSqo (a concurrent request's key survives),
+ * and a no-op when nothing is stored under `sqoId`.
+ */
+export function dropSessionSqo(session: Session, sqoId: string): void {
+	rewriteSessionSqo(session, (map) => {
+		delete map[sqoId];
+	});
+}
+
+/**
+ * THE one writer of a session's `sqo_session` map — setSessionSqo and
+ * dropSessionSqo are each one `apply` over it. See setSessionSqo for why it is a
+ * READ-MERGE-WRITE under an IMMEDIATE transaction, and why the in-memory map is
+ * published only after COMMIT.
+ */
+function rewriteSessionSqo(session: Session, apply: (map: Record<string, unknown>) => void): void {
 	// Synthetic (harness) sessions carry no tokenHash — in-memory only.
 	if (session.tokenHash === undefined) {
 		session.sqoSession ??= {};
-		session.sqoSession[sqoId] = sqo;
+		apply(session.sqoSession);
 		return;
 	}
 
@@ -531,7 +558,7 @@ export function setSessionSqo(session: Session, sqoId: string, sqo: unknown): vo
 			}
 		}
 
-		stored[sqoId] = sqo;
+		apply(stored);
 		database
 			.query('UPDATE sessions SET sqo_session = ? WHERE token_hash = ?')
 			.run(JSON.stringify(stored), tokenHash);
@@ -547,7 +574,7 @@ export function setSessionSqo(session: Session, sqoId: string, sqo: unknown): vo
 		session.sqoSession = outcome.merged;
 	} else {
 		session.sqoSession ??= {};
-		session.sqoSession[sqoId] = sqo;
+		apply(session.sqoSession);
 	}
 }
 

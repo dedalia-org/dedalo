@@ -36,7 +36,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parse as babelParse } from '@babel/parser';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { activitySectionOf, logActivity } from '../../src/core/api/handlers/activity_log.ts';
 import type { Rqo } from '../../src/core/concepts/rqo.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
@@ -47,6 +51,11 @@ import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
 import { registerSessionCleanup } from '../helpers/session_cleanup.ts';
 import { cleanScratchRecord } from '../helpers/test_data.ts';
+import {
+	REPO_ROOT,
+	WRITE_PATH_CORPUS_FLOOR,
+	writePathSourceFiles,
+} from '../helpers/write_path_corpus.ts';
 
 registerSessionCleanup();
 
@@ -458,5 +467,300 @@ describe('activity log rows, TS-native (dd542 anatomy)', () => {
 			[SECTION, recordId],
 		)) as unknown[];
 		expect(rows.length).toBe(0);
+	});
+});
+
+/**
+ * T2 O16-01 — THE EXCLUDED SECTIONS LEAVE NO ACTIVITY ROW EITHER. dd655 (the
+ * editing search preset, rewritten on every filter edit), dd15 (the Time Machine)
+ * and dd1521 (the rebuildable daily aggregate) carry no history
+ * (TM_EXCLUDED_SECTIONS); PHP's log_message_defer skipped the same three for the
+ * activity log. The skip sits at the logActivity chokepoint, keyed on the
+ * action's SECTION — `data.section_tipo`, else the WHERE tipo
+ * (activitySectionOf) — so a SAVE, whose WHERE is the COMPONENT, is judged by
+ * the section it saved into.
+ */
+describe('activity log skips the TM-excluded sections (O16-01)', () => {
+	const MARK = `__o16_01_${process.pid}_${Date.now()}__`;
+
+	async function rowsMarked(suffix: string): Promise<number[]> {
+		const rows = (await sql.unsafe(
+			`SELECT section_id FROM matrix_activity
+			 WHERE section_tipo = 'dd542' AND misc->'dd551'->0->'value'->>'msg' = $1`,
+			[`${MARK}${suffix}`],
+		)) as { section_id: number }[];
+		const ids = rows.map((row) => Number(row.section_id));
+		activityIds.push(...ids);
+		return ids;
+	}
+
+	const entry = (what: string, tipo: string, suffix: string, data: Record<string, unknown>) => ({
+		what,
+		tipo,
+		userId: USER_ID,
+		host: 'localhost',
+		data: { msg: `${MARK}${suffix}`, ...data },
+	});
+
+	test('a SAVE into a dd655 record (WHERE = a component tipo) appends NO row', async () => {
+		await logActivity(entry('SAVE', 'dd656', 'save655', { section_tipo: 'dd655', section_id: 1 }));
+		expect(await rowsMarked('save655')).toEqual([]);
+	});
+
+	test('NEW / DELETE on dd15 and dd1521 (WHERE = the section) append NO row', async () => {
+		await logActivity(entry('NEW', 'dd15', 'new15', { section_id: 1 }));
+		await logActivity(entry('DELETE', 'dd1521', 'del1521', { section_id: 1 }));
+		await logActivity(entry('DELETE', 'dd15', 'del15', { section_tipo: 'dd15', section_id: 1 }));
+		expect(await rowsMarked('new15')).toEqual([]);
+		expect(await rowsMarked('del1521')).toEqual([]);
+		expect(await rowsMarked('del15')).toEqual([]);
+	});
+
+	test('the same actions on an ordinary section still log (positive control)', async () => {
+		await logActivity(entry('SAVE', COMPONENT, 'save3', { section_tipo: SECTION, section_id: 1 }));
+		await logActivity(entry('NEW', SECTION, 'new3', { section_id: 1 }));
+		expect(await rowsMarked('save3')).toHaveLength(1);
+		expect(await rowsMarked('new3')).toHaveLength(1);
+	});
+
+	test('activitySectionOf: data.section_tipo first, else the WHERE tipo', () => {
+		expect(activitySectionOf(entry('SAVE', 'dd656', '', { section_tipo: 'dd655' }))).toBe('dd655');
+		expect(activitySectionOf(entry('NEW', 'dd15', '', {}))).toBe('dd15');
+		expect(activitySectionOf(entry('NEW', 'dd15', '', { section_tipo: '' }))).toBe('dd15');
+	});
+});
+
+/**
+ * The source half of O16-01: the skip keys on `data.section_tipo` because a
+ * SAVE's WHERE is a component tipo — so EVERY SAVE emitter must pass it, or a
+ * save into dd655 slips past the skip. Derived over the whole write-path
+ * corpus (babel-parsed, aliases resolved): every `logActivity(...)` call whose `what` is the
+ * literal 'SAVE' must carry `section_tipo` in its `data` object. A call whose
+ * `what` is not a literal is OPAQUE and must be a named entry below (what it can
+ * be, and why no section_tipo is owed); a stale entry is red.
+ */
+const OPAQUE_ACTIVITY_EMITTERS: Record<string, { count: number; reason: string }> = {
+	'src/core/api/handlers/dd_core_api.ts': {
+		count: 1,
+		reason: 'LOAD EDIT / LOAD LIST (a template literal): the WHERE IS the section tipo',
+	},
+	'src/core/security/legacy_password_migration.ts': {
+		count: 1,
+		reason: 'SAVE of a password-conversion run on the maintenance AREA (dd88): no section',
+	},
+	'src/core/area_maintenance/widgets/publication_host_setup.ts': {
+		count: 1,
+		reason: 'SAVE / DELETE (AuditVerb) of a publication-host change on the AREA dd88: no section',
+	},
+	'tools/tool_media_versions/server/media_versions.ts': {
+		count: 1,
+		reason: 'DELETE FILE / NEW VERSION (typed): never SAVE',
+	},
+	'tools/tool_time_machine/server/tool_time_machine.ts': {
+		count: 1,
+		reason: 'RECOVER SECTION / RECOVER COMPONENT (typed): the WHERE IS the section tipo',
+	},
+};
+
+interface ActivityCall {
+	file: string;
+	line: number;
+	what: string | null;
+	dataHasSectionTipo: boolean;
+}
+
+type AstNode = { type: string; loc?: { start: { line: number } } } & Record<string, unknown>;
+
+function propertyNamed(object: AstNode, name: string): AstNode | undefined {
+	for (const property of (object.properties as AstNode[]) ?? []) {
+		if (property.type !== 'ObjectProperty') continue;
+		const key = property.key as AstNode;
+		const keyName =
+			key.type === 'Identifier' ? key.name : key.type === 'StringLiteral' ? key.value : null;
+		if (keyName === name) return property;
+	}
+	return undefined;
+}
+
+/** Every logActivity call of one module (plain or `x.logActivity`). */
+/**
+ * Every local name bound to `logActivity` in a file, so an aliased emitter is
+ * scanned too: `import { logActivity as x }`, `const { logActivity: x } =
+ * await import(...)`, and a plain re-binding `const x = <bound name>` (to a
+ * fixpoint). A wrapper that FORWARDS `what` is already opaque (a non-literal
+ * `what` must be a named entry); one that fixes `what: 'SAVE'` and forwards
+ * `data` is an offender (its `data` is not an object literal naming the section).
+ */
+function logActivityBindings(program: unknown): Set<string> {
+	const names = new Set<string>(['logActivity']);
+	const rebindings: [string, string][] = [];
+	const visit = (node: unknown): void => {
+		if (node === null || typeof node !== 'object') return;
+		if (Array.isArray(node)) {
+			for (const child of node) visit(child);
+			return;
+		}
+		const ast = node as AstNode;
+		if (ast.type === 'ImportSpecifier') {
+			const imported = ast.imported as AstNode;
+			const importedName = imported.type === 'Identifier' ? imported.name : imported.value;
+			if (importedName === 'logActivity') names.add(String((ast.local as AstNode).name));
+		} else if (ast.type === 'ObjectPattern') {
+			// Only a destructuring PATTERN binds: { logActivity: x } = ...
+			for (const property of (ast.properties as AstNode[]) ?? []) {
+				if (property.type !== 'ObjectProperty') continue;
+				const key = property.key as AstNode;
+				const value = property.value as AstNode;
+				const keyName = key.type === 'Identifier' ? key.name : key.value;
+				if (keyName === 'logActivity' && value?.type === 'Identifier')
+					names.add(String(value.name));
+			}
+		} else if (ast.type === 'VariableDeclarator') {
+			const id = ast.id as AstNode;
+			const init = ast.init as AstNode | null;
+			if (id?.type === 'Identifier' && init?.type === 'Identifier') {
+				rebindings.push([String(id.name), String(init.name)]);
+			}
+		}
+		for (const [key, value] of Object.entries(ast)) {
+			if (key === 'loc' || key === 'start' || key === 'end') continue;
+			visit(value);
+		}
+	};
+	visit(program);
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const [alias, target] of rebindings) {
+			if (names.has(target) && !names.has(alias)) {
+				names.add(alias);
+				grew = true;
+			}
+		}
+	}
+	return names;
+}
+
+function activityCalls(file: string, source: string): ActivityCall[] {
+	const ast = babelParse(source, {
+		sourceType: 'module',
+		errorRecovery: true,
+		plugins: ['typescript', 'decorators-legacy'],
+	}) as unknown as { program: AstNode };
+	const calls: ActivityCall[] = [];
+	const names = logActivityBindings(ast.program);
+	const visit = (node: unknown): void => {
+		if (node === null || typeof node !== 'object') return;
+		if (Array.isArray(node)) {
+			for (const child of node) visit(child);
+			return;
+		}
+		const ast = node as AstNode;
+		if (ast.type === 'CallExpression') {
+			const callee = ast.callee as AstNode;
+			const name =
+				callee.type === 'Identifier'
+					? callee.name
+					: callee.type === 'MemberExpression'
+						? (callee.property as AstNode).name
+						: null;
+			if (
+				typeof name === 'string' &&
+				(callee.type === 'MemberExpression' ? name === 'logActivity' : names.has(name))
+			) {
+				const arg = (ast.arguments as AstNode[])[0];
+				let what: string | null = null;
+				let dataHasSectionTipo = false;
+				if (arg?.type === 'ObjectExpression') {
+					const whatValue = propertyNamed(arg, 'what')?.value as AstNode | undefined;
+					if (whatValue?.type === 'StringLiteral') what = String(whatValue.value);
+					const data = propertyNamed(arg, 'data')?.value as AstNode | undefined;
+					dataHasSectionTipo =
+						data?.type === 'ObjectExpression' && propertyNamed(data, 'section_tipo') !== undefined;
+				}
+				calls.push({ file, line: ast.loc?.start.line ?? 0, what, dataHasSectionTipo });
+			}
+		}
+		for (const [key, value] of Object.entries(ast)) {
+			if (key === 'loc' || key === 'start' || key === 'end') continue;
+			visit(value);
+		}
+	};
+	visit(ast.program);
+	return calls;
+}
+
+/** The verdict over a set of calls: offenders + opaque sites per file. */
+function judgeActivityCalls(calls: readonly ActivityCall[]): {
+	saveWithoutSection: string[];
+	opaque: Map<string, number>;
+	literalSaves: number;
+} {
+	const saveWithoutSection: string[] = [];
+	const opaque = new Map<string, number>();
+	let literalSaves = 0;
+	for (const call of calls) {
+		if (call.what === null) {
+			opaque.set(call.file, (opaque.get(call.file) ?? 0) + 1);
+		} else if (call.what === 'SAVE') {
+			literalSaves += 1;
+			if (!call.dataHasSectionTipo) saveWithoutSection.push(`${call.file}:${call.line}`);
+		}
+	}
+	return { saveWithoutSection, opaque, literalSaves };
+}
+
+describe('every SAVE emitter names its section (O16-01 source scan)', () => {
+	const files = writePathSourceFiles();
+	const calls = files.flatMap((file) =>
+		activityCalls(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
+	);
+	const verdict = judgeActivityCalls(calls);
+
+	test('floors: the corpus, the call sites and the literal SAVE emitters were all SEEN', () => {
+		expect(files.length).toBeGreaterThanOrEqual(WRITE_PATH_CORPUS_FLOOR);
+		expect(calls.length).toBeGreaterThanOrEqual(15);
+		expect(verdict.literalSaves).toBeGreaterThanOrEqual(1);
+	});
+
+	test('every literal SAVE emitter passes data.section_tipo', () => {
+		expect(verdict.saveWithoutSection).toEqual([]);
+	});
+
+	test('every opaque emitter is a named entry, and no entry is stale', () => {
+		expect(Object.fromEntries(verdict.opaque)).toEqual(
+			Object.fromEntries(
+				Object.entries(OPAQUE_ACTIVITY_EMITTERS).map(([file, entry]) => [file, entry.count]),
+			),
+		);
+	});
+
+	test('the scan is honest: a planted SAVE without section_tipo is reported, its twin is not', () => {
+		const planted = activityCalls(
+			'planted.ts',
+			`await logActivity({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'x', tipo: t } });
+			 await activity.logActivity({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { section_tipo: s } });
+			 await logActivity({ what: v, tipo: t, userId: 1, host: h, data: {} });`,
+		);
+		const judged = judgeActivityCalls(planted);
+		expect(judged.saveWithoutSection).toEqual(['planted.ts:1']);
+		expect(judged.literalSaves).toBe(2);
+		expect(Object.fromEntries(judged.opaque)).toEqual({ 'planted.ts': 1 });
+	});
+
+	test('the scan resolves an ALIASED logActivity (import rename, destructured dynamic import, re-binding)', () => {
+		const planted = activityCalls(
+			'aliased.ts',
+			`import { logActivity as audit } from './activity_log.ts';
+			 const { logActivity: record } = await import('./activity_log.ts');
+			 const write = audit;
+			 await audit({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'x' } });
+			 await record({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'y' } });
+			 await write({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'z' } });
+			 await unrelated({ what: 'SAVE', tipo: t, userId: 1, host: h, data: {} });`,
+		);
+		const judged = judgeActivityCalls(planted);
+		expect(judged.saveWithoutSection).toEqual(['aliased.ts:4', 'aliased.ts:5', 'aliased.ts:6']);
+		expect(judged.literalSaves).toBe(3);
 	});
 });

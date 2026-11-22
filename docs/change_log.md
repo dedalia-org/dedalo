@@ -196,6 +196,29 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **"Activating or repairing a hierarchy links its root term only when it is unambiguous — the one term without a parent — and keeps every valid root."**
+
+    The *General term* of a hierarchy is the root its thesaurus tree hangs from. When it was
+    missing, or pointed at a record that does not exist, while the hierarchy's section already held
+    terms, **Activate / repair** (and the installer's activation) linked the term with the lowest
+    number — which could be any imported term, not the root. Now:
+
+    - it links the **one term that has no parent**;
+    - when several terms have no parent, or none has, it **changes nothing** and the *General term*
+      line of the status panel says **root ambiguous** — choose the root yourself in the
+      hierarchy's *General term* field, then repair again;
+    - a *General term* holding several roots keeps **every** root that exists; only links to
+      records that no longer exist are removed, and each one removed is listed;
+    - a newly created root is named after the hierarchy also when the section declares several
+      term fields (the first one is used), and never through a field that is not a text field.
+
+    **Action needed:** three thesauri shipped with Dédalo hold more than one term without a
+    parent — Spain (`es`), Cuba (`cu`) and France (`fr`). Installing one of them now ends with
+    *root ambiguous*: open its hierarchy record and choose its root term (for Spain, *España*).
+    Details: [Hierarchy tool](./using/tools/using_hierarchy.md#tips-and-gotchas).
+
+    Wire contract: `WC-2026-11-22-hierarchy-root-link-rule`.
+
 - **"A field placed inside a `box elements` container of the ontology is no longer treated as a field of its section — deleting a record's data leaves it, and searches and lookups ignore it, as in v6."**
 
     In the ontology, a `box elements` node (and the older `dataframe` and
@@ -592,6 +615,22 @@ Merged since the last release; these ship with the next one.
     A term that holds two values in the same language now shows both, separated by ` | `, instead of only the first one. The labels of the indexation groups in the tree now follow your interface language.
 
     Wire contract: `WC-2026-11-22-term-fallback-chain`.
+
+- **"A record recovered from the Time Machine no longer stays in the list of deleted records, and the section's list opens again without its old search."**
+
+    The Time Machine of a section lists its deleted records, ready to be recovered. A record
+    recovered from it stayed in that list, so it could be recovered a second time over the edits
+    made since, and a record deleted twice was listed twice. Now:
+
+    - a recovered record leaves the list; its entries stay in its history, nothing is erased;
+    - a record deleted again is listed once, by its latest deletion;
+    - a record that exists is never listed, whatever history entries it carries;
+    - after a recovery the section's list opens without the search, filter or page you had left
+      on it.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-22-tm-recover-consumes-deleted-listing`.
 
 - **"Tool names and help texts missing in the interface language fall back to its declared equivalent language (Valencian shows Catalan) instead of English."**
 
@@ -1709,6 +1748,16 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **"The activity log no longer records actions on the search presets being edited, on the Time Machine itself or on the daily activity statistics."**
+
+    Three system sections keep no Time Machine history: the search preset a user is editing
+    (rewritten on every change of a filter), the Time Machine itself and the daily user-activity
+    statistics (rebuilt from the activity log). Actions on them — a save, a new or deleted record —
+    are no longer written to the activity log either, as in previous versions: they filled it with
+    entries nobody reads. Every other action is logged as before.
+
+    **Action needed:** none.
+
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
     Clearing the last value of a text field (input text, text area, e-mail, IRI) used to leave an
@@ -2489,7 +2538,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 106 entries"
+??? note "Wire contract — 108 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2589,6 +2638,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-indexation-fragment-served`
     - `WC-2026-11-22-media-icons-tc`
     - `WC-2026-11-22-properties-label-override-chain`
@@ -2596,6 +2646,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-section-containment-law`
     - `WC-2026-11-22-state-of-component-msg-refused`
     - `WC-2026-11-22-term-fallback-chain`
+    - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
     - `WC-2026-11-22-tool-availability-context`
 
 ## 7.0.0-beta.8 — 2026-11-08

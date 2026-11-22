@@ -80,6 +80,7 @@ import { updateMatrixKeyData } from '../db/matrix_write.ts';
 import { isInTransaction, sql, withTransaction } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import type { ReconcileDefinition } from '../reconcile/registry.ts';
+import { getParentTipo } from '../relations/children.ts';
 import { applyAddNewElement } from '../relations/save.ts';
 import { type Principal, resolvePrincipal } from '../security/permissions.ts';
 import { clearOntologyDerivedCaches } from './cache_invalidation.ts';
@@ -112,7 +113,7 @@ import {
 	getSectionRealTipo,
 	runtimeModelOfStored,
 } from './resolver.ts';
-import { getSectionMapValue } from './section_map.ts';
+import { getSectionMapFirstTipo } from './section_map.ts';
 import {
 	anotherRegistryRowDeclaresTld,
 	isProtectedTld,
@@ -196,6 +197,16 @@ const literal = (row: RegistryRow | null, tipo: string): string =>
 const locator = (row: RegistryRow | null, tipo: string): Record<string, unknown> | null =>
 	row?.relation?.[tipo]?.[0] ?? null;
 
+/** EVERY stored locator of a relation key (a root key may hold several — OX4-03). */
+const locators = (row: RegistryRow | null, tipo: string): Record<string, unknown>[] => {
+	const items = row?.relation?.[tipo];
+	return Array.isArray(items)
+		? items.filter(
+				(item): item is Record<string, unknown> => item !== null && typeof item === 'object',
+			)
+		: [];
+};
+
 /**
  * THE SECTIONS THIS HIERARCHY DECLARES — hierarchy53 (terms) and hierarchy58
  * (model), with the `<tld>1`/`<tld>2` convention as the FALLBACK when unset.
@@ -234,16 +245,108 @@ async function recordExists(sectionTipo: string, sectionId: number): Promise<boo
 	return rows.length > 0;
 }
 
-/** The lowest-numbered record of a section — the root, by Dédalo's import convention. */
-async function lowestRecordId(sectionTipo: string): Promise<number | null> {
+/** Does the section hold any record at all? */
+async function sectionHasRecords(sectionTipo: string): Promise<boolean> {
 	const table = await getMatrixTableFromTipo(sectionTipo);
-	if (table === null) return null;
+	if (table === null) return false;
+	const rows = (await sql.unsafe(`SELECT 1 FROM "${table}" WHERE section_tipo = $1 LIMIT 1`, [
+		sectionTipo,
+	])) as unknown[];
+	return rows.length > 0;
+}
+
+/**
+ * Up to `limit` records of a section that have NO parent — the root candidates.
+ * "Parent" is the section's component_relation_parent (hierarchy36 on a
+ * hierarchy20-based section): a record whose key holds no locator is parentless.
+ * A section without a parent component has no tree, so every record is.
+ */
+async function parentlessRecordIds(sectionTipo: string, limit: number): Promise<number[]> {
+	const table = await getMatrixTableFromTipo(sectionTipo);
+	if (table === null) return [];
+	const parentTipo = await getParentTipo(sectionTipo);
+	const column = getColumnNameByModel('component_relation_parent') ?? 'relation';
 	const rows = (await sql.unsafe(
-		`SELECT min(section_id) AS id FROM "${table}" WHERE section_tipo = $1`,
-		[sectionTipo],
-	)) as { id: number | null }[];
-	const id = rows[0]?.id;
-	return id === null || id === undefined ? null : Number(id);
+		parentTipo === null
+			? `SELECT section_id FROM "${table}" WHERE section_tipo = $1 ORDER BY section_id LIMIT $2`
+			: `SELECT section_id FROM "${table}" WHERE section_tipo = $1
+			     AND NOT COALESCE("${column}"->$3 @> '[{}]'::jsonb, false)
+			   ORDER BY section_id LIMIT $2`,
+		parentTipo === null ? [sectionTipo, limit] : [sectionTipo, limit, parentTipo],
+	)) as { section_id: number }[];
+	return rows.map((row) => Number(row.section_id));
+}
+
+/**
+ * THE ROOT LINK RULE (T2 OX4-02, owner Q7 (b) 2026-11-19;
+ * WC-2026-11-22-hierarchy-root-link-rule) — which record a missing or dangling
+ * general-term link should point at:
+ *   empty      the section holds no record → the root is CREATED;
+ *   one        exactly one record has no parent → that record IS the root;
+ *   ambiguous  several parentless records, or none (every record has a parent:
+ *              a cycle, or a root that is itself a child) → NOTHING is written;
+ *              the state check reports "root ambiguous" and the operator chooses.
+ * The old rule linked the LOWEST section_id — an imported child as easily as
+ * the root (Dédalo ids carry no tree meaning). Never a guess.
+ */
+type RootPick =
+	| { kind: 'empty' }
+	| { kind: 'one'; sectionId: number }
+	| { kind: 'ambiguous'; parentless: 'several' | 'none' };
+
+async function pickRootRecord(sectionTipo: string): Promise<RootPick> {
+	if (!(await sectionHasRecords(sectionTipo))) return { kind: 'empty' };
+	const ids = await parentlessRecordIds(sectionTipo, 2);
+	if (ids.length === 1) return { kind: 'one', sectionId: ids[0] as number };
+	return { kind: 'ambiguous', parentless: ids.length === 0 ? 'none' : 'several' };
+}
+
+/** The operator-facing sentence of an ambiguous pick (the check detail and the ensure error). */
+function rootAmbiguous(
+	componentTipo: string,
+	sectionTipo: string,
+	parentless: 'several' | 'none',
+): string {
+	const holds =
+		parentless === 'several'
+			? 'several records without a parent'
+			: 'records but none without a parent';
+	return `root ambiguous — ${sectionTipo} holds ${holds}; choose the root and link it in ${componentTipo} (nothing was changed)`;
+}
+
+/**
+ * A root key's stored locators, split (T2 OX4-03): `valid` = each locator that
+ * names an EXISTING record of the declared section (first occurrence of a
+ * record only, stored order kept); `invalid` = why every other one is not a
+ * root — the ones ensure drops, each named.
+ */
+interface RootLocatorSplit {
+	valid: { item: Record<string, unknown>; sectionId: number }[];
+	invalid: string[];
+}
+
+async function splitRootLocators(
+	items: readonly Record<string, unknown>[],
+	targetSectionTipo: string,
+): Promise<RootLocatorSplit> {
+	const split: RootLocatorSplit = { valid: [], invalid: [] };
+	const seen = new Set<number>();
+	for (const item of items) {
+		const tipo = String(item.section_tipo ?? '');
+		const id = Number(item.section_id);
+		const address = `${tipo || '?'}/${String(item.section_id ?? '?')}`;
+		if (tipo !== targetSectionTipo || !Number.isInteger(id)) {
+			split.invalid.push(`${address} (not a record of ${targetSectionTipo})`);
+		} else if (seen.has(id)) {
+			split.invalid.push(`${address} (duplicate)`);
+		} else if (!(await recordExists(tipo, id))) {
+			split.invalid.push(`DANGLING → ${address} does not exist`);
+		} else {
+			seen.add(id);
+			split.valid.push({ item, sectionId: id });
+		}
+	}
+	return split;
 }
 
 /**
@@ -283,25 +386,34 @@ async function ontologyPresent(
 	};
 }
 
-/** A root locator is OK only when its TARGET RECORD EXISTS (the whole bug, in one line). */
+/**
+ * A root key is OK only when EVERY locator names an EXISTING record of the
+ * declared section (the whole Albania bug, in one line) — and it holds at least
+ * one. A broken key's detail also says what ensure will do about it (the root
+ * link rule: create / link the only parentless record / "root ambiguous").
+ */
 async function rootTermCheck(
 	row: RegistryRow | null,
 	componentTipo: string,
 	targetSectionTipo: string,
 ): Promise<{ ok: boolean; detail: string }> {
-	const current = locator(row, componentTipo);
-	if (current === null) {
-		return { ok: false, detail: 'not set' };
+	const items = locators(row, componentTipo);
+	const split = await splitRootLocators(items, targetSectionTipo);
+	const roots = split.valid.map((root) => `${targetSectionTipo}/${root.sectionId}`).join(', ');
+	if (split.valid.length > 0) {
+		return split.invalid.length === 0
+			? { ok: true, detail: roots }
+			: { ok: false, detail: `${roots}; ensure drops ${split.invalid.join('; ')}` };
 	}
-	const targetTipo = String(current.section_tipo ?? '');
-	const targetId = Number(current.section_id);
-	if (targetTipo !== targetSectionTipo || !Number.isFinite(targetId)) {
-		return { ok: false, detail: `points at ${targetTipo || '?'}/${current.section_id ?? '?'}` };
-	}
-	if (!(await recordExists(targetTipo, targetId))) {
-		return { ok: false, detail: `DANGLING → ${targetTipo}/${targetId} does not exist` };
-	}
-	return { ok: true, detail: `${targetTipo}/${targetId}` };
+	const head = items.length === 0 ? 'not set' : split.invalid.join('; ');
+	const pick = await pickRootRecord(targetSectionTipo);
+	const next =
+		pick.kind === 'empty'
+			? 'ensure creates the root'
+			: pick.kind === 'one'
+				? `ensure links ${targetSectionTipo}/${pick.sectionId}, its only record without a parent`
+				: rootAmbiguous(componentTipo, targetSectionTipo, pick.parentless);
+	return { ok: false, detail: `${head} — ${next}` };
 }
 
 /**
@@ -877,6 +989,56 @@ const rootLocatorItem = (componentTipo: string, targetSectionTipo: string, targe
 });
 
 /**
+ * The canonical stored value of a root key holding several VALID roots
+ * (OX4-03): each re-stamped to the canonical item, stored order kept. A stored
+ * item id is kept when it is a positive integer not already taken; any other
+ * (a bare locator carries none) gets the next free one.
+ */
+function canonicalRootItems(
+	componentTipo: string,
+	targetSectionTipo: string,
+	valid: RootLocatorSplit['valid'],
+): Record<string, unknown>[] {
+	const used = new Set<number>();
+	const keptIds = valid.map(({ item }) => {
+		const id = Number(item.id);
+		if (!Number.isInteger(id) || id <= 0 || used.has(id)) return null;
+		used.add(id);
+		return id;
+	});
+	let next = Math.max(0, ...used) + 1;
+	return valid.map(({ sectionId }, index) => ({
+		...rootLocatorItem(componentTipo, targetSectionTipo, sectionId),
+		id: keptIds[index] ?? next++,
+	}));
+}
+
+/**
+ * Is the stored key already exactly `wanted`? Through compareLocators (S2-04
+ * locator law — loose-numeric section_id) over the FULL quad: a locator naming
+ * the right record with the wrong type / no from_component_tipo is still the
+ * wrong SHAPE; plus the item id.
+ */
+function sameRootItems(
+	stored: readonly Record<string, unknown>[],
+	wanted: readonly Record<string, unknown>[],
+): boolean {
+	return (
+		stored.length === wanted.length &&
+		stored.every(
+			(item, index) =>
+				Number(item.id) === Number(wanted[index]?.id) &&
+				compareLocators(item as never, wanted[index] as never, [
+					'section_tipo',
+					'section_id',
+					'type',
+					'from_component_tipo',
+				]),
+		)
+	);
+}
+
+/**
  * Give a root term the hierarchy's own NAME (hierarchy5 → e.g. "Albania").
  *
  * A root term is the node every other term in the hierarchy descends from, so an unnamed
@@ -885,9 +1047,16 @@ const rootLocatorItem = (componentTipo: string, targetSectionTipo: string, targe
  * The term component is NOT hard-coded to hierarchy25: a section declares which of its
  * components carries the term in its `section_map` (`hierarchy52` = the thesaurus map,
  * `{thesaurus: {term: 'hierarchy25', model: 'hierarchy27', …}}`), and a hierarchy built on
- * a real section other than hierarchy20 will name a different one. `getSectionMapValue`
- * already resolves the map through a VIRTUAL section to its real one and applies the scope
- * fallback, so `<tld>1` and `<tld>2` both answer correctly.
+ * a real section other than hierarchy20 will name a different one. The role may be a LIST
+ * of tipos (`["hierarchy25","hierarchy90"]`): the root is named through the FIRST
+ * (getSectionMapFirstTipo — T2 OX4-01; reading the list as one string named nothing). The
+ * map resolves through a VIRTUAL section to its real one with the scope fallback, so
+ * `<tld>1` and `<tld>2` both answer correctly.
+ *
+ * ONLY A LITERAL STRING COMPONENT IS NAMEABLE (OX4-01): the name is hierarchy5's
+ * `{id, lang, value}` string items, copied verbatim — they belong in the `string`
+ * column and nowhere else. A term naming any other model (a number, a relation…) is
+ * reported, never written into (it used to receive the string items in its own column).
  *
  * FILL-ONLY, NEVER OVERWRITE. A root that already carries a term is left exactly as it is —
  * it may be an imported root, or one an operator renamed, and neither is ours to clobber.
@@ -907,8 +1076,8 @@ async function nameRootTerm(
 	if (!Array.isArray(nameItems) || nameItems.length === 0) {
 		return { named: false, error: `the hierarchy has no name (${HIERARCHY_TERM})` };
 	}
-	const termTipo = await getSectionMapValue(targetSectionTipo, 'thesaurus', 'term');
-	if (typeof termTipo !== 'string' || termTipo === '') {
+	const termTipo = await getSectionMapFirstTipo(targetSectionTipo, 'thesaurus', 'term');
+	if (termTipo === null) {
 		return {
 			named: false,
 			error: `no term component in the section_map of '${targetSectionTipo}'`,
@@ -916,10 +1085,10 @@ async function nameRootTerm(
 	}
 	const termModel = await getModelByTipo(termTipo);
 	const column = termModel === null ? null : getColumnNameByModel(termModel);
-	if (column === null) {
+	if (column !== 'string') {
 		return {
 			named: false,
-			error: `no matrix column for the term component '${termTipo}' (${termModel})`,
+			error: `the term component '${termTipo}' (${termModel ?? 'unknown model'}) is not a literal string component — the hierarchy name is not written into it`,
 		};
 	}
 	const table = await getMatrixTableFromTipo(targetSectionTipo);
@@ -1060,11 +1229,16 @@ async function mintDeclaredRootTerm(
 }
 
 /**
- * Make `componentTipo` point at a REAL, NAMED root record in `targetSectionTipo`:
- *   - the stored target exists → keep it (re-stamped to the canonical locator shape);
- *   - the section has records  → link its lowest id (the imported root);
- *   - the section is empty     → CREATE the root.
- * Then NAME the root after the hierarchy, if it has no term yet.
+ * Make `componentTipo` point at REAL, NAMED root record(s) in `targetSectionTipo`:
+ *   - stored locators naming existing records → KEEP EVERY ONE (re-stamped to the
+ *     canonical shape); only the dangling / foreign / duplicate ones are dropped,
+ *     each named in `changed` (T2 OX4-03 — the key used to be rewritten with its
+ *     first locator only);
+ *   - none valid → the ROOT LINK RULE (pickRootRecord): an empty section gets
+ *     its root CREATED, a section with exactly one parentless record gets that
+ *     one LINKED, anything else is "root ambiguous" — nothing written, the error
+ *     returned for the operator (T2 OX4-02, owner Q7 (b)).
+ * Then NAME the first root after the hierarchy, if it has no term yet.
  * Never trusts the stored locator, and never hard-codes an id.
  */
 async function ensureRootTerm(
@@ -1076,40 +1250,40 @@ async function ensureRootTerm(
 ): Promise<{ changed: string[]; error: string | null }> {
 	const changed: string[] = [];
 
-	// --- 1. resolve the root record ----------------------------------------
-	let rootId: number | null = null;
-	const current = locator(row, componentTipo);
-	const currentId = Number(current?.section_id);
-	if (
-		current !== null &&
-		String(current.section_tipo) === targetSectionTipo &&
-		Number.isFinite(currentId) &&
-		(await recordExists(targetSectionTipo, currentId))
-	) {
-		rootId = currentId;
-		// Re-stamp the locator: the seed's are dd151 and some are bare. Equality through
-		// compareLocators (S2-04 locator law — loose-numeric section_id), over the FULL quad:
-		// a locator naming the right record with the wrong type / no from_component_tipo is
-		// still the wrong SHAPE.
-		const wanted = rootLocatorItem(componentTipo, targetSectionTipo, rootId);
-		const same = compareLocators(current as never, wanted as never, [
-			'section_tipo',
-			'section_id',
-			'type',
-			'from_component_tipo',
-		]);
-		if (!same) {
-			await write(sectionId, 'relation', componentTipo, [wanted]);
-			changed.push(`${componentTipo}: locator normalized`);
+	// --- 1. resolve the root record(s) -------------------------------------
+	const stored = locators(row, componentTipo);
+	const split = await splitRootLocators(stored, targetSectionTipo);
+	let rootId: number;
+	if (split.valid.length > 0) {
+		rootId = (split.valid[0] as RootLocatorSplit['valid'][number]).sectionId;
+		// Re-stamp: the seed's are dd151 and some are bare.
+		const wanted = canonicalRootItems(componentTipo, targetSectionTipo, split.valid);
+		if (!sameRootItems(stored, wanted)) {
+			await write(sectionId, 'relation', componentTipo, wanted);
+			if (split.invalid.length > 0) {
+				changed.push(`${componentTipo}: dropped ${split.invalid.join('; ')}`);
+			}
+			const restamped = split.valid.some(
+				({ item }, index) => !sameRootItems([item], [wanted[index] as Record<string, unknown>]),
+			);
+			if (restamped) changed.push(`${componentTipo}: locator normalized`);
 		}
 	} else {
-		const existingRoot = await lowestRecordId(targetSectionTipo);
-		if (existingRoot !== null) {
-			rootId = existingRoot;
+		const pick = await pickRootRecord(targetSectionTipo);
+		if (pick.kind === 'ambiguous') {
+			return {
+				changed,
+				error: `${componentTipo}: ${rootAmbiguous(componentTipo, targetSectionTipo, pick.parentless)}`,
+			};
+		}
+		if (pick.kind === 'one') {
+			rootId = pick.sectionId;
 			await write(sectionId, 'relation', componentTipo, [
 				rootLocatorItem(componentTipo, targetSectionTipo, rootId),
 			]);
-			changed.push(`${componentTipo}: linked the existing root ${targetSectionTipo}/${rootId}`);
+			changed.push(
+				`${componentTipo}: linked the existing root ${targetSectionTipo}/${rootId} (its only record without a parent)`,
+			);
 		} else {
 			// The section is empty — mint the root the tree hangs its children on:
 			// as the system in the hierarchy's OWN provisioned section, else under
@@ -1145,6 +1319,9 @@ async function ensureRootTerm(
 				rootLocatorItem(componentTipo, targetSectionTipo, rootId),
 			]);
 			changed.push(`${componentTipo}: created the root ${targetSectionTipo}/${rootId}`);
+		}
+		if (split.invalid.length > 0) {
+			changed.push(`${componentTipo}: dropped ${split.invalid.join('; ')}`);
 		}
 	}
 

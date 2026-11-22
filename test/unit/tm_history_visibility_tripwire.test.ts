@@ -149,7 +149,9 @@ const EXEMPT_CEILING = 9;
  * hidden') and its plan by tm_count_index_only_plan_native.
  */
 const NARROWED_READERS: Readonly<Record<string, { reads: number; visible: number }>> = {
-	'src/core/resolve/read_tm.ts': { reads: 7, visible: 3 },
+	// +1 read / +1 visible (T2 O16-02): the deleted-records list's per-record
+	// latest-id subquery (deletedListPredicate) — the latest VISIBLE whole row.
+	'src/core/resolve/read_tm.ts': { reads: 8, visible: 4 },
 	// readTimeMachineRow, readTimeMachineHistory, readOtherLangItemIds, the
 	// two-lane as-of reader (newestRowAt: readFrameStateRowAt / readLaneRowAt),
 	// the TM preview bound + lifecycle probes (nextVisibleRow) and the per-lane as-of reader

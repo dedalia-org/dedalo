@@ -503,7 +503,9 @@ live data.
 3. **The TM read owns its own SQL.** `buildTmWhere()` / `queryTmRows()` build the
    `WHERE`, `ORDER BY` and pagination directly. There are three scoping surfaces:
    `filter_by_locators` for a per-component history, a `tipo` column filter for the
-   record-snapshot list, and **no scope at all** for the bare `dd15` list — which
+   deleted-records list (a section's whole-record snapshots, narrowed to each
+   record's newest one, and only while that record does not live —
+   `deletedListPredicate`), and **no scope at all** for the bare `dd15` list — which
    deliberately returns *every* row. SQO-driven **filters** against
    `matrix_time_machine` from other entry points go through the `_tm` twin branches
    inside the generic search builders instead
@@ -517,7 +519,8 @@ live data.
    itself creates a fresh version. A main's restore also rewrites the main's slots,
    first, with the frames as they stood at the restored row (the
    [two lanes](#dataframe-mains-two-lanes)). The consumed TM row is **kept**: the fresh audit
-   row simply supersedes it in the list.
+   row supersedes it, so a recovered record leaves the deleted-records list while
+   its delete snapshot stays in its history.
 
    `bulk_revert_process` (`bulk_revert.ts`) is the batch analogue: it replays a
    whole `bulk_process_id`'s [undo log](#the-bulk-undo-log), restoring each key's

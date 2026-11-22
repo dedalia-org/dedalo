@@ -51,6 +51,9 @@ The tool attaches **only** to hierarchy-definition records (tipo `hierarchy1`). 
 !!! tip "Read the status panel before you press anything"
     The panel is the point of the tool: it tells you whether the hierarchy is already usable, and if not, precisely which condition fails. A locator that is *set* is not the same as its target *existing* — a definition can name a root term that was never created, leaving the tree with nothing to hang children on. The tool detects that and creates the missing root.
 
+!!! warning "General term: root ambiguous"
+    When the general term is missing or points at a record that no longer exists, and the hierarchy's section already holds terms, the tool links the one term that has no parent. If several terms have no parent — or none has — it changes nothing and the *General term* line says **root ambiguous**: open the hierarchy record and choose the root yourself in its *General term* field, then press **Activate / repair** again. A general term may hold several roots; the tool keeps every one that exists.
+
 !!! info "This is one of two ways to activate a hierarchy"
     The [Installing new hierarchies](../../administration/install_new_hierarchies.md) panel imports **and** activates the hierarchies you tick. `tool_hierarchy` is how you activate or repair one afterwards, one record at a time. For the model itself, see the [ontology](../../core/ontology/index.md) documentation.
 

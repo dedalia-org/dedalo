@@ -238,6 +238,8 @@ const FRAME_AT_DEPTH_ID = 7;
 const MID_ID = 1;
 
 const HOST_ID = 1;
+/** (W3 TM) A HOST address with NO live record: its whole-record row is a DELETED record's snapshot. */
+const DELETED_HOST_ID = 2;
 const TARGET_IDS = [1, 2, 3] as const;
 const X_ID = 1;
 const Y_ID = 1;
@@ -2277,10 +2279,12 @@ describe('W3 nested ddo CONTEXT — the remaining doors', () => {
 			},
 			'2026-11-03 10:00:00',
 		);
+		// The whole-record row of a record that does not live (a delete's
+		// snapshot): the deleted-records list offers no live record's row (T2 O16-02).
 		await recordTimeMachine(
 			{
 				sectionTipo: HOST,
-				sectionId: HOST_ID,
+				sectionId: DELETED_HOST_ID,
 				componentTipo: HOST,
 				lang: 'lg-nolan',
 				userId: -1,

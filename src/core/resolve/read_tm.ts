@@ -283,9 +283,40 @@ async function keepsLangVersions(tipo: string): Promise<boolean> {
 }
 
 /**
+ * THE DELETED-RECORDS LIST (T2 O16-02, FYI-4 owner 2026-11-19;
+ * WC-2026-11-22-tm-recover-consumes-deleted-listing): of a section's
+ * whole-record snapshot rows (tipo = section_tipo — a delete's snapshot, a
+ * recover's or an archive restore's own row), offer ONLY a record's LATEST
+ * visible one, and only while the record is NOT LIVE — a DELETE nothing has
+ * superseded. A recovered record leaves the list (its recover row supersedes
+ * the delete, and it lives); deleted again, it is listed once, by its newest
+ * snapshot. NOTHING is deleted: every snapshot stays history, readable by id and
+ * through the record's own history (v6 marked the row `recovered`; frozen v7
+ * deleted it — this is v6's visible outcome with no state column).
+ *
+ * Uncorrelated with the OUTER row (the WHERE is spliced under two aliases — the
+ * page query's `tm`, and the unaliased count / late-page / barrier selects): the
+ * outer `id` is matched against the per-record latest ids, computed over the
+ * scratch alias `w` under the same history narrowing, and the live probe rides
+ * the HAVING of that grouping. `table` null (the tipo is no section) → no live
+ * probe: nothing can be live there.
+ */
+function deletedListPredicate(param: string, table: string | null): string {
+	const live =
+		table === null
+			? ''
+			: ` HAVING NOT EXISTS (SELECT 1 FROM "${table}" r
+			                      WHERE r.section_tipo = w.section_tipo AND r.section_id = w.section_id)`;
+	return `id IN (SELECT max(w.id) FROM matrix_time_machine w
+	               WHERE ${withTmHistory(`w.tipo = ${param}`, 'w')}
+	               GROUP BY w.section_tipo, w.section_id${live})`;
+}
+
+/**
  * Build the WHERE for a TM query. `filter_by_locators` → per-component history
  * (OR of locator groups). Else a `tipo` column filter → the record-snapshot LIST
- * (WHERE tipo = q, matching PHP). Returns whether it is the record-list surface
+ * (WHERE tipo = q, matching PHP, narrowed to the deleted records —
+ * deletedListPredicate). Returns whether it is the record-list surface
  * (its rows carry a full-record snapshot whose component columns are the display).
  *
  * NO scope at all — a bare dd15 list (`section_tipo:['dd15']`, no
@@ -295,7 +326,7 @@ async function keepsLangVersions(tipo: string): Promise<boolean> {
  * rows (newest-first, paginated), NOT an error and NOT empty. So the where is
  * `true` and it renders as the who/when/where/what history (isRecordList=false).
  */
-function buildTmWhere(sqo: Record<string, unknown>): {
+async function buildTmWhere(sqo: Record<string, unknown>): Promise<{
 	whereSql: string;
 	params: unknown[];
 	isRecordList: boolean;
@@ -303,7 +334,7 @@ function buildTmWhere(sqo: Record<string, unknown>): {
 	 * PLANNER BARRIER note in queryTmRows. Only the conformed component filter can
 	 * produce one; locator and tipo scopes are pure equality. */
 	rangeFilter: boolean;
-} {
+}> {
 	// Before ANY surface: the locator/tipo surfaces never conform sqo.filter, so a
 	// referenced_by leaf would be dropped there too (WC-2026-10-30).
 	assertNoTmReferencedBy(sqo.filter);
@@ -338,7 +369,14 @@ function buildTmWhere(sqo: Record<string, unknown>): {
 	const tipoFilter = tipoColumnFilter(sqo);
 	if (tipoFilter !== null) {
 		params.push(tipoFilter);
-		return { whereSql: `tipo = $${params.length}`, params, isRecordList: true, rangeFilter: false };
+		const param = `$${params.length}`;
+		const table = await getMatrixTableFromTipo(tipoFilter);
+		return {
+			whereSql: `tipo = ${param} AND ${deletedListPredicate(param, table)}`,
+			params,
+			isRecordList: true,
+			rangeFilter: false,
+		};
 	}
 	// The standalone dd15 list search: conform component clauses to the flat
 	// matrix_time_machine columns (PHP search_tm + the _tm traits). Absent this,
@@ -552,7 +590,7 @@ async function queryTmRows(
 		params: scopeParams,
 		isRecordList,
 		rangeFilter,
-	} = buildTmWhere(await timelineScope(sqo));
+	} = await buildTmWhere(await timelineScope(sqo));
 
 	// Order: dd15's list columns ARE matrix_time_machine's own flat columns, so a
 	// header-click sort maps 1:1 to a real column (PHP search_tm orders over the
@@ -1311,7 +1349,7 @@ export const tmReadSource: SectionReadSource = {
 	async count(sqo: Sqo): Promise<number> {
 		const scope = sqo as Record<string, unknown>;
 		await assertTmWhereInOpenedScope(scope);
-		const where = buildTmWhere(await timelineScope(scope));
+		const where = await buildTmWhere(await timelineScope(scope));
 		return tmCount(where.whereSql, where.params);
 	},
 

@@ -149,6 +149,10 @@ export const USER_ACTIVITY_SECTION_TIPO = 'dd1521';
  * history — a deleted one cannot be recovered, a bulk revert does not touch
  * them. Every TM writer funnels through time_machine.ts `isTmAuditedAddress`.
  * Gate: test/unit/tm_excluded_sections_native.test.ts.
+ * THE SAME SET is the activity log's skip (api/handlers/activity_log.ts
+ * ACTIVITY_EXCLUDED_SECTIONS, keyed on the action's section — PHP
+ * log_message_defer, T2 O16-01): an action on these appends no dd542 row.
+ * Gate: test/unit/activity_log_native.test.ts.
  */
 export const TM_EXCLUDED_SECTIONS: ReadonlySet<string> = new Set([
 	TEMP_PRESET_SECTION_TIPO,
