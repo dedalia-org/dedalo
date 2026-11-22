@@ -27,8 +27,10 @@
  *                       untouched). Signing is out by owner decision D-10.
  *   reversible_admin    writes that can be undone or rebuilt (re-registering the
  *                       release's tools, derived assets, settings, dry runs) —
- *                       the dispatcher's global-admin gate
- *   read                no write — the global-admin gate
+ *                       the dispatcher's maintenance gate (security/permissions.ts
+ *                       canAccessMaintenanceArea: the superuser, or a global admin
+ *                       or developer granted dd88 at level 2 — T2-O15-2)
+ *   read                no write — the same maintenance gate
  *
  * A door that submits a BACKGROUND JOB (`job: true`) cannot keep a lock the
  * request releases on return: the dispatcher checks the rules at submission,
@@ -182,7 +184,7 @@ export const DOOR_CLASSES: Readonly<Record<string, DoorDeclaration>> = Object.fr
 	'legacy_passwords.migrate': {
 		...A,
 		reason:
-			'the same password in the only form the login accepts: written only when the v6 value DECRYPTS with the typed keys and is still the value read, dry unless execute — the global-admin gate (owner 2026-11-19)',
+			'the same password in the only form the login accepts: written only when the v6 value DECRYPTS with the typed keys and is still the value read, dry unless execute — the dispatcher maintenance gate (canAccessMaintenanceArea)',
 	},
 	'build_database_version.build_install_version': A,
 	'build_database_version.build_recovery_version_file': A,
