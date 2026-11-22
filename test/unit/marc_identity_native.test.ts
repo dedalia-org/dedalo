@@ -107,6 +107,7 @@ const NUMERIC_VICTIM_ID = 900324; // the record the purely-numeric identifier us
 const LOOKALIGN_ID = 900325; // carries the accented code a look-alike must NOT match
 const DUP_A_ID = 900326;
 const DUP_B_ID = 900327; // …and its twin: one code, two records
+const SUFFIX_HOLDER_ID = 900331; // carries SUFFIX_STORED_CODE — '<prefix>/<code>', never the code
 
 /** NO record lives here: the id an address from a refused door must not create. */
 const ADDRESS_ABSENT_ID = 900328;
@@ -120,6 +121,7 @@ const SCRATCH_IDS = [
 	LOOKALIGN_ID,
 	DUP_A_ID,
 	DUP_B_ID,
+	SUFFIX_HOLDER_ID,
 ];
 
 /**
@@ -156,6 +158,18 @@ const LOOKALIKE_CODE = 'Nunez-1';
 /** One code carried by TWO existing records: an identifier that names neither. */
 const DUPLICATED_CODE = 'marc-identity-dup-1';
 
+/**
+ * T2-IMP-1 — NOT PORTED: PHP's second `*\/<code>` arm (get_section_id_from_code
+ * :1202, an `$or` beside the exact leaf). A suffix wildcard matches a look-alike
+ * (`X/123` for code `123`), the defect the exact-identity law closed; the arm was
+ * a copy of the Zotero lookup (URL-shaped codes), a MARC control number has no
+ * URL form, and Zotero's own leg was ported as an EXACT match. A stored
+ * `<prefix>/<code>` therefore names NO record for `<code>`.
+ * (WC-2026-11-12-marc21-config-map-and-transforms, addendum 2026-11-22.)
+ */
+const SUFFIX_CODE = 'marc-identity-suffix-1';
+const SUFFIX_STORED_CODE = `https://catalog.test/record/${SUFFIX_CODE}`;
+
 /** An identifier no record carries — the create half of the frozen upsert. */
 const UNMATCHED_CODE = 'ocm-marc-identity-unmatched';
 
@@ -167,6 +181,7 @@ const TITLE_OF: Record<string, string> = {
 	[LOOKALIKE_CODE]: 'The unaccented claim',
 	[DUPLICATED_CODE]: 'The ambiguous claim',
 	[UNMATCHED_CODE]: 'The unmatched claim',
+	[SUFFIX_CODE]: 'The suffix claim',
 };
 
 /** The title each VICTIM record holds before any import — the byte a wrong write destroys. */
@@ -366,6 +381,7 @@ beforeAll(async () => {
 	stageFile('lookalike.mrc', [LOOKALIKE_CODE]);
 	stageFile('duplicated.mrc', [DUPLICATED_CODE]);
 	stageFile('unmatched.mrc', [UNMATCHED_CODE]);
+	stageFile('suffix.mrc', [SUFFIX_CODE]);
 
 	const highWater = (await sql.unsafe(
 		`SELECT COALESCE(MAX(section_id), 0) AS max_id FROM matrix_notes WHERE section_tipo = 'dd800'`,
@@ -382,6 +398,7 @@ beforeAll(async () => {
 	await seedValue(LOOKALIGN_ID, CODE_COMPONENT, STORED_ACCENTED_CODE);
 	await seedValue(DUP_A_ID, CODE_COMPONENT, DUPLICATED_CODE);
 	await seedValue(DUP_B_ID, CODE_COMPONENT, DUPLICATED_CODE);
+	await seedValue(SUFFIX_HOLDER_ID, CODE_COMPONENT, SUFFIX_STORED_CODE);
 	// The two records the truncating pair used to address hold NO code: the whole
 	// point is that nothing links them to those control numbers.
 	expect(await valuesOf(TRUNCATION_VICTIM_ID, CODE_COMPONENT)).toEqual([]);
@@ -394,7 +411,14 @@ afterAll(async () => {
 	// The records the RUNS created are found by the code they carry — their ids
 	// are the engine's, not ours, so they cannot be hard-coded.
 	const created = new Set<number>();
-	for (const code of [TRUNCATING_A, TRUNCATING_B, NUMERIC_CODE, LOOKALIKE_CODE, UNMATCHED_CODE]) {
+	for (const code of [
+		TRUNCATING_A,
+		TRUNCATING_B,
+		NUMERIC_CODE,
+		LOOKALIKE_CODE,
+		UNMATCHED_CODE,
+		SUFFIX_CODE,
+	]) {
 		for (const id of await recordsWithCode(code)) if (!SCRATCH_IDS.includes(id)) created.add(id);
 	}
 	for (const id of [...SCRATCH_IDS, ADDRESS_ABSENT_ID, ADDRESS_CONTROL_ID, ...created]) {
@@ -871,6 +895,24 @@ describe('import_files: an identifier reaches the right record or none', () => {
 		expect(await valuesOf(b[0] as number, TITLE_COMPONENT)).toContain(
 			mustGet(TITLE_OF[TRUNCATING_B], 'b'),
 		);
+	});
+
+	/**
+	 * T2-IMP-1, through the door: a stored `<prefix>/<code>` is NOT the code. The
+	 * run creates its own record; the suffix holder keeps its title and its code.
+	 * (A port of PHP's `*\/<code>` arm would UPDATE it: updated 1, created 0.)
+	 */
+	test('a stored <prefix>/<code> is not matched by <code>: the run creates, the holder is untouched', async () => {
+		expect(await valuesOf(SUFFIX_HOLDER_ID, CODE_COMPONENT)).toEqual([SUFFIX_STORED_CODE]);
+		const report = await runImport('suffix.mrc');
+		expect(report.errors).toEqual([]);
+		expect(report.created).toBe(1);
+		expect(report.updated).toBe(0);
+		expect(await valuesOf(SUFFIX_HOLDER_ID, TITLE_COMPONENT)).toEqual([CURATED_TITLE]);
+		expect(await valuesOf(SUFFIX_HOLDER_ID, CODE_COMPONENT)).toEqual([SUFFIX_STORED_CODE]);
+		const created = await recordsWithCode(SUFFIX_CODE);
+		expect(created).toHaveLength(1);
+		expect(created[0]).not.toBe(SUFFIX_HOLDER_ID);
 	});
 
 	/** The look-alike, through the door: it creates, it does not adopt the accented record. */
