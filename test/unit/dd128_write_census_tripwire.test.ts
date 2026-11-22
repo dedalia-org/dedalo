@@ -513,10 +513,14 @@ const PENDING_COUNT = 0;
  *
  *   - every write-primitive call in the engine lies in the body of a NAMED,
  *     EXPORTED writer (a primitive reached from an unnamed function — a new
- *     writer, or a private helper — is red until it is named);
+ *     writer, or a private helper, a `const x = () =>` included — is red until
+ *     it is named), and the named writers EQUAL the exported declarations that
+ *     reach a primitive TRANSITIVELY (an exported wrapper of a writer, directly
+ *     or through a private helper, is a writer too);
  *   - the files that import a writer (static or dynamic; a namespace / default
- *     / dynamic import counts as importing everything, a type-only import as
- *     importing nothing) must EQUAL the named importers, and every named
+ *     / dynamic import / `export *` counts as importing everything, a type-only
+ *     import as importing nothing, a re-export barrel as an importer) must
+ *     EQUAL the named importers, and every named
  *     importer must itself be a probed `delegates` door.
  *
  * An importer of the engine's read-only planners (dataframe_restore's
@@ -574,47 +578,139 @@ function importersOf(engine: string): { file: string; symbols: ImportedSymbols }
 	const importers: { file: string; symbols: ImportedSymbols }[] = [];
 	for (const file of [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'tools'))]) {
 		if (file === target) continue;
-		const source = readFileSync(file, 'utf8');
-		const symbols: string[] = [];
-		let everything = false;
-		let found = false;
-		for (const match of source.matchAll(
-			/\bimport\s+((?:type\s+)?[^'";]*?)\s+from\s*['"](\.{1,2}\/[^'"]+)['"]/g,
-		)) {
-			if (resolve(dirname(file), match[2] as string) !== target) continue;
-			found = true;
-			const bound = clauseSymbols(match[1] as string);
-			if (bound === '*') everything = true;
-			else symbols.push(...bound);
-		}
-		for (const match of source.matchAll(/\bimport\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
-			if (resolve(dirname(file), match[1] as string) !== target) continue;
-			found = true;
-			everything = true;
-		}
-		if (found) importers.push({ file: relative(ROOT, file), symbols: everything ? '*' : symbols });
+		const symbols = importedFrom(file, readFileSync(file, 'utf8'), target);
+		if (symbols !== null) importers.push({ file: relative(ROOT, file), symbols });
 	}
 	return importers.sort((a, b) => a.file.localeCompare(b.file));
 }
 
+/** What `source` (living at `file`) takes from `target`, or null when it takes nothing. */
+function importedFrom(file: string, source: string, target: string): ImportedSymbols | null {
+	const symbols: string[] = [];
+	let everything = false;
+	let found = false;
+	const bind = (clause: string, specifier: string): void => {
+		if (resolve(dirname(file), specifier) !== target) return;
+		found = true;
+		const bound = clauseSymbols(clause);
+		if (bound === '*') everything = true;
+		else symbols.push(...bound);
+	};
+	for (const match of source.matchAll(
+		/\bimport\s+((?:type\s+)?[^'";]*?)\s+from\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+	)) {
+		bind(match[1] as string, match[2] as string);
+	}
+	// A RE-EXPORT is an import too: a barrel (`export { applyX } from './engine.ts'`,
+	// `export * from …`) hands the writer on, and would hide its own importers.
+	for (const match of source.matchAll(
+		/\bexport\s+((?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[^}]*\}))\s*from\s*['"](\.{1,2}\/[^'"]+)['"]/g,
+	)) {
+		bind(match[1] as string, match[2] as string);
+	}
+	for (const match of source.matchAll(/\bimport\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+		bind('*', match[1] as string);
+	}
+	if (!found) return null;
+	return everything ? '*' : symbols;
+}
+
+/**
+ * `source` with every comment blanked to spaces (offsets kept): a name or a
+ * primitive MENTIONED in a doc comment is neither a call nor a reference.
+ */
+function stripComments(source: string): string {
+	return source
+		.replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
+		.replace(
+			/(^|[^:'"`])\/\/[^\n]*/g,
+			(match, lead: string) => lead + ' '.repeat(match.length - lead.length),
+		);
+}
+
+/** A top-level declaration of an engine: where it starts, its name, whether it is exported. */
+interface TopLevelDeclaration {
+	readonly at: number;
+	readonly name: string;
+	readonly exported: boolean;
+}
+
+/**
+ * Every top-level declaration that can hold code: `function` declarations, a
+ * `const` bound to an arrow / function expression (`export const x = async () =>`),
+ * and a class (its methods are its body). Anything else between two declarations
+ * is read as part of the one before — over-inclusive, which errs toward red.
+ */
+function topLevelDeclarations(source: string): TopLevelDeclaration[] {
+	const shapes = [
+		/^(export\s+)?(?:async\s+)?function\s*\*?\s*(\w+)/gm,
+		/^(export\s+)?(?:const|let)\s+(\w+)\s*(?::[^=\n]+)?=\s*(?:async\s*)?(?:\(|function\b|\w+\s*=>)/gm,
+		/^(export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)/gm,
+	];
+	return shapes
+		.flatMap((shape) =>
+			[...source.matchAll(shape)].map((match) => ({
+				at: match.index ?? 0,
+				name: match[2] as string,
+				exported: !!match[1],
+			})),
+		)
+		.sort((a, b) => a.at - b.at);
+}
+
 /**
  * The top-level function enclosing each write-primitive call of `source` (null
- * when the call sits outside any top-level function), and whether it is exported.
+ * when the call sits outside any top-level declaration), and whether it is exported.
  */
 function primitiveCallSites(source: string): { fn: string | null; exported: boolean }[] {
-	const declarations = [...source.matchAll(/^(export\s+)?(?:async\s+)?function\s+(\w+)/gm)].map(
-		(match) => ({ at: match.index ?? 0, name: match[2] as string, exported: !!match[1] }),
-	);
+	const code = stripComments(source);
+	const declarations = topLevelDeclarations(code);
 	const sites: { fn: string | null; exported: boolean }[] = [];
 	for (const primitive of WRITE_PRIMITIVES) {
-		let at = source.indexOf(primitive);
+		let at = code.indexOf(primitive);
 		while (at !== -1) {
 			const enclosing = declarations.filter((declaration) => declaration.at < at).at(-1);
 			sites.push({ fn: enclosing?.name ?? null, exported: enclosing?.exported ?? false });
-			at = source.indexOf(primitive, at + primitive.length);
+			at = code.indexOf(primitive, at + primitive.length);
 		}
 	}
 	return sites;
+}
+
+/**
+ * The engine's WRITERS, derived TRANSITIVELY: every exported top-level
+ * declaration that reaches a write primitive itself, or references (calls,
+ * wraps, hands on) any declaration of the engine that does — through private
+ * helpers too. An exported "planner" that calls applyDataframeRestore is a
+ * writer, and so are its importers' imports of it.
+ */
+function derivedWriters(source: string): string[] {
+	const code = stripComments(source);
+	const declarations = topLevelDeclarations(code);
+	const bodies = declarations.map((declaration, index) => ({
+		...declaration,
+		body: code.slice(declaration.at, declarations[index + 1]?.at ?? code.length),
+	}));
+	const reaching = new Set(
+		bodies
+			.filter(({ body }) => WRITE_PRIMITIVES.some((primitive) => body.includes(primitive)))
+			.map(({ name }) => name),
+	);
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const { name, body } of bodies) {
+			if (reaching.has(name)) continue;
+			const own = body.replace(new RegExp(`\\b${name}\\b`, 'g'), '');
+			if ([...reaching].some((writer) => new RegExp(`\\b${writer}\\b`).test(own))) {
+				reaching.add(name);
+				grew = true;
+			}
+		}
+	}
+	return bodies
+		.filter(({ name, exported }) => exported && reaching.has(name))
+		.map(({ name }) => name)
+		.sort();
 }
 
 function walk(dir: string, acc: string[] = []): string[] {
@@ -719,7 +815,8 @@ describe('the verdicts are true of the source, not just of the table', () => {
 				verdict: 'delegates',
 			});
 			// THE WRITERS ARE DERIVED: every primitive call lies in a named, exported writer.
-			const sites = primitiveCallSites(readFileSync(join(ROOT, engine), 'utf8'));
+			const engineSource = readFileSync(join(ROOT, engine), 'utf8');
+			const sites = primitiveCallSites(engineSource);
 			// FLOOR: the engine really writes (a broken scan would pass on []).
 			expect(sites.length, `${engine}: no write-primitive call found`).toBeGreaterThan(0);
 			for (const site of sites) {
@@ -728,6 +825,11 @@ describe('the verdicts are true of the source, not just of the table', () => {
 					`${engine}: a write primitive is reached from '${site.fn ?? '(top level)'}', which is not a NAMED, EXPORTED writer`,
 				).toEqual({ engine, fn: site.fn, exported: true, named: true });
 			}
+			// …and TRANSITIVELY: an exported function wrapping a writer is a writer too.
+			expect({ engine, writers: derivedWriters(engineSource) }).toEqual({
+				engine,
+				writers: [...writers].sort(),
+			});
 			const derivedImporters = importersOf(engine);
 			// FLOOR: the scan really resolved an import (a broken regex would pass on []).
 			expect(derivedImporters.length, `${engine}: no importer found at all`).toBeGreaterThan(0);
@@ -768,6 +870,44 @@ describe('the verdicts are true of the source, not just of the table', () => {
 		expect(primitiveCallSites('async function helper() { await persistRecordKeys(a); }\n')).toEqual(
 			[{ fn: 'helper', exported: false }],
 		);
+		// An ARROW-CONST writer after a named one is its own declaration, not the named
+		// writer's body (exported or not), and a primitive in a comment is no call.
+		const arrows = [
+			'export async function applyX() { await persistRecordKeys(a); }',
+			'export const sneaky = async () => persistRecordKeys(b);',
+			'const hidden = function () { return persistRecordKeys(c); };',
+			'// persistRecordKeys(d) in a comment',
+		].join('\n');
+		expect(primitiveCallSites(arrows)).toEqual([
+			{ fn: 'applyX', exported: true },
+			{ fn: 'sneaky', exported: true },
+			{ fn: 'hidden', exported: false },
+		]);
+		// A wrapping planner — directly or through a private helper — is a WRITER;
+		// a name mentioned in a doc comment is not a reference.
+		const wrappers = [
+			'export async function applyX() { await persistRecordKeys(a); }',
+			'function relay() { return applyX(); }',
+			'/** never calls applyX */',
+			'export function planOnly() { return 1; }',
+			'export const planner = async () => relay();',
+		].join('\n');
+		expect(derivedWriters(wrappers)).toEqual(['applyX', 'planner']);
+	});
+
+	test('positive control: a re-export barrel is SEEN as an importer of what it hands on', () => {
+		const target = join(ROOT, 'tools/tool_time_machine/server/dataframe_restore.ts');
+		const barrel = join(ROOT, 'src/core/zz_barrel.ts');
+		const specifier = '../../tools/tool_time_machine/server/dataframe_restore.ts';
+		expect(
+			importedFrom(barrel, `export { applyDataframeRestore } from '${specifier}';\n`, target),
+		).toEqual(['applyDataframeRestore']);
+		expect(importedFrom(barrel, `export * from '${specifier}';\n`, target)).toBe('*');
+		expect(importedFrom(barrel, `export * as engine from '${specifier}';\n`, target)).toBe('*');
+		expect(
+			importedFrom(barrel, `export type { FrameSlice } from '${specifier}';\n`, target),
+		).toEqual([]);
+		expect(importedFrom(barrel, `export { x } from './elsewhere.ts';\n`, target)).toBeNull();
 	});
 
 	test("every 'PENDING' door really does NOT — so a fix cannot land silently", () => {
