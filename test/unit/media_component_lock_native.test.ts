@@ -753,10 +753,7 @@ const langTarget = (sectionId: number, lang: string, component = 'test94'): JobT
 /** Steal the lock at `path` for a far, live owner (another instance reclaimed it). */
 function stealLock(path: string, token = 'thief'): void {
 	rmSync(path);
-	writeFileSync(
-		path,
-		JSON.stringify({ key: 'stolen', started_at: Date.now(), ...FAR, token }),
-	);
+	writeFileSync(path, JSON.stringify({ key: 'stolen', started_at: Date.now(), ...FAR, token }));
 	writeFileSync(heartbeatPath(path, token), JSON.stringify({ beat: 0, holder: 'x' }));
 }
 
@@ -1002,12 +999,17 @@ describe('the holder', () => {
 	});
 
 	test('a deadline keeps the component until the worker SETTLES (L4)', async () => {
-		const a = manager('inst-a', { deadlineMs: 20 });
+		// A deadline no real timer reaches in this test: the gate FIRES it
+		// (deadlineNow), never races a short wall-clock budget.
+		const a = manager('inst-a', { deadlineMs: 600_000 });
 		const b = manager('inst-b');
 		const job = liveJob(a, target(24));
 		const errors = spyOn(console, 'error').mockImplementation(() => {});
 		try {
-			expect(await settled(a, job.id)).toBe('stopped'); // the deadline fired
+			await running(a, job.id);
+			expect(a.deadlineNow(job.id)).toBe(true);
+			expect(a.status(job.id)?.status).toBe('stopped'); // the deadline fired
+			expect(a.deadlineNow(job.id)).toBe(false); // once
 			expect(b.claimTarget(target(24))).toBeNull(); // the worker still runs
 			expect(a.isOccupied(target(24))).toBe(true);
 			job.finish();

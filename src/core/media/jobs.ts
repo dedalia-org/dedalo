@@ -987,6 +987,8 @@ export class MediaJobManager {
 	private readonly clock: () => number;
 	/** Armed deadline timers by job id — cleared on every settle. */
 	private readonly deadlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	/** Armed deadline EXPIRIES by job id — the timer's body, also the gates' deterministic tick (deadlineNow). */
+	private readonly deadlineExpiries = new Map<string, () => void>();
 	/** Submit-site terminal callbacks by job id (JobSubmitMeta.onTerminal) — fired once, then dropped. */
 	private readonly terminalCallbacks = new Map<string, (record: JobRecord) => void>();
 	/**
@@ -1868,7 +1870,8 @@ export class MediaJobManager {
 	 */
 	private armDeadline(record: JobRecord, controller: AbortController): void {
 		if (record.deadline_ms <= 0) return;
-		const timer = setTimeout(() => {
+		const expire = (): void => {
+			clearTimeout(this.deadlineTimers.get(record.id));
 			this.deadlineTimers.delete(record.id);
 			if (!isLiveStatus(record.status)) return;
 			incrementCounter('job_deadline_fired');
@@ -1889,13 +1892,28 @@ export class MediaJobManager {
 			}, JOB_DEADLINE_SETTLE_GRACE_MS);
 			unrefTimer(grace);
 			this.deadlineTimers.set(`${record.id}::grace`, grace);
-		}, record.deadline_ms);
+		};
+		const timer = setTimeout(expire, record.deadline_ms);
 		unrefTimer(timer);
 		this.deadlineTimers.set(record.id, timer);
+		this.deadlineExpiries.set(record.id, expire);
+	}
+
+	/**
+	 * Fire a job's ARMED deadline now — public as the gates' deterministic tick
+	 * (like heartbeatNow): a gate drives the expiry instead of racing a short
+	 * real timer. False when no deadline is armed (none, already fired, settled).
+	 */
+	deadlineNow(jobId: string): boolean {
+		const expire = this.deadlineExpiries.get(jobId);
+		if (expire === undefined) return false;
+		expire();
+		return true;
 	}
 
 	/** Disarm a job's deadline (and its held-lane grace) — called on every settle. */
 	private clearDeadline(id: string): void {
+		this.deadlineExpiries.delete(id);
 		for (const key of [id, `${id}::grace`]) {
 			const timer = this.deadlineTimers.get(key);
 			if (timer !== undefined) {

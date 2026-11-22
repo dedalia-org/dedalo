@@ -214,3 +214,13 @@
   logged). Gate: `test/unit/bulk_revert_undo_native.test.ts` (+5: standalone
   refused then back; re-linked refused then back; av files back under the same
   hold, hard and soft; a file that could not move reported).
+- **Addendum 2026-11-22 (second review F7/F8, the panel; L4 gate):** a build
+  gear asks the server once per press — a keydown auto-repeat (`e.repeat`) and
+  any click or key press while that gear's request is still out are ignored
+  (an in-flight flag cleared when the answer arrives). The gear's accessible
+  NAME is its action (`aria-label` = the idle title) at all times; a greyed
+  gear's reason is its DESCRIPTION only (`aria-describedby`), so it is not
+  announced twice. Client-only, no wire change. Gates: client suite
+  `test_tool_media_versions` (+3). The L4 deadline gate now fires the deadline
+  through `MediaJobManager.deadlineNow(jobId)` (the deterministic tick, like
+  `heartbeatNow`) instead of racing a 20 ms real timer.

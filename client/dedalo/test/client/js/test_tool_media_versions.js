@@ -297,4 +297,64 @@ describe('TOOL_MEDIA_VERSIONS: the busy state is immediate, per lang and accessi
 	})
 })
 
+describe('TOOL_MEDIA_VERSIONS: one build per press, named once (A1-01 second review F7/F8)', function() {
+
+	const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+	/** A panel whose build request stays OUT until `answer()` is called. */
+	const pending_panel = function() {
+		const {self, calls} = stub_panel([])
+		let answer = () => {}
+		self.build_version = () => {
+			calls.build++
+			return new Promise(resolve => {
+				answer = () => resolve({ok: false, error: {code: 'media.build_running'}})
+			})
+		}
+		self.build_version_answer = () => answer()
+		return {self, calls}
+	}
+
+	it('a held key (keydown auto-repeat) builds once', async function() {
+		const {self, calls} = stub_panel([])
+		const gear = gear_of(render_build_version('1080', self))
+		gear.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', repeat: true, bubbles: true}))
+		gear.dispatchEvent(new KeyboardEvent('keydown', {key: ' ', repeat: true, bubbles: true}))
+		await tick()
+		assert.equal(calls.build, 0, 'expected an auto-repeated keydown to ask nothing')
+		gear.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await tick()
+		assert.equal(calls.build, 1, 'expected the press itself to build')
+	})
+
+	it('a second click or key press while the request is out asks nothing; once answered, the gear works again', async function() {
+		const {self, calls} = pending_panel()
+		const gear = gear_of(render_build_version('1080', self))
+		gear.click()
+		gear.click()
+		gear.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await tick()
+		assert.equal(calls.build, 1, 'expected ONE request while it is out')
+		self.build_version_answer()
+		await tick()
+		await tick()
+		gear.click()
+		await tick()
+		assert.equal(calls.build, 2, 'expected the gear to work again after the answer')
+		self.build_version_answer()
+	})
+
+	it('the gear is NAMED by its action; a greyed gear\'s reason is its description only', function() {
+		const free = gear_of(render_build_version('1080', stub_panel([]).self))
+		const name = free.getAttribute('aria-label')
+		assert.ok(name && name.includes('1080'), `expected the action as the name, got: ${name}`)
+		const greyed = gear_of(render_build_version('1080', stub_panel([live_job()]).self))
+		assert.equal(greyed.getAttribute('aria-label'), name, 'expected the same action name while greyed')
+		assert.equal(greyed.getAttribute('aria-label').includes('LABEL component_busy'), false, 'expected the reason NOT in the name')
+		const id = greyed.getAttribute('aria-describedby')
+		assert.ok(id, 'expected the reason as the description')
+		assert.ok(greyed.parentNode.querySelector('#' + id).textContent.startsWith('LABEL component_busy'), 'expected the reason text')
+	})
+})
+
 // @license-end

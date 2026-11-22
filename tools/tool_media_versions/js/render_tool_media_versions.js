@@ -1813,13 +1813,20 @@ export const render_build_version = function(quality, self) {
 			parent			: file_info_node
 		})
 		// A control, not a picture: reachable and operable from the keyboard
-		// (Enter / Space, below), announced as a button.
+		// (Enter / Space, below), announced as a button. Its NAME is the action
+		// (aria-label), always; a greyed gear's reason is its DESCRIPTION only
+		// (aria-describedby, grey_gear) — the title alone would make the reason
+		// the name and a screen reader would announce it twice.
 		button_build_version.setAttribute('role', 'button')
 		button_build_version.setAttribute('tabindex', '0')
+		button_build_version.setAttribute('aria-label', idle_title)
 		button_build_version.dataset.idle_title = idle_title
 		if (component_job) {
 			grey_gear(button_build_version, component_busy_reason(self, component_job.label))
 		}
+		// ONE request per press: a second click, or a held key's auto-repeat,
+		// while this gear's request is still out asks the server nothing.
+		let in_flight = false
 		const fn_click = async function (e) {
 			e.stopPropagation()
 
@@ -1827,6 +1834,17 @@ export const render_build_version = function(quality, self) {
 			if (button_build_version.classList.contains('component_busy')) {
 				return
 			}
+			if (in_flight) {
+				return
+			}
+			in_flight = true
+			try {
+				await run_build()
+			} finally {
+				in_flight = false
+			}
+		}
+		const run_build = async function () {
 
 			self.node.classList.add('loading')
 
@@ -2035,6 +2053,10 @@ export const render_build_version = function(quality, self) {
 		button_build_version.addEventListener('keydown', function(e) {
 			if (e.key==='Enter' || e.key===' ') {
 				e.preventDefault()
+				// a held key repeats keydown: one build per press
+				if (e.repeat) {
+					return
+				}
 				fn_click(e)
 			}
 		})
