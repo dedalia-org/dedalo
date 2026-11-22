@@ -20,9 +20,9 @@ fixed language) instead of the one the user had chosen in the menu:
   page was shown in another one;
 - a search-panel filter field declared by a portal was prepared in Spanish
   whatever the data language;
-- for the assistant tools (MCP), an omitted language was English: section
-  descriptions now default to the interface language, and record reads and
-  searches to the data language.
+- for the assistant tools (MCP), an omitted language was English: section lists,
+  section descriptions, record reads and searches now default to the data
+  language.
 
 When a value is missing in the chosen language, the thesaurus term and the
 indexation grid now fall back to the installation's main data language

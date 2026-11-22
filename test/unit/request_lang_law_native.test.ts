@@ -17,8 +17,9 @@
  *     DEDALO_APPLICATION_LANG — a per-request constant).
  *   - login context: the login ddo's `lang` is the request application lang
  *     (the pre-auth cookie seeds the scope), as its labels already were.
- *   - MCP: describe_section labels default to the request application lang,
- *     read_record / search_section default to the request data lang (were
+ *   - MCP: list_sections / describe_section labels, read_record and
+ *     search_section default to the request DATA lang (owner ruling
+ *     2026-11-22; were
  *     literal lg-eng); buildLlmMap resolves link targets in the request data
  *     lang (was the install DATA_LANG).
  *
@@ -29,7 +30,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { describeSection } from '../../src/ai/mcp/tools/discovery.ts';
+import { describeSection, listSections } from '../../src/ai/mcp/tools/discovery.ts';
 import { buildLlmMap } from '../../src/ai/mcp/tools/llm_map.ts';
 import { readSectionRecord, searchSectionRecords } from '../../src/ai/mcp/tools/records_read.ts';
 import { buildLoginContext } from '../../src/core/api/handlers/login_context.ts';
@@ -193,11 +194,32 @@ describe('login context — the ddo lang is the request application lang', () =>
 });
 
 describe('MCP — an omitted lang is the request lang, never a literal', () => {
-	test('describe_section: field labels in the request application lang', async () => {
-		for (const lang of LANES) {
-			const described = await inLang(lang, () => describeSection(SUPERUSER, { section: SECTION }));
+	// The application lang is set to the OTHER lane, so a default that follows
+	// the interface language reds here (owner ruling 2026-11-22: data lang).
+	test('describe_section: field labels in the request DATA lang, not the interface one', async () => {
+		for (const [dataLang, appLang] of [
+			[ENG, SPA],
+			[SPA, ENG],
+		] as const) {
+			const described = await runWithRequestLangs({ applicationLang: appLang, dataLang }, () =>
+				describeSection(SUPERUSER, { section: SECTION }),
+			);
 			const field = described.fields.find((item) => item.tipo === TEXT);
-			expect(field?.label, lang).toBe(await termByTipo(TEXT, lang));
+			expect(field?.label, dataLang).toBe(await termByTipo(TEXT, dataLang));
+			expect(described.label, dataLang).toBe(await termByTipo(SECTION, dataLang));
+		}
+	});
+
+	test('list_sections: section labels in the request DATA lang, not the interface one', async () => {
+		for (const [dataLang, appLang] of [
+			[ENG, SPA],
+			[SPA, ENG],
+		] as const) {
+			const listed = await runWithRequestLangs({ applicationLang: appLang, dataLang }, () =>
+				listSections(SUPERUSER, {}),
+			);
+			const entry = listed.sections.find((item) => item.tipo === SECTION);
+			expect(entry?.label, dataLang).toBe(await termByTipo(SECTION, dataLang));
 		}
 	});
 

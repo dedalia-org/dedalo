@@ -30,7 +30,7 @@ import {
 	extractSqoSectionTipos,
 	type RequestConfigContext,
 } from '../../../core/relations/request_config/explicit.ts';
-import { currentApplicationLang, currentDataLang } from '../../../core/resolve/request_lang.ts';
+import { currentDataLang } from '../../../core/resolve/request_lang.ts';
 import { assertValidTipo } from '../../../core/search/identifier_gate.ts';
 import type { Principal } from '../../../core/security/permissions.ts';
 import {
@@ -145,7 +145,9 @@ export async function listSections(
 		sections.push({
 			tipo: node.tipo,
 			label:
-				input.lang !== undefined ? resolveLabel(node.term, input.lang) : resolveLabel(node.term),
+				// An omitted lang is the REQUEST DATA lang (owner ruling 2026-11-22:
+				// the work-system MCP speaks the data language), never the interface one.
+				resolveLabel(node.term, input.lang ?? currentDataLang()),
 		});
 	}
 	return { sections };
@@ -279,9 +281,10 @@ export async function describeSection(
 			publicMessage: `No section matches '${input.section}'.`,
 		});
 	}
-	// An omitted lang is the REQUEST application lang (the request-language law,
-	// T2 B10) — never a literal.
-	const lang = input.lang ?? currentApplicationLang();
+	// An omitted lang is the REQUEST DATA lang (the request-language law, T2
+	// B10; owner ruling 2026-11-22: the work-system MCP speaks the data
+	// language) — never a literal, never the interface language.
+	const lang = input.lang ?? currentDataLang();
 	const fields: SectionMapField[] = [];
 	for (const node of await sectionFieldNodes(sectionTipo)) {
 		const model = node.model as string;
@@ -410,7 +413,7 @@ export const DISCOVERY_SPECS: ToolSpec[] = [
 			lang: z
 				.string()
 				.optional()
-				.describe('Label language, e.g. "lg-eng" or "lg-spa" (default: the interface language).'),
+				.describe('Label language, e.g. "lg-eng" or "lg-spa" (default: the data language).'),
 		},
 		handler: listSections,
 	}),
@@ -429,7 +432,7 @@ export const DISCOVERY_SPECS: ToolSpec[] = [
 			section: z
 				.string()
 				.describe('Section tipo (e.g. "rsc197") or human name (e.g. "People", "Personas").'),
-			lang: z.string().optional().describe('Label language (default: the interface language).'),
+			lang: z.string().optional().describe('Label language (default: the data language).'),
 		},
 		handler: describeSection,
 	}),
