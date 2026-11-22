@@ -388,6 +388,23 @@ export function isInstalledDataLang(lang: string): boolean {
 	return INSTALLED_DATA_LANGS.has(lang);
 }
 
+/**
+ * REFUSE a data language this installation does not declare — THE membership
+ * rule for a data language a CALLER names (review MED-3): `change_lang`'s
+ * `dedalo_data_lang` (a session data language no read reaches is refused at the
+ * door that stores it) and tool_identify's `cluster` `lang` (named or the
+ * request's own) both call it, so the two can never disagree. Answers `lang`.
+ * `field` names the option in the public sentence.
+ */
+export function assertInstalledDataLang(lang: string, field: string): string {
+	if (isInstalledDataLang(lang)) return lang;
+	throw new DedaloError('request.invalid_options', {
+		message: `${field} '${lang}' is not a data language this installation declares`,
+		publicMessage: `${field} '${lang}' is not a data language of this installation`,
+		coordinates: { lang },
+	});
+}
+
 /** The declared data languages, for a caller that must SHOW the operator the set. */
 export function installedDataLangs(): readonly string[] {
 	return [...INSTALLED_DATA_LANGS];

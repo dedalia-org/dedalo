@@ -43,7 +43,7 @@ This tool declares **one** API action of its own:
 
 | `apiActions` | Permission | Value |
 | --- | --- | --- |
-| `cluster` | `section_list`, minLevel 1 on every target section | Group a pool of records (`{section_tipo, sqo?, records?, cap, min_cluster_size, lang?, …}`). READ level, because clustering only reads — the write half is the ordinary component save from the client. Also `backgroundRunnable`. `lang` is the data language the criteria are compared in: omitted, the request's data language; sent, it must be a language code AND one of the installation's data languages (`DEDALO_PROJECTS_DEFAULT_LANGS`, `DEDALO_DATA_LANG_DEFAULT`, their equivalences, `lg-nolan`), or the run is refused with `request.invalid_options` before anything is read. |
+| `cluster` | `section_list`, minLevel 1 on every target section | Group a pool of records (`{section_tipo, sqo?, records?, cap, min_cluster_size, lang?, …}`). READ level, because clustering only reads — the write half is the ordinary component save from the client. Also `backgroundRunnable`. `lang` is the data language the criteria are compared in: omitted, the request's data language; sent, it must be a language code. Either way it must be one of the installation's data languages (`DEDALO_PROJECTS_DEFAULT_LANGS`, `DEDALO_DATA_LANG_DEFAULT`, their equivalences, `lg-nolan`) — the same rule `change_lang` applies to the session's data language — or the run is refused with `request.invalid_options` before anything is read. |
 
 It calls the engine's own class directly, through `data_manager.request` (`use_worker: false`, `prevent_lock: true`):
 

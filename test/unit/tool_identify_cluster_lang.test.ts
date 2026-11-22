@@ -25,6 +25,7 @@ import { afterAll, describe, expect, mock, test } from 'bun:test';
 import * as cluster from '../../src/ai/identify/cluster.ts';
 import { isValidLang } from '../../src/core/concepts/ontology.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { installedDataLangs } from '../../src/core/section/record/save_component.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
@@ -125,6 +126,20 @@ describe('tool_identify::cluster — a client lang is validated before anything 
 			runCluster({ section_tipo: 'test3', lang: DECLARED }),
 		);
 		expect(seen).toHaveLength(1);
+	});
+
+	test('MED-3: ONE rule — an omitted lang is held to the same membership (an undeclared scope data lang refuses)', async () => {
+		seen.length = 0;
+		const thrown = await runWithRequestLangs(
+			{ applicationLang: 'lg-spa', dataLang: 'lg-zzzq' },
+			() => callCluster({ section_tipo: 'test3' }),
+		);
+		expect(thrown).toBeInstanceOf(DedaloError);
+		expect((thrown as DedaloError).code).toBe('request.invalid_options');
+		expect((thrown as DedaloError).publicMessage).toBe(
+			"lang 'lg-zzzq' is not a data language of this installation",
+		);
+		expect(seen).toEqual([]);
 	});
 
 	test('well-formed but not a declared data language → refused, the clusterer never called', async () => {

@@ -8,6 +8,10 @@ import { readString } from '../../../config/readers.ts';
 import { isValidTipo } from '../../concepts/ontology.ts';
 import { DedaloError, isDedaloError, ok } from '../../errors/index.ts';
 import { publicOrigin, publicOriginIsLocal } from '../../resolve/public_origin.ts';
+import {
+	assertInstalledDataLang,
+	isInstalledDataLang,
+} from '../../section/record/save_component.ts';
 import { login } from '../../security/auth.ts';
 import { getPermissions } from '../../security/permissions.ts';
 import { isLoopbackHost } from '../../security/ssrf_guard.ts';
@@ -192,6 +196,29 @@ async function joinedThumbnailUrl(
 	if (!joined.tmpName) return null;
 	const { createStagedThumbnail } = await import('../../media/ingest/staged_thumbnail.ts');
 	return createStagedThumbnail(userId, keyDir, joined.tmpName, joined.extension ?? null);
+}
+
+/**
+ * DEDALO_DATA_LANG_SYNC (PHP change_lang): when the install couples the two
+ * languages, a change to either drives the other — but the DATA language follows
+ * the interface language ONLY when that language is a declared data language
+ * (review MED-3): an install may offer an interface in a language it does not
+ * catalogue in, and copying it would store a session data language no read
+ * reaches. Otherwise the data language is left as requested (unchanged when none
+ * was). A requested data language is already declared (checked before this).
+ * Gate: test/unit/change_lang_sync_native.test.ts.
+ */
+function syncChangedLangs(
+	requested: { applicationLang: string | undefined; dataLang: string | undefined },
+	sync: boolean,
+): { applicationLang: string | undefined; dataLang: string | undefined } {
+	if (!sync) return requested;
+	const { applicationLang, dataLang } = requested;
+	if (applicationLang === undefined) return { applicationLang: dataLang, dataLang };
+	return {
+		applicationLang,
+		dataLang: isInstalledDataLang(applicationLang) ? applicationLang : dataLang,
+	};
 }
 
 export const utilsApiActions: Record<string, ActionHandler> = {
@@ -550,15 +577,18 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 			const trimmed = raw.trim();
 			return isValidLang(trimmed) ? trimmed : undefined;
 		};
-		let applicationLang = readLang(options.dedalo_application_lang);
-		let dataLang = readLang(options.dedalo_data_lang);
-		// DEDALO_DATA_LANG_SYNC (PHP change_lang): when the install couples the
-		// two languages, a change to either drives the other. Off on this
-		// install (page_globals.dedalo_data_lang_sync=false); replicated for parity.
-		if (config.menu.dataLangSync === true) {
-			if (applicationLang !== undefined) dataLang = applicationLang;
-			else if (dataLang !== undefined) applicationLang = dataLang;
+		const requestedDataLang = readLang(options.dedalo_data_lang);
+		// A DATA language must be one this installation declares (review MED-3):
+		// stored, it becomes every later request's read/write language, and a code
+		// outside the declared set is a slice no read resolves. Refused before
+		// anything is stored — the ONE membership rule (save_component.ts).
+		if (requestedDataLang !== undefined) {
+			assertInstalledDataLang(requestedDataLang, 'dedalo_data_lang');
 		}
+		const { applicationLang, dataLang } = syncChangedLangs(
+			{ applicationLang: readLang(options.dedalo_application_lang), dataLang: requestedDataLang },
+			config.menu.dataLangSync === true,
+		);
 		if (applicationLang === undefined && dataLang === undefined) {
 			throw new DedaloError('request.invalid_options', {
 				publicMessage: 'No valid language supplied',

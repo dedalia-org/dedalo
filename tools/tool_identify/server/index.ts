@@ -48,7 +48,7 @@ import { isValidLang } from '../../../src/core/concepts/ontology.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { DEFAULT_CLUSTER_POOL_CAP } from '../../../src/core/identify/record_pool.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
-import { isInstalledDataLang } from '../../../src/core/section/record/save_component.ts';
+import { assertInstalledDataLang } from '../../../src/core/section/record/save_component.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -232,13 +232,18 @@ async function cluster(ctx: ToolActionContext): Promise<ToolResponse> {
  * is VALIDATED before anything runs (owner ruling 2026-11-22, R2): the lang
  * grammar first (`isValidLang`, the identifier gate's own check), then
  * membership in the data languages this installation declares
- * (`isInstalledDataLang` — the read-reachable set, src/config/data_langs.ts,
+ * (`assertInstalledDataLang` — the read-reachable set, src/config/data_langs.ts,
  * the same one the write chokepoint admits). Either failure refuses as
- * `request.invalid_options` and the clusterer is never called. Exported for
- * its gate: test/unit/tool_identify_cluster_lang.test.ts.
+ * `request.invalid_options` and the clusterer is never called.
+ *
+ * ONE RULE (review MED-3): the membership check also holds an OMITTED lang —
+ * the request's data lang is held to the same set (change_lang now refuses to
+ * store an undeclared one, so a session's own lang passes; a stale or seeded
+ * one does not run silently against empty slices). Exported for its gate:
+ * test/unit/tool_identify_cluster_lang.test.ts.
  */
 export function clusterLang(raw: unknown): string {
-	if (raw === undefined || raw === null) return currentDataLang();
+	if (raw === undefined || raw === null) return assertInstalledDataLang(currentDataLang(), 'lang');
 	if (typeof raw !== 'string' || !isValidLang(raw)) {
 		throw new DedaloError('request.invalid_options', {
 			message: `cluster: malformed lang ${JSON.stringify(raw)}`,
@@ -246,14 +251,7 @@ export function clusterLang(raw: unknown): string {
 			coordinates: { lang: String(raw) },
 		});
 	}
-	if (!isInstalledDataLang(raw)) {
-		throw new DedaloError('request.invalid_options', {
-			message: `cluster: lang '${raw}' is not a data language this installation declares`,
-			publicMessage: `lang '${raw}' is not a data language of this installation`,
-			coordinates: { lang: raw },
-		});
-	}
-	return raw;
+	return assertInstalledDataLang(raw, 'lang');
 }
 
 export const tool: ToolServerModule = {

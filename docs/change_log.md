@@ -606,6 +606,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-media-icons-tc`.
 
+- **Choosing a data language the installation does not have is refused.**
+
+    The data-language selector stored any language code it was sent, so a session could
+    end up editing and reading in a language the installation does not catalogue in —
+    values written there were reached by no other view, and the identification tool's
+    grouping run refused it. Now a data language that is not one of the installation's
+    data languages is refused and nothing is stored. When the installation couples the
+    two languages (`DEDALO_DATA_LANG_SYNC`), changing the interface language changes the
+    data language only if that language is also a data language; otherwise the data
+    language stays as it was. The identification tool's grouping run applies the same
+    rule to the language it is given or, when none is given, to the session's. See
+    [Internationalization](./development/internationalization.md).
+
+    Wire contract: `WC-2026-11-22-change-lang-declared-data-lang`.
+
 - **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**
 
     The fragment shown for each indexation pointed its images at the application's address, which
@@ -2832,7 +2847,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 116 entries"
+??? note "Wire contract — 117 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2933,6 +2948,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
     - `WC-2026-11-22-areas-deny-subtree`
+    - `WC-2026-11-22-change-lang-declared-data-lang`
     - `WC-2026-11-22-diffusion-dataframe-hop`
     - `WC-2026-11-22-diffusion-ddo-empty-value`
     - `WC-2026-11-22-diffusion-excluded-elements`

@@ -20,6 +20,9 @@ import {
 
 let token: string;
 
+/** Grammar-valid, and not a data language of the suite installation (floored in the test). */
+const UNDECLARED_DATA_LANG = 'lg-zzzq';
+
 beforeEach(() => {
 	// A real superuser session (userId -1). createSession returns the raw cookie
 	// token; the request context needs both the resolved session and that token.
@@ -103,6 +106,40 @@ describe('change_lang action', () => {
 		expect(result.body.ok).toBe(false);
 		expect((result.body.error as { code: string }).code).toBe('request.invalid_options');
 		expect(getSession(token)?.dataLang).toBeNull();
+	});
+
+	test('MED-3: refuses a data language this installation does not declare — session unchanged', async () => {
+		const { isValidLang } = await import('../../src/core/concepts/ontology.ts');
+		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');
+		// FLOOR: the probe is grammar-valid (only MEMBERSHIP can refuse it) and undeclared.
+		expect(isValidLang(UNDECLARED_DATA_LANG)).toBe(true);
+		expect(installedDataLangs()).not.toContain(UNDECLARED_DATA_LANG);
+		for (const options of [
+			{ dedalo_data_lang: UNDECLARED_DATA_LANG },
+			{ dedalo_application_lang: 'lg-cat', dedalo_data_lang: UNDECLARED_DATA_LANG },
+		]) {
+			const result = await dispatchRqo(
+				{ dd_api: 'dd_utils_api', action: 'change_lang', options } as Rqo,
+				contextFor(token),
+			);
+			const label = JSON.stringify(options);
+			expect(result.body.ok, label).toBe(false);
+			expect((result.body.error as { code: string }).code, label).toBe('request.invalid_options');
+			// Nothing stored — neither half of a mixed request, nor the cookie.
+			expect(getSession(token)?.dataLang, label).toBeNull();
+			expect(getSession(token)?.applicationLang, label).toBeNull();
+			expect(result.setPreauthLangCookie, label).toBeUndefined();
+		}
+		// FLOOR: the same door DOES store a declared data language.
+		await dispatchRqo(
+			{
+				dd_api: 'dd_utils_api',
+				action: 'change_lang',
+				options: { dedalo_data_lang: 'lg-eng' },
+			} as Rqo,
+			contextFor(token),
+		);
+		expect(getSession(token)?.dataLang).toBe('lg-eng');
 	});
 
 	test('a session with no override falls back to the install default', async () => {
