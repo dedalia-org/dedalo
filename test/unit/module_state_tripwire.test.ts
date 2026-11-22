@@ -1488,14 +1488,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 		],
 		// ── NO SESSION EXISTS AT THE POINT OF READ ───────────────────────────
 		[
-			'src/core/api/handlers/login_context.ts',
-			{
-				count: 1,
-				reason:
-					'The LOGIN page ddo is built before any session exists; the pre-auth cookie is handled in dispatch, and the install default is the only remaining answer.',
-			},
-		],
-		[
 			'src/ai/rag/embed_source.ts',
 			{
 				count: 1,
@@ -1517,14 +1509,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 				count: 1,
 				reason:
 					'The reconcile scheduler OPENS its own scope around every scheduled run (D5): no principal, no session, request id `reconcile:<name>` — a timer must not inherit the scope it was armed in. The run is install-wide hygiene, so the install application lang is the deliberate value; the data lang it pairs with is config.lang.dataLangDefault, the read chain’s first candidate (what currentDataLang() answers outside any scope).',
-			},
-		],
-		[
-			'src/ai/mcp/tools/llm_map.ts',
-			{
-				count: 1,
-				reason:
-					'Builds the install-wide ontology map served to every agent — one artifact for all callers, not a per-request view, and it writes nothing.',
 			},
 		],
 		[
@@ -1550,13 +1534,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 				count: 1,
 				reason:
 					'The thesaurus CENSUS labels of hierarchy.json (buildHierarchyManifest) — an install-wide export file, the ontology.json twin; name_data/scope_note_data carry every lang item, the pick is only the human label. Nothing is written to storage.',
-			},
-		],
-		[
-			'src/core/section/record/create_record.ts',
-			{
-				count: 1,
-				reason: "The section LABEL written into the new record's audit text, not a data value.",
 			},
 		],
 		[
@@ -1603,9 +1580,11 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 	 * the data half of the ALS accessor (currentDataLang() now falls back to
 	 * config.lang.dataLangDefault, which is not a config.menu read). 22 → 21
 	 * (T2-OX7-1a): tool_propagate_component_data's report label reads the
-	 * request's currentApplicationLang().
+	 * request's currentApplicationLang(). 21 → 18 (T2 B10): create_record's
+	 * label, the login context lang and the LLM map's link-target lang read the
+	 * request scope.
 	 */
-	const CENSUS_TOTAL = 21;
+	const CENSUS_TOTAL = 18;
 
 	const LANG_READ = /config\.menu\.(?:dataLang|applicationLang)\b/;
 

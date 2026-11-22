@@ -15,6 +15,7 @@
 import { config } from '../../../config/config.ts';
 import { sql } from '../../db/postgres.ts';
 import { getModelByTipo } from '../../ontology/resolver.ts';
+import { currentApplicationLang } from '../../resolve/request_lang.ts';
 import { contextLabelOf } from '../../resolve/structure_context.ts';
 import { DEDALO_BUILD, DEDALO_ENGINE_VERSION } from '../../update/build_stamp.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../../update/version.ts';
@@ -64,7 +65,10 @@ export async function buildLoginContext(): Promise<Record<string, unknown>> {
 		typo: 'ddo',
 		type: 'login',
 		tipo: LOGIN_TIPO,
-		lang: config.menu.applicationLang,
+		// The REQUEST application lang (dispatch seeds the scope from the session
+		// or the pre-auth cookie, else the install default) — the same lang its
+		// labels (contextLabelOf) already speak.
+		lang: currentApplicationLang(),
 		mode: 'edit',
 		model: 'login',
 		label: await contextLabelOf(LOGIN_TIPO),

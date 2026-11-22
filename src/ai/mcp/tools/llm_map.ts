@@ -33,9 +33,9 @@
  * map — it is collected in `skipped` and building continues.
  */
 
-import { config } from '../../../config/config.ts';
 import type { OntologySubtreeNode } from '../../../core/ontology/resolver.ts';
 import { listSectionNodes } from '../../../core/ontology/resolver.ts';
+import { currentDataLang } from '../../../core/resolve/request_lang.ts';
 import {
 	LINK_TARGET_MODELS,
 	linkTargetSections,
@@ -91,9 +91,10 @@ export async function buildLlmMap(
 	const listSections = deps.listSectionNodes ?? listSectionNodes;
 	const fieldNodes = deps.sectionFieldNodes ?? sectionFieldNodes;
 	const targetSections = deps.linkTargetSections ?? linkTargetSections;
-	// PHP drives the field list with DEDALO_DATA_LANG (only the link-target
-	// resolution is lang-parameterized; labels carry ALL languages regardless).
-	const lang = config.menu.dataLang;
+	// PHP drives the field list with DEDALO_DATA_LANG — a per-request value: the
+	// REQUEST data lang (only the link-target resolution is lang-parameterized;
+	// labels carry ALL languages regardless).
+	const lang = currentDataLang();
 
 	const map: LlmMapSection[] = [];
 	const skipped: string[] = [];

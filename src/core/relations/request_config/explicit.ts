@@ -1272,9 +1272,12 @@ export async function buildExplicitRequestConfig(
 		// Live filter expansions (PHP resolve_sqo_section_tipo :275-292).
 		if (rawSqo.filter_by_list !== undefined) {
 			const { expandFilterByList } = await import('./filters.ts');
+			// T2-O15-3b: a caller that passed no lang expands in the REQUEST data
+			// lang (PHP DEDALO_DATA_LANG, per-request) — never a literal.
+			const { currentDataLang } = await import('../../resolve/request_lang.ts');
 			sqo.filter_by_list = await expandFilterByList(
 				rawSqo.filter_by_list,
-				context.lang ?? 'lg-spa',
+				context.lang ?? currentDataLang(),
 			);
 		}
 		if (rawSqo.fixed_filter !== undefined) {

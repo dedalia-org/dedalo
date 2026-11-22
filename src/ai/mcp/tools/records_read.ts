@@ -16,6 +16,7 @@ import type { Rqo } from '../../../core/concepts/rqo.ts';
 import type { SqoFilterNode } from '../../../core/concepts/sqo.ts';
 import type { ApiNotice } from '../../../core/errors/schema.ts';
 import { getModelByTipo } from '../../../core/ontology/resolver.ts';
+import { currentDataLang } from '../../../core/resolve/request_lang.ts';
 import { assertValidTipo } from '../../../core/search/identifier_gate.ts';
 import { runSearch } from '../../../core/search/search_statement.ts';
 import { buildSearchSql } from '../../../core/search/sql_assembler.ts';
@@ -50,7 +51,7 @@ export interface McpSearchFilter {
 	component_tipo: string;
 	/** The query value — the SQO `q` grammar applies (`==exact`, `*`, `!*`, substring). */
 	query: string;
-	/** Language for the matched value (default lg-eng). */
+	/** Language for the matched value (default: the request data lang). */
 	lang?: string;
 }
 
@@ -97,7 +98,8 @@ export async function searchSectionRecords(
 				{
 					q: input.filter.query,
 					path: [{ section_tipo: sectionTipo, component_tipo: componentTipo }],
-					lang: input.filter.lang ?? 'lg-eng',
+					// An omitted lang is the REQUEST data lang (T2 B10) — never a literal.
+					lang: input.filter.lang ?? currentDataLang(),
 				},
 			],
 		};
@@ -160,7 +162,8 @@ export async function readSectionRecord(
 		{ principal, door: 'mcp.dedalo_read_record' },
 		{ sectionTipo, componentTipo: sectionTipo },
 	);
-	const lang = input.lang ?? 'lg-eng';
+	// An omitted lang is the REQUEST data lang (T2 B10) — never a literal.
+	const lang = input.lang ?? currentDataLang();
 	const mode = input.mode === 'edit' ? 'edit' : 'list';
 
 	const rqo: Rqo = {
@@ -260,7 +263,10 @@ export const RECORDS_READ_SPECS: ToolSpec[] = [
 							'Value to match. Grammar: "==exact" for equality, "*" not-empty, ' +
 								'"!*" empty, otherwise a case-insensitive substring match.',
 						),
-					lang: z.string().optional().describe('Language tag for the value (default "lg-eng").'),
+					lang: z
+						.string()
+						.optional()
+						.describe('Language tag for the value (default: the data language).'),
 				})
 				.optional()
 				.describe('Optional single-component value filter.'),
@@ -280,7 +286,10 @@ export const RECORDS_READ_SPECS: ToolSpec[] = [
 		inputShape: {
 			section_tipo: z.string().describe('The record section ontology tipo, e.g. "oh1".'),
 			section_id: z.number().describe('The record id within that section.'),
-			lang: z.string().optional().describe('Language tag, e.g. "lg-eng" (default) or "lg-spa".'),
+			lang: z
+				.string()
+				.optional()
+				.describe('Language tag, e.g. "lg-eng" or "lg-spa" (default: the data language).'),
 			mode: z
 				.enum(['list', 'edit'])
 				.optional()

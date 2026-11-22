@@ -30,6 +30,7 @@ import {
 	extractSqoSectionTipos,
 	type RequestConfigContext,
 } from '../../../core/relations/request_config/explicit.ts';
+import { currentApplicationLang, currentDataLang } from '../../../core/resolve/request_lang.ts';
 import { assertValidTipo } from '../../../core/search/identifier_gate.ts';
 import type { Principal } from '../../../core/security/permissions.ts';
 import {
@@ -278,7 +279,9 @@ export async function describeSection(
 			publicMessage: `No section matches '${input.section}'.`,
 		});
 	}
-	const lang = input.lang ?? 'lg-eng';
+	// An omitted lang is the REQUEST application lang (the request-language law,
+	// T2 B10) — never a literal.
+	const lang = input.lang ?? currentApplicationLang();
 	const fields: SectionMapField[] = [];
 	for (const node of await sectionFieldNodes(sectionTipo)) {
 		const model = node.model as string;
@@ -369,7 +372,7 @@ export async function resolvePath(
 		// the next section.
 		const nextReference = input.path[index] as string;
 		const nextSection = await resolveSectionReference(nextReference);
-		const targets = await linkTargetSections(componentTipo, sectionTipo, 'lg-eng');
+		const targets = await linkTargetSections(componentTipo, sectionTipo, currentDataLang());
 		if (!targets.includes(nextSection)) {
 			throw new DedaloError('request.invalid', {
 				publicMessage: `Field '${componentTipo}' does not link to section '${nextSection}' (targets: ${targets.join(', ') || 'none'}).`,
@@ -404,7 +407,10 @@ export const DISCOVERY_SPECS: ToolSpec[] = [
 		write: false,
 		annotations: { ...READ_ANNOTATIONS },
 		inputShape: {
-			lang: z.string().optional().describe('Label language, e.g. "lg-eng" (default) or "lg-spa".'),
+			lang: z
+				.string()
+				.optional()
+				.describe('Label language, e.g. "lg-eng" or "lg-spa" (default: the interface language).'),
 		},
 		handler: listSections,
 	}),
@@ -423,7 +429,7 @@ export const DISCOVERY_SPECS: ToolSpec[] = [
 			section: z
 				.string()
 				.describe('Section tipo (e.g. "rsc197") or human name (e.g. "People", "Personas").'),
-			lang: z.string().optional().describe('Label language (default "lg-eng").'),
+			lang: z.string().optional().describe('Label language (default: the interface language).'),
 		},
 		handler: describeSection,
 	}),

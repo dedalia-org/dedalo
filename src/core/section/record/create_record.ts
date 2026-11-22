@@ -25,7 +25,6 @@
  * test/unit/write_obligations_{tripwire,native}.test.ts.
  */
 
-import { config } from '../../../config/config.ts';
 import { isConsultationOnlySection } from '../../concepts/section.ts';
 import { dbTimestamp } from '../../db/db_timestamp.ts';
 import {
@@ -41,6 +40,7 @@ import { DedaloError } from '../../errors/dedalo_error.ts';
 import { refuseLabelNode } from '../../ontology/label_node_guard.ts';
 import { resolveLabel } from '../../ontology/labels.ts';
 import { getMatrixTableFromTipo } from '../../ontology/resolver.ts';
+import { currentApplicationLang } from '../../resolve/request_lang.ts';
 import { currentRequestContext } from '../../security/request_context.ts';
 import { bulkIdOf } from './bulk_capture.ts';
 
@@ -93,7 +93,8 @@ export { dbTimestamp } from '../../db/db_timestamp.ts';
 /**
  * Resolve a section's display label from its ontology `term` map (PHP
  * build_metadata → get_term_by_tipo): the ONE label chain (labels.ts
- * resolveLabel) in the install's application lang. Empty string when the chain
+ * resolveLabel) in the REQUEST application lang (PHP DEDALO_APPLICATION_LANG is
+ * per-request; T2-OX7-1b — was the install default). Empty string when the chain
  * finds nothing (PHP casts null→''), and for a model='label' node
  * (refuseLabelNode — dev/test throw, production logs once): a by-tipo term read
  * is a guarded home (test/unit/term_by_tipo_label_guard.test.ts census).
@@ -108,7 +109,7 @@ async function resolveSectionLabel(sectionTipo: string): Promise<string> {
 	if (refuseLabelNode(sectionTipo, rows[0]?.model)) return '';
 	const row = rows[0];
 	if (row === undefined) return '';
-	return resolveLabel(row.term, config.menu.applicationLang, row.machine_name) ?? '';
+	return resolveLabel(row.term, currentApplicationLang(), row.machine_name) ?? '';
 }
 
 /** The options of createSectionRecord (see its header). */
