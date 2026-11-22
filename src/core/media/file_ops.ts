@@ -42,6 +42,7 @@ import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../concepts/media
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getModelByTipo } from '../ontology/resolver.ts';
 import { AvRecordHold } from './av_component_claim.ts';
+import { assertJobHold } from './job_scope.ts';
 import { recordFromColumns, resolveMediaPathOptions } from './ontology_path.ts';
 import {
 	assertInsideMediaRoot,
@@ -92,6 +93,7 @@ function splitPath(absolutePath: string): { dir: string; stem: string; extension
  * Move a file into '<dir>/deleted[/<bulkProcessId>]/<stem>_deleted_<stamp>.<ext>'
  * (PHP move_deleted_file :1929). Bulk mode drops the stamp (plain '<stem>.<ext>').
  * Returns the target path, or null when the source is absent (idempotent).
+ * Inside a held job or claim whose hold is gone it THROWS before moving.
  */
 export function moveToDeleted(
 	absolutePath: string,
@@ -99,6 +101,10 @@ export function moveToDeleted(
 ): string | null {
 	const source = assertInsideMediaRoot(absolutePath, opts.mediaRoot);
 	if (!existsSync(source)) return null;
+	// A held job / claim that LOST its component moves nothing more (job_scope.ts;
+	// a no-op outside one): every delete-to-deleted/ of a quality, a version, an
+	// orphan twin or an overlay goes through this door (PRODUCTION §8.1).
+	assertJobHold();
 	const { dir, stem, extension } = splitPath(source);
 	const deletedDir = assertInsideMediaRoot(
 		opts.bulkProcessId ? `${dir}/deleted/${opts.bulkProcessId}` : `${dir}/deleted`,

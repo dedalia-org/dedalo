@@ -224,3 +224,18 @@
   `test_tool_media_versions` (+3). The L4 deadline gate now fires the deadline
   through `MediaJobManager.deadlineNow(jobId)` (the deterministic tick, like
   `heartbeatNow`) instead of racing a 20 ms real timer.
+- **Addendum 2026-11-23 (third review N2/N3/N4):** the macOS host identity reads
+  `/usr/sbin/sysctl` by ABSOLUTE path (a launchd service's PATH,
+  `/usr/bin:/bin`, has no `/usr/sbin`: the boot part silently fell back to the
+  hostname alone); an empty answer on darwin is logged once at load. The hold
+  check is now asked by EVERY publication door PRODUCTION §8.1 names:
+  `conformHeader` asks it after the remux + faststart, right before its two
+  renames; `moveToDeleted` asks it before it touches anything (every quality,
+  version, orphan-twin and overlay move of `deleteAndResyncCore` goes through
+  it). The peek-CAS residual (a path replaced between peek and rename is out of
+  place for one rename → link; a fourth creator in that instant wins it, the
+  replaced holder's own-lock check then reads LOST) is accepted and stated in
+  the `component_lock.ts` header. No wire change. Gates:
+  `media_component_lock_native` (+2: launchd-PATH identity; a stolen hold moves
+  nothing to deleted/), `media_encode_integrity_native` (+1: a conform whose
+  hold is lost after the relocation renames nothing).

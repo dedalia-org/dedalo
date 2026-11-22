@@ -45,7 +45,9 @@ export function currentJobSignal(): AbortSignal | undefined {
  * must not happen is its PUBLICATION. The job manager enters this scope with a
  * check that throws when the hold is gone, and the two publication steps ask
  * it immediately before they act: the atomic rename (media/atomic.ts
- * writeAtomically) and the files_info write-back (av_versions.ts). Outside a
+ * writeAtomically), the files_info write-back (av_versions.ts), conform
+ * headers' two renames (engine/ffmpeg.ts conformHeader) and every move to
+ * deleted/ (file_ops.ts moveToDeleted). Outside a
  * job — or in a job that holds no component — there is no check (a no-op).
  */
 const jobHoldStore = new AsyncLocalStorage<() => void>();

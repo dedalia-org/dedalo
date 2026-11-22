@@ -701,6 +701,38 @@ describe('qt-faststart runs on every generated AV version', () => {
 		expect(readdirSync(dir)).toEqual(['clip.mp4']);
 	}, 20_000);
 
+	test('a conform whose job LOST its hold publishes nothing — neither rename (N3)', async () => {
+		ffmpegMode('ok');
+		const { conformHeader } = await import('../../src/core/media/engine/ffmpeg.ts');
+		const { runWithJobHold } = await import('../../src/core/media/job_scope.ts');
+		const dir = join(ROOT, 'conform_lost');
+		mkdirSync(dir, { recursive: true });
+		const source = join(dir, 'clip.mp4');
+		writeFileSync(source, 'THE ONLY COPY');
+		// The hold is lost AFTER the faststart relocation passed its own check
+		// (writeAtomically asks once, on the route that lands) — the window between
+		// the relocation and the two renames is what this gate is about.
+		let asked = 0;
+		const lostAfterRelocation = (): void => {
+			asked += 1;
+			if (asked > 1) throw new Error('hold lost (test)');
+		};
+
+		await expect(runWithJobHold(lostAfterRelocation, () => conformHeader(source))).rejects.toThrow(
+			'hold lost (test)',
+		);
+
+		expect(asked).toBe(2); // the relocation's check, then the one before the renames
+		expect(readFileSync(source, 'utf8')).toBe('THE ONLY COPY');
+		expect(readdirSync(dir)).toEqual(['clip.mp4']);
+		// The same conform under a hold that stands publishes (the refusal is the hold's).
+		await runWithJobHold(
+			() => {},
+			() => conformHeader(source),
+		);
+		expect(readdirSync(dir).sort()).toEqual(['clip.mp4', 'clip_untouched.mp4']);
+	}, 20_000);
+
 	test('both faststart routes unavailable ⇒ the derivative still lands, LOUDLY degraded', async () => {
 		ffmpegMode('ok');
 		rmSync(FAKE_FASTSTART, { force: true });

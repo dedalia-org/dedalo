@@ -32,6 +32,16 @@
  * to overwrite a lock created in that instant (logged). So a third party can
  * never slip a lock into a path the check emptied.
  *
+ * THE ACCEPTED RESIDUAL (review N4): when the path WAS replaced between the
+ * peek and the rename, the replacement is out of place for the microseconds
+ * between that rename and the put-back `link()`. A fourth party creating a
+ * lock in exactly that instant wins the path; the put-back then refuses
+ * (EEXIST, logged) and the replaced holder's lock is gone. That holder is not
+ * silently doubled: its own-lock check (componentLockIsOurs — every heartbeat
+ * and every publication step) reads another token and treats the hold as
+ * LOST, so it publishes nothing more. The window needs three CAS actors on one
+ * component inside one rename; it is stated, not closed.
+ *
  * STALENESS IS OBSERVED, NEVER COMPUTED ACROSS CLOCKS. A lock may be reclaimed
  * (and the reclaim is logged) when
  *  - its holder is on THIS machine (same hostname AND same boot/pid-namespace
@@ -77,7 +87,9 @@
  * boot and pid namespace it belongs to (two containers sharing a hostname and
  * the processes dir never kill each other's locks by "dead" pid). On macOS (a
  * development platform, no /proc and no pid namespaces) the boot part is
- * `kern.bootsessionuuid`, read once at load with `sysctl -n` — new on every
+ * `kern.bootsessionuuid`, read once at load with `/usr/sbin/sysctl -n` (an
+ * absolute path: a launchd PATH has no /usr/sbin; an empty answer is logged
+ * once) — new on every
  * boot, so a pid recycled after a reboot is never judged against a lock of the
  * previous boot. Where neither source answers, the identity is the hostname
  * alone, and a lock of a previous boot waits for the heartbeat rule.
@@ -178,17 +190,30 @@ function procPart(read: () => string): string {
 	}
 }
 
-/** macOS's per-boot id (`kern.bootsessionuuid`); '' elsewhere or when sysctl does not answer. */
+/**
+ * The ABSOLUTE sysctl: never resolved through PATH — a launchd service runs
+ * with PATH=/usr/bin:/bin, where a bare `sysctl` (it lives in /usr/sbin) is
+ * ENOENT and the identity silently fell back to the hostname alone.
+ */
+const DARWIN_SYSCTL = '/usr/sbin/sysctl';
+
+/** macOS's per-boot id (`kern.bootsessionuuid`); '' elsewhere — and on darwin, '' is said once. */
 function darwinBootSession(): string {
 	if (process.platform !== 'darwin') return '';
-	return procPart(() => {
-		const run = Bun.spawnSync(['sysctl', '-n', 'kern.bootsessionuuid'], {
+	const session = procPart(() => {
+		const run = Bun.spawnSync([DARWIN_SYSCTL, '-n', 'kern.bootsessionuuid'], {
 			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'ignore',
 		});
 		return run.success ? run.stdout.toString().trim() : '';
 	});
+	if (session === '') {
+		console.error(
+			`[media lock] ${DARWIN_SYSCTL} -n kern.bootsessionuuid did not answer — the host identity is the hostname alone: a lock of a previous boot waits for the heartbeat rule`,
+		);
+	}
+	return session;
 }
 
 /**

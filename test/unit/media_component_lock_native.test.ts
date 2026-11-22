@@ -37,7 +37,15 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
-import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -58,10 +66,11 @@ import {
 	releaseComponentLock,
 	staleReason,
 } from '../../src/core/media/component_lock.ts';
+import { moveToDeleted } from '../../src/core/media/file_ops.ts';
 import { assertJobHold } from '../../src/core/media/job_scope.ts';
 import { type JobTarget, MediaJobManager } from '../../src/core/media/jobs.ts';
 import { mustGet } from '../helpers/assert.ts';
-import { markProcessesDir } from '../helpers/media_scratch_root.ts';
+import { markMediaRoot, markProcessesDir } from '../helpers/media_scratch_root.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
@@ -742,6 +751,25 @@ describe('host identity', () => {
 			expect(boot?.length ?? 0).toBeGreaterThan(8);
 		}
 	});
+
+	test('the boot part does not depend on PATH: a launchd PATH (/usr/bin:/bin, no /usr/sbin) gives the same identity (N2)', () => {
+		if (process.platform !== 'darwin') return; // the sysctl path is the darwin leg
+		const probe = Bun.spawnSync(
+			[
+				process.execPath,
+				'-e',
+				"const m = await import('./src/core/media/component_lock.ts'); console.log(m.HOST_ID)",
+			],
+			{
+				cwd: join(import.meta.dir, '..', '..'),
+				env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '' },
+				stdout: 'pipe',
+				stderr: 'pipe',
+			},
+		);
+		expect(probe.stdout.toString().trim()).toBe(HOST_ID);
+		expect(probe.stderr.toString()).not.toContain('did not answer');
+	});
 });
 
 /** A per-lang component target of record `sectionId`. */
@@ -992,6 +1020,29 @@ describe('the holder', () => {
 		await quietErrors(() => settled(a, job.id));
 		expect((outcome as DedaloError).code).toBe('media.build_running');
 		unplant(23, 'thief');
+	});
+
+	test('a job whose lock was stolen moves nothing to deleted/ (N3)', async () => {
+		const media = markMediaRoot(join(ROOT, 'media'));
+		const dir = join(media, 'av', '404');
+		mkdirSync(dir, { recursive: true });
+		const file = join(dir, 'test94_test3_25.mp4');
+		writeFileSync(file, 'the tier');
+		const a = manager('inst-a');
+		let moved: unknown = 'not reached';
+		const job = liveJob(a, target(25), undefined, async () => {
+			moved = moveToDeleted(file, { mediaRoot: media });
+		});
+		rmSync(lockPath(25));
+		plant(25, { ...FAR, token: 'thief' }, 0);
+		job.finish();
+		expect(await quietErrors(() => settled(a, job.id))).toBe('error');
+		expect(moved).toBe('not reached');
+		expect(readdirSync(dir)).toEqual(['test94_test3_25.mp4']); // not even deleted/ made
+		unplant(25, 'thief');
+		// The same door outside a held job moves (the check is the hold's, not the door's).
+		expect(moveToDeleted(file, { mediaRoot: media })).not.toBeNull();
+		expect(existsSync(file)).toBe(false);
 	});
 
 	test('outside a held job the hold check is a no-op', () => {
