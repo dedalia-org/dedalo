@@ -60,6 +60,11 @@ const LEDGERED_EDGES: Record<string, { targets: readonly string[]; reason: strin
  */
 const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; reason: string }> =
 	{
+		'src/config/element_tipo_list.ts': {
+			names: { tool_diffusion: 1 },
+			reason:
+				'EXCLUDED_ELEMENTS_LOCATION (owner ruling 2026-11-22, R3): the excluded-diffusion-elements list is read by the DIFFUSION engine (the `diffuse` door, the admin requeue, the stale-job sweeper, the harness — doors that exist whether or not the tool is installed) but STORED where v6 stored it, the tool_diffusion Tools-configuration record, so a v6 install keeps it with no data change. A data-location key, not a branch: the reader, its refusal messages and the v6 migration move all take it from this one constant. Clears if the list moves to a diffusion-owned config home (owner decision — it would be a data migration).',
+		},
 		'src/core/ai/model_catalog.ts': {
 			names: { tool_transcription: 1 },
 			reason:

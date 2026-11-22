@@ -29,7 +29,7 @@
  * migration runs on.
  */
 
-import { parseElementTipoList } from './element_tipo_list.ts';
+import { EXCLUDED_ELEMENTS_LOCATION, parseElementTipoList } from './element_tipo_list.ts';
 import { PHP_KEY_ALIASES, RETIRED_ENV_KEYS } from './env.ts';
 
 export type MigrationClass = 'SAME' | 'ALIAS' | 'RENAMED' | 'RESHAPED' | 'DROPPED' | 'TOOL_CONFIG';
@@ -589,8 +589,8 @@ const TOOL_CONFIG: Readonly<Record<string, MigrationRule>> = {
 	EXCLUDE_DIFFUSION_ELEMENTS: {
 		cls: 'TOOL_CONFIG',
 		toolConfig: {
-			tool: 'tool_diffusion',
-			key: 'EXCLUDE_DIFFUSION_ELEMENTS',
+			tool: EXCLUDED_ELEMENTS_LOCATION.tool,
+			key: EXCLUDED_ELEMENTS_LOCATION.key,
 			parse: parseElementTipoList,
 		},
 	},

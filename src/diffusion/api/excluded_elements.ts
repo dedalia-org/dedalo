@@ -41,7 +41,10 @@
  * where the value lives (the zotero_map precedent).
  */
 
-import { parseElementTipoList } from '../../config/element_tipo_list.ts';
+import {
+	EXCLUDED_ELEMENTS_LOCATION,
+	parseElementTipoList,
+} from '../../config/element_tipo_list.ts';
 import { DedaloError } from '../../core/errors/index.ts';
 import { getToolConfigValue } from '../../core/tools/config.ts';
 import {
@@ -50,11 +53,11 @@ import {
 	type VirtualDiffusionTree,
 } from '../plan/virtual_tree.ts';
 
-/** The tool whose configuration carries the list (v6: tool_diffusion). */
-export const EXCLUSION_TOOL = 'tool_diffusion';
+/** The tool whose configuration carries the list (v6: tool_diffusion) — config/element_tipo_list.ts. */
+export const EXCLUSION_TOOL: string = EXCLUDED_ELEMENTS_LOCATION.tool;
 
 /** The config key — v6's spelling, verbatim (class.tool_diffusion.php:51). */
-export const EXCLUSION_KEY = 'EXCLUDE_DIFFUSION_ELEMENTS';
+export const EXCLUSION_KEY: string = EXCLUDED_ELEMENTS_LOCATION.key;
 
 /**
  * Parse a configured exclusion list: absent/null → none excluded; an array of

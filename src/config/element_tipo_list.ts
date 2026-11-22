@@ -17,6 +17,20 @@
 import { isValidTipo } from './tipo_code.ts';
 
 /**
+ * WHERE the excluded-elements list lives — v6's location, kept for data
+ * compatibility: the tool_diffusion Tools-configuration record (dd996 over the
+ * register default), under v6's key spelling (class.tool_diffusion.php:51). The
+ * ONE place src/ names that tool for this feature (core_tool_edge_tripwire
+ * ledger): the reader (`src/diffusion/api/excluded_elements.ts`), its refusal
+ * messages (`src/diffusion/jobs/queue.ts`) and the v6 migration's move
+ * (`src/config/migration_map.ts`) all take it from here.
+ */
+export const EXCLUDED_ELEMENTS_LOCATION = Object.freeze({
+	tool: 'tool_diffusion',
+	key: 'EXCLUDE_DIFFUSION_ELEMENTS',
+} as const);
+
+/**
  * Parse a configured element-tipo list:
  *   - absent (`undefined` / `null`) → `[]` (nothing listed);
  *   - an array whose every entry is a TIPO (`isValidTipo`, the §7.6 grammar) →

@@ -170,7 +170,7 @@
 	"error_diffusion_already_draining": "The diffusion server is already draining",
 	"error_diffusion_cancelled": "Process cancelled by user",
 	"error_diffusion_connection_failed": "The diffusion target database could not be reached",
-	"error_diffusion_element_excluded": "Publishing to this diffusion element is disabled in this installation's tool_diffusion configuration",
+	"error_diffusion_element_excluded": "Publishing to this diffusion element is disabled in this installation's diffusion tool configuration",
 	"error_diffusion_files_root_missing": "No diffusion files root is configured on this server",
 	"error_diffusion_invalid_action": "Invalid diffusion server action",
 	"error_diffusion_invalid_job_id": "Invalid diffusion job id",

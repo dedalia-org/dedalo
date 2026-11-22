@@ -71,7 +71,12 @@ import {
 	isDedaloError,
 	toFailureRecord,
 } from '../../core/errors/index.ts';
-import { assertPublishableElement, excludedElementTipos } from '../api/excluded_elements.ts';
+import {
+	assertPublishableElement,
+	EXCLUSION_KEY,
+	EXCLUSION_TOOL,
+	excludedElementTipos,
+} from '../api/excluded_elements.ts';
 import type { DiffusionJobState } from './schema.ts';
 import { DIFFUSION_JOBS_TABLE, ensureDiffusionJobTables } from './schema.ts';
 
@@ -957,7 +962,7 @@ async function staleRunBlock(): Promise<{
 			all: false,
 			tipos: await excludedElementTipos(),
 			error: new DedaloError('diffusion.element_excluded'),
-			msg: 'Not re-run after the runner was lost: publication to this element is disabled (tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS)',
+			msg: `Not re-run after the runner was lost: publication to this element is disabled (${EXCLUSION_TOOL} ${EXCLUSION_KEY})`,
 		};
 	} catch (error) {
 		if (!isDedaloError(error) || error.code !== 'tool.config_invalid') throw error;
@@ -965,7 +970,7 @@ async function staleRunBlock(): Promise<{
 			all: true,
 			tipos: [],
 			error,
-			msg: 'Not re-run after the runner was lost: the tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS configuration is malformed',
+			msg: `Not re-run after the runner was lost: the ${EXCLUSION_TOOL} ${EXCLUSION_KEY} configuration is malformed`,
 		};
 	}
 }

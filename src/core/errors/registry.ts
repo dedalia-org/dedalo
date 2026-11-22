@@ -3120,7 +3120,7 @@ export const ERROR_REGISTRY = {
 		status: 403,
 		label_key: 'error_diffusion_element_excluded',
 		message:
-			"Publishing to this diffusion element is disabled in this installation's tool_diffusion configuration",
+			"Publishing to this diffusion element is disabled in this installation's diffusion tool configuration",
 		severity: 'warn',
 		disclosure: 'public',
 		retryable: false,
