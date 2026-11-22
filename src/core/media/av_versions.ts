@@ -359,7 +359,9 @@ async function persistOrReport(
  * after an upload, and the one whose empty cell in the versions panel started
  * this. The audio tier rides along in the same job (it always has) and is named
  * in `also_qualities` rather than given a target of its own — one job, one
- * target, so the duplicate guard and the panel agree on what is busy.
+ * target, so the duplicate guard and the panel agree on what is busy. And it is
+ * COMPONENT-scoped (`scope`): one build per component, as v6's build lock —
+ * the upload claim, this job and every per-quality build exclude each other.
  */
 export function avIngestTarget(spec: MediaTypeSpec, identity: MediaIdentity): JobTarget {
 	return {
@@ -374,6 +376,9 @@ export function avIngestTarget(spec: MediaTypeSpec, identity: MediaIdentity): Jo
 		// open — a click on the audio gear mid-ingest started a second
 		// ffmpeg writing the very file this job was about to produce.
 		also_qualities: spec.qualities.includes('audio') ? ['audio'] : [],
+		// ONE build per component (v6 build lock): the upload claim and this
+		// job exclude every per-quality build of the component, and vice versa.
+		scope: 'component',
 	};
 }
 
@@ -381,9 +386,9 @@ export function avIngestTarget(spec: MediaTypeSpec, identity: MediaIdentity): Jo
  * Submit the INGEST transcode: the default quality (two-pass) + the audio tier,
  * then the files_info write-back. Returns the job id.
  *
- * EXCLUSIVE (A1-01): refused with `media.build_running` while any tier it writes
- * is live — a running build or another upload's claim — so no door can start a
- * second ingest transcode of one component. `claim` is the upload's own hold on
+ * EXCLUSIVE (A1-01): refused with `media.build_running` while the component has
+ * any live build — a per-quality build of any tier or another upload's claim —
+ * so no door can start a second build of one component. `claim` is the upload's own hold on
  * the target (processUploadedFile), adopted by the job in the same synchronous
  * step.
  */
@@ -519,17 +524,20 @@ async function preflightAvBuild(
 	if (quality === spec.originalQuality) {
 		throw new AvBuildRefused('build_version: the original is the source, it cannot be built');
 	}
-	// DUPLICATE-BUILD GUARD. Two operators looking at the same record — or one
-	// operator whose upload is still transcoding — could each start an encode
-	// writing the SAME output path. The atomic rename means the loser is discarded
-	// rather than corrupting anything, so this was never data loss; it was two full
-	// transcodes of an hour-long master to produce one file, with which one wins
-	// decided by a race. See MediaJobManager.hasLiveJobForTarget for why this is
+	// ONE BUILD PER COMPONENT (v6 build lock, A1-01). Two operators looking at
+	// the same record — or one operator whose upload is still transcoding — could
+	// each start an encode reading the same master and writing beside it; an
+	// upload landing mid-build replaces the master under ffmpeg. Asked FIRST,
+	// before the source is resolved or probed: a busy component is the answer,
+	// whatever else is true. The same code as the upload refusal — one condition,
+	// one answer — and the exclusive submit below is the half that cannot
+	// interleave. See MediaJobManager.hasLiveJobForTarget for why this is
 	// in-memory where diffusion's equivalent is a DB constraint.
-	if (mediaJobs.hasLiveJobForTarget(target)) {
-		throw new AvBuildRefused(
-			`build_version: '${quality}' is already being built for this record — wait for the running job to finish`,
-		);
+	if (mediaJobs.isOccupied(target)) {
+		throw new DedaloError('media.build_running', {
+			message: `build_version: a build is already running for this component ('${quality}' asked)`,
+			coordinates: { quality },
+		});
 	}
 
 	const source = resolveAvBuildSource(spec, identity, pathOpts, quality, rawExtension);
@@ -565,7 +573,8 @@ function assertTierIsEncodable(quality: string, profile: AvSourceProfile): void 
  * source (a profile for the tier, an audio stream for an audio tier). The panel
  * shows "Processing" the moment it gets a job id, so a refusal that can be known
  * now must be raised now — an accepted job that dies two seconds later is the
- * shape of the bug this replaces. Throws `AvBuildRefused`; the tool handler
+ * shape of the bug this replaces. Throws `AvBuildRefused` (or `media.build_running`
+ * when the component already has a build — one per component); the tool handler
  * turns that into the refusal envelope.
  */
 export async function submitAvVersionBuild(
@@ -583,6 +592,9 @@ export async function submitAvVersionBuild(
 		lang: identity.lang ?? null,
 		quality,
 		label: quality,
+		// ONE build per component (v6 build lock): a build of ANY tier excludes
+		// the upload, the ingest transcode and every other tier's build.
+		scope: 'component',
 	};
 	const { source, profile } = await preflightAvBuild(
 		spec,
@@ -627,7 +639,7 @@ export async function submitAvVersionBuild(
 			};
 		},
 		// ffmpeg work — the media budget, by declaration (PERF-11). EXCLUSIVE: the
-		// pre-flight's hasLiveJobForTarget is a question asked before an await
+		// pre-flight's isOccupied is a question asked before an await
 		// (the probe); this is the answer that cannot interleave (A1-01).
 		{ lane: 'media', userId, target, exclusive: true },
 	);

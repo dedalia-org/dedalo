@@ -519,7 +519,8 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		assertNormalizedExtensionForTier(spec, quality, assertAllowedExtension(spec, input.extension));
 	}
 	// THE LAST PRE-MOVE REFUSAL (A1-01): an av build of this component is live.
-	// From here the claim occupies the ingest transcode's tiers until the job
+	// From here the claim occupies the whole component (one build per
+	// component, v6's build lock) until the job
 	// adopts it (startTranscode) or it is released — on a throw below, on an
 	// ingest that starts no transcode, or by the caller (releaseBuildClaim).
 	const claim = claimAvBuildTarget(input, pathOpts);
@@ -542,8 +543,10 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
  * DISCARDS the staged upload, as v6 did (deleteStagedFile — the file, its
  * preview, its name record), and touches nothing in the media tree. The claim,
  * not a bare hasLiveJobForTarget question, is what makes the refusal hold for
- * two concurrent uploads: the second one sees the first one's claim. null for
- * every non-av model.
+ * two concurrent uploads: the second one sees the first one's claim. The
+ * target is COMPONENT-scoped (avIngestTarget): a per-quality build of any tier
+ * refuses the upload, and the held claim refuses any build. null for every
+ * non-av model.
  */
 function claimAvBuildTarget(input: IngestInput, pathOpts: MediaPathOptions): JobTargetClaim | null {
 	if (input.spec.model !== 'component_av') return null;

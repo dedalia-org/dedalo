@@ -1558,8 +1558,10 @@ const render_build_version = function(quality, self) {
 	// moment this panel opens, instead of as an empty cell offering a gear.
 	//
 	// The gear is NOT rendered at all in that state: the server refuses a second
-	// build for a live target (AvBuildRefused), and offering a click that is
-	// guaranteed to be refused is how the duplicate-encode race read as normal use.
+	// build while one is live (media.build_running — one av build per COMPONENT,
+	// so another tier's gear is refused too, readably, below), and offering a
+	// click that is guaranteed to be refused is how the duplicate-encode race
+	// read as normal use.
 		const running_job = live_job_for_quality(self, quality)
 		if (running_job) {
 
@@ -1639,7 +1641,8 @@ const render_build_version = function(quality, self) {
 			// answers only for result===true, so before this a rejection was
 			// completely silent — the gear simply did nothing and the operator had
 			// no way to learn why. That path is now reachable on purpose: the server
-			// refuses a tier that is already being built (AvBuildRefused), and a
+			// refuses a build while the component already has one
+			// (media.build_running — one av build per component), and a
 			// refusal nobody can see is the same defect as a job that dies quietly.
 			if (!accepted) {
 				const wrapper = self.node?.content_data || self.node

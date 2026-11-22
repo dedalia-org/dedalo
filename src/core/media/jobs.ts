@@ -313,6 +313,19 @@ export interface JobTarget {
 	 * job BLOCKS, not what it is called.
 	 */
 	also_qualities?: string[];
+	/**
+	 * `'component'`: this job (or claim) occupies the WHOLE component, not only
+	 * its tiers — any other component-scoped holder on the same
+	 * section/id/component/lang is refused, whatever tier it writes.
+	 *
+	 * The av build family (the upload claim, the ingest transcode, every
+	 * per-quality build) carries it: v6 held ONE build lock per component
+	 * (component_av::get_build_lock_path — every build reads the same master
+	 * and shares its sh/target files), and a tier-scoped guard let a 1080
+	 * build run while an upload replaced the master it was reading (A1-01).
+	 * Like `also_qualities` it widens what the holder BLOCKS, never its name.
+	 */
+	scope?: 'component';
 	/** Human tier name for the activity tray (never used for identity). */
 	label?: string;
 }
@@ -330,6 +343,15 @@ export function jobTargetKey(target: JobTarget): string {
 		target.lang ?? '',
 		target.quality,
 	].join('|');
+}
+
+/**
+ * The COMPONENT key a `scope: 'component'` holder also occupies — the target's
+ * key with the tier replaced by `*` (never a quality name, so it cannot collide
+ * with a tier key).
+ */
+function componentScopeKey(target: JobTarget): string {
+	return jobTargetKey({ ...target, quality: '*' });
 }
 
 /**
@@ -945,14 +967,16 @@ export class MediaJobManager {
 	}
 
 	/**
-	 * Every tier key a job OCCUPIES: its own, plus any companion tier the same
-	 * job also writes (`also_qualities` — the ingest transcode's audio tier).
+	 * Every key a job OCCUPIES: its own tier, any companion tier the same job
+	 * also writes (`also_qualities` — the ingest transcode's audio tier), and
+	 * the whole component when it is component-scoped (`scope`).
 	 */
 	private occupiedKeys(target: JobTarget): string[] {
 		const keys = [jobTargetKey(target)];
 		for (const quality of target.also_qualities ?? []) {
 			keys.push(jobTargetKey({ ...target, quality }));
 		}
+		if (target.scope === 'component') keys.push(componentScopeKey(target));
 		return keys;
 	}
 
@@ -991,9 +1015,10 @@ export class MediaJobManager {
 	}
 
 	/**
-	 * Is ANY tier this target would occupy held by someone other than `exceptId`?
+	 * Is ANY key this target would occupy held by someone other than `exceptId`?
 	 * The exclusive guard's question — wider than hasLiveJobForTarget, which
-	 * asks about one tier: an ingest transcode also writes `also_qualities`.
+	 * asks about one tier: an ingest transcode also writes `also_qualities`,
+	 * and a component-scoped target occupies the whole component.
 	 */
 	private occupiedByOther(target: JobTarget, exceptId: string | null): boolean {
 		for (const key of this.occupiedKeys(target)) {
@@ -1090,6 +1115,16 @@ export class MediaJobManager {
 	 */
 	hasLiveJobForTarget(target: JobTarget): boolean {
 		return (this.liveByTarget.get(jobTargetKey(target))?.size ?? 0) > 0;
+	}
+
+	/**
+	 * Would `target` be refused right now? The exclusive guard's own question
+	 * (every key it occupies: tier, companion tiers, the component when scoped),
+	 * for a pre-flight that must answer BEFORE it awaits anything. A question,
+	 * not a reservation: the answer that holds is the exclusive submit's.
+	 */
+	isOccupied(target: JobTarget): boolean {
+		return this.occupiedByOther(target, null);
 	}
 
 	/**

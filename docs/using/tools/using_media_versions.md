@@ -58,7 +58,11 @@ are stopped from the diffusion panel in Maintenance, which is where that queue
 is managed.
 
 You cannot start a second build of a quality that is already being built; the
-button is not offered while its work is running. If a build fails, or the
+button is not offered while its work is running. For audio and video, one build
+runs per field at a time: while any quality of the field is being built — or a
+new file is being uploaded into it — a build of another quality is refused with
+*"A version build is already running for this file. Wait until it finishes and
+try again"*. If a build fails, or the
 server is restarted while it runs, the column says so with the reason and
 offers the rebuild again — it does not go back to looking empty.
 
