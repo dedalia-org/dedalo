@@ -26,13 +26,13 @@ import {
 	type ParserClassifier,
 	validateElementPlan,
 } from '../../src/diffusion/plan/compile.ts';
+import type { PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import type {
 	OntologyIndex,
 	RawOntologyNode,
 	VirtualDiffusionTree,
 	VirtualTreeNode,
 } from '../../src/diffusion/plan/virtual_tree.ts';
-import type { PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import {
 	type ResolvedBatch,
 	type RunContext,

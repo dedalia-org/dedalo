@@ -60,6 +60,35 @@ interface PathStep {
 	component_tipo?: string;
 }
 
+/** Why one step's TIPO cannot join the chain (none, or already in it), or null. */
+function tipoRefusal(tipo: unknown, index: number, chain: readonly WalkDdo[]): string | null {
+	if (typeof tipo !== 'string' || tipo === '') return `step ${index} names no component_tipo`;
+	return chain.some((ddo) => ddo.tipo === tipo)
+		? `names '${tipo}' twice (the chain cannot tell the levels apart)`
+		: null;
+}
+
+/** Why an INTERMEDIATE step cannot be hopped through (it stores no locators), or null. */
+async function hopRefusal(tipo: string, index: number): Promise<string | null> {
+	const { storesRelationLocators } = await import('../../../registry.ts');
+	const model = await getModelByTipo(tipo);
+	if (storesRelationLocators(model)) return null;
+	return `step ${index} '${tipo}' (${model ?? 'no model'}) stores no locators to hop through`;
+}
+
+/** Why one step of a path cannot join the chain, or null when it can. */
+async function stepRefusal(
+	step: PathStep | undefined,
+	index: number,
+	chain: readonly WalkDdo[],
+	isLast: boolean,
+): Promise<string | null> {
+	const tipo = step?.component_tipo;
+	const refusal = tipoRefusal(tipo, index, chain);
+	if (refusal !== null || isLast) return refusal;
+	return hopRefusal(tipo as string, index);
+}
+
 /**
  * The path as a strict ddo chain (each step the child of the previous one), or
  * a loud refusal for a shape the walker cannot follow.
@@ -72,23 +101,11 @@ async function pathChain(path: unknown, sectionTipo: string): Promise<WalkDdo[]>
 		});
 	};
 	if (!Array.isArray(path) || path.length === 0) return refuse('is not a non-empty list of steps');
-	const { storesRelationLocators } = await import('../../../registry.ts');
 	const chain: WalkDdo[] = [];
-	for (const [index, step] of (path as PathStep[]).entries()) {
-		const tipo = step?.component_tipo;
-		if (typeof tipo !== 'string' || tipo === '') refuse(`step ${index} names no component_tipo`);
-		if (chain.some((ddo) => ddo.tipo === tipo)) {
-			refuse(`names '${tipo}' twice (the chain cannot tell the levels apart)`);
-		}
-		if (index < path.length - 1) {
-			const model = await getModelByTipo(tipo as string);
-			if (!storesRelationLocators(model)) {
-				refuse(
-					`step ${index} '${tipo}' (${model ?? 'no model'}) stores no locators to hop through`,
-				);
-			}
-		}
-		chain.push({ tipo, parent: chain[index - 1]?.tipo });
+	for (const [index, step] of (path as (PathStep | undefined)[]).entries()) {
+		const refusal = await stepRefusal(step, index, chain, index === path.length - 1);
+		if (refusal !== null) refuse(refusal);
+		chain.push({ tipo: step?.component_tipo, parent: chain[index - 1]?.tipo });
 	}
 	return chain;
 }
