@@ -69,6 +69,7 @@ import {
 	linkSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	statSync,
@@ -181,11 +182,48 @@ function clockOf(context: ComponentLockContext): number {
  * readable to an operator listing the directory.
  */
 export function componentLockFileName(key: string): string {
-	const escaped = key.replace(
+	return `${escapeLockKey(key)}${LOCK_SUFFIX}`;
+}
+
+/** The file-name form of a key (or key prefix) — see componentLockFileName. */
+function escapeLockKey(key: string): string {
+	return key.replace(
 		/[^A-Za-z0-9-]/g,
 		(char) => `~${char.charCodeAt(0).toString(16).padStart(2, '0')}`,
 	);
-	return `${escaped}${LOCK_SUFFIX}`;
+}
+
+/**
+ * The KEYS of every lock file in `dir` whose key starts with `prefix` — what a
+ * RECORD-wide hold asks the directory (which langs of a component does ANY
+ * instance hold?). Names only: nothing is read or judged here — a listed key is
+ * a candidate the caller then CLAIMS, and the claim's own staleness judgement
+ * applies. Heartbeat, aside and temp files do not end in `.lock` and are
+ * skipped. The keys are ASCII (tipos, ids, lang codes),
+ * so the two-digit `~xx` escape decodes them exactly. An absent dir holds none.
+ */
+export function componentLockKeysWithPrefix(dir: string, prefix: string): string[] {
+	const escapedPrefix = escapeLockKey(prefix);
+	const names = typed('list', prefix, () => {
+		try {
+			return readdirSync(dir);
+		} catch (error) {
+			if (errnoOf(error) === 'ENOENT') return [];
+			throw error;
+		}
+	});
+	const keys: string[] = [];
+	for (const name of names) {
+		if (!name.endsWith(LOCK_SUFFIX)) continue;
+		const escaped = name.slice(0, -LOCK_SUFFIX.length);
+		if (!escaped.startsWith(escapedPrefix)) continue;
+		keys.push(
+			escaped.replace(/~([0-9a-f]{2})/g, (_, hex: string) =>
+				String.fromCharCode(Number.parseInt(hex, 16)),
+			),
+		);
+	}
+	return keys;
 }
 
 /** The heartbeat file of `token`'s hold on the lock at `path`. */

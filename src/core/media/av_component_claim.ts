@@ -22,7 +22,9 @@
 
 import type { MediaTypeSpec } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
-import { type JobTarget, jobTargetKey, mediaJobs } from './jobs.ts';
+import { getModelByTipo } from '../ontology/resolver.ts';
+import { declaredSectionComponents } from '../section/record/declared_components.ts';
+import { type JobTarget, type JobTargetClaim, jobTargetKey, mediaJobs } from './jobs.ts';
 import type { MediaIdentity } from './path.ts';
 
 /**
@@ -70,4 +72,150 @@ export async function withAvComponentClaim<T>(
 	} finally {
 		claim.release();
 	}
+}
+
+/** The claim's tier word for a record-wide hold (a delete or a restore sweep). */
+const RECORD_HOLD_TIER = 'record_media';
+
+/** One (component, lang) slot's key inside a record hold. */
+function slotKey(componentTipo: string, lang: string | null): string {
+	return `${componentTipo}|${lang ?? ''}`;
+}
+
+/**
+ * The claim lang of a slot: `lg-nolan` (a v6-era item's "no language") IS the
+ * untranslatable slot every av build of the component claims as null — kept
+ * apart, a build on null would not refuse a sweep of the `lg-nolan` item.
+ */
+function slotLang(lang: string | null): string | null {
+	return lang === 'lg-nolan' ? null : lang;
+}
+
+/**
+ * A RECORD-WIDE av hold (A1-01 review M3): the component claims a record delete,
+ * a data wipe or a Time Machine restore holds over every av component it moves
+ * files of — so the delete/restore cannot move files a build is writing, and no
+ * build or upload can start on the record while it moves them.
+ *
+ * `take` adds one (component, lang) slot (true when held — already or now —
+ * false when another holder has it); the file movers call it per identity they
+ * are about to touch, so a lang the caller did not foresee is held, or refused,
+ * there. `release` gives every slot back (idempotent; after it `take` refuses).
+ */
+export class AvRecordHold {
+	private readonly claims = new Map<string, JobTargetClaim>();
+	private released = false;
+
+	constructor(
+		readonly sectionTipo: string,
+		readonly sectionId: number,
+	) {}
+
+	take(componentTipo: string, itemLang: string | null): boolean {
+		if (this.released) return false;
+		const lang = slotLang(itemLang);
+		const key = slotKey(componentTipo, lang);
+		if (this.claims.has(key)) return true;
+		const claim = mediaJobs.claimTarget(
+			avComponentTarget(
+				{ sectionTipo: this.sectionTipo, sectionId: this.sectionId, componentTipo, lang },
+				RECORD_HOLD_TIER,
+			),
+		);
+		if (claim === null) return false;
+		this.claims.set(key, claim);
+		return true;
+	}
+
+	/** Take a slot or throw `media.build_running` (nothing else is released). */
+	require(componentTipo: string, lang: string | null): void {
+		if (this.take(componentTipo, lang)) return;
+		const target = avComponentTarget(
+			{
+				sectionTipo: this.sectionTipo,
+				sectionId: this.sectionId,
+				componentTipo,
+				lang: slotLang(lang),
+			},
+			RECORD_HOLD_TIER,
+		);
+		throw new DedaloError('media.build_running', {
+			message: `record media refused: a build or another operation holds ${jobTargetKey(target)}`,
+			coordinates: { target: jobTargetKey(target) },
+		});
+	}
+
+	release(): void {
+		this.released = true;
+		for (const claim of this.claims.values()) claim.release();
+		this.claims.clear();
+	}
+}
+
+/** The langs of a media column value's items (null for an item without one). */
+function itemLangs(items: unknown): (string | null)[] {
+	if (!Array.isArray(items)) return [];
+	return items.map((item) => {
+		const lang = (item as { lang?: unknown } | null)?.lang;
+		return typeof lang === 'string' && lang !== '' ? lang : null;
+	});
+}
+
+/**
+ * HOLD every av component of a record, or refuse with `media.build_running` —
+ * BEFORE the caller writes anything (a delete, a wipe, an undelete). The
+ * components: the av components the section DECLARES (an upload in progress has
+ * written no media key yet) plus any av key the media column holds. The langs
+ * per component: the
+ * untranslatable slot, every lang its items name, and every lang a live holder
+ * holds right now (`liveComponentLangs` — this instance and the lock files).
+ * On a refusal every slot already taken is given back. The caller releases the
+ * hold in a `finally` AFTER its file sweep, passing it to the mover
+ * (`SectionMediaFilesOptions.avHold`).
+ */
+export async function holdRecordAvComponents(
+	sectionTipo: string,
+	sectionId: number,
+	mediaColumn: unknown,
+): Promise<AvRecordHold> {
+	const components = await recordAvComponents(sectionTipo, mediaColumn);
+	const media = (mediaColumn ?? {}) as Record<string, unknown>;
+	const hold = new AvRecordHold(sectionTipo, sectionId);
+	try {
+		for (const componentTipo of components) {
+			const langs = new Set<string | null>([
+				null,
+				...itemLangs(media[componentTipo]),
+				...mediaJobs.liveComponentLangs(sectionTipo, sectionId, componentTipo),
+			]);
+			for (const lang of langs) hold.require(componentTipo, lang);
+		}
+	} catch (error) {
+		hold.release();
+		throw error;
+	}
+	return hold;
+}
+
+/** The av component tipos of a record: declared by its section, or keyed in its media column. */
+async function recordAvComponents(sectionTipo: string, mediaColumn: unknown): Promise<string[]> {
+	const tipos = new Set<string>();
+	for (const component of await declaredSectionComponents(sectionTipo)) {
+		if (component.model === 'component_av') tipos.add(component.tipo);
+	}
+	for (const tipo of await mediaColumnAvTipos(mediaColumn, tipos)) tipos.add(tipo);
+	return [...tipos];
+}
+
+/** The av tipos a media column keys that `known` does not already hold (a section that no longer declares them). */
+async function mediaColumnAvTipos(
+	mediaColumn: unknown,
+	known: ReadonlySet<string>,
+): Promise<string[]> {
+	if (mediaColumn === null || typeof mediaColumn !== 'object') return [];
+	const found: string[] = [];
+	for (const tipo of Object.keys(mediaColumn)) {
+		if (!known.has(tipo) && (await getModelByTipo(tipo)) === 'component_av') found.push(tipo);
+	}
+	return found;
 }

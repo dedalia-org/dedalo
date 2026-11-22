@@ -114,3 +114,24 @@
   component held past a deadline stays held until the worker settles; a
   shutdown releases held claims' locks too. Gate:
   `test/unit/media_component_lock_native.test.ts` (28).
+- **Addendum 2026-11-22 (review M3, the record doors):** the three doors that
+  move EVERY file of a record's av components outside the job manager now join
+  the per-component hold. `deleteSectionRecord`, `deleteSectionData` (behind
+  their row lock, before any write) and the Time Machine undelete
+  `restoreSection` (before its transaction) take the RECORD AV HOLD
+  (`av_component_claim.ts` `holdRecordAvComponents`): every av component the
+  section declares or the media column names, for the untranslatable slot,
+  every item lang, and every lang a lock file of any instance holds. A busy
+  slot refuses the whole operation with 409 `media.build_running` — the row, its
+  Time Machine rows and the disk untouched (the in-transaction throw rolls back).
+  The hold is kept through the file sweep and released after it. The two file
+  movers (`removeSectionMediaFiles`, `restoreDeletedSectionMediaFiles`) move an
+  av identity only under a hold — the caller's, or their own for the pass — so
+  the bulk revert's post-commit restore halves (no pre-write refusal possible: the
+  row is already back) report a busy av component as that component's error and
+  leave its files in `deleted/`, recoverable. The wipe holds every av component
+  of the record, not only its wipe scope (a build on an av component a virtual
+  section excludes refuses the wipe too — the safe side). Wire change: record
+  delete, delete-data and section undelete can now answer 409
+  `media.build_running`. Gate: `test/unit/av_record_media_hold_native.test.ts`
+  (9).

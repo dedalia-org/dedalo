@@ -41,6 +41,7 @@ import { config } from '../../config/config.ts';
 import { isMediaModel, type MediaTypeSpec, mediaTypeOf } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { getModelByTipo } from '../ontology/resolver.ts';
+import { AvRecordHold } from './av_component_claim.ts';
 import { recordFromColumns, resolveMediaPathOptions } from './ontology_path.ts';
 import {
 	assertInsideMediaRoot,
@@ -336,6 +337,45 @@ export interface SectionMediaFilesOptions {
 	 * untouched by either.
 	 */
 	snapshot?: Record<string, unknown>;
+	/**
+	 * The caller's RECORD-WIDE av hold (A1-01 review M3: av_component_claim.ts
+	 * holdRecordAvComponents), taken BEFORE it wrote anything so a busy component
+	 * refused the whole delete / restore. The two movers move an av identity's
+	 * files only under a hold: this one (a lang it does not cover yet is taken
+	 * here), or — without it — the mover's own for the pass. Ignored by the
+	 * read-only walks.
+	 */
+	avHold?: AvRecordHold;
+}
+
+/**
+ * Run a MOVER pass under a record av hold — the caller's, or the pass's own
+ * (released after). See `SectionMediaFilesOptions.avHold`.
+ */
+async function withMoverAvHold<T>(
+	sectionTipo: string,
+	sectionId: number,
+	options: SectionMediaFilesOptions,
+	work: (hold: AvRecordHold) => Promise<T>,
+): Promise<T> {
+	if (options.avHold !== undefined) return await work(options.avHold);
+	const own = new AvRecordHold(sectionTipo, sectionId);
+	try {
+		return await work(own);
+	} finally {
+		own.release();
+	}
+}
+
+/**
+ * The movers' av rule: an av identity's files move only while the hold has its
+ * (component, lang) slot. A slot another holder has (a build, an upload, a
+ * conform) THROWS `media.build_running` — the walk reports it as that
+ * component's error and its files stay where they are (recoverable: re-run the
+ * sweep), never moved under a build writing them. Other models pass.
+ */
+function requireMoverSlot(hold: AvRecordHold, spec: MediaTypeSpec, identity: MediaIdentity): void {
+	if (spec.model === 'component_av') hold.require(identity.componentTipo, identity.lang);
 }
 
 /**
@@ -438,12 +478,9 @@ export async function removeSectionMediaFiles(
 	options: SectionMediaFilesOptions = {},
 ): Promise<SectionMediaFilesOutcome> {
 	const now = options.now ?? new Date();
-	return walkSectionMedia(
-		sectionTipo,
-		sectionId,
-		mediaColumn,
-		options,
-		(spec, identity, pathOpts) => {
+	return withMoverAvHold(sectionTipo, sectionId, options, (hold) =>
+		walkSectionMedia(sectionTipo, sectionId, mediaColumn, options, (spec, identity, pathOpts) => {
+			requireMoverSlot(hold, spec, identity);
 			const moved: string[] = [];
 			for (const [quality, extension] of managedFileSlots(spec)) {
 				const path = buildMediaLocation(spec, identity, quality, extension, pathOpts).absolutePath;
@@ -469,7 +506,7 @@ export async function removeSectionMediaFiles(
 				if (target !== null) moved.push(target);
 			}
 			return moved;
-		},
+		}),
 	);
 }
 
@@ -500,12 +537,9 @@ export async function restoreDeletedSectionMediaFiles(
 	mediaColumn: Record<string, unknown[]> | null | undefined,
 	options: SectionMediaFilesOptions = {},
 ): Promise<SectionMediaFilesOutcome> {
-	return walkSectionMedia(
-		sectionTipo,
-		sectionId,
-		mediaColumn,
-		options,
-		(spec, identity, pathOpts) => {
+	return withMoverAvHold(sectionTipo, sectionId, options, (hold) =>
+		walkSectionMedia(sectionTipo, sectionId, mediaColumn, options, (spec, identity, pathOpts) => {
+			requireMoverSlot(hold, spec, identity);
 			const restored: string[] = [];
 			for (const [quality, extension] of managedFileSlots(spec)) {
 				const live = buildMediaLocation(spec, identity, quality, extension, pathOpts).absolutePath;
@@ -524,7 +558,7 @@ export async function restoreDeletedSectionMediaFiles(
 				if (target !== null) restored.push(target);
 			}
 			return restored;
-		},
+		}),
 	);
 }
 

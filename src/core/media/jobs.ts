@@ -83,6 +83,7 @@ import {
 	type ComponentLockHandle,
 	componentLockBusy,
 	componentLockIsOurs,
+	componentLockKeysWithPrefix,
 	refreshComponentLock,
 	relabelComponentLock,
 	releaseComponentLock,
@@ -1344,6 +1345,30 @@ export class MediaJobManager {
 	 */
 	hasLiveJobForTarget(target: JobTarget): boolean {
 		return (this.liveByTarget.get(jobTargetKey(target))?.size ?? 0) > 0;
+	}
+
+	/**
+	 * Every LANG a component-scoped holder holds on one av component of one
+	 * record right now — read from the lock files, which EVERY component-scoped
+	 * holder takes (this instance's claims and jobs included), so one listing
+	 * answers for all instances. A record-wide hold (a delete, a restore: av_component_claim.ts
+	 * holdRecordAvComponents) asks it so a build in a lang the record's data does
+	 * not name yet (a first upload of a translatable component) is held too. A
+	 * listing, not a judgement: a stale lock's lang is listed, and the claim that
+	 * follows judges (and reclaims) it. null = the untranslatable slot.
+	 */
+	liveComponentLangs(
+		sectionTipo: string,
+		sectionId: number,
+		componentTipo: string,
+	): (string | null)[] {
+		const prefix = `${recordKeyPrefix(sectionTipo, sectionId)}${componentTipo}|`;
+		const langs = new Set<string | null>();
+		for (const key of componentLockKeysWithPrefix(this.lockContext().dir, prefix)) {
+			const lang = key.slice(prefix.length);
+			langs.add(lang === '' ? null : lang);
+		}
+		return [...langs];
 	}
 
 	/**

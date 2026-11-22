@@ -632,6 +632,11 @@ Merged since the last release; these ship with the next one.
     running they are refused with the same message, and none of them can start a build behind its back.
     The Update cache *Regenerate* pass reports such a field as busy and carries on with the rest.
 
+    Deleting a record, emptying its data, and restoring a deleted record from the
+    [time machine](./using/tools/using_time_machine.md) wait the same way: while one of the record's
+    audio/video fields is being built or uploaded, they are refused with the same message and nothing
+    is deleted, emptied or restored. Try again when the job has finished.
+
     Media versions now shows this before you click: while one quality of an audio/video field is being
     built, the rebuild buttons of its other qualities are greyed out, and hovering one says why.
 
