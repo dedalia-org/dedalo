@@ -268,24 +268,33 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 		quality,
 		processOptions,
 	});
-	// Persist the fresh files_info + the name keys to the record so the client
-	// renders the NEW image (not the stale/placeholder). Without this the upload
-	// only touched the disk; the stored media data stayed on the old file.
-	await persistUploadedMedia({
-		sectionTipo: identity.sectionTipo,
-		sectionId: identity.sectionId,
-		componentTipo: identity.componentTipo,
-		lang: identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: String(fileData.tmp_name ?? result.originalFileName),
-		originalNormalizedName: result.originalFileName,
-		// Provenance follows the tier the file landed in (PHP :778).
-		nameKeys: nameKeysForQuality(spec, quality),
-	});
-	// AFTER the persist commits: the transcode writes its own files_info back,
-	// and must not race the write above (see IngestResult.startTranscode).
-	const ocrStart = startOcrReporting(result.startOcr);
-	const jobId = result.startTranscode?.() ?? ocrStart.jobId;
+	let ocrStart: ReturnType<typeof startOcrReporting>;
+	let jobId: string | null;
+	try {
+		// Persist the fresh files_info + the name keys to the record so the client
+		// renders the NEW image (not the stale/placeholder). Without this the upload
+		// only touched the disk; the stored media data stayed on the old file.
+		await persistUploadedMedia({
+			sectionTipo: identity.sectionTipo,
+			sectionId: identity.sectionId,
+			componentTipo: identity.componentTipo,
+			lang: identity.lang,
+			filesInfo: result.filesInfo,
+			originalFileName: String(fileData.tmp_name ?? result.originalFileName),
+			originalNormalizedName: result.originalFileName,
+			// Provenance follows the tier the file landed in (PHP :778).
+			nameKeys: nameKeysForQuality(spec, quality),
+		});
+		// AFTER the persist commits: the transcode writes its own files_info back,
+		// and must not race the write above (see IngestResult.startTranscode).
+		ocrStart = startOcrReporting(result.startOcr);
+		jobId = result.startTranscode?.() ?? ocrStart.jobId;
+	} finally {
+		// A persist that threw never reached startTranscode: give the av build
+		// target the ingest claimed back (IngestResult.releaseBuildClaim — a no-op
+		// once the job adopted it, and for every non-av upload).
+		result.releaseBuildClaim();
+	}
 
 	// Activity audit (PHP logger 'UPLOAD COMPLETE' code 11,
 	// tool_upload :49). PHP serializes the whole file_data blob into the

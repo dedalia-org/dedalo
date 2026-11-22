@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 950,
-		"functions": 16951,
+		"functions": 16966,
 		"functionsOverCap": 640,
 		"filesOverCap": 252
 	},
@@ -370,7 +370,7 @@
 		"src/core/media/file_ops.ts": 17,
 		"src/core/media/files_info.ts": 12,
 		"src/core/media/ingest/add_file.ts": 8,
-		"src/core/media/ingest/process_uploaded_file.ts": 21,
+		"src/core/media/ingest/process_uploaded_file.ts": 18,
 		"src/core/media/ingest/staged_files.ts": 12,
 		"src/core/media/ingest/staged_name_record.ts": 10,
 		"src/core/media/ingest/staging_gc.ts": 10,

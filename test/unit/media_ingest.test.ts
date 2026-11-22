@@ -686,7 +686,7 @@ describe('processUploadedFile (ingest → derivatives → files_info)', () => {
 			// tier is rebuildable, so the transcode is offered.
 			const withOriginal: MediaIdentity = { ...avIdentity, sectionId: 71 };
 			await stageVideo('upaudio2.mp4');
-			await processUploadedFile({
+			const seeded = await processUploadedFile({
 				spec: av,
 				identity: withOriginal,
 				pathOpts,
@@ -695,6 +695,10 @@ describe('processUploadedFile (ingest → derivatives → files_info)', () => {
 				tmpName: 'upaudio2.mp4',
 				extension: 'mp4',
 			}); // lands in `original`
+			// Its transcode is never started here, so its hold on the build target
+			// is given back — the caller contract (IngestResult.releaseBuildClaim);
+			// held, it refuses the next upload below as a live build (A1-01).
+			seeded.releaseBuildClaim();
 			rmSync(
 				buildMediaLocation(av, withOriginal, av.defaultQuality, av.defaultExtension, pathOpts)
 					.absolutePath,

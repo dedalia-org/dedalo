@@ -33,7 +33,7 @@ import {
 import { getFfmpegProfile, settingName } from './engine/ffmpeg_profiles.ts';
 import type { SpawnOptions } from './engine/spawn.ts';
 import { scanContextFromItem, scanFilesInfo } from './files_info.ts';
-import { type JobTarget, mediaJobs } from './jobs.ts';
+import { type JobTarget, type JobTargetClaim, mediaJobs } from './jobs.ts';
 import { buildMediaLocation, type MediaIdentity, type MediaPathOptions } from './path.ts';
 import { resolveMasterSource } from './processing.ts';
 import { readStoredMediaItems } from './tool_support.ts';
@@ -350,8 +350,42 @@ async function persistOrReport(
 }
 
 /**
+ * The target the INGEST transcode occupies — the default tier, plus the audio
+ * tier the same job writes. ONE derivation, read by submitAvTranscode and by the
+ * upload's claim (process_uploaded_file.ts), so the upload refusal and the job
+ * can never disagree about which tiers are busy.
+ *
+ * The job's target is the DEFAULT tier: that is the one an operator watches for
+ * after an upload, and the one whose empty cell in the versions panel started
+ * this. The audio tier rides along in the same job (it always has) and is named
+ * in `also_qualities` rather than given a target of its own — one job, one
+ * target, so the duplicate guard and the panel agree on what is busy.
+ */
+export function avIngestTarget(spec: MediaTypeSpec, identity: MediaIdentity): JobTarget {
+	return {
+		section_tipo: identity.sectionTipo,
+		section_id: identity.sectionId,
+		component_tipo: identity.componentTipo,
+		lang: identity.lang ?? null,
+		quality: spec.defaultQuality,
+		label: spec.defaultQuality,
+		// The audio tier is built by THIS SAME JOB, so it must be blocked
+		// too. Without it the guard covered the default tier and left audio
+		// open — a click on the audio gear mid-ingest started a second
+		// ffmpeg writing the very file this job was about to produce.
+		also_qualities: spec.qualities.includes('audio') ? ['audio'] : [],
+	};
+}
+
+/**
  * Submit the INGEST transcode: the default quality (two-pass) + the audio tier,
  * then the files_info write-back. Returns the job id.
+ *
+ * EXCLUSIVE (A1-01): refused with `media.build_running` while any tier it writes
+ * is live — a running build or another upload's claim — so no door can start a
+ * second ingest transcode of one component. `claim` is the upload's own hold on
+ * the target (processUploadedFile), adopted by the job in the same synchronous
+ * step.
  */
 export function submitAvTranscode(
 	spec: MediaTypeSpec,
@@ -359,12 +393,8 @@ export function submitAvTranscode(
 	pathOpts: MediaPathOptions,
 	rawExtension: string,
 	userId?: number,
+	claim?: JobTargetClaim,
 ): string {
-	// The job's target is the DEFAULT tier: that is the one an operator watches for
-	// after an upload, and the one whose empty cell in the versions panel started
-	// this. The audio tier rides along in the same job (it always has) and is named
-	// in the payload rather than given a target of its own — one job, one target,
-	// so the duplicate guard and the panel agree on what is busy.
 	const record = mediaJobs.submit(
 		'av_transcode',
 		async ({ onProgress, onData }) => {
@@ -431,19 +461,9 @@ export function submitAvTranscode(
 			// ffmpeg work — the media budget, by declaration (PERF-11).
 			lane: 'media',
 			userId,
-			target: {
-				section_tipo: identity.sectionTipo,
-				section_id: identity.sectionId,
-				component_tipo: identity.componentTipo,
-				lang: identity.lang ?? null,
-				quality: spec.defaultQuality,
-				label: spec.defaultQuality,
-				// The audio tier is built by THIS SAME JOB, so it must be blocked
-				// too. Without it the guard covered the default tier and left audio
-				// open — a click on the audio gear mid-ingest started a second
-				// ffmpeg writing the very file this job was about to produce.
-				also_qualities: spec.qualities.includes('audio') ? ['audio'] : [],
-			},
+			target: avIngestTarget(spec, identity),
+			exclusive: true,
+			...(claim === undefined ? {} : { claim }),
 		},
 	);
 	return record.id;
@@ -606,8 +626,10 @@ export async function submitAvVersionBuild(
 				faststart_error: faststartErrorOf(outcome),
 			};
 		},
-		// ffmpeg work — the media budget, by declaration (PERF-11).
-		{ lane: 'media', userId, target },
+		// ffmpeg work — the media budget, by declaration (PERF-11). EXCLUSIVE: the
+		// pre-flight's hasLiveJobForTarget is a question asked before an await
+		// (the probe); this is the answer that cannot interleave (A1-01).
+		{ lane: 'media', userId, target, exclusive: true },
 	);
 	return record.id;
 }

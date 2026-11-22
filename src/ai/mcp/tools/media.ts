@@ -231,18 +231,25 @@ export async function uploadMedia(
 		tmpName,
 		extension,
 	});
-	await persistUploadedMedia({
-		sectionTipo: identity.sectionTipo,
-		sectionId: identity.sectionId,
-		componentTipo: identity.componentTipo,
-		lang: identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: result.originalFileName,
-		originalNormalizedName: result.originalFileName,
-	});
-	// AFTER the persist commits: the transcode writes its own files_info back, and
-	// must not race the write above (see IngestResult.startTranscode).
-	const jobId = result.startTranscode?.() ?? null;
+	let jobId: string | null;
+	try {
+		await persistUploadedMedia({
+			sectionTipo: identity.sectionTipo,
+			sectionId: identity.sectionId,
+			componentTipo: identity.componentTipo,
+			lang: identity.lang,
+			filesInfo: result.filesInfo,
+			originalFileName: result.originalFileName,
+			originalNormalizedName: result.originalFileName,
+		});
+		// AFTER the persist commits: the transcode writes its own files_info back, and
+		// must not race the write above (see IngestResult.startTranscode).
+		jobId = result.startTranscode?.() ?? null;
+	} finally {
+		// A persist that threw never reached startTranscode: give the av build
+		// target back (IngestResult.releaseBuildClaim — a no-op otherwise).
+		result.releaseBuildClaim();
+	}
 	return {
 		section_tipo: sectionTipo,
 		section_id: sectionId,

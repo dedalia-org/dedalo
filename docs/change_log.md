@@ -606,6 +606,21 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-media-icons-tc`.
 
+- **An audio/video upload is refused while a version of the same file is still being built.**
+
+    Uploading a new audio or video file into a field whose previous file was still being converted
+    used to start a second conversion of the same field. Whichever finished last won, so the web
+    version could end up made from the OLD file, and the record's file information could disagree
+    with what was on disk.
+
+    Now the upload is refused while the field's web or audio version is being built (after an
+    earlier upload, or from Media versions), with the message *"A version build is already running
+    for this file. Wait until it finishes and try again"*. The file you sent is discarded and the
+    stored file is left exactly as it was. Wait for the job in the activity tray to finish, then
+    upload again. See [Upload](./using/tools/using_upload.md).
+
+    Wire contract: `WC-2026-11-22-av-upload-build-running`.
+
 - **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**
 
     The fragment shown for each indexation pointed its images at the application's address, which
@@ -2813,7 +2828,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 115 entries"
+??? note "Wire contract — 116 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2914,6 +2929,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
     - `WC-2026-11-22-areas-deny-subtree`
+    - `WC-2026-11-22-av-upload-build-running`
     - `WC-2026-11-22-diffusion-dataframe-hop`
     - `WC-2026-11-22-diffusion-ddo-empty-value`
     - `WC-2026-11-22-hierarchy-root-link-rule`

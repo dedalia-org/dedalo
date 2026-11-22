@@ -1,0 +1,593 @@
+/**
+ * A1-01 — AN AV UPLOAD WHILE A BUILD OF THE SAME COMPONENT IS LIVE IS REFUSED.
+ *
+ * v6 (tool_upload :80, component_av::is_build_locked) refused the upload,
+ * removed the staged file and allowed one build per component. Before this gate
+ * the engine started a SECOND ingest transcode for the same target: whichever
+ * finished last won the default tier (possibly the encode of the OLD master),
+ * and the two files_info write-backs raced.
+ *
+ * What is pinned, each against its own mutation:
+ *  - a live build on the default tier OR the audio tier refuses the upload with
+ *    `media.build_running`; the staged file is gone, the original byte-identical,
+ *    no job added (processUploadedFile → claimAvBuildTarget);
+ *  - no live build lets the upload through, and its transcode ADOPTS the claim;
+ *  - two CONCURRENT uploads: exactly one passes, exactly one job (the claim, not
+ *    a bare hasLiveJobForTarget question across the awaited move);
+ *  - submitAvTranscode called directly with a live build is refused, no job
+ *    added (the exclusive submit — no second door);
+ *  - submitAvVersionBuild racing a claim between its pre-flight and its submit
+ *    is refused (exclusive there too — the pre-flight question is asked before
+ *    an await);
+ *  - THE WIRE: tool_upload's handler throws the code; a persist that throws
+ *    gives the claim back (IngestResult.releaseBuildClaim), or the component
+ *    would refuse every upload until a restart.
+ *
+ * Situation: the generic `test` TLD (test3 playground, test94 = component_av),
+ * scratch records created here and deleted after; media in a scratch root (the
+ * core cases) or the marked SUITE media root (the tool wire, which resolves its
+ * root from config), job pfiles in a marked scratch processes dir.
+ */
+
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { uploadMedia } from '../../src/ai/mcp/tools/media.ts';
+import { config } from '../../src/config/config.ts';
+import { mediaTypeOf } from '../../src/core/concepts/media.ts';
+import { sql } from '../../src/core/db/postgres.ts';
+import { toErrorEnvelope } from '../../src/core/errors/convert.ts';
+import { submitAvTranscode, submitAvVersionBuild } from '../../src/core/media/av_versions.ts';
+import { runBinary } from '../../src/core/media/engine/spawn.ts';
+import { stagingDir } from '../../src/core/media/ingest/add_file.ts';
+import { processUploadedFile } from '../../src/core/media/ingest/process_uploaded_file.ts';
+import { type JobTarget, MediaJobManager, mediaJobs } from '../../src/core/media/jobs.ts';
+import {
+	buildMediaLocation,
+	type MediaIdentity,
+	type MediaPathOptions,
+	requireMediaRoot,
+} from '../../src/core/media/path.ts';
+import * as files_info_persist from '../../src/core/media/tools/files_info_persist.ts';
+import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
+import { deleteSectionRecord } from '../../src/core/section/record/delete_record.ts';
+import { resolvePrincipal } from '../../src/core/security/permissions.ts';
+import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import { mustGet } from '../helpers/assert.ts';
+import { markMediaRoot, markProcessesDir } from '../helpers/media_scratch_root.ts';
+import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
+
+// Snapshot the REAL module BEFORE any mock.module swap (process-global; a
+// spread copy, never the live namespace — mock_isolation_tripwire rule 3).
+const REAL_FILES_INFO_PERSIST = { ...files_info_persist };
+
+const ROOT = scratchDir('av_upload_build_guard');
+// The job-manager seam: this file's jobs write their pfiles here, never into
+// the live ../private/processes tree. Restored in afterAll.
+const previousProcessesDir = process.env.DEDALO_MEDIA_PROCESSES_DIR;
+process.env.DEDALO_MEDIA_PROCESSES_DIR = markProcessesDir(join(ROOT, 'processes'));
+const av = mustGet(mediaTypeOf('component_av'), 'component_av spec');
+const HAVE_FFMPEG = Bun.which(config.media.binaries.ffmpeg) !== null;
+const pathOpts: MediaPathOptions = { initialMediaPath: '', maxItemsFolder: 1000, mediaRoot: ROOT };
+const USER_ID = 7;
+const KEY_DIR = 'kd_a101';
+const SECTION = 'test3';
+const AV_COMPONENT = 'test94';
+
+/** Records this file created (deleted in afterAll); `deleted` ones are already gone. */
+const scratchIds: number[] = [];
+const deletedIds: number[] = [];
+/** Blocking workers still holding a target — released in afterAll whatever happened. */
+const releases: (() => void)[] = [];
+
+/**
+ * The ingest transcode's target, stated HERE rather than imported: the gate
+ * pins which tiers the upload must treat as busy (the default + the audio
+ * tier the same job writes), independent of the engine's own derivation.
+ */
+function ingestTarget(identity: MediaIdentity, quality: string = av.defaultQuality): JobTarget {
+	return {
+		section_tipo: identity.sectionTipo,
+		section_id: identity.sectionId,
+		component_tipo: identity.componentTipo,
+		lang: identity.lang ?? null,
+		quality,
+	};
+}
+
+/** A live build on `target` that runs until released (maintenance lane: never holds the media slot). */
+function liveBuild(manager: MediaJobManager, target: JobTarget): () => void {
+	let release = (): void => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	manager.submit('test_live_build', async () => await gate, { lane: 'maintenance', target });
+	releases.push(release);
+	return release;
+}
+
+/** A real 1 s 320x180 mp4 with an audio stream, written to `path`. */
+async function writeVideo(path: string): Promise<void> {
+	mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
+	await runBinary(
+		[
+			config.media.binaries.ffmpeg,
+			'-y',
+			'-f',
+			'lavfi',
+			'-i',
+			'testsrc=duration=1:size=320x180:rate=10',
+			'-f',
+			'lavfi',
+			'-i',
+			'anullsrc=r=44100:cl=stereo',
+			'-t',
+			'1',
+			'-c:v',
+			'libx264',
+			'-pix_fmt',
+			'yuv420p',
+			'-c:a',
+			'aac',
+			'-shortest',
+			path,
+		],
+		{ nice: false },
+	);
+}
+
+const stagedPath = (tmpName: string, root?: string, userId = USER_ID): string =>
+	join(stagingDir(userId, KEY_DIR, root), tmpName);
+const originalPath = (identity: MediaIdentity): string =>
+	buildMediaLocation(av, identity, av.originalQuality, 'mp4', pathOpts).absolutePath;
+
+/** A scratch test3 record with a real av ORIGINAL already on disk. */
+async function recordWithOriginal(): Promise<MediaIdentity> {
+	const sectionId = await createSectionRecord(SECTION, -1);
+	scratchIds.push(sectionId);
+	const identity: MediaIdentity = {
+		componentTipo: AV_COMPONENT,
+		sectionTipo: SECTION,
+		sectionId,
+		lang: null,
+	};
+	await writeVideo(originalPath(identity));
+	return identity;
+}
+
+const ingest = (identity: MediaIdentity, tmpName: string) =>
+	processUploadedFile({
+		spec: av,
+		identity,
+		pathOpts,
+		userId: USER_ID,
+		keyDir: KEY_DIR,
+		tmpName,
+		extension: 'mp4',
+	});
+
+/** Poll a media job to a terminal state (or give up). */
+async function awaitJob(jobId: string): Promise<void> {
+	for (let i = 0; i < 240; i++) {
+		const status = mediaJobs.status(jobId)?.status;
+		if (status !== 'queued' && status !== 'running') return;
+		await Bun.sleep(250);
+	}
+}
+
+const liveJobsOf = (identity: MediaIdentity): number =>
+	mediaJobs
+		.jobsForRecord(identity.sectionTipo, identity.sectionId)
+		.filter((job) => job.status === 'queued' || job.status === 'running').length;
+
+/** Every file under `dir` whose name carries `needle` (the suite root's cleanup). */
+function filesNamed(dir: string, needle: string): string[] {
+	if (!existsSync(dir)) return [];
+	const found: string[] = [];
+	for (const entry of readdirSync(dir)) {
+		const full = join(dir, entry);
+		const stat = statSync(full);
+		if (stat.isDirectory()) found.push(...filesNamed(full, needle));
+		else if (entry.includes(needle)) found.push(full);
+	}
+	return found;
+}
+
+beforeAll(() => {
+	rmSync(ROOT, { recursive: true, force: true });
+	markMediaRoot(ROOT);
+	markProcessesDir(join(ROOT, 'processes'));
+});
+
+afterAll(async () => {
+	for (const release of releases) release();
+	await Bun.sleep(50);
+	if (previousProcessesDir === undefined)
+		Reflect.deleteProperty(process.env, 'DEDALO_MEDIA_PROCESSES_DIR');
+	else process.env.DEDALO_MEDIA_PROCESSES_DIR = previousProcessesDir;
+	rmSync(ROOT, { recursive: true, force: true });
+	const failures: string[] = [];
+	for (const id of [...scratchIds, ...deletedIds]) {
+		// The tool-wire cases write into the SUITE media root (marked): sweep this
+		// file's identifiers out of it, staged copies included.
+		for (const file of filesNamed(requireMediaRoot(), `${AV_COMPONENT}_${SECTION}_${id}.`)) {
+			rmSync(file, { force: true });
+		}
+	}
+	// The tool wire stages under the suite root as user -1: this file's key dir.
+	rmSync(stagingDir(-1, KEY_DIR), { recursive: true, force: true });
+	for (const id of scratchIds) {
+		try {
+			const outcome = await deleteSectionRecord(SECTION, id, -1);
+			if (outcome.removed !== true) failures.push(`${SECTION}/${id}: ${JSON.stringify(outcome)}`);
+		} catch (error) {
+			failures.push(`${SECTION}/${id}: ${(error as Error).message}`);
+		}
+	}
+	for (const id of [...scratchIds, ...deletedIds]) {
+		await sql.unsafe(
+			'DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2',
+			[SECTION, id],
+		);
+	}
+	if (failures.length > 0) throw new Error(`scratch cleanup failed: ${failures.join('; ')}`);
+});
+
+describe('A1-01 job manager: claims + the exclusive submit', () => {
+	test('a claim is refused while any tier it occupies is live, and frees on release', async () => {
+		const manager = new MediaJobManager({ budgets: { media: 2, maintenance: 4 } });
+		const identity: MediaIdentity = {
+			componentTipo: AV_COMPONENT,
+			sectionTipo: SECTION,
+			sectionId: 1,
+			lang: null,
+		};
+		const wide: JobTarget = { ...ingestTarget(identity), also_qualities: ['audio'] };
+		// The AUDIO tier alone being live blocks the ingest target (its companion).
+		const releaseAudio = liveBuild(manager, ingestTarget(identity, 'audio'));
+		expect(manager.claimTarget(wide)).toBeNull();
+		releaseAudio();
+		await Bun.sleep(20);
+		const first = mustGet(manager.claimTarget(wide), 'first claim');
+		// A claim is live to every reader of the index…
+		expect(manager.hasLiveJobForTarget(ingestTarget(identity))).toBe(true);
+		expect(manager.hasLiveJobForTarget(ingestTarget(identity, 'audio'))).toBe(true);
+		// …so a second claim is refused, synchronously.
+		expect(manager.claimTarget(wide)).toBeNull();
+		first.release();
+		first.release(); // idempotent
+		expect(manager.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+		mustGet(manager.claimTarget(wide), 'claim after release').release();
+	});
+
+	test('an exclusive submit over a live tier is refused and registers nothing', () => {
+		const manager = new MediaJobManager({ budgets: { media: 2, maintenance: 4 } });
+		const identity: MediaIdentity = {
+			componentTipo: AV_COMPONENT,
+			sectionTipo: SECTION,
+			sectionId: 2,
+			lang: null,
+		};
+		liveBuild(manager, ingestTarget(identity));
+		const before = manager.jobsForRecord(SECTION, 2).length;
+		const refused = refusalOfSync(() =>
+			manager.submit('av_transcode', async () => null, {
+				lane: 'media',
+				target: ingestTarget(identity),
+				exclusive: true,
+			}),
+		);
+		expect(refused.code).toBe('media.build_running');
+		expect(toErrorEnvelope(refused, { requestId: 'a101' }).status).toBe(409);
+		expect(manager.jobsForRecord(SECTION, 2).length).toBe(before);
+	});
+
+	test('a submit ADOPTS its claim: the tier never frees in between, and frees when the job ends', async () => {
+		const manager = new MediaJobManager({ budgets: { media: 2, maintenance: 4 } });
+		const identity: MediaIdentity = {
+			componentTipo: AV_COMPONENT,
+			sectionTipo: SECTION,
+			sectionId: 3,
+			lang: null,
+		};
+		const claim = mustGet(manager.claimTarget(ingestTarget(identity)), 'claim');
+		let finish = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		releases.push(finish);
+		manager.submit('av_transcode', async () => await gate, {
+			lane: 'media',
+			target: ingestTarget(identity),
+			exclusive: true,
+			claim,
+		});
+		claim.release(); // adopted: a no-op, the JOB holds the tier now
+		expect(manager.hasLiveJobForTarget(ingestTarget(identity))).toBe(true);
+		finish();
+		await Bun.sleep(20);
+		expect(manager.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+	});
+});
+
+describe('A1-01 the av upload door (processUploadedFile)', () => {
+	for (const tier of [av.defaultQuality, 'audio']) {
+		test.if(HAVE_FFMPEG)(
+			`a live build of the '${tier}' tier refuses the upload: staged file gone, original intact, no job added`,
+			async () => {
+				const identity = await recordWithOriginal();
+				const originalBytes = readFileSync(originalPath(identity));
+				const release = liveBuild(mediaJobs, ingestTarget(identity, tier));
+				const tmpName = `refused_${tier}.mp4`;
+				await writeVideo(stagedPath(tmpName, ROOT));
+				const jobsBefore = mediaJobs.jobsForRecord(SECTION, identity.sectionId).length;
+
+				const refused = await refusalOf(ingest(identity, tmpName));
+				expect(refused.code).toBe('media.build_running');
+				expect(existsSync(stagedPath(tmpName, ROOT))).toBe(false);
+				expect(readFileSync(originalPath(identity)).equals(originalBytes)).toBe(true);
+				expect(mediaJobs.jobsForRecord(SECTION, identity.sectionId).length).toBe(jobsBefore);
+				release();
+			},
+			60_000,
+		);
+	}
+
+	test.if(HAVE_FFMPEG)(
+		'no live build: the upload lands and its transcode is the one job',
+		async () => {
+			const identity = await recordWithOriginal();
+			await writeVideo(stagedPath('free.mp4', ROOT));
+			const result = await ingest(identity, 'free.mp4');
+			expect(existsSync(stagedPath('free.mp4', ROOT))).toBe(false);
+			const jobId = mustGet(result.startTranscode, 'startTranscode')();
+			expect(liveJobsOf(identity)).toBe(1);
+			await awaitJob(jobId);
+			expect(mediaJobs.status(jobId)?.status).toBe('done');
+			expect(mediaJobs.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+		},
+		120_000,
+	);
+
+	test('an ingest that throws after the claim gives the build target back', async () => {
+		const identity: MediaIdentity = {
+			componentTipo: AV_COMPONENT,
+			sectionTipo: SECTION,
+			sectionId: 4,
+			lang: null,
+		};
+		// No staged file: the move (after the claim) throws media.file_not_found.
+		const refused = await refusalOf(ingest(identity, 'never_staged.mp4'));
+		expect(refused.code).toBe('media.file_not_found');
+		const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
+		expect(claim).not.toBeNull();
+		claim?.release();
+	});
+
+	test.if(HAVE_FFMPEG)(
+		'an upload that offers no transcode gives the build target back at once',
+		async () => {
+			// An av file parked in the audio tier of a record with NO original: there
+			// is nothing to derive from, so no transcode is offered (media_ingest).
+			const identity: MediaIdentity = {
+				componentTipo: AV_COMPONENT,
+				sectionTipo: SECTION,
+				sectionId: 5,
+				lang: null,
+			};
+			await writeVideo(stagedPath('parked.mp4', ROOT));
+			const result = await processUploadedFile({
+				spec: av,
+				identity,
+				pathOpts,
+				userId: USER_ID,
+				keyDir: KEY_DIR,
+				tmpName: 'parked.mp4',
+				extension: 'mp4',
+				quality: 'audio',
+			});
+			expect(result.startTranscode).toBeNull();
+			const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
+			expect(claim).not.toBeNull();
+			claim?.release();
+		},
+		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'two CONCURRENT uploads of one component: exactly one passes, exactly one job',
+		async () => {
+			const identity = await recordWithOriginal();
+			await writeVideo(stagedPath('race_a.mp4', ROOT));
+			await writeVideo(stagedPath('race_b.mp4', ROOT));
+			const settled = await Promise.allSettled([
+				ingest(identity, 'race_a.mp4'),
+				ingest(identity, 'race_b.mp4'),
+			]);
+			const passed = settled.filter((outcome) => outcome.status === 'fulfilled');
+			const refused = settled.filter((outcome) => outcome.status === 'rejected');
+			expect(passed.length).toBe(1);
+			expect(refused.length).toBe(1);
+			expect((refused[0] as PromiseRejectedResult).reason?.code).toBe('media.build_running');
+			// Neither staged file is left: one was ingested, one discarded.
+			expect(existsSync(stagedPath('race_a.mp4', ROOT))).toBe(false);
+			expect(existsSync(stagedPath('race_b.mp4', ROOT))).toBe(false);
+			const winner = (passed[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof ingest>>>)
+				.value;
+			const jobId = mustGet(winner.startTranscode, 'startTranscode')();
+			expect(liveJobsOf(identity)).toBe(1);
+			await awaitJob(jobId);
+		},
+		120_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'submitAvTranscode called directly over a live build is refused, no job added',
+		async () => {
+			const identity = await recordWithOriginal();
+			for (const tier of [av.defaultQuality, 'audio']) {
+				const release = liveBuild(mediaJobs, ingestTarget(identity, tier));
+				const before = mediaJobs.jobsForRecord(SECTION, identity.sectionId).length;
+				const refused = refusalOfSync(() => submitAvTranscode(av, identity, pathOpts, 'mp4'));
+				expect(refused.code).toBe('media.build_running');
+				expect(mediaJobs.jobsForRecord(SECTION, identity.sectionId).length).toBe(before);
+				release();
+				await Bun.sleep(20);
+			}
+		},
+		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'a per-quality build racing a claim between its pre-flight and its submit is refused',
+		async () => {
+			const identity = await recordWithOriginal();
+			const before = mediaJobs.jobsForRecord(SECTION, identity.sectionId).length;
+			// The pre-flight's synchronous half runs NOW (no live job → passes), then
+			// the build awaits the probe; the claim lands in that window.
+			const build = submitAvVersionBuild(av, identity, pathOpts, '240');
+			const claim = mustGet(mediaJobs.claimTarget(ingestTarget(identity, '240')), 'claim');
+			try {
+				const refused = await refusalOf(build);
+				expect(refused.code).toBe('media.build_running');
+				expect(mediaJobs.jobsForRecord(SECTION, identity.sectionId).length).toBe(before);
+			} finally {
+				claim.release();
+			}
+		},
+		60_000,
+	);
+});
+
+describe('A1-01 the tool_upload wire', () => {
+	async function callUpload(sectionId: number, tmpName: string): Promise<unknown> {
+		const loaded = await getLoadedTool('tool_upload');
+		const upload = mustGet(
+			loaded?.module.apiActions.process_uploaded_file,
+			'process_uploaded_file',
+		);
+		return upload.handler({
+			principal: await resolvePrincipal(-1),
+			userId: -1,
+			background: false,
+			options: {
+				tipo: AV_COMPONENT,
+				section_tipo: SECTION,
+				section_id: sectionId,
+				file_data: { key_dir: KEY_DIR, tmp_name: tmpName, extension: 'mp4' },
+			},
+		});
+	}
+
+	test.if(HAVE_FFMPEG)(
+		'process_uploaded_file answers media.build_running (409) and discards the staged file',
+		async () => {
+			const sectionId = await createSectionRecord(SECTION, -1);
+			scratchIds.push(sectionId);
+			const identity: MediaIdentity = {
+				componentTipo: AV_COMPONENT,
+				sectionTipo: SECTION,
+				sectionId,
+				lang: null,
+			};
+			const release = liveBuild(mediaJobs, ingestTarget(identity));
+			const tmpName = `${AV_COMPONENT}_${SECTION}_${sectionId}.wire.mp4`;
+			await writeVideo(stagedPath(tmpName, undefined, -1));
+			const refused = await refusalOf(callUpload(sectionId, tmpName));
+			expect(refused.code).toBe('media.build_running');
+			expect(toErrorEnvelope(refused, { requestId: 'a101' }).status).toBe(409);
+			expect(existsSync(stagedPath(tmpName, undefined, -1))).toBe(false);
+			release();
+		},
+		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'a persist that throws gives the build target back (releaseBuildClaim)',
+		async () => {
+			// A record that no longer exists: the ingest lands the file, the persist
+			// throws resource.not_found — after the claim was taken.
+			const sectionId = await createSectionRecord(SECTION, -1);
+			const removed = await deleteSectionRecord(SECTION, sectionId, -1);
+			expect(removed.removed).toBe(true);
+			deletedIds.push(sectionId);
+			const identity: MediaIdentity = {
+				componentTipo: AV_COMPONENT,
+				sectionTipo: SECTION,
+				sectionId,
+				lang: null,
+			};
+			const tmpName = `${AV_COMPONENT}_${SECTION}_${sectionId}.gone.mp4`;
+			await writeVideo(stagedPath(tmpName, undefined, -1));
+			const refused = await refusalOf(callUpload(sectionId, tmpName));
+			expect(refused.code).toBe('resource.not_found');
+			// Held, this would refuse every later upload of the component.
+			const claim = mediaJobs.claimTarget({
+				...ingestTarget(identity),
+				also_qualities: ['audio'],
+			});
+			expect(claim).not.toBeNull();
+			claim?.release();
+		},
+		60_000,
+	);
+});
+
+describe('A1-01 the MCP upload door', () => {
+	afterEach(() => {
+		mock.module('../../src/core/media/tools/files_info_persist.ts', () => REAL_FILES_INFO_PERSIST);
+	});
+
+	test.if(HAVE_FFMPEG)(
+		'upload_media: a persist that throws gives the build target back (releaseBuildClaim)',
+		async () => {
+			const sectionId = await createSectionRecord(SECTION, -1);
+			scratchIds.push(sectionId);
+			const identity: MediaIdentity = {
+				componentTipo: AV_COMPONENT,
+				sectionTipo: SECTION,
+				sectionId,
+				lang: null,
+			};
+			const source = join(ROOT, 'mcp_source.mp4');
+			await writeVideo(source);
+			// The door stages under a fresh `mcp_<uuid>` key dir of user -1 in the
+			// suite root; whatever this case adds there is removed below.
+			const userStaging = stagingDir(-1, 'x').slice(0, -2);
+			const stagedBefore = new Set(existsSync(userStaging) ? readdirSync(userStaging) : []);
+			// The fault the door must survive: the persist fails AFTER the ingest took
+			// the claim (a record locked or deleted mid-flight).
+			mock.module('../../src/core/media/tools/files_info_persist.ts', () => ({
+				...REAL_FILES_INFO_PERSIST,
+				persistUploadedMedia: async () => {
+					throw new Error('a101: injected persist failure');
+				},
+			}));
+			await expect(
+				uploadMedia(await resolvePrincipal(-1), {
+					section_tipo: SECTION,
+					section_id: sectionId,
+					field: AV_COMPONENT,
+					source: {
+						kind: 'base64',
+						data: readFileSync(source).toString('base64'),
+						filename: 'mcp_source.mp4',
+					},
+				}),
+			).rejects.toThrow('a101: injected persist failure');
+			for (const entry of readdirSync(userStaging)) {
+				if (!stagedBefore.has(entry) && entry.startsWith('mcp_')) {
+					rmSync(join(userStaging, entry), { recursive: true, force: true });
+				}
+			}
+			const claim = mediaJobs.claimTarget({
+				...ingestTarget(identity),
+				also_qualities: ['audio'],
+			});
+			expect(claim).not.toBeNull();
+			claim?.release();
+		},
+		60_000,
+	);
+});

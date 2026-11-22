@@ -3291,6 +3291,23 @@ export const ERROR_REGISTRY = {
 		disclosure: 'public',
 		retryable: false,
 	},
+	// A version build (the ingest transcode or a per-quality build) is LIVE for
+	// the component an av upload or a second build targets (A1-01; v6
+	// component_av::is_build_locked, tool_upload :80). Replacing the master while
+	// ffmpeg reads it lets the encode of the OLD master win the default tier.
+	// Refused BEFORE the move: the staged upload is discarded, the original
+	// untouched. Not retryable: the running transcode takes minutes, an
+	// automatic resend only answers the same refusal.
+	'media.build_running': {
+		category: 'conflict',
+		status: 409,
+		label_key: 'error_media_build_running',
+		message:
+			'A version build is already running for this file. Wait until it finishes and try again',
+		severity: 'info',
+		disclosure: 'public',
+		retryable: false,
+	},
 	// --- write paths (P3) ---
 	// The record write doors (section/record/**, section_record/**): the
 	// caller-addressable refusals that used to be bare `throw new Error(`.

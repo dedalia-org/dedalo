@@ -811,6 +811,39 @@ export interface JobSubmitMeta {
 	 * callback is swallowed: it must never take down the job manager.
 	 */
 	onTerminal?: (record: JobRecord) => void;
+	/**
+	 * EXCLUSIVE submit: refuse with `media.build_running` when any tier this job
+	 * would occupy (`target.quality` + `also_qualities`) is already live — a job
+	 * OR a claim (claimTarget). The check and the index entry happen in the same
+	 * synchronous block, so two exclusive submits for one target can never both
+	 * pass. Requires `target`. The av builds set it (av_versions.ts); nothing
+	 * else does today.
+	 */
+	exclusive?: boolean;
+	/**
+	 * A claim the submitter holds on this job's target (claimTarget). The job
+	 * ADOPTS it: the claim leaves the index and the job enters it in one
+	 * synchronous step, so the target is never free in between. Must still be
+	 * held and name the same target — anything else is an engine defect.
+	 */
+	claim?: JobTargetClaim;
+}
+
+/**
+ * A HELD RESERVATION of a job target, before any job exists (claimTarget).
+ *
+ * Why it exists: the av upload refuses while a build of the same component is
+ * live (A1-01), but between that check and the transcode submit lie the file
+ * move, the posterframe and the caller's files_info persist — all awaited. A
+ * bare `hasLiveJobForTarget` check there lets two concurrent uploads both pass
+ * and both replace the master. A claim occupies the target in the live index
+ * from the check onward, so the second upload sees it as a running build.
+ */
+export interface JobTargetClaim {
+	readonly id: string;
+	readonly target: JobTarget;
+	/** Give the target back. Idempotent; a no-op once a job adopted the claim. */
+	release(): void;
 }
 
 export class MediaJobManager {
@@ -831,6 +864,8 @@ export class MediaJobManager {
 	 * transition, so a key present here always names live work.
 	 */
 	private readonly liveByTarget = new Map<string, Set<string>>();
+	/** Held, not-yet-adopted target claims by claim id (claimTarget) — they live in liveByTarget too. */
+	private readonly claims = new Map<string, JobTarget>();
 	/** A monotonic clock injected for determinism in tests (default Date.now via performance origin). */
 	private readonly clock: () => number;
 	/** Armed deadline timers by job id — cleared on every settle. */
@@ -924,24 +959,110 @@ export class MediaJobManager {
 	/** Enter a targeted job into the live-by-target index (no-op when untargeted). */
 	private indexLive(record: JobRecord): void {
 		if (record.target === undefined) return;
-		for (const key of this.occupiedKeys(record.target)) {
-			let ids = this.liveByTarget.get(key);
-			if (ids === undefined) {
-				ids = new Set();
-				this.liveByTarget.set(key, ids);
-			}
-			ids.add(record.id);
-		}
+		this.indexKeys(record.id, record.target);
 	}
 
 	/** Drop a job from the live-by-target index (called on EVERY terminal path). */
 	private unindexLive(record: JobRecord): void {
 		if (record.target === undefined) return;
-		for (const key of this.occupiedKeys(record.target)) {
+		this.unindexKeys(record.id, record.target);
+	}
+
+	/** Enter one holder (a job id or a claim id) under every key its target occupies. */
+	private indexKeys(holderId: string, target: JobTarget): void {
+		for (const key of this.occupiedKeys(target)) {
+			let ids = this.liveByTarget.get(key);
+			if (ids === undefined) {
+				ids = new Set();
+				this.liveByTarget.set(key, ids);
+			}
+			ids.add(holderId);
+		}
+	}
+
+	/** Drop one holder from every key its target occupies. */
+	private unindexKeys(holderId: string, target: JobTarget): void {
+		for (const key of this.occupiedKeys(target)) {
 			const ids = this.liveByTarget.get(key);
 			if (ids === undefined) continue;
-			ids.delete(record.id);
+			ids.delete(holderId);
 			if (ids.size === 0) this.liveByTarget.delete(key);
+		}
+	}
+
+	/**
+	 * Is ANY tier this target would occupy held by someone other than `exceptId`?
+	 * The exclusive guard's question — wider than hasLiveJobForTarget, which
+	 * asks about one tier: an ingest transcode also writes `also_qualities`.
+	 */
+	private occupiedByOther(target: JobTarget, exceptId: string | null): boolean {
+		for (const key of this.occupiedKeys(target)) {
+			for (const holder of this.liveByTarget.get(key) ?? []) {
+				if (holder !== exceptId) return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * CLAIM a target before its job exists — see JobTargetClaim. Synchronous: the
+	 * check and the index entry cannot interleave with another claim or submit.
+	 * Returns null when any tier the target occupies is already live (a job or
+	 * another claim); the caller refuses. The holder MUST end the claim: adopt it
+	 * in `submit({claim})` or `release()` it (try/finally).
+	 */
+	claimTarget(target: JobTarget): JobTargetClaim | null {
+		if (this.occupiedByOther(target, null)) return null;
+		this.counter += 1;
+		const id = `claim_${process.pid}_${this.counter}`;
+		this.claims.set(id, target);
+		this.indexKeys(id, target);
+		return { id, target, release: () => this.releaseClaim(id) };
+	}
+
+	/** End a held claim (idempotent: an adopted or released claim is a no-op). */
+	private releaseClaim(id: string): void {
+		const target = this.claims.get(id);
+		if (target === undefined) return;
+		this.claims.delete(id);
+		this.unindexKeys(id, target);
+	}
+
+	/**
+	 * The synchronous admission of a targeted submit (`exclusive` / `claim`):
+	 * validate the claim, refuse a busy target, then release the claim — the
+	 * caller indexes the job in the SAME tick, so nothing can slip in between.
+	 */
+	private admitTargeted(meta: JobSubmitMeta): void {
+		const claimId = meta.claim === undefined ? null : this.assertClaimHeld(meta.claim, meta.target);
+		if (meta.exclusive === true) this.assertTargetFree(meta.target, claimId);
+		if (claimId !== null) this.releaseClaim(claimId);
+	}
+
+	/** A claim handed to submit must still be held and name the job's own target. */
+	private assertClaimHeld(claim: JobTargetClaim, target: JobTarget | undefined): string {
+		const held = this.claims.get(claim.id);
+		if (held === undefined || target === undefined || jobTargetKey(held) !== jobTargetKey(target)) {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: the claim is not held or names another target',
+				coordinates: { claim_id: claim.id },
+			});
+		}
+		return claim.id;
+	}
+
+	/** The exclusive refusal: any tier the target occupies is held by someone but `claimId`. */
+	private assertTargetFree(target: JobTarget | undefined, claimId: string | null): void {
+		if (target === undefined) {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: an exclusive submit needs a target',
+			});
+		}
+		if (this.occupiedByOther(target, claimId)) {
+			throw new DedaloError('media.build_running', {
+				message: `media job submit: '${jobTargetKey(target)}' already has a live build`,
+				coordinates: { target: jobTargetKey(target) },
+			});
 		}
 	}
 
@@ -961,7 +1082,11 @@ export class MediaJobManager {
 	 * the same target. The cost is a wasted duplicate encode whose loser is
 	 * discarded by the atomic rename — never corruption — but if this ever needs
 	 * to be exact, the fix is to promote media jobs onto the durable queue, not to
-	 * bolt a lock onto this map.
+	 * bolt a lock onto this map. The same limit bounds the av upload refusal
+	 * (A1-01): an upload on instance B does not see a transcode on instance A.
+	 *
+	 * A held CLAIM (claimTarget) counts as live: an av upload between its check
+	 * and its transcode submit occupies the tier exactly as the job will.
 	 */
 	hasLiveJobForTarget(target: JobTarget): boolean {
 		return (this.liveByTarget.get(jobTargetKey(target))?.size ?? 0) > 0;
@@ -1077,6 +1202,8 @@ export class MediaJobManager {
 	 */
 	submit(kind: string, worker: JobWorker, meta: JobSubmitMeta): JobRecord {
 		assertNotReadOnlyRequest('MediaJobManager.submit');
+		// Before anything is registered: a refusal here leaves no trace.
+		this.admitTargeted(meta);
 		const id = this.nextId(kind);
 		// The worker's identity, read NOW — the request's synchronous flow is the
 		// only moment it is the submitter's (JobRunScope).
