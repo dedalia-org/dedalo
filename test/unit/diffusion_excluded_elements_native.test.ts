@@ -23,6 +23,10 @@
  *      selection and at the door's resolution (pure, synthetic tree).
  *   D. a malformed list REFUSES as a config fault (tool.config_invalid — the
  *      operator's, not the caller's) — never "nothing excluded".
+ *   F. a NEW run started after the exclusion is refused too (review MED-1): the
+ *      admin requeue refuses before writing; the stale-job sweeper FAILS (never
+ *      re-queues) a lost run of an excluded element — and of any element while
+ *      the list is malformed. Controls: a non-excluded element requeues / re-queues.
  *   E. migration: a v6 config's define is planned as a TOOL_CONFIG move and the
  *      move lands where the reader reads (created / kept / written / empty).
  */
@@ -46,10 +50,14 @@ import {
 } from '../../src/diffusion/api/excluded_elements.ts';
 import { buildDiffusionInfo, selectPublishablePanelNodes } from '../../src/diffusion/api/info.ts';
 import {
+	type DiffusionJobSpec,
 	deleteJobsForTests,
+	enqueueDiffusionJob,
 	getJobByClientProcessId,
 	getJobById,
 	requestCancel,
+	requeueTerminalJob,
+	sweepStaleJobs,
 } from '../../src/diffusion/jobs/queue.ts';
 import { DIFFUSION_JOBS_TABLE } from '../../src/diffusion/jobs/schema.ts';
 import type { VirtualTreeNode } from '../../src/diffusion/plan/virtual_tree.ts';
@@ -126,6 +134,42 @@ async function trackedTimeMachineRows(): Promise<number> {
 		[ids.join(',')],
 	)) as { n: number }[];
 	return rows[0]?.n ?? 0;
+}
+
+/** A queue row for `element` on a fake section of its own (never claimable: parked at once). */
+async function scratchJob(element: string, section: string): Promise<string> {
+	const spec: DiffusionJobSpec = {
+		diffusion_element_tipo: element,
+		section_tipo: section,
+		type: 'sql',
+		sqo: { section_tipo: [section], limit: 1, offset: 0 },
+		estimated_total: 1,
+		options: {},
+	};
+	const { job } = await enqueueDiffusionJob({
+		ownerUserId: -1,
+		clientProcessId: `process_diffusion_-1_${element}_${section}`,
+		spec,
+	});
+	createdJobIds.push(job.job_id);
+	return job.job_id;
+}
+
+/** Put a scratch job in `state` (a lost runner: stale heartbeat, budget left). */
+async function setJobState(jobId: string, state: 'cancelled' | 'running'): Promise<void> {
+	await sql.unsafe(
+		state === 'running'
+			? `UPDATE "${DIFFUSION_JOBS_TABLE}" SET state = 'running', attempt = 1, max_attempts = 3,
+			     runner = '{"host":"zz-lost-host"}'::jsonb, heartbeat_at = now() - interval '1 hour' WHERE job_id = $1`
+			: `UPDATE "${DIFFUSION_JOBS_TABLE}" SET state = 'cancelled', finished_at = now() WHERE job_id = $1`,
+		[jobId],
+	);
+}
+
+/** The persisted failure code of a job (its terminal result frame), or null. */
+function resultCode(row: Awaited<ReturnType<typeof getJobById>>): string | null {
+	const error = (row?.result as { error?: { code?: unknown } } | null)?.error;
+	return typeof error?.code === 'string' ? error.code : null;
 }
 
 /** Jobs queued for `element` since `since` (the table, not a label another gate may reuse). */
@@ -341,6 +385,59 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				expect((refusal as DedaloError).code, label).toBe(CONFIG_FAULT);
 			});
 		}
+	});
+
+	describe('F. a NEW run after the exclusion is refused too (requeue + sweeper)', () => {
+		test('admin requeue of an excluded element REFUSES before writing; a non-excluded one requeues', async () => {
+			const excludedJob = await scratchJob(EXCLUDED, 'zzdifrq1');
+			const includedJob = await scratchJob(INCLUDED, 'zzdifrq2');
+			await setJobState(excludedJob, 'cancelled');
+			await setJobState(includedJob, 'cancelled');
+			const before = await getJobById(excludedJob);
+			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: [EXCLUDED] }, async () => {
+				const refused = await requeueTerminalJob(excludedJob).catch((error: unknown) => error);
+				expect(refused).toBeInstanceOf(DedaloError);
+				expect((refused as DedaloError).code).toBe('diffusion.element_excluded');
+				// Nothing written: the row is exactly what it was.
+				expect(await getJobById(excludedJob)).toEqual(before);
+				// FLOOR: the same door DOES requeue an element the list does not name.
+				const requeued = await requeueTerminalJob(includedJob);
+				expect(requeued?.state).toBe('queued');
+			});
+			await setJobState(includedJob, 'cancelled');
+		});
+
+		test('sweeper: a lost run of an excluded element is FAILED with diffusion.element_excluded, never re-queued', async () => {
+			const excludedJob = await scratchJob(EXCLUDED, 'zzdifsw1');
+			const includedJob = await scratchJob(INCLUDED, 'zzdifsw2');
+			await setJobState(excludedJob, 'running');
+			await setJobState(includedJob, 'running');
+			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: [EXCLUDED] }, async () => {
+				const swept = await sweepStaleJobs(20);
+				expect(swept.requeued).not.toContain(excludedJob);
+				expect(swept.refused).toContain(excludedJob);
+				const row = await getJobById(excludedJob);
+				expect(row?.state).toBe('failed');
+				expect(row?.finished_at).not.toBeNull();
+				expect(resultCode(row)).toBe('diffusion.element_excluded');
+				// FLOOR: the same sweep DID re-queue the lost run of a non-excluded element.
+				expect(swept.requeued).toContain(includedJob);
+				expect((await getJobById(includedJob))?.state).toBe('queued');
+			});
+			await setJobState(includedJob, 'cancelled');
+		});
+
+		test('sweeper: while the list is MALFORMED no lost run is re-queued (tool.config_invalid)', async () => {
+			const job = await scratchJob(INCLUDED, 'zzdifsw3');
+			await setJobState(job, 'running');
+			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: EXCLUDED }, async () => {
+				const swept = await sweepStaleJobs(20);
+				expect(swept.refused).toContain(job);
+				const row = await getJobById(job);
+				expect(row?.state).toBe('failed');
+				expect(resultCode(row)).toBe(CONFIG_FAULT);
+			});
+		});
 	});
 
 	describe('E. the v6→v7 config migration MOVES the define', () => {

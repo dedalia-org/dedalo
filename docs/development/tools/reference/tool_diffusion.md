@@ -64,14 +64,16 @@ All operational work is performed by **`dd_diffusion_api`**, registered in `src/
 
 ### Excluding diffusion elements (`EXCLUDE_DIFFUSION_ELEMENTS`)
 
-An installation can withdraw diffusion elements from publication with one key of the tool's configuration: `EXCLUDE_DIFFUSION_ELEMENTS`, a list of diffusion element tipos, set in the **Tools configuration** record (dd996) of `tool_diffusion` (`{"EXCLUDE_DIFFUSION_ELEMENTS": ["<element tipo>"]}`, or the `{"value": [...]}` option form). It is read per request through `getToolConfigValue` (`src/diffusion/api/excluded_elements.ts`), and it has two effects:
+An installation can withdraw diffusion elements from publication with one key of the tool's configuration: `EXCLUDE_DIFFUSION_ELEMENTS`, a list of diffusion element tipos, set in the **Tools configuration** record (dd996) of `tool_diffusion` (`{"EXCLUDE_DIFFUSION_ELEMENTS": ["<element tipo>"]}`, or the `{"value": [...]}` option form). It is read per request through `getToolConfigValue` (`src/diffusion/api/excluded_elements.ts`), and every door that starts a publication run checks it:
 
 | Action | Effect of a listed element |
 | --- | --- |
 | `get_diffusion_info` | Its panels are omitted from `section_diffusion_nodes`. |
 | `diffuse` | Refused before anything is queued, with `diffusion.element_excluded` (HTTP 403). A hidden panel is not the guard: a request naming the tipo by hand is refused too. |
+| `requeue_job` (diffusion server control, maintenance) | Refused with `diffusion.element_excluded` before the job row is touched. |
+| Stale-run sweeper (a run whose runner was lost) | Not re-queued: the job is marked failed with `diffusion.element_excluded` (logged), instead of starting again. |
 
-An element matches when its own tipo is listed or, for a `diffusion_element_alias`, when the real element it resolves to is listed — so listing a real element also withdraws its aliases. A value that is not a list of non-empty strings makes both actions refuse with `tool.config_invalid` (HTTP 503 — a fault of the installation's configuration, not of the request) until it is fixed; it is never read as "nothing excluded". Delete propagation and `retry_pending_deletions` are not affected: records already published can always be unpublished. A v6 installation's `EXCLUDE_DIFFUSION_ELEMENTS` define is moved into this key by the configuration migration ([Migrating from v6](../../../install/migrating_from_v6.md)).
+An element matches when its own tipo is listed or, for a `diffusion_element_alias`, when the real element it resolves to is listed — so listing a real element also withdraws its aliases. A value that is not a list of non-empty strings makes every one of these refuse with `tool.config_invalid` (HTTP 503 — a fault of the installation's configuration, not of the request) until it is fixed — the sweeper fails every lost run with that code meanwhile; it is never read as "nothing excluded". A job that was already queued before the element was listed is not re-checked: the runner runs it as queued. Delete propagation and `retry_pending_deletions` are not affected: records already published can always be unpublished. A v6 installation's `EXCLUDE_DIFFUSION_ELEMENTS` define is moved into this key by the configuration migration ([Migrating from v6](../../../install/migrating_from_v6.md)).
 
 ## How it is registered & surfaced
 

@@ -64,7 +64,14 @@
  */
 
 import { sql, withTransaction } from '../../core/db/postgres.ts';
-import { DedaloError, type FailureRecord, toFailureRecord } from '../../core/errors/index.ts';
+import {
+	DedaloError,
+	type ErrorCode,
+	type FailureRecord,
+	isDedaloError,
+	toFailureRecord,
+} from '../../core/errors/index.ts';
+import { assertPublishableElement, excludedElementTipos } from '../api/excluded_elements.ts';
 import type { DiffusionJobState } from './schema.ts';
 import { DIFFUSION_JOBS_TABLE, ensureDiffusionJobTables } from './schema.ts';
 
@@ -766,9 +773,22 @@ const ADMIN_REQUEUE_ATTEMPT_BUDGET = 3;
  * (measured ABA). The budget is granted by raising `max_attempts` instead, so
  * the epoch only ever moves forward and the loser stays locked out for the life
  * of the row.
+ *
+ * A requeue STARTS A NEW RUN, so it clears the same publication guard `diffuse`
+ * does (R3 review MED-1): an element tool_diffusion's EXCLUDE_DIFFUSION_ELEMENTS
+ * lists (or a malformed list) REFUSES — `diffusion.element_excluded` /
+ * `tool.config_invalid` — before anything is written.
  */
 export async function requeueTerminalJob(jobId: string): Promise<DiffusionJobRow | null> {
 	await ensureDiffusionJobTables();
+	const eligible = (await sql.unsafe(
+		`SELECT spec->>'diffusion_element_tipo' AS element FROM "${DIFFUSION_JOBS_TABLE}"
+		 WHERE job_id = $1 AND state IN ('failed','cancelled','interrupted')`,
+		[jobId],
+	)) as { element: string | null }[];
+	const target = eligible[0];
+	if (target === undefined) return null;
+	if (typeof target.element === 'string') await assertPublishableElement(target.element);
 	const rows = (await sql.unsafe(
 		`UPDATE "${DIFFUSION_JOBS_TABLE}"
 		 SET state = 'queued', runner = '{}'::jsonb, heartbeat_at = NULL,
@@ -824,30 +844,52 @@ export async function purgeTerminalJobs(olderThanHours: number): Promise<{ purge
  * no automatic path revisited and purge never deleted. 'interrupted' remains
  * a manual-requeue-eligible state (requeueTerminalJob) but the sweeper no
  * longer parks jobs there.
+ *
+ * THE PUBLICATION GUARD (R3 review MED-1): a re-queue starts a NEW run, so a
+ * lost run whose element tool_diffusion's EXCLUDE_DIFFUSION_ELEMENTS excludes
+ * — or any lost run while that list is malformed — is FAILED in the same
+ * statement with the guard's failure record (`refused`, `refusedCode`), never
+ * re-queued. Gate: diffusion_excluded_elements_native F.
  */
 export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 	requeued: string[];
 	failed: string[];
+	/** Lost runs NOT re-queued because their element may not start a new run (MED-1). */
+	refused: string[];
+	/** The code `refused` were failed with (diffusion.element_excluded | tool.config_invalid). */
+	refusedCode: ErrorCode;
 }> {
 	await ensureDiffusionJobTables();
-	// The failure RECORD (`{ok:false, error:{code:'diffusion.runner_lost',…}}`)
-	// is converter-made in TS and bound as jsonb (`$N::text::jsonb` — the Bun.sql
-	// bind rule: a bare `::jsonb` on a string param double-encodes it as a jsonb
-	// STRING scalar); only the attempt-count `msg` line is composed in SQL (the
-	// count is known only inside the UPDATE).
+	// The failure RECORDs (`{ok:false, error:{code:'diffusion.runner_lost',…}}`,
+	// and the publication guard's) are converter-made in TS and bound as jsonb
+	// (`$N::text::jsonb` — the Bun.sql bind rule: a bare `::jsonb` on a string
+	// param double-encodes it as a jsonb STRING scalar); only the attempt-count
+	// `msg` line is composed in SQL (the count is known only inside the UPDATE).
 	const runnerLost = JSON.stringify(toFailureRecord(new DedaloError('diffusion.runner_lost')));
+	const block = await staleRunBlock();
 	const swept = (await sql.unsafe(
-		`UPDATE "${DIFFUSION_JOBS_TABLE}"
-		 SET state = CASE WHEN attempt < max_attempts THEN 'queued' ELSE 'failed' END,
-		     runner = CASE WHEN attempt < max_attempts THEN '{}'::jsonb ELSE runner END,
+		`WITH stale AS (
+		     SELECT job_id,
+		            ($3::boolean OR (spec->>'diffusion_element_tipo') = ANY(string_to_array($4, ','))) AS blocked
+		       FROM "${DIFFUSION_JOBS_TABLE}"
+		      WHERE state = 'running'
+		        AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $1))
+		      FOR UPDATE SKIP LOCKED)
+		 UPDATE "${DIFFUSION_JOBS_TABLE}" AS jobs
+		 SET state = CASE WHEN NOT stale.blocked AND jobs.attempt < jobs.max_attempts THEN 'queued' ELSE 'failed' END,
+		     runner = CASE WHEN NOT stale.blocked AND jobs.attempt < jobs.max_attempts THEN '{}'::jsonb ELSE jobs.runner END,
 		     heartbeat_at = NULL,
-		     finished_at = CASE WHEN attempt < max_attempts THEN finished_at ELSE now() END,
-		     result = CASE WHEN attempt < max_attempts THEN result ELSE
-		         $2::text::jsonb || jsonb_build_object(
-		             'msg', 'Interrupted after ' || attempt || ' attempts (runner lost)') END,
-		     totals = CASE WHEN attempt < max_attempts THEN totals ELSE
-		         totals || jsonb_build_object(
-		             'msg', 'Interrupted after ' || attempt || ' attempts (runner lost)') END
+		     finished_at = CASE WHEN NOT stale.blocked AND jobs.attempt < jobs.max_attempts THEN jobs.finished_at ELSE now() END,
+		     result = CASE
+		         WHEN stale.blocked THEN $5::text::jsonb || jsonb_build_object('msg', $6::text)
+		         WHEN jobs.attempt < jobs.max_attempts THEN jobs.result
+		         ELSE $2::text::jsonb || jsonb_build_object(
+		             'msg', 'Interrupted after ' || jobs.attempt || ' attempts (runner lost)') END,
+		     totals = CASE
+		         WHEN stale.blocked THEN jobs.totals || jsonb_build_object('msg', $6::text)
+		         WHEN jobs.attempt < jobs.max_attempts THEN jobs.totals
+		         ELSE jobs.totals || jsonb_build_object(
+		             'msg', 'Interrupted after ' || jobs.attempt || ' attempts (runner lost)') END
 		 -- UNFENCED BY DESIGN: this statement is the REVOKER. It does not check
 		 -- runner.pid either — a runner on another host has no pid here, so pid
 		 -- liveness could only ever cover the local deployment. The epoch fence is
@@ -856,22 +898,62 @@ export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 		 -- FOR UPDATE SKIP LOCKED (DIFF-2): a runner INSIDE a fenced batch holds
 		 -- its row FOR KEY SHARE (jobs/target_fence.ts) — the sweeper skips it
 		 -- rather than revoke a lease whose batch is writing the target now.
-		 WHERE state = 'running'
-		   AND job_id IN (
-		       SELECT job_id FROM "${DIFFUSION_JOBS_TABLE}"
-		        WHERE state = 'running'
-		          AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $1))
-		        FOR UPDATE SKIP LOCKED)
-		 RETURNING job_id, state`,
-		[staleAfterSeconds, runnerLost],
-	)) as { job_id: string; state: string }[];
+		 -- BLOCKED (R3 review MED-1): a re-queue starts a NEW run, so a lost run
+		 -- whose element is excluded (or every lost run while the list is
+		 -- malformed) is FAILED with the guard's own failure record instead.
+		 FROM stale
+		 WHERE jobs.job_id = stale.job_id AND jobs.state = 'running'
+		 RETURNING jobs.job_id, jobs.state, stale.blocked`,
+		[
+			staleAfterSeconds,
+			runnerLost,
+			block.all,
+			block.tipos.join(','),
+			JSON.stringify(toFailureRecord(block.error)),
+			block.msg,
+		],
+	)) as { job_id: string; state: string; blocked: boolean }[];
 	const requeued: string[] = [];
 	const failed: string[] = [];
+	const refused: string[] = [];
 	for (const job of swept) {
-		(job.state === 'queued' ? requeued : failed).push(job.job_id);
+		if (job.blocked) refused.push(job.job_id);
+		else (job.state === 'queued' ? requeued : failed).push(job.job_id);
 		await notifyProgress(job.job_id);
 	}
-	return { requeued, failed };
+	return { requeued, failed, refused, refusedCode: block.error.code };
+}
+
+/**
+ * Which lost runs the sweeper may NOT re-queue (R3 review MED-1): those of an
+ * element tool_diffusion's EXCLUDE_DIFFUSION_ELEMENTS excludes (aliases of a
+ * listed real element included) — or ALL of them while the list is malformed,
+ * because then no element can be told publishable (the `diffuse` door refuses
+ * every element the same way). Any other failure propagates: the sweep does not
+ * run on a guess.
+ */
+async function staleRunBlock(): Promise<{
+	all: boolean;
+	tipos: readonly string[];
+	error: DedaloError;
+	msg: string;
+}> {
+	try {
+		return {
+			all: false,
+			tipos: await excludedElementTipos(),
+			error: new DedaloError('diffusion.element_excluded'),
+			msg: 'Not re-run after the runner was lost: publication to this element is disabled (tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS)',
+		};
+	} catch (error) {
+		if (!isDedaloError(error) || error.code !== 'tool.config_invalid') throw error;
+		return {
+			all: true,
+			tipos: [],
+			error,
+			msg: 'Not re-run after the runner was lost: the tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS configuration is malformed',
+		};
+	}
 }
 
 /** Test helper: hard-delete rows created by a suite (never used in production). */

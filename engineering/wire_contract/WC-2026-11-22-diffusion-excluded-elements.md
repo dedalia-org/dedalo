@@ -35,9 +35,12 @@
   - **Malformed list.** Anything other than absent/null or an array of non-empty strings refuses
     BOTH actions with `tool.config_invalid` (public message names dd996; see the LOW-7 addendum). v6 ignored it — a
     list written to stop a publication must not become "publish everywhere" through a typo.
+  - **Every NEW run is guarded (MED-1 addendum):** besides `diffuse`, the admin `requeue_job`
+    (`requeueTerminalJob`) refuses `diffusion.element_excluded` before writing, and the stale-job
+    sweeper FAILS a lost run of an excluded element with that code instead of re-queueing it.
   - **Not filtered:** delete propagation / `retry_pending_deletions` (unpublishing records already
-    in a target is never blocked), and a job queued before the list changed is not re-checked by
-    the runner.
+    in a target is never blocked), and a job ALREADY QUEUED before the list changed is not
+    re-checked by the runner — it runs as queued (owner question pending; unchanged).
 - **Migration.** `dedalo:migrate-config` classifies the define `TOOL_CONFIG` (report section of
   that name, no `.env` line); `--execute` moves a non-empty value into the dd996 record naming
   `tool_diffusion` through the engine's write doors (one transaction, TM-audited): created when no
@@ -59,3 +62,26 @@ operator fixes it. The public message is unchanged (it names the key and dd996).
 the v6→v7 move's refusal of a non-object stored config (MED-2 addendum). Gate:
 `diffusion_excluded_elements_native` D (read, `get_diffusion_info` and `diffuse` all assert the
 code).
+
+## Addendum 2026-11-22 — review MED-1: requeue and the stale-run sweeper are guarded too
+
+An excluded element could still be published by a NEW run started after the exclusion: the
+diffusion server control's `requeue_job` (`queue.requeueTerminalJob`) and the stale-job sweeper's
+re-queue (`queue.sweepStaleJobs`) both start a run without passing `diffuse`. Now:
+
+- `requeue_job` reads the eligible row's element and refuses — `diffusion.element_excluded`
+  (alias match included), or `tool.config_invalid` for a malformed list — before the job row is
+  written. A job that is not requeueable still answers `diffusion.not_requeueable`.
+- `sweepStaleJobs` takes the stale rows exactly as before (one statement, `FOR UPDATE SKIP
+  LOCKED`), but a lost run whose element is excluded (listed tipo, or an alias of a listed real
+  element of the configured domain) is set `failed` with the persisted failure record of
+  `diffusion.element_excluded` and a `msg` saying why, never `queued`; while the list is MALFORMED
+  every lost run is failed that way with `tool.config_invalid` (no element can be told
+  publishable, the same posture as the `diffuse` door). The sweeper logs them under that code.
+  Any other failure computing the list aborts the sweep (logged, retried next tick) — it never
+  re-queues on a guess.
+- Unchanged and still UNRULED: a job already queued before the exclusion is run by the runner.
+
+Gate: `diffusion_excluded_elements_native` F (requeue refused + row unchanged, with a
+non-excluded control that requeues; sweeper fails the excluded lost run with the code while the
+non-excluded one is re-queued; malformed list → `tool.config_invalid`).

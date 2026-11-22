@@ -16,11 +16,16 @@
  * gone: the v6→v7 config migration MOVES its value into that key
  * (src/config/migration_map.ts `TOOL_CONFIG`, core/tools/tool_config_move.ts).
  *
- * TWO DOORS, one list:
+ * ONE LIST, every door that starts a run:
  *   - `get_diffusion_info` (info.ts) drops the panels of an excluded element;
  *   - `diffuse` (actions.ts) REFUSES an excluded element before anything is
  *     queued (`diffusion.element_excluded`) — the server door, not the UI: a
- *     hidden panel is no refusal to a caller who posts the tipo by hand.
+ *     hidden panel is no refusal to a caller who posts the tipo by hand;
+ *   - the admin requeue (jobs/queue.ts `requeueTerminalJob`) refuses the same
+ *     way before writing, and the stale-job sweeper (`sweepStaleJobs`) FAILS a
+ *     lost run of an excluded element instead of re-queueing it (review MED-1:
+ *     both start a NEW run). NOT re-checked: a job already QUEUED before the
+ *     element was excluded is run by the runner as queued (owner question).
  *
  * MATCHING. An element is excluded when its own tipo OR, for a
  * `diffusion_element_alias`, the real element it resolves to is listed. v6's map
@@ -112,11 +117,35 @@ export function elementRealTipo(
  * it aliases, is excluded. The alias is resolved through the same virtual tree
  * the panels come from — and only when there is a list to match and the tipo
  * is not listed itself, so an install without exclusions pays nothing.
+ * `domainName` is the tree's seam (a gate names its own scratch domain);
+ * production omits it and gets DEDALO_DIFFUSION_DOMAIN.
  */
-export async function assertPublishableElement(elementTipo: string): Promise<void> {
+export async function assertPublishableElement(
+	elementTipo: string,
+	domainName?: string,
+): Promise<void> {
 	const excluded = await excludedDiffusionElements();
 	if (excluded.size === 0) return;
 	assertElementNotExcluded({ tipo: elementTipo }, excluded);
-	const realTipo = elementRealTipo(await buildVirtualDiffusionTree(), elementTipo);
+	const realTipo = elementRealTipo(await buildVirtualDiffusionTree(domainName), elementTipo);
 	assertElementNotExcluded({ tipo: elementTipo, realTipo }, excluded);
+}
+
+/**
+ * The SET form of `assertPublishableElement`, for the queue's set-based
+ * statements (the stale-job sweeper, review MED-1): the listed tipos plus every
+ * element ALIAS of the domain whose real element is listed. Empty when nothing
+ * is excluded (no tree is built); a malformed list throws `tool.config_invalid`.
+ */
+export async function excludedElementTipos(domainName?: string): Promise<string[]> {
+	const excluded = await excludedDiffusionElements();
+	if (excluded.size === 0) return [];
+	const tipos = new Set(excluded);
+	const tree = await buildVirtualDiffusionTree(domainName);
+	if (tree !== null) {
+		for (const node of findElementNodes(tree)) {
+			if (isExcludedElement(node, excluded)) tipos.add(node.tipo);
+		}
+	}
+	return [...tipos];
 }

@@ -283,9 +283,20 @@ let lastPurgeAt = 0;
 /** Boot + periodic sweep (crash recovery) + residue purge. Exported for tests. */
 export async function sweeperTick(): Promise<void> {
 	try {
-		const { requeued, failed } = await sweepStaleJobs(STALE_AFTER_SECONDS);
+		const { requeued, failed, refused, refusedCode } = await sweepStaleJobs(STALE_AFTER_SECONDS);
 		if (requeued.length > 0 || failed.length > 0) {
 			console.warn(`[diffusion sweeper] requeued=${requeued.length} failed=${failed.length}`);
+		}
+		// R3 review MED-1: lost runs the publication guard does not let start again,
+		// failed (never re-queued) with the guard's own code — logged as that code.
+		if (refused.length > 0) {
+			logError(
+				new DedaloError(refusedCode, {
+					message: `[diffusion sweeper] ${refused.length} lost run(s) failed, not re-queued: ${refused.join(', ')}`,
+					coordinates: { job_ids: refused.join(',') },
+				}),
+				{ subsystem: 'diffusion' },
+			);
 		}
 	} catch (error) {
 		console.error('[diffusion sweeper] sweep failed:', error);
