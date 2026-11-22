@@ -141,7 +141,7 @@ function fakeCandidate(sectionId: number, distance: number): Candidate {
 		parentKey: 'test3_1',
 		chunkMeta: {
 			view: 'obverse',
-			thumb_url: '/media/thumb/test99_test3_1.jpg',
+			thumb_path: '/image/thumb/test99_test3_1.jpg',
 			media_tipo: 'test99',
 		},
 		distance,
@@ -454,7 +454,8 @@ describe('identify_by_image — the answer', () => {
 		// 1 - distance, rounded like every other image answer in the engine.
 		expect(hit.similarity).toBe(0.9);
 		expect(hit.view).toBe('obverse');
-		expect(hit.thumb_url).toBe('/media/thumb/test99_test3_1.jpg');
+		// derived from the stored identity on today's media web base (T2-D03-c)
+		expect(hit.thumb_url).toBe(`${config.media.webBase}/image/thumb/test99_test3_1.jpg`);
 		// "…which are all Type X": the Type, with its own label.
 		expect(hit.types).toEqual([
 			{ section_tipo: 'test4', section_id: 77, label: 'label of test4/77' },
@@ -692,7 +693,7 @@ async function seedVector(sectionId: number, bytes: Uint8Array): Promise<void> {
 		parentKey: `${SECTION_TIPO}_${sectionId}`,
 		chunkMeta: {
 			view: 'obverse',
-			thumb_url: `/media/thumb/test99_${SECTION_TIPO}_${sectionId}.jpg`,
+			thumb_path: `/image/thumb/test99_${SECTION_TIPO}_${sectionId}.jpg`,
 			media_tipo: 'test99',
 		},
 	};
@@ -755,7 +756,9 @@ describe.if(LIVE)('identify_by_image — the live stack', () => {
 		expect(coin?.similarity).toBeGreaterThan(0.99);
 		// Resolved through the section's own section_map main.term, not hardcoded.
 		expect(coin?.label).toBe(COIN_LABEL);
-		expect(coin?.thumb_url).toBe(`/media/thumb/test99_${SECTION_TIPO}_${COIN_ID}.jpg`);
+		expect(coin?.thumb_url).toBe(
+			`${config.media.webBase}/image/thumb/test99_${SECTION_TIPO}_${COIN_ID}.jpg`,
+		);
 		expect(coin?.view).toBe('obverse');
 
 		// The other object is farther away — the ranking is the encoder's, not ours.

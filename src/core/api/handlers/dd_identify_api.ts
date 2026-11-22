@@ -98,6 +98,7 @@ import {
 	type VisionProposeReport,
 } from '../../../ai/identify/vision.ts';
 import { collapseToRecords, tagScore } from '../../../ai/rag/fusion.ts';
+import { storedThumbUrl } from '../../../ai/rag/image_source.ts';
 import {
 	buildMultimodalProvider,
 	isMediaEnabled,
@@ -1009,9 +1010,10 @@ export function buildIdentifyByImage(deps: IdentifyByImageDeps): ActionHandler {
 					// shapeObject) so two views of the same number never disagree.
 					similarity: distance === undefined ? null : Math.round((1 - distance) * 10000) / 10000,
 					view: typeof meta.view === 'string' ? meta.view : null,
-					// The thumb the INDEXER stored for this vector — present only when the
-					// section declares a media component and its thumb derivative exists.
-					thumb_url: typeof meta.thumb_url === 'string' ? meta.thumb_url : null,
+					// The thumb of the identity the INDEXER stored for this vector, on
+					// today's media web base — present only when the section declares a
+					// media component and its thumb derivative existed at index time.
+					thumb_url: storedThumbUrl(meta),
 					media_tipo: typeof meta.media_tipo === 'string' ? meta.media_tipo : null,
 					context: candidate.sourceText,
 					types: (await typesOf(candidate.sectionTipo, candidate.sectionId)).map((type) => ({

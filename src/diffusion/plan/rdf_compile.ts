@@ -491,6 +491,15 @@ export async function compileRdfSection(
 		ctx.errors.push(`${where}: an rdf element publishes owl:Class nodes, not '${classNode.model}'`);
 		return null;
 	}
+	// The class node's is_publishable — the SAME plan fact (and refusal) as an
+	// sql table node's (compile.ts, T2-DIF-1): the run reads the plan only.
+	const publishable = classNode.properties?.is_publishable;
+	if (publishable !== undefined && typeof publishable !== 'boolean') {
+		ctx.errors.push(
+			`${where}: properties.is_publishable must be a boolean, got ${JSON.stringify(publishable)}`,
+		);
+		return null;
+	}
 	const typeUri = expandOrError(ctx, name, where, 'class name');
 	const process = isRecord(classNode.properties?.process) ? classNode.properties.process : {};
 	if (process.type !== 'entity_publication_uri') {
@@ -512,6 +521,7 @@ export async function compileRdfSection(
 		sectionTipo,
 		tableName: name,
 		tableTipo: classNode.tipo,
+		...(publishable === undefined ? {} : { publishable }),
 		fields: build.fields,
 		rdfClass,
 	};

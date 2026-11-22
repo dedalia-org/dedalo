@@ -347,6 +347,32 @@ function build_causes(sse) {
 
 
 /**
+* REPORT_DOWNLOAD_URL
+* The address a report artifact opens at. The server builds artifact URLs on the
+* MEDIA address (WC-042 addendum 2026-11-22): on a split-origin install that is
+* an absolute URL on another host, and prefixing this page's origin to it opened
+* the application's address instead. So: an absolute (`http(s)://`) or
+* protocol-relative (`//host`) URL opens AS GIVEN; a root-relative one (`/…`,
+* the default same-origin shape) is resolved on `origin`; anything else (a
+* `javascript:` or other scheme, a bare path, empty) is refused — null, never
+* opened.
+*
+* @param {string} url
+* @param {string} origin - the page origin (window.location.origin)
+* @return {string|null}
+*/
+export function report_download_url(url, origin) {
+
+	if (typeof url !== 'string' || url === '') return null
+	if (/^https?:\/\//i.test(url) || url.startsWith('//')) return url
+	if (url.startsWith('/')) return origin + url
+
+	return null
+}//end report_download_url
+
+
+
+/**
 * BUILD_FILES
 * Artifact list for the file formats. Sourced from FOUR possible locations and
 * deduped by url — and, critically, NEVER gated on `tables`. The old renderer

@@ -105,6 +105,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ApiRequestContext, dispatchRqo } from '../../src/core/api/dispatch.ts';
+import { state as stateWidget } from '../../src/core/components/component_info/widgets/state/state.ts';
 import { deleteTldNodes, upsertDdOntologyNode } from '../../src/core/db/dd_ontology.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getMatrixTableFromTipo, getNode } from '../../src/core/ontology/resolver.ts';
@@ -112,7 +113,14 @@ import { getSectionMapValue } from '../../src/core/ontology/section_map.ts';
 import { resolveSqoSectionTipos } from '../../src/core/relations/request_config/explicit.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import cloneMapJson from '../../src/core/test_data/test_tld_tipo_map.json';
+import { DB_READY } from '../helpers/db_ready.ts';
 import { ensureCanonicalTest3 } from '../helpers/test_data.ts';
 import { normalizeSectionIdTypes, stripRenderClass } from '../parity/normalize.ts';
 import golden from './fixtures/info_widget_native/entries.golden.json';
@@ -1177,4 +1185,178 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 		)) as { v: unknown }[];
 		expect(after[0]?.v ?? null).toBeNull();
 	}, 30000);
+});
+
+/**
+ * T2-WID-2 — a MULTI-HOP state path walks every hop (PHP class.state.php →
+ * search::get_data_with_path: each step's data at the previous step's
+ * locators, the leaf read at the LAST level only). The widget read only the
+ * last step, ON THE SOURCE RECORD — a path through a portal resolved to the
+ * empty-leaf zero detail. Now the path is a strict ddo chain through
+ * walkComponentData (direct-child descent: the leaf is never read at an
+ * intermediate record — the S/2 decoy below), and a path the walker cannot
+ * follow is refused LOUD (engine.uncovered_scope), never read as something
+ * narrower. Situation `zziwh` (one section, two self-portals, one leaf over
+ * the seed dd501 state vocabulary: /1 = 10, /2 = 50, /3 = 100).
+ */
+const HOP_TLD = 'zziwh';
+const HOP_SECTION = `${HOP_TLD}1`;
+const HOP_PORTAL_1 = `${HOP_TLD}2`;
+const HOP_PORTAL_2 = `${HOP_TLD}3`;
+const HOP_LEAF = `${HOP_TLD}4`;
+const HOP_TEXT = `${HOP_TLD}5`;
+const hopLocator = (sectionTipo: string, sectionId: number, from: string) => ({
+	id: 1,
+	type: 'dd151',
+	section_tipo: sectionTipo,
+	section_id: sectionId,
+	from_component_tipo: from,
+});
+const HOP_SITUATION = situation({
+	name: 'zziwh state multi-hop path',
+	tld: HOP_TLD,
+	nodes: [
+		{ tipo: HOP_SECTION, model: 'section', parent: 'dd14' },
+		{ tipo: HOP_PORTAL_1, model: 'component_portal', parent: HOP_SECTION },
+		{ tipo: HOP_PORTAL_2, model: 'component_portal', parent: HOP_SECTION },
+		{
+			tipo: HOP_LEAF,
+			model: 'component_select',
+			parent: HOP_SECTION,
+			relations: [{ tipo: STATE_VOCABULARY }],
+		},
+		{ tipo: HOP_TEXT, model: 'component_input_text', parent: HOP_SECTION },
+	],
+	records: [
+		{
+			section_tipo: HOP_SECTION,
+			section_id: 1,
+			columns: {
+				relation: {
+					[HOP_PORTAL_1]: [
+						hopLocator(HOP_SECTION, 2, HOP_PORTAL_1),
+						{ ...hopLocator(HOP_SECTION, 4, HOP_PORTAL_1), id: 2 },
+					],
+				},
+			},
+		},
+		{
+			// the DECOY: a leaf value on the intermediate record (never a path level)
+			section_tipo: HOP_SECTION,
+			section_id: 2,
+			columns: {
+				relation: {
+					[HOP_PORTAL_2]: [hopLocator(HOP_SECTION, 3, HOP_PORTAL_2)],
+					[HOP_LEAF]: [hopLocator(STATE_VOCABULARY, 1, HOP_LEAF)],
+				},
+			},
+		},
+		{
+			section_tipo: HOP_SECTION,
+			section_id: 3,
+			columns: { relation: { [HOP_LEAF]: [hopLocator(STATE_VOCABULARY, 3, HOP_LEAF)] } },
+		},
+		{
+			section_tipo: HOP_SECTION,
+			section_id: 4,
+			columns: { relation: { [HOP_PORTAL_2]: [hopLocator(HOP_SECTION, 5, HOP_PORTAL_2)] } },
+		},
+		{
+			section_tipo: HOP_SECTION,
+			section_id: 5,
+			columns: { relation: { [HOP_LEAF]: [hopLocator(STATE_VOCABULARY, 2, HOP_LEAF)] } },
+		},
+	],
+});
+
+/** One state IPO block over the current record with ONE path. */
+const hopIpo = (path: unknown[]) => [
+	{
+		input: {
+			type: 'locator',
+			source: [{ section_tipo: 'current', section_id: 'current' }],
+			paths: [path],
+		},
+		output: [{ id: 'st' }],
+	},
+];
+const hopStep = (componentTipo?: string, varName?: string) => ({
+	section_tipo: 'self',
+	...(componentTipo === undefined ? {} : { component_tipo: componentTipo }),
+	...(varName === undefined ? {} : { var_name: varName }),
+});
+/** The state descriptor's compute (it is a ported widget — refuse loudly if not). */
+function computeStateWidget(ipo: unknown[], context: typeof hopContext): Promise<unknown[]> {
+	if (!('computeData' in stateWidget)) throw new Error('state widget is not ported');
+	return stateWidget.computeData(ipo, context);
+}
+const hopContext = { sectionTipo: HOP_SECTION, sectionId: 1, mode: 'edit', lang: 'lg-eng' };
+
+async function uncoveredCode(path: unknown[]): Promise<string> {
+	try {
+		await computeStateWidget(hopIpo(path), hopContext);
+	} catch (error) {
+		return (error as { code?: string }).code ?? String(error);
+	}
+	return 'resolved';
+}
+
+describe.if(DB_READY)('state widget: a multi-hop path walks every hop (T2-WID-2)', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('info_widget_native zziwh');
+		await dropSituation(HOP_SITUATION);
+		await ensureSituation(HOP_SITUATION);
+	}, 60_000);
+
+	afterAll(async () => {
+		await assertTestDatabase('info_widget_native zziwh');
+		expect(await dropSituation(HOP_SITUATION)).toBe(0);
+	}, 60_000);
+
+	test('portal → portal → leaf: the leaf values of the LAST level only', async () => {
+		const items = (await computeStateWidget(
+			hopIpo([hopStep(HOP_PORTAL_1), hopStep(HOP_PORTAL_2), hopStep(HOP_LEAF, 'st')]),
+			hopContext,
+		)) as { type?: string; value?: unknown; column?: string; locator?: unknown; items?: number }[];
+		const details = items.filter((item) => item.type === 'detail');
+		expect(
+			details.map((item) => [item.value, item.column]),
+			'the path was not walked (single-hop read of the leaf on the source record) or the leaf was read at an intermediate record',
+		).toEqual([
+			[100, 'state'],
+			[50, 'state'],
+		]);
+		expect(details.map((item) => (item.locator as { section_id?: unknown }).section_id)).toEqual([
+			3, 2,
+		]);
+		const totals = items.filter((item) => item.type === 'total');
+		// one source record: (100 + 50) / n=1 / items=1
+		expect(totals.map((item) => [item.column, item.value, item.items])).toEqual([
+			['state', 150, 1],
+		]);
+	}, 30_000);
+
+	test('single-hop control: the leaf on the source record (unchanged)', async () => {
+		const items = (await computeStateWidget(hopIpo([hopStep(HOP_LEAF, 'st')]), {
+			...hopContext,
+			sectionId: 3,
+		})) as { type?: string; value?: unknown }[];
+		expect(items.filter((item) => item.type === 'detail').map((item) => item.value)).toEqual([100]);
+	}, 30_000);
+
+	test('uncoverable paths are refused loud, never narrowed', async () => {
+		// the same component twice: the ddo chain cannot tell the levels apart
+		expect(
+			await uncoveredCode([hopStep(HOP_PORTAL_1), hopStep(HOP_PORTAL_1), hopStep(HOP_LEAF, 'st')]),
+		).toBe('engine.uncovered_scope');
+		// an intermediate step that stores no locators cannot address a next level
+		expect(await uncoveredCode([hopStep(HOP_TEXT), hopStep(HOP_LEAF, 'st')])).toBe(
+			'engine.uncovered_scope',
+		);
+		// a step naming no component (intermediate, then the leaf)
+		expect(await uncoveredCode([hopStep(HOP_PORTAL_1), hopStep()])).toBe('engine.uncovered_scope');
+		expect(await uncoveredCode([hopStep(), hopStep(HOP_LEAF, 'st')])).toBe(
+			'engine.uncovered_scope',
+		);
+	}, 30_000);
 });

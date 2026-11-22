@@ -76,6 +76,7 @@ import { DedaloError } from '../../core/errors/dedalo_error.ts';
 import { nameOrLabelOf } from '../../core/ontology/labels.ts';
 import { getModelByTipo } from '../../core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../core/ontology/tld.ts';
+import { resolveDataframeSlotTipos } from '../../core/relations/dataframe_slots.ts';
 import { RdfNamespaceTable } from '../resolve/rdf_graph_ir.ts';
 import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
@@ -232,6 +233,12 @@ interface DdoEntry {
 	 * `component_filter`, judged in compileSourceChain once the model is known.
 	 */
 	config?: Record<string, unknown>;
+	/**
+	 * ddo-level `empty_value`, VERBATIM (`{ raw }` so a declared null is not
+	 * mistaken for absence) — judged in compileSourceChain once the model is
+	 * known (T2-DIF-2).
+	 */
+	emptyValue?: { raw: unknown };
 }
 
 /**
@@ -308,6 +315,7 @@ function buildDdoMap(
 						: rawConfig === undefined
 							? undefined
 							: { '(not an object)': rawConfig },
+				emptyValue: Object.hasOwn(ddo, 'empty_value') ? { raw: ddo.empty_value } : undefined,
 			});
 		}
 		return entries;
@@ -427,6 +435,89 @@ async function uninstalledTldOf(tipo: string): Promise<string | null> {
 	return (await getPopulatedTlds()).includes(tld) ? null : tld;
 }
 
+/** The model whose ddo may be scoped to its main component (T2-DIF-3). */
+const DATAFRAME_MODEL = 'component_dataframe';
+
+/**
+ * A ddo `empty_value` → the placeholder its hop emits (T2-DIF-2), `undefined`
+ * when none is declared, `null` when REFUSED (recorded). Honoured on a
+ * relation hop only — the placeholder replaces a parent LOCATOR whose child
+ * ddos resolved nothing, so a terminal component has no locator to stand in
+ * for. Shape: the frozen-v7 `?array` — a non-empty list whose first element
+ * is a string or a finite number (that element is the placeholder).
+ */
+function ddoEmptyValue(
+	ddo: DdoEntry,
+	isRelationFamily: boolean,
+	model: string,
+	fieldTipo: string,
+	fieldLabel: string,
+	diagnostics: CompileDiagnostics,
+): string | undefined | null {
+	if (ddo.emptyValue === undefined) return undefined;
+	const where = `field '${fieldTipo}' (${fieldLabel}): ddo '${ddo.tipo}'`;
+	if (!isRelationFamily) {
+		diagnostics.errors.push(
+			`${where} (${model}) declares 'empty_value', which is honoured on a relation hop only (the placeholder stands in for a parent locator whose child ddos resolved nothing) — remove it, or use the field-level process.empty_value`,
+		);
+		return null;
+	}
+	const raw = ddo.emptyValue.raw;
+	const first = Array.isArray(raw) ? raw[0] : undefined;
+	if (typeof first === 'string' || (typeof first === 'number' && Number.isFinite(first))) {
+		return String(first);
+	}
+	diagnostics.errors.push(
+		`${where} 'empty_value' must be a non-empty list whose first element is a string or a number (got ${JSON.stringify(raw)})`,
+	);
+	return null;
+}
+
+/**
+ * A component_dataframe ddo whose `parent` is a ddo tipo (T2-DIF-3 — the
+ * frozen-v7 component_dataframe::get_diffusion_data rule: `ddo.parent` = the
+ * MAIN component ⇒ only that main's frames). The dataframe slot lives in the
+ * record that holds the main, NOT in the main's linked records, so the step is
+ * compiled at the main's OWN chain level (`hostParent`, undefined = root) and
+ * scoped by `mainComponentTipo`. Refused (null, recorded) when the parent is
+ * not a ddo of this map, is itself a dataframe, or does not declare this slot
+ * (dataframe_slots.ts resolveDataframeSlotTipos — the one slot set).
+ */
+async function dataframeHostScope(
+	ddo: DdoEntry,
+	parent: string,
+	ddoMap: DdoEntry[],
+	sectionTipo: string,
+	resolveModel: ModelResolver,
+	fieldTipo: string,
+	fieldLabel: string,
+	diagnostics: CompileDiagnostics,
+): Promise<{ mainComponentTipo: string; hostParent: string | undefined } | null> {
+	const where = `field '${fieldTipo}' (${fieldLabel}): component_dataframe ddo '${ddo.tipo}'`;
+	const main = ddoMap.find((entry) => entry !== ddo && entry.tipo === parent);
+	if (main === undefined) {
+		diagnostics.errors.push(
+			`${where} names parent '${parent}', which is not a ddo of this ddo_map — a dataframe ddo's parent must be its main component's ddo`,
+		);
+		return null;
+	}
+	const mainModel = await resolveModel(parent);
+	if (mainModel === null || mainModel === DATAFRAME_MODEL) {
+		diagnostics.errors.push(
+			`${where} names parent '${parent}' (${mainModel ?? 'no model'}), which cannot be a main component`,
+		);
+		return null;
+	}
+	const slots = await resolveDataframeSlotTipos(parent);
+	if (!slots.includes(ddo.tipo)) {
+		diagnostics.errors.push(
+			`${where} names parent '${parent}' (${mainModel}), which does not declare '${ddo.tipo}' as a dataframe slot (declared: ${slots.length > 0 ? slots.join(', ') : 'none'})`,
+		);
+		return null;
+	}
+	return { mainComponentTipo: parent, hostParent: parentOf(main, sectionTipo) };
+}
+
 /**
  * Compile one ddo chain into ResolveStep[]. Each entry becomes a 'component'
  * step (plain value read), a 'relation-hop' step (the chain continues
@@ -488,6 +579,31 @@ async function compileSourceChain(
 		const configFilters = relationListConfigFilters(ddo, model, fieldTipo, fieldLabel, diagnostics);
 		if (configFilters === null) continue;
 		const isRelationFamily = storesRelationLocators(model) || model === 'relation_list';
+		const emptyValue = ddoEmptyValue(
+			ddo,
+			isRelationFamily,
+			model,
+			fieldTipo,
+			fieldLabel,
+			diagnostics,
+		);
+		if (emptyValue === null) continue;
+		// component_dataframe scoped to its main (T2-DIF-3): judged before the
+		// step exists — a wrong parent refuses the ddo.
+		const dataframeScope =
+			model === DATAFRAME_MODEL && parent !== undefined
+				? await dataframeHostScope(
+						ddo,
+						parent,
+						ddoMap,
+						sectionTipo,
+						resolveModel,
+						fieldTipo,
+						fieldLabel,
+						diagnostics,
+					)
+				: undefined;
+		if (dataframeScope === null) continue;
 		if (isRelationFamily) {
 			const hop: Extract<ResolveStep, { kind: 'relation-hop' }> = {
 				kind: 'relation-hop',
@@ -497,7 +613,14 @@ async function compileSourceChain(
 				// (the chain processor derives it from the traversed locators).
 				sectionTipo: ddo.sectionTipo ?? '',
 			};
-			if (parent !== undefined) hop.parent = parent;
+			if (dataframeScope !== undefined) {
+				// The HOST-record hop: at the main's own chain level, scoped to it.
+				if (dataframeScope.hostParent !== undefined) hop.parent = dataframeScope.hostParent;
+				hop.mainComponentTipo = dataframeScope.mainComponentTipo;
+			} else if (parent !== undefined) {
+				hop.parent = parent;
+			}
+			if (emptyValue !== undefined) hop.emptyValue = emptyValue;
 			if (ddo.id !== undefined) hop.ddoId = ddo.id;
 			const sectionFilter = ddo.sectionFilter ?? configFilters.sectionFilter;
 			const componentFilter = ddo.componentFilter ?? configFilters.componentFilter;
@@ -903,6 +1026,18 @@ async function compileSectionPlan(
 		return null;
 	}
 
+	// TABLE-level is_publishable (T2-DIF-1): a plan fact, never a run-time tree
+	// read — the run builds no tree unless a rewriter needs recovering, so a
+	// tree read silently dropped the flag. Boolean or a loud refusal.
+	const tablePublishable = tableNode.properties?.is_publishable;
+	if (tablePublishable !== undefined && typeof tablePublishable !== 'boolean') {
+		diagnostics.errors.push(
+			`section '${sectionTipo}' (table node '${tableNode.tipo}'): properties.is_publishable ` +
+				`must be a boolean, got ${JSON.stringify(tablePublishable)}`,
+		);
+		return null;
+	}
+
 	// Columns come from the table node's DIRECT children (oracle
 	// dd_diffusion_api::process_datum :996 — get_ar_children is first-level
 	// only). childrenTipos is the RECURSIVE UI list: using it makes a nested
@@ -926,6 +1061,7 @@ async function compileSectionPlan(
 		sectionTipo,
 		tableName,
 		tableTipo: tableNode.tipo,
+		...(tablePublishable === undefined ? {} : { publishable: tablePublishable }),
 		fields,
 	};
 	// v6 global_table_maps: the section's rows ALSO land in aggregate tables

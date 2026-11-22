@@ -11,12 +11,21 @@
  * WC-2026-08-03-state-widget-total-source-count.
  * Empty leaves emit a zero detail whose column comes from the leaf's related
  * SECTION relation (dd501 → 'state', else 'situation'); non-empty leaves take
- * the column from the STORED locator's section. Multi-hop paths are UNPORTED
- * (every declared instance — rsc19 / oh28 / test180 — is single-hop).
+ * the column from the STORED locator's section.
+ *
+ * A path is walked HOP BY HOP (PHP search::get_data_with_path, T2-WID-2): step
+ * i is read at the records step i-1 points at, the leaf at the last level only
+ * — one strict ddo chain through the ONE walker (relations/component_data_walk.ts,
+ * `descent: 'direct'`). A path the chain cannot express (a step naming no
+ * component, the same component twice, an intermediate step that stores no
+ * locators) is refused with engine.uncovered_scope, never read as something
+ * narrower. Before, every path was read as its last step on the source record.
  */
 
 import { config } from '../../../../../config/config.ts';
+import { DedaloError } from '../../../../errors/dedalo_error.ts';
 import { getModelByTipo, getNode } from '../../../../ontology/resolver.ts';
+import type { WalkDdo } from '../../../../relations/component_data_walk.ts';
 import {
 	type InfoWidgetDescriptor,
 	phpRound,
@@ -42,6 +51,63 @@ async function getRelatedSection(tipo: string): Promise<string | null> {
 		if ((await getModelByTipo(relation.tipo)) === 'section') return relation.tipo;
 	}
 	return null;
+}
+
+/** One IPO path step (ontology-authored config). */
+interface PathStep {
+	var_name?: string;
+	section_tipo?: string;
+	component_tipo?: string;
+}
+
+/** Why one step's TIPO cannot join the chain (none, or already in it), or null. */
+function tipoRefusal(tipo: unknown, index: number, chain: readonly WalkDdo[]): string | null {
+	if (typeof tipo !== 'string' || tipo === '') return `step ${index} names no component_tipo`;
+	return chain.some((ddo) => ddo.tipo === tipo)
+		? `names '${tipo}' twice (the chain cannot tell the levels apart)`
+		: null;
+}
+
+/** Why an INTERMEDIATE step cannot be hopped through (it stores no locators), or null. */
+async function hopRefusal(tipo: string, index: number): Promise<string | null> {
+	const { storesRelationLocators } = await import('../../../registry.ts');
+	const model = await getModelByTipo(tipo);
+	if (storesRelationLocators(model)) return null;
+	return `step ${index} '${tipo}' (${model ?? 'no model'}) stores no locators to hop through`;
+}
+
+/** Why one step of a path cannot join the chain, or null when it can. */
+async function stepRefusal(
+	step: PathStep | undefined,
+	index: number,
+	chain: readonly WalkDdo[],
+	isLast: boolean,
+): Promise<string | null> {
+	const tipo = step?.component_tipo;
+	const refusal = tipoRefusal(tipo, index, chain);
+	if (refusal !== null || isLast) return refusal;
+	return hopRefusal(tipo as string, index);
+}
+
+/**
+ * The path as a strict ddo chain (each step the child of the previous one), or
+ * a loud refusal for a shape the walker cannot follow.
+ */
+async function pathChain(path: unknown, sectionTipo: string): Promise<WalkDdo[]> {
+	const refuse = (why: string): never => {
+		throw new DedaloError('engine.uncovered_scope', {
+			message: `state widget (${sectionTipo}): IPO path ${JSON.stringify(path)} ${why}`,
+			coordinates: { section_tipo: sectionTipo },
+		});
+	};
+	if (!Array.isArray(path) || path.length === 0) return refuse('is not a non-empty list of steps');
+	const chain: WalkDdo[] = [];
+	for (const [index, step] of (path as (PathStep | undefined)[]).entries()) {
+		const refusal = await stepRefusal(step, index, chain, index === path.length - 1);
+		if (refusal !== null) refuse(refusal);
+		chain.push({ tipo: step?.component_tipo, parent: chain[index - 1]?.tipo });
+	}
+	return chain;
 }
 
 async function computeState(ipo: unknown[], context: WidgetContext): Promise<WidgetItem[]> {
@@ -106,30 +172,38 @@ async function computeState(ipo: unknown[], context: WidgetContext): Promise<Wid
 			n: number;
 		}
 		const result: StateDetail[] = [];
+		const { walkComponentData } = await import('../../../../relations/component_data_walk.ts');
 		for (const path of paths) {
-			const lastPath = path[path.length - 1];
-			const leafTipo = lastPath?.component_tipo;
-			if (leafTipo === undefined) continue;
-			const varName = lastPath?.var_name ?? '';
+			const chain = await pathChain(path, context.sectionTipo);
+			const firstPath = path[0] as PathStep;
+			const lastPath = path[path.length - 1] as PathStep;
+			const leafTipo = lastPath.component_tipo as string;
+			const varName = lastPath.var_name ?? '';
 			const translatable = await getTranslatableByTipo(leafTipo);
 			const langCount = translatable ? projectLangCount : 1;
 
-			// single-hop walk: the leaf component AT each source locator
+			// the path walked from each source locator, the leaf at the last level
+			const startSection =
+				firstPath.section_tipo === 'self' || firstPath.section_tipo === undefined
+					? context.sectionTipo
+					: firstPath.section_tipo;
 			const arValue: { section_tipo?: unknown; section_id?: unknown; lang?: unknown }[] = [];
 			for (const locator of arLocator) {
-				const stepSection =
-					lastPath?.section_tipo === 'self' || lastPath?.section_tipo === undefined
-						? context.sectionTipo
-						: lastPath.section_tipo;
-				const hostSection = String(locator.section_tipo ?? stepSection);
-				const hostId = locator.section_id as number | string;
+				const hostId = locator.section_id as number | string | undefined;
 				if (hostId === undefined) continue;
-				const items = (await readWidgetComponentData(hostSection, hostId, leafTipo)) as {
-					section_tipo?: unknown;
-					section_id?: unknown;
-					lang?: unknown;
-				}[];
-				arValue.push(...items);
+				const values = await walkComponentData({
+					ddoMap: chain,
+					start: chain[0] as WalkDdo,
+					leaf: chain[chain.length - 1],
+					address: {
+						section_tipo: String(locator.section_tipo ?? startSection),
+						section_id: hostId,
+					},
+					read: (ddo, address) =>
+						readWidgetComponentData(address.section_tipo, address.section_id, ddo.tipo),
+					descent: 'direct',
+				});
+				arValue.push(...(values as typeof arValue));
 			}
 
 			if (arValue.length === 0) {

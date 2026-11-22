@@ -18,6 +18,7 @@
  */
 
 import { getPermissions, type Principal } from '../../core/security/permissions.ts';
+import { storedThumbUrl } from './image_source.ts';
 import type { ObjectRetrieval, SimilarityMode } from './object_retrieval.ts';
 import type { Candidate, RecordLocator } from './types.ts';
 
@@ -197,10 +198,9 @@ function neighbourWeight(c: Candidate): number {
 	return c.rrfScore ?? c.score ?? 0;
 }
 
-/** Pull thumb_url out of a candidate's chunk_meta (image vectors carry it). */
+/** A candidate's thumb URL, derived from the stored identity (image vectors carry it). */
 function thumbOf(c: Candidate): string | null {
-	const t = c.chunkMeta?.thumb_url;
-	return typeof t === 'string' ? t : null;
+	return storedThumbUrl(c.chunkMeta);
 }
 
 /**

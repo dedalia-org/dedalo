@@ -110,6 +110,7 @@ function extractedImage(base64 = JPEG_BASE64): ExtractedImage {
 	return {
 		base64,
 		quality: 'default',
+		thumbPath: '/thumb/photo/1.jpg',
 		thumbUrl: 'media/thumb/photo/1.jpg',
 		width: 800,
 		height: 600,

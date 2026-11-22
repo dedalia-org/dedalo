@@ -385,7 +385,7 @@ describe('RagCharacterizer (injected fakes, no DB)', () => {
 				modality: 'image',
 				egressClass: 'public',
 				parentKey: null,
-				chunkMeta: { thumb_url: '/t/2.jpg' },
+				chunkMeta: { thumb_path: '/t/2.jpg' },
 				rrfScore: 0.9,
 			},
 		];
@@ -420,7 +420,7 @@ describe('RagCharacterizer (injected fakes, no DB)', () => {
 				modality: 'image',
 				egressClass: 'public',
 				parentKey: null,
-				chunkMeta: { thumb_url: '/t/2.jpg' },
+				chunkMeta: { thumb_path: '/t/2.jpg' },
 				rrfScore: 0.9,
 			},
 		];
@@ -496,9 +496,11 @@ describe.if(REAL_INGEST)('the stored image row IS the ingest pipeline output', (
 		expect(row.chunk_meta.width).toBe(extracted.width);
 		expect(row.chunk_meta.height).toBe(extracted.height);
 		expect(typeof row.chunk_meta.width).toBe('number');
-		// The thumb URL is only stored when the thumb derivative really exists.
-		expect(row.chunk_meta.thumb_url).toBe(extracted.thumbUrl);
-		expect(String(row.chunk_meta.thumb_url)).toContain(`/${config.media.thumb.quality}/`);
+		// The thumb IDENTITY is only stored when the thumb derivative really exists;
+		// the URL is never stored — it is derived at read (T2-D03-c).
+		expect(row.chunk_meta.thumb_path).toBe(extracted.thumbPath);
+		expect(String(row.chunk_meta.thumb_path)).toContain(`/${config.media.thumb.quality}/`);
+		expect(Object.keys(row.chunk_meta)).not.toContain('thumb_url');
 	});
 
 	test('re-indexing an UNCHANGED image costs no encoder call', async () => {

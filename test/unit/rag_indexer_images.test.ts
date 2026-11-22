@@ -71,6 +71,7 @@ function fakeImageDeps(
 		extract: async ({ componentTipo }) => ({
 			base64: `b64:${componentTipo}`,
 			quality: '1.5MB',
+			thumbPath: '/image/thumb/0/x.jpg',
 			thumbUrl: '/dedalo/media/image/thumb/0/x.jpg',
 			width: 800,
 			height: 600,
@@ -168,7 +169,7 @@ describe('indexRecordImages', () => {
 		expect(row.parentKey).toBe('test3_1');
 		// source_text is the ONLY text an image row has — the hybrid lexical leg.
 		expect(row.sourceText).toBe('typology: Amphora · period: Roman');
-		// snake_case: read back as chunk_meta.view / chunk_meta.thumb_url.
+		// snake_case: read back as chunk_meta.view / chunk_meta.thumb_path.
 		expect(row.chunkMeta).toMatchObject({
 			media_tipo: 'test88',
 			view: 'obverse',
@@ -176,6 +177,10 @@ describe('indexRecordImages', () => {
 			width: 800,
 			height: 600,
 		});
+		// T2-D03-c: the thumb is stored as its IDENTITY (media-root-relative path);
+		// the URL — frozen on today's media web base — is never persisted.
+		expect(row.chunkMeta?.thumb_path).toBe('/image/thumb/0/x.jpg');
+		expect(Object.keys(row.chunkMeta ?? {})).not.toContain('thumb_url');
 	});
 
 	test('an unchanged image costs no provider call and stays alive', async () => {
@@ -190,6 +195,7 @@ describe('indexRecordImages', () => {
 		const stored = imageSourceHash(
 			(extracted as NonNullable<typeof extracted>).bytesHash,
 			'typology: Amphora · period: Roman',
+			(extracted as NonNullable<typeof extracted>).thumbPath,
 		);
 
 		const { store, calls } = fakeStore(new Map([['test88|lg-nolan|0', stored]]));

@@ -67,7 +67,7 @@ import { resolveLocatorLabels } from '../relations/datalist.ts';
 import { componentLocators } from '../relations/locator_source.ts';
 import { filterAuthorizedRelated } from '../relations/request_config/implicit.ts';
 import { findInverseReferences } from '../search/search_related.ts';
-import { sectionRelationListTipos } from '../section/related_list.ts';
+import { cleanRelatedColumnTipos, sectionRelationListTipos } from '../section/related_list.ts';
 import type { Principal } from '../security/permissions.ts';
 import { currentPrincipal } from '../security/request_context.ts';
 import { type EmissionContext, resolveComponentValue, shownItems } from './component_data.ts';
@@ -83,8 +83,19 @@ export interface RelationListResult {
 	unresolved: string[];
 }
 
-/** The grid column tipos of one referencing section (see module doc step 2). */
+/**
+ * The grid column tipos of one referencing section (see module doc step 2),
+ * CLEANED: whichever source declares them, the list goes through the ONE clean
+ * step the relation_index columns use (section/related_list.ts
+ * cleanRelatedColumnTipos — no section node, exclude_elements, dd249, label
+ * node or unresolvable tipo is ever a column; T2-REL-1).
+ */
 export async function getRelationListColumns(sectionTipo: string): Promise<string[]> {
+	return cleanRelatedColumnTipos(await declaredRelationListColumns(sectionTipo));
+}
+
+/** The column tipos a referencing section DECLARES, verbatim (before the clean step). */
+async function declaredRelationListColumns(sectionTipo: string): Promise<string[]> {
 	// section_map 'relation_list' scope (strict — the scope key is read
 	// directly, no SCOPE_FALLBACK walk), resolved through the canonical
 	// virtual-aware cached accessor (S2-27).
@@ -102,8 +113,8 @@ export async function getRelationListColumns(sectionTipo: string): Promise<strin
 	// retry, class.relation_list.php:305-321) and first by order_number: THE
 	// section fact, section/related_list.ts sectionRelationListTipos (T0-7, T0-8 —
 	// the relation_index columns read the same lookup). Verbatim here — the
-	// PRINCIPAL-FREE fact; the readers filter it with
-	// authorizedRelationListColumns below.
+	// PRINCIPAL-FREE fact; getRelationListColumns cleans it and the readers
+	// filter it with authorizedRelationListColumns below.
 	return [...(await sectionRelationListTipos(sectionTipo))];
 }
 

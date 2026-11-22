@@ -95,27 +95,39 @@ describe('imageSourceHash', () => {
 	const bytes = 'a'.repeat(64);
 
 	test('is stable for the same bytes and summary', () => {
-		expect(imageSourceHash(bytes, 'period: Roman')).toBe(imageSourceHash(bytes, 'period: Roman'));
-		expect(imageSourceHash(bytes, '')).toHaveLength(64);
+		expect(imageSourceHash(bytes, 'period: Roman', null)).toBe(
+			imageSourceHash(bytes, 'period: Roman', null),
+		);
+		expect(imageSourceHash(bytes, '', null)).toHaveLength(64);
 	});
 
 	test('changes when the pixels change', () => {
-		expect(imageSourceHash(bytes, 'x')).not.toBe(imageSourceHash('b'.repeat(64), 'x'));
+		expect(imageSourceHash(bytes, 'x', null)).not.toBe(imageSourceHash('b'.repeat(64), 'x', null));
 	});
 
 	test('changes when the context summary changes', () => {
 		// The summary rides the row as source_text, so it is part of what the
 		// vector asserts — an edited typology must re-embed.
-		expect(imageSourceHash(bytes, 'period: Roman')).not.toBe(
-			imageSourceHash(bytes, 'period: Iberian'),
+		expect(imageSourceHash(bytes, 'period: Roman', null)).not.toBe(
+			imageSourceHash(bytes, 'period: Iberian', null),
 		);
 	});
 
 	test('is versioned, so the tag can force a corpus-wide re-embed', () => {
 		const tagged = new Bun.CryptoHasher('sha256')
-			.update(`${IMAGE_HASH_VERSION}|${bytes}|s`)
+			.update(`${IMAGE_HASH_VERSION}|${bytes}|s|/image/thumb/0/x.jpg`)
 			.digest('hex');
-		expect(imageSourceHash(bytes, 's')).toBe(tagged);
+		expect(imageSourceHash(bytes, 's', '/image/thumb/0/x.jpg')).toBe(tagged);
+	});
+
+	test('changes when the stored thumb identity changes (T2-D03-c)', () => {
+		// The row stores chunk_meta.thumb_path, so a thumb generated (or removed)
+		// after indexing must refresh the row — and a v1 row (frozen thumb_url)
+		// is rewritten by the version bump.
+		expect(imageSourceHash(bytes, 's', null)).not.toBe(
+			imageSourceHash(bytes, 's', '/image/thumb/0/x.jpg'),
+		);
+		expect(IMAGE_HASH_VERSION).not.toBe('img_v1');
 	});
 });
 

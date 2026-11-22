@@ -6,13 +6,22 @@
  *
  *   - request_config fixed_filter `component_data` (request_config/filters.ts);
  *   - the calculation widget's relation input (components/calculation_data.ts,
- *     PHP component_relation_common::get_calculation_data).
+ *     PHP component_relation_common::get_calculation_data);
+ *   - the state widget's IPO path (component_info/widgets/state/state.ts, PHP
+ *     search::get_data_with_path) — a STRICT chain, walked with `descent:
+ *     'direct'` (below).
  *
  * The walk is depth-first: the start ddo's data is read on the address; a ddo
  * that is not the LEAF fans out into its recursive descendants (pre-order,
  * transitive — PHP duplicates kept) for every element it holds, each element
  * becoming the next level's address; the leaf's data returns directly, merged
  * in order.
+ *
+ * DESCENT. A ddo_map fans a level into its RECURSIVE descendants (the PHP rule
+ * above, the default). A PATH is a strict chain — step i is read only at the
+ * records step i-1 points at — so it walks with `descent: 'direct'`: only the
+ * ddo's own children, never a deeper step at a shallower record (which would
+ * read the leaf on an intermediate record that happens to hold it).
  *
  * NO MUTATION. PHP marked the leaf by writing `last = true` onto the ddo — on a
  * ddo_map that is ontology config (cached node properties), so the mark leaked
@@ -69,6 +78,8 @@ interface WalkStep {
 	leaf: WalkDdo | undefined;
 	address: WalkAddress;
 	read: WalkReader;
+	/** 'recursive' (default, ddo_map): every descendant; 'direct' (a path): children only. */
+	descent?: 'recursive' | 'direct';
 }
 
 /**
@@ -89,7 +100,10 @@ export async function walkComponentData(step: WalkStep): Promise<unknown[]> {
  * descendant of the ddo there (PHP get_ddo_children_recursive), merged in order.
  */
 async function fanOut(step: WalkStep, tipo: string, componentData: unknown[]): Promise<unknown[]> {
-	const children = collectDdoDescendants(step.ddoMap, tipo);
+	const children =
+		step.descent === 'direct'
+			? step.ddoMap.filter((ddo) => ddo.parent === tipo && typeof ddo.tipo === 'string')
+			: collectDdoDescendants(step.ddoMap, tipo);
 	const merged: unknown[] = [];
 	for (const element of componentData) {
 		const address = elementAddress(element);

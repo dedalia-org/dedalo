@@ -86,6 +86,24 @@ export type ResolveStep =
 			labelExpansion?: boolean;
 			/** ddo_map entry id — the handle parser patterns reference ('${a}'). */
 			ddoId?: string;
+			/**
+			 * ddo-level `empty_value` (T2-DIF-2; frozen-v7 dd_object::$empty_value,
+			 * the v6 resolve_value per-locator placeholder): when a parent locator of
+			 * this hop resolves to nothing through its child ddos, ONE placeholder
+			 * locator (section_id = this value) is emitted in its place, so per-item
+			 * alignment survives (a coin with no hoard publishes "0"). The first
+			 * element of the declared list, as a string. Absent = no placeholder.
+			 */
+			emptyValue?: string;
+			/**
+			 * component_dataframe ddo whose `parent` names its MAIN component
+			 * (T2-DIF-3; frozen-v7 component_dataframe::get_diffusion_data): the hop
+			 * reads the slot of the record that holds the main (the HOST record — the
+			 * step is compiled at the main's own chain level, not under it) and keeps
+			 * only the frames whose `main_component_tipo` is this tipo. Each frame
+			 * carries its pairing id (`id_key`) onto the published locator.
+			 */
+			mainComponentTipo?: string;
 	  }
 	| {
 			kind: 'system';
@@ -227,6 +245,14 @@ export interface SectionPlan {
 	tableName: string;
 	/** The table/diffusion-section node tipo this plan came from. */
 	tableTipo: string;
+	/**
+	 * The table node's `is_publishable` (v6: always honoured), compiled here so
+	 * the run never needs the ontology tree to honour it (T2-DIF-1). `false`
+	 * unpublishes every record of the section, `true` publishes every one
+	 * whatever its component_publication says; ABSENT = no override, the
+	 * per-record gate decides. Any non-boolean value refuses the compile.
+	 */
+	publishable?: boolean;
 	fields: FieldPlan[];
 	/**
 	 * Secondary aggregate tables this section's rows ALSO land in — the v6

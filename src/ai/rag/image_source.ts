@@ -53,7 +53,7 @@ import {
 	type MediaIdentity,
 	type MediaPathOptions,
 	mediaThumbLocation,
-	mediaThumbUrl,
+	mediaUrlOf,
 } from '../../core/media/path.ts';
 import { isMasterQuality } from '../../core/media/protection.ts';
 import {
@@ -66,8 +66,13 @@ import { runWithRequestContext } from '../../core/security/request_context.ts';
 import { readComponentText } from './component_text.ts';
 import { RAG_SYSTEM_PRINCIPAL } from './embed_source.ts';
 
-/** The version tag mixed into every image hash — bump to force a re-embed. */
-export const IMAGE_HASH_VERSION = 'img_v1';
+/**
+ * The version tag mixed into every image hash — bump to force a re-embed.
+ * img_v2 (T2-D03-c): the thumb IDENTITY joined the key, and a v1 row stored the
+ * thumb as a frozen URL (`chunk_meta.thumb_url`, now ignored) — the bump makes
+ * the next index pass rewrite every v1 row with its `thumb_path`.
+ */
+export const IMAGE_HASH_VERSION = 'img_v2';
 
 /** One media component of one record, ready to embed. */
 export interface ExtractedImage {
@@ -75,7 +80,12 @@ export interface ExtractedImage {
 	base64: string;
 	/** The derivative tier the bytes came from. */
 	quality: string;
-	/** Thumb URL for result rendering, or null when no thumb exists on disk. */
+	/**
+	 * The thumb's media-root-relative path (its IDENTITY — what the index
+	 * stores, `chunk_meta.thumb_path`), or null when no thumb exists on disk.
+	 */
+	thumbPath: string | null;
+	/** Thumb URL for live rendering (derived from `thumbPath` on today's base), or null. */
 	thumbUrl: string | null;
 	/** Dimensions of the STORED derivative (display metadata, not the encoder input). */
 	width: number | null;
@@ -285,12 +295,16 @@ export async function extractImageForEmbedding(input: {
 			// Only store a thumb URL that resolves TODAY — a URL to an ungenerated
 			// thumb renders as a broken image in every result list.
 			const thumbLocation = mediaThumbLocation(spec, identity, pathOptions);
-			const thumbExists = thumbLocation !== null && existsSync(thumbLocation.absolutePath);
+			const thumbPath =
+				thumbLocation !== null && existsSync(thumbLocation.absolutePath)
+					? thumbLocation.relativePath
+					: null;
 
 			return {
 				base64: Buffer.from(bytes).toString('base64'),
 				quality,
-				thumbUrl: thumbExists ? mediaThumbUrl(spec, identity, pathOptions) : null,
+				thumbPath,
+				thumbUrl: thumbPath === null ? null : mediaUrlOf(thumbPath),
 				width: dimensions?.width ?? null,
 				height: dimensions?.height ?? null,
 				bytesHash: new Bun.CryptoHasher('sha256').update(bytes).digest('hex'),
@@ -305,14 +319,37 @@ export async function extractImageForEmbedding(input: {
 }
 
 /**
- * The staleness key of an image vector: the encoder bytes plus the context
- * summary that rides with them as `source_text`. Editing a typology or period
- * therefore re-embeds the image — correct, because the summary is part of what
- * the row asserts, even though the pixels did not change.
+ * The thumb URL of a STORED image vector (T2-D03-c): derived at read from the
+ * identity the index stores — `chunk_meta.thumb_path`, the media-root-relative
+ * path — on TODAY's media web base, so a moved `DEDALO_MEDIA_WEB_BASE` is
+ * followed without re-indexing. A legacy `chunk_meta.thumb_url` (a URL frozen
+ * on the base of the day it was indexed) is IGNORED: a stored derived value is
+ * never served. Null for a row with no thumb identity, or a path that is not a
+ * plain root-relative one.
  */
-export function imageSourceHash(bytesHash: string, contextSummary: string): string {
+export function storedThumbUrl(meta: Record<string, unknown> | null | undefined): string | null {
+	const path = meta?.thumb_path;
+	if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
+	if (path.includes('\\') || path.split('/').includes('..')) return null;
+	return mediaUrlOf(path);
+}
+
+/**
+ * The staleness key of an image vector: the encoder bytes, the context summary
+ * that rides with them as `source_text`, and the thumb identity the row stores
+ * (`chunk_meta.thumb_path`, null when no thumb existed). Editing a typology or
+ * period therefore re-embeds the image — correct, because the summary is part
+ * of what the row asserts, even though the pixels did not change — and so does
+ * a thumb generated (or removed) after the row was written, which would
+ * otherwise never reach it.
+ */
+export function imageSourceHash(
+	bytesHash: string,
+	contextSummary: string,
+	thumbPath: string | null,
+): string {
 	return new Bun.CryptoHasher('sha256')
-		.update(`${IMAGE_HASH_VERSION}|${bytesHash}|${contextSummary}`)
+		.update(`${IMAGE_HASH_VERSION}|${bytesHash}|${contextSummary}|${thumbPath ?? ''}`)
 		.digest('hex');
 }
 

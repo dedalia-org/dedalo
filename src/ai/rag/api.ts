@@ -61,6 +61,7 @@ import {
 } from './ask_config.ts';
 import { RagCharacterizer } from './characterizer.ts';
 import { defaultOntologyPort, RagConfig } from './config.ts';
+import { storedThumbUrl } from './image_source.ts';
 import {
 	buildMultimodalProvider,
 	isMediaEnabled,
@@ -361,8 +362,11 @@ function readSeed(options: Record<string, unknown> | undefined): {
 	return { sectionTipo, sectionId };
 }
 
-/** Candidate → API object shape (similarity = 1 - distance, view/thumb from chunk_meta). */
-function shapeObject(candidate: Candidate): Record<string, unknown> {
+/**
+ * Candidate → API object shape (similarity = 1 - distance, view from chunk_meta,
+ * thumb DERIVED from the stored identity — image_source.storedThumbUrl).
+ */
+export function shapeObject(candidate: Candidate): Record<string, unknown> {
 	const meta = candidate.chunkMeta ?? {};
 	const distance = candidate.distance;
 	return {
@@ -371,7 +375,7 @@ function shapeObject(candidate: Candidate): Record<string, unknown> {
 		similarity: distance === undefined ? null : Math.round((1 - distance) * 10000) / 10000,
 		score: candidate.rrfScore ?? candidate.score ?? null,
 		view: typeof meta.view === 'string' ? meta.view : null,
-		thumb_url: typeof meta.thumb_url === 'string' ? meta.thumb_url : null,
+		thumb_url: storedThumbUrl(meta),
 		context: candidate.sourceText,
 	};
 }

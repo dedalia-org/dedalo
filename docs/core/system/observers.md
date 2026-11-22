@@ -222,14 +222,24 @@ recomputes on, and **what** is computed on each.
 
 ### Which records (target resolution)
 
-For an info observer (and the relay and no-op shapes) the targets come from
-`server.filter` and `use_observable_dato`:
+For an info observer (and the relay and no-op shapes) the first step comes from
+`server.filter`:
 
 | Targets | Declared as |
 | --- | --- |
-| The saved record | `server.filter: false`, no `perform` (only an info-model observer recomputes on it; anything else is a no-op — see the perform table) |
-| Everything the just-saved data points at | `server.config.use_observable_dato: true` |
+| The saved record | `server.filter: false` or no `filter`, no `perform` (only an info-model observer recomputes on it; anything else is a no-op — see the perform table) |
+| Everything the just-saved data points at | `server.config.use_observable_dato: true` (relay) |
 | Every record referencing the saved one | `server.filter` is an [SQO](../../api/sqo.md) object: a search over the **host section** in which every clause's `q` becomes the saved record's locator, with `from_component_tipo` taken from the first clause's last path step |
+
+An info observer then passes that first step through the same `server.config`
+table as a `set_dato_external` edge (below): with no `config` the first step is
+the target list; `use_observable_dato` adds (`use_self_section: true`) or
+substitutes (`use_self_section: false`) everything the saved data points at —
+and what it stopped pointing at, whose widget changed too; `use_inverse_relations`
+substitutes every record that references the saved one. Either way a record is a
+target only when its section declares the observer: a locator into any other
+section is skipped, so no widget is computed and no Time Machine row is written
+there.
 
 For a `set_dato_external` edge one closed table decides, checked top to bottom:
 

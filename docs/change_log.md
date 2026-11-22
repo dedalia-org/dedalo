@@ -2047,6 +2047,106 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Publication: a relation's `empty_value` keeps every item's place, and a field's frames publish only for the main field they belong to."**
+
+    Two settings of a publication field's `ddo_map` are now honoured.
+
+    - **`empty_value` on a relation.** When an item of the relation leads to nothing (a coin with no
+      hoard, for instance), the declared value is published in its place — `["0"]` when the setting
+      is `"empty_value": ["0"]` — so every item keeps its position in the published list. Until now
+      the setting was ignored and the item simply disappeared from the list, shifting the ones after
+      it. Declaring it on a field that is not a relation, or with a value that is not a list, now
+      stops the publication with an error naming the field.
+    - **Frames of one main field.** A frame field (`component_dataframe`) whose `parent` is the main
+      field it extends now publishes only the frames of that main field, read from the record that
+      holds it, and each published frame carries the number of the item it belongs to (`id_key`) so
+      the two can be joined. Until now such a field published nothing. A `parent` that is not a field
+      of the same `ddo_map`, or that does not use this frame field, now stops the publication with
+      an error.
+
+    **Action needed:** none. If a publication now stops with one of these errors, correct the field's
+    `ddo_map` in the ontology.
+
+    Wire contract: `WC-2026-11-22-diffusion-ddo-empty-value`, `WC-2026-11-22-diffusion-dataframe-hop`.
+
+- **"Publication: the Download button of a file publication's report works when media is served from another address."**
+
+    After a file publication (RDF, XML, JSON…), the report's **Download** button opened the merged
+    file or the zip at the application's own address. On an installation whose media is served
+    from another address (`DEDALO_MEDIA_WEB_BASE` set), the download failed. The report now links
+    the files at the media address, like every other media link the application shows, and the
+    button opens it as given. The published files are not affected.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-042`.
+
+- **"Publication: a table's `is_publishable` setting is honoured in every publication run."**
+
+    A publication table whose ontology node sets `is_publishable` decides for all of its records:
+    `false` withdraws every record, `true` publishes every record whatever its publication field
+    says. Until now the setting was read only in the runs that happened to load the full ontology
+    tree; every other run ignored it and published the records whose publication field said yes.
+    It is now part of the compiled publication plan and holds in every run.
+
+    A value other than `true` or `false` (for instance the text `"false"`) now stops the publication
+    with an error naming the table node, instead of being ignored.
+
+    **Action needed:** none, unless a table node carries a non-boolean `is_publishable` — correct
+    it in the ontology.
+
+- **"An information field observing another field now recomputes on the records its `server.config` names."**
+
+    An information field (`component_info`, and its state and calculation variants) that observes
+    another field with a `server.config` — `use_observable_dato` (the records the saved field
+    points at) or `use_inverse_relations` (the records pointing at the saved one) — recomputed on
+    the record that had just been saved instead, and its history entry was written there. It now
+    recomputes on the records the configuration names, as every other observer does; with
+    `use_observable_dato`, the records the saved field stopped pointing at are recomputed too.
+    Only records whose section declares the information field are recomputed; a record of any
+    other section is skipped.
+    Observers configured only with `filter` behave as before.
+
+    **Action needed:** none.
+
+- **"Thumbnails in similar-object, identification and characterisation results follow the media web address."**
+
+    The image search index stored each thumbnail as a complete web address, built on the media
+    web address (`DEDALO_MEDIA_WEB_BASE`) of the day the image was indexed. After that address
+    changed — media moved to another host, or served from a separate web server — every
+    similar-objects, identify-by-image and characterise result kept pointing at the old address.
+    The index now stores where the thumbnail sits inside the media folder, and the address is built
+    when a result is read, on the current media web address. A thumbnail generated after the image
+    was indexed now also reaches the index on the next indexing pass.
+
+    **Action needed:** backfill the image search index (see *Operations* in the RAG administration
+    guide). Image vectors indexed before this version show no thumbnail until their record is indexed
+    again, and that indexing computes each image vector once more.
+
+- **"The References panel no longer opens a column for a section, the exclude marker or the old security field."**
+
+    A section's list of columns for "records that point here" (its `relation_list`, or the
+    `relation_list` entry of its section map) may name nodes that are not fields: the section
+    itself, an `exclude_elements` marker, or the retired security-areas field `dd249`. The
+    inverse-relations field of a record already skipped them; the References panel and the related
+    search showed each of them as an empty column. Both now apply the same rule and show only real
+    fields.
+
+    **Action needed:** none.
+
+- **"The process-state widget now follows a multi-step path to its state field."**
+
+    The process-state widget (the `state` widget of a `component_info` field) reads each configured
+    path from the record down to the select that holds the state or situation. A path of more than
+    one step — for example a portal to a resource, then the resource's state select — was read as
+    its last step on the record itself, so the widget showed 0 % for every record. Each step is now
+    read on the records the previous step points at, and the state values come from the last step
+    only. A path the widget cannot follow (a step without a component, the same component twice, or
+    an intermediate step that holds no links) now stops the widget with an error naming the path,
+    instead of silently showing 0 %. Single-step paths behave as before.
+
+    **Action needed:** none.
+
 - **"Update cache brings old stored formats up to date: legacy time codes in text areas and JSON stored as text."**
 
     Running **Update cache** over a text area now rewrites time codes kept in the old form
@@ -2538,7 +2638,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 108 entries"
+??? note "Wire contract — 110 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2638,6 +2738,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-diffusion-dataframe-hop`
+    - `WC-2026-11-22-diffusion-ddo-empty-value`
     - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-indexation-fragment-served`
     - `WC-2026-11-22-media-icons-tc`

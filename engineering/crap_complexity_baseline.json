@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 950,
-		"functions": 16893,
+		"functions": 16930,
 		"functionsOverCap": 640,
 		"filesOverCap": 252
 	},
@@ -316,7 +316,7 @@
 		"src/core/components/component_info/widgets/oh/media_icons.ts": 26,
 		"src/core/components/component_info/widgets/oh/tags.ts": 9,
 		"src/core/components/component_info/widgets/registry.ts": 9,
-		"src/core/components/component_info/widgets/state/state.ts": 38,
+		"src/core/components/component_info/widgets/state/state.ts": 37,
 		"src/core/components/component_info/widgets/test/test_info.ts": 12,
 		"src/core/components/component_info/widgets/widget_common.ts": 18,
 		"src/core/components/component_text_area/original_lang.ts": 9,

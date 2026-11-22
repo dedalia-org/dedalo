@@ -17,7 +17,7 @@
  * production.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MatrixRecord } from '../../src/core/db/matrix.ts';
@@ -26,13 +26,23 @@ import {
 	type ParserClassifier,
 	validateElementPlan,
 } from '../../src/diffusion/plan/compile.ts';
+import { compileRdfSection } from '../../src/diffusion/plan/rdf_compile.ts';
+import type { PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import type {
 	OntologyIndex,
 	RawOntologyNode,
 	VirtualDiffusionTree,
 	VirtualTreeNode,
 } from '../../src/diffusion/plan/virtual_tree.ts';
-import { type RunContext, resolveGate } from '../../src/diffusion/resolve/resolver.ts';
+import { RdfNamespaceTable } from '../../src/diffusion/resolve/rdf_graph_ir.ts';
+import {
+	type ResolvedBatch,
+	type RunContext,
+	resolveGate,
+	resolvePublication,
+} from '../../src/diffusion/resolve/resolver.ts';
+import { DB_READY } from '../helpers/db_ready.ts';
+import { cleanScratchRecord, createScratchRecord } from '../helpers/test_data.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
@@ -121,6 +131,83 @@ describe('a publication decision is never silent', () => {
 	});
 });
 
+// The smallest tree the compiler will walk: one sql element → database →
+// table → the two field nodes under test (compile.ts CompileOptions.tree).
+function treeWith(
+	fields: { tipo: string; properties: Record<string, unknown> }[],
+	tableProperties: Record<string, unknown> | null = null,
+): VirtualDiffusionTree {
+	const path: VirtualTreeNode['parents'] = [
+		{ tipo: 'el1', model: 'diffusion_element', label: 'el', realTipo: null, type: 'sql' },
+	];
+	const fieldNodes = new Map<string, RawOntologyNode>(
+		fields.map((field) => [
+			field.tipo,
+			{
+				tipo: field.tipo,
+				parent: 'tb1',
+				model: 'field_text',
+				term: { 'lg-spa': field.tipo },
+				properties: field.properties,
+				relations: null,
+			},
+		]),
+	);
+	const index: OntologyIndex = {
+		nodeOf: async (tipo) => fieldNodes.get(tipo) ?? null,
+		childTipos: async () => [],
+		relatedByModel: async () => [],
+		relationTipos: async () => [],
+		resolveAlias: async () => null,
+	};
+	const base = { realTipo: null, isAlias: false, childrenTipos: [], relatedSections: [] };
+	return {
+		domainName: 'test',
+		domainTipo: 'dom1',
+		index,
+		nodes: [
+			{
+				...base,
+				tipo: 'el1',
+				model: 'diffusion_element',
+				label: 'el',
+				properties: { diffusion: { type: 'sql' } },
+				parents: [],
+				directChildrenTipos: ['db1'],
+			},
+			{
+				...base,
+				tipo: 'db1',
+				model: 'database',
+				label: 'web_test',
+				properties: null,
+				parents: path,
+				directChildrenTipos: ['tb1'],
+			},
+			{
+				...base,
+				tipo: 'tb1',
+				model: 'table',
+				label: 'interview',
+				properties: tableProperties,
+				parents: path,
+				childrenTipos: fields.map((field) => field.tipo),
+				directChildrenTipos: fields.map((field) => field.tipo),
+				relatedSections: ['test6813'],
+			},
+		],
+	};
+}
+
+const options = (
+	fields: { tipo: string; properties: Record<string, unknown> }[],
+	tableProperties: Record<string, unknown> | null = null,
+): CompileOptions => ({
+	tree: treeWith(fields, tableProperties),
+	classifyParserFn: (() => 'unknown') as ParserClassifier,
+	resolveModelByTipo: async () => null,
+});
+
 /**
  * THE OTHER HALF OF P2-13 (PUB-08) — a retired directive spelling must not
  * compile to silence.
@@ -148,81 +235,6 @@ describe('a publication decision is never silent', () => {
  * dd1099 element.
  */
 describe('a retired parser spelling is reported, not silently dropped', () => {
-	// The smallest tree the compiler will walk: one sql element → database →
-	// table → the two field nodes under test (compile.ts CompileOptions.tree).
-	function treeWith(
-		fields: { tipo: string; properties: Record<string, unknown> }[],
-	): VirtualDiffusionTree {
-		const path: VirtualTreeNode['parents'] = [
-			{ tipo: 'el1', model: 'diffusion_element', label: 'el', realTipo: null, type: 'sql' },
-		];
-		const fieldNodes = new Map<string, RawOntologyNode>(
-			fields.map((field) => [
-				field.tipo,
-				{
-					tipo: field.tipo,
-					parent: 'tb1',
-					model: 'field_text',
-					term: { 'lg-spa': field.tipo },
-					properties: field.properties,
-					relations: null,
-				},
-			]),
-		);
-		const index: OntologyIndex = {
-			nodeOf: async (tipo) => fieldNodes.get(tipo) ?? null,
-			childTipos: async () => [],
-			relatedByModel: async () => [],
-			relationTipos: async () => [],
-			resolveAlias: async () => null,
-		};
-		const base = { realTipo: null, isAlias: false, childrenTipos: [], relatedSections: [] };
-		return {
-			domainName: 'test',
-			domainTipo: 'dom1',
-			index,
-			nodes: [
-				{
-					...base,
-					tipo: 'el1',
-					model: 'diffusion_element',
-					label: 'el',
-					properties: { diffusion: { type: 'sql' } },
-					parents: [],
-					directChildrenTipos: ['db1'],
-				},
-				{
-					...base,
-					tipo: 'db1',
-					model: 'database',
-					label: 'web_test',
-					properties: null,
-					parents: path,
-					directChildrenTipos: ['tb1'],
-				},
-				{
-					...base,
-					tipo: 'tb1',
-					model: 'table',
-					label: 'interview',
-					properties: null,
-					parents: path,
-					childrenTipos: fields.map((field) => field.tipo),
-					directChildrenTipos: fields.map((field) => field.tipo),
-					relatedSections: ['test6813'],
-				},
-			],
-		};
-	}
-
-	const options = (
-		fields: { tipo: string; properties: Record<string, unknown> }[],
-	): CompileOptions => ({
-		tree: treeWith(fields),
-		classifyParserFn: (() => 'unknown') as ParserClassifier,
-		resolveModelByTipo: async () => null,
-	});
-
 	test('the SHIPPED shape — a string fn — and the object shape both surface as retired_parser_spelling with the fieldId', async () => {
 		const report = await validateElementPlan(
 			'el1',
@@ -266,5 +278,201 @@ describe('a retired parser spelling is reported, not silently dropped', () => {
 		// reason, so a new degradation kind has to be declared, not improvised.
 		const types = readFileSync(join(REPO_ROOT, 'src/diffusion/plan/types.ts'), 'utf8');
 		expect(types).toMatch(/reason: 'dangling_ddo_tipo' \| 'retired_parser_spelling';/);
+	});
+});
+
+/**
+ * THE TABLE-LEVEL `is_publishable` IS A PLAN FACT (T2-DIF-1).
+ *
+ * The table node's `is_publishable` (v6: always honoured) was read from the
+ * ontology TREE at run time — and the run builds that tree only when a rewriter
+ * or an iconography fn needs recovering. Every other run found no tree, read
+ * `undefined`, and fell through to the per-record gate: a table declared
+ * `is_publishable: false` published every record whose component_publication
+ * said yes. The flag is now compiled into the SectionPlan (`publishable`) —
+ * a boolean, or a loud compile refusal for any other value — and the run reads
+ * the plan, never the tree.
+ *
+ * Red before: the compiled plan carried no `publishable`; the run with no tree
+ * published the record (row emitted, no unpublish).
+ */
+describe('table-level is_publishable is compiled into the SectionPlan', () => {
+	test('a boolean table flag lands on the SectionPlan; absent stays absent', async () => {
+		for (const flag of [false, true]) {
+			const report = await validateElementPlan(
+				'el1',
+				options([{ tipo: 'zzf3', properties: {} }], { is_publishable: flag }),
+			);
+			expect(report.errors).toEqual([]);
+			expect(report.result?.sections.length).toBe(1);
+			expect(report.result?.sections[0]?.publishable).toBe(flag);
+		}
+		const none = await validateElementPlan('el1', options([{ tipo: 'zzf3', properties: {} }]));
+		expect(none.errors).toEqual([]);
+		expect(none.result?.sections.length).toBe(1);
+		expect(none.result?.sections[0]?.publishable).toBeUndefined();
+	});
+
+	test('a non-boolean table flag refuses the compile, naming the table node', async () => {
+		for (const bad of ['false', 0, null, { value: false }]) {
+			const report = await validateElementPlan(
+				'el1',
+				options([{ tipo: 'zzf3', properties: {} }], { is_publishable: bad }),
+			);
+			expect(report.result).toBeNull();
+			expect(report.errors.join('\n')).toContain("'tb1'");
+			expect(report.errors.join('\n')).toContain('is_publishable');
+		}
+	});
+});
+
+/**
+ * The same plan fact for an rdf owl:Class (the SectionPlan of a graph). Before
+ * T2-DIF-1 the run read `is_publishable` off whichever tree node was the
+ * section's tableTipo — the class node, for rdf — so the compile must carry it
+ * for classes too, by the same boolean-or-refuse rule. Red before: the class
+ * SectionPlan carried no `publishable`.
+ */
+describe('owl:Class is_publishable is compiled into the SectionPlan', () => {
+	const classNode = (isPublishable: unknown): VirtualTreeNode => ({
+		tipo: 'cl1',
+		model: 'owl:Class',
+		label: 'skos:Concept',
+		properties: {
+			process: {
+				type: 'entity_publication_uri',
+				base_uri_entity: { section_tipo: 'dd1010', component_tipo: 'dd1011', title: 'self' },
+			},
+			...(isPublishable === undefined ? {} : { is_publishable: isPublishable }),
+		},
+		realTipo: null,
+		isAlias: false,
+		parents: [],
+		childrenTipos: [],
+		directChildrenTipos: [],
+		relatedSections: ['test6813'],
+	});
+	const compileClass = async (isPublishable: unknown) => {
+		const errors: string[] = [];
+		const index: OntologyIndex = {
+			nodeOf: async () => null,
+			childTipos: async () => [],
+			relatedByModel: async () => [],
+			relationTipos: async () => [],
+			resolveAlias: async () => null,
+		};
+		const section = await compileRdfSection(
+			{
+				index,
+				namespaces: new RdfNamespaceTable(),
+				resolveModel: async () => null,
+				compileChain: async () => [],
+				errors,
+				warnings: [],
+			},
+			classNode(isPublishable),
+			'test6813',
+		);
+		return { section, errors };
+	};
+
+	test('a boolean class flag lands on the SectionPlan; absent stays absent', async () => {
+		for (const flag of [false, true]) {
+			const { section, errors } = await compileClass(flag);
+			expect(errors).toEqual([]);
+			expect(section?.rdfClass?.classTipo).toBe('cl1');
+			expect(section?.publishable).toBe(flag);
+		}
+		const none = await compileClass(undefined);
+		expect(none.errors).toEqual([]);
+		expect(none.section).not.toBeNull();
+		expect(none.section?.publishable).toBeUndefined();
+	});
+
+	test('a non-boolean class flag refuses the class, naming it', async () => {
+		for (const bad of ['false', 0, null, { value: false }]) {
+			const { section, errors } = await compileClass(bad);
+			expect(section).toBeNull();
+			expect(errors.join('\n')).toContain("'cl1'");
+			expect(errors.join('\n')).toContain('is_publishable');
+		}
+	});
+});
+
+const DIF1_SECTION = 'test3';
+const DIF1_ID = 938801;
+const DIF1_PUB_YES = {
+	id: 1,
+	type: 'dd151',
+	section_id: '1',
+	section_tipo: 'dd64',
+	from_component_tipo: 'test92',
+};
+
+function dif1Plan(publishable: boolean | undefined): PublicationPlan {
+	return {
+		planId: 'test-dif1',
+		elementTipo: 'test_element',
+		format: 'sql',
+		serviceName: null,
+		target: { kind: 'table', database: 'scratch_unused' },
+		sections: [
+			{
+				sectionTipo: DIF1_SECTION,
+				tableName: 'scratch_unused',
+				tableTipo: 'test_table_node',
+				fields: [],
+				...(publishable === undefined ? {} : { publishable }),
+			},
+		],
+		recursion: { maxLevels: 0 },
+		langPolicy: { langs: ['lg-eng'], mainLang: 'lg-eng' },
+		warnings: [],
+	} as PublicationPlan;
+}
+
+async function dif1Run(plan: PublicationPlan): Promise<ResolvedBatch[]> {
+	const batches: ResolvedBatch[] = [];
+	// NO `tree` option and NO recovery warning in the plan: the run builds no tree.
+	for await (const batch of resolvePublication(plan, {
+		sectionTipo: DIF1_SECTION,
+		runStartedAt: 1_754_900_000,
+		sqo: {
+			section_tipo: DIF1_SECTION,
+			filter_by_locators: [{ section_tipo: DIF1_SECTION, section_id: String(DIF1_ID) }],
+		},
+		maxLevels: 0,
+	})) {
+		batches.push(batch);
+	}
+	return batches;
+}
+
+describe.if(DB_READY)('the compiled table flag is honoured by a run with no tree', () => {
+	beforeAll(async () => {
+		await cleanScratchRecord(DIF1_SECTION, DIF1_ID);
+		// component_publication says YES: only the table flag can unpublish it.
+		await createScratchRecord(DIF1_SECTION, DIF1_ID, { relation: { test92: [DIF1_PUB_YES] } });
+	});
+	afterAll(async () => {
+		await cleanScratchRecord(DIF1_SECTION, DIF1_ID);
+	});
+
+	test('publishable:false unpublishes a record its component_publication publishes', async () => {
+		const batches = await dif1Run(dif1Plan(false));
+		expect(batches.flatMap((batch) => batch.errors)).toEqual([]);
+		expect(batches.flatMap((batch) => batch.unpublishIds).map(String)).toEqual([String(DIF1_ID)]);
+		expect(
+			batches.flatMap((batch) => batch.records).filter((record) => record.status === 'publish')
+				.length,
+		).toBe(0);
+	});
+
+	test('control: no table flag → the record gate publishes it', async () => {
+		const batches = await dif1Run(dif1Plan(undefined));
+		expect(batches.flatMap((batch) => batch.unpublishIds)).toEqual([]);
+		expect(
+			batches.flatMap((batch) => batch.records).map((record) => String(record.sectionId)),
+		).toEqual([String(DIF1_ID)]);
 	});
 });
