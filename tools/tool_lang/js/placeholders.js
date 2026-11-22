@@ -13,8 +13,11 @@
  * Both the main thread (browser_translation.js) and the worker side (block_runner.js,
  * imported by tools/tool_lang/translators/browser_transformer/browser_transformer.js)
  * import from here, so the token format is defined once. Ported from v6
- * (d3991c3a66, 2026-07-14); only this paragraph and the lint shape differ (exec loops →
- * matchAll, the non-ASCII class spelled without a control character) — same behaviour.
+ * (d3991c3a66, 2026-07-14). Differences from v6: the lint shape (exec loops → matchAll,
+ * the non-ASCII class spelled without a control character), and two additions from the
+ * A1-02 review — a token is never placed inside a raw HTML tag or a Markdown link target
+ * (protected_ranges), and has_token_shaped_text lets the caller refuse a source whose own
+ * text would be read back as a token.
  *
  * A *descriptor* carries the structural knowledge the repair needs:
  *
@@ -31,6 +34,7 @@
  *   placeholder_re        — a fresh /g regex (never share one: lastIndex is stateful)
  *   extract_placeholders  — every [[[n]]] in a string, in order of appearance
  *   normalize_placeholders— repair the forms the model mangles ([[5]], [[[ 5 ]]], [[[५]]] …)
+ *   has_token_shaped_text — does the text itself contain something normalising reads as a token
  *   repair_placeholders   — re-insert the tokens the model dropped
  */
 
@@ -151,6 +155,28 @@ export const normalize_placeholders = (text) => {
 }; //end normalize_placeholders
 
 /**
+ * HAS_TOKEN_SHAPED_TEXT
+ * Does the text, apart from its real tokens, contain anything normalize_placeholders()
+ * would turn into a token?
+ *
+ * The token namespace is shared with the record's own text: '[[2]]', '[[[ 2 ]]]' or the
+ * escaped '\[\[2\]\]' typed by a person would come back from the model as the token
+ * [[[2]]] — stealing mark 2's place, or duplicating it. Such a source cannot be
+ * translated safely with bracket tokens, so the caller refuses it before the model runs
+ * (A1-02 review). The real tokens are removed first (not replaced by a space), so text
+ * that would only BECOME token-shaped once the model dropped a token is caught too.
+ * @param {string} text - The text the model will receive, real tokens included.
+ * @returns {boolean}
+ */
+export const has_token_shaped_text = (text) => {
+	if (!text) {
+		return false;
+	}
+
+	return extract_placeholders(normalize_placeholders(text.replace(placeholder_re(), ''))).length > 0;
+}; //end has_token_shaped_text
+
+/**
  * SPLIT_SENTENCES
  * Split text into sentences, keeping each one's absolute offsets.
  *
@@ -267,26 +293,54 @@ const skip_spaces_forward = (text, offset) => {
 }; //end skip_spaces_forward
 
 /**
+ * PROTECTED_RANGES
+ * The spans of a text a token must never be placed inside:
+ *   - an existing token: splitting one in half destroys two marks;
+ *   - a raw HTML tag (<span style="…">): a mark inside a tag is not text — the browser
+ *     parses it as an attribute name and the mark is gone from the record's text;
+ *   - a Markdown link or image target (](…)): a mark there corrupts the URL.
+ * Word counting cannot see any of these (a tag's attributes are whitespace-separated
+ * "words"), so a placement computed in words can land inside one. Added in the TS port
+ * (A1-02 review): v6 d3991c3a66 only avoided splitting a token.
+ * @param {string} text
+ * @returns {Array<{start:number, end:number}>}
+ */
+const protected_ranges = (text) => {
+	const ranges = [];
+	for (const pattern of [placeholder_re(), /<[^<>]*>/g, /\]\([^)]*\)/g]) {
+		for (const match of text.matchAll(pattern)) {
+			ranges.push({ start: match.index, end: match.index + match[0].length });
+		}
+	}
+
+	return ranges;
+}; //end protected_ranges
+
+/**
  * AVOID_TOKEN_OVERLAP
- * Never split an existing token in half: if `offset` falls strictly inside a [[[n]]],
- * move it to just after that token.
+ * Never place a token inside a protected range (see protected_ranges): if `offset`
+ * falls strictly inside one, move it to just after it — repeated, because the end of one
+ * range can sit inside another.
  * @param {string} text
  * @param {number} offset
  * @returns {number}
  */
 const avoid_token_overlap = (text, offset) => {
-	for (const match of text.matchAll(placeholder_re())) {
-		const start = match.index;
-		const end = start + match[0].length;
-		if (offset > start && offset < end) {
-			return end;
-		}
-		if (start >= offset) {
-			break;
+	const ranges = protected_ranges(text);
+
+	let current = offset;
+	let moved = true;
+	while (moved) {
+		moved = false;
+		for (const range of ranges) {
+			if (current > range.start && current < range.end) {
+				current = range.end;
+				moved = true;
+			}
 		}
 	}
 
-	return offset;
+	return current;
 }; //end avoid_token_overlap
 
 /**

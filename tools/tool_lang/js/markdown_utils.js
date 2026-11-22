@@ -1,165 +1,353 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 
-
-
 /**
  * MARKDOWN_UTILS
  * Bidirectional HTML ↔ Markdown conversion for the tool_lang browser translation pipeline.
  *
- * The LLM (browser-local Gemma model or remote API) operates on plain Markdown rather than
- * raw HTML because HTML tags confuse seq2seq models and inflate token counts. This module
- * bridges the gap:
+ * The translation model operates on plain Markdown rather than raw HTML because HTML tags
+ * confuse it and inflate token counts:
  *
- *   HTML → html_to_markdown → [LLM translates] → markdown_to_html → HTML
+ *   HTML → html_to_markdown → segment_markdown → [model] → markdown_to_html → HTML
  *
- * Dédalo inline tags (indexIn, tc, svg, geo, …) are replaced with [[[n]]] triple-bracket
- * placeholders (placeholders.js) BEFORE calling html_to_markdown, so the LLM never sees or
- * corrupts them. The caller (browser_translation.js) is responsible for that substitution
- * and for restoring the originals after markdown_to_html.
+ * Dédalo inline marks (indexIn, tc, svg, geo, …) are replaced with [[[n]]] tokens
+ * (placeholders.js) BEFORE html_to_markdown, and restored after markdown_to_html, by the
+ * caller (browser_translation.js).
+ *
+ * THE MODEL'S OUTPUT IS TEXT, NEVER MARKUP (A1-02 review). markdown_to_html HTML-escapes
+ * everything the model wrote; the only markup in its result is what the converter itself
+ * emits (<p>, <br>, <strong>, <em>, <u>, <code>, headings, lists, blockquotes, simple
+ * tables) — none of it carrying an attribute the model wrote. A model that answers
+ * '<img src=x onerror=…>' or '<script>' therefore saves those characters as visible text.
+ *
+ * What makes that possible is that the model never receives markup either. Elements with
+ * no Markdown equivalent — <span style>, <sub>, <sup>, <mark>, <a href>, <img>, a table
+ * with merged cells, anything unknown — are SHIELDED: html_to_markdown hands each start
+ * tag, end tag or whole void element to the caller's `shield` callback, which returns a
+ * [[[n]]] token and remembers the original bytes, and the caller restores them exactly
+ * like a Dédalo mark. The tags come back byte-identical from the source; the model only
+ * sees (and translates) the text between them. v6 sent these elements to the model as raw
+ * outerHTML (d3991c3a66), where it could corrupt them and where nothing stopped it from
+ * writing its own; the per-block local token numbering and edge hoisting (55c816b41c) made
+ * the extra tokens affordable.
+ *
+ * Ported from v6 (d3991c3a66, 55c816b41c, 92da452aa1, 40bf5eaacf): <br> as a single '\n',
+ * the model-added <p> wrapper strip, the join-before-inline emphasis rule, the edge-emphasis
+ * rules 3b and the orphan-delimiter drop (rule 8), conform_emphasis,
+ * restore_wrapping_emphasis and segment_markdown. Not ported: v6's raw-HTML block
+ * passthrough, its balance_inline_html (only needed for model-authored tags, which no
+ * longer exist) and its link rule (links are shielded).
  *
  * Exports:
- *   html_to_markdown            — DOM-parser walk: HTML string → Markdown string
- *   markdown_to_html            — regex pass: Markdown string → HTML string
+ *   html_to_markdown            — DOM walk: HTML string → Markdown string (tags shielded)
+ *   markdown_to_html            — Markdown string → HTML string (model text escaped)
+ *   conform_emphasis            — delete emphasis delimiters the model invented
+ *   restore_wrapping_emphasis   — re-wrap a wholly-emphasised segment the model unwrapped
  *   split_markdown_by_paragraph — split Markdown on \n\n+ boundaries → string[]
- *   group_markdown_into_chunks  — merge paragraphs into ≤N-char chunks for batched API calls
+ *   segment_markdown            — split into {text, sep} segments the model can translate
+ *                                 one at a time, WITHOUT losing what separated them
+ *   marks_in_text_nodes         — every Dédalo-mark-shaped string that sits in a text node
  */
 
+/**
+ * Elements whose whole outerHTML is ONE atom token: their content is not prose to
+ * translate (a script, an embedded object) or is not reachable as text at all.
+ * @type {Set<string>}
+ */
+const RAW_ATOM_TAGS = new Set([
+	'script',
+	'style',
+	'template',
+	'iframe',
+	'object',
+	'embed',
+	'svg',
+	'math',
+	'video',
+	'audio',
+	'canvas',
+	'noscript',
+	'textarea',
+	'select',
+]);
 
+/**
+ * HTML void elements: no content and no end tag, so one atom token.
+ * @type {Set<string>}
+ */
+const VOID_TAGS = new Set([
+	'area',
+	'base',
+	'br',
+	'col',
+	'hr',
+	'img',
+	'input',
+	'link',
+	'meta',
+	'source',
+	'track',
+	'wbr',
+]);
+
+/**
+ * Elements with no Markdown equivalent that are INLINE: their start and end tags become a
+ * pair of tokens inside the running text.
+ * @type {Set<string>}
+ */
+const INLINE_SHIELD_TAGS = new Set([
+	'a',
+	'span',
+	'sub',
+	'sup',
+	'small',
+	'mark',
+	'del',
+	's',
+	'ins',
+	'abbr',
+	'cite',
+	'q',
+	'kbd',
+	'samp',
+	'var',
+	'dfn',
+	'time',
+	'bdi',
+	'bdo',
+	'font',
+	'label',
+]);
+
+/**
+ * The elements html_to_markdown writes as Markdown inline syntax even inside a shielded
+ * element (emphasis and code survive the trip as Markdown; everything else in there is
+ * shielded, so a shielded element's content is one line of text and tokens).
+ * @type {Set<string>}
+ */
+const MD_INLINE_TAGS = new Set(['strong', 'b', 'em', 'i', 'u', 'code']);
+
+/**
+ * Private-use characters standing in, inside process_inline, for a backslash-escaped
+ * Markdown metacharacter: the escaped character must reach the record as a literal, never
+ * be read by an emphasis rule (v6 unescaped FIRST, so '2\*3\*4' became '2<em>3</em>4').
+ * @type {Object<string,string>}
+ */
+const ESCAPE_STANDINS = {
+	'\\': '',
+	'*': '',
+	_: '',
+	'[': '',
+	']': '',
+	'`': '',
+};
+
+/** The line-break stand-in: a '\n' inside a block, turned into <br> after the inline rules. */
+const LINE_BREAK_STANDIN = '';
+
+/** Every stand-in, so text that already contains one cannot be misread as ours. */
+const STANDIN_RE = /[-]/g;
+
+/**
+ * ASCII_TRIM
+ * Trim ASCII whitespace only. String.prototype.trim also strips U+00A0, which is how an
+ * empty paragraph travels (html_to_markdown) — trimming it would drop the paragraph.
+ * @param {string} text
+ * @returns {string}
+ */
+const ascii_trim = (text) => text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+
+/**
+ * ESCAPE_HTML
+ * Escape a string for use as HTML text content. U+00A0 is written as &nbsp; (the form
+ * CKEditor stores), so an empty paragraph round-trips as <p>&nbsp;</p>.
+ * @param {string} text
+ * @returns {string}
+ */
+const escape_html = (text) =>
+	text
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/ /g, '&nbsp;');
 
 /**
  * HTML_TO_MARKDOWN
- * Convert an HTML string to Markdown suitable for LLM translation.
+ * Convert an HTML string to Markdown for the translation model.
  *
- * Parses the HTML with DOMParser and walks the resulting DOM tree, converting
- * each element to its closest Markdown equivalent. The conversion is lossy by
- * design: only semantics the LLM needs to preserve (structure, emphasis, links)
- * are encoded; presentation-only attributes (class, style, id) are discarded.
- *
- * Supported conversions:
- *   Block:  <p> → \n\n  |  <br> → \n\n  |  <h1>–<h6> → #…######
+ * Conversions:
+ *   Block:  <p> → \n\n  |  <br> → \n  |  <h1>–<h6> → #…######
  *           <ul>/<ol>/<li> → -/1.  |  <blockquote> → >  |  <hr> → ---
- *           <div> → recurse + \n\n  |  <table> → GFM pipe table | … |
+ *           <div> → recurse + \n\n  |  simple <table> → GFM pipe table
  *           <pre> → fenced ``` code block
- *   Inline: <strong>/<b> → **  |  <em>/<i> → *  |  <u> → __
- *           <a href> → [text](url)  |  <code> → `code`  |  <img alt src> → ![alt](src)
- *   Pass-through (raw outerHTML): <span>, <sub>, <sup>, <small>, <mark>, <del>, <s>, <ins>
- *   Unknown tags: raw outerHTML verbatim.
+ *   Inline: <strong>/<b> → **  |  <em>/<i> → *  |  <u> → __  |  <code> → `code`
+ *   Shielded (see the header): every other element, as tokens from options.shield.
  *
- * Text-node escaping: markdown metacharacters (*, _, [, ], `, \) are
- * backslash-escaped so literal text characters survive the HTML→MD→HTML round-trip.
- * [[[n]]] placeholder tokens are intentionally NOT escaped — they must pass through
- * the LLM unchanged and be detected by restore_placeholders after conversion back.
+ * <br> is a single '\n' (v6 55c816b41c): '\n\n' is a paragraph boundary, the strongest cut
+ * of segment_markdown, and emitting it cut any inline element containing a <br> in half.
  *
- * Empty paragraph special case: whitespace-only <p> emits &nbsp; so that the
- * paragraph is not collapsed by markdown_to_html's block splitter (which trims
- * and skips empty blocks). This is necessary for CKEditor content that uses
- * <p>&nbsp;</p> as explicit blank-line separators.
+ * Text nodes: Markdown metacharacters (\ * _ `) are backslash-escaped so literal characters
+ * survive; [ and ] are not (v6: escaping them made the model reproduce the backslashes). A
+ * raw newline inside a text node is whitespace in HTML, so it travels as a space — left as
+ * '\n' it would come back as a <br>. A whitespace-only <p> emits U+00A0, so the paragraph
+ * survives the round-trip (markdown_to_html writes it as &nbsp;).
  *
- * Table with colspan/rowspan: falls back to raw outerHTML — Markdown pipe tables
- * cannot represent merged cells without losing structure.
- *
- * @param {string} html - HTML string with Dédalo tags already replaced by [[[n]]] placeholders.
- * @returns {string} Markdown string with trailing whitespace trimmed and runs of 3+ newlines
- *   collapsed to 2 (a single paragraph boundary).
+ * @param {string} html - HTML with Dédalo marks already replaced by [[[n]]] tokens.
+ * @param {Object} [options]
+ * @param {Function} [options.shield] - ({html, kind, block, pair}) => token. Called for
+ *   each start tag (kind 'open'), end tag ('close', pair = the open's token) and void or
+ *   raw element ('atom'); `block` is true for a block-level element. Without it, an
+ *   element that needs shielding THROWS — it cannot be represented in Markdown, and it
+ *   must never travel to the model as markup.
+ * @returns {string} Markdown, trimmed, runs of 3+ newlines collapsed to 2.
  */
-export function html_to_markdown(html) {
+export function html_to_markdown(html, options = {}) {
+	const shield = options.shield;
 
-	const parser	= new DOMParser();
-	const doc		= parser.parseFromString(html, 'text/html');
-	const result	= [];
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(html, 'text/html');
 
-	// Regex to detect [[[n]]] placeholder strings — do NOT escape these
-	const placeholder_re = /^\[\[\[\d+\]\]\]$/;
+	// Regex to detect [[[n]]] placeholder strings — never escaped
+	const token_re = /^\[\[\[\d+\]\]\]$/;
+
+	// how many shielded elements enclose the node being walked. Inside one, every element
+	// without a Markdown inline form is shielded too — a <p> or <br> inside a merged-cell
+	// table converted to '\n\n' / '\n' would split the table's tokens across Markdown
+	// blocks. Only an outermost block-level shield is set apart as its own block.
+	let shield_depth = 0;
 
 	/**
 	 * ESCAPE_MD (inner)
-	 * Backslash-escape Markdown metacharacters in a plain text string so they
-	 * are treated as literal characters by markdown_to_html.
-	 *
-	 * The text is first split on [[[n]]] placeholder tokens; the placeholders pass
-	 * through unmodified (they must survive to restore_placeholders); only the
-	 * non-placeholder segments are escaped. Escaped chars: \ * _ [ ] `
-	 *
-	 * @param {string} text - Raw text-node content.
-	 * @returns {string} Escaped text with [[[n]]] tokens preserved verbatim.
+	 * Backslash-escape the Markdown metacharacters of a text node. [[[n]]] tokens pass
+	 * through verbatim.
+	 * @param {string} text
+	 * @returns {string}
 	 */
-	function escape_md(text) {
-		if (!text) return '';
-		// Split around [[[n]]] placeholders, escape non-placeholder parts
+	const escape_md = (text) => {
 		const parts = text.split(/(\[\[\[\d+\]\]\])/);
-		return parts.map(part => {
-			if (placeholder_re.test(part)) return part;
-			return part
-				.replace(/\\/g, '\\\\')
-				.replace(/\*/g, '\\*')
-				.replace(/_/g, '\\_')
-				.replace(/\[/g, '\\[')
-				.replace(/\]/g, '\\]')
-				.replace(/`/g, '\\`');
-		}).join('');
-	}
+		return parts
+			.map((part) => {
+				if (token_re.test(part)) {
+					return part;
+				}
+				return part
+					.replace(/\\/g, '\\\\')
+					.replace(/\*/g, '\\*')
+					.replace(/_/g, '\\_')
+					.replace(/`/g, '\\`');
+			})
+			.join('');
+	};
+
+	/**
+	 * CALL_SHIELD (inner)
+	 * @param {Object} request - {html, kind, block, pair}
+	 * @returns {string} The token.
+	 */
+	const call_shield = (request) => {
+		if (typeof shield !== 'function') {
+			throw new Error(
+				`html_to_markdown: '${request.html.slice(0, 40)}' has no Markdown form and no shield was given`,
+			);
+		}
+		return shield(request);
+	};
+
+	/**
+	 * START_TAG (inner)
+	 * The element's start tag exactly as the browser serialises it.
+	 * @param {Element} node
+	 * @returns {string}
+	 */
+	const start_tag = (node) => {
+		const outer = node.cloneNode(false).outerHTML;
+		const end_at = outer.lastIndexOf('</');
+		return end_at === -1 ? outer : outer.slice(0, end_at);
+	};
+
+	/**
+	 * SHIELD_ELEMENT (inner)
+	 * Replace an element's tags by tokens and walk its children as text.
+	 * @param {Element} node
+	 * @param {boolean} block - a block-level element
+	 * @returns {string}
+	 */
+	const shield_element = (node, block) => {
+		const tag = node.tagName.toLowerCase();
+
+		const set_apart = block && shield_depth === 0;
+
+		if (RAW_ATOM_TAGS.has(tag) || VOID_TAGS.has(tag)) {
+			const atom = call_shield({ html: node.outerHTML, kind: 'atom', block, pair: null });
+			return set_apart ? `\n\n${atom}\n\n` : atom;
+		}
+
+		const open = call_shield({ html: start_tag(node), kind: 'open', block, pair: null });
+
+		shield_depth++;
+		// whitespace-only text directly inside a block-level element is layout, not
+		// content (in a <tr> the browser would even move it out of the table)
+		const inner = Array.from(node.childNodes)
+			.map((child) => (block && child.nodeType === 3 && !child.textContent.trim() ? '' : walk(child)))
+			.join('');
+		shield_depth--;
+
+		const close = call_shield({ html: `</${tag}>`, kind: 'close', block, pair: open });
+
+		return set_apart ? `\n\n${open}${inner}${close}\n\n` : open + inner + close;
+	};
 
 	/**
 	 * WALK (inner)
-	 * Recursively convert a single DOM node to its Markdown representation.
-	 *
-	 * Handles two node types:
-	 *   nodeType === 3 (Text) — escaped via escape_md().
-	 *   nodeType === 1 (Element) — dispatched through the tag switch; all other
-	 *     nodeType values (Comment, CDATA, …) are silently ignored (return '').
-	 *
-	 * The switch covers every tag documented in html_to_markdown. Inline elements
-	 * that have no standard Markdown equivalent (span, sub, sup, mark, del, s,
-	 * ins, small) fall through to raw outerHTML so their content is not lost.
-	 * Unknown tags also emit outerHTML to avoid silent data loss.
-	 *
-	 * @param {Node} node - Any DOM node from the parsed document body.
-	 * @returns {string} Markdown fragment for this node and all its descendants.
+	 * Convert one DOM node and its descendants.
+	 * @param {Node} node
+	 * @returns {string}
 	 */
-	function walk(node) {
-
+	const walk = (node) => {
 		if (node.nodeType === 3) {
-			// Text node
 			const text = node.textContent;
-			if (!text) return '';
-			return escape_md(text);
+			if (!text) {
+				return '';
+			}
+			const in_pre = node.parentElement?.closest('pre');
+			return escape_md(in_pre ? text : text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
 		}
 
-		if (node.nodeType !== 1) return '';
+		if (node.nodeType !== 1) {
+			return '';
+		}
 
 		const tag = node.tagName.toLowerCase();
 
-		// --- Block-level elements ---
-		switch (tag) {
+		if (shield_depth > 0 && !MD_INLINE_TAGS.has(tag)) {
+			return shield_element(node, !INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
+		}
 
+		switch (tag) {
 			case 'p': {
 				const inner = walk_children(node);
-				// Whitespace-only <p> (e.g. <p>&nbsp;</p>) must emit
-				// &nbsp; so the paragraph survives the round-trip
-				// (markdown_to_html trims blocks and skips empty ones;
-				// \u00A0 is also trimmed by ES2015+ String.trim())
-				const content = inner.trim() ? inner : '&nbsp;';
-				return content + '\n\n';
+				return `${inner.trim() ? inner : ' '}\n\n`;
 			}
 
 			case 'br':
-				return '\n\n';
+				return '\n';
 
-			case 'h1': case 'h2': case 'h3':
-			case 'h4': case 'h5': case 'h6': {
-				const level = parseInt(tag[1]);
-				const inner = walk_children(node);
-				return '#'.repeat(level) + ' ' + inner + '\n\n';
-			}
+			case 'h1':
+			case 'h2':
+			case 'h3':
+			case 'h4':
+			case 'h5':
+			case 'h6':
+				return `${'#'.repeat(Number(tag[1]))} ${walk_children(node)}\n\n`;
 
 			case 'ul': {
 				const items = [];
 				for (const child of node.children) {
 					if (child.tagName.toLowerCase() === 'li') {
-						items.push('- ' + walk_children(child));
+						items.push(`- ${walk_children(child)}`);
 					}
 				}
-				return items.join('\n') + '\n\n';
+				return `${items.join('\n')}\n\n`;
 			}
 
 			case 'ol': {
@@ -167,552 +355,848 @@ export function html_to_markdown(html) {
 				let n = 1;
 				for (const child of node.children) {
 					if (child.tagName.toLowerCase() === 'li') {
-						items.push(n + '. ' + walk_children(child));
+						items.push(`${n}. ${walk_children(child)}`);
 						n++;
 					}
 				}
-				return items.join('\n') + '\n\n';
+				return `${items.join('\n')}\n\n`;
 			}
 
-			case 'blockquote': {
-				const inner = walk_children(node);
-				return inner.split('\n').map(l => '> ' + l).join('\n') + '\n\n';
-			}
+			case 'blockquote':
+				return `${walk_children(node)
+					.split('\n')
+					.map((line) => `> ${line}`)
+					.join('\n')}\n\n`;
 
 			case 'hr':
 				return '---\n\n';
 
-			case 'div': {
-				const inner = walk_children(node);
-				return inner + '\n\n';
-			}
+			case 'div':
+				return `${walk_children(node)}\n\n`;
 
 			case 'table': {
-				return convert_table(node) + '\n\n';
+				const simple = convert_table(node);
+				return simple === null ? shield_element(node, true) : `${simple}\n\n`;
 			}
 
-			// --- Inline elements ---
-			case 'strong': case 'b': {
+			case 'strong':
+			case 'b': {
 				const inner = walk_children(node);
-				if (!inner.trim()) return inner;
-				return '**' + inner + '**';
+				return inner.trim() ? `**${inner}**` : inner;
 			}
 
-			case 'em': case 'i': {
+			case 'em':
+			case 'i': {
 				const inner = walk_children(node);
-				if (!inner.trim()) return inner;
-				return '*' + inner + '*';
+				return inner.trim() ? `*${inner}*` : inner;
 			}
 
 			case 'u': {
 				const inner = walk_children(node);
-				if (!inner.trim()) return inner;
-				return '__' + inner + '__';
+				return inner.trim() ? `__${inner}__` : inner;
 			}
 
-			case 'a': {
-				const href	= node.getAttribute('href') || '';
-				const inner	= walk_children(node);
-				return '[' + inner + '](' + href + ')';
-			}
+			case 'code':
+				return `\`${walk_children(node)}\``;
 
-			case 'code': {
-				const inner = walk_children(node);
-				return '`' + inner + '`';
-			}
+			case 'pre':
+				return `\`\`\`\n${walk_children(node)}\n\`\`\`\n\n`;
 
-			case 'pre': {
-				const inner = walk_children(node);
-				return '```\n' + inner + '\n```\n\n';
-			}
-
-			case 'img': {
-				const alt	= node.getAttribute('alt') || '';
-				const src	= node.getAttribute('src') || '';
-				if (alt || src) {
-					return '![' + alt + '](' + src + ')';
-				}
-				return node.outerHTML;
-			}
-
-			case 'span': case 'sub': case 'sup': case 'small':
-			case 'mark': case 'del': case 's': case 'ins': {
-				// No standard markdown equivalent → keep raw HTML
-				return node.outerHTML;
-			}
-
-			default: {
-				// Unknown tag → emit raw HTML
-				return node.outerHTML;
-			}
+			default:
+				// no Markdown equivalent: shielded (an unknown tag is treated as block-level
+				// unless it is a known inline one, so its content cannot weld onto a paragraph)
+				return shield_element(node, !INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
 		}
-	}
+	};
 
 	/**
 	 * WALK_CHILDREN (inner)
-	 * Walk all child nodes of a given DOM element and concatenate their Markdown output.
-	 * Delegates each child to walk(); the results are joined without any separator
-	 * so block-level children emit their own trailing \n\n as needed.
-	 *
-	 * @param {Node} node - Parent DOM element whose children are to be walked.
-	 * @returns {string} Concatenated Markdown of all child nodes.
+	 * @param {Node} node
+	 * @returns {string}
 	 */
-	function walk_children(node) {
-		return Array.from(node.childNodes).map(walk).join('');
-	}
+	const walk_children = (node) => Array.from(node.childNodes).map(walk).join('');
 
 	/**
 	 * CONVERT_TABLE (inner)
-	 * Convert a <table> DOM element to a GitHub-Flavored Markdown (GFM) pipe table.
-	 *
-	 * Strategy:
-	 *   1. Bail to raw outerHTML if any cell carries colspan/rowspan — GFM tables
-	 *      cannot represent merged cells without losing data.
-	 *   2. Query all <tr> rows and collect their <th>/<td> cell texts; cell content
-	 *      is processed via walk_children() (inline HTML inside cells is converted).
-	 *   3. Collapse newlines and runs of whitespace inside each cell to a single space
-	 *      (Markdown table syntax requires all content on one line).
-	 *   4. Pad short rows to the widest row so the output is a valid rectangular table.
-	 *   5. Emit: header row → separator row (all `---`) → data rows.
-	 *      The first <tr> is always treated as the header regardless of whether its
-	 *      cells use <th> or <td>.
-	 *
-	 * The output does NOT include a trailing \n\n — the caller (the 'table' case in
-	 * walk()) appends that.
-	 *
-	 * @param {Element} table - A <table> DOM element from the parsed document.
-	 * @returns {string} GFM pipe-table string, or the element's outerHTML for complex tables.
+	 * A <table> as a GFM pipe table, or null when it cannot be one (merged cells, no
+	 * rows) — the caller then shields it as a block element, so its structure is kept
+	 * byte for byte and only its text is translated. The first row is the header.
+	 * @param {Element} table
+	 * @returns {string|null}
 	 */
-	function convert_table(table) {
-
-		// Check for colspan/rowspan — fall back to raw HTML
-		const complex_cells = table.querySelectorAll('td[colspan], td[rowspan], th[colspan], th[rowspan]');
-		if (complex_cells.length > 0) {
-			return table.outerHTML;
+	const convert_table = (table) => {
+		if (table.querySelectorAll('td[colspan], td[rowspan], th[colspan], th[rowspan]').length > 0) {
+			return null;
 		}
 
 		const rows = table.querySelectorAll('tr');
-		if (rows.length === 0) return table.outerHTML;
+		if (rows.length === 0) {
+			return null;
+		}
 
 		const md_rows = [];
-
 		for (const row of rows) {
-			const cells = row.querySelectorAll('th, td');
 			const cell_texts = [];
-			for (const cell of cells) {
-				// Process cell contents recursively (inline HTML inside cells)
-				let cell_md = walk_children(cell).trim();
-				// Collapse whitespace inside cells
-				cell_md = cell_md.replace(/\n/g, ' ').replace(/\s+/g, ' ');
-				cell_texts.push(cell_md);
+			for (const cell of row.querySelectorAll('th, td')) {
+				cell_texts.push(walk_children(cell).trim().replace(/\n/g, ' ').replace(/\s+/g, ' '));
 			}
 			md_rows.push(cell_texts);
 		}
 
-		if (md_rows.length === 0) return table.outerHTML;
-
-		// Determine column count
-		const col_count = Math.max(...md_rows.map(r => r.length));
-
-		// Pad rows to uniform width
+		const col_count = Math.max(...md_rows.map((row) => row.length));
 		for (const row of md_rows) {
-			while (row.length < col_count) row.push('');
+			while (row.length < col_count) {
+				row.push('');
+			}
 		}
 
-		// Build markdown table
-		const lines = [];
-
-		// Header row (first row)
-		lines.push('| ' + md_rows[0].join(' | ') + ' |');
-
-		// Separator
-		lines.push('| ' + md_rows[0].map(() => '---').join(' | ') + ' |');
-
-		// Data rows
+		const lines = [`| ${md_rows[0].join(' | ')} |`, `| ${md_rows[0].map(() => '---').join(' | ')} |`];
 		for (let i = 1; i < md_rows.length; i++) {
-			lines.push('| ' + md_rows[i].join(' | ') + ' |');
+			lines.push(`| ${md_rows[i].join(' | ')} |`);
 		}
 
 		return lines.join('\n');
-	}
+	};
 
-	// Walk all body children
-	for (const node of doc.body.childNodes) {
-		result.push(walk(node));
-	}
+	const md = Array.from(doc.body.childNodes).map(walk).join('');
 
-	let md = result.join('').trim();
-
-	// Collapse 3+ consecutive newlines down to 2 (paragraph boundary)
-	md = md.replace(/\n{3,}/g, '\n\n');
-
-	return md;
-}
-
+	return ascii_trim(md).replace(/\n{3,}/g, '\n\n');
+} //end html_to_markdown
 
 /**
  * MARKDOWN_TO_HTML
- * Convert a Markdown string back to HTML after LLM translation.
+ * Convert the translated Markdown back to HTML.
  *
- * This is the inverse of html_to_markdown and is applied to the LLM's output
- * before restoring the [[[n]]] Dédalo-tag placeholders. It implements a subset of
- * CommonMark + GFM sufficient for CKEditor-compatible output.
+ * Every character the model wrote is HTML-escaped (process_inline / escape_html); the only
+ * tags in the result are the ones emitted here. [[[n]]] tokens are untouched — the caller
+ * restores them after this.
  *
- * Algorithm (two-pass):
- *   1. Split the input on \n\n+ boundaries into "blocks". Each block is classified
- *      by its leading characters:
- *        ``` ... ```  → <pre><code> (escape_html applied to the code body)
- *        ---/--- or ***or ___ → <hr>
- *        # … ######   → <h1>…<h6>
- *        - / * / + lines (all) → <ul><li>…</li></ul>
- *        1. 2. … lines (all) → <ol><li>…</li></ol>
- *        > lines (all) → <blockquote>…</blockquote>
- *        | … | … with | --- | separator → <table> via convert_md_table
- *        Starts with < and ends with > → raw HTML passthrough (un-converted spans, etc.)
- *        Everything else → <p> (single \n within a block becomes <br>)
- *   2. Each block's text content is processed by process_inline() to convert
- *      bold, italic, underline, code, and link syntax.
+ * Blocks (split on \n\n+), in priority order:
+ *   ``` … ```        → <pre><code> (escaped)
+ *   ---/***\/___      → <hr>
+ *   # … ######        → <h1>…<h6>
+ *   - / * / + lines   → <ul><li>
+ *   1. 2. … lines     → <ol><li>
+ *   > lines           → <blockquote>
+ *   | … | + | --- |   → <table>
+ *   starts with a block token (options.block_tokens) → its content, NO <p> wrapper (a
+ *                       shielded block element: <p><table> is not valid HTML)
+ *   anything else     → <p>, a single \n inside becoming <br>
  *
- * Classification is done in priority order so that (for example) a block
- * starting with `---` is treated as <hr> before falling through to paragraph.
- * The regex /^\|[\s\-:|]+\|$/ detects the GFM separator row for tables.
+ * A <p>…</p> the model wrapped around a block is stripped (v6 55c816b41c): it would
+ * otherwise be saved as the literal text '<p>'.
  *
- * Produces bare HTML matching CKEditor output format — no class/style attributes
- * beyond the optional `class="lang-X"` on fenced-code blocks.
- *
- * @param {string} md - Markdown string produced by the LLM.
- * @returns {string} HTML string suitable for saving as a CKEditor component value.
- *   Returns '' for falsy input.
+ * @param {string} md - Markdown from the model.
+ * @param {Object} [options]
+ * @param {Set<string>} [options.block_tokens] - tokens that stand for a block-level tag.
+ * @returns {string} HTML ('' for falsy input).
  */
-export function markdown_to_html(md) {
+export function markdown_to_html(md, options = {}) {
+	if (!md) {
+		return '';
+	}
 
-	if (!md) return '';
+	const block_tokens = options.block_tokens || new Set();
+	const starts_with_block_token = (block) => {
+		const first = block.match(/^\[\[\[\d+\]\]\]/);
+		return first !== null && block_tokens.has(first[0]);
+	};
 
-	// Normalize trailing whitespace
-	md = md.trim();
+	// our own stand-ins must not already be in the text (they would be read as ours)
+	const raw_blocks = ascii_trim(String(md).replace(STANDIN_RE, '')).split(/\n{2,}/);
 
-	// --- Step 1: Split into blocks by \n\n+ ---
-	const raw_blocks = md.split(/\n{2,}/);
-
-	// --- Step 2: Classify and convert each block ---
 	const html_blocks = [];
 
-	for (let block of raw_blocks) {
-
-		block = block.trim();
-		if (!block) continue;
-
-		// Fenced code block
-		const code_match = block.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
-		if (code_match) {
-			const lang	= code_match[1];
-			const code	= code_match[2];
-			html_blocks.push('<pre><code' + (lang ? ' class="lang-' + lang + '"' : '') + '>' + escape_html(code) + '</code></pre>');
+	for (const raw_block of raw_blocks) {
+		const block = ascii_trim(raw_block)
+			.replace(/^<p>\s*/i, '')
+			.replace(/\s*<\/p>$/i, '');
+		if (!block) {
 			continue;
 		}
 
-		// Horizontal rule
+		// fenced code block
+		const code_match = block.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
+		if (code_match) {
+			const lang = code_match[1];
+			html_blocks.push(
+				`<pre><code${lang ? ` class="lang-${lang}"` : ''}>${escape_html(code_match[2])}</code></pre>`,
+			);
+			continue;
+		}
+
+		// horizontal rule
 		if (/^(-{3,}|\*{3,}|_{3,})$/.test(block)) {
 			html_blocks.push('<hr>');
 			continue;
 		}
 
-		// Heading
+		// heading
 		const heading_match = block.match(/^(#{1,6})\s+(.+)$/);
 		if (heading_match) {
-			const level	= heading_match[1].length;
-			const inner	= process_inline(heading_match[2]);
-			html_blocks.push('<h' + level + '>' + inner + '</h' + level + '>');
+			const level = heading_match[1].length;
+			html_blocks.push(`<h${level}>${process_inline(heading_match[2])}</h${level}>`);
 			continue;
 		}
 
-		// Unordered list
-		const ul_lines = block.split('\n');
-		if (ul_lines.length > 0 && ul_lines.every(l => /^\s*[-*+]\s+/.test(l))) {
-			const items = ul_lines.map(l => '<li>' + process_inline(l.replace(/^\s*[-*+]\s+/, '')) + '</li>');
-			html_blocks.push('<ul>' + items.join('') + '</ul>');
+		const lines = block.split('\n');
+
+		// unordered list
+		if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
+			const items = lines.map((line) => `<li>${process_inline(line.replace(/^\s*[-*+]\s+/, ''))}</li>`);
+			html_blocks.push(`<ul>${items.join('')}</ul>`);
 			continue;
 		}
 
-		// Ordered list
-		const ol_lines = block.split('\n');
-		if (ol_lines.length > 0 && ol_lines.every(l => /^\s*\d+\.\s+/.test(l))) {
-			const items = ol_lines.map(l => '<li>' + process_inline(l.replace(/^\s*\d+\.\s+/, '')) + '</li>');
-			html_blocks.push('<ol>' + items.join('') + '</ol>');
+		// ordered list
+		if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
+			const items = lines.map((line) => `<li>${process_inline(line.replace(/^\s*\d+\.\s+/, ''))}</li>`);
+			html_blocks.push(`<ol>${items.join('')}</ol>`);
 			continue;
 		}
 
-		// Blockquote
-		const bq_lines = block.split('\n');
-		if (bq_lines.length > 0 && bq_lines.every(l => /^>\s?/.test(l))) {
-			const inner = bq_lines.map(l => l.replace(/^>\s?/, '')).join('<br>');
-			html_blocks.push('<blockquote>' + process_inline(inner) + '</blockquote>');
+		// blockquote
+		if (lines.every((line) => /^>\s?/.test(line))) {
+			const inner = lines.map((line) => line.replace(/^>\s?/, '')).join(LINE_BREAK_STANDIN);
+			html_blocks.push(`<blockquote>${with_line_breaks(process_inline(inner))}</blockquote>`);
 			continue;
 		}
 
-		// Markdown table
-		const table_lines = block.split('\n');
-		if (table_lines.length >= 2 && table_lines[0].startsWith('|') && /^\|[\s\-:|]+\|$/.test(table_lines[1])) {
-			html_blocks.push(convert_md_table(table_lines));
+		// markdown table
+		if (lines.length >= 2 && lines[0].startsWith('|') && /^\|[\s\-:|]+\|$/.test(lines[1])) {
+			html_blocks.push(convert_md_table(lines));
 			continue;
 		}
 
-		// Raw HTML passthrough (starts with < and ends with >)
-		if (/^<[^>]+>/.test(block) && />$/.test(block)) {
-			html_blocks.push(block);
+		// The lines are joined BEFORE process_inline (v6 55c816b41c): run per line, the
+		// inline rules (which exclude newlines) could never match emphasis spanning a <br>.
+		const inline_html = with_line_breaks(process_inline(lines.join(LINE_BREAK_STANDIN)));
+
+		// a shielded block element: its own tags are its structure
+		if (starts_with_block_token(block)) {
+			html_blocks.push(inline_html);
 			continue;
 		}
 
-		// Default: paragraph — single \n inside becomes <br>
-		const para_html = block.split('\n').map(line => process_inline(line)).join('<br>');
-		html_blocks.push('<p>' + para_html + '</p>');
+		html_blocks.push(`<p>${inline_html}</p>`);
 	}
 
 	return html_blocks.join('');
-}
+} //end markdown_to_html
 
+/**
+ * WITH_LINE_BREAKS
+ * @param {string} html - process_inline output carrying LINE_BREAK_STANDIN.
+ * @returns {string}
+ */
+const with_line_breaks = (html) => html.split(LINE_BREAK_STANDIN).join('<br>');
 
 /**
  * PROCESS_INLINE
- * Apply inline Markdown syntax transformations to a text string, converting
- * Markdown tokens to HTML inline elements.
+ * Inline Markdown → HTML, with every character of the text escaped.
  *
- * Processing order is significant — earlier rules protect content from later rules:
- *   1. Unescape backslash-escaped Markdown metacharacters (inserted by escape_md).
- *   2. Inline code `…` — processed first so ** or * inside backticks is not treated
- *      as bold/italic markup.
- *   3. Bold+italic ***…*** — must precede bold and italic individually so the three-star
- *      sequence is consumed in full rather than as nested ** + *.
- *   4. Bold **…**
- *   5. Italic *…* — negative lookbehind/lookahead avoids matching inside <strong>.
- *   6. Underline __…__ (Dédalo extension; not standard CommonMark).
- *   7. Links [text](url)
+ * Order:
+ *   1. Backslash-escaped metacharacters (escape_md) are set aside as stand-ins, so no
+ *      emphasis rule can read them; they come back as literal characters at the end.
+ *   2. The whole text is HTML-escaped — from here on, the only '<' in it are the tags
+ *      the rules below emit.
+ *   3. Inline code `…`.
+ *   4. Bold+italic ***…***, then the two edge shapes (rule 3b, v6 55c816b41c):
+ *      '**bold *both***' and '***both* bold**'.
+ *   5. Bold **…** (may contain a lone '*': an italic in the middle of the bold run).
+ *   6. Italic *…*.
+ *   7. Underline __…__.
+ *   8. Orphan '**' / '__' (a delimiter whose partner the model dropped) are deleted
+ *      (v6 rule 8); left in, they reach the record as literal asterisks.
  *
- * Does NOT handle block-level elements; call from within each block's text content
- * after block classification in markdown_to_html.
- *
- * @param {string} text - Single-line or inline Markdown text segment.
- * @returns {string} HTML string with inline elements applied. Returns '' for falsy input.
+ * @param {string} text - Inline Markdown (line breaks as LINE_BREAK_STANDIN).
+ * @returns {string} HTML ('' for falsy input).
  */
 function process_inline(text) {
+	if (!text) {
+		return '';
+	}
 
-	if (!text) return '';
+	// 1. set the escaped metacharacters aside
+	let out = text.replace(/\\([\\*_[\]`])/g, (_match, char) => ESCAPE_STANDINS[char]);
 
-	// 1. Unescape markdown metacharacters FIRST
-	text = text
-		.replace(/\\([\\\*\_\[\]\`])/g, '$1');
+	// 2. escape everything the model wrote
+	out = escape_html(out);
 
-	// 2. Inline code (before bold/italic so ** inside ` is not processed)
-	text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+	// 3. inline code
+	out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
 
-	// 3. Bold+italic ***text*** (must come before bold and italic individually)
-	text = text.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+	// 4. bold+italic, and emphasis at the edge of a bold run
+	out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+	out = out.replace(/\*\*([^*\n]*)\*([^*\n]+)\*\*\*/g, '<strong>$1<em>$2</em></strong>');
+	out = out.replace(/\*\*\*([^*\n]+)\*([^*\n]*)\*\*/g, '<strong><em>$1</em>$2</strong>');
 
-	// 4. Bold **text**
-	text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+	// 5. bold
+	out = out.replace(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, '<strong>$1</strong>');
 
-	// 5. Italic *text* (avoid matching inside <strong>)
-	text = text.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+	// 6. italic
+	out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
 
-	// 6. Underline __text__
-	text = text.replace(/__([^_\n]+)__/g, '<u>$1</u>');
+	// 7. underline
+	out = out.replace(/__([^_\n]+)__/g, '<u>$1</u>');
 
-	// 7. Links [text](url)
-	// The inner class excludes brackets so that a [[[n]]] placeholder followed by an
-	// opening parenthesis — '…[[[5]]] (see below)' — is not mistaken for link syntax
-	// and swallowed into an <a> (v6 d3991c3a66).
-	text = text.replace(/\[([^[\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+	// 8. orphan delimiters
+	out = out.replace(/\*\*/g, '').replace(/__/g, '');
 
-	return text;
-}
+	// the escaped metacharacters, as the literal characters they are
+	for (const [char, standin] of Object.entries(ESCAPE_STANDINS)) {
+		out = out.split(standin).join(char);
+	}
 
+	return out;
+} //end process_inline
 
 /**
  * CONVERT_MD_TABLE
- * Convert an array of GFM pipe-table lines to an HTML <table> string.
- *
- * Line layout expected:
- *   lines[0]  — header row:  | H1 | H2 | H3 |
- *   lines[1]  — separator:   | -- | -- | -- |  (ignored; just signals "this is a table")
- *   lines[2+] — data rows:   | D1 | D2 | D3 |
- *
- * Each cell's text is processed through process_inline() so bold/italic/link
- * syntax inside table cells is converted correctly.
- *
- * Output format: <table><thead><tr><th>…</th></tr></thead><tbody><tr><td>…</td></tr></tbody></table>
- * <tbody> is omitted when there are no data rows (header-only table).
- *
- * @param {string[]} lines - Array of raw Markdown pipe-table lines (including the separator).
- * @returns {string} HTML table string, or the raw lines joined by '\n' if fewer than 2 lines.
+ * GFM pipe-table lines → <table> (header row, separator, data rows). Cells go through
+ * process_inline, so their text is escaped like any other.
+ * @param {string[]} lines
+ * @returns {string}
  */
 function convert_md_table(lines) {
-
-	if (lines.length < 2) return lines.join('\n');
-
-	// Parse header
 	const header_cells = parse_md_row(lines[0]);
-
-	// Skip separator line (lines[1])
 	const data_lines = lines.slice(2);
 
 	let html = '<table><thead><tr>';
 	for (const cell of header_cells) {
-		html += '<th>' + process_inline(cell) + '</th>';
+		html += `<th>${process_inline(cell)}</th>`;
 	}
 	html += '</tr></thead>';
 
 	if (data_lines.length > 0) {
 		html += '<tbody>';
 		for (const line of data_lines) {
-			const cells = parse_md_row(line);
 			html += '<tr>';
-			for (const cell of cells) {
-				html += '<td>' + process_inline(cell) + '</td>';
+			for (const cell of parse_md_row(line)) {
+				html += `<td>${process_inline(cell)}</td>`;
 			}
 			html += '</tr>';
 		}
 		html += '</tbody>';
 	}
 
-	html += '</table>';
-	return html;
-}
-
+	return `${html}</table>`;
+} //end convert_md_table
 
 /**
  * PARSE_MD_ROW
- * Split a single GFM pipe-table row into trimmed cell strings.
- *
- * Strips the leading and trailing `|` characters, then splits on the remaining
- * `|` separators and trims whitespace from each cell. Empty leading/trailing
- * cells (from `| … |` delimiters) are removed.
- *
- * Example:
- *   "| cell1 | cell2 | cell3 |" → ["cell1", "cell2", "cell3"]
- *
- * @param {string} line - A single Markdown table row line.
- * @returns {string[]} Array of cell content strings (not yet HTML-processed).
+ * '| a | b |' → ['a', 'b']
+ * @param {string} line
+ * @returns {string[]}
  */
 function parse_md_row(line) {
 	return line
 		.replace(/^\|/, '')
 		.replace(/\|$/, '')
 		.split('|')
-		.map(cell => cell.trim());
-}
-
-
-/**
- * ESCAPE_HTML
- * Escape HTML special characters so that a string is safe to embed as text
- * content inside an HTML element.
- *
- * Used exclusively within markdown_to_html for fenced code block bodies
- * (<pre><code>…</code></pre>) where the raw code must not be interpreted as HTML.
- * The order of replacements matters: & must be escaped first to avoid double-escaping.
- *
- * Replaces: & → &amp;  |  < → &lt;  |  > → &gt;  |  " → &quot;
- *
- * @param {string} text - Raw text that may contain HTML special characters.
- * @returns {string} HTML-safe string.
- */
-function escape_html(text) {
-	return text
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;');
-}
-
+		.map((cell) => cell.trim());
+} //end parse_md_row
 
 /**
- * SPLIT_MARKDOWN_BY_PARAGRAPH
- * Split a Markdown string into its constituent paragraph-level blocks.
- *
- * Blocks are separated by one or more blank lines (\n\n+). After splitting,
- * each block is trimmed of leading/trailing whitespace and empty blocks are
- * discarded. The function is the low-level building block used by
- * group_markdown_into_chunks to determine how to bin content for the LLM.
- *
- * @param {string} md - Markdown string to split.
- * @returns {string[]} Array of non-empty trimmed block strings.
- *   Returns an empty array for falsy input.
+ * Paired Markdown emphasis delimiters, longest first so '**' is recognised before '*'.
+ * @type {string[]}
  */
-export function split_markdown_by_paragraph(md) {
-
-	if (!md) return [];
-
-	const blocks = md.split(/\n{2,}/)
-		.map(b => b.trim())
-		.filter(b => b.length > 0);
-
-	return blocks;
-}
-
+const MD_DELIMITERS = ['**', '__', '*'];
 
 /**
- * GROUP_MARKDOWN_INTO_CHUNKS
- * Merge paragraph-level Markdown blocks into chunks that fit within a character limit.
- *
- * Batching reduces the number of calls to the translation model (one postMessage per
- * chunk) while keeping each chunk short enough for the LLM's effective token window.
- * The default limit of 1 000 characters was chosen to fit comfortably within the
- * Gemma 4B browser model's context length and to avoid per-sentence fragmentation on
- * short paragraphs.
- *
- * Algorithm (greedy, single-pass):
- *   - For each block from split_markdown_by_paragraph():
- *       • If the block alone exceeds maxChars: flush the accumulator, push the
- *         oversized block as its own chunk (no sub-splitting — the LLM must handle it).
- *       • Otherwise: if appending the block (with \n\n separator) keeps the accumulator
- *         within maxChars, merge it; otherwise flush the accumulator and start a new one.
- *   - After all blocks: flush any remaining accumulator content.
- *
- * The rejoined blocks inside each chunk are separated by \n\n so that markdown_to_html
- * can re-parse them correctly after translation.
- *
- * @param {string} md        - Markdown string to split into chunks.
- * @param {number} maxChars  - Soft upper bound (in characters) per chunk. Default: 1000.
- * @returns {string[]} Array of chunk strings. Individual oversized blocks may exceed maxChars.
+ * DELIMITER_POSITIONS
+ * Every emphasis delimiter in a string, in order, longest first so '**' is never read as two
+ * '*'. Backslash-escaped characters are skipped: a literal asterisk travels as '\*'. (v6)
+ * @param {string} text
+ * @returns {Array<{delim:string, index:number}>}
  */
-export function group_markdown_into_chunks(md, maxChars = 1000) {
+const delimiter_positions = (text) => {
+	const found = [];
+	if (!text) {
+		return found;
+	}
 
-	const blocks	= split_markdown_by_paragraph(md);
-	const chunks	= [];
-	let current		= '';
-
-	for (const block of blocks) {
-		// Block too large to share a chunk → flush and push solo
-		if (block.length > maxChars) {
-			if (current) {
-				chunks.push(current);
-				current = '';
-			}
-			chunks.push(block);
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] === '\\') {
+			i++;
 			continue;
 		}
 
-		// Attempt to merge this block with the current accumulator using \n\n as separator
-		const candidate = current
-			? current + '\n\n' + block
-			: block;
+		const delim = MD_DELIMITERS.find((item) => text.startsWith(item, i));
+		if (!delim) {
+			continue;
+		}
 
-		if (candidate.length <= maxChars) {
-			current = candidate;
-		} else {
-			chunks.push(current);
-			current = block;
+		found.push({ delim, index: i });
+		i += delim.length - 1;
+	}
+
+	return found;
+}; //end delimiter_positions
+
+/**
+ * CONFORM_EMPHASIS
+ * Forbid the model from inventing emphasis the source never had. (v6 92da452aa1)
+ *
+ * Translating text does not create formatting, yet a small model scatters ** and __ through
+ * its answer. The translation may not use more of a delimiter than the source segment did:
+ * excess delimiters are deleted (the text is never touched, only the markers) and the
+ * surviving count is floored to an even number, since delimiters come in pairs.
+ *
+ * @param {string} source_text - The segment as sent to the model.
+ * @param {string} output_text - The model's translation of it.
+ * @returns {string}
+ */
+export function conform_emphasis(source_text, output_text) {
+	if (!output_text) {
+		return output_text;
+	}
+
+	const allowed = {};
+	for (const item of delimiter_positions(source_text)) {
+		allowed[item.delim] = (allowed[item.delim] || 0) + 1;
+	}
+
+	const positions = delimiter_positions(output_text);
+
+	const totals = {};
+	for (const item of positions) {
+		totals[item.delim] = (totals[item.delim] || 0) + 1;
+	}
+
+	// how many of each we are willing to keep — capped at the source, and even
+	const keep = {};
+	for (const delim of MD_DELIMITERS) {
+		const count = Math.min(totals[delim] || 0, allowed[delim] || 0);
+		keep[delim] = count - (count % 2);
+	}
+
+	const seen = {};
+	const discard = new Map();
+	for (const item of positions) {
+		seen[item.delim] = (seen[item.delim] || 0) + 1;
+		if (seen[item.delim] > keep[item.delim]) {
+			discard.set(item.index, item.delim.length);
 		}
 	}
 
-	// Flush any remaining accumulated text
-	if (current) {
-		chunks.push(current);
+	if (discard.size === 0) {
+		return output_text;
 	}
 
-	return chunks;
-}
+	let out = '';
+	let i = 0;
+	while (i < output_text.length) {
+		if (discard.has(i)) {
+			i += discard.get(i);
+			continue;
+		}
+		out += output_text[i];
+		i++;
+	}
 
+	return out;
+} //end conform_emphasis
 
+/**
+ * WHOLLY_WRAPPED_DELIMITER
+ * If a string is one emphasis span and nothing else (`**…**`, `*…*`, `__…__`), return that
+ * delimiter, else null. (v6)
+ * @param {string} text
+ * @returns {string|null}
+ */
+const wholly_wrapped_delimiter = (text) => {
+	const trimmed = (text || '').trim();
+	if (!trimmed) {
+		return null;
+	}
+
+	const positions = delimiter_positions(trimmed);
+
+	for (const delim of MD_DELIMITERS) {
+		const of_kind = positions.filter((item) => item.delim === delim);
+		if (of_kind.length !== 2) {
+			continue;
+		}
+		if (of_kind[0].index === 0 && of_kind[1].index === trimmed.length - delim.length) {
+			return delim;
+		}
+	}
+
+	return null;
+}; //end wholly_wrapped_delimiter
+
+/**
+ * RESTORE_WRAPPING_EMPHASIS
+ * Put back emphasis that wrapped a WHOLE segment when the model dropped it. (v6)
+ *
+ * Only the whole-segment case: partial emphasis cannot be restored without guessing which
+ * translated words carried it, and is left lost (browser_translation.js reports it as
+ * emphasis_lost). Runs after conform_emphasis; an output that kept any of that delimiter is
+ * left alone.
+ * @param {string} source_text - The segment as sent to the model.
+ * @param {string} output_text - The model's translation, already conformed.
+ * @returns {string}
+ */
+export function restore_wrapping_emphasis(source_text, output_text) {
+	if (!output_text) {
+		return output_text;
+	}
+
+	const delim = wholly_wrapped_delimiter(source_text);
+	if (!delim) {
+		return output_text;
+	}
+
+	if (delimiter_positions(output_text).some((item) => item.delim === delim)) {
+		return output_text;
+	}
+
+	const leading = output_text.match(/^\s*/)[0];
+	const trailing = output_text.match(/\s*$/)[0];
+	const core = output_text.slice(leading.length, output_text.length - trailing.length);
+	if (!core) {
+		return output_text;
+	}
+
+	return `${leading}${delim}${core}${delim}${trailing}`;
+} //end restore_wrapping_emphasis
+
+/**
+ * SPLIT_MARKDOWN_BY_PARAGRAPH
+ * Split Markdown on blank lines into trimmed, non-empty blocks. Lossy (the separators are
+ * discarded), so it is NOT what segment_markdown uses.
+ * @param {string} md
+ * @returns {string[]}
+ */
+export function split_markdown_by_paragraph(md) {
+	if (!md) {
+		return [];
+	}
+
+	return md
+		.split(/\n{2,}/)
+		.map((block) => block.trim())
+		.filter((block) => block.length > 0);
+} //end split_markdown_by_paragraph
+
+/**
+ * Absolute ceiling for one segment. A single sentence is never split below this — an intact
+ * 400-character sentence is a far better input than two fragments. Past it, the sentence is
+ * pathological and is cut at a word boundary. (v6)
+ * @type {number}
+ */
+const HARD_MAX_CHARS = 800;
+
+/**
+ * SEGMENT_PROTECTED_RANGES
+ * Spans a segment cut may never fall inside: Markdown links (their dots read as sentence
+ * ends), inline code, fenced code, and GFM tables (a table cut in half stops being one). (v6)
+ * @param {string} md
+ * @returns {Array<[number, number]>} [start, end) ranges, unsorted.
+ */
+const segment_protected_ranges = (md) => {
+	const ranges = [];
+	const patterns = [/\[[^[\]]*\]\([^)\s]*\)/g, /`[^`\n]*`/g, /```[\s\S]*?```/g];
+
+	for (const pattern of patterns) {
+		for (const match of md.matchAll(pattern)) {
+			ranges.push([match.index, match.index + match[0].length]);
+		}
+	}
+
+	// GFM tables: a run of consecutive lines that all start with '|'
+	let offset = 0;
+	let run = null;
+	for (const line of md.split('\n')) {
+		if (/^\s*\|/.test(line)) {
+			if (run === null) {
+				run = offset;
+			}
+		} else if (run !== null) {
+			ranges.push([run, offset]);
+			run = null;
+		}
+		offset += line.length + 1;
+	}
+	if (run !== null) {
+		ranges.push([run, md.length]);
+	}
+
+	return ranges;
+}; //end segment_protected_ranges
+
+/**
+ * IN_PROTECTED
+ * @param {Array<[number,number]>} ranges
+ * @param {number} offset
+ * @returns {boolean} offset strictly inside a protected range
+ */
+const in_protected = (ranges, offset) => ranges.some(([start, end]) => offset > start && offset < end);
+
+/**
+ * SENTENCE_CUTS
+ * Offsets at which a new sentence begins. (v6)
+ *
+ * A boundary REJECTER: a false boundary hands the model a subject-less fragment, while a
+ * missed one only makes a segment longer. A '.' is not a sentence end when it sits in a
+ * protected span, follows a single-letter token (an initial, 'a.C.', 'p. 400'), separates
+ * two digits, is not followed by whitespace, or the next word starts lower-case.
+ * @param {string} md
+ * @param {Array<[number,number]>} ranges
+ * @returns {number[]}
+ */
+const sentence_cuts = (md, ranges) => {
+	const cuts = [];
+
+	for (const match of md.matchAll(/[.!?…]+/g)) {
+		const terminator_start = match.index;
+		const terminator_end = match.index + match[0].length;
+
+		if (in_protected(ranges, terminator_start)) {
+			continue;
+		}
+		if (terminator_end >= md.length || !/\s/.test(md[terminator_end])) {
+			continue;
+		}
+
+		const before = md.slice(0, terminator_start);
+
+		const last_token = before.match(/(\S+)$/);
+		if (last_token && last_token[1].length === 1 && !/\d/.test(last_token[1])) {
+			continue;
+		}
+
+		if (match[0] === '.' && /\d$/.test(before) && /^\d/.test(md.slice(terminator_end))) {
+			continue;
+		}
+
+		let next = terminator_end;
+		while (next < md.length && /\s/.test(md[next])) {
+			next++;
+		}
+		if (next >= md.length || in_protected(ranges, next)) {
+			continue;
+		}
+
+		// scripts without case fall through as 'not lower-case', the permissive answer
+		if (/\p{Ll}/u.test(md[next])) {
+			continue;
+		}
+
+		cuts.push(terminator_end);
+	}
+
+	return cuts;
+}; //end sentence_cuts
+
+/**
+ * STRUCTURAL_BOUNDARIES
+ * Offsets of paragraph and line breaks — MANDATORY cuts (v6): a '\n' left inside a segment
+ * is a break the model has to reproduce, and it does not reliably do so (a <br> came back as
+ * a <p>). Cut there, the break becomes the next segment's `sep` and is carried verbatim.
+ * Newlines inside a protected range (a table, fenced code) are part of it and skipped.
+ * @param {string} md
+ * @param {Array<[number,number]>} ranges
+ * @returns {number[]} Ascending; each points at the START of the separator run.
+ */
+const structural_boundaries = (md, ranges) => {
+	const boundaries = new Set();
+
+	for (const match of md.matchAll(/\n{2,}/g)) {
+		if (!in_protected(ranges, match.index)) {
+			boundaries.add(match.index);
+		}
+	}
+
+	for (const match of md.matchAll(/\n/g)) {
+		if (md[match.index + 1] === '\n' || md[match.index - 1] === '\n') {
+			continue;
+		}
+		if (!in_protected(ranges, match.index)) {
+			boundaries.add(match.index);
+		}
+	}
+
+	return Array.from(boundaries).sort((a, b) => a - b);
+}; //end structural_boundaries
+
+/**
+ * WORD_CUTS
+ * Last-resort cuts inside one unit longer than HARD_MAX_CHARS: word boundaries only, never
+ * inside a protected range. (v6)
+ * @param {string} md
+ * @param {number} from
+ * @param {number} to
+ * @param {number} max_chars
+ * @param {Array<[number,number]>} ranges
+ * @returns {number[]}
+ */
+const word_cuts = (md, from, to, max_chars, ranges) => {
+	const cuts = [];
+	let start = from;
+
+	for (let i = from; i < to; i++) {
+		if (!/\s/.test(md[i]) || in_protected(ranges, i)) {
+			continue;
+		}
+		if (i - start >= max_chars) {
+			cuts.push(i);
+			start = i;
+		}
+	}
+
+	return cuts;
+}; //end word_cuts
+
+/**
+ * SUBDIVIDE
+ * Cut one structural unit down to size at sentence boundaries. (v6)
+ *
+ * Grows greedily, cutting at the last sentence boundary that fits. A single over-long
+ * sentence is emitted whole; only past HARD_MAX_CHARS is it cut at a word.
+ * @param {string} md
+ * @param {number} from
+ * @param {number} to
+ * @param {number} max_chars
+ * @param {number[]} sentences
+ * @param {Array<[number,number]>} ranges
+ * @returns {number[]} Cuts strictly inside (from, to).
+ */
+const subdivide = (md, from, to, max_chars, sentences, ranges) => {
+	const cuts = [];
+	const candidates = sentences.filter((cut) => cut > from && cut < to);
+	candidates.push(to);
+
+	let start = from;
+	let last_fit = -1;
+	let i = 0;
+
+	while (i < candidates.length) {
+		const boundary = candidates[i];
+
+		if (boundary <= start) {
+			i++;
+			continue;
+		}
+
+		if (boundary - start <= max_chars) {
+			last_fit = boundary;
+			i++;
+			continue;
+		}
+
+		const cut = last_fit > start ? last_fit : boundary;
+		if (cut < to) {
+			cuts.push(cut);
+		}
+		start = cut;
+		last_fit = -1;
+
+		if (cut === boundary) {
+			i++;
+		}
+	}
+
+	const spans = [from, ...cuts, to];
+	const extra = [];
+	for (let k = 0; k < spans.length - 1; k++) {
+		if (spans[k + 1] - spans[k] > HARD_MAX_CHARS) {
+			extra.push(...word_cuts(md, spans[k], spans[k + 1], max_chars, ranges));
+		}
+	}
+
+	return [...cuts, ...extra].sort((a, b) => a - b);
+}; //end subdivide
+
+/**
+ * SEGMENT_MARKDOWN
+ * Split Markdown into segments the model can translate one at a time, keeping the literal
+ * text that separated them. (v6 55c816b41c)
+ *
+ * `sep` is the text that stood between the previous segment and this one, straight out of
+ * the source, so the round-trip is exact by construction:
+ *
+ *   segments.map(s => s.sep + s.text).join('') === md
+ *
+ * Every paragraph and line break is a cut; a unit longer than max_chars is cut at the last
+ * sentence end that fits (sentence_cuts refuses abbreviations and links); one sentence is
+ * never split unless it passes HARD_MAX_CHARS. Small segments are on purpose: a
+ * sentence-level model given 1000-character blocks is off-distribution, the dominant cause
+ * of the repetition loops seen on long low-resource translations, and at this size nearly
+ * every token sits at a segment edge, where it is hoisted out of the model's way.
+ *
+ * @param {string} md
+ * @param {number} [max_chars=250] - Soft upper bound per segment.
+ * @returns {Array<{text:string, sep:string}>} `sep` is '' for the first segment.
+ */
+export function segment_markdown(md, max_chars = 250) {
+	if (!md) {
+		return [];
+	}
+
+	const ranges = segment_protected_ranges(md);
+	const structural = structural_boundaries(md, ranges);
+	const sentences = sentence_cuts(md, ranges);
+
+	// every structural boundary is a cut, unconditionally
+	const units = [];
+	let unit_start = 0;
+	for (const boundary of structural) {
+		units.push([unit_start, boundary]);
+		unit_start = boundary;
+	}
+	units.push([unit_start, md.length]);
+
+	// subdivide any unit that is still too big
+	const bounded = [];
+	for (const [from, to] of units) {
+		bounded.push(from);
+		if (to - from > max_chars) {
+			bounded.push(...subdivide(md, from, to, max_chars, sentences, ranges));
+		}
+	}
+
+	// slice, putting each separator run into the FOLLOWING segment
+	const segments = [];
+	for (let k = 0; k < bounded.length; k++) {
+		const from = bounded[k];
+		const to = k + 1 < bounded.length ? bounded[k + 1] : md.length;
+		if (from >= to) {
+			continue;
+		}
+
+		let content = from;
+		while (content < to && /\s/.test(md[content])) {
+			content++;
+		}
+
+		segments.push({ sep: md.slice(from, content), text: md.slice(content, to) });
+	}
+
+	return segments;
+} //end segment_markdown
+
+/**
+ * MARKS_IN_TEXT_NODES
+ * Every match of the given mark extractor that lies inside a single TEXT node of the
+ * parsed HTML. A mark that ended up inside a tag (an attribute, a tag name) is not text —
+ * the editor would never show it, and saving it would corrupt the tag — so the caller
+ * compares this against the source and refuses a result that has fewer (A1-02 review).
+ * @param {string} html
+ * @param {Function} extract - (text) => Array<{mark:string}>
+ * @returns {string[]}
+ */
+export const marks_in_text_nodes = (html, extract) => {
+	const doc = new DOMParser().parseFromString(html, 'text/html');
+	const walker = doc.createTreeWalker(doc.body, 4); // NodeFilter.SHOW_TEXT
+	const found = [];
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		for (const item of extract(node.textContent)) {
+			found.push(item.mark);
+		}
+	}
+	return found;
+}; //end marks_in_text_nodes
 
 // @license-end

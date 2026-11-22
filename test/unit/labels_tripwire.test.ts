@@ -26,6 +26,8 @@
  *     missing literals. SHRINK-ONLY: entries may be removed (by defining the
  *     key), never added; a stale entry (no longer referenced, or now defined)
  *     fails.
+ *  5. tool labels (tools/<tool>/register.json → dd1372) — every lang of a
+ *     label name carries the same fill-placeholder multiset (`{n}` ≡ `%s`).
  *
  * NOT covered (documented, not silently narrowed): dynamic dictionary access
  * (`get_label[variable]`) is unscannable — dead-label detection is therefore
@@ -303,5 +305,93 @@ describe('labels tripwire (WC-033 — master.json defines, catalogs translate)',
 		// here, not by widening the filter in the test above.
 		const exempt = Object.keys(loadMaster()).filter((key) => key.startsWith('error_'));
 		expect(exempt.length).toBeGreaterThan(0);
+	});
+});
+
+/**
+ * Tool labels (register.json → dd1372) are filled by the same code paths:
+ * `get_tool_label(name, ...args)` runs util.printf, which turns each `%s` into
+ * `{0}`, `{1}`… in order and then fills `{n}` positionally. A translation that
+ * dropped or added a marker shows the raw marker or loses the value — the same
+ * drift the master-catalog test above refuses (audit A1-02 review item 9).
+ * Per label NAME, every lang carries the same placeholder multiset, `{n}` and
+ * `%s` counting as one kind (a positional `{1}…{0}` reorder — lg-nep — is
+ * a legitimate translation, so ORDER is not compared, only the multiset).
+ */
+describe('tool register.json labels', () => {
+	const TOOLS_ROOT = resolve(import.meta.dir, '../../tools');
+
+	type ToolLabel = { lang: string; name: string; value: string };
+
+	/** The dd1372 label array of one register.json, whatever its format
+	 * (column-keyed misc.dd1372[0].value, or authoring `labels`). */
+	const toolLabels = (raw: Record<string, unknown>): ToolLabel[] => {
+		const authoring = raw.labels;
+		if (Array.isArray(authoring)) return authoring as ToolLabel[];
+		const misc = (raw.misc ?? {}) as Record<string, Array<{ value?: unknown }>>;
+		const value = misc.dd1372?.[0]?.value;
+		return Array.isArray(value) ? (value as ToolLabel[]) : [];
+	};
+
+	/** Sorted multiset of fill markers, `{n}` / `%s` / `%1$s` normalised to `%s`. */
+	const toolPlaceholders = (text: string): string =>
+		[...text.matchAll(/%[a-z_]+%|%(?:\d+\$)?[sd]|\$\{[A-Za-z_]+\}|\{\d+\}/g)]
+			.map((match) => (/^(?:\{\d+\}|%(?:\d+\$)?s)$/.test(match[0]) ? '%s' : match[0]))
+			.sort()
+			.join(' ');
+
+	/** Every label name whose langs disagree on the placeholder multiset. */
+	const driftedToolLabels = (labelsByTool: Map<string, ToolLabel[]>): string[] => {
+		const drifted: string[] = [];
+		for (const [tool, labels] of labelsByTool) {
+			const byName = new Map<string, Map<string, string>>();
+			for (const label of labels) {
+				if (typeof label?.value !== 'string') continue;
+				const langs = byName.get(label.name) ?? new Map<string, string>();
+				langs.set(label.lang, toolPlaceholders(label.value));
+				byName.set(label.name, langs);
+			}
+			for (const [name, langs] of byName) {
+				if (new Set(langs.values()).size > 1) {
+					const shown = [...langs].map(([lang, found]) => `${lang}[${found}]`).join(' ');
+					drifted.push(`${tool} ${name}: ${shown}`);
+				}
+			}
+		}
+		return drifted;
+	};
+
+	const labelsByTool = new Map<string, ToolLabel[]>();
+	for (const name of readdirSync(TOOLS_ROOT).filter((entry) => /^tool_[a-z0-9_]+$/.test(entry))) {
+		let raw: Record<string, unknown>;
+		try {
+			raw = JSON.parse(readFileSync(join(TOOLS_ROOT, name, 'register.json'), 'utf8'));
+		} catch {
+			continue; // a tool without a register.json is the register validator's concern
+		}
+		labelsByTool.set(name, toolLabels(raw));
+	}
+
+	test('every lang of a tool label carries the same placeholders', () => {
+		const carrying = [...labelsByTool.values()]
+			.flat()
+			.filter((label) => typeof label?.value === 'string' && toolPlaceholders(label.value) !== '');
+		expect(carrying.length).toBeGreaterThan(0); // the census reads something
+		expect(driftedToolLabels(labelsByTool)).toEqual([]);
+	});
+
+	test('the check sees a dropped marker and accepts a positional reorder', () => {
+		const planted = new Map<string, ToolLabel[]>([
+			[
+				'tool_planted',
+				[
+					{ lang: 'lg-eng', name: 'dropped', value: 'Moved %s of %s' },
+					{ lang: 'lg-spa', name: 'dropped', value: 'Movidos %s' },
+					{ lang: 'lg-eng', name: 'reordered', value: 'Item %s in %s' },
+					{ lang: 'lg-nep', name: 'reordered', value: '{1} मा {0}' },
+				],
+			],
+		]);
+		expect(driftedToolLabels(planted)).toEqual(['tool_planted dropped: lg-eng[%s %s] lg-spa[%s]']);
 	});
 });

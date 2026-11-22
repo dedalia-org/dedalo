@@ -54,8 +54,21 @@ function isSafeModelSegment(value: string): boolean {
 
 import { forgetVerdict, quarantineFile, verifiedDigest } from './model_integrity.ts';
 import { expectedDigest, forgetFile, recordFileComplete } from './model_manifest.ts';
-import { type FilePin, type PinTable, pinFor, pinnedRevision, REVISION_HEX } from './model_pins.ts';
-import { type ModelKind, modelFiles, modelStoreRoot } from './model_store.ts';
+import {
+	type FilePin,
+	type PinTable,
+	pinFor,
+	pinnedRevision,
+	REVISION_HEX,
+	readPinTable,
+} from './model_pins.ts';
+import {
+	type ModelDtype,
+	type ModelKind,
+	modelFiles,
+	modelStoreRoot,
+	withExternalData,
+} from './model_store.ts';
 
 /** Where model files are fetched from when a download is requested. */
 export const HUB_BASE = 'https://huggingface.co';
@@ -82,6 +95,38 @@ export const OPTIONAL_FILES: readonly string[] = [
  * entry declares `kind: 'diarization'`.
  */
 export const DIARIZATION_COMMON_FILES: readonly string[] = ['preprocessor_config.json'];
+
+/**
+ * The common files of a TEXT model (tool_lang's translators, kinds
+ * `decoder_only` / `seq2seq`) — what transformers.js 4.2.0's
+ * `get_pipeline_files` names for a `text` task beside the weights: the
+ * tokenizer pair (present whenever the repo publishes `tokenizer_config.json`,
+ * which every catalogue translator does) and the OPTIONAL generation config
+ * (`optional_configs`; MADLAD publishes none). No preprocessor: a text task
+ * loads no processor.
+ */
+export const TEXT_COMMON_FILES: readonly string[] = [
+	'generation_config.json',
+	'tokenizer.json',
+	'tokenizer_config.json',
+];
+export const TEXT_OPTIONAL_FILES: readonly string[] = ['generation_config.json'];
+
+/**
+ * THE per-kind table of non-weight files: which to fetch, and which may be
+ * absent upstream. The one copy the downloader defaults from and the scripts
+ * (seeder, pinner, gate) read through `scripts/lib/ai_model_register.ts`.
+ */
+export function commonFilesFor(kind: ModelKind): {
+	common: readonly string[];
+	optional: readonly string[];
+} {
+	if (kind === 'diarization') return { common: DIARIZATION_COMMON_FILES, optional: [] };
+	if (kind === 'decoder_only' || kind === 'seq2seq') {
+		return { common: TEXT_COMMON_FILES, optional: TEXT_OPTIONAL_FILES };
+	}
+	return { common: COMMON_FILES, optional: OPTIONAL_FILES };
+}
 
 /**
  * Where one model file lands on disk, or null when the request is refused.
@@ -222,10 +267,9 @@ export interface DownloadOptions {
 	quiet?: boolean;
 	/** Called before each file starts (for logging/progress). */
 	onFile?: (file: string) => void;
-	/** Per-model-kind file lists: the non-weight files to fetch (default
-	 * COMMON_FILES, the ASR set) and which of the wanted files may 404 without
-	 * failing the seed (default OPTIONAL_FILES). A diarization model passes
-	 * DIARIZATION_COMMON_FILES and an empty optional list. */
+	/** Per-model-kind file lists: the non-weight files to fetch and which of
+	 * the wanted files may 404 without failing the seed. Default: the KIND's
+	 * entry in `commonFilesFor` (an explicit list overrides it). */
 	commonFiles?: readonly string[];
 	optionalFiles?: readonly string[];
 	/**
@@ -571,27 +615,44 @@ interface DownloadPlan {
  * config.json + the weights and the common files union in.
  */
 function wantedFiles(
-	dtype: Record<string, string> | undefined,
+	modelId: string,
+	dtype: ModelDtype | undefined,
 	options: DownloadOptions,
 ): string[] {
 	if (options.files !== undefined) return [...new Set(options.files)];
-	return [
-		...new Set([...(options.commonFiles ?? COMMON_FILES), ...modelFiles(dtype, options.kind)]),
-	];
+	const kind = options.kind ?? 'asr';
+	// Each weight's external-data chunks ride with it, as the PIN names them
+	// (no pin, no download — so the pin is always there to ask).
+	const weights = withExternalData(
+		modelId,
+		modelFiles(dtype, kind),
+		options.pins ?? readPinTable(),
+	);
+	return [...new Set([...(options.commonFiles ?? commonFilesFor(kind).common), ...weights])];
+}
+
+/** How the files are obtained: the transport and the hub it asks (defaults: curl, the hub). */
+function downloadTransport(
+	options: DownloadOptions,
+): Pick<DownloadPlan, 'fetchFile' | 'pins' | 'hubBase'> {
+	return {
+		fetchFile: options.fetchFile ?? fetchOneFile,
+		pins: options.pins,
+		hubBase: options.hubBase ?? HUB_BASE,
+	};
 }
 
 function planDownload(
-	dtype: Record<string, string> | undefined,
+	modelId: string,
+	dtype: ModelDtype | undefined,
 	options: DownloadOptions,
 ): DownloadPlan {
 	return {
 		store: options.store ?? modelStoreRoot(),
 		quiet: options.quiet ?? true,
-		wanted: wantedFiles(dtype, options),
-		optional: options.optionalFiles ?? OPTIONAL_FILES,
-		fetchFile: options.fetchFile ?? fetchOneFile,
-		pins: options.pins,
-		hubBase: options.hubBase ?? HUB_BASE,
+		wanted: wantedFiles(modelId, dtype, options),
+		optional: options.optionalFiles ?? commonFilesFor(options.kind ?? 'asr').optional,
+		...downloadTransport(options),
 	};
 }
 
@@ -633,10 +694,10 @@ function weightsMissing(wanted: readonly string[], gotWeights: boolean): boolean
  */
 export async function downloadModel(
 	modelId: string,
-	dtype: Record<string, string> | undefined,
+	dtype: ModelDtype | undefined,
 	options: DownloadOptions = {},
 ): Promise<DownloadReport> {
-	const plan = planDownload(dtype, options);
+	const plan = planDownload(modelId, dtype, options);
 	const report: DownloadReport = { ok: false, files: [], skipped: [], errors: [], refused: [] };
 
 	// NO PIN, NO BYTE. The hub's `main` is a mutable head; without an immutable

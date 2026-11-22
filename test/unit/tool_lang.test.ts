@@ -8,6 +8,8 @@
 // input_text tipo, so it now names the generic `test52`.
 
 import { describe, expect, test } from 'bun:test';
+import { readTranslationCatalog } from '../../scripts/lib/ai_model_register.ts';
+import { pinnedRevision } from '../../src/core/ai/model_pins.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
@@ -232,19 +234,20 @@ describe('runAutomaticTranslation — gates and loud failures', () => {
 });
 
 /**
- * C54 (owner 2026-11-13, T1-P01 16a/16b): tool_lang_multi is served tool_lang's
- * client config (configFrom, RATIFIED) MINUS the `type:'browser'` translator
- * engines (HIDDEN in translate-all until the translategemma revision is
- * pinned); tool_lang keeps every engine. Measured on the SERVED element
- * context — the one thing the client reads (render_tool_lang_multi.js
- * `context.config.translator_engine.value`). The install's default config is
- * tool_lang's register.json (babel / google_translation / browser_transformer),
- * so the browser engine's presence in tool_lang's context is the positive
- * control: a run where tool_lang itself served no browser engine would prove
- * nothing, and fails here.
+ * C54 LIFTED (2026-11-22; owner 2026-11-13, T1-P01 16a/16b): tool_lang_multi is
+ * served tool_lang's client config (configFrom, RATIFIED) WHOLE — the
+ * `type:'browser'` translator engine, hidden from translate-all "until the
+ * translategemma revision is pinned", is served again now that it is. Measured
+ * on the SERVED element context — the one thing the client reads
+ * (render_tool_lang_multi.js `context.config.translator_engine.value`). The
+ * lift is bound to its recorded condition: the gate also asserts that every
+ * model of the served browser engine's catalogue, translategemma included, is
+ * pinned — so the engine cannot be served to translate-all against unpinned
+ * models. tool_lang serving a browser engine at all is the positive control: a
+ * run where tool_lang served none would prove nothing, and fails here.
  */
-describe('tool_lang_multi context hides browser engines (C54)', () => {
-	type Engine = { name: string; type: string };
+describe('tool_lang_multi context serves the browser engine (C54 lifted)', () => {
+	type Engine = { name: string; type: string; models?: { model_id?: string }[] };
 	const servedEngines = async (tool: string): Promise<Engine[]> => {
 		const context = await runWithRequestLangs(
 			{ applicationLang: 'lg-eng', dataLang: 'lg-eng' },
@@ -264,22 +267,40 @@ describe('tool_lang_multi context hides browser engines (C54)', () => {
 		expect(engines.some((e) => e.type === 'server')).toBe(true);
 	});
 
-	test("tool_lang_multi serves tool_lang's engines WITHOUT the browser ones; the rest is identical", async () => {
+	test("tool_lang_multi serves tool_lang's engines WITH the browser one; the whole config is identical", async () => {
 		const lang = await servedEngines('tool_lang');
 		const multi = await servedEngines('tool_lang_multi');
-		expect(multi.some((e) => e.type === 'browser')).toBe(false);
-		expect(multi).toEqual(lang.filter((e) => e.type !== 'browser'));
-		expect(multi.length).toBeGreaterThan(0);
-		// the rest of the served config is tool_lang's, key for key
+		expect(multi.some((e) => e.type === 'browser')).toBe(true);
+		expect(multi).toEqual(lang);
 		const configOf = async (tool: string): Promise<Record<string, unknown>> =>
 			(
 				(await runWithRequestLangs({ applicationLang: 'lg-eng', dataLang: 'lg-eng' }, () =>
 					buildToolElementContext(tool),
 				)) as { config: Record<string, unknown> }
 			).config;
-		const { translator_engine: _a, ...restLang } = await configOf('tool_lang');
-		const { translator_engine: _b, ...restMulti } = await configOf('tool_lang_multi');
-		expect(restMulti).toEqual(restLang);
+		expect(await configOf('tool_lang_multi')).toEqual(await configOf('tool_lang'));
+	});
+
+	test("the lift's condition holds: translategemma and every catalogue translator are pinned", async () => {
+		// The SHIPPED catalogue (tools/tool_lang/register.json, what an install
+		// registers): translategemma is in it and every translator is pinned.
+		const translators = readTranslationCatalog();
+		expect(translators.map((entry) => entry.id)).toContain(
+			'onnx-community/translategemma-text-4b-it-ONNX',
+		);
+		for (const entry of translators) expect(pinnedRevision(entry.id), entry.id).not.toBeNull();
+		// And whatever catalogue the SERVED engine carries (a registry imported
+		// before 2026-11-22 carries none): every model it names is pinned — a
+		// templated id through its recorded expansion.
+		const browser = (await servedEngines('tool_lang_multi')).filter((e) => e.type === 'browser');
+		for (const model of browser.flatMap((engine) => engine.models ?? [])) {
+			const id = String(model.model_id);
+			const concrete = /\{src\}|\{tgt\}/.test(id)
+				? translators.filter((entry) => entry.template === id).map((entry) => entry.id)
+				: [id];
+			expect(concrete.length, `${id}: no pinned model`).toBeGreaterThan(0);
+			for (const entry of concrete) expect(pinnedRevision(entry), entry).not.toBeNull();
+		}
 	});
 });
 

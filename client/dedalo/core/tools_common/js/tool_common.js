@@ -23,7 +23,7 @@
 *       `view_window`.
 *   - `load_component` — utility to asynchronously instantiate and build a component
 *       inside a tool, managing the tool's `ar_instances` registry.
-*   - `get_tool_label` (private) — label resolver bound to `this.context.labels`
+*   - `get_tool_label` — label resolver bound to `this.context.labels`
 *       of the tool instance; assigned as `self.get_tool_label` so each tool can
 *       call it on its own context.
 *
@@ -1643,8 +1643,9 @@ const view_window = async function(options) {
 * If the resolved label value contains `%s` placeholders, the variadic `...rest`
 * arguments are interpolated via `printf`.
 *
-* This function is NOT exported — it is only assigned to `self.get_tool_label`
-* during `init()`, so `this` is always the tool instance.
+* Assigned to `self.get_tool_label` during `init()`, so `this` is the tool instance.
+* Exported only so a client gate can drive the REAL resolver (printf `%s` forwarding)
+* with `get_tool_label.call({context:{labels}}, …)`; tools call it through `self`.
 *
 * @param {string} label_name - Key matching `label.name` in `this.context.labels`,
 *   e.g. 'indexation_tool' or 'save_button'
@@ -1653,7 +1654,7 @@ const view_window = async function(options) {
 * @returns {string|null} The (printf-interpolated) label string, or null when no
 *   entry for `label_name` is found or `this.context.labels` is absent
 */
-const get_tool_label = function(label_name, ...rest) {
+export const get_tool_label = function(label_name, ...rest) {
 
 	const tool_labels = this.context?.labels
 	if (!tool_labels) {

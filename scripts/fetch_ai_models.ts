@@ -1,8 +1,9 @@
 /**
  * SEED THE LOCAL AI MODEL STORE.
  *
- * Downloads the in-browser models (speech recognition, translation) into the
- * install's own store, so the browser never talks to a public model hub. This is
+ * Downloads the in-browser models (speech recognition and speaker detection for
+ * tool_transcription; the translators of tool_lang's local AI engine, one
+ * opus-mt model per language pair) into the install's own store, so the browser never talks to a public model hub. This is
  * an OPERATOR action, run once per model on a machine that has internet — an
  * air-gapped archive seeds its store by copying the directory in with rsync
  * instead, which is exactly why the store is a plain folder of plain files.
@@ -17,21 +18,18 @@
  * <private>/ai_models) unless --store overrides it. Existing files are kept:
  * re-running is a cheap way to complete an interrupted download.
  *
- * A large speech model is ~1.5 GB. Nothing here runs at install time or at
+ * A large speech model is ~1.5 GB; a decoder-only translator (Qwen3 4B,
+ * TranslateGemma 4B) ~3 GB; an opus-mt pair ~115 MB. Nothing here runs at install time or at
  * request time; an install with an empty store simply has no local models, which
  * the tool reports plainly rather than silently reaching for the internet.
  */
 
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-	DIARIZATION_COMMON_FILES,
-	downloadModel,
-	OPTIONAL_FILES,
-} from '../src/core/ai/model_fetch.ts';
+import { downloadModel } from '../src/core/ai/model_fetch.ts';
 import { pinnedRevision } from '../src/core/ai/model_pins.ts';
 import { modelStoreRoot } from '../src/core/ai/model_store.ts';
-import { filesFor, readRegisterCatalog } from './lib/ai_model_register.ts';
+import { commonFilesFor, filesFor, readRegisterCatalog } from './lib/ai_model_register.ts';
 
 /**
  * THE catalog — read from the tool's own `register.json` through
@@ -60,7 +58,7 @@ function listCatalog(): void {
 	console.log(`store: ${store}${existsSync(store) ? '' : '  (does not exist yet)'}\n`);
 	for (const model of readCatalog()) {
 		// Present means USABLE: every file the catalog's dtype asks for is there.
-		const optional = model.kind === 'diarization' ? [] : OPTIONAL_FILES;
+		const { optional } = commonFilesFor(model.kind ?? 'asr');
 		const present = filesFor(model).every(
 			(file) =>
 				optional.includes(file) ||
@@ -68,7 +66,7 @@ function listCatalog(): void {
 		);
 		const pinned = pinnedRevision(model.id) !== null ? '' : '  [NO PIN — cannot be fetched]';
 		console.log(
-			`  ${present ? '✓' : ' '} ${model.id}${pinned}\n      ${model.label} — ${model.note}`,
+			`  ${present ? '✓' : ' '} ${model.id}${pinned}\n      [${model.tool ?? 'tool_transcription'}] ${model.label}${model.note !== '' ? ` — ${model.note}` : ''}`,
 		);
 	}
 	console.log('\n✓ = ready to use (all files the catalog asks for are present)');
@@ -84,7 +82,7 @@ async function fetchModel(modelId: string, store: string): Promise<void> {
 		// verify is one it does not make — downloadModel would refuse it anyway;
 		// saying so here names the remedy.
 		throw new Error(
-			`${modelId} is not in the transcriber catalog and has no pin — add it to tools/tool_transcription/register.json and pin it with scripts/pin_ai_models.ts`,
+			`${modelId} is in no in-browser model catalog and has no pin — add it to tools/tool_transcription/register.json or tools/tool_lang/register.json and pin it with scripts/pin_ai_models.ts`,
 		);
 	}
 
@@ -94,10 +92,8 @@ async function fetchModel(modelId: string, store: string): Promise<void> {
 		store,
 		quiet: false,
 		onFile: (file) => console.log(`  ↓ ${file}`),
+		// The kind decides the file set (commonFilesFor is the downloader's default).
 		kind: model.kind ?? 'asr',
-		...(model.kind === 'diarization'
-			? { commonFiles: DIARIZATION_COMMON_FILES, optionalFiles: [] as string[] }
-			: {}),
 	});
 	for (const file of report.skipped) console.log(`  - ${file} (not published for this model)`);
 	if (!report.ok) {

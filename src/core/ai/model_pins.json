@@ -1,5 +1,967 @@
 {
 	"models": {
+		"Kutalia/madlad400-3b-mt-onnx": {
+			"revision": "066656188a5390d1d0af6e824707a12cf28fc309",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Kutalia/madlad400-3b-mt-onnx",
+				"declared_by": "card",
+				"card": {
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Kutalia/madlad400-3b-mt-onnx"
+				},
+				"upstream": {
+					"model": "google/madlad400-3b-mt",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/google/madlad400-3b-mt",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"tokenizer.json": {
+					"sha256": "03f5d7dc88da0cb4bb6b7a1d9d66ee62f5bd339ef0aaaf6e89d74829df5830c0",
+					"size": 16613995
+				},
+				"tokenizer_config.json": {
+					"sha256": "21de89977129392c6f079c6fe3f8f5f616dd09c7c85d468084aec278111dcb1a",
+					"size": 928
+				},
+				"config.json": {
+					"sha256": "a7f208db9a60aad30bdbbdd6beb1de5c92a14e1a4c85ce37de7201ea6c3712d9",
+					"size": 850
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "3ab4690aab2174ca29a9ce30cdb8152d9b639606cf2cf48e77112314e064e393",
+					"size": 1337248123
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "6bd545f6b67ae96ff21d207c7b630b3df7a97a2379b433e060d2a5ea2a4a9a1d",
+					"size": 1870804464
+				}
+			}
+		},
+		"Xenova/nllb-200-distilled-600M": {
+			"revision": "261c31d1a5732c67cdd16d80e8d6088507c7ccea",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "cc-by-nc-4.0",
+				"url": "https://huggingface.co/Xenova/nllb-200-distilled-600M",
+				"declared_by": "card",
+				"card": {
+					"license": "cc-by-nc-4.0",
+					"url": "https://huggingface.co/Xenova/nllb-200-distilled-600M"
+				},
+				"upstream": {
+					"model": "facebook/nllb-200-distilled-600M",
+					"license": "cc-by-nc-4.0",
+					"url": "https://huggingface.co/facebook/nllb-200-distilled-600M",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "1ce846259ae04c572ae1863e358534bbc376ff3d3f100b1494feda6200b51de8",
+					"size": 189
+				},
+				"tokenizer.json": {
+					"sha256": "8ac789ad7dabea44d41537822d48c516ba358374c51813e2cba78c006e150c94",
+					"size": 17331224
+				},
+				"tokenizer_config.json": {
+					"sha256": "ddf411c9f790d081e72de76bb8e8b714d74e160e61bc10c9bd8f56022dcd7fd7",
+					"size": 544
+				},
+				"config.json": {
+					"sha256": "52f035acb54ac80e5ef7fe78d6967f8ddf8e8799f078d1a92a2c8168d8ff4a20",
+					"size": 873
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "5cde664eacba07a62f198857ec6c06e09572b1ebb77c8137f1fa99ac604a3a28",
+					"size": 419120483
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "dd66608c2a4194e78f95548fa0e64f24302303698c5b09fa8e1f9e16ec00676b",
+					"size": 475505771
+				}
+			}
+		},
+		"Xenova/opus-mt-ar-en": {
+			"revision": "09c7556866400dcc53562ba8d7035119e7d9a2c1",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-ar-en",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-ar-en"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-ar-en",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-ar-en",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "6e240dc18d20cceb870d47706c90126a801f246db6009f9e02171795e9f93772",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "86c78b55d2428e4479e21ce4c27266f7c5e1d52bcabcadff29bfda77f6ad3200",
+					"size": 6734647
+				},
+				"tokenizer_config.json": {
+					"sha256": "3d4d5af649635fabf681f0618849ada5b872f72d025d6297896d46ddf5ce3770",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "451ee0da95b01fe58d78f05c47e9ad89f0a17a4c03dcecb389136a12248ef9aa",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "d9b0d612acff86cf87634b49bda566d1ef39b312837de549786ea18fecefc708",
+					"size": 51790238
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "cdb25ae736afe9d48035b0ea311ab4b25f315810fab7f3c6f6cb0d8d87af35fa",
+					"size": 59094632
+				}
+			}
+		},
+		"Xenova/opus-mt-de-en": {
+			"revision": "399dfd68706739fffd503f876093e455ae268a06",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-en",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-de-en"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-de-en",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-en",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "cd16a899388283889c6e87b903c689ce73430aaa18335415f9d9ea770606538e",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "8e0fcf45621ea87fa680c7f9969c37a7f819c1f4c7658a2e6e0879b866a14b17",
+					"size": 5498450
+				},
+				"tokenizer_config.json": {
+					"sha256": "e3687c40400600366d9b073a3fd9f75dc8b40d5a9d6e5c92544cf2e9592abe6c",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "6754743ec4754957d8552dad869d1314f3af6626b67446ec4cebe5e2fbaa0fc4",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "4cedda8f8c89b72a42b3c6cd1e7a27f2de24457093e3bf80cb3e46829641fcd8",
+					"size": 49366942
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "4712800584b2d77c2f9e620bf29523e2b20b62f65ade5011ee01780e2b0ea5d3",
+					"size": 56652404
+				}
+			}
+		},
+		"Xenova/opus-mt-de-es": {
+			"revision": "d339419ee3bda301bdcd00249d4436b74664ee7e",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-es",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-de-es"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-de-es",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-es",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "04bb62d9d3684e5e142a440be771079f6e962e0a7682461266cb870eb3bb60c8",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "da29e101fb1b189976f017d7c21f87d2435f2c49f6fdd46ea83999d6443f3f5d",
+					"size": 5944958
+				},
+				"tokenizer_config.json": {
+					"sha256": "a66d44917be8cf82ed4d6421d90273172e5e2192f3f82e0d0918e8ca0c571d4f",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "64212746d9d77ad818ecb47faaa04678aa1b21f85153ca2c11ef6086bd0cfc0f",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "54a64cdcdef126647fe4922b33744f6643982084ee0a58b6d441bec5d17f7deb",
+					"size": 51005342
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "8b426d5cafcc60359eeb3577d4becd021be84c4a9eefabef811a6b0dd10e0082",
+					"size": 58303604
+				}
+			}
+		},
+		"Xenova/opus-mt-de-fr": {
+			"revision": "e783da03d247c4d16778e938530e9b5d7bd1523d",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-fr",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-de-fr"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-de-fr",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-de-fr",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "50b70fcdb30a9872c2af30265399f623542ce4232f51eb0746d2419dd7ecc03b",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "b49d1ec3511c7dcf0db99577ebfbb68275f23c351b6fd734208d0cbc5d550c74",
+					"size": 5930679
+				},
+				"tokenizer_config.json": {
+					"sha256": "c171934fe26375c39bc27f12d240ce67d39bee377a67a9f01817c4c669aa0b69",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "9e9364e8a1429677dca758a8531898eb7ad996511249b25fe7b6c9b3040a59d0",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "90cba5278e60ad6be15594760e718135640185b041d5706cba7762ece724d489",
+					"size": 50929565
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "2b834e8f8fc9c5159c36127fca1126224299848e04b8aa1f2936255ba339f435",
+					"size": 58227235
+				}
+			}
+		},
+		"Xenova/opus-mt-en-ar": {
+			"revision": "034a684356c19021a187cda4d7f823298b913921",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ar",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-en-ar"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-en-ar",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-ar",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "fb6be7759d385eea2d9f79f767fa80669e9ba74ba02de1db6ec9dbc950cf20f0",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "109bb62e1c598287f5960616c869e15be54785a3c2906903dafe044241d50b61",
+					"size": 6748848
+				},
+				"tokenizer_config.json": {
+					"sha256": "2ab016d442c2d3271a04547586a68322e9aedb65097349482d5374fe6d8abde2",
+					"size": 282
+				},
+				"config.json": {
+					"sha256": "8135d646cd810090349e8833b7ba593ac3b72d632f8858cb34925bdbcb6a1bea",
+					"size": 1389
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "53c354d87ced44b39085fe8a46a25f09ea4578d442dbce9663f3977228f8a04e",
+					"size": 51773854
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "c0e553b0c26611780c70417c9b4c1ca7169e9cdb18ba9e649197efb017af9f02",
+					"size": 59078120
+				}
+			}
+		},
+		"Xenova/opus-mt-en-de": {
+			"revision": "1ca130c44c4c5441ef16d48aae521a424ab644f7",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "cc-by-4.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-en-de"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-en-de",
+					"license": "cc-by-4.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "cd16a899388283889c6e87b903c689ce73430aaa18335415f9d9ea770606538e",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "8e0fcf45621ea87fa680c7f9969c37a7f819c1f4c7658a2e6e0879b866a14b17",
+					"size": 5498450
+				},
+				"tokenizer_config.json": {
+					"sha256": "4500a1295197174119cf17f9b2e6eab2d5c3a9c64009fb1e37ebd2868bf1161c",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "517955ebf66cd6523f9982851dd41771b74fb2d9c00b4933ba2922ac7a63336f",
+					"size": 1411
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "15834b45fabd2dfb8c6c029b3ca3e7289aeefd90ece798ce42bcf548d1bd3b8d",
+					"size": 49366942
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "8b46a825964cdd182fe47cc780f0fb87d357eae1f47cf20aa63c1c09be5b510c",
+					"size": 56652404
+				}
+			}
+		},
+		"Xenova/opus-mt-en-es": {
+			"revision": "4b002a4c7edd54a7ced58877258b87f7efd3f892",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-en-es"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-en-es",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-es",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "b743baabb7da4c1a2f19fe558bd6b4c0c7c3b0762fcb5ca7a48fe5a2c2219803",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "285eb29e7155ee48851a77960797813f86a125f70d2c1a124f613f1fbd2b19c3",
+					"size": 6262682
+				},
+				"tokenizer_config.json": {
+					"sha256": "dfb00189b823fb0f15464e9c4e68dd8594f5e5ef5f8dc497468a37741e73aa1f",
+					"size": 282
+				},
+				"config.json": {
+					"sha256": "499eae1f97eeba63172fc884f92fd727ae803b7ceb79c0f653aa4b011152af2f",
+					"size": 1468
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "03434edd1147e6c49e22066e9dc5888235e99cc35a6711d1c4ea5b06455d5da9",
+					"size": 52899742
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "58ee5ddd6e22d1693d8722b90c1486afb93700a4376cf28fd74175052ad530ae",
+					"size": 60212804
+				}
+			}
+		},
+		"Xenova/opus-mt-en-fr": {
+			"revision": "28726206f80896b90035bd99cccd5cc1e151f916",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-en-fr"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-en-fr",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "f9a4824ec78c61b4a95afc43bbb6a9545a44ccf1c01d0963a286e799b9e7b256",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "8391785c1a2139e7af4678571ccd8dc654ecbb72e4be186940f65d7c604f0246",
+					"size": 5637839
+				},
+				"tokenizer_config.json": {
+					"sha256": "eb8dfaa142fe03627c8d035415f56c46284b6ee4a16e54c6e8236928ac5a1170",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "b522b73fcc86f77981349c1df2a2e041eed0dbcbea4acf2635019cf21d51ffc0",
+					"size": 1411
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "0a81bdba62f53223740a8c6c6f58e716eba8ea1f92dfa569caf27ed5e3b6a0f7",
+					"size": 50090398
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "333b244bce16023df04541c8cf9fd60aec9b0569da393c4b831d561897b0bda8",
+					"size": 57381512
+				}
+			}
+		},
+		"Xenova/opus-mt-en-it": {
+			"revision": "075406e3c8c2c30634d4a1bd8f00c21d9e162011",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-en-it"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-en-it",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-en-it",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "15a4ad1f54640380c5119641a6a6247862bd32dc982b8170024d9d03eb3831a2",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "fb93411d5198eb85753bbd68e9ac24ccb42071003214851b2f37c81f2ea50416",
+					"size": 7904597
+				},
+				"tokenizer_config.json": {
+					"sha256": "39ab5df0b1163bfa8a2728c37a3e81dc14a5ee910dcd33f49d46132f26bc4744",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "1cf40ab3aa16e8b6ea7c9766981de1da705a161564c0d5ad187c1e62e5c8ee85",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "b51c5110c7ba356ef01ee400d427afe162e657de1d7a2e9a40deedd811b49e6f",
+					"size": 60597150
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "f9db146ed7665ea7d437dc4df564e3af5df923366de4d52aaf2c4b4e3e4ae4f1",
+					"size": 67970348
+				}
+			}
+		},
+		"Xenova/opus-mt-es-de": {
+			"revision": "7f493e4b81b684478396f37de4c1ebc28ecd5855",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-de",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-es-de"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-es-de",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-de",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "04bb62d9d3684e5e142a440be771079f6e962e0a7682461266cb870eb3bb60c8",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "da29e101fb1b189976f017d7c21f87d2435f2c49f6fdd46ea83999d6443f3f5d",
+					"size": 5944958
+				},
+				"tokenizer_config.json": {
+					"sha256": "7b013d1bfec9d839da8b8f4f06fe93f20151bbce9f3f631460476cdff1a7a735",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "269706ddaecabd11da6c6505e6b6b617a7ee06deb5cf3bc59ac65ca302c7994b",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "bb5765b2b22eb48c2865c65098558cfd7e45a45f2f20aafb1cdc85a1f65c4de3",
+					"size": 51005342
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "cb6d365ceaefd8141ec6cc3dfa4e2c332d03ffc891ea732efb714e230a94cc2b",
+					"size": 58303604
+				}
+			}
+		},
+		"Xenova/opus-mt-es-en": {
+			"revision": "eadfd7c658a9d8929ac3b8e996b68a68e2c7d480",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-en",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-es-en"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-es-en",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-en",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "b743baabb7da4c1a2f19fe558bd6b4c0c7c3b0762fcb5ca7a48fe5a2c2219803",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "285eb29e7155ee48851a77960797813f86a125f70d2c1a124f613f1fbd2b19c3",
+					"size": 6262682
+				},
+				"tokenizer_config.json": {
+					"sha256": "e1fac15a910169d5b5ec07a13b0374273626a239b5142db10be229ca66cc52a9",
+					"size": 282
+				},
+				"config.json": {
+					"sha256": "fab3a7f93185bc5aa7b419f6a1e6e74d98c8f2a506c94493d3019bf46da3478d",
+					"size": 1433
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "c01e70f8455efc350831aa2af7ed187b16829241f0018ba07d1ba643a391bc18",
+					"size": 52899742
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "4cd91ab30240d295ce907b5100826031838c672005e57e524d711122d75605fa",
+					"size": 60212804
+				}
+			}
+		},
+		"Xenova/opus-mt-es-fr": {
+			"revision": "3bef5f612825d503f6fb85e0527a1fe30f2578c2",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-fr",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-es-fr"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-es-fr",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-fr",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "fa150ef0fb04d20c6c060d48d5137de791d79b1f55bb14b048c2d909691c9b58",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "af3d7f6d5225f092ef551d182b99866decac113fba0b4bfc820d505e376fc9ad",
+					"size": 7583355
+				},
+				"tokenizer_config.json": {
+					"sha256": "9cdedaf53b78eb45b1fbdc58afbcbb055662df6db6a84f421cf1446186099fa8",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "5125afd086d77211f5a6fe09a24899b8d94e71acdf6dce6e91026053c43332e0",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "f2c497ebe1c3eadb329b8f36b250e7f87f9a327f46615dc5637492702cd0d2af",
+					"size": 57928094
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "f6e43796a68566c95ab387277c223726ac988b307e875c239b340424eb057a92",
+					"size": 65280440
+				}
+			}
+		},
+		"Xenova/opus-mt-es-it": {
+			"revision": "596c67cda7cb919f0d67221f3a31bd7df79f19d0",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-it",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-es-it"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-es-it",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-es-it",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "88796600a7a61d10be98e8993ba148186e7fa95a684e851e28106348cdf0229e",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "157d59dd3f76ccb4b4fde84d42c518732dcceefd861a75c6fd507c580646459c",
+					"size": 5711996
+				},
+				"tokenizer_config.json": {
+					"sha256": "9b2ea4d8f5756d246c17d0bcb7dd4b122576f0ca43adb673d5da1df83f9fcfb7",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "f26e937b831afa67c9c7476a18eeb0de132766b8d8ec607e225f00382e8d6c2d",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "9e4ba8017de817880e4ad24712015e5935147479d01c25af757af24d61e3fab0",
+					"size": 49843102
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "11ac94f23d5c31305d1ff16a8018292eec9b61d5514dd365de856bc6a744ef3f",
+					"size": 57132284
+				}
+			}
+		},
+		"Xenova/opus-mt-fr-de": {
+			"revision": "7eea1996b4480d073cf560fcba6d4480aaf9a2bb",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-de",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-fr-de"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-fr-de",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-de",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "50b70fcdb30a9872c2af30265399f623542ce4232f51eb0746d2419dd7ecc03b",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "b49d1ec3511c7dcf0db99577ebfbb68275f23c351b6fd734208d0cbc5d550c74",
+					"size": 5930679
+				},
+				"tokenizer_config.json": {
+					"sha256": "c0c2ef0a37c34edeb4d03a633378ead436f61d0ceb93a7238950b738c033e5cb",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "a941a0d8fc5254cde22559aed0fdb6b7eb972bb375a1914284fb5b6f1f8feb77",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "76e81a715482c10d25fe3cbfe1129b236adcdc75bac4d9cee37bc97dc61ee8dd",
+					"size": 50929566
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "d3f4dbe5fbdeae2668a189edfc17edd87876f6df7ff5282803d535c5980bd4a4",
+					"size": 58227236
+				}
+			}
+		},
+		"Xenova/opus-mt-fr-en": {
+			"revision": "6b166a182780e118c997879d0ad5be4b53671644",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-en",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-fr-en"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-fr-en",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-en",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "f9a4824ec78c61b4a95afc43bbb6a9545a44ccf1c01d0963a286e799b9e7b256",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "8391785c1a2139e7af4678571ccd8dc654ecbb72e4be186940f65d7c604f0246",
+					"size": 5637839
+				},
+				"tokenizer_config.json": {
+					"sha256": "bba9e6b1e3b9724d15ebacaf11eaac360c5ae3f4139bcdef0ee1610592eaa3fe",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "6c2851f154d7b88c7767e4fdcf8a5694a36a456bfa6cbcde1b13fdbade3b56f6",
+					"size": 1411
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "e727cb26ac6bf816394c49671af69c9ae5798868fed1e40849872415dffc1772",
+					"size": 50090398
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "73bc7ac8e29c42e6f212ebcc29a2991d3646a04aabb642c0036aa54b40e4e1a9",
+					"size": 57381512
+				}
+			}
+		},
+		"Xenova/opus-mt-fr-es": {
+			"revision": "962338be51033b548c13dbb6f4da3ddb8c8aba0e",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-es",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-fr-es"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-fr-es",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-fr-es",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "fa150ef0fb04d20c6c060d48d5137de791d79b1f55bb14b048c2d909691c9b58",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "af3d7f6d5225f092ef551d182b99866decac113fba0b4bfc820d505e376fc9ad",
+					"size": 7583355
+				},
+				"tokenizer_config.json": {
+					"sha256": "4a17c48e9714ce8dc27a3ae1a9b7828a8af17c4fa33bd5a9853aa2ff55b99119",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "20fb838043a5bd522abc2582149dfa2a0e45debe298098ef147b4b525de4a2c0",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "946954149b0179a0fb60145a3ed85da2f58868ef2e6a442a1cb4301563b70ac3",
+					"size": 57928094
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "ff991f24d534a62db615697ed9555db80be28fbf9e5677d8ebb1f78c6aabc2c6",
+					"size": 65280440
+				}
+			}
+		},
+		"Xenova/opus-mt-it-en": {
+			"revision": "fd0b89b9c052adc1f2f64152f555aa17353728be",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-en",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-it-en"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-it-en",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-en",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "bab9fcae043547da07e13c701f77cf55b6b1517d6f73848c5c4476e7255da512",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "c19e1dac8287ec5c5d47a0d81be5e0fd11755666b996c764ef4d13bb8117e3a2",
+					"size": 7942314
+				},
+				"tokenizer_config.json": {
+					"sha256": "b0039f5c755ca180319fc4cd689398a62cd4a67042538158271f199437f0cccd",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "4b82a23b7a91b213a934db70d0a33712a739fdd7c5686b02d89642d7dcfc7ac4",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "a025d2d85c90da23880116b67175e43e71921d8d2bf446b9f1eacdc86015aa4c",
+					"size": 60773278
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "aebc2789cd2ef8062fbda020bac90b61e68458ba98a4c43cea63c1d2310ba2b8",
+					"size": 68147852
+				}
+			}
+		},
+		"Xenova/opus-mt-it-es": {
+			"revision": "0eba27fe6da2208231ea5e7047b0f62241ffc2bb",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-es",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-it-es"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-it-es",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-es",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "4831f8ae5acf40d1033b611c9f687ac1ba38490fe1f68c23eb75b01a7f347fb7",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "157d59dd3f76ccb4b4fde84d42c518732dcceefd861a75c6fd507c580646459c",
+					"size": 5711996
+				},
+				"tokenizer_config.json": {
+					"sha256": "91d8200dc5e2781fda78554fd612cd1d1106a333dfbfd585a9049eaef7920b04",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "d5ab0dee386c08e3d6cc7c497a08a663f7da3dfcbe7356e3faf47f4517d0fe88",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "3e0ef961235dc192d99555fe015ac0c28c0a93d006e98e6050a13dc45f45bb88",
+					"size": 49843102
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "147aa9f62b543cb7a7a119aabc89ce26b7defab212fb2486b2bff94e09986dce",
+					"size": 57132284
+				}
+			}
+		},
+		"Xenova/opus-mt-it-fr": {
+			"revision": "7843e3b7137d19face19cb32e27256888d26fe84",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-fr",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/Xenova/opus-mt-it-fr"
+				},
+				"upstream": {
+					"model": "Helsinki-NLP/opus-mt-it-fr",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Helsinki-NLP/opus-mt-it-fr",
+					"named_by": "card"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "f958dc13f11c13b7dd5cf78181ea6bec22e344001842c4ea247b732ee8b74eee",
+					"size": 293
+				},
+				"tokenizer.json": {
+					"sha256": "ec172eb453d01dc6979da59d40a65f9c2449e73e86c9bec2119d7b71485f8c82",
+					"size": 5750861
+				},
+				"tokenizer_config.json": {
+					"sha256": "ba1624ca99e458ea4ddb33a3884a62f6528f4e24eb114b7ec31a9d93278f4ca0",
+					"size": 280
+				},
+				"config.json": {
+					"sha256": "d93901c6c6a8fc7ecf99f9500ae51a946dd8d705aa30a14b41297afd9a53943c",
+					"size": 1376
+				},
+				"onnx/encoder_model_quantized.onnx": {
+					"sha256": "02efa49882a03300453fa6816ebc965baff791b280b2d03ac93316739768dd19",
+					"size": 50006942
+				},
+				"onnx/decoder_model_merged_quantized.onnx": {
+					"sha256": "062ee6c4f6c2318114239a681849667492667e21b5617458e73a27b1d2db23b7",
+					"size": 57297404
+				}
+			}
+		},
 		"Xenova/whisper-small": {
 			"revision": "2d67713f236afa48a18992566e7647f6ca848e13",
 			"pinned_at": "2026-09-03",
@@ -33,6 +995,71 @@
 					"sha256": "16c197b4c4702c51c767d1931a5673a10fa528bd1e79963891c97d69e0258584",
 					"size": 615405212
 				}
+			},
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Xenova/whisper-small",
+				"declared_by": "card",
+				"card": {
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Xenova/whisper-small"
+				},
+				"upstream": {
+					"model": "openai/whisper-small",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/openai/whisper-small",
+					"named_by": "card"
+				}
+			}
+		},
+		"onnx-community/Qwen3-4B-Instruct-2507-ONNX": {
+			"revision": "2bdfea4417ee390519508a6bc7dfbc36f3572981",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/Qwen3-4B-Instruct-2507-ONNX"
+				},
+				"upstream": {
+					"model": "Qwen/Qwen3-4B-Instruct-2507",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/blob/main/LICENSE",
+					"named_by": "repo_name"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "f7d05af39b85275fb5390f14715092795e19ffce8823f87e3296f33eff3af82b",
+					"size": 247
+				},
+				"tokenizer.json": {
+					"sha256": "e7a95fce95bf5b0946d0ddb3f9d7caa030b7e850bbe92b0edb26bcf563e9f3d5",
+					"size": 9117040
+				},
+				"tokenizer_config.json": {
+					"sha256": "15cd319f80abfb15ebac3ee9a8c403f676b3d9a8bb44104556a207d6c67fd3dd",
+					"size": 4047
+				},
+				"config.json": {
+					"sha256": "42558142027cd0ce5dca24b1f09883add6c55b1f80dcba2ee046af80ee96e912",
+					"size": 1834
+				},
+				"onnx/model_q4f16.onnx": {
+					"sha256": "6e603b4d2324fa94a1c1fc927d1f985da78413afcffa27b02b008d909eccc4a8",
+					"size": 437655
+				},
+				"onnx/model_q4f16.onnx_data": {
+					"sha256": "d2b17463255a120a6d4e88c60e24bb6be6607ab6e34dd89b62234879bfd6ce0d",
+					"size": 2094347264
+				},
+				"onnx/model_q4f16.onnx_data_1": {
+					"sha256": "6c0d3b7ee94fa08c2dc766dfa4c5b790e492077701847b40fa001f648f3ebded",
+					"size": 794787840
+				}
 			}
 		},
 		"onnx-community/pyannote-segmentation-3.0": {
@@ -51,6 +1078,71 @@
 				"onnx/model.onnx": {
 					"sha256": "057ee564753071c0b09b5b611648b50ac188d50846bff5f01e9f7bbf1591ea25",
 					"size": 5986908
+				}
+			},
+			"licence": {
+				"name": "mit",
+				"url": "https://huggingface.co/onnx-community/pyannote-segmentation-3.0",
+				"declared_by": "card",
+				"card": {
+					"license": "mit",
+					"url": "https://huggingface.co/onnx-community/pyannote-segmentation-3.0"
+				},
+				"upstream": {
+					"model": "pyannote/segmentation-3.0",
+					"license": "mit",
+					"url": "https://huggingface.co/pyannote/segmentation-3.0",
+					"named_by": "card"
+				}
+			}
+		},
+		"onnx-community/translategemma-text-4b-it-ONNX": {
+			"revision": "f7874a1ac60758872a4f78aac0df95b17b776994",
+			"pinned_at": "2026-11-22",
+			"reason": "initial pin of tool_lang's in-browser translator catalogue (owner 2026-11-22: v6 multi-model catalogue port; C54 16b condition) at the hub revision current at pin time",
+			"licence": {
+				"name": "gemma",
+				"url": "https://huggingface.co/google/translategemma-4b-it",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/translategemma-text-4b-it-ONNX"
+				},
+				"upstream": {
+					"model": "google/translategemma-4b-it",
+					"license": "gemma",
+					"url": "https://huggingface.co/google/translategemma-4b-it",
+					"named_by": "repo_name"
+				}
+			},
+			"files": {
+				"generation_config.json": {
+					"sha256": "0c3b39f63a158ad99851855d492a00c298fae927c4addd0b4e8e7256f4c014a8",
+					"size": 155
+				},
+				"tokenizer.json": {
+					"sha256": "55da1312bdf1d7d8fe8d9d1b3eed04086261149e6034e0ac3f8c633b67f5aac8",
+					"size": 20323013
+				},
+				"tokenizer_config.json": {
+					"sha256": "12dc84a6949bdbd5736568bf57fa2f9f321c47d9e16a481461f69a9262c75d24",
+					"size": 20771
+				},
+				"config.json": {
+					"sha256": "47c790c9167f1e47af7d643663b8eee844c29a8dfd89710b53aaa533d876d723",
+					"size": 2206
+				},
+				"onnx/model_q4.onnx": {
+					"sha256": "d462f3873811b7bfd2812cb5c1f458dceab0654ead760c638ec19a26693d1603",
+					"size": 456583
+				},
+				"onnx/model_q4.onnx_data": {
+					"sha256": "4d7d53fbfa170d0f7c1aa6f0137b0d19cd0a191815af1f0b38c6ff2b40359b60",
+					"size": 2097115648
+				},
+				"onnx/model_q4.onnx_data_1": {
+					"sha256": "be42fdf8a7b388bdd463836aceb36101f025d3c4f69f50eb909825cee7d824a0",
+					"size": 993976320
 				}
 			}
 		},
@@ -71,6 +1163,16 @@
 					"sha256": "3955447b0499dc9e0a4541a895df08b03c69098eba4e56c02b5603e9f7f4fcbb",
 					"size": 26535549
 				}
+			},
+			"licence": {
+				"name": "cc-by-4.0",
+				"url": "https://huggingface.co/onnx-community/wespeaker-voxceleb-resnet34-LM",
+				"declared_by": "card",
+				"card": {
+					"license": "cc-by-4.0",
+					"url": "https://huggingface.co/onnx-community/wespeaker-voxceleb-resnet34-LM"
+				},
+				"upstream": null
 			}
 		},
 		"onnx-community/whisper-base-ONNX": {
@@ -105,6 +1207,21 @@
 				"onnx/decoder_model_merged.onnx": {
 					"sha256": "77cba5a124b62dfbf49a343b522e15fba860675fda7983056e01fa914f038ea9",
 					"size": 208446495
+				}
+			},
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/openai/whisper-base",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/whisper-base-ONNX"
+				},
+				"upstream": {
+					"model": "openai/whisper-base",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/openai/whisper-base",
+					"named_by": "card"
 				}
 			}
 		},
@@ -141,6 +1258,21 @@
 					"sha256": "d33414bdd855ac19f45f3515e281b3fedbc648ab958c0c70bc2940b0bb52ca40",
 					"size": 609555323
 				}
+			},
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/openai/whisper-large-v3",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/whisper-large-v3-ONNX"
+				},
+				"upstream": {
+					"model": "openai/whisper-large-v3",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/openai/whisper-large-v3",
+					"named_by": "card"
+				}
 			}
 		},
 		"onnx-community/whisper-large-v3-turbo": {
@@ -175,6 +1307,21 @@
 				"onnx/decoder_model_merged_q4f16.onnx": {
 					"sha256": "45981cdd958a4c8e1447839850d2e6e27e30974ccbe31b4a1e5ebe9ad8965a5f",
 					"size": 193505017
+				}
+			},
+			"licence": {
+				"name": "mit",
+				"url": "https://huggingface.co/openai/whisper-large-v3-turbo",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/whisper-large-v3-turbo"
+				},
+				"upstream": {
+					"model": "openai/whisper-large-v3-turbo",
+					"license": "mit",
+					"url": "https://huggingface.co/openai/whisper-large-v3-turbo",
+					"named_by": "card"
 				}
 			}
 		},
@@ -211,12 +1358,68 @@
 					"sha256": "0d854c7a66b914ed05376ccdb8125f213ed68389710e2b0c21106a8491352acc",
 					"size": 336281436
 				}
+			},
+			"licence": {
+				"name": "apache-2.0",
+				"url": "https://huggingface.co/openai/whisper-medium",
+				"declared_by": "upstream",
+				"card": {
+					"license": null,
+					"url": "https://huggingface.co/onnx-community/whisper-medium-ONNX"
+				},
+				"upstream": {
+					"model": "openai/whisper-medium",
+					"license": "apache-2.0",
+					"url": "https://huggingface.co/openai/whisper-medium",
+					"named_by": "repo_name"
+				}
 			}
 		}
 	},
 	"unpinned": {
 		"onnx-community/parakeet-tdt-0.6b-v3-ONNX": {
 			"reason": "the hub has no repository at this id (revision API answered 404/401 on 2026-09-03); initial pin of every catalog model at the hub revision current at pin time (P1-25 / CARRY-06: fetch by immutable revision, verify by sha256)"
+		}
+	},
+	"expansions": {
+		"Xenova/opus-mt-{src}-{tgt}": {
+			"langs": [
+				"en",
+				"es",
+				"fr",
+				"it",
+				"pt",
+				"ca",
+				"de",
+				"ne",
+				"ar",
+				"el",
+				"eu"
+			],
+			"computed_at": "2026-11-22",
+			"reason": "tool_lang in-browser translator catalogue (owner 2026-11-22, v6 40bf5eaacf/23010156ad): opus-mt is one model per pair; the candidate languages are the ISO 639-1 codes the v6 translator emits (its NLLB_LANGS keys)",
+			"probed": 110,
+			"present": [
+				"Xenova/opus-mt-en-es",
+				"Xenova/opus-mt-en-fr",
+				"Xenova/opus-mt-en-it",
+				"Xenova/opus-mt-en-de",
+				"Xenova/opus-mt-en-ar",
+				"Xenova/opus-mt-es-en",
+				"Xenova/opus-mt-es-fr",
+				"Xenova/opus-mt-es-it",
+				"Xenova/opus-mt-es-de",
+				"Xenova/opus-mt-fr-en",
+				"Xenova/opus-mt-fr-es",
+				"Xenova/opus-mt-fr-de",
+				"Xenova/opus-mt-it-en",
+				"Xenova/opus-mt-it-es",
+				"Xenova/opus-mt-it-fr",
+				"Xenova/opus-mt-de-en",
+				"Xenova/opus-mt-de-es",
+				"Xenova/opus-mt-de-fr",
+				"Xenova/opus-mt-ar-en"
+			]
 		}
 	}
 }

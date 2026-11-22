@@ -57,7 +57,7 @@
 	import {ui} from '../../../core/common/js/ui.js'
 	import {clone, get_json_langs} from '../../../core/common/js/utils/index.js'
 	import Split from '../../../lib/split/dist/split.es.js'
-	import {append_engine_selector} from './translator_engine_select.js'
+	import {append_engine_selector, selected_browser_options} from './translator_engine_select.js'
 
 
 
@@ -690,17 +690,12 @@ const build_automatic_translation = (self, translator_engine, source_select_lang
 			const engine = translator_engine.find(el => el.name===translator_name)
 			if (engine && engine.type==='browser') {
 
-				// browser engine: run entirely client-side via Web Worker.
-				// device falls back to 'webgpu' (GPU-accelerated) unless the user
-				// has checked the compatibility checkbox which selects 'wasm' (CPU)
-				const device = self.translator_device_checkbox && self.translator_device_checkbox.checked
-					? 'wasm'
-					: 'webgpu'
-
+				// browser engine: run entirely client-side via Web Worker, with the device,
+				// model and quality the configuration panel holds (selected_browser_options)
 				self.automatic_translation_browser({
+					...selected_browser_options(self),
 					source_lang		: source_lang,
 					target_lang		: target_lang,
-					device			: device,
 					status_container: status_container
 				})
 				.then(()=>{

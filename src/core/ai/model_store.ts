@@ -62,7 +62,7 @@ import { staticAssetResponse } from '../api/static_asset.ts';
 import { DedaloError, toErrorEnvelope } from '../errors/index.ts';
 import { isQuarantinePath, quarantineFile, verifiedDigest } from './model_integrity.ts';
 import { expectedDigest, expectedSize, forgetFile, MANIFEST_FILE } from './model_manifest.ts';
-import { pinForPath } from './model_pins.ts';
+import { type PinTable, pinForPath, readPinTable } from './model_pins.ts';
 
 /** URL prefix the store is served at. */
 export const AI_MODEL_URL_PREFIX = '/dedalo/ai_models/';
@@ -123,8 +123,29 @@ const REQUIRED_CONFIG = 'config.json';
  * from guessed filenames. The catalog knows the kind (`register.json` carries
  * `kind: 'diarization'` on both speaker slots) — thread it, never infer it from
  * the model id.
+ *
+ * The two TEXT kinds (2026-11-22, tool_lang's in-browser translator catalogue)
+ * are the vendored transformers.js 4.2.0 session shapes the translator's tasks
+ * resolve to (`MODEL_SESSION_CONFIG` in /dedalo/lib/transformers):
+ *   - `decoder_only` — a causal LM run as `text-generation` (Qwen3, Gemma3):
+ *     ONE session, `onnx/model<suffix>.onnx`, usually with EXTERNAL-DATA chunks
+ *     beside it (`withExternalData`);
+ *   - `seq2seq` — an encoder-decoder run as `translation` / `text2text-generation`
+ *     (M2M100/NLLB, T5/MADLAD, Marian/opus-mt): `onnx/encoder_model<suffix>.onnx`
+ *     + `onnx/decoder_model_merged<suffix>.onnx`.
+ * The catalogue reader maps a task to its kind; `scripts/pin_ai_models.ts`
+ * cross-checks the resulting file set against the vendored runtime's own
+ * `ModelRegistry.get_model_files` on each model's REAL config before a pin is
+ * written, and `model_artifact_integrity_native` leg (k) holds the mirror.
  */
-export type ModelKind = 'asr' | 'diarization' | 'unknown';
+export type ModelKind = 'asr' | 'diarization' | 'decoder_only' | 'seq2seq' | 'unknown';
+
+/**
+ * A catalog's quantisation: one dtype for every session (tool_lang's catalogue,
+ * `"q4"`), or one per weight part (tool_transcription's, keyed by the ONNX base
+ * name: `{encoder_model: 'fp16', decoder_model_merged: 'q4f16'}`).
+ */
+export type ModelDtype = string | Record<string, string>;
 
 /**
  * The weight parts a kind has when the catalog declares no `dtype` — the fp32
@@ -133,6 +154,8 @@ export type ModelKind = 'asr' | 'diarization' | 'unknown';
 const DEFAULT_PARTS: Readonly<Record<ModelKind, Record<string, string>>> = {
 	asr: { encoder_model: 'fp32', decoder_model_merged: 'fp32' },
 	diarization: { model: 'fp32' },
+	decoder_only: { model: 'fp32' },
+	seq2seq: { encoder_model: 'fp32', decoder_model_merged: 'fp32' },
 	unknown: {},
 };
 
@@ -145,8 +168,21 @@ const DEFAULT_PARTS: Readonly<Record<ModelKind, Record<string, string>>> = {
 const WEIGHT_PREFIXES: Readonly<Record<ModelKind, readonly string[]>> = {
 	asr: ['encoder_model', 'decoder_model_merged'],
 	diarization: ['model'],
+	decoder_only: ['model'],
+	seq2seq: ['encoder_model', 'decoder_model_merged'],
 	unknown: [],
 };
+
+/**
+ * The per-part quantisation a dtype declares: a per-part record as it is, a
+ * single dtype applied to EVERY part of the kind (what transformers.js does with
+ * a string `dtype`), the fp32 placeholders when there is none.
+ */
+function dtypeParts(dtype: ModelDtype | undefined, kind: ModelKind): Record<string, string> {
+	if (dtype === undefined) return DEFAULT_PARTS[kind];
+	if (typeof dtype !== 'string') return dtype;
+	return Object.fromEntries(Object.keys(DEFAULT_PARTS[kind]).map((part) => [part, dtype]));
+}
 
 /**
  * The exact files one catalog entry needs in the store to be USABLE — its config
@@ -155,11 +191,15 @@ const WEIGHT_PREFIXES: Readonly<Record<ModelKind, readonly string[]>> = {
  * saying so here is what stops the browser failing later with "Could not locate
  * file" from inside the ONNX runtime.
  *
- * `kind` decides the placeholder names used when there is no `dtype`; with one,
- * the declaration itself names the parts and the kind changes nothing.
+ * `kind` decides the placeholder names used when there is no `dtype` (and the
+ * parts a single-string dtype applies to); with a per-part record, the
+ * declaration itself names the parts and the kind changes nothing.
+ *
+ * The weights' EXTERNAL-DATA chunks are not here — they are a fact of one model's
+ * config, not of its kind; `withExternalData` adds them.
  */
-export function modelFiles(dtype?: Record<string, string>, kind: ModelKind = 'asr'): string[] {
-	const parts = dtype ?? DEFAULT_PARTS[kind];
+export function modelFiles(dtype?: ModelDtype, kind: ModelKind = 'asr'): string[] {
+	const parts = dtypeParts(dtype, kind);
 	const files = [REQUIRED_CONFIG];
 	for (const [part, quant] of Object.entries(parts)) {
 		const suffix = DTYPE_SUFFIX[quant];
@@ -167,6 +207,122 @@ export function modelFiles(dtype?: Record<string, string>, kind: ModelKind = 'as
 		files.push(`onnx/${part}${suffix}.onnx`);
 	}
 	return files;
+}
+
+/**
+ * The external-data chunk NAMES transformers.js 4.2.0 requests beside one ONNX
+ * file (`getExternalDataChunkNames`): `<file>_data`, `<file>_data_1`, … — and
+ * how many, from a config's `transformers.js_config.use_external_data_format`
+ * as the LOADER resolves it (`getSession` → `resolveExternalDataFormat`: keyed
+ * by the full file name, else by the part's base name, else one bare
+ * number/boolean for every file). Pure: the pin procedure feeds it the hub
+ * config at the pinned revision; leg (k) of `model_artifact_integrity_native`
+ * holds it to the vendored runtime.
+ *
+ * (!) The loader, not `ModelRegistry.get_model_files`: in 4.2.0 the registry
+ * helper looks a per-part dtype / chunk count up by SESSION key (`model` for an
+ * encoder) while the loader that actually opens the sessions uses the BASE name
+ * (`encoder_model`). They agree for a single-string dtype and full-name chunk
+ * keys — every translator's case — and the loader wins where they do not.
+ */
+/** A per-file `use_external_data_format` map: the full name first, then the part's base name. */
+function keyedChunkCount(keyed: Record<string, unknown>, fullName: string, part: string): number {
+	if (Object.hasOwn(keyed, fullName)) return Number(keyed[fullName]);
+	return Object.hasOwn(keyed, part) ? Number(keyed[part]) : 0;
+}
+
+/** The chunk count one `use_external_data_format` value gives a weight (loader order). */
+function declaredChunkCount(format: unknown, fullName: string, part: string): number {
+	if (format !== null && typeof format === 'object') {
+		return keyedChunkCount(format as Record<string, unknown>, fullName, part);
+	}
+	return format === undefined || format === null || format === false ? 0 : Number(format);
+}
+
+export function externalDataChunkNames(config: unknown, fullName: string, part: string): string[] {
+	const format = (
+		config as { 'transformers.js_config'?: { use_external_data_format?: unknown } } | null
+	)?.['transformers.js_config']?.use_external_data_format;
+	const chunks = declaredChunkCount(format, fullName, part);
+	if (!Number.isInteger(chunks) || chunks < 0 || chunks > MAX_EXTERNAL_DATA_CHUNKS) {
+		throw new DedaloError('ai.model_integrity', {
+			message: `${fullName}: use_external_data_format ${String(chunks)} is not 0..${MAX_EXTERNAL_DATA_CHUNKS}`,
+		});
+	}
+	return Array.from({ length: chunks }, (_, index) =>
+		index === 0 ? `${fullName}_data` : `${fullName}_data_${index}`,
+	);
+}
+
+/**
+ * `modelFiles` with every weight's external-data chunks as ONE CONFIG declares
+ * them — the full weight set the runtime loads for that config. Used where the
+ * config is in hand (the pin procedure, the gate's runtime mirror); the store
+ * and the downloader read the same answer back from the pin (`withExternalData`).
+ */
+export function modelFilesForConfig(
+	dtype: ModelDtype | undefined,
+	kind: ModelKind,
+	config: unknown,
+): string[] {
+	const files = [REQUIRED_CONFIG];
+	for (const [part, quant] of Object.entries(dtypeParts(dtype, kind))) {
+		const suffix = DTYPE_SUFFIX[quant];
+		if (suffix === undefined) continue;
+		const fullName = `${part}${suffix}.onnx`;
+		files.push(`onnx/${fullName}`);
+		for (const chunk of externalDataChunkNames(config, fullName, part)) files.push(`onnx/${chunk}`);
+	}
+	return files;
+}
+
+/** transformers.js 4.2.0's own ceiling (`MAX_EXTERNAL_DATA_CHUNKS`). */
+const MAX_EXTERNAL_DATA_CHUNKS = 100;
+
+/** `<weight>.onnx_data` or `<weight>.onnx_data_<n>` — an external-data chunk name. */
+const EXTERNAL_DATA_RE = /\.onnx_data(?:_(\d+))?$/;
+
+/** The chunk index of an external-data name (`_data` = 0), or null when it is not one. */
+function chunkIndex(file: string): number | null {
+	const match = EXTERNAL_DATA_RE.exec(file);
+	if (match === null) return null;
+	return match[1] === undefined ? 0 : Number(match[1]);
+}
+
+/**
+ * A file list with each ONNX weight's EXTERNAL-DATA chunks added after it.
+ *
+ * Which chunks a weight HAS is its config's answer (`externalDataChunkNames`),
+ * read ONCE, at pin time, and recorded as the pin's files — so for a PINNED
+ * model the pin names them, and the verdict and the downloader need no config
+ * read (a request-path sync read the store does not make). An UNPINNED model (an
+ * operator's own rsync) has no such record; its chunks are the ones ON DISK,
+ * which evidences what is there (a truncated chunk still shows) but cannot see a
+ * chunk that was never copied — the same honest limit as `unknown`.
+ */
+export function withExternalData(
+	modelId: string,
+	files: readonly string[],
+	table: PinTable = readPinTable(),
+	root: string | null = null,
+): string[] {
+	const pinned = table.models[modelId];
+	const candidates =
+		pinned !== undefined
+			? Object.keys(pinned.files)
+			: root !== null
+				? (onnxDirEntries(root, modelId) ?? []).map((name) => `onnx/${name}`)
+				: [];
+	const out: string[] = [];
+	for (const file of files) {
+		out.push(file);
+		if (!file.endsWith('.onnx')) continue;
+		const chunks = candidates
+			.filter((name) => name.startsWith(file) && /^_data(?:_\d+)?$/.test(name.slice(file.length)))
+			.sort((a, b) => (chunkIndex(a) as number) - (chunkIndex(b) as number));
+		out.push(...chunks);
+	}
+	return out;
 }
 
 /**
@@ -181,7 +337,7 @@ export function modelFiles(dtype?: Record<string, string>, kind: ModelKind = 'as
  */
 export function modelInstalled(
 	modelId: string,
-	dtype?: Record<string, string>,
+	dtype?: ModelDtype,
 	kind: ModelKind = 'asr',
 ): boolean {
 	const root = modelStoreRoot();
@@ -194,7 +350,9 @@ export function modelInstalled(
 		}
 	};
 
-	if (dtype !== undefined) return modelFiles(dtype, kind).every(present);
+	if (dtype !== undefined) {
+		return withExternalData(modelId, modelFiles(dtype, kind), readPinTable(), root).every(present);
+	}
 
 	if (!present(REQUIRED_CONFIG)) return false;
 	const weights = onnxDirEntries(root, modelId);
@@ -365,7 +523,7 @@ export function fileEvidence(root: string, modelId: string, file: string): Model
 
 export function modelState(
 	modelId: string,
-	dtype?: Record<string, string>,
+	dtype?: ModelDtype,
 	kind: ModelKind = 'asr',
 ): ModelStateReport {
 	const root = modelStoreRoot();
@@ -383,12 +541,20 @@ export function modelState(
 	// demanding an encoder/decoder pair of it reported a healthy speaker model
 	// `incomplete` and aimed a repair at a shape it does not have.
 	const fallbackFound = dtype === undefined ? fallbackWeightsFiles(root, modelId, kind) : [];
-	const wanted =
+	// Each weight's external-data chunks ride with it (the pin names them; see
+	// withExternalData): a decoder-only translator whose `onnx/model_q4.onnx`
+	// is present but whose `…onnx_data_1` is not would otherwise read `ready`
+	// and fail inside the ONNX runtime.
+	const wanted = withExternalData(
+		modelId,
 		dtype !== undefined
 			? modelFiles(dtype, kind)
 			: fallbackFound.length > 0
 				? [REQUIRED_CONFIG, ...fallbackFound]
-				: modelFiles(undefined, kind);
+				: modelFiles(undefined, kind),
+		readPinTable(),
+		root,
+	);
 
 	// With an UNKNOWN kind and no dtype there are no placeholder names to fall
 	// back to (modelFiles yields the config alone), so a store holding weights we
@@ -707,8 +873,20 @@ export async function serveModelRequest(
  * byte lengths. Nothing needs it; nobody outside gets it.
  */
 function isServableFile(fullPath: string): boolean {
-	if (!SERVABLE_EXTENSIONS.has(extname(fullPath).toLowerCase())) return false;
+	if (!SERVABLE_EXTENSIONS.has(servableExtension(fullPath))) return false;
 	return basename(fullPath) !== MANIFEST_FILE;
+}
+
+/**
+ * The allowlist key of a name. An external-data chunk past the first is
+ * `model_q4.onnx_data_1` — `extname` calls that `.onnx_data_1`, which the
+ * allowlist never named, so every decoder-only translator (whose q4 weights
+ * span two or more chunks) 404'd on its second chunk. Every chunk is the one
+ * `.onnx_data` kind.
+ */
+function servableExtension(fullPath: string): string {
+	const extension = extname(fullPath).toLowerCase();
+	return /^\.onnx_data_\d+$/.test(extension) ? '.onnx_data' : extension;
 }
 
 /** 404 without leaking whether the target exists. */

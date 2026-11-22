@@ -294,6 +294,9 @@ tool_lang.prototype.build = async function(autoload=false) {
 * @param {string} options.source_lang - Dédalo lang tag for the source, e.g. 'lg-eng'
 * @param {string} options.target_lang - Dédalo lang tag for the target, e.g. 'lg-spa'
 * @param {string} [options.device='webgpu'] - ONNX runtime backend: 'webgpu' or 'wasm'
+* @param {string|null} [options.dtype] - quantisation override (TranslateGemma q4/q8)
+* @param {string|null} [options.engine] - selected model name (browser_models.js)
+* @param {Object|null} [options.model] - selected model definition from the tool config
 * @param {HTMLElement} options.status_container - Element used to stream status/progress messages
 * @returns {Promise<Object>} Resolves with the response from translate_component_browser
 */
@@ -313,6 +316,9 @@ tool_lang.prototype.automatic_translation_browser = async function(options) {
 			source_lang					: options.source_lang,
 			target_lang					: options.target_lang,
 			device						: options.device || 'webgpu',
+			dtype						: options.dtype || null,
+			engine						: options.engine || null,
+			model						: options.model || null,
 			status_container			: options.status_container,
 			streaming_overlay			: self.streaming_overlay,
 			streaming_overlay_content	: self.streaming_overlay_content,

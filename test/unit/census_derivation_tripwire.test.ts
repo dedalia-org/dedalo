@@ -309,8 +309,6 @@ const FLOORLESS_WALK_BASELINE: Readonly<Record<string, string>> = {
 	'test/unit/import_scc_tripwire.test.ts': 'DEBT: the src/ + tools/ import walk is never floored.',
 	'test/unit/info_widget_registry_tripwire.test.ts':
 		'DEBT: the two widget-directory walks are never floored (the 11 floor is on the registry).',
-	'test/unit/labels_tripwire.test.ts':
-		'DEBT: the catalog-directory listing is never floored (floors are on master.json keys and exemptions).',
 	'test/unit/local_db_stores_tripwire.test.ts':
 		'DEBT: the `readdirSync` store walk is never floored.',
 	'test/unit/log_section_policy_tripwire.test.ts':
@@ -437,7 +435,7 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 	'test/unit/install_table_write_tripwire.test.ts':
 		'ROOTS: `test` — every `*.test.ts` under test/, join(import.meta.dir, "..") — not test/unit alone.',
 	'test/unit/labels_tripwire.test.ts':
-		'ROOTS: `client/dedalo` `src` `tools`; `src/core/labels/catalog` — the catalog directory, and the three browser/engine trees.',
+		'ROOTS: `client/dedalo` `src` `tools`; `src/core/labels/catalog`; `tools` — the catalog directory, the three browser/engine trees, and tools/ again for every register.json label set.',
 	'test/unit/local_db_stores_tripwire.test.ts': 'ROOTS: `client` `tools`.',
 	'test/unit/log_section_policy_tripwire.test.ts': 'ROOTS: `src/core/resolve` `src/core/section`.',
 	'test/unit/maintenance_widget_get_value_tripwire.test.ts':

@@ -124,7 +124,7 @@
  *     `lossless`;
  *   - the translation leg drives the REAL `translate_component_browser` through the REAL
  *     worker protocol, but `markdown_utils.js` needs a DOM (`DOMParser`) that Bun has
- *     not, so its three functions are replaced by identity in this run. The leg is about
+ *     not, so its four main-thread functions are replaced by stand-ins in this run. The leg is about
  *     the save/refusal decision on `end`, not about markdown conversion;
  *   - the verdicts other than `confirmed`, `refuses` and the proved `lossless` ones are
  *     READ, not executed. The derivation is what makes forgetting an action impossible;
@@ -429,7 +429,8 @@ else {
 				contents:
 					'export const html_to_markdown = (html) => String(html);\n' +
 					'export const markdown_to_html = (markdown) => String(markdown);\n' +
-					'export const group_markdown_into_chunks = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean);\n',
+					"export const segment_markdown = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean).map((text) => ({ text, sep: '' }));\n" +
+					'export const marks_in_text_nodes = (html, extract) => extract(String(html)).map((item) => item.mark);\n',
 				loader: 'js',
 			}));
 		},
@@ -1801,6 +1802,11 @@ else {
 			sites: 1,
 			reason:
 				'the CI tier loads the suite MariaDB helper (test/helpers/suite_mariadb.ts, outside the matrix corpus) by a joined absolute path; it provisions MariaDB, never a matrix row.',
+		},
+		'scripts/pin_ai_models.ts': {
+			sites: 1,
+			reason:
+				'the pin script asks the VENDORED browser runtime (vendor/transformers/dist/transformers.js, by its joined absolute path) which files a model pin covers (ModelRegistry.get_model_files, offline); a third-party browser bundle, no matrix writer.',
 		},
 		'scripts/tool_viewport_check.ts': {
 			sites: 7,
