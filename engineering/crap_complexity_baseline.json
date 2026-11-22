@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 952,
-		"functions": 16888,
+		"functions": 16892,
 		"functionsOverCap": 642,
 		"filesOverCap": 254
 	},
@@ -495,9 +495,9 @@
 		"src/core/tools/translation.ts": 14,
 		"src/core/ts_object/node_repository.ts": 36,
 		"src/core/ts_object/search.ts": 8,
-		"src/core/ts_object/term_resolver.ts": 11,
+		"src/core/ts_object/term_resolver.ts": 10,
 		"src/core/ts_object/ts_api.ts": 12,
-		"src/core/ts_object/ts_object.ts": 22,
+		"src/core/ts_object/ts_object.ts": 19,
 		"src/core/update/code_download.ts": 7,
 		"src/core/update/transform/definitions.ts": 9,
 		"src/core/update/transform/lang.ts": 16,

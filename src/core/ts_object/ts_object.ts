@@ -1061,6 +1061,45 @@ async function targetTiposShown(locator: TermLocator, tipos: string[]): Promise<
 	return termTiposShown(sectionTipo, target, tipos);
 }
 
+/**
+ * One ESCAPED piece of the tree's `term` element (resolveElementValue).
+ * A literal part follows THE string-fragment law (term_resolver.ts — every item
+ * of the lang, then requested → hierarchy main → lg-nolan → project langs); its
+ * `untranslated` flag is the ONE source of the `<mark>` decoration, applied
+ * after escaping (THES-02, WC-2026-11-22-term-fallback-chain). Any other family
+ * shows its first item, escaped.
+ */
+async function termElementPiece(
+	sectionTipo: string,
+	elementTipo: string,
+	model: string,
+	componentData: unknown[] | string,
+	record: MatrixRecord | null,
+): Promise<string> {
+	if (getFlatValueFamily(model) === 'string') {
+		const part = await stringTermFragment(
+			sectionTipo,
+			elementTipo,
+			readItemsFromRecord(record, elementTipo, model),
+			currentDataLang(),
+		);
+		const escaped = escapeHtml(part.text);
+		return part.untranslated && escaped !== '' ? `<mark>${escaped}</mark>` : escaped;
+	}
+	return escapeHtml(firstItemText(componentData));
+}
+
+/** A non-literal term part: its first item's value (or the item itself), as text. */
+function firstItemText(componentData: unknown[] | string): string {
+	if (componentData.length === 0) return '';
+	const first = componentData[0] as { value?: unknown } | string | undefined;
+	return toStr(
+		first !== null && typeof first === 'object'
+			? ((first as { value?: unknown }).value ?? '')
+			: (first ?? ''),
+	);
+}
+
 /** PHP resolve_element_value (:1504): dispatch by element type; false = skip. */
 async function resolveElementValue(
 	current: DdoMapEntry,
@@ -1083,32 +1122,13 @@ async function resolveElementValue(
 			// before the composite join — a term may not carry markup (owner
 			// ruling 2026-11-11, WC-2026-11-12-tree-term-escaped). Caches above
 			// hold raw text; the accumulated elementObj.value is already escaped.
-			let elementValue: string;
-			if (getFlatValueFamily(model) === 'string') {
-				// A literal part: THE string-fragment law (term_resolver.ts — every
-				// item of the lang, then requested → hierarchy main → lg-nolan →
-				// project langs); its `untranslated` flag is the ONE source of the
-				// `<mark>` decoration, applied after escaping (THES-02).
-				const part = await stringTermFragment(
-					sectionTipo,
-					elementTipo,
-					readItemsFromRecord(record, elementTipo, model),
-					currentDataLang(),
-				);
-				const escaped = escapeHtml(part.text);
-				elementValue = part.untranslated && escaped !== '' ? `<mark>${escaped}</mark>` : escaped;
-			} else if (componentData.length === 0) {
-				elementValue = '';
-			} else {
-				const first = componentData[0] as { value?: unknown } | string | undefined;
-				elementValue = escapeHtml(
-					toStr(
-						first !== null && typeof first === 'object'
-							? ((first as { value?: unknown }).value ?? '')
-							: (first ?? ''),
-					),
-				);
-			}
+			const elementValue = await termElementPiece(
+				sectionTipo,
+				elementTipo,
+				model,
+				componentData,
+				record,
+			);
 			elementObj.value =
 				elementObj.value !== undefined
 					? `${toStr(elementObj.value)} ${elementValue}`
