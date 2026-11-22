@@ -227,6 +227,20 @@ export const ROW_CONTRACT: ReadonlyMap<string, RowContract> = new Map<string, Ro
 			none: 'check_config (get_value and the eager catalog value) runs the published-language coherence AUDIT: it discovers tables and counts their langs in each declared target database, read only — measured 0/0/0',
 		},
 	],
+	// Measured 2026-11-22 (CI domain `test`): acquirers since their door reads reach the
+	// diffusion targets' pools; both only READ.
+	[
+		'test/unit/area_read_default_lang_native.test.ts',
+		{
+			none: 'The maintenance-area read builds the diffusion_server_control widget, whose server info reads each declared target database (status, tables) — read only, measured 0/0/0',
+		},
+	],
+	[
+		'test/unit/maintenance_access_agreement_native.test.ts',
+		{
+			none: 'Its door legs reach dd_diffusion_api (lang_sweep) and the maintenance-area widgets, which read each declared target database to report — no leg writes, measured 0/0/0',
+		},
+	],
 ]);
 
 /**
