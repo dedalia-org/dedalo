@@ -234,6 +234,13 @@ const CENSUS: Readonly<Record<string, Readonly<Record<string, CensusRow>>>> = {
 			reason:
 				'hierarchy provisioning mints the descriptor rows 1 and 2 of the new TLD’s ontology node section, DERIVED as `${tld2}0` from the TLD being provisioned — a structural record, gated where provisioning is invoked (tool_hierarchy permission:section).',
 		},
+		'src/core/tools/tool_config_move.ts#createToolConfigRecord': {
+			verdict: 'system',
+			binding: 'module-constant',
+			sectionArgs: ['TOOLS_CONFIG_SECTION_TIPO'],
+			reason:
+				'the v6→v7 config migration’s TOOL_CONFIG move (owner ruling 2026-11-22, R3) mints a Tools-configuration record (TOOLS_CONFIG_SECTION_TIPO, dd996, the imported ontology_map constant) when no record names the tool — the section is fixed by code, never named by a payload. Its one caller is scripts/migrate_v6_config.ts --execute, as root (-1, as every CLI migration runs): no request, no principal to judge. Gate: test/unit/diffusion_excluded_elements_native.test.ts (the created outcome).',
+		},
 		'src/core/security/ai_spend.ts#lockDay': {
 			verdict: 'system',
 			binding: 'derived',
