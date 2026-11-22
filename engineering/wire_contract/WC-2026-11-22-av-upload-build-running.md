@@ -148,4 +148,28 @@
   `aria-describedby` (visually-hidden text) besides its title. Gates:
   `test/unit/activity_aggregate_native.test.ts` (lang projection), client suite
   `test_tool_media_versions` (+3).
-
+- **Addendum 2026-11-22 (second review F1/F2/F6, the lock's own failure modes):**
+  (F1) only ENOENT (absent) and an empty/malformed parse count as "no owner":
+  any other read or stat error of a lock or heartbeat is BUSY — the acquire
+  refuses (`media.build_running` at the doors, as for any held component) and
+  logs `cannot be read (<errno>) — treated as BUSY, never reclaimed`; an
+  unreadable live lock is never reclaimed. The holder's own-lock check retries a
+  read error (3 reads) and then throws `media.operation_failed` (the job or the
+  publication step refuses) — it never reports the hold LOST because a read
+  failed; the heartbeat logs and beats again next tick. (F2) the CAS that
+  releases, reclaims or clears a mutex never vacates the path to check it: it
+  hard-links the path to a private peek name and reads the peek; an unexpected
+  lock is left in place; an expected one is renamed aside and dropped only when
+  the aside is the peek's inode (else put back) — a third instance can no longer
+  take a lock the check emptied. (F6) a successful acquire sweeps the lock's
+  ORPHANED siblings (`<lock>.*` — dead tokens' heartbeats, staged `.new`, temp,
+  peek/aside names, a mutex without its lock) once that reader has seen each
+  unchanged for the bound. HOST_ID on macOS gains `kern.bootsessionuuid`
+  (`sysctl -n`, read once at load). No wire shape changes. Gate:
+  `test/unit/media_component_lock_native.test.ts` (28 → 36): unreadable live
+  lock with a beating heartbeat never reclaimed; unreadable lock logged busy;
+  unstat-able malformed lock never 'gone'; transient own-read retried;
+  persistent own-read typed + heartbeat beats; three parties (stale release vs
+  a third acquirer); replacement between check and rename put back; orphan
+  sweep (+ changing sibling kept, neighbour untouched, observations forgotten);
+  HOST_ID boot part.

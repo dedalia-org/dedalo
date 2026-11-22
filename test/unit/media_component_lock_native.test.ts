@@ -36,7 +36,8 @@
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -46,12 +47,15 @@ import { persistTranscodedOrReport } from '../../src/core/media/av_versions.ts';
 import {
 	acquireComponentLock,
 	type ComponentLockContext,
+	componentLockBusy,
 	componentLockFileName,
 	componentLockHolder,
+	componentLockIsOurs,
 	HOST_ID,
 	heartbeatPath,
 	refreshComponentLock,
 	releaseComponentLock,
+	staleReason,
 } from '../../src/core/media/component_lock.ts';
 import { assertJobHold } from '../../src/core/media/job_scope.ts';
 import { type JobTarget, MediaJobManager } from '../../src/core/media/jobs.ts';
@@ -174,6 +178,12 @@ function plant(sectionId: number, owner: Record<string, unknown>, beat?: number)
 	}
 	return token;
 }
+
+/** The names in the locks dir that are siblings of section `sectionId`'s lock. */
+const siblingsOf = (sectionId: number): string[] => {
+	const base = componentLockFileName(keyOf(sectionId));
+	return readdirSync(LOCKS).filter((name) => name.startsWith(`${base}.`));
+};
 
 /** Remove a planted lock and its heartbeat. */
 function unplant(sectionId: number, token = 'planted-token'): void {
@@ -438,26 +448,68 @@ describe('compare-and-swap (M2, L1)', () => {
 		unplant(37);
 	});
 
-	test("a release racing a steal leaves the new owner's lock alone", () => {
-		const ctx = context(() => 0);
-		const a = mustGet(acquireComponentLock(keyOf(31), 'claim_a', ctx), 'A');
-		let b: ReturnType<typeof acquireComponentLock> = null;
+	test('THREE PARTIES: a stale release never empties the path — a third acquirer finds it held (F2)', () => {
+		// A acquired, then lost its lock (reclaimed: B holds it now). A releases,
+		// unaware; in A's CAS window C tries to acquire. The check must never have
+		// vacated the path: C is refused and B still holds ITS lock on disk.
+		const a = mustGet(
+			acquireComponentLock(
+				keyOf(31),
+				'claim_a',
+				context(() => 0),
+			),
+			'A',
+		);
+		rmSync(lockPath(31));
+		const b = mustGet(
+			acquireComponentLock(
+				keyOf(31),
+				'claim_b',
+				context(() => 0),
+			),
+			'B',
+		);
+		let c: ReturnType<typeof acquireComponentLock> = null;
 		releaseComponentLock(a, {
-			// A's lock is aside; B creates a fresh one at the vacant path.
 			between: () => {
-				b = acquireComponentLock(
+				c = acquireComponentLock(
 					keyOf(31),
-					'claim_b',
+					'claim_c',
 					context(() => 0),
 				);
 			},
 		});
-		const bHandle = mustGet(b as ReturnType<typeof acquireComponentLock>, 'B');
-		expect(lockOwner(31).token).toBe(bHandle.token);
-		expect(existsSync(heartbeatPath(lockPath(31), bHandle.token))).toBe(true);
+		expect(c).toBeNull();
+		expect(componentLockIsOurs(b)).toBe(true);
+		expect(existsSync(heartbeatPath(lockPath(31), b.token))).toBe(true);
 		expect(existsSync(heartbeatPath(lockPath(31), a.token))).toBe(false);
-		releaseComponentLock(bHandle);
+		expect(siblingsOf(31).filter((name) => name.includes('-peek'))).toEqual([]);
+		releaseComponentLock(b);
 		expect(existsSync(lockPath(31))).toBe(false);
+	});
+
+	test('a lock replaced AFTER the CAS check and before the rename is put back (inode CAS, F2)', () => {
+		const a = mustGet(
+			acquireComponentLock(
+				keyOf(38),
+				'claim_a',
+				context(() => 0),
+			),
+			'A',
+		);
+		quietErrors(() =>
+			releaseComponentLock(a, {
+				beforeRename: () => {
+					// The peek said "ours"; right then the path is reclaimed by another.
+					rmSync(lockPath(38));
+					plant(38, { ...FAR, token: 'thief' }, 0);
+				},
+			}),
+		);
+		expect(lockOwner(38).token).toBe('thief');
+		expect(beatOf(38, 'thief')).toBe(0);
+		expect(siblingsOf(38).filter((name) => !name.includes('thief'))).toEqual([]);
+		unplant(38, 'thief');
 	});
 
 	test("a release of a lock reclaimed from us puts the new owner's lock back", () => {
@@ -513,6 +565,181 @@ describe('compare-and-swap (M2, L1)', () => {
 		expect(error).toBeInstanceOf(DedaloError);
 		expect(error.code).toBe('media.operation_failed');
 		rmSync(notADir);
+	});
+});
+
+describe('what cannot be read is busy (F1)', () => {
+	const context = (now: () => number): ComponentLockContext => ({
+		dir: LOCKS,
+		instance: 'inst-x',
+		staleAfterMs: BOUND,
+		observations: new Map(),
+		now,
+	});
+
+	test('an UNREADABLE live lock with a beating heartbeat is never reclaimed', () => {
+		plant(50, { ...FAR, token: 'far-live' }, 0);
+		chmodSync(lockPath(50), 0o200); // EACCES for this reader, as for a foreign uid
+		const time = clock();
+		const ctx = context(time.now);
+		try {
+			let beat = 0;
+			for (const step of [0, BOUND / 2, BOUND + 1, 3 * BOUND]) {
+				time.advance(step);
+				writeFileSync(
+					heartbeatPath(lockPath(50), 'far-live'),
+					JSON.stringify({ beat: ++beat, holder: 'x' }),
+				);
+				expect(quietErrors(() => acquireComponentLock(keyOf(50), 'claim_x', ctx))).toBeNull();
+				expect(quietErrors(() => componentLockBusy(keyOf(50), ctx))).toBe(true);
+			}
+		} finally {
+			chmodSync(lockPath(50), 0o640);
+		}
+		expect(lockOwner(50).token).toBe('far-live');
+		unplant(50, 'far-live');
+	});
+
+	test('an unreadable lock is logged as BUSY, never judged stale, even with no heartbeat at all', () => {
+		plant(51, { ...FAR, token: 'far-mute' });
+		chmodSync(lockPath(51), 0o200);
+		const time = clock();
+		const ctx = context(time.now);
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			expect(acquireComponentLock(keyOf(51), 'claim_x', ctx)).toBeNull();
+			time.advance(10 * BOUND);
+			expect(acquireComponentLock(keyOf(51), 'claim_x', ctx)).toBeNull();
+			expect(errors.mock.calls.flat().join(' ')).toContain('treated as BUSY, never reclaimed');
+		} finally {
+			errors.mockRestore();
+			chmodSync(lockPath(51), 0o640);
+		}
+		expect(lockOwner(51).token).toBe('far-mute');
+		unplant(51, 'far-mute');
+	});
+
+	test("a TRANSIENT read error of the holder's own lock is retried, not a loss", () => {
+		const a = mustGet(
+			acquireComponentLock(
+				keyOf(52),
+				'claim_a',
+				context(() => 0),
+			),
+			'A',
+		);
+		const read = spyOn(fs, 'readFileSync').mockImplementationOnce(() => {
+			throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+		});
+		try {
+			expect(componentLockIsOurs(a)).toBe(true);
+		} finally {
+			read.mockRestore();
+		}
+		releaseComponentLock(a);
+	});
+
+	test("a PERSISTENT read error of the holder's own lock is loud (typed), never 'lost'; the heartbeat keeps beating", () => {
+		const a = mustGet(
+			acquireComponentLock(
+				keyOf(53),
+				'claim_a',
+				context(() => 0),
+			),
+			'A',
+		);
+		chmodSync(lockPath(53), 0o200);
+		try {
+			const error = refusalOfSync(() => componentLockIsOurs(a));
+			expect(error).toBeInstanceOf(DedaloError);
+			expect(error.code).toBe('media.operation_failed');
+			expect(quietErrors(() => refreshComponentLock(a))).toBe(true);
+			expect(beatOf(53, a.token)).toBe(1);
+		} finally {
+			chmodSync(lockPath(53), 0o640);
+		}
+		expect(componentLockIsOurs(a)).toBe(true);
+		releaseComponentLock(a);
+	});
+});
+
+describe('what cannot be stat-ed is not gone (F1)', () => {
+	test("a malformed lock whose stat fails (EIO) is never judged 'gone' — the error is loud", () => {
+		writeFileSync(lockPath(56), '');
+		const ctx: ComponentLockContext = {
+			dir: LOCKS,
+			instance: 'inst-x',
+			staleAfterMs: BOUND,
+			observations: new Map(),
+			now: () => 0,
+		};
+		const stat = spyOn(fs, 'statSync').mockImplementation(() => {
+			throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+		});
+		try {
+			expect(() => staleReason(null, lockPath(56), ctx)).toThrow('EIO');
+		} finally {
+			stat.mockRestore();
+		}
+		rmSync(lockPath(56));
+	});
+});
+
+describe('orphans are swept (F6)', () => {
+	test("a held lock's crashed siblings go once SEEN unchanged for the bound; a changing one stays", () => {
+		const time = clock();
+		const ctx: ComponentLockContext = {
+			dir: LOCKS,
+			instance: 'inst-x',
+			staleAfterMs: BOUND,
+			observations: new Map(),
+			now: time.now,
+		};
+		const path = lockPath(54);
+		const orphans = [
+			heartbeatPath(path, 'crashed-token'),
+			`${path}.crashed-token.new`,
+			`${heartbeatPath(path, 'crashed-token')}.tmp.123.abc`,
+			`${path}.reclaim`, // a mutex left without its lock
+			`${path}.release-peek.99.uuid`,
+			`${path}.reclaim.99.uuid`,
+		];
+		const changing = `${path}.other-token.hb`;
+		const neighbour = `${lockPath(55)}.crashed-token.new`; // another lock's file
+		const vanishing = `${path}.gone-token.hb`; // removed by someone else between sightings
+		for (const file of [...orphans, changing, neighbour, vanishing]) writeFileSync(file, 'x');
+		const first = mustGet(acquireComponentLock(keyOf(54), 'claim_a', ctx), 'first');
+		for (const file of orphans) expect(existsSync(file)).toBe(true); // first sighting only
+		releaseComponentLock(first);
+		time.advance(BOUND + 1);
+		writeFileSync(changing, 'changed meanwhile');
+		rmSync(vanishing);
+		const second = quietErrors(() =>
+			mustGet(acquireComponentLock(keyOf(54), 'claim_b', ctx), 'second'),
+		);
+		for (const file of orphans) expect(existsSync(file)).toBe(false);
+		expect(existsSync(changing)).toBe(true);
+		expect(existsSync(neighbour)).toBe(true);
+		expect(existsSync(heartbeatPath(path, second.token))).toBe(true);
+		expect(componentLockIsOurs(second)).toBe(true);
+		// The reader forgets what it no longer sees (no unbounded observation map).
+		const watched = [...ctx.observations.keys()].filter((key) => key.startsWith('orphan:'));
+		expect(watched.sort()).toEqual(
+			[`orphan:${changing}`, `orphan:${heartbeatPath(path, second.token)}`].sort(),
+		);
+		releaseComponentLock(second);
+		rmSync(changing);
+		rmSync(neighbour);
+	});
+});
+
+describe('host identity', () => {
+	test('HOST_ID carries a per-boot part on the platforms that have one (Linux boot_id, macOS kern.bootsessionuuid)', () => {
+		const [host, boot] = HOST_ID.split('#');
+		expect(host).toBe(hostname());
+		if (process.platform === 'linux' || process.platform === 'darwin') {
+			expect(boot?.length ?? 0).toBeGreaterThan(8);
+		}
 	});
 });
 

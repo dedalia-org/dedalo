@@ -1528,17 +1528,44 @@ Each hold is two files: the immutable `<key>.lock` (host + boot/pid-namespace
 id, pid, instance, token, start — published with an atomic `link()`) and the
 holder's own heartbeat `<key>.lock.<token>.hb` (a beat counter and the current
 holder id, re-labelled to the job when a job adopts an upload's claim), beaten
-every 15 s. Every release or reclaim is compare-and-swap (rename aside, verify
-the token, then unlink — or put back), so no instance ever deletes a lock that
-is not the one it judged. A lock is reclaimed — and logged
+every 15 s. Every release or reclaim is compare-and-swap that never empties the
+path to check it: whatever stands there is hard-linked to a private name and
+THAT is read; only the expected lock is then renamed aside, and dropped only
+when it is the very inode that was checked (otherwise put back). So no instance
+ever deletes a lock that is not the one it judged, and no third instance can
+slip a lock into a path a check vacated. A lock is reclaimed — and logged
 `[media lock] reclaimed …` — when its holder is on the SAME machine (hostname +
-boot id + pid namespace on Linux) and its pid is dead, or is this very process
-but held by no manager in it; otherwise when this instance has SEEN its
-heartbeat stay unchanged for 120 s of its OWN clock. No timestamp written by
-another host is compared with this host's clock, so clock skew cannot make a
-live lock stale; a dead holder on another host costs at most one bound of
-waiting. A crash leaves nothing to clean by hand: the next acquire reclaims it,
-and a shutdown releases the locks of every held job and claim.
+boot id + pid namespace on Linux; hostname + `kern.bootsessionuuid` on macOS)
+and its pid is dead, or is this very process but held by no manager in it;
+otherwise when this instance has SEEN its heartbeat stay unchanged for 120 s of
+its OWN clock. No timestamp written by another host is compared with this
+host's clock, so clock skew cannot make a live lock stale; a dead holder on
+another host costs at most one bound of waiting. The flip side, stated: a holder
+on another host that is alive but HUNG (heartbeat frozen) past 120 s is
+reclaimed too.
+
+**What this instance cannot read is busy.** A lock or heartbeat it cannot read
+(EACCES from a foreign uid or group, EIO/ESTALE from a sick mount, EMFILE) is
+never judged stale — the component answers busy, and every attempt logs
+`[media lock] … cannot be read (<errno>) — treated as BUSY, never reclaimed`.
+Such a lock waits for an operator: fix the permissions (every instance must run
+with a uid/group that can read and write the shared dir) or the mount, or
+remove the file by hand once its holder is known dead. A holder that cannot
+read its OWN lock retries, logs, keeps beating, and refuses to publish
+(`media.operation_failed`) rather than concluding the hold was lost.
+
+**Crash residue cleans itself — on the next attempts, not by a timer.** A dead
+holder's lock is reclaimed by an acquire once the rule above says so: on the
+same machine by the first attempt; from another machine only by an attempt made
+at least 120 s after that instance FIRST saw the heartbeat (a first sighting is
+never stale — so the first refused upload starts the count and a retry after
+two minutes succeeds). Nothing reclaims a lock nobody asks for. The files a crash leaves BESIDE a lock (a heartbeat of
+a dead token, a staged `.new`, a heartbeat temp file, a CAS peek or aside name,
+a `.reclaim` mutex without its lock) are swept by the next successful acquire of
+that component once that instance has seen them unchanged for 120 s. A
+component nobody acquires again keeps its residue until someone does; the
+files are a few hundred bytes each. A shutdown releases the locks of every held
+job and claim.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and

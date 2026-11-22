@@ -21,7 +21,9 @@ again. Other fields of the same record are not affected. See [Upload](./using/to
 The rule holds across server instances: when several instances serve the same installation, they
 must share one media processes directory (`DEDALO_MEDIA_PROCESSES_DIR`), where the per-field build
 locks live; on a network share, mount it so that a server that stops answering cannot freeze the
-instances. See [the configuration reference](./administration/configuration/config.md).
+instances. A lock an instance cannot read (wrong permissions, a failing share) counts as busy and is
+never taken over — the log names the file and the error, so every instance must run as a user that
+can read and write that directory. See [the configuration reference](./administration/configuration/config.md).
 
 The other Media versions actions that rewrite an audio/video field's files — *Conform headers*,
 deleting a quality or a version, *Regenerate*, rebuilding the thumbnail — and creating or
