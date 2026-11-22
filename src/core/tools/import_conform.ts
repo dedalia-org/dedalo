@@ -1167,13 +1167,57 @@ function refusedIriItem(error: string): ConformedIriItem {
 	return { item: null, label: null, error };
 }
 
+/** One whitelisted field read: its conformed value (undefined = absent) or why it was refused. */
+type IriFieldOutcome = { value: unknown } | { error: string };
+
+/** `iri`, when present: a string with an http(s) protocol, TRIMMED. */
+function iriFieldOf(raw: unknown, value: string): IriFieldOutcome {
+	if (raw === undefined) return { value: undefined };
+	if (typeof raw !== 'string') {
+		return { error: `IGNORED: malformed data, iri must be a string ${asText(value)}` };
+	}
+	const iri = raw.trim();
+	return hasProtocol(iri) ? { value: iri } : { error: `IGNORED: malformed data ${asText(value)}` };
+}
+
+function isPositiveSafeInteger(raw: unknown): raw is number {
+	return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 1;
+}
+
+/** `id`, when present (null = absent): a positive integer — the item id a frame pairs with. */
+function idFieldOf(raw: unknown, value: string): IriFieldOutcome {
+	if (raw === undefined || raw === null) return { value: undefined };
+	return isPositiveSafeInteger(raw)
+		? { value: raw }
+		: { error: `IGNORED: malformed data, iri item id must be a positive integer ${asText(value)}` };
+}
+
+/** A text field (`title`, `lang`), when present (null = absent): a string. */
+function textFieldOf(key: string): (raw: unknown, value: string) => IriFieldOutcome {
+	return (raw, value) => {
+		if (raw === undefined || raw === null) return { value: undefined };
+		return typeof raw === 'string'
+			? { value: raw }
+			: { error: `IGNORED: malformed data, iri item ${key} must be a string ${asText(value)}` };
+	};
+}
+
+/** The stored fields of an iri item and the rule each is conformed by (`label_id` is split apart). */
+const IRI_FIELD_RULES: readonly (readonly [
+	string,
+	(raw: unknown, value: string) => IriFieldOutcome,
+])[] = [
+	['iri', iriFieldOf],
+	['id', idFieldOf],
+	['title', textFieldOf('title')],
+	['lang', textFieldOf('lang')],
+];
+
 /**
  * THE conformer of one json object iri item, flat and lang-keyed alike
- * (T2-IMP-2): unknown key refused naming it; `iri`, when present, a string with
- * an http(s) protocol, TRIMMED; `id` a positive integer; `title` / `lang`
- * strings (a null one is absent); an item with neither an iri nor a title is
- * refused (`{}` never stores `[{}]`); `label_id` split off as the label target —
- * a dd1706 record id, else refused.
+ * (T2-IMP-2): an unknown key refused naming it; each stored field by its rule
+ * (IRI_FIELD_RULES); then the `label_id` split (withJsonLabel), which also
+ * refuses an item with neither an iri nor a title (`{}` never stores `[{}]`).
  */
 function conformIriObject(raw: Record<string, unknown>, value: string): ConformedIriItem {
 	const unknownKey = Object.keys(raw).find((key) => !IRI_ITEM_KEYS.has(key));
@@ -1181,56 +1225,43 @@ function conformIriObject(raw: Record<string, unknown>, value: string): Conforme
 		return refusedIriItem(`IGNORED: unknown key "${unknownKey}" in an iri item ${asText(value)}`);
 	}
 	const item: Record<string, unknown> = {};
-	if (raw.iri !== undefined) {
-		if (typeof raw.iri !== 'string') {
-			return refusedIriItem(`IGNORED: malformed data, iri must be a string ${asText(value)}`);
-		}
-		const iri = raw.iri.trim();
-		if (!hasProtocol(iri)) return refusedIriItem(`IGNORED: malformed data ${asText(value)}`);
-		item.iri = iri;
-	}
-	if (raw.id !== undefined && raw.id !== null) {
-		if (typeof raw.id !== 'number' || !Number.isSafeInteger(raw.id) || raw.id < 1) {
-			return refusedIriItem(
-				`IGNORED: malformed data, iri item id must be a positive integer ${asText(value)}`,
-			);
-		}
-		item.id = raw.id;
-	}
-	for (const key of ['title', 'lang'] as const) {
-		const field = raw[key];
-		if (field === undefined || field === null) continue;
-		if (typeof field !== 'string') {
-			return refusedIriItem(
-				`IGNORED: malformed data, iri item ${key} must be a string ${asText(value)}`,
-			);
-		}
-		item[key] = field;
+	for (const [key, rule] of IRI_FIELD_RULES) {
+		const outcome = rule(raw[key], value);
+		if ('error' in outcome) return refusedIriItem(outcome.error);
+		if (outcome.value !== undefined) item[key] = outcome.value;
 	}
 	return withJsonLabel(item, raw.label_id, value);
 }
 
+/** An item with neither an iri nor a (deprecated) title: nothing to store, nothing to label. */
+function hasNothingToLabel(item: Record<string, unknown>): boolean {
+	return isBlankIriField(item.iri) && isBlankIriField(item.title);
+}
+
+/** An item that names no label: kept, unless it is empty. */
+function unlabelledIriItem(item: Record<string, unknown>, value: string): ConformedIriItem {
+	return hasNothingToLabel(item)
+		? refusedIriItem(`IGNORED: an iri item needs an iri or a title ${asText(value)}`)
+		: { item, label: null, error: null };
+}
+
 /**
  * The item's `label_id` as its label target (T0-12). A `label_id` that is not a
- * dd1706 record id is refused; so is an item with neither an iri nor a title —
- * with a label it is "a label needs an iri", without one an empty item.
+ * dd1706 record id is refused; so is a label on an item with neither an iri nor
+ * a title ("a label needs an iri").
  */
 function withJsonLabel(
 	item: Record<string, unknown>,
 	labelId: unknown,
 	value: string,
 ): ConformedIriItem {
-	const labelled = !isAbsentLabelId(labelId);
-	const sectionId = labelled ? labelRecordId(labelId) : null;
-	if (labelled && sectionId === null) {
+	if (isAbsentLabelId(labelId)) return unlabelledIriItem(item, value);
+	const sectionId = labelRecordId(labelId);
+	if (sectionId === null) {
 		return refusedIriItem(`IGNORED: label_id ${asText(labelId)} is not a label record id (dd1706)`);
 	}
-	if (isBlankIriField(item.iri) && isBlankIriField(item.title)) {
-		return refusedIriItem(
-			labelled ? LABEL_NEEDS_IRI : `IGNORED: an iri item needs an iri or a title ${asText(value)}`,
-		);
-	}
-	return { item, label: sectionId === null ? null : { section_id: sectionId }, error: null };
+	if (hasNothingToLabel(item)) return refusedIriItem(LABEL_NEEDS_IRI);
+	return { item, label: { section_id: sectionId }, error: null };
 }
 
 /** A `label_id` key that names no label at all (missing, null or empty). */
