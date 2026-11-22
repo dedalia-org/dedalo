@@ -4,7 +4,7 @@
  * scope; a language is configuration, never a literal."
  *
  * ONE tripwire, two rules, ZERO allowlist in this file. Scans every `.ts`
- * under src/ and tools/ (comments stripped, line numbers kept):
+ * under src/, tools/ and scripts/ (the shared write-path lister; comments stripped, line numbers kept):
  *
  *   RULE 1 — no install-language read outside `src/config/` and the
  *   request-lang module (`src/core/resolve/request_lang.ts`, whose accessors
@@ -49,9 +49,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { Glob } from 'bun';
-
-const REPO = join(import.meta.dir, '..', '..');
+import { REPO_ROOT, writePathSourceFiles } from '../helpers/write_path_corpus.ts';
 
 /** The request-lang module: its accessors' fallback IS the install default. */
 const REQUEST_LANG_MODULE = 'src/core/resolve/request_lang.ts';
@@ -222,16 +220,14 @@ const covers = (marker: Marker, offender: Offender): boolean =>
 	(offender.line === marker.line || offender.line === marker.line + 1);
 
 function corpus(): { file: string; source: string }[] {
-	const files: { file: string; source: string }[] = [];
-	for (const root of ['src', 'tools']) {
-		for (const rel of new Glob('**/*.ts').scanSync(join(REPO, root))) {
-			const file = `${root}/${rel}`;
+	// The shared write-path lister (src, tools, scripts; .test.ts excluded) —
+	// census_derivation_tripwire: a gate never picks its own walk root.
+	return (
+		writePathSourceFiles()
 			// src/config/ IS where a language is configuration — reading its own keys is the point.
-			if (file.startsWith('src/config/')) continue;
-			files.push({ file, source: readFileSync(join(REPO, file), 'utf8') });
-		}
-	}
-	return files;
+			.filter((file) => !file.startsWith('src/config/'))
+			.map((file) => ({ file, source: readFileSync(join(REPO_ROOT, file), 'utf8') }))
+	);
 }
 
 const FILES = corpus();
@@ -256,7 +252,7 @@ describe('request-language law (T2 B10)', () => {
 		expect(home).toBeDefined();
 		const seen = findOffenders(REQUEST_LANG_MODULE, home?.source ?? '', { rule1: true });
 		expect(seen.some((offender) => offender.rule === 1)).toBe(true);
-		expect(relative(REPO, join(REPO, REQUEST_LANG_MODULE))).toBe(REQUEST_LANG_MODULE);
+		expect(relative(REPO_ROOT, join(REPO_ROOT, REQUEST_LANG_MODULE))).toBe(REQUEST_LANG_MODULE);
 	});
 
 	test('RULE 1 + RULE 2: no install-language read and no language-literal default without a named exemption', () => {

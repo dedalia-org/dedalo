@@ -430,7 +430,9 @@ interface SectionSummary {
  */
 const runLangs: RequestLangs = {
 	applicationLang:
+		// lang-law-exempt(harness.publish.application): a CLI run has no request — the plan's langs first, the install default only as the documented last resort
 		plan.langPolicy.mainLang ?? plan.langPolicy.langs[0] ?? config.menu.applicationLang,
+	// lang-law-exempt(harness.publish.data): a CLI run has no request — the plan's langs first, the install default only as the documented last resort
 	dataLang: plan.langPolicy.mainLang ?? plan.langPolicy.langs[0] ?? config.menu.dataLang,
 };
 

@@ -34,6 +34,7 @@ const AS_JSON = args.get('json') === 'true';
 const WITH_ORACLE = args.get('oracle') === 'true';
 const WITH_ASSETS = args.get('no-assets') !== 'true';
 const HEAVY_SECTION = args.get('heavy') ?? 'numisdata6';
+// lang-law-exempt(boot_probe.lang): a dev CLI probe's --lang flag default — operator input with no request scope, never served
 const LANG = args.get('lang') ?? 'lg-spa';
 
 const TS_PORT = (readEnv('SERVER_TCP_PORT') ?? '3500') as string;

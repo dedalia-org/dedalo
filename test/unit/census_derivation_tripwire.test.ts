@@ -449,7 +449,7 @@ const PRIVATE_ROOT_WALKERS: Readonly<Record<string, string>> = {
 	'test/unit/migration_shared_row_tripwire.test.ts': 'ROOTS: `install/db/migrations`.',
 	'test/unit/mock_isolation_tripwire.test.ts':
 		'ROOTS: `test` — every `*.test.ts` under test/, join(import.meta.dir, "..").',
-	'test/unit/module_state_tripwire.test.ts': 'ROOTS: `src` `tools` ×3.',
+	'test/unit/module_state_tripwire.test.ts': 'ROOTS: `src` `tools` ×2.',
 	'test/unit/no_remote_code_tripwire.test.ts':
 		'ROOTS: `client/dedalo` `publication` `src` `tools` `vendor` — the five trees whose code may load code (GATE-54 added vendor/ and publication/).',
 	'test/unit/ontology_single_writer_tripwire.test.ts': 'ROOTS: `scripts` `src` `tools`.',
