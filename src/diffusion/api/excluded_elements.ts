@@ -50,12 +50,13 @@ export const EXCLUSION_KEY = 'EXCLUDE_DIFFUSION_ELEMENTS';
 
 /**
  * Parse a configured exclusion list: absent/null → none excluded; an array of
- * non-empty strings → that set; anything else REFUSES (request.invalid_options).
+ * non-empty strings → that set; anything else REFUSES (tool.config_invalid).
  */
 export function parseExcludedElements(raw: unknown): ReadonlySet<string> {
 	if (raw === undefined || raw === null) return new Set();
 	if (!Array.isArray(raw) || !raw.every((tipo) => typeof tipo === 'string' && tipo !== '')) {
-		throw new DedaloError('request.invalid_options', {
+		// A CONFIG fault (the operator's), never the caller's request (review LOW-7).
+		throw new DedaloError('tool.config_invalid', {
 			message: `${EXCLUSION_TOOL} config ${EXCLUSION_KEY} is not a list of element tipos: ${JSON.stringify(raw)}`,
 			publicMessage: `The ${EXCLUSION_TOOL} configuration '${EXCLUSION_KEY}' (Tools configuration, dd996) must be a list of diffusion element tipos, e.g. ["oh63"]. Fix it there.`,
 		});

@@ -21,7 +21,8 @@
  *      nothing; diffuse to zzdif42 is queued.
  *   C. alias: an alias whose REAL element is listed is excluded — at the panel
  *      selection and at the door's resolution (pure, synthetic tree).
- *   D. a malformed list REFUSES (request.invalid_options) — never "nothing excluded".
+ *   D. a malformed list REFUSES as a config fault (tool.config_invalid — the
+ *      operator's, not the caller's) — never "nothing excluded".
  *   E. migration: a v6 config's define is planned as a TOOL_CONFIG move and the
  *      move lands where the reader reads (created / kept / written / empty).
  */
@@ -65,6 +66,8 @@ import {
 	ZZDIF_SECTION,
 } from '../helpers/zzdif_diffusion_domain.ts';
 
+/** A malformed install config is the OPERATOR's fault, never the caller's (review LOW-7). */
+const CONFIG_FAULT = 'tool.config_invalid';
 const EXCLUDED = ZZDIF_FILE_ELEMENT; // zzdif80
 const INCLUDED = ZZDIF_ELEMENT; // zzdif42
 const createdJobIds: string[] = [];
@@ -317,19 +320,25 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 		).not.toThrow();
 	});
 
-	test('D. a malformed list REFUSES — info and door both', async () => {
+	test('D. a malformed list REFUSES as a CONFIG fault (tool.config_invalid) — read, info and door', async () => {
 		for (const malformed of [EXCLUDED, [EXCLUDED, 7], [''], { tipo: EXCLUDED }]) {
 			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: malformed }, async () => {
 				const label = JSON.stringify(malformed);
 				const read = await excludedDiffusionElements().catch((error: unknown) => error);
 				expect(read, label).toBeInstanceOf(DedaloError);
-				expect((read as DedaloError).code, label).toBe('request.invalid_options');
+				expect((read as DedaloError).code, label).toBe(CONFIG_FAULT);
+				// The public sentence names WHERE the value lives (the operator fixes it there).
+				expect((read as DedaloError).publicMessage, label).toContain('dd996');
 				const info = await buildDiffusionInfo(ZZDIF_SECTION, ZZDIF_DOMAIN_NAME).catch(
 					(error: unknown) => error,
 				);
 				expect(info, label).toBeInstanceOf(DedaloError);
+				expect((info as DedaloError).code, label).toBe(CONFIG_FAULT);
 				const door = await diffuse(root, INCLUDED);
 				expect('refused' in door, label).toBe(true);
+				const refusal = (door as { refused: unknown }).refused;
+				expect(refusal, label).toBeInstanceOf(DedaloError);
+				expect((refusal as DedaloError).code, label).toBe(CONFIG_FAULT);
 			});
 		}
 	});

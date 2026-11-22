@@ -33,7 +33,7 @@
     real element it resolves to is listed (v6's match, on real tipos, is kept; listing an alias
     tipo is new — v6 could never match one).
   - **Malformed list.** Anything other than absent/null or an array of non-empty strings refuses
-    BOTH actions with `request.invalid_options` (public message names dd996). v6 ignored it — a
+    BOTH actions with `tool.config_invalid` (public message names dd996; see the LOW-7 addendum). v6 ignored it — a
     list written to stop a publication must not become "publish everywhere" through a typo.
   - **Not filtered:** delete propagation / `retry_pending_deletions` (unpublishing records already
     in a target is never blocked), and a job queued before the list changed is not re-checked by
@@ -48,3 +48,14 @@
   panel is no refusal to a caller who posts the tipo by hand, so the server door enforces it.
 - **Gate reconciliation:** no parity fixture covers an install with the key set (the frozen store
   never exercised it); no fixture change, no re-harvest.
+
+## Addendum 2026-11-22 — review LOW-7: a malformed list is a CONFIG fault
+
+The malformed-list refusal was first shipped as `request.invalid_options` (category `caller`,
+HTTP 400) — a fault of the request, which the caller cannot fix. It is now the NEW code
+`tool.config_invalid` (category `unavailable`, HTTP 503, disclosure `public`, not retryable,
+label `error_tool_config_invalid`): the installation's tool configuration is malformed, the
+operator fixes it. The public message is unchanged (it names the key and dd996). Same code for
+the v6→v7 move's refusal of a non-object stored config (MED-2 addendum). Gate:
+`diffusion_excluded_elements_native` D (read, `get_diffusion_info` and `diffuse` all assert the
+code).

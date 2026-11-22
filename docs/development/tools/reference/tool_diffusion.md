@@ -71,7 +71,7 @@ An installation can withdraw diffusion elements from publication with one key of
 | `get_diffusion_info` | Its panels are omitted from `section_diffusion_nodes`. |
 | `diffuse` | Refused before anything is queued, with `diffusion.element_excluded` (HTTP 403). A hidden panel is not the guard: a request naming the tipo by hand is refused too. |
 
-An element matches when its own tipo is listed or, for a `diffusion_element_alias`, when the real element it resolves to is listed — so listing a real element also withdraws its aliases. A value that is not a list of non-empty strings makes both actions refuse with `request.invalid_options` until it is fixed; it is never read as "nothing excluded". Delete propagation and `retry_pending_deletions` are not affected: records already published can always be unpublished. A v6 installation's `EXCLUDE_DIFFUSION_ELEMENTS` define is moved into this key by the configuration migration ([Migrating from v6](../../../install/migrating_from_v6.md)).
+An element matches when its own tipo is listed or, for a `diffusion_element_alias`, when the real element it resolves to is listed — so listing a real element also withdraws its aliases. A value that is not a list of non-empty strings makes both actions refuse with `tool.config_invalid` (HTTP 503 — a fault of the installation's configuration, not of the request) until it is fixed; it is never read as "nothing excluded". Delete propagation and `retry_pending_deletions` are not affected: records already published can always be unpublished. A v6 installation's `EXCLUDE_DIFFUSION_ELEMENTS` define is moved into this key by the configuration migration ([Migrating from v6](../../../install/migrating_from_v6.md)).
 
 ## How it is registered & surfaced
 

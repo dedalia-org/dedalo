@@ -384,6 +384,7 @@
 	"error_tool_background_lane_undeclared": "This background action does not declare a job lane",
 	"error_tool_background_not_allowed": "This method cannot run in the background",
 	"error_tool_bulk_run_live": "This process is still running, or is already being reverted. Try again when it has finished",
+	"error_tool_config_invalid": "This tool's configuration in this installation is malformed",
 	"error_tool_dependency_unavailable": "A service this tool depends on is unavailable",
 	"error_tool_invalid_name": "Invalid tool name",
 	"error_tool_invalid_target": "Invalid or conflicting permission target",

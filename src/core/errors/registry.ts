@@ -2775,6 +2775,22 @@ export const ERROR_REGISTRY = {
 		disclosure: 'operator',
 		retryable: true,
 	},
+	// A tool's configuration in this installation (Tools configuration dd996, or
+	// its register default) holds a value of the wrong shape — first thrower:
+	// tool_diffusion's EXCLUDE_DIFFUSION_ELEMENTS (diffusion/api/excluded_elements.ts)
+	// and the v6→v7 config move (core/tools/tool_config_move.ts). The OPERATOR
+	// fixes it; the caller cannot, so it is never `request.invalid_options`
+	// (a caller fault, 400). Public: the throw's sentence names WHERE the value
+	// lives (record, key), which is what the administrator needs to fix it.
+	'tool.config_invalid': {
+		category: 'unavailable',
+		status: 503,
+		label_key: 'error_tool_config_invalid',
+		message: "This tool's configuration in this installation is malformed",
+		severity: 'error',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'tool.action_failed': {
 		category: 'internal',
 		status: 500,
