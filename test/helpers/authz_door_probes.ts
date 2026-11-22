@@ -60,6 +60,11 @@ export const DD128_PROBED: Readonly<Record<string, readonly string[]>> = {
 	// tool_posterframe create_identifying_image — the HOST write door in its
 	// handler (req 10), probed through the real handler under its own key.
 	'tools/tool_posterframe/server/index.ts': ['tool:tool_posterframe:create_identifying_image:host'],
+	// tool_propagate_component_data — the section target up front and the write
+	// door per matched ROW (T2-S06): the manager's own dd1725 row is refused.
+	'tools/tool_propagate_component_data/server/index.ts': [
+		'tool:tool_propagate_component_data:propagate_component_data',
+	],
 	// tool_update_cache update_cache — the per-ROW write door in its handler
 	// (req 10): the manager's own dd1725 row is refused, skipped, never written.
 	'tools/tool_update_cache/server/index.ts': ['tool:tool_update_cache:update_cache'],

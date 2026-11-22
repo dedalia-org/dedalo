@@ -248,9 +248,9 @@ const CENSUS: Record<string, CensusRow> = {
 			'no gate of its own; its only effect is deletePortalLocator, the write door; the matrix drives the handler gate-free, so the DD1725 leg measures the engine.',
 	},
 	'tools/tool_propagate_component_data/server/index.ts': {
-		verdict: 'consults',
+		verdict: 'delegates',
 		reason:
-			'THE SEC-03 offender: its per-row re-authorization holds row.section_id and read the raw matrix level, so a self-targeted propagate of dd1725/dd515 succeeded where the human save door refused.',
+			'THE SEC-03 offender, now on the write door (T2-S06, FYI-1): authorizeSectionTarget (section floor 1, the pair at 2) up front, then authorizeRecordAccess (write, level 2, section floor 1, the dd128-aware pair, the write scope) for EVERY matched row before its write, whose GRANT addresses the save — the hand-rolled pair + scope check is gone. Matrix tool:tool_propagate_component_data:propagate_component_data DD1725 leg (and this file’s own self-targeted dd1725 case below).',
 	},
 
 	// --- ENGINES ----------------------------------------------------------

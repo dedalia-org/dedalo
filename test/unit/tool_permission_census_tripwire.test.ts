@@ -305,7 +305,8 @@ const CENSUS: Record<string, CensusEntry> = {
 	},
 	'tool_propagate_component_data:propagate_component_data': {
 		entry: 'propagateComponentData',
-		gate: 'principalCanAccessRecord',
+		// T2-S06: the write door per row (the section target up front too).
+		gate: 'authorizeRecordAccess',
 	},
 
 	// --- the framework-owned spec.

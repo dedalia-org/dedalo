@@ -27,48 +27,56 @@ const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8');
 describe('TOOLS-01 — propagate_component_data authorizes every write target', () => {
 	const src = read('tools/tool_propagate_component_data/server/index.ts');
 
-	test('the write loop scope-checks each row before its record write', () => {
+	test('the write loop asks the WRITE DOOR for each row before its record write', () => {
 		// Scope to the per-row loop body: the run's OWN bulk-process bookkeeping
 		// record (createBulkProcess) is written before it, and is not a
 		// user-targeted data write — the loop over `rows` is the vulnerable write.
-		// Since 2026-09-27 the per-record write is `propagateOneRecord(row, …)`
-		// (locked read → saveComponentData under the run's bulk id,
-		// WC-2026-09-27-bulk-revert-undo-log); the gate follows the WRITE, not a
-		// spelling: the write helper must be the only thing in the loop that
-		// persists, and it must come after the scope check.
+		// Since 2026-09-27 the per-record write is `propagateOneRecord(…)` (locked
+		// read → saveComponentData under the run's bulk id,
+		// WC-2026-09-27-bulk-revert-undo-log); since T2-S06 the row's write door is
+		// `authorizeRow(principal, row, …)` (authorizeRecordAccess on the ROW's own
+		// coordinates) and its GRANT is what the write is addressed with. The
+		// OUTCOME (a refused row is never written; a section-0 profile is refused)
+		// is measured by authz_door_matrix_native's propagate probe; this pins the
+		// order in the source so the security line cannot drift below the write.
 		const loopSrc = src.slice(src.indexOf('for (const row of rows)'));
-		const scopeAt = loopSrc.indexOf('principalCanAccessRecord(row.section_tipo');
-		const writeAt = loopSrc.indexOf('propagateOneRecord(row');
+		const doorAt = loopSrc.indexOf('authorizeRow(principal, row');
+		const writeAt = loopSrc.indexOf('propagateOneRecord(grant');
+		expect(doorAt, 'per-row authorizeRow(principal, row…) must exist in the loop').toBeGreaterThan(
+			-1,
+		);
 		expect(
-			scopeAt,
-			'per-row principalCanAccessRecord(row…) must exist in the loop',
+			writeAt,
+			'the data write propagateOneRecord(grant…) must exist in the loop',
 		).toBeGreaterThan(-1);
-		expect(writeAt, 'the data write propagateOneRecord must exist in the loop').toBeGreaterThan(-1);
 		// …and the helper is what writes: its body reaches the save door, and no
-		// OTHER direct write door sits in the loop ahead of the scope check.
+		// OTHER direct write door sits in the loop ahead of the door.
 		const helper = src.slice(src.indexOf('async function propagateOneRecord('));
 		expect(helper.slice(0, helper.indexOf('\n}\n')).includes('saveComponentData(')).toBe(true);
 		for (const door of ['persistRecordKeys(', 'saveComponentData(', 'updateMatrixKeyData(']) {
 			const at = loopSrc.indexOf(door);
-			expect(at === -1 || at > scopeAt, `${door} precedes the scope check`).toBe(true);
+			expect(at === -1 || at > doorAt, `${door} precedes the write door`).toBe(true);
 		}
-		// The scope check precedes the data write in source order (same loop body).
-		expect(scopeAt).toBeLessThan(writeAt);
+		expect(doorAt).toBeLessThan(writeAt);
 	});
 
-	test('the write loop re-checks component write-permission on the ROW section', () => {
-		// The ACTUAL target section, not the client-declared section_tipo — AND
-		// through the RECORD-addressed resolver since 2026-08-28 (SEC-03): the raw
-		// matrix level let a principal holding level 2 on (dd128, dd1725) self-assign
-		// a profile here, which the human save door refuses. `row.section_id` is the
-		// argument that makes the own-record rule consultable at all.
-		expect(
-			src.includes('getRecordComponentPermission(') &&
-				src.includes('row.section_tipo,') &&
-				src.includes('row.section_id,'),
-		).toBe(true);
-		// And the raw call it replaced must not come back alongside it.
-		expect(src.includes('getPermissions(principal, row.section_tipo, componentTipo)')).toBe(false);
+	test('the row door is the WRITE DOOR on the ROW section and record — no hand-rolled pair', () => {
+		// The ACTUAL target section and record, not the client-declared section_tipo
+		// (TOOLS-01); the write door carries the dd128 own-record rule (SEC-03) and
+		// the section floor (T2-S06).
+		const helper = src.slice(src.indexOf('async function authorizeRow('));
+		const body = helper.slice(0, helper.indexOf('\n}\n'));
+		expect(body.includes('authorizeRecordAccess(')).toBe(true);
+		expect(body.includes('row.section_tipo') && body.includes('row.section_id')).toBe(true);
+		expect(body.includes('sectionFloor: 1')).toBe(true);
+		// The hand-rolled checks it replaced must not come back.
+		for (const raw of [
+			'getPermissions(',
+			'getRecordComponentPermission(',
+			'principalCanAccessRecord(',
+		]) {
+			expect(src.includes(raw), `${raw} is back in the propagate server`).toBe(false);
+		}
 	});
 });
 

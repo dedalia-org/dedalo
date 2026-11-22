@@ -7,9 +7,18 @@
  * `propagate_data_value`. Every write shares a bulk_process_id so tool_time_machine
  * can revert the whole batch (see bulk_revert_process).
  *
- * PERMISSION: PHP asserts write level 2 on the (section_tipo, component_tipo) PAIR
- * — there is no single record — so this uses `permission: null` + an imperative
- * getPermissions gate (the declarative record/tipo gates target one record/tipo).
+ * PERMISSION — THE WRITE DOOR, like every save (T2-S06, owner FYI-1 2026-11-18:
+ * "every save the same way, NO exceptions"). The batch names no single record,
+ * so `permission: null` and the door is asked in the handler, twice:
+ *   - UP FRONT, the client-declared target as a SECTION target
+ *     (authorizeSectionTarget: the section floor 1, then the pair at 2) — PHP
+ *     asked only the pair, so a profile holding the component at 2 and the
+ *     section at 0 could rewrite every record of a section it may not enter;
+ *   - PER MATCHED ROW, authorizeRecordAccess (write, level 2, section floor 1,
+ *     the dd128-aware pair, the write scope) on the row's OWN coordinates — the
+ *     SQO may reach another section than the declared one (TOOLS-01) — and the
+ *     row's GRANT addresses the write. A refused row is reported, never written.
+ * The hand-rolled per-row pair + scope check it replaces is gone.
  *
  * BACKGROUND: the handler publishes a throttled progress frame per record (the
  * `msg | section_label | counter of total | id:` line the client's SSE reader
@@ -50,7 +59,7 @@ import { sanitizeClientSqo } from '../../../src/core/concepts/sqo.ts';
 import { type MatrixJsonbColumn, readMatrixRecord } from '../../../src/core/db/matrix.ts';
 import { readMatrixKeyForUpdate } from '../../../src/core/db/matrix_write.ts';
 import { withTransaction } from '../../../src/core/db/postgres.ts';
-import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, isDedaloError, ok } from '../../../src/core/errors/index.ts';
 import { resolveDataTipo } from '../../../src/core/ontology/alias.ts';
 import { termByTipo } from '../../../src/core/ontology/labels.ts';
 import {
@@ -68,13 +77,12 @@ import {
 	saveComponentData,
 } from '../../../src/core/section/record/save_component.ts';
 import { canonicalStoredItems } from '../../../src/core/section/record/value_shape.ts';
+import { isFixedDataframeSlot, type Principal } from '../../../src/core/security/permissions.ts';
 import {
-	getPermissions,
-	getRecordComponentPermission,
-	isFixedDataframeSlot,
-	type Principal,
-} from '../../../src/core/security/permissions.ts';
-import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
+	authorizeRecordAccess,
+	authorizeSectionTarget,
+	type RecordGrant,
+} from '../../../src/core/security/write_door.ts';
 import { withLiveBulkRun } from '../../../src/core/tools/bulk_run_registry.ts';
 import {
 	type ToolActionContext,
@@ -155,16 +163,13 @@ interface PropagateTarget {
  * never recreated). A refused save THROWS, so the record rolls back and the
  * loop reports it.
  */
-async function propagateOneRecord(
-	row: { section_tipo: string; section_id: number },
-	target: PropagateTarget,
-): Promise<boolean> {
-	const table = (await getMatrixTableFromTipo(row.section_tipo)) ?? 'matrix';
+async function propagateOneRecord(grant: RecordGrant, target: PropagateTarget): Promise<boolean> {
+	const table = (await getMatrixTableFromTipo(grant.sectionTipo)) ?? 'matrix';
 	return await withTransaction(async () => {
 		const locked = await readMatrixKeyForUpdate(
 			table,
-			row.section_tipo,
-			row.section_id,
+			grant.sectionTipo,
+			grant.sectionId,
 			target.column,
 			target.dataTipo,
 		);
@@ -174,7 +179,7 @@ async function propagateOneRecord(
 		// holes dropped) — never `readMatrixKeyForUpdate`'s items, which answer
 		// `[]` for a non-array value: 'add' then REPLACED a PHP-era single-object
 		// value and 'delete'/'replace' decided over nothing.
-		const record = await readMatrixRecord(table, row.section_tipo, row.section_id);
+		const record = await readMatrixRecord(table, grant.sectionTipo, grant.sectionId);
 		// …and in the shape the save door accepts (value_shape.ts
 		// canonicalStoredItems): a PHP-era numeric-string number is cast as PHP's
 		// set_data did, so the untouched items re-sent with `final` are never
@@ -192,12 +197,12 @@ async function propagateOneRecord(
 		);
 		if (!changed) return false;
 		const outcome = await saveComponentData({
-			componentTipo: target.componentTipo,
-			sectionTipo: row.section_tipo,
-			sectionId: row.section_id,
+			componentTipo: grant.componentTipo,
+			sectionTipo: grant.sectionTipo,
+			sectionId: grant.sectionId,
 			lang: target.lang,
 			changedData: [{ action: 'set_data', id: null, value: final }],
-			userId: target.userId,
+			userId: grant.userId,
 			bulkProcessId: target.bulkProcessId,
 			principal: target.principal,
 		});
@@ -205,14 +210,45 @@ async function propagateOneRecord(
 			throw new DedaloError('record.save_failed', {
 				message: outcome.message,
 				coordinates: {
-					section_tipo: row.section_tipo,
-					section_id: row.section_id,
-					tipo: target.componentTipo,
+					section_tipo: grant.sectionTipo,
+					section_id: grant.sectionId,
+					tipo: grant.componentTipo,
 				},
 			});
 		}
 		return true;
 	});
+}
+
+/** The write door's name for this tool's grants and log lines. */
+const PROPAGATE_DOOR = 'tool_propagate_component_data.propagate';
+
+/**
+ * The write door for ONE matched row (T2-S06): its grant, or the sentence the
+ * run reports when the door REFUSES it (perm.* / a target that is not a record
+ * address). Any other failure is no verdict on the row and propagates.
+ */
+async function authorizeRow(
+	principal: Principal,
+	row: { section_tipo: string; section_id: number },
+	componentTipo: string,
+): Promise<RecordGrant | string> {
+	try {
+		return await authorizeRecordAccess(
+			principal,
+			{ section_tipo: row.section_tipo, component_tipo: componentTipo, section_id: row.section_id },
+			{ mode: 'write', level: 2, sectionFloor: 1, door: PROPAGATE_DOOR },
+		);
+	} catch (error) {
+		if (!isDedaloError(error)) throw error;
+		if (error.code === 'perm.out_of_scope' || error.code.startsWith('request.invalid')) {
+			return 'out of the user scope';
+		}
+		if (error.code.startsWith('perm.')) {
+			return `no write permission on ${row.section_tipo}/${componentTipo}`;
+		}
+		throw error;
+	}
 }
 
 async function propagateComponentData(ctx: ToolActionContext): Promise<ToolResponse> {
@@ -242,13 +278,14 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 		});
 	}
 
-	// Tipo-pair WRITE gate (PHP assert_tipo_permission(section_tipo, component_tipo, 2)).
-	if ((await getPermissions(principal, sectionTipo, componentTipo)) < 2) {
-		throw new DedaloError('perm.denied', {
-			coordinates: { section_tipo: sectionTipo, tipo: componentTipo },
-			message: 'insufficient permissions on the target component',
-		});
-	}
+	// THE DECLARED TARGET, as a SECTION target of the write door (T2-S06): the
+	// section floor 1, then the (section, component) pair at 2 — before the
+	// search and the dd800 mint. PHP asked the pair alone.
+	await authorizeSectionTarget(
+		principal,
+		{ section_tipo: sectionTipo, tipo: componentTipo },
+		{ level: 2, door: PROPAGATE_DOOR },
+	);
 
 	const model = await getModelByTipo(componentTipo);
 	if (model === null) {
@@ -354,35 +391,18 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 				break;
 			}
 			try {
-				// TOOLS-01 (2026-07-28 audit): authorize EVERY write target on the
-				// ROW's ACTUAL (section, component) — NOT the client-declared gate
-				// pair checked once above. The SQO rows can address a different
-				// section than section_tipo, incl. a non-projects-gated one (dd128
-				// users) that buildSearchSql does not narrow; without this a
-				// tool-granted editor could write dd515 (developer) / dd133
-				// (password) onto records they cannot reach → self-escalation to
-				// admin. principalCanAccessRecord also refuses section_id < 1 (the
-				// root user) before the admin bypass. Both helpers pass a global
-				// admin through, so this only gates non-admins.
-				if (!(await principalCanAccessRecord(row.section_tipo, row.section_id, principal))) {
-					errors.push(`section_id ${row.section_id}: out of the user scope`);
-					continue;
-				}
-				// P1-2 (SEC-03): the RECORD-addressed resolver, not the raw matrix
-				// level. A principal holding level 2 on (dd128, dd1725) is refused by
-				// the human save door and used to SUCCEED here on their OWN user
-				// record, self-assigning a profile or the developer flag.
-				if (
-					(await getRecordComponentPermission(
-						principal,
-						row.section_tipo,
-						componentTipo,
-						row.section_id,
-					)) < 2
-				) {
-					errors.push(
-						`section_id ${row.section_id}: no write permission on ${row.section_tipo}/${componentTipo}`,
-					);
+				// THE WRITE DOOR PER ROW (TOOLS-01, T2-S06): the ROW's ACTUAL (section,
+				// component, record) — NOT the client-declared pair checked once above.
+				// The SQO rows can address a different section than section_tipo, incl.
+				// a non-projects-gated one (dd128 users) that buildSearchSql does not
+				// narrow: grammar (section_id < 1 — the root user — refused before the
+				// admin bypass), section floor 1, the dd128-aware pair (a principal
+				// holding level 2 on (dd128, dd1725) is refused on their OWN record, as
+				// by the human save door — SEC-03), the write scope. The GRANT addresses
+				// the write below.
+				const grant = await authorizeRow(principal, row, componentTipo);
+				if (typeof grant === 'string') {
+					errors.push(`section_id ${row.section_id}: ${grant}`);
 					continue;
 				}
 				counter += 1;
@@ -398,7 +418,7 @@ async function propagateComponentData(ctx: ToolActionContext): Promise<ToolRespo
 						current: { section_tipo: row.section_tipo, section_id: row.section_id },
 					});
 				}
-				await propagateOneRecord(row, target);
+				await propagateOneRecord(grant, target);
 			} catch (error) {
 				errors.push(`section_id ${row.section_id}: ${(error as Error).message}`);
 			}
@@ -429,7 +449,7 @@ export const tool: ToolServerModule = {
 		propagate_component_data: {
 			permission: null,
 			gatedInHandler:
-				'getPermissions(principal, sectionTipo, componentTipo) < 2 refuses up front on the CLIENT-DECLARED pair (the batch has no single record, so no declarative kind fits), and the per-row loop re-authorizes every write target it actually reaches — principalCanAccessRecord(row.section_tipo, …) plus getRecordComponentPermission(principal, row.section_tipo, componentTipo, row.section_id), which carries the dd128 own-record LEVEL rule (SEC-03) — before the record is written through saveComponentData (TOOLS-01, pinned by test/unit/human_write_scope_tripwire.test.ts).',
+				'the write door, twice (T2-S06): authorizeSectionTarget(principal, {section_tipo, tipo: component_tipo}, level 2) refuses up front on the CLIENT-DECLARED target — the section floor 1, then the pair (the batch has no single record, so no declarative kind fits) — and the per-row loop asks authorizeRecordAccess (write, level 2, section floor 1, the dd128-aware pair, the write scope) on every row it actually reaches, whose grant addresses the write through saveComponentData (TOOLS-01, SEC-03; measured by the authorization matrix, test/unit/authz_door_matrix_native.test.ts).',
 			handler: propagateComponentData,
 		},
 	},

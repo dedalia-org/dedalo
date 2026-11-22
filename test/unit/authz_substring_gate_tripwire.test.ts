@@ -102,20 +102,20 @@ const EXEMPTIONS: Record<string, Exemption> = {
 		reason:
 			'Pins WHERE two tool write doors decide (TOOLS-01/02); each decision is driven behaviourally by the named twin. The TOOLS-05/06 pins are GONE (closure Step 3): both decisions moved into the write door and are driven by write_door_native / tool_transcription_gate_native.',
 		pins: {
-			principalCanAccessRecord: [
+			authorizeRow: [
 				{
-					file: 'test/unit/tool_propagate_component_data_drive.test.ts',
-					case: 'the imperative tipo-pair gate refuses a non-admin and writes NOTHING',
+					file: 'test/unit/authz_door_matrix_native.test.ts',
+					case: 'the matrix: every probed door answers every identity as the design says',
 					covers:
-						'TOOLS-01 — propagate_component_data refuses a write target the principal cannot reach (principalCanAccessRecord per row)',
+						'TOOLS-01 / T2-S06 — propagate_component_data asks the write door for every matched row before its write (authorizeRow → authorizeRecordAccess), driven through the real handler per identity (propagateProbe)',
 				},
 			],
-			getRecordComponentPermission: [
+			authorizeRecordAccess: [
 				{
 					file: 'test/unit/dd128_write_census_tripwire.test.ts',
 					case: 'tool_propagate_component_data REFUSES a self-targeted dd1725 write',
 					covers:
-						'TOOLS-01 — the per-row write permission resolves through the RECORD-addressed resolver, driven with a resolved non-admin',
+						'TOOLS-01 / SEC-03 — the per-row write door is the RECORD-addressed one (the row section and record), driven with a resolved non-admin on their own dd1725',
 				},
 			],
 			getPermissions: [

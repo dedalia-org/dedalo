@@ -732,6 +732,99 @@ function transcriptWriterProbe(): Probe {
 }
 
 /**
+ * tool_propagate_component_data `propagate_component_data` (T2-S06, FYI-1): an
+ * in-handler door — the SECTION target up front (authorizeSectionTarget: the
+ * section floor 1, then the pair at 2) and the write door per matched ROW
+ * (authorizeRecordAccess: write, level 2, section floor 1, the dd128-aware
+ * pair, the write scope). Driven through the REAL handler with an sqo pinned to
+ * the identity's one target. NO_SECTION is the S06 cell: the components at 2,
+ * the section at an explicit 0 — refused up front, where the hand-rolled pair
+ * check let it write. A row the door refuses is reported in `errors` and never
+ * written, so a run that matched its row and processed none IS the refusal
+ * (DD1725: the own-record rule on the manager's own dd1725). A served cell
+ * deletes a value the record does not hold — nothing written; the dd800 run
+ * record each run mints is swept. OUT_OF_SCOPE / ADMIN_ID0 are not cells here:
+ * the principal-scoped search never matches such a row (the per-row door would
+ * refuse it as well), so their outcome is "nothing matched", not a refusal.
+ */
+function propagateProbe(handler: ToolActionSpec['handler']): Probe {
+	return {
+		expect: {
+			NO_SECTION: 'refused',
+			NO_COMPONENT: 'refused',
+			READ_COMPONENT: 'refused',
+			READ_ONLY: 'refused',
+			DD1725: 'refused',
+			CONTROL: 'served',
+		},
+		refusalTipo: { NO_COMPONENT: AUTHZ_TEXT, READ_COMPONENT: AUTHZ_TEXT },
+		run: async (identity) => {
+			const principal = principalOf(identity);
+			const target = recordTarget(identity, AUTHZ_TEXT);
+			const context = {
+				principal,
+				userId: principal.userId,
+				options: {
+					section_tipo: target.section_tipo,
+					component_tipo: target.tipo,
+					action: 'delete',
+					lang: 'lg-nolan',
+					total: -1,
+					sqo: {
+						section_tipo: [target.section_tipo],
+						filter_by_locators: [
+							{ section_tipo: target.section_tipo, section_id: target.section_id },
+						],
+					},
+					propagate_data_value: [{ value: 'zzauthz propagate value never stored' }],
+				},
+				background: false,
+			};
+			try {
+				const response = (await handler(context as ToolActionContext)) as {
+					data?: {
+						records?: number;
+						counter?: number;
+						errors?: string[];
+						bulk_process_id?: number;
+					};
+				};
+				const data = response.data ?? {};
+				if (typeof data.bulk_process_id === 'number') {
+					disposable.push({ sectionTipo: 'dd800', sectionId: data.bulk_process_id });
+				}
+				const errors = data.errors ?? [];
+				// ONLY the own-record rule is a per-ROW verdict (the declared pair is
+				// writable, the manager's own row is not). Every other cell must be
+				// refused UP FRONT — before the search and the dd800 mint — so a run
+				// that got as far as the rows is `served` for them even when the row
+				// door caught it: the up-front section target is measured, not assumed.
+				if (
+					identity === 'DD1725' &&
+					(data.records ?? 0) > 0 &&
+					(data.counter ?? 0) === 0 &&
+					errors.length > 0
+				) {
+					return {
+						verdict: 'refused',
+						detail: `refused ${errors.length} row(s): ${errors[0]}`,
+						code: 'perm.denied',
+						opaque: true,
+					};
+				}
+				return {
+					verdict: 'served',
+					detail: `past the up-front door: processed ${data.counter ?? 0} of ${data.records ?? 0}`,
+				};
+			} catch (error) {
+				if (error instanceof DedaloError) return errorOutcome(error);
+				throw error;
+			}
+		},
+	};
+}
+
+/**
  * tool_tc `change_all_timecodes` — its HANDLER (T2-S05-b), not the declarative
  * record_tipo gate the generic kind probe drives: the handler asks the write
  * door itself and saves the grant's coordinates. A served cell offsets by 0
@@ -2099,8 +2192,6 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
 		'section_list kind: extractor-specific payload (component list)',
 	// permission: null — gated IN the handler (the named exemption; its
 	// gatedInHandler prose is pinned by tool_permission_census_tripwire).
-	'tool:tool_propagate_component_data:propagate_component_data':
-		'OPEN record-WRITING batch door gated in-handler (raw getPermissions pair up front + per-row re-authorization) — not probed (tools/tool_propagate_component_data is outside lane 2)',
 	'tool:tool_error_report:send_report': 'global-admin check in-handler — no record target',
 	'tool:tool_dev_template:status': 'UNGATED constant literal — no record, no write',
 	'tool:tool_import_dedalo_csv:get_csv_files':
@@ -2145,9 +2236,11 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
  * 61 → 60: `dd_utils_api:install` removed with the browser installer
  * (WC-2026-10-12-install-surface-removed) — not probed, gone. (T0-4 part B
  * listed `dd_component_text_area_api:create_tm_note` here, 60 → 61; part C
- * PROBES it — createTmNoteProbe — and restores 60.)
+ * PROBES it — createTmNoteProbe — and restores 60.) 60 → 59: T2-S06 —
+ * tool_propagate_component_data's in-handler door is the write door, probed
+ * through the real handler (propagateProbe).
  */
-const NOT_YET_PROBED_CEILING = 60;
+const NOT_YET_PROBED_CEILING = 59;
 
 interface Census {
 	probes: Map<string, Probe>;
@@ -2224,6 +2317,11 @@ async function deriveCensus(): Promise<Census> {
 				probes.set(key, translationProbe(spec.handler));
 			} else if (toolName === 'tool_update_cache' && action === 'update_cache') {
 				probes.set(key, updateCacheRowProbe(spec.handler));
+			} else if (
+				toolName === 'tool_propagate_component_data' &&
+				action === 'propagate_component_data'
+			) {
+				probes.set(key, propagateProbe(spec.handler));
 			} else if (toolName === 'tool_transcription' && TRANSCRIPTION_OPTIONS[action] !== undefined) {
 				probes.set(
 					key,
