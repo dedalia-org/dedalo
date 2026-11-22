@@ -534,7 +534,7 @@ describe('activity log skips the TM-excluded sections (O16-01)', () => {
  * The source half of O16-01: the skip keys on `data.section_tipo` because a
  * SAVE's WHERE is a component tipo — so EVERY SAVE emitter must pass it, or a
  * save into dd655 slips past the skip. Derived over the whole write-path
- * corpus (babel-parsed): every `logActivity(...)` call whose `what` is the
+ * corpus (babel-parsed, aliases resolved): every `logActivity(...)` call whose `what` is the
  * literal 'SAVE' must carry `section_tipo` in its `data` object. A call whose
  * `what` is not a literal is OPAQUE and must be a named entry below (what it can
  * be, and why no section_tipo is owed); a stale entry is red.
@@ -583,6 +583,64 @@ function propertyNamed(object: AstNode, name: string): AstNode | undefined {
 }
 
 /** Every logActivity call of one module (plain or `x.logActivity`). */
+/**
+ * Every local name bound to `logActivity` in a file, so an aliased emitter is
+ * scanned too: `import { logActivity as x }`, `const { logActivity: x } =
+ * await import(...)`, and a plain re-binding `const x = <bound name>` (to a
+ * fixpoint). A wrapper that FORWARDS `what` is already opaque (a non-literal
+ * `what` must be a named entry); one that fixes `what: 'SAVE'` and forwards
+ * `data` is an offender (its `data` is not an object literal naming the section).
+ */
+function logActivityBindings(program: unknown): Set<string> {
+	const names = new Set<string>(['logActivity']);
+	const rebindings: [string, string][] = [];
+	const visit = (node: unknown): void => {
+		if (node === null || typeof node !== 'object') return;
+		if (Array.isArray(node)) {
+			for (const child of node) visit(child);
+			return;
+		}
+		const ast = node as AstNode;
+		if (ast.type === 'ImportSpecifier') {
+			const imported = ast.imported as AstNode;
+			const importedName = imported.type === 'Identifier' ? imported.name : imported.value;
+			if (importedName === 'logActivity') names.add(String((ast.local as AstNode).name));
+		} else if (ast.type === 'ObjectPattern') {
+			// Only a destructuring PATTERN binds: { logActivity: x } = ...
+			for (const property of (ast.properties as AstNode[]) ?? []) {
+				if (property.type !== 'ObjectProperty') continue;
+				const key = property.key as AstNode;
+				const value = property.value as AstNode;
+				const keyName = key.type === 'Identifier' ? key.name : key.value;
+				if (keyName === 'logActivity' && value?.type === 'Identifier')
+					names.add(String(value.name));
+			}
+		} else if (ast.type === 'VariableDeclarator') {
+			const id = ast.id as AstNode;
+			const init = ast.init as AstNode | null;
+			if (id?.type === 'Identifier' && init?.type === 'Identifier') {
+				rebindings.push([String(id.name), String(init.name)]);
+			}
+		}
+		for (const [key, value] of Object.entries(ast)) {
+			if (key === 'loc' || key === 'start' || key === 'end') continue;
+			visit(value);
+		}
+	};
+	visit(program);
+	let grew = true;
+	while (grew) {
+		grew = false;
+		for (const [alias, target] of rebindings) {
+			if (names.has(target) && !names.has(alias)) {
+				names.add(alias);
+				grew = true;
+			}
+		}
+	}
+	return names;
+}
+
 function activityCalls(file: string, source: string): ActivityCall[] {
 	const ast = babelParse(source, {
 		sourceType: 'module',
@@ -590,6 +648,7 @@ function activityCalls(file: string, source: string): ActivityCall[] {
 		plugins: ['typescript', 'decorators-legacy'],
 	}) as unknown as { program: AstNode };
 	const calls: ActivityCall[] = [];
+	const names = logActivityBindings(ast.program);
 	const visit = (node: unknown): void => {
 		if (node === null || typeof node !== 'object') return;
 		if (Array.isArray(node)) {
@@ -605,7 +664,10 @@ function activityCalls(file: string, source: string): ActivityCall[] {
 					: callee.type === 'MemberExpression'
 						? (callee.property as AstNode).name
 						: null;
-			if (name === 'logActivity') {
+			if (
+				typeof name === 'string' &&
+				(callee.type === 'MemberExpression' ? name === 'logActivity' : names.has(name))
+			) {
 				const arg = (ast.arguments as AstNode[])[0];
 				let what: string | null = null;
 				let dataHasSectionTipo = false;
@@ -684,5 +746,21 @@ describe('every SAVE emitter names its section (O16-01 source scan)', () => {
 		expect(judged.saveWithoutSection).toEqual(['planted.ts:1']);
 		expect(judged.literalSaves).toBe(2);
 		expect(Object.fromEntries(judged.opaque)).toEqual({ 'planted.ts': 1 });
+	});
+
+	test('the scan resolves an ALIASED logActivity (import rename, destructured dynamic import, re-binding)', () => {
+		const planted = activityCalls(
+			'aliased.ts',
+			`import { logActivity as audit } from './activity_log.ts';
+			 const { logActivity: record } = await import('./activity_log.ts');
+			 const write = audit;
+			 await audit({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'x' } });
+			 await record({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'y' } });
+			 await write({ what: 'SAVE', tipo: t, userId: 1, host: h, data: { msg: 'z' } });
+			 await unrelated({ what: 'SAVE', tipo: t, userId: 1, host: h, data: {} });`,
+		);
+		const judged = judgeActivityCalls(planted);
+		expect(judged.saveWithoutSection).toEqual(['aliased.ts:4', 'aliased.ts:5', 'aliased.ts:6']);
+		expect(judged.literalSaves).toBe(3);
 	});
 });

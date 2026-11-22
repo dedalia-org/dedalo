@@ -136,7 +136,9 @@ statistics, rebuilt from this log). It is the same set the Time Machine skips
 (`TM_EXCLUDED_SECTIONS` in `src/core/concepts/section.ts`), read from one
 constant. The section is the payload's `data.section_tipo` when it names one,
 else the WHERE tipo (`activitySectionOf`): a SAVE's WHERE is the component, so
-every SAVE emitter passes the section it saved into in `data.section_tipo`.
+every SAVE emitter on a section passes the section it saved into in
+`data.section_tipo` (the SAVEs on the area `dd88` — legacy password migration,
+publication-host setup — save into no section and pass none).
 
 The guard lives in `logActivity`, not at the call sites, so every emitter —
 including any added later — inherits it.

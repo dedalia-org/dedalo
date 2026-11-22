@@ -213,7 +213,7 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** three thesauri shipped with Dédalo hold more than one term without a
     parent — Spain (`es`), Cuba (`cu`) and France (`fr`). Installing one of them now ends with
-    *root ambiguous*: open its hierarchy record and choose its root term (for Spain, *Espanya*).
+    *root ambiguous*: open its hierarchy record and choose its root term (for Spain, *España*).
     Details: [Hierarchy tool](./using/tools/using_hierarchy.md#tips-and-gotchas).
 
     Wire contract: `WC-2026-11-22-hierarchy-root-link-rule`.
