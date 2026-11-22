@@ -16,7 +16,6 @@ import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { ddDateToSeconds } from '../../src/core/media/file_date.ts';
 import { termByTipo } from '../../src/core/ontology/labels.ts';
-import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -26,6 +25,12 @@ import {
 import type { ImportFileReport, ImportProgressFrame } from '../../src/core/tools/import_wire.ts';
 import { getLoadedTool } from '../../src/core/tools/loader.ts';
 import { mustGet } from '../helpers/assert.ts';
+import {
+	inSplitLane,
+	laneLabel,
+	SPLIT_LANES,
+	type SplitLane,
+} from '../helpers/split_request_langs.ts';
 
 const SECTION = 'test3';
 
@@ -914,7 +919,6 @@ describe('T2-OX7-1b: labels follow the request application lang', () => {
 	const root = config.media.rootPath ?? '';
 	const userDir = resolve(root, 'import/files', String(SCRATCH_USER));
 	const NAMED = 'test22';
-	const LANES = ['lg-eng', 'lg-spa'] as const;
 	const SCRATCH_ID = 900102;
 	const bulkProcessIds: number[] = [];
 
@@ -949,11 +953,13 @@ describe('T2-OX7-1b: labels follow the request application lang', () => {
 		expect(residue[0]?.n).toBe(0);
 	});
 
-	async function call(lang: string, name: string, options: Record<string, unknown>) {
+	// The lanes are SPLIT (data ≠ application, swapped — review M1): a label
+	// read in the DATA lang is red in both.
+	async function call(lane: SplitLane, name: string, options: Record<string, unknown>) {
 		const loaded = await getLoadedTool('tool_import_dedalo_csv');
 		const handler = mustGet(loaded!.module.apiActions[name], name).handler;
 		const principal = await resolvePrincipal(-1);
-		return runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+		return inSplitLane(lane, () =>
 			handler({ principal, userId: SCRATCH_USER, background: false, options }),
 		);
 	}
@@ -965,12 +971,15 @@ describe('T2-OX7-1b: labels follow the request application lang', () => {
 
 	test('get_section_components_list: section + component labels in the request lang', async () => {
 		const differing = new Set<string>();
-		for (const lang of LANES) {
-			const res = await call(lang, 'get_section_components_list', { section_tipo: SECTION });
+		for (const lane of SPLIT_LANES) {
+			const lang = lane.applicationLang;
+			const res = await call(lane, 'get_section_components_list', { section_tipo: SECTION });
 			const payload = res.data as { components: { value: string; label: string }[]; label: string };
-			expect(payload.label, lang).toBe(await termByTipo(SECTION, lang));
+			expect(payload.label, laneLabel(lane)).toBe(await termByTipo(SECTION, lang));
 			for (const item of payload.components) {
-				expect(item.label, `${lang} ${item.value}`).toBe(await termByTipo(item.value, lang));
+				expect(item.label, `${laneLabel(lane)} ${item.value}`).toBe(
+					await termByTipo(item.value, lang),
+				);
 				if ((await termByTipo(item.value, 'lg-eng')) !== (await termByTipo(item.value, 'lg-spa'))) {
 					differing.add(item.value);
 				}
@@ -981,23 +990,24 @@ describe('T2-OX7-1b: labels follow the request application lang', () => {
 	});
 
 	test('get_csv_files: the column map labels in the request lang', async () => {
-		for (const lang of LANES) {
-			const res = await call(lang, 'get_csv_files', {});
+		for (const lane of SPLIT_LANES) {
+			const res = await call(lane, 'get_csv_files', {});
 			const { files } = res.data as {
 				files: { name: string; ar_columns_map: ({ tipo: string; label: string } | null)[] }[];
 			};
 			const file = files.find((item) => item.name === 'labels.csv');
 			const column = file?.ar_columns_map.find((item) => item?.tipo === NAMED);
-			expect(column?.label, lang).toBe(await termByTipo(NAMED, lang));
+			expect(column?.label, laneLabel(lane)).toBe(await termByTipo(NAMED, lane.applicationLang));
 		}
 	});
 	test('import_files: the progress frame names the column in the request lang', async () => {
-		for (const lang of LANES) {
+		for (const lane of SPLIT_LANES) {
+			const lang = lane.applicationLang;
 			const frames: ImportProgressFrame[] = [];
 			const loaded = await getLoadedTool('tool_import_dedalo_csv');
 			const handler = mustGet(loaded!.module.apiActions.import_files, 'import_files').handler;
 			const principal = await resolvePrincipal(-1);
-			const res = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+			const res = await inSplitLane(lane, () =>
 				handler({
 					principal,
 					userId: SCRATCH_USER,
@@ -1019,12 +1029,12 @@ describe('T2-OX7-1b: labels follow the request application lang', () => {
 			);
 			const report = (res.data as { files: ImportFileReport[] }).files[0] as ImportFileReport;
 			if (typeof report.bulk_process_id === 'number') bulkProcessIds.push(report.bulk_process_id);
-			expect(report.ok, lang).toBe(true);
+			expect(report.ok, laneLabel(lane)).toBe(true);
 			const labelled = frames.filter((frame) => frame.component_label != null);
 			// FLOOR: the first importing tick names the column (it is never throttled).
-			expect(labelled.length, lang).toBeGreaterThan(0);
+			expect(labelled.length, laneLabel(lane)).toBeGreaterThan(0);
 			for (const frame of labelled) {
-				expect(frame.component_label, lang).toBe(await termByTipo(NAMED, lang));
+				expect(frame.component_label, laneLabel(lane)).toBe(await termByTipo(NAMED, lang));
 			}
 		}
 	});

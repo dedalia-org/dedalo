@@ -42,8 +42,8 @@ import {
 	type HierarchyCensus,
 } from '../../src/core/ontology/hierarchy_census.ts';
 import { sha256Hex } from '../../src/core/ontology/hierarchy_manifest_format.ts';
-import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
+import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
 
 const TABLE = 'matrix_hierarchy_main';
 const REGISTRY = 'hierarchy1';
@@ -248,18 +248,19 @@ describe('hierarchy census — a fully declared active row', () => {
 	});
 
 	test('T2-OX7-1b: the picked name speaks the REQUEST application lang', async () => {
-		// Two request langs → the FULL row's two stored names (name_data keeps
+		// Two request scopes → the FULL row's two stored names (name_data keeps
 		// both; only the human pick follows the caller). The install default
-		// answered both requests the same pick.
-		for (const [lang, expected] of [
-			['lg-eng', 'Census land'],
-			['lg-spa', 'Tierra del censo'],
-		] as const) {
-			const inLang = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
-				buildHierarchyManifest({ dataDir }),
-			);
-			const full = inLang.manifest.active_hierarchies.find((item) => item.tld === FULL);
-			expect(full?.name, lang).toBe(expected);
+		// answered both requests the same pick; the lanes are SPLIT (data ≠
+		// application, swapped — review M1), so a pick following the DATA lang
+		// is red in both.
+		const stored: Readonly<Record<string, string>> = {
+			'lg-eng': 'Census land',
+			'lg-spa': 'Tierra del censo',
+		};
+		for (const lane of SPLIT_LANES) {
+			const inLane = await inSplitLane(lane, () => buildHierarchyManifest({ dataDir }));
+			const full = inLane.manifest.active_hierarchies.find((item) => item.tld === FULL);
+			expect(full?.name, laneLabel(lane)).toBe(stored[lane.applicationLang] as string);
 		}
 	});
 

@@ -30,7 +30,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
-import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../src/core/search/search_statement.ts';
 import { buildSearchSql as buildSearchStatement } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
@@ -42,6 +41,7 @@ import {
 } from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { buildSearchSql } from '../helpers/search_sql.ts';
+import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
 
 const TLD = 'zzolo';
 const SECTION = `${TLD}1`;
@@ -305,17 +305,24 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 		// entry: each request must get the order of ITS slice. The install
 		// default (a module constant before T2-SL-2) answered the same order to
 		// both, so one of the two lanes was always wrong.
+		// The two request langs are SPLIT (data ≠ application, swapped in the
+		// second lane — review M1), so an order resolved in the interface lang
+		// gets the OTHER slice's order and is red in both lanes.
 		const order = [{ direction: 'ASC', path: [step(TEXT)] }];
-		const inLang = (dataLang: string) =>
-			runWithRequestLangs({ applicationLang: dataLang, dataLang }, () => ordered(all(), order));
-		expect(await inLang(LANG)).toEqual([ids.r2, ids.r3, ids.r1, ids.r0]);
-		expect(await inLang(OTHER_LANG)).toEqual([ids.r1, ids.r3, ids.r2, ids.r0]);
-		// An explicit order `lang` still wins over the request lang.
-		expect(
-			await runWithRequestLangs({ applicationLang: LANG, dataLang: LANG }, () =>
-				ordered(all(), [{ direction: 'ASC', path: [step(TEXT)], lang: OTHER_LANG }]),
-			),
-		).toEqual([ids.r1, ids.r3, ids.r2, ids.r0]);
+		const expected: Readonly<Record<string, number[]>> = {
+			[LANG]: [ids.r2, ids.r3, ids.r1, ids.r0],
+			[OTHER_LANG]: [ids.r1, ids.r3, ids.r2, ids.r0],
+		};
+		for (const lane of SPLIT_LANES) {
+			expect(await inSplitLane(lane, () => ordered(all(), order)), laneLabel(lane)).toEqual(
+				expected[lane.dataLang] as number[],
+			);
+			// An explicit order `lang` still wins over the request data lang.
+			const explicit = [{ direction: 'ASC', path: [step(TEXT)], lang: lane.applicationLang }];
+			expect(await inSplitLane(lane, () => ordered(all(), explicit)), laneLabel(lane)).toEqual(
+				expected[lane.applicationLang] as number[],
+			);
+		}
 	});
 
 	test('SQL shape: lang predicate only on the lang-sliced model', async () => {

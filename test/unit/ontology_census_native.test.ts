@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getActiveOntologies } from '../../src/core/ontology/data_io.ts';
-import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
+import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
 
 const SECTION = 'ontology35';
 const TABLE = 'matrix_ontology_main';
@@ -247,16 +247,19 @@ describe('getActiveOntologies — name resolution', () => {
 	});
 
 	test('T2-OX7-1b: the picked name follows the REQUEST application lang', async () => {
-		// Two request langs → the row's two stored names; the install default
-		// answered both requests the Spanish one.
-		for (const [lang, expected] of [
-			['lg-eng', 'Name in English'],
-			['lg-spa', 'Nombre en castellano'],
-		] as const) {
-			const census = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
-				getActiveOntologies(),
+		// Two request scopes → the row's two stored names; the install default
+		// answered both requests the Spanish one. The lanes are SPLIT (data ≠
+		// application, swapped — review M1): a pick following the DATA lang is
+		// red in both.
+		const stored: Readonly<Record<string, string>> = {
+			'lg-eng': 'Name in English',
+			'lg-spa': 'Nombre en castellano',
+		};
+		for (const lane of SPLIT_LANES) {
+			const census = await inSplitLane(lane, () => getActiveOntologies());
+			expect(byTld(census, 'zztj')?.name, laneLabel(lane)).toBe(
+				stored[lane.applicationLang] as string,
 			);
-			expect(byTld(census, 'zztj')?.name, lang).toBe(expected);
 		}
 	});
 

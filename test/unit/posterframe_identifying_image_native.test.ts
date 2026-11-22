@@ -42,7 +42,6 @@ import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { termByTipo } from '../../src/core/ontology/labels.ts';
 import * as virtualScope from '../../src/core/ontology/virtual_scope.ts';
-import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -56,6 +55,7 @@ import { sweepActivityRows } from '../helpers/activity_rows.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { refusalOf } from '../helpers/refusal.ts';
+import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
 
 const HAVE_FFMPEG = existsSync(config.media.binaries.ffmpeg);
 const HAVE_BOTH = HAVE_FFMPEG && existsSync(resolveMagick());
@@ -343,11 +343,13 @@ describe.if(DB_READY)('tool_posterframe identifying image — virtual edit scope
 	test('T2-OX7-1b: the descriptor label speaks the REQUEST application lang', async () => {
 		// FLOOR: zzpf1 is named differently per lang, or both readings coincide.
 		expect(await termByTipo('zzpf1', 'lg-eng')).not.toBe(await termByTipo('zzpf1', 'lg-spa'));
-		for (const lang of ['lg-eng', 'lg-spa']) {
-			const descriptor = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
-				descriptorOf('zzpf1'),
+		// SPLIT lanes (data ≠ application, swapped — review M1): a label read in
+		// the DATA lang is red in both.
+		for (const lane of SPLIT_LANES) {
+			const descriptor = await inSplitLane(lane, () => descriptorOf('zzpf1'));
+			expect(descriptor?.label, laneLabel(lane)).toBe(
+				await termByTipo('zzpf1', lane.applicationLang),
 			);
-			expect(descriptor?.label, lang).toBe(await termByTipo('zzpf1', lang));
 		}
 	});
 
