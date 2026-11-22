@@ -785,8 +785,9 @@ export async function getSectionTools(
 	// Consultation-only sections (Activity dd542, Time Machine dd15, TODO-042) are
 	// strictly read-only system logs (WC-010): their toolbar would act on records
 	// the user can never modify, so they carry NO section tools. This is a
-	// SECTION-level rule only — components INSIDE such a section keep their own
-	// element tools (e.g. tool_time_machine on a historical value). Keyed on the
+	// SECTION-level rule only — components INSIDE such a section keep their
+	// element tools, minus the dd15 rule in getElementTools (an element whose
+	// section IS dd15 offers tool_export only, PHP get_tools). Keyed on the
 	// single-source `isConsultationOnlySection` predicate, so a future read-only
 	// section is tool-less by adding one entry. WC-2026-10-06-consultation-only-no-section-tools.
 	if (isConsultationOnlySection(sectionTipo)) return { tools: [], ledgered: [] };

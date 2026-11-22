@@ -125,31 +125,51 @@ export async function resolveElementToolConfig(
 	return { enriched: await enrichToolConfig(base, self.tipo, self.sectionTipo), fromOntology };
 }
 
+/** The element whose toolbar is stamped (PHP build_structure_context `$this`). */
+export interface ToolbarElement {
+	tipo: string;
+	sectionTipo: string;
+	/** The context's mode: a tool declaring `properties.mode` shows only in it. */
+	mode: string;
+}
+
 /**
- * Stamp each tool of an element's toolbar with its config (PHP
- * common::build_structure_context :1874-1916): resolveElementToolConfig per
- * tool; a tool with no config ships bare. PHP mutates the SHARED properties
- * object when the ontology defined the config, so the enriched map then reaches
- * the wire BOTH on the tool context and on the element's emitted
- * `properties.tool_config` (the client builds the tool's components from it;
- * unenriched, tool_common.js falls back to a synthetic single-entry ddo_map and
- * the configured components never render); a config created from an override
- * alone is a fresh object and stays off the element's properties.
+ * A tool declaring `properties.mode` belongs to that mode only (PHP
+ * build_structure_context :1869-1872, `$tool_object->properties->mode !== $mode`).
+ */
+function toolShowsInMode(tool: ToolSimpleContext, mode: string): boolean {
+	const toolMode = (tool.properties as { mode?: unknown } | null | undefined)?.mode;
+	return toolMode === undefined || toolMode === mode;
+}
+
+/**
+ * Stamp each tool of an element's toolbar (PHP common::build_structure_context
+ * :1866-1916), in PHP's order: the MODE filter first — here, so EVERY toolbar
+ * applies it, a section's included (T2-O11-1: it lived in the component/area
+ * stamp only, and a section toolbar ignored a tool's `properties.mode`) — then
+ * resolveElementToolConfig per tool; a tool with no config ships bare. PHP
+ * mutates the SHARED properties object when the ontology defined the config, so
+ * the enriched map then reaches the wire BOTH on the tool context and on the
+ * element's emitted `properties.tool_config` (the client builds the tool's
+ * components from it; unenriched, tool_common.js falls back to a synthetic
+ * single-entry ddo_map and the configured components never render); a config
+ * created from an override alone is a fresh object and stays off the element's
+ * properties.
  */
 export async function stampElementToolConfigs(
 	entry: { properties?: unknown },
 	tools: ToolSimpleContext[],
 	ontologyToolConfigBag: Record<string, unknown>,
-	tipo: string,
-	sectionTipo: string,
+	element: ToolbarElement,
 ): Promise<unknown[]> {
 	const stamped: unknown[] = [];
 	for (const tool of tools) {
+		if (!toolShowsInMode(tool, element.mode)) continue;
 		const { enriched, fromOntology } = await resolveElementToolConfig(
 			tool.name,
 			ontologyToolConfigBag[tool.name],
-			tipo,
-			sectionTipo,
+			element.tipo,
+			element.sectionTipo,
 		);
 		if (enriched === null) {
 			stamped.push(tool);

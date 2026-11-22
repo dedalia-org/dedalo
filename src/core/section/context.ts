@@ -93,8 +93,8 @@ export async function stampSectionContext(
 	// (Activity dd542 / Time Machine dd15, TODO-042) — those log sections carry
 	// no toolbar.
 	//
-	// Each section tool carries its config through the ONE element stamp (PHP
-	// :1874-1916 runs for sections too): the section's ontology
+	// Each section tool goes through the ONE element stamp (PHP :1866-1916 runs
+	// for sections too): the `properties.mode` filter (T2-O11-1), then the section's ontology
 	// properties.tool_config with the Tools-configuration / register override
 	// ddo_map for (section, section) — T1-43,
 	// WC-2026-11-12-tool-configuration-override.
@@ -107,13 +107,11 @@ export async function stampSectionContext(
 			params.mode,
 			Object.keys(toolConfigBag),
 		);
-		entry.tools = await stampElementToolConfigs(
-			entry,
-			sectionTools.tools,
-			toolConfigBag,
-			params.tipo,
-			params.tipo,
-		);
+		entry.tools = await stampElementToolConfigs(entry, sectionTools.tools, toolConfigBag, {
+			tipo: params.tipo,
+			sectionTipo: params.tipo,
+			mode: params.mode,
+		});
 	}
 }
 

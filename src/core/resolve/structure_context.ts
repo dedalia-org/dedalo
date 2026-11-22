@@ -1365,23 +1365,17 @@ export async function buildStructureContext(options: {
 			translatable: isComponentModel ? core.translatable : false,
 			toolConfigKeys,
 		});
-		// PHP get_tools stamping (class.common.php:1868-1916): a tool declaring
-		// properties.mode shows only in that mode; each remaining tool carries
-		// its config through the ONE element stamp (ontology tool_config, the
-		// Tools-configuration / register override ddo_map, 'self' resolved,
-		// entries enriched — stampElementToolConfigs, T1-43).
+		// PHP get_tools stamping (class.common.php:1868-1916) through the ONE
+		// element stamp: the `properties.mode` filter, then each tool's config
+		// (ontology tool_config, the Tools-configuration / register override
+		// ddo_map, 'self' resolved, entries enriched — stampElementToolConfigs,
+		// T1-43 / T2-O11-1).
 		const { stampElementToolConfigs } = await import('../tools/section_tool_context.ts');
-		const modeTools = elementTools.tools.filter((tool) => {
-			const toolMode = (tool.properties as { mode?: unknown } | null | undefined)?.mode;
-			return toolMode === undefined || toolMode === options.mode;
+		entry.tools = await stampElementToolConfigs(entry, elementTools.tools, toolConfigBag, {
+			tipo: options.tipo,
+			sectionTipo: options.sectionTipo,
+			mode: options.mode,
 		});
-		entry.tools = await stampElementToolConfigs(
-			entry,
-			modeTools,
-			toolConfigBag,
-			options.tipo,
-			options.sectionTipo,
-		);
 	}
 
 	// request_config (spec §3.6): explicit from the Site-B SOURCE properties (with

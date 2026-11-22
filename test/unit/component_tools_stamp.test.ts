@@ -290,7 +290,14 @@ const WILDCARD_TOOL: ScratchTool = {
 	name: 'tool_zz_tld_wildcard',
 	affectedTipos: ['test*'],
 };
-const SCRATCH_TOOLS: ScratchTool[] = [WILDCARD_TOOL];
+/** An EDIT-mode tool on the test3 section (PHP tool properties.mode, like tool_hierarchy's). */
+const EDIT_MODE_TOOL: ScratchTool = {
+	sectionId: 999_712,
+	name: 'tool_zz_edit_mode',
+	affectedTipos: ['test3'],
+	properties: { mode: 'edit' },
+};
+const SCRATCH_TOOLS: ScratchTool[] = [WILDCARD_TOOL, EDIT_MODE_TOOL];
 
 async function sweepScratchTools(): Promise<number> {
 	let residue = 0;
@@ -351,6 +358,14 @@ describe('tools from the ontology — the registry filter over scratch tools (T2
 		// reader kept the `*` on the value side, so no wildcard ever matched.
 		expect(await sectionToolNames('test3')).toContain(WILDCARD_TOOL.name);
 		expect(await sectionToolNames(USERS_SECTION)).not.toContain(WILDCARD_TOOL.name);
+	});
+
+	test('O11-1: a tool declaring properties.mode "edit" is absent from a LIST section context — present in edit', async () => {
+		// The registry offers it in both modes (the mode is a STAMP filter, PHP
+		// build_structure_context :1869); only the stamped toolbar may drop it.
+		expect(await sectionToolNames('test3')).toContain(EDIT_MODE_TOOL.name);
+		expect(await toolNamesOf('test3', 'test3', 'list', 2)).not.toContain(EDIT_MODE_TOOL.name);
+		expect(await toolNamesOf('test3', 'test3', 'edit', 2)).toContain(EDIT_MODE_TOOL.name);
 	});
 
 	/** A component of the test3 playground (test52 = component_input_text). */
