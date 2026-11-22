@@ -24,7 +24,9 @@ function probe(): Record<string, unknown> {
 	const script = `
 const loader = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/tools/loader.ts'))});
 const { toolIsAvailable } = await import(${JSON.stringify(join(REPO_ROOT, 'src/core/tools/registry.ts'))});
-const section = (tipo) => ({ calledClass: 'section', tipo, isComponent: false });
+// The full availability context (T2-B5 O11-4, d9ced4da7f): the hook judges the
+// element's REAL section (sectionTipo) and mode — for a section element both are its own.
+const section = (tipo) => ({ calledClass: 'section', tipo, sectionTipo: tipo, mode: 'edit', isComponent: false, hasToolConfig: false });
 console.log(JSON.stringify({
 	failedRecorded: await loader.toolModuleFailedToLoad('tool_zz_load_fails'),
 	healthyRecorded: await loader.toolModuleFailedToLoad('tool_zz_hook_gated'),
