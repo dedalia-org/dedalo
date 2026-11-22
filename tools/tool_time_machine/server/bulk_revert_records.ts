@@ -114,6 +114,10 @@ import {
 	TM_ROLE,
 } from '../../../src/core/db/time_machine.ts';
 import { isDedaloError, toDedaloError } from '../../../src/core/errors/index.ts';
+import {
+	type AvRecordHold,
+	holdRecordAvComponents,
+} from '../../../src/core/media/av_component_claim.ts';
 import { getMatrixTableFromTipo, getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import {
 	historyMainsOf,
@@ -172,8 +176,10 @@ export type RecordOutcome =
 			 * `deleted/`), when the row half ran inside a unit's transaction;
 			 * absent when there is nothing left to do. (The observer cascade is
 			 * the write chokepoint's — its ledger drains after the same COMMIT.)
+			 * Resolves with the file movers' errors (empty when every file came
+			 * back): the caller reports them (`media_not_restored`).
 			 */
-			afterCommit?: () => Promise<void>;
+			afterCommit?: () => Promise<string[]>;
 	  }
 	/**
 	 * The SAME record (birth identity) already holds the snapshot's values:
@@ -229,6 +235,52 @@ export interface RecordContext {
 	 * (producedStateOf). Absent = none; every key then judged by the snapshot.
 	 */
 	unitsByRecord?: ReadonlyMap<string, readonly RevertUnit[]>;
+	/**
+	 * The RECORD AV HOLDS (A1-01 review F5) the caller took BEFORE the
+	 * transaction for the markers it undeletes, by `recordAddress`
+	 * (holdCascadeAvComponents): the file half moves each record's files under
+	 * its hold. A record without one gets the mover's own.
+	 */
+	avHolds?: ReadonlyMap<string, AvRecordHold>;
+}
+
+/**
+ * HOLD the av components of every record these markers would bring back — or
+ * throw `media.build_running` with nothing held — BEFORE the caller opens the
+ * transaction that writes their rows (A1-01 review F5): a build or an upload
+ * live on one of them refuses the undelete before any row comes back, and none
+ * can start until the file half has moved the files back. The components: the
+ * section's declared av components plus any av key the marker's image holds.
+ * The caller releases them after the file halves (releaseAvHolds).
+ */
+export async function holdCascadeAvComponents(
+	markers: readonly RecordMarker[],
+): Promise<Map<string, AvRecordHold>> {
+	const holds = new Map<string, AvRecordHold>();
+	try {
+		for (const marker of markers) {
+			const address = recordAddress(marker.sectionTipo, marker.sectionId);
+			if (holds.has(address)) continue;
+			const image = decodeTmImage(marker.row.data, marker.row.data_absent);
+			const media =
+				image !== null && typeof image === 'object' ? (image as { media?: unknown }).media : null;
+			holds.set(address, await holdRecordAvComponents(marker.sectionTipo, marker.sectionId, media));
+		}
+	} catch (error) {
+		releaseAvHolds(holds);
+		throw error;
+	}
+	return holds;
+}
+
+/** Give back every record av hold of a map (idempotent). */
+export function releaseAvHolds(holds: ReadonlyMap<string, AvRecordHold>): void {
+	for (const hold of holds.values()) hold.release();
+}
+
+/** The caller's av hold of a marker's record, if it took one. */
+function avHoldOf(context: RecordContext, marker: RecordMarker): AvRecordHold | undefined {
+	return context.avHolds?.get(recordAddress(marker.sectionTipo, marker.sectionId));
 }
 
 /** Section-level write (the delete door's level) AND the record in scope. */
@@ -468,7 +520,13 @@ async function restoreDeletedRecord(
 		return { kind: 'refused', reason: 'cascade_delete_not_reverted', located: false };
 	}
 	const restoredColumns = columns;
-	const media = () => restoreSectionMedia(marker.sectionTipo, marker.sectionId, restoredColumns);
+	const media = () =>
+		restoreSectionMedia(
+			marker.sectionTipo,
+			marker.sectionId,
+			restoredColumns,
+			avHoldOf(context, marker),
+		);
 	if (isInTransaction()) return { kind: 'done', afterCommit: media };
 	await media();
 	return { kind: 'done' };
@@ -1127,14 +1185,15 @@ async function recordWipedHistory(
 function wipedRecordAfterCommit(
 	marker: RecordMarker,
 	restored: readonly { key: WipedKey; written: unknown }[],
-): () => Promise<void> {
+	avHold: AvRecordHold | undefined,
+): () => Promise<string[]> {
 	const media: Record<string, unknown> = {};
 	for (const { key, written } of restored) {
 		if (key.column === 'media') media[key.tipo] = written;
 	}
 	return async () => {
-		if (Object.keys(media).length === 0) return;
-		await restoreSectionMedia(marker.sectionTipo, marker.sectionId, { media });
+		if (Object.keys(media).length === 0) return [];
+		return await restoreSectionMedia(marker.sectionTipo, marker.sectionId, { media }, avHold);
 	};
 }
 
@@ -1206,7 +1265,10 @@ async function restoreWipedRecord(
 			restored.push({ key, written: await writeWipedKey(marker, table, key, context) });
 		}
 		await recordWipedHistory(marker, table, mains, context);
-		return { kind: 'done', afterCommit: wipedRecordAfterCommit(marker, restored) };
+		return {
+			kind: 'done',
+			afterCommit: wipedRecordAfterCommit(marker, restored, avHoldOf(context, marker)),
+		};
 	});
 	if (outcome.kind === 'done' && outcome.afterCommit !== undefined && !isInTransaction()) {
 		await outcome.afterCommit();

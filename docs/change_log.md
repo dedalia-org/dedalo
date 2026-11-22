@@ -639,7 +639,10 @@ Merged since the last release; these ship with the next one.
     audio/video fields is being built or uploaded, they are refused with the same message and nothing
     is deleted, emptied or restored. Try again when the job has finished. While such a delete or restore
     is moving the record's files, no build or upload of its audio/video fields can start, in any
-    language.
+    language. Reverting a batch run waits the same way: a record the revert would bring back while one of
+    its audio/video fields is being built is listed as failed and stays deleted until you revert again
+    after the job; and a record that comes back without all of its media files is now listed as not
+    exact (*media_not_restored*) instead of only being noted in the server log.
 
     Media versions now shows this before you click: while one quality of an audio/video field is being
     built, the rebuild buttons of its other qualities are greyed out, and hovering one says why. They

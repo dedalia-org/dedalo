@@ -198,3 +198,19 @@
   `media_component_lock_native` (36 → 45), `av_record_media_hold_native`
   (9 → 11), `av_upload_build_guard_native` (+1: a claim reclaimed mid-ingest
   publishes no picture and its transcode is not started).
+- **Addendum 2026-11-22 (second review F5, the bulk revert's undelete):** the
+  bulk revert's cascade undelete (a unit's prelude, a standalone group) now
+  HOLDS the av components of every record it would bring back BEFORE its
+  transaction opens (`bulk_revert_records.ts` `holdCascadeAvComponents`, the
+  record av hold), and the file half moves each record's files under that
+  hold. A live build or upload refuses before any row comes back: a unit →
+  its `failed` entry with `code: 'media.build_running'` (located at the unit,
+  whose verdict passed) and the target it re-links counted
+  `cascade_delete_not_reverted`; a standalone group → `{reason: 'failed'}`
+  alone (refused before any record's verdict — SEC-16 rule unchanged). Wire
+  vocabulary change: `inexact[].basis` gains `media_not_restored` — a record
+  that came back but whose media files the mover could not all put back
+  (`restoreSectionMedia` now returns the mover's errors; they were only
+  logged). Gate: `test/unit/bulk_revert_undo_native.test.ts` (+5: standalone
+  refused then back; re-linked refused then back; av files back under the same
+  hold, hard and soft; a file that could not move reported).

@@ -440,7 +440,7 @@ export async function restoreSectionMedia(
 	sectionId: number,
 	columns: Partial<Record<MatrixJsonbColumn, unknown>>,
 	avHold?: AvRecordHold,
-): Promise<void> {
+): Promise<string[]> {
 	try {
 		const mediaColumn = columns.media as Record<string, unknown[]> | null | undefined;
 		// Under the caller's record av hold (restoreSection took it before the
@@ -458,11 +458,14 @@ export async function restoreSectionMedia(
 				`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} reported: ${outcome.errors.join('; ')}`,
 			);
 		}
+		return outcome.errors;
 	} catch (error) {
 		// Never fail a landed restore on the file half — say it loudly instead.
+		const message = error instanceof Error ? error.message : String(error);
 		console.error(
-			`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} FAILED: ${error instanceof Error ? error.message : String(error)}`,
+			`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} FAILED: ${message}`,
 		);
+		return [message];
 	}
 }
 
