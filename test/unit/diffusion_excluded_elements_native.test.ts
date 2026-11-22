@@ -21,6 +21,10 @@
  *      nothing; diffuse to zzdif42 is queued.
  *   C. alias: an alias whose REAL element is listed is excluded — at the panel
  *      selection and at the door's resolution (pure, synthetic tree).
+ *   C2. alias, END TO END (review LOW-5): a REAL diffusion_element_alias built in
+ *      its own scratch domain (zzdex, below) — the door (assertPublishableElement)
+ *      and the sweeper's set (excludedElementTipos) resolve it to its listed real
+ *      element through the virtual tree, not a synthetic one.
  *   D. a malformed list REFUSES as a config fault (tool.config_invalid — the
  *      operator's, not the caller's) — never "nothing excluded".
  *   F. a NEW run started after the exclusion is refused too (review MED-1): the
@@ -47,16 +51,23 @@ import { extractDefines } from '../../src/config/php_defines.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { resetConfigCache } from '../../src/core/tools/config.ts';
 import { moveValueIntoToolConfig } from '../../src/core/tools/tool_config_move.ts';
 import { diffuseAction } from '../../src/diffusion/api/actions.ts';
 import {
 	assertElementNotExcluded,
+	assertPublishableElement,
 	EXCLUSION_KEY,
 	EXCLUSION_TOOL,
 	elementRealTipo,
 	excludedDiffusionElements,
+	excludedElementTipos,
 } from '../../src/diffusion/api/excluded_elements.ts';
 import { buildDiffusionInfo, selectPublishablePanelNodes } from '../../src/diffusion/api/info.ts';
 import {
@@ -70,7 +81,10 @@ import {
 	sweepStaleJobs,
 } from '../../src/diffusion/jobs/queue.ts';
 import { DIFFUSION_JOBS_TABLE } from '../../src/diffusion/jobs/schema.ts';
-import type { VirtualTreeNode } from '../../src/diffusion/plan/virtual_tree.ts';
+import {
+	buildVirtualDiffusionTree,
+	type VirtualTreeNode,
+} from '../../src/diffusion/plan/virtual_tree.ts';
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
@@ -87,6 +101,62 @@ import {
 /** A malformed install config is the OPERATOR's fault, never the caller's (review LOW-7). */
 const CONFIG_FAULT = 'tool.config_invalid';
 const EXCLUDED = ZZDIF_FILE_ELEMENT; // zzdif80
+
+/**
+ * A scratch diffusion domain holding a REAL element alias (review LOW-5): the zzdif
+ * domain has none, and adding one there would change every zzdif gate's tree.
+ *   zzdex1 diffusion_domain 'zzdex alias domain' (parent dd1190)
+ *     zzdex2 diffusion_group
+ *       zzdex3 diffusion_element       ← the REAL element (listed)
+ *       zzdex4 diffusion_element_alias → zzdex3
+ *       zzdex5 diffusion_element       ← unrelated control (not listed, no alias)
+ */
+const ZZDEX_DOMAIN_NAME = 'zzdex alias domain';
+const ZZDEX_REAL = 'zzdex3';
+const ZZDEX_ALIAS = 'zzdex4';
+const ZZDEX_OTHER = 'zzdex5';
+const ZZDEX_SITUATION = situation({
+	tld: 'zzdex',
+	name: 'diffusion_excluded_elements alias domain',
+	nodes: [
+		{
+			tipo: 'zzdex1',
+			parent: 'dd1190',
+			model: 'diffusion_domain',
+			term: { 'lg-spa': ZZDEX_DOMAIN_NAME },
+		},
+		{
+			tipo: 'zzdex2',
+			parent: 'zzdex1',
+			model: 'diffusion_group',
+			term: { 'lg-spa': 'zzdex group' },
+		},
+		{
+			tipo: ZZDEX_REAL,
+			parent: 'zzdex2',
+			model: 'diffusion_element',
+			term: { 'lg-spa': 'zzdex real element' },
+			properties: { diffusion: { type: 'sql' } },
+			order_number: 1,
+		},
+		{
+			tipo: ZZDEX_ALIAS,
+			parent: 'zzdex2',
+			model: 'diffusion_element_alias',
+			term: { 'lg-spa': 'zzdex alias element' },
+			relations: [{ tipo: ZZDEX_REAL }],
+			order_number: 2,
+		},
+		{
+			tipo: ZZDEX_OTHER,
+			parent: 'zzdex2',
+			model: 'diffusion_element',
+			term: { 'lg-spa': 'zzdex other element' },
+			properties: { diffusion: { type: 'sql' } },
+			order_number: 3,
+		},
+	],
+});
 const INCLUDED = ZZDIF_ELEMENT; // zzdif42
 const createdJobIds: string[] = [];
 
@@ -276,6 +346,8 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 	beforeAll(async () => {
 		await assertTestDatabase('diffusion_excluded_elements_native');
 		await ensureZzdifDomain();
+		await dropSituation(ZZDEX_SITUATION);
+		await ensureSituation(ZZDEX_SITUATION);
 		await ensureDiffusionScratchTables();
 		// A dd996 record already configuring tool_diffusion is someone else's
 		// state: REFUSE, never delete it (the census below would also misread it).
@@ -295,6 +367,7 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 		expect(await trackedTimeMachineRows()).toBe(0);
 		expect(await countActivityRows('dd996', [...touchedConfigIds])).toBe(0);
 		expect(await dropZzdifDomain()).toBe(0);
+		expect(await dropSituation(ZZDEX_SITUATION)).toBe(0);
 	});
 
 	test('floor: no list configured → no exclusion, and both elements panel for zzdif1', async () => {
@@ -372,6 +445,27 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				excluded,
 			),
 		).not.toThrow();
+	});
+
+	test('C2. alias end to end: the door and the sweeper set resolve a REAL alias to its listed element', async () => {
+		// FLOOR: the built tree really carries the alias, resolved to its real element.
+		const tree = await buildVirtualDiffusionTree(ZZDEX_DOMAIN_NAME);
+		expect(elementRealTipo(tree, ZZDEX_ALIAS)).toBe(ZZDEX_REAL);
+		await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: [ZZDEX_REAL] }, async () => {
+			// The alias tipo is NOT listed itself: only the realTipo match can refuse it.
+			const refused = await assertPublishableElement(ZZDEX_ALIAS, ZZDEX_DOMAIN_NAME).catch(
+				(error: unknown) => error,
+			);
+			expect(refused).toBeInstanceOf(DedaloError);
+			expect((refused as DedaloError).code).toBe('diffusion.element_excluded');
+			// Control: an element neither listed nor aliasing a listed one passes the door.
+			await assertPublishableElement(ZZDEX_OTHER, ZZDEX_DOMAIN_NAME);
+			// The sweeper's set carries the alias too, and not the control.
+			const blocked = await excludedElementTipos(ZZDEX_DOMAIN_NAME);
+			expect(blocked).toContain(ZZDEX_REAL);
+			expect(blocked).toContain(ZZDEX_ALIAS);
+			expect(blocked).not.toContain(ZZDEX_OTHER);
+		});
 	});
 
 	test('D. a malformed list REFUSES as a CONFIG fault (tool.config_invalid) — read, info and door', async () => {
