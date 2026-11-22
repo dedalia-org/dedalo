@@ -55,7 +55,11 @@
  *         snapshot, addressed by its record (never the dd15 id), children as
  *         of the cell main's bound — a delete ends at its row, a restore at
  *         the main key's next row; a delete RECOVERED by the tool (its own
- *         whole-record row) still ends at the delete row.
+ *         whole-record row) still ends at the delete row. The deleted-records
+ *         list offers only an unsuperseded delete of a record that is not live
+ *         (T2 O16-02), so the recovered delete and the living record's row are
+ *         read where they still serve — the record's own whole-record history
+ *         (filter_by_locators, tipo = section) — under the same cell law.
  *
  * SITUATION: a `zztwf` scratch TLD on `test1` (→ matrix_test): a host section,
  * a frame-target section (number RATING, portal FREL, translatable NOTE, a
@@ -1931,13 +1935,21 @@ describe('(m) edges a hand-mutation of the law left unpinned', () => {
 // ---------------------------------------------------------------- (i-snap) the record-snapshot list
 
 describe('(i-snap) the RECORD-SNAPSHOT list (whole-record rows, tipo = section_tipo): frames from the snapshot, children as of the row', () => {
-	/** The section's snapshot list (the `tipo` column filter): dd15 row id → that row's cell items. */
-	async function snapshotRows(rowIds: number[]): Promise<Map<number, Item[]>> {
+	/**
+	 * The section's snapshot list (the `tipo` column filter) — or, given a
+	 * `recordId`, that record's whole-record history (filter_by_locators, tipo =
+	 * section; the same per-cell emission): dd15 row id → that row's cell items.
+	 */
+	async function snapshotRows(rowIds: number[], recordId?: number): Promise<Map<number, Item[]>> {
+		const scope =
+			recordId === undefined
+				? { filter: { $and: [{ column_name: 'tipo', q: SECTION }] } }
+				: { filter_by_locators: [{ section_tipo: SECTION, section_id: recordId, tipo: SECTION }] };
 		const { data } = await runWithRequestLangs({ applicationLang: ENG, dataLang: SPA }, () =>
 			readTimeMachineData({
 				sqo: {
 					section_tipo: ['dd15'],
-					filter: { $and: [{ column_name: 'tipo', q: SECTION }] },
+					...scope,
 					limit: 1000,
 				},
 				source: { lang: SPA },
@@ -1959,6 +1971,20 @@ describe('(i-snap) the RECORD-SNAPSHOT list (whole-record rows, tipo = section_t
 			});
 		}
 		return byRow;
+	}
+
+	/** The dd15 row ids the section's deleted-records list offers (T2 O16-02). */
+	async function deletedListIds(): Promise<number[]> {
+		const { data } = await readTimeMachineData({
+			sqo: {
+				section_tipo: ['dd15'],
+				filter: { $and: [{ column_name: 'tipo', q: SECTION }] },
+				limit: 1000,
+			},
+			source: { lang: SPA },
+		} as never);
+		const entries = ((data[0] as { entries?: Item[] }).entries ?? []) as Item[];
+		return entries.map((entry) => Number(entry.matrix_id));
 	}
 
 	test("a DELETED record's snapshot row: the frame + its rating (3) as they stood, though delete_target wiped the target — never the live record at <section>/<dd15 row id>", async () => {
@@ -2009,7 +2035,10 @@ describe('(i-snap) the RECORD-SNAPSHOT list (whole-record rows, tipo = section_t
 		// The recover's own audit row: ONE visible whole-record row after the snapshot.
 		const recover = await rowsOf(SECTION, id, SECTION, snapshot);
 		expect(recover.length).toBe(1);
-		const cells = mustGet((await snapshotRows([snapshot])).get(snapshot), 'snapshot row');
+		// Recovered: the delete leaves the deleted list (T2 O16-02) — read it from
+		// the record's whole-record history.
+		expect(await deletedListIds()).not.toContain(snapshot);
+		const cells = mustGet((await snapshotRows([snapshot], id)).get(snapshot), 'snapshot row');
 		expect(frameTargets(cells, SLOT)).toEqual({ ids: [t], total: 1 });
 		expect(childValues(cells, RATING, SLOT, t)).toEqual([3]);
 	}, 60_000);
@@ -2049,7 +2078,9 @@ describe('(i-snap) the RECORD-SNAPSHOT list (whole-record rows, tipo = section_t
 		await mainRow(SECTION, id, PMAIN, () => setPortal(PMAIN, id, [anchor, t])); // N: ends PMAIN's interval
 		await rate(t, 9);
 
-		const cells = mustGet((await snapshotRows([snapshot])).get(snapshot), 'snapshot row');
+		// A LIVING record's row is history, not a listed entry (T2 O16-02).
+		expect(await deletedListIds()).not.toContain(snapshot);
+		const cells = mustGet((await snapshotRows([snapshot], id)).get(snapshot), 'snapshot row');
 		expect(frameTargets(cells, SLOT)).toEqual({ ids: [t], total: 1 });
 		// 5 = as of the ROW (wrong: no bound); 9 = live / an unbounded bound (wrong).
 		expect(childValues(cells, RATING, SLOT, t)).toEqual([7]);

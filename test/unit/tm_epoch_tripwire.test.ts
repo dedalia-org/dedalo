@@ -182,8 +182,10 @@ const NARROWED_READERS: Readonly<Record<string, { reads: number; narrowSites: nu
 	// one that selects the ids. Five narrowings cover the five WHERE clauses:
 	// the count's TWO halves (tmHistoryCountSql: total − hidden, each
 	// withTmEpoch-narrowed), the barrier inner, the late-lookup inner, and the
-	// plain page.
-	'src/core/resolve/read_tm.ts': { reads: 7, narrowSites: 5 },
+	// plain page. The 8th read / 6th narrowing (T2 O16-02): the deleted-records
+	// list's per-record latest-id subquery (deletedListPredicate), history-narrowed
+	// over its own alias `w`.
+	'src/core/resolve/read_tm.ts': { reads: 8, narrowSites: 6 },
 	// The undo-log rewrite (2026-09-27): the orchestrator's one read is the run
 	// loader (every role, epoch-narrowed); the legacy inference's three are the
 	// per-language pre-run row, its wipe-sibling subquery and the record's

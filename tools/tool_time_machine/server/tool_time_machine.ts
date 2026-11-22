@@ -28,11 +28,15 @@
  * write chokepoint (PHP element->set_data + save()). Every component the
  * restore CHANGES on a live record asks the same write door as the component
  * branch (the dd128-aware pair — cross-write:r3); an undelete (no live row) is
- * a record lifecycle effect, authorized at the section. LEDGERED vs PHP (no
- * fixture / no TS twin): deleted-media relink, the session-SQO reset (TS has no
- * PHP session), and the TM-row consumption (PHP deletes the restored snapshot;
- * TS keeps it — the recover writes its own whole-record audit row, which
- * supersedes it in the list and closes its bound).
+ * a record lifecycle effect, authorized at the section. After the restore
+ * commits: the record's deleted media files are put back (restoreSectionMedia),
+ * the section's stored navigation SQO is dropped from the caller's session
+ * (session_store.ts dropSessionSqo — a stale filter / offset), and the activity
+ * row is appended. The restored snapshot row is KEPT as history: the recover
+ * writes its own whole-record row, which supersedes it — the deleted-records
+ * list offers only a record's latest snapshot, and only while the record is not
+ * live (resolve/read_tm.ts deletedListPredicate;
+ * WC-2026-11-22-tm-recover-consumes-deleted-listing).
  *
  * UNCOVERED SCOPE (denied loudly, never guessed): restoring a TM row whose own
  * tipo IS a `component_dataframe` slot — with or without `caller_dataframe`. No
@@ -106,6 +110,8 @@ import {
 	persistRestoredKeys,
 } from '../../../src/core/section_record/index.ts';
 import { principalCanAccessRecord } from '../../../src/core/security/record_scope.ts';
+import { currentRequestContext } from '../../../src/core/security/request_context.ts';
+import { dropSessionSqo } from '../../../src/core/security/session_store.ts';
 import { authorizeRecordAccess, type FrameOf } from '../../../src/core/security/write_door.ts';
 import {
 	type RowLaneState,
@@ -157,8 +163,9 @@ export async function restoreSection(
 		return written;
 	});
 	await restoreSectionMedia(sectionTipo, sectionId, columns);
-	// LEDGERED (no TS twin / no fixture): session-SQO reset, and consuming
-	// (deleting) the restored TM row.
+	// The restored TM row is NOT consumed: it stays history, and the recover row
+	// written above takes it off the deleted-records list (see the header). The
+	// session-SQO drop is apply_value's (the caller with a session).
 }
 
 /**
@@ -663,6 +670,12 @@ export async function toolTimeMachineApplyValue(context: ToolActionContext): Pro
 		// Throws on refusal (the dispatch catch converts), so the activity row is
 		// appended only for a restore that actually landed.
 		await restoreSection(tmRow.data, tmRow.id, sectionTipo, sectionId, userId, door);
+		// COMMITTED: forget the section's stored navigation SQO (PHP unset of
+		// $_SESSION['dedalo']['config']['sqo'][section_tipo], T2 O16-03), so the
+		// next list read does not carry a filter / offset the restore made stale.
+		// A background or session-less caller has none to drop.
+		const session = currentRequestContext()?.session;
+		if (session !== undefined && session !== null) dropSessionSqo(session, sectionTipo);
 		await logRecoverActivity(
 			context,
 			'RECOVER SECTION',

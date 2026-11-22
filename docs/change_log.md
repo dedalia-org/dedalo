@@ -568,6 +568,22 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-media-icons-tc`.
 
+- **"A record recovered from the Time Machine no longer stays in the list of deleted records, and the section's list opens again without its old search."**
+
+    The Time Machine of a section lists its deleted records, ready to be recovered. A record
+    recovered from it stayed in that list, so it could be recovered a second time over the edits
+    made since, and a record deleted twice was listed twice. Now:
+
+    - a recovered record leaves the list; its entries stay in its history, nothing is erased;
+    - a record deleted again is listed once, by its latest deletion;
+    - a record that exists is never listed, whatever history entries it carries;
+    - after a recovery the section's list opens without the search, filter or page you had left
+      on it.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-22-tm-recover-consumes-deleted-listing`.
+
 - **Searching through a field without its own configuration uses the same columns as its list.**
 
     A relation field whose ontology node carries no request configuration, but has a list
@@ -2395,7 +2411,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 100 entries"
+??? note "Wire contract — 101 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2497,6 +2513,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-media-icons-tc`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
+    - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

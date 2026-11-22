@@ -28,7 +28,8 @@
  *      changes, and the inspector sends skip_projects_filter by design). A grant
  *      holder reads (and counts, equal to the rows served) the history of a
  *      record OUTSIDE their projects, of a DELETED record, and the whole snapshot
- *      (undelete) list; no grant → perm.denied; an unscoped (bare dd15 browse) or
+ *      (undelete) list — the DELETED records, in project or not (T2 O16-02: a
+ *      LIVE record's whole-record snapshot is history, never listed); no grant → perm.denied; an unscoped (bare dd15 browse) or
  *      mixed-section read → perm.denied for every non-admin.
  *   6. VIRTUAL section + NO node: a virtual section of the nested-grant section
  *      resolves the real section's node, and the grant keyed on the VIRTUAL
@@ -44,10 +45,10 @@
  * time_machine_list (zztia3); section zztia10 whose time_machine_list (zztia12)
  * sits inside a section_group (zztia11); zztia20, a VIRTUAL section of zztia10;
  * zztia30, a PROJECT-GATED section (component_filter zztia33) with one record in
- * the grant holder's project, one outside it and one deleted; zztia40, a section with no
- * time_machine_list. Users/profiles are minted at explicit ids and swept; TM rows
- * are minted through the engine's own save and delete paths (the LIVE records'
- * whole-record snapshots excepted — see beforeAll).
+ * the grant holder's project, one outside it, and one deleted from each; zztia40, a
+ * section with no time_machine_list. Users/profiles are minted at explicit ids and
+ * swept; TM rows are minted through the engine's own save and delete paths (the
+ * directly inserted whole-record snapshots excepted — see beforeAll).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -107,6 +108,10 @@ const IN_SCOPE_ID = 1;
 const OUT_OF_SCOPE_ID = 2;
 /** In the grant holder's project, then DELETED: only its TM history remains. */
 const DEAD_ID = 3;
+/** In another project, then DELETED: the snapshot list holds it too (grant, not projects). */
+const DEAD_OUT_ID = 4;
+/** A DIRECT_SECTION address with no live record — only a whole-record snapshot (a deleted record). */
+const SNAPSHOT_ONLY_ID = 2;
 /** dd153 project ids the records and the grant holder's dd170 name (no project row needed). */
 const IN_PROJECT_ID = 958721;
 const OUT_PROJECT_ID = 958722;
@@ -176,6 +181,7 @@ const SITUATION = situation({
 		scopedRecord(IN_SCOPE_ID, IN_PROJECT_ID),
 		scopedRecord(OUT_OF_SCOPE_ID, OUT_PROJECT_ID),
 		scopedRecord(DEAD_ID, IN_PROJECT_ID),
+		scopedRecord(DEAD_OUT_ID, OUT_PROJECT_ID),
 	],
 });
 
@@ -371,13 +377,14 @@ beforeAll(async () => {
 		userId: -1,
 	});
 	expect(password.ok).toBe(true);
-	// A whole-record snapshot of the same record carrying BOTH components — the
-	// snapshot list's surface (inserted directly, see the note below).
+	// A whole-record snapshot carrying BOTH components — the snapshot list's
+	// surface (inserted directly, see the note below) — of an address with NO
+	// live record: the list offers only deleted records (T2 O16-02).
 	await sql.unsafe(
 		`INSERT INTO matrix_time_machine (section_id, section_tipo, tipo, lang, timestamp, user_id, data)
 		 VALUES ($1, $2, $2, 'lg-nolan', now(), -1, $3::text::jsonb)`,
 		[
-			RECORD_ID,
+			SNAPSHOT_ONLY_ID,
 			DIRECT_SECTION,
 			encodeForJsonb({
 				string: {
@@ -387,10 +394,11 @@ beforeAll(async () => {
 			}),
 		],
 	);
-	// Whole-record snapshot rows (tipo = section_tipo — the snapshot list's
-	// surface) of the two LIVE records, inserted directly: no engine door writes
-	// one for a live record without changing it. The DEAD record's comes from the
-	// engine's own delete, which snapshots the record and leaves no live row.
+	// Whole-record snapshot rows (tipo = section_tipo) of the two LIVE records,
+	// inserted directly (no engine door writes one for a live record without
+	// changing it): history, NEVER listed — the list is the deleted records (T2
+	// O16-02). The DEAD records' come from the engine's own delete, which
+	// snapshots the record and leaves no live row.
 	for (const sectionId of [IN_SCOPE_ID, OUT_OF_SCOPE_ID]) {
 		await sql.unsafe(
 			`INSERT INTO matrix_time_machine (section_id, section_tipo, tipo, lang, timestamp, user_id, data)
@@ -399,6 +407,7 @@ beforeAll(async () => {
 		);
 	}
 	expect((await deleteSectionRecord(SCOPED_SECTION, DEAD_ID, -1)).removed).toBe(true);
+	expect((await deleteSectionRecord(SCOPED_SECTION, DEAD_OUT_ID, -1)).removed).toBe(true);
 });
 
 afterAll(async () => {
@@ -713,11 +722,13 @@ describe('the owner rule: the TM grant, not the projects filter, scopes a non-ad
 		expect(historyRecords(await send('read', admin, both))).toEqual([IN_SCOPE_ID, OUT_OF_SCOPE_ID]);
 	});
 
-	test('the snapshot (undelete) list holds every record, deleted included; its count equals its rows', async () => {
+	test('the snapshot (undelete) list holds every DELETED record, in project or not — never a live one; its count equals its rows', async () => {
 		const snapshots = (principal: Principal) =>
 			readAndCount((action) => callSnapshots(action, principal, SCOPED_SECTION));
 		const asGranted = await snapshots(granted);
-		expect(asGranted.records).toEqual([IN_SCOPE_ID, OUT_OF_SCOPE_ID, DEAD_ID]);
+		// IN_SCOPE_ID / OUT_OF_SCOPE_ID live and carry a whole-record snapshot:
+		// history, not listed (T2 O16-02).
+		expect(asGranted.records).toEqual([DEAD_ID, DEAD_OUT_ID]);
 		expect(asGranted.total).toBe(asGranted.rows);
 		expect(asGranted).toEqual(await snapshots(admin));
 	});

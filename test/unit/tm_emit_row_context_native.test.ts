@@ -195,6 +195,15 @@ beforeAll(async () => {
 		'2026-08-09 11:22:33',
 	);
 	snapshotRowId = await newestTmRowId(ID_SNAPSHOT, SECTION_TIPO);
+	// …and the delete completes: the record leaves its matrix table. The
+	// record-snapshot list is the DELETED-records list (T2 O16-02,
+	// WC-2026-11-22-tm-recover-consumes-deleted-listing) — a snapshot of a LIVE
+	// record is history, not a listed entry.
+	const removed = (await sql.unsafe(
+		'DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2 RETURNING section_id',
+		[SECTION_TIPO, ID_SNAPSHOT],
+	)) as unknown[];
+	expect(removed.length, 'the snapshotted record must be deleted').toBe(1);
 
 	// --- per-component history: one relation row + one scalar row minted by the
 	//     REAL save path (saveComponentData) where that is side-effect-free.
