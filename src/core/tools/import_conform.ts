@@ -1154,28 +1154,83 @@ function conformIriRecord(record: string, fieldsSeparator: string): ConformedIri
 }
 
 /**
- * A JSON object item's `label_id` split off the item (T0-12): the clean item
- * (every other key kept — the deprecated `title` included, D5) plus its label
- * target. A `label_id` that is not a dd1706 record id, or a label on an item
- * with neither an iri nor a title, is refused.
+ * The keys a json iri ITEM may carry (T2-IMP-2): the stored item shape (`id`,
+ * `iri`, `lang`, deprecated `title` — so a raw export re-imports) plus
+ * `label_id`, which never lands on the item (T0-12). Any other key refuses the
+ * cell naming it: kept verbatim it would be stored on every row, read by
+ * nothing, forever. (PHP copied a whitelist and DROPPED the rest silently.)
  */
-function splitJsonLabel(raw: Record<string, unknown>): ConformedIriItem {
-	const { label_id: labelId, ...item } = raw;
-	if (isAbsentLabelId(labelId)) {
-		return { item, label: null, error: null };
+const IRI_ITEM_KEYS: ReadonlySet<string> = new Set(['iri', 'id', 'title', 'lang', 'label_id']);
+
+/** A refused item: no item, no label, the reason. */
+function refusedIriItem(error: string): ConformedIriItem {
+	return { item: null, label: null, error };
+}
+
+/**
+ * THE conformer of one json object iri item, flat and lang-keyed alike
+ * (T2-IMP-2): unknown key refused naming it; `iri`, when present, a string with
+ * an http(s) protocol, TRIMMED; `id` a positive integer; `title` / `lang`
+ * strings (a null one is absent); an item with neither an iri nor a title is
+ * refused (`{}` never stores `[{}]`); `label_id` split off as the label target —
+ * a dd1706 record id, else refused.
+ */
+function conformIriObject(raw: Record<string, unknown>, value: string): ConformedIriItem {
+	const unknownKey = Object.keys(raw).find((key) => !IRI_ITEM_KEYS.has(key));
+	if (unknownKey !== undefined) {
+		return refusedIriItem(`IGNORED: unknown key "${unknownKey}" in an iri item ${asText(value)}`);
 	}
-	const sectionId = labelRecordId(labelId);
-	if (sectionId === null) {
-		return {
-			item: null,
-			label: null,
-			error: `IGNORED: label_id ${asText(labelId)} is not a label record id (dd1706)`,
-		};
+	const item: Record<string, unknown> = {};
+	if (raw.iri !== undefined) {
+		if (typeof raw.iri !== 'string') {
+			return refusedIriItem(`IGNORED: malformed data, iri must be a string ${asText(value)}`);
+		}
+		const iri = raw.iri.trim();
+		if (!hasProtocol(iri)) return refusedIriItem(`IGNORED: malformed data ${asText(value)}`);
+		item.iri = iri;
+	}
+	if (raw.id !== undefined && raw.id !== null) {
+		if (typeof raw.id !== 'number' || !Number.isSafeInteger(raw.id) || raw.id < 1) {
+			return refusedIriItem(
+				`IGNORED: malformed data, iri item id must be a positive integer ${asText(value)}`,
+			);
+		}
+		item.id = raw.id;
+	}
+	for (const key of ['title', 'lang'] as const) {
+		const field = raw[key];
+		if (field === undefined || field === null) continue;
+		if (typeof field !== 'string') {
+			return refusedIriItem(
+				`IGNORED: malformed data, iri item ${key} must be a string ${asText(value)}`,
+			);
+		}
+		item[key] = field;
+	}
+	return withJsonLabel(item, raw.label_id, value);
+}
+
+/**
+ * The item's `label_id` as its label target (T0-12). A `label_id` that is not a
+ * dd1706 record id is refused; so is an item with neither an iri nor a title —
+ * with a label it is "a label needs an iri", without one an empty item.
+ */
+function withJsonLabel(
+	item: Record<string, unknown>,
+	labelId: unknown,
+	value: string,
+): ConformedIriItem {
+	const labelled = !isAbsentLabelId(labelId);
+	const sectionId = labelled ? labelRecordId(labelId) : null;
+	if (labelled && sectionId === null) {
+		return refusedIriItem(`IGNORED: label_id ${asText(labelId)} is not a label record id (dd1706)`);
 	}
 	if (isBlankIriField(item.iri) && isBlankIriField(item.title)) {
-		return { item: null, label: null, error: LABEL_NEEDS_IRI };
+		return refusedIriItem(
+			labelled ? LABEL_NEEDS_IRI : `IGNORED: an iri item needs an iri or a title ${asText(value)}`,
+		);
 	}
-	return { item, label: { section_id: sectionId }, error: null };
+	return { item, label: sectionId === null ? null : { section_id: sectionId }, error: null };
 }
 
 /** A `label_id` key that names no label at all (missing, null or empty). */
@@ -1219,45 +1274,13 @@ function okWithLabels(result: unknown, intents: IriLabelIntent[]): ConformResult
 	return conformed;
 }
 
-/** One object item of a lang-keyed cell: a string iri with a protocol, trimmed; its label split off. */
-function conformLangKeyedObject(item: Record<string, unknown>, value: string): ConformedIriItem {
-	if (typeof item.iri !== 'string') {
-		return {
-			item: null,
-			label: null,
-			error: `IGNORED: malformed data, iri must be a string ${asText(value)}`,
-		};
-	}
-	const iri = item.iri.trim();
-	if (!hasProtocol(iri)) {
-		return { item: null, label: null, error: `IGNORED: malformed data ${asText(value)}` };
-	}
-	return splitJsonLabel({ ...item, iri });
-}
-
-/** One object item of a flat json cell: an iri, when present, must be an http(s) string. */
-function conformFlatObject(item: Record<string, unknown>, value: string): ConformedIriItem {
-	if (item.iri !== undefined && typeof item.iri !== 'string') {
-		return {
-			item: null,
-			label: null,
-			error: `IGNORED: malformed data, iri must be a string ${asText(value)}`,
-		};
-	}
-	if (typeof item.iri === 'string' && !hasProtocol(item.iri.trim())) {
-		return { item: null, label: null, error: `IGNORED: malformed data ${asText(value)}` };
-	}
-	return splitJsonLabel(item);
-}
-
-/** One json item (object or string record), by the branch's object rule; scalars contribute nothing. */
+/** One json item (object or string record), both branches alike; scalars contribute nothing. */
 function conformJsonIriItem(
 	item: unknown,
 	value: string,
 	fieldsSeparator: string,
-	objectRule: (item: Record<string, unknown>, value: string) => ConformedIriItem,
 ): ConformedIriItem {
-	if (isObject(item)) return objectRule(item, value);
+	if (isObject(item)) return conformIriObject(item, value);
 	if (typeof item === 'string') return conformIriRecord(item, fieldsSeparator);
 	return { item: null, label: null, error: null };
 }
@@ -1274,7 +1297,7 @@ function conformIriLangKeyed(
 	for (const [lang, langValue] of Object.entries(decoded)) {
 		const collector = new IriItemCollector(lang);
 		for (const item of Array.isArray(langValue) ? langValue : [langValue]) {
-			const conformed = conformJsonIriItem(item, value, fieldsSeparator, conformLangKeyedObject);
+			const conformed = conformJsonIriItem(item, value, fieldsSeparator);
 			if (conformed.error !== null) return fail(ctx, conformed.error, value);
 			collector.add(conformed);
 		}
@@ -1300,7 +1323,7 @@ function conformIriFlatJson(
 	// coverage report ("invariants are tripwired or deleted").
 	const collector = new IriItemCollector(null);
 	for (const item of Array.isArray(decoded) ? decoded : [decoded]) {
-		const conformed = conformJsonIriItem(item, value, fieldsSeparator, conformFlatObject);
+		const conformed = conformJsonIriItem(item, value, fieldsSeparator);
 		if (conformed.error !== null) return fail(ctx, conformed.error, value);
 		collector.add(conformed);
 	}
