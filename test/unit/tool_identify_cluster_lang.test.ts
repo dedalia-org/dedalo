@@ -163,3 +163,29 @@ describe('tool_identify::cluster — a client lang is validated before anything 
 		expect(seen).toHaveLength(1);
 	});
 });
+
+describe('tool_identify::cluster — a background submit refuses a bad lang BEFORE a job exists (LOW-4)', () => {
+	test('malformed / undeclared lang → refused at submit (admit), no background job, no lane job', async () => {
+		const { getBackgroundJobStats, scheduleBackground } = await import(
+			'../../src/core/tools/background.ts'
+		);
+		const { mediaJobs } = await import('../../src/core/media/jobs.ts');
+		const spec = tool.apiActions.cluster;
+		if (spec === undefined) throw new Error('cluster action missing');
+		const loaded = { module: tool, dir: '/x', rootIndex: 0 };
+		for (const lang of ['lg-SPA', 'lg-zzzq']) {
+			const before = getBackgroundJobStats().total;
+			const laneBefore = mediaJobs.jobsForUser(-1).length;
+			let thrown: unknown;
+			try {
+				scheduleBackground(loaded, 'cluster', spec, { section_tipo: 'test3', lang }, ADMIN, -1);
+			} catch (error) {
+				thrown = error;
+			}
+			expect(thrown, lang).toBeInstanceOf(DedaloError);
+			expect((thrown as DedaloError).code, lang).toBe('request.invalid_options');
+			expect(getBackgroundJobStats().total, lang).toBe(before);
+			expect(mediaJobs.jobsForUser(-1).length, lang).toBe(laneBefore);
+		}
+	});
+});

@@ -265,6 +265,14 @@ export const tool: ToolServerModule = {
 			permission: 'section_list',
 			minLevel: 1,
 			sectionTipos: clusterSectionTipos,
+			// SUBMIT-TIME PREFLIGHT (review LOW-4): the lang rule runs in the admission
+			// hook, which the framework calls before the handler AND, for a background
+			// request, before scheduleBackground registers a job — so a refused lang
+			// leaves no failed job behind. Synchronous by contract (clusterLang is).
+			// The handler re-runs it: a queued job's turn reads the pinned langs.
+			admit: ({ options }) => {
+				clusterLang(options.lang);
+			},
 			handler: cluster,
 		},
 	},

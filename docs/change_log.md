@@ -2824,7 +2824,8 @@ Merged since the last release; these ship with the next one.
     not catalogue in silently compared empty values. The `lang` option is now checked
     before anything runs: it must be a language code and one of the installation's data
     languages, or the request is refused with `request.invalid_options`. Leaving it out
-    still uses the request's data language. See the
+    still uses the request's data language. A background run is refused when it is
+    submitted, so a refused language no longer leaves a failed job behind. See the
     [tool_identify reference](./development/tools/reference/tool_identify.md).
 
 - **"A tool's `affected_tipos` honours its declared wildcard (`test*` = every element of that TLD) and regular-expression entries, and a tool restricted to a mode (`properties.mode`) only shows in that mode."**
