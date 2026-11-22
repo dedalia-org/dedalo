@@ -37,6 +37,18 @@ import { isDiffusionLangCode } from './lang_code.ts';
  */
 export const NO_LANG = 'lg-nolan';
 
+/**
+ * May `lang` be a WORKING data language — a session's choice, or the install's
+ * menu data language? THE rule (owner ruling 2026-11-22), over an explicit
+ * declared set so config can ask it at boot and core
+ * (`core/resolve/request_lang.ts` `isChoosableDataLang`) over the live one:
+ * declared, and not `lg-nolan` — `lg-nolan` IS declared (the non-translatable
+ * storage slot), but nobody works in it.
+ */
+export function isChoosableDataLangOf(lang: string, declared: ReadonlySet<string>): boolean {
+	return lang !== NO_LANG && declared.has(lang);
+}
+
 /** The language configuration the declared set is derived from. */
 export interface DeclaredDataLangSource {
 	/** DEDALO_DATA_LANG_DEFAULT — the read chain's first fallback candidate. */
@@ -88,6 +100,18 @@ export function declaredDataLangs(source: DeclaredDataLangSource): ReadonlySet<s
 				'slice no read resolves (src/config/data_langs.ts).',
 		);
 	}
+	// The no-language SLOT is never a working language (owner ruling 2026-11-22):
+	// as the default it would be the menu data language of every fresh session,
+	// MCP stdio and the seed-clamp fallback — everyone would work in the slot
+	// untranslatable data is stored in. Refused like any other non-language.
+	if (source.dataLangDefault === NO_LANG) {
+		throw new Error(
+			`config: DEDALO_DATA_LANG_DEFAULT = '${NO_LANG}' is the no-language storage slot ` +
+				'(DEDALO_DATA_NOLAN), not a language anyone works in. It is the data language every ' +
+				'session without a choice runs on and the language the engine writes in outside ' +
+				"any request — set it to a real 'lg-xxx' working language (src/config/data_langs.ts).",
+		);
+	}
 	// The project languages are taken VERBATIM, malformations included: the read
 	// chain iterates this same list, so a typo there is reachable-but-wrong, not
 	// unreachable. Agreement with the read path is this set's whole job; policing
@@ -108,13 +132,18 @@ export function declaredDataLangs(source: DeclaredDataLangSource): ReadonlySet<s
 export interface CurrentDataLangResolution {
 	/** The install's current data language — always a member of the declared set. */
 	readonly lang: string;
-	/** True when DEDALO_DATA_LANG was outside the set and had to be overruled. */
+	/** True when DEDALO_DATA_LANG was not a working language and had to be overruled. */
 	readonly replaced: boolean;
 }
 
 /**
  * Resolve `DEDALO_DATA_LANG` — the install's CURRENT data language — against the
- * declared set, so it can never be a language the install does not declare.
+ * declared set, so it can never be a language the install does not declare, nor
+ * the declared no-language slot `lg-nolan` (owner ruling 2026-11-22, review
+ * LOW-1: the menu data language is what every fresh session, MCP stdio and the
+ * seed clamp fall back to, so it is held to the session CHOICE rule,
+ * `isChoosableDataLangOf` — a slot nobody works in is overruled exactly like an
+ * undeclared code).
  *
  * WHY THIS EXISTS. `DEDALO_DATA_LANG` is a separate key from
  * `DEDALO_DATA_LANG_DEFAULT` and nothing makes the two agree, yet the configured
@@ -128,10 +157,13 @@ export interface CurrentDataLangResolution {
  * So it is neither: an out-of-set value is OVERRULED by
  * `DEDALO_DATA_LANG_DEFAULT`, which is by construction both declared and the
  * read chain's first candidate. Nothing is stranded by the substitution — data
- * already stored under the overruled code was unreachable before it (the data
- * language SELECTOR only offers the project languages, and the fallback chain
- * never consults DEDALO_DATA_LANG), and the caller reports the fact with the
- * action that recovers it: add the language to DEDALO_PROJECTS_DEFAULT_LANGS.
+ * already stored under an overruled UNDECLARED code was unreachable before it
+ * (the data-language selector offers only choosable declared languages —
+ * `page_globals.dedalo_data_langs` — and the fallback chain never consults
+ * DEDALO_DATA_LANG), and the caller reports the fact with the action that
+ * recovers it: add the language to DEDALO_PROJECTS_DEFAULT_LANGS. (`lg-nolan`
+ * data stays reachable as it always was — it is the untranslated slot every
+ * read consults; only its use as a WORKING language is overruled.)
  *
  * NOT A THROW. An unconfigured box can be this shape — its sentinel values
  * are not an operator's choice — and `config` must stay importable there (the installer's
@@ -144,6 +176,6 @@ export function resolveCurrentDataLang(
 	declared: ReadonlySet<string>,
 	dataLangDefault: string,
 ): CurrentDataLangResolution {
-	if (declared.has(configured)) return { lang: configured, replaced: false };
+	if (isChoosableDataLangOf(configured, declared)) return { lang: configured, replaced: false };
 	return { lang: dataLangDefault, replaced: true };
 }

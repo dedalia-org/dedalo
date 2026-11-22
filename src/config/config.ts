@@ -32,7 +32,7 @@
  */
 
 import { legacyAwareDefaultDir, parseMediaWebBase } from './catalog/media.ts';
-import { declaredDataLangs, resolveCurrentDataLang } from './data_langs.ts';
+import { declaredDataLangs, NO_LANG, resolveCurrentDataLang } from './data_langs.ts';
 import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
 import { UNCONFIGURED } from './install_state.ts';
 import { resolveInstanceColor } from './instance_color.ts';
@@ -1126,8 +1126,9 @@ export const INSTALLED_DATA_LANGS: ReadonlySet<string> = declaredDataLangs({
 	equivalences: langEquivalences,
 });
 
-// The install's CURRENT data language, kept inside the declared set: a
-// DEDALO_DATA_LANG naming a language the install does not declare is overruled by
+// The install's CURRENT data language, kept a WORKING language (declared, not
+// lg-nolan): a DEDALO_DATA_LANG naming a language the install does not declare, or
+// the no-language slot, is overruled by
 // DEDALO_DATA_LANG_DEFAULT rather than becoming a write language no read reaches
 // (see resolveCurrentDataLang for why this reports instead of throwing).
 const configuredDataLang = readString('DEDALO_DATA_LANG');
@@ -1141,10 +1142,14 @@ if (currentDataLang.replaced && !UNCONFIGURED) {
 	// sentinel values are not an operator's choice (the server refuses to start on
 	// it anyway), so any mismatch there is not an operator's mistake.
 	console.error(
-		`[config] DEDALO_DATA_LANG = '${configuredDataLang}' is not among the data languages ` +
-			`this installation declares (${[...INSTALLED_DATA_LANGS].join(', ')}); using ` +
-			`DEDALO_DATA_LANG_DEFAULT ('${dataLangDefault}') instead. Data already stored under ` +
-			'the overruled code is reachable again by adding it to DEDALO_PROJECTS_DEFAULT_LANGS.',
+		configuredDataLang === NO_LANG
+			? `[config] DEDALO_DATA_LANG = '${NO_LANG}' is the no-language storage slot, not a ` +
+					`working data language; using DEDALO_DATA_LANG_DEFAULT ('${dataLangDefault}') ` +
+					'instead. Set DEDALO_DATA_LANG to a real working language (or remove it).'
+			: `[config] DEDALO_DATA_LANG = '${configuredDataLang}' is not among the data languages ` +
+					`this installation declares (${[...INSTALLED_DATA_LANGS].join(', ')}); using ` +
+					`DEDALO_DATA_LANG_DEFAULT ('${dataLangDefault}') instead. Data already stored under ` +
+					'the overruled code is reachable again by adding it to DEDALO_PROJECTS_DEFAULT_LANGS.',
 	);
 }
 

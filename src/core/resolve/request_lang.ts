@@ -21,7 +21,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config, INSTALLED_DATA_LANGS } from '../../config/config.ts';
-import { NO_LANG } from '../../config/data_langs.ts';
+import { isChoosableDataLangOf } from '../../config/data_langs.ts';
 
 /** The two languages every request resolves against. */
 export interface RequestLangs {
@@ -114,7 +114,7 @@ export function seedRequestLangs(input: {
  * repair and the seed clamp below (fallback to the menu data language).
  */
 export function isChoosableDataLang(lang: string): boolean {
-	return lang !== NO_LANG && INSTALLED_DATA_LANGS.has(lang);
+	return isChoosableDataLangOf(lang, INSTALLED_DATA_LANGS);
 }
 
 /**

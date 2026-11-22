@@ -862,6 +862,34 @@ describe('the declared data-language set', () => {
 	});
 
 	/**
+	 * THE NO-LANGUAGE SLOT IS DECLARED BUT NOT A WORKING LANGUAGE (owner ruling
+	 * 2026-11-22, review LOW-1). `lg-nolan` is in the set (the storage slot), so a
+	 * membership-only guard let `DEDALO_DATA_LANG=lg-nolan` become the menu data
+	 * language — the language of every fresh session, MCP stdio and the seed
+	 * clamp's fallback. It is overruled like an undeclared code; as the DEFAULT it
+	 * refuses the boot (the boot legs: menu_data_lang_working.test.ts).
+	 */
+	test('DEDALO_DATA_LANG = lg-nolan is overruled; DEDALO_DATA_LANG_DEFAULT = lg-nolan fails the BOOT', () => {
+		const declared = declaredDataLangs({
+			dataLangDefault: 'lg-bbb',
+			projectLangs: ['lg-ccc'],
+			equivalences: [],
+		});
+		expect(declared.has('lg-nolan')).toBe(true); // FLOOR: membership alone would admit it
+		expect(resolveCurrentDataLang('lg-nolan', declared, 'lg-bbb')).toEqual({
+			lang: 'lg-bbb',
+			replaced: true,
+		});
+		expect(() =>
+			declaredDataLangs({
+				dataLangDefault: 'lg-nolan',
+				projectLangs: ['lg-ccc'],
+				equivalences: [],
+			}),
+		).toThrow(/DEDALO_DATA_LANG_DEFAULT = 'lg-nolan' is the no-language storage slot/);
+	});
+
+	/**
 	 * THE CALL SITE, not only the builder (2026-08-27 review). A pure builder that
 	 * is correct while its one call site passes different values is the shape that
 	 * produced this round: the module-level set the chokepoint actually consults

@@ -2213,6 +2213,14 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"lg-nolan can no longer be configured as the working data language."**
+
+    `lg-nolan` is the slot untranslatable data is stored in, not a language anyone works in. Set as
+    `DEDALO_DATA_LANG`, it used to become the data language of every new session; now it is
+    overruled by `DEDALO_DATA_LANG_DEFAULT` and reported at startup, the same way a language the
+    installation does not declare is. Set as `DEDALO_DATA_LANG_DEFAULT`, the server refuses to start
+    and names the line to fix.
+
 - **"Publication: a relation's `empty_value` keeps every item's place, and a field's frames publish only for the main field they belong to."**
 
     Two settings of a publication field's `ddo_map` are now honoured.
