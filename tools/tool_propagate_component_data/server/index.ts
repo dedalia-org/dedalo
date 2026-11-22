@@ -241,9 +241,9 @@ async function authorizeRow(
 		);
 	} catch (error) {
 		if (!isDedaloError(error)) throw error;
-		if (error.code === 'perm.out_of_scope' || error.code.startsWith('request.invalid')) {
-			return 'out of the user scope';
-		}
+		if (error.code === 'perm.out_of_scope') return 'out of the user scope';
+		// the row's address failed the door's id grammar — not a scope verdict
+		if (error.code.startsWith('request.invalid')) return `invalid record address (${error.code})`;
 		if (error.code.startsWith('perm.')) {
 			return `no write permission on ${row.section_tipo}/${componentTipo}`;
 		}

@@ -82,7 +82,7 @@ describe('tool_tc change_all_timecodes validation', () => {
 	}
 
 	test('the locator triple AND lang are required', async () => {
-		const expected = 'component_tipo, section_tipo, a positive section_id and lang are required';
+		const expected = 'component_tipo, section_tipo and lang are required (the write door checks the section_id)';
 		expect(await refusalMessage({})).toBe(expected);
 		expect(await refusalMessage({ component_tipo: 'test17', section_tipo: 'test3' })).toBe(
 			expected,

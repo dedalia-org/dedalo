@@ -17,6 +17,10 @@
   PER-RECORD refusal (`ResaveRefused` — reported, nothing written, the sweep goes on), not a
   whole-component abort. An already-canonical value writes nothing. A READ never decodes or
   rewrites (the normalisation is the regenerate's, never a read's).
+- **Also (OX7-1a):** the run's labels (and the propagate run's section label) are in the
+  request's application language (`currentApplicationLang()`); the `lang` option the
+  update_cache client used to send is no longer read — a caller still sending it is
+  ignored, not refused.
 - **Reason:** one bad record must not stop the repair of every other; a read that rewrites
   stored data would be a write on a read path.
 - **Gate reconciliation:** no parity fixture covers update_cache (write path); no re-harvest.

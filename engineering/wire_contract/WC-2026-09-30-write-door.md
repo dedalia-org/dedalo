@@ -121,12 +121,15 @@
   `authorizeRecordAccess` (write, level 2, section floor 1; door
   `transcription_asr.save_result`, the detached poll `tool_transcription.background_save`)
   BEFORE it looks at the segments; `change_all_timecodes` refuses `tipo ≠ component_tipo`
-  (`request.invalid`) and is its own door (`tool_tc.change_all_timecodes`); the dataframe
+  (`request.invalid_options`) and is its own door (`tool_tc.change_all_timecodes`); the dataframe
   restore engine's writers and importers are DERIVED in the census (`delegates`);
   propagate asks `authorizeSectionTarget` (section floor 1, then the pair) up front — a
   caller below the floor is refused before any row is read (`perm.*`), STRICTER than PHP
   — and `authorizeRecordAccess` per row, whose grant addresses the save (a refused row is
-  reported `out of the user scope` / `no write permission`, never written). dd128 census:
+  reported `out of the user scope` / `no write permission` / `invalid record address
+  (<code>)`, never written). The background transcript save turns only a door refusal
+  (`perm.*`, `request.invalid*`) into the job's terminal sentence; a save failure escapes
+  the poll with its own code. dd128 census:
   PENDING 0.
 - **Gate reconciliation:** no parity fixture covers a refused write; no re-harvest. Gates:
   `test/unit/authz_door_matrix_native.test.ts` (transcript writer, tc handler, propagate
