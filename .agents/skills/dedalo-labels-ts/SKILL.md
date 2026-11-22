@@ -45,7 +45,7 @@ NOT covered (documented, not silently narrowed): dynamic `get_label[variable]` a
 1. Add the key + English source string to `src/core/labels/master.json` (keep keys **sorted**, tab-indented).
 2. Reference it in the same commit: client `get_label.my_key` / `get_label['my_key']`, or a `src/` widget rule `{ kind: 'label', key: 'my_key' }`.
 3. `bun test test/unit/labels_tripwire.test.ts` — proves the definition exists.
-4. Optionally translate (below). Untranslated langs serve the master string via the fallback chain — safe.
+4. Translate it into EVERY non-source catalog (below) in the same commit — `labels_tripwire` requires full coverage for every key, `error_*` included (owner ruling 2026-11-22), with the master's exact placeholder multiset. The fallback chain still serves the master string at runtime, but an untranslated key is a red gate, not a chore.
 
 **Translate a lang catalog** — `scripts/labels_fill.ts` reports the per-lang missing-key backlog vs the master:
 - `bun run scripts/labels_fill.ts` — per-lang missing summary.
