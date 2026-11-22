@@ -38,7 +38,6 @@ import type { RenderClass } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
-import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
 import { labelByTipo, ONTOLOGY_LABEL_FALLBACK_LANG } from '../ontology/labels.ts';
@@ -51,6 +50,7 @@ import {
 	THESAURUS_SECTION,
 } from '../ontology/ontology_tipos.ts';
 import {
+	findFirstChildByModel,
 	findFirstDescendantTipoByModel,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -180,22 +180,23 @@ export function invalidateNode(sectionTipo: string, sectionId: number): void {
 // GET_AR_ELEMENTS (PHP :212).
 // ---------------------------------------------------------------------------
 
-/** The section_list_thesaurus ddo_map of a section (direct child, virtual-aware). */
+/**
+ * The section_list_thesaurus ddo_map of a section (direct child, virtual-aware).
+ * The FIRST such child in sibling order — the one ordered primitive
+ * (resolver.ts findFirstChildByModel, T2-SC-4b): a section holding two never
+ * answers by the order its rows were written. Gate:
+ * ordered_child_lookup_native (T2-SC-4b) + ordered_child_lookup_tripwire.
+ */
 async function readDdoMap(sectionTipo: string): Promise<DdoMapEntry[] | null> {
 	const read = async (parent: string) =>
-		(await sql.unsafe(
-			`SELECT properties FROM dd_ontology WHERE parent = $1 AND model = 'section_list_thesaurus' LIMIT 1`,
-			[parent],
-		)) as { properties: { show?: { ddo_map?: DdoMapEntry[] } } | null }[];
-	let rows = await read(sectionTipo);
-	let props = rows[0]?.properties ?? null;
+		((await findFirstChildByModel(parent, 'section_list_thesaurus'))?.properties ?? null) as {
+			show?: { ddo_map?: DdoMapEntry[] };
+		} | null;
+	let props = await read(sectionTipo);
 	if (props?.show?.ddo_map === undefined) {
 		// virtual section → real section fallback (the one law, getSectionRealTipo).
 		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) {
-			rows = await read(real);
-			props = rows[0]?.properties ?? null;
-		}
+		if (real !== sectionTipo) props = await read(real);
 	}
 	const ddoMap = props?.show?.ddo_map;
 	return Array.isArray(ddoMap) ? ddoMap : null;

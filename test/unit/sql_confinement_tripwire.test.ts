@@ -1050,7 +1050,8 @@ const DD_ONTOLOGY_DIRECT_READ_RATCHET = new Set<string>([
 	'src/core/section/buttons.ts',
 	'src/core/section/list_definitions/section_list.ts',
 	'src/core/section/record/create_record.ts',
-	'src/core/ts_object/ts_object.ts',
+	// ts_object/ts_object.ts: readDdoMap reads through findFirstChildByModel —
+	// entry retired 2026-11-22 (T2-SC-4b).
 	'src/diffusion/plan/virtual_tree.ts',
 	'src/diffusion/resolve/resolver.ts',
 	// scripts/ entered the census 2026-09-02 (P2-20/S-3, shared write-path

@@ -1948,6 +1948,8 @@ Merged since the last release; these ship with the next one.
     section: the first in form order, where it used to be the lowest identifier.
     That walk now also looks inside a node that has no model, as the form tree already did;
     only a nested section or area stops it.
+    The thesaurus and ontology tree reads its row layout (the section's tree list definition)
+    the same way.
 
 - **The Update data panel speaks the administrator's language throughout**
 
