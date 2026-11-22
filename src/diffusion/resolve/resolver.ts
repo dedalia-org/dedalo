@@ -1448,7 +1448,15 @@ export function leafMergeColumns(chain: ResolveStep[]): MergeColumnRef[] {
 	// one, so the chain reaching here holds only resolvable steps — see
 	// WC-2026-08-11-diffusion-uninstalled-package-skip. Steps carry the parent
 	// linkage; a legacy chain without it falls back to the positional heuristic.
-	const hasParentInfo = chain.some((step) => step.kind !== 'system' && step.parent !== undefined);
+	// A main-scoped dataframe hop IS parent linkage even with no `parent`: a
+	// ROOT main compiles its frame hop at the root (T2-DIF-3), and without this
+	// the positional fallback would make a literal main a column again.
+	const hasParentInfo = chain.some(
+		(step) =>
+			step.kind !== 'system' &&
+			(step.parent !== undefined ||
+				(step.kind === 'relation-hop' && step.mainComponentTipo !== undefined)),
+	);
 	if (hasParentInfo) {
 		const parents = new Set<string>();
 		for (const step of chain) {

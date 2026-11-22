@@ -41,6 +41,7 @@ import {
 } from '../../src/diffusion/plan/virtual_tree.ts';
 import {
 	type FieldResolutionError,
+	leafMergeColumns,
 	resolvePublication,
 } from '../../src/diffusion/resolve/resolver.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
@@ -59,6 +60,8 @@ const SECTION_T = 'zzdhp20';
 const SECTION_R = 'zzdhp25'; // frame targets
 const ELEMENT = 'zzdhp42';
 const BAD_ELEMENT = 'zzdhp62';
+const LEAF_ELEMENT = 'zzdhp70'; // compile-only: the column topology of a root literal main
+const LITERAL_FRAME_FIELD = 'zzdhp73';
 
 const EMPTY_FIELD = 'zzdhp45';
 const CONTROL_FIELD = 'zzdhp46';
@@ -154,6 +157,8 @@ const SITUATION = situation({
 			model: 'component_input_text',
 			term: { 'lg-spa': 'zzdhp text' },
 			order_number: 4,
+			// a LITERAL main: declares the slot by request_config
+			properties: { source: { request_config: [{ show: { ddo_map: [{ tipo: FRAME_SLOT }] } }] } },
 		},
 		{ tipo: SECTION_S, parent: 'test1', model: 'section', term: { 'lg-spa': 'zzdhp S' } },
 		{
@@ -278,6 +283,41 @@ const SITUATION = situation({
 			HOST_TEXT,
 			4,
 		),
+		// Compile-only: a root LITERAL main + its scoped dataframe. The main is
+		// not a leaf column (it is the frame's parent ddo) — the compiled hop
+		// carries no `parent` (root level), only mainComponentTipo.
+		{
+			tipo: LEAF_ELEMENT,
+			parent: 'zzdhp41',
+			model: 'diffusion_element',
+			term: { 'lg-spa': 'zzdhp leaf element' },
+			properties: { diffusion: { type: 'sql' } },
+		},
+		{
+			tipo: 'zzdhp71',
+			parent: LEAF_ELEMENT,
+			model: 'database',
+			term: { 'lg-spa': 'zzdhp_leaf_db' },
+		},
+		{
+			tipo: 'zzdhp72',
+			parent: 'zzdhp71',
+			model: 'table',
+			term: { 'lg-spa': 'zzdhp_leaf' },
+			relations: [{ tipo: HOST }],
+		},
+		fieldNode(
+			LITERAL_FRAME_FIELD,
+			'zzdhp72',
+			'literal_frames',
+			[
+				{ tipo: HOST_TEXT, section_tipo: 'self', parent: 'self' },
+				{ tipo: FRAME_SLOT, section_tipo: 'self', parent: HOST_TEXT },
+			],
+			HOST_TEXT,
+			1,
+			'parser_locator::get_locator',
+		),
 	],
 	records: [
 		{
@@ -394,6 +434,23 @@ describe.if(DB_READY)('ddo hop keys: empty_value + main-scoped dataframe (T2-DIF
 		expect(hop?.mainComponentTipo).toBe(MAIN_1);
 		// the main is a ROOT ddo, so its frames are read at the root: the host record
 		expect(hop?.parent).toBeUndefined();
+	});
+
+	test('DIF-3: a root literal main is not a leaf column — only its scoped dataframe is', async () => {
+		const leafPlan = await compileElementPlan(LEAF_ELEMENT, { tree });
+		const field = leafPlan.sections[0]?.fields.find(
+			(candidate) => candidate.id === LITERAL_FRAME_FIELD,
+		);
+		const chain = field?.sourceChain ?? [];
+		// the shape under test: a component main, a parentless scoped hop
+		expect(chain.map((step) => (step.kind === 'system' ? 'system' : step.kind))).toEqual([
+			'component',
+			'relation-hop',
+		]);
+		const hop = chain[1] as Extract<ResolveStep, { kind: 'relation-hop' }>;
+		expect(hop.parent).toBeUndefined();
+		expect(hop.mainComponentTipo).toBe(HOST_TEXT);
+		expect(leafMergeColumns(chain).map((column) => column.tipo)).toEqual([FRAME_SLOT]);
 	});
 
 	test("DIF-3: only the scoped main's frames publish, each with its pairing id", () => {
