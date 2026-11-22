@@ -112,3 +112,24 @@ wrong label, and drops other language slices' labels.
   `test/unit/iri_label_unscoped_lookup_tripwire.test.ts` (D6b caller allow-list).
 - Fixtures: import is a write path; no frozen parity fixture carries an iri import or `label_id` —
   no fixture edit, no re-harvest.
+
+## Addendum 2026-11-22 — T2-IMP-2: one whitelist conformer for a json iri item
+
+- **Before (TS):** a json object item kept every key but `label_id` verbatim on the stored item
+  (`import_conform.ts` "every other key kept"); a FLAT item's `iri` was checked untrimmed and
+  stored with its padding (the lang-keyed one was trimmed); `{}` / `[{}]` stored an empty item; a
+  lang-keyed item demanded an `iri` while a flat one did not.
+- **After:** ONE conformer (`conformIriObject`) for both json branches. Keys: `iri`, `id`, `title`,
+  `lang` (the stored item shape — a raw export re-imports) + `label_id` (split off as the dd560
+  intent, unchanged). Any other key REFUSES the cell (`IGNORED: unknown key "<key>" in an iri
+  item …`). `iri`, when present: a string with an http(s) protocol, TRIMMED; a BLANK `iri` (null, `""`, whitespace) is ABSENT (PHP `!empty`) — the edit UI stores a title-only row as `{iri:"",title:"…"}`, so it must re-import (the blank key is dropped). `id`: a positive
+  integer. `title` / `lang`: strings (null = absent). An item with neither an `iri` nor a `title`
+  is refused (`IGNORED: an iri item needs an iri or a title …`; with a `label_id`, the T0-12 "a
+  label needs an iri" sentence). A lang-keyed title-only item is now accepted like a flat one (PHP
+  parity: neither branch required an iri).
+- **PHP:** copied a whitelist (`iri`, `id`, `label_id`, `title`, flat `lang`) and DROPPED every other
+  key silently; `id` was not type-checked. TS refuses instead of dropping: a dropped key is data the
+  operator believes imported.
+- **Gate:** `test/unit/import_conform_iri_native.test.ts` "the json iri ITEM whitelist (T2-IMP-2)"
+  (unknown key both branches, flat trim, `{}` ×3 shapes, round-trip of the stored shape, blank
+  iri = absent, wrong types). Write path; no fixture.

@@ -116,3 +116,21 @@ native gates named above. No fixture changes.
 - Docs: `docs/development/tools/reference/tool_import_marc21.md` (rule table +
   example). Fragment `marc21-conditional-no-fallback-and-occurrences`.
 
+
+## Addendum 2026-11-22 — T2-IMP-1: PHP's `*/<code>` lookup arm is NOT ported (owner FYI-6)
+
+- **PHP:** `get_section_id_from_code` (class.tool_import_marc21.php :1202) searched the code component
+  with an `$or` of TWO leaves — `=<code>` and `*/<code>` (a suffix wildcard: any stored value ending
+  in `/<code>`) — `limit 1`, first hit wins.
+- **TS (unchanged):** the MARC door's lookup (`import_code_lookup.ts` `resolveMappedCodes`) is the
+  exact-identity law only: the search narrows, the trimmed byte comparison decides. A stored
+  `<prefix>/<code>` (e.g. `https://catalog.test/record/<code>`) names NO record for `<code>`; the
+  run creates its own record.
+- **Reason (structural):** a suffix wildcard matches a look-alike (`X/123` for code `123`) — the
+  defect the exact-identity law (DATA-08) closed. The arm was a copy of the Zotero lookup, whose
+  codes are URL-shaped; a MARC control number has no URL form, and Zotero's own leg was ported as an
+  EXACT match (T1-7). A port would overwrite whichever record merely ends in the number.
+- **Gate:** `test/unit/marc_identity_native.test.ts` "a stored <prefix>/<code> is not matched by
+  <code>…" (door end to end: created 1, updated 0, holder's title and code untouched). Mutation: the
+  PHP `$or` suffix leaf + suffix byte accept in the lookup → red (updated, not created). Write path;
+  no fixture.

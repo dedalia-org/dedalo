@@ -9,7 +9,8 @@
  * NOT here; it lives in dedicated modules this descriptor links out to:
  *   - hierarchy mutation + ancestor walk + sibling ordering → relations/parent.ts
  *   - sibling ORDER (component_number id_key dataframe)      → relations/dataframe.ts
- *   - search (inverse-parent pipeline)                       → still unported
+ *   - search on this component (its own `relation` locators) → search/builders/builder_relation.ts
+ *   - search from the CHILDREN side (inverse-parent pipeline) → search/builders/builder_relation_children.ts
  * `forbidsAddButton`: the context never offers "+" (PHP json controller) — a
  * parent is attached from the children side / the tree.
  * If parent-cell rendering ever needs to diverge from the portal, give it its
