@@ -243,7 +243,14 @@ async function orderSelectExpression(input: {
 	// T2-SL-2: an order entry without `lang` sorts in the REQUEST data lang (PHP
 	// DEDALO_DATA_LANG is per-request) — never the install DATA_LANG, which
 	// answered every session the same slice.
-	const lang = langRaw ?? (translatable ? currentDataLang() : 'lg-nolan');
+	// The lang is INTERPOLATED into the SQL text below, so the request-scope
+	// value is gated like the order entry's own (langRaw, validated at the
+	// caller): a scope seeded with a malformed lang refuses, never reaches SQL
+	// (T2-B10 review M5).
+	const lang = assertValidLang(
+		langRaw ?? (translatable ? currentDataLang() : 'lg-nolan'),
+		'order lang (request scope)',
+	);
 	return `(jsonb_path_query_first(${source}, '$[*] ? (@.lang == $lang).value', '{"lang":"${lang}"}') #>> '{}') AS ${sortAlias}`;
 }
 

@@ -30,6 +30,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { sql } from '../../src/core/db/postgres.ts';
 import { clearOntologyDerivedCaches } from '../../src/core/ontology/cache_invalidation.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { runSearch } from '../../src/core/search/search_statement.ts';
 import { buildSearchSql as buildSearchStatement } from '../../src/core/search/sql_assembler.ts';
 import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
@@ -323,6 +324,31 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 				expected[lane.applicationLang] as number[],
 			);
 		}
+	});
+
+	test('review M5: a malformed request-scope lang is REFUSED, never interpolated into SQL', async () => {
+		// The order lang is spliced into the SQL text; the entry's own `lang` is
+		// gated at the caller, the request-scope fallback was not.
+		const order = [{ direction: 'ASC', path: [step(TEXT)] }];
+		for (const bad of [`lg-eng"}') OR 1=1 --`, 'all; DROP TABLE x', '']) {
+			let thrown: unknown;
+			try {
+				await runWithRequestLangs({ applicationLang: LANG, dataLang: bad }, () =>
+					buildSearchSql({ section_tipo: [SECTION], order, limit: 10 } as never),
+				);
+			} catch (error) {
+				thrown = error;
+			}
+			expect((thrown as { code?: string } | undefined)?.code, bad).toBe('request.invalid');
+			expect(String((thrown as Error | undefined)?.message), bad).toContain(
+				'order lang (request scope)',
+			);
+		}
+		// Control: a well-formed scope lang builds.
+		const built = await runWithRequestLangs({ applicationLang: LANG, dataLang: OTHER_LANG }, () =>
+			buildSearchSql({ section_tipo: [SECTION], order, limit: 10 } as never),
+		);
+		expect(built.sql).toContain('@.lang == $lang');
 	});
 
 	test('SQL shape: lang predicate only on the lang-sliced model', async () => {
