@@ -2238,7 +2238,7 @@ const NOT_YET_PROBED: Readonly<Record<string, string>> = {
  * tool_propagate_component_data's in-handler door is the write door, probed
  * through the real handler (propagateProbe).
  */
-const NOT_YET_PROBED_CEILING = 59;
+const NOT_YET_PROBED_CEILING = 58;
 
 interface Census {
 	probes: Map<string, Probe>;

@@ -242,14 +242,14 @@
 			"filesOverCap": 255
 		},
 		{
-			"generated": "2026-11-19",
+			"generated": "2026-11-21",
 			"functionsOverCap": 642,
-			"filesOverCap": 253
+			"filesOverCap": 255
 		},
 		{
-			"generated": "2026-11-21",
-			"functionsOverCap": 641,
-			"filesOverCap": 253
+			"generated": "2026-11-22",
+			"functionsOverCap": 642,
+			"filesOverCap": 254
 		},
 		{
 			"generated": "2026-11-22",
