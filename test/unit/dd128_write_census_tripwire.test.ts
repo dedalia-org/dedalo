@@ -103,6 +103,8 @@ const WRITE_MODULES = [
 const NON_PRIMITIVE_EXPORTS: Record<string, string> = {
 	isInstalledDataLang: 'a language predicate; reads config, writes nothing.',
 	installedDataLangs: 'a language accessor; reads config, writes nothing.',
+	assertInstalledDataLang:
+		'the membership REFUSAL over isInstalledDataLang (review MED-3, 2026-11-22): throws request.invalid_options for a data language the installation does not declare, answers the lang otherwise. Reads config, writes nothing — the save door and change_lang call it BEFORE any write.',
 	ontologyTldRefusal: 'builds a refusal message from an ontology node; writes nothing.',
 	normalizeItemId: 'a value normalizer over an in-memory item; writes nothing.',
 	getIdFromKey: 'parses an id out of a key string; writes nothing.',
@@ -354,6 +356,11 @@ const CENSUS: Record<string, CensusRow> = {
 		verdict: 'not-dd128',
 		reason:
 			'the AI spend ledger: its only writes are the HARD-BOUND ledger section (AI_SPEND_LEDGER.section, the master-defined `dd660` — createSectionRecord for the day, persistRecordKeys for its user/day/counter components); the caller supplies a principal and amounts, never a section or a component, so no dd128 component is reachable through it.',
+	},
+	'src/core/tools/tool_config_move.ts': {
+		verdict: 'not-dd128',
+		reason:
+			'the v6→v7 config migration’s TOOL_CONFIG move (owner ruling 2026-11-22, R3): createSectionRecord + saveComponentData on the HARD-BOUND Tools-configuration section (TOOLS_CONFIG_SECTION_TIPO, dd996 — its dd1326 name / dd999 config components, both from ontology_map), never a caller-supplied section or component. Its one caller is scripts/migrate_v6_config.ts --execute, as root (-1, as every CLI migration runs). No dd128 component is reachable through it.',
 	},
 	'src/core/security/section_permissions.ts': {
 		verdict: 'not-dd128',
