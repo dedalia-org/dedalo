@@ -122,6 +122,7 @@ import type {
 	ToolActionSpec,
 } from '../../src/core/tools/module.ts';
 import { assertActionPermission } from '../../src/core/tools/security.ts';
+import { saveTranscriptionResult } from '../../src/core/tools/transcription_asr.ts';
 import { setComponentsData } from '../../tools/tool_import_files/server/index.ts';
 import { executeRdfImport } from '../../tools/tool_import_rdf/server/rdf_import_execute.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
@@ -692,6 +693,66 @@ function translationProbe(handler: ToolActionSpec['handler']): Probe {
 					source_lang: 'lg-zzz',
 					target_lang: 'lg-spa',
 					translator: 'babel',
+				},
+				background: false,
+			};
+			return outcomeOf(() => handler(context as ToolActionContext));
+		},
+	};
+}
+
+/**
+ * The transcript WRITER (T2-S05-a, transcription_asr.ts saveTranscriptionResult):
+ * it takes the principal and asks the write door itself, before anything is
+ * read or written — probed DIRECTLY, not through the poll that calls it. A
+ * served cell carries NO segments, so it is past the door and writes nothing.
+ * The DD1725 leg aims the transcript at the manager's own (dd128, dd1725).
+ */
+function transcriptWriterProbe(): Probe {
+	return {
+		expect: { ...FULL, DD1725: 'refused', READ_COMPONENT: 'refused', READ_ONLY: 'refused' },
+		refusalTipo: { NO_COMPONENT: AUTHZ_TEXT, READ_COMPONENT: AUTHZ_TEXT },
+		run: (identity) => {
+			const principal = principalOf(identity);
+			const target = recordTarget(identity, AUTHZ_TEXT);
+			return outcomeOf(() =>
+				saveTranscriptionResult({
+					principal,
+					lang: 'lg-spa',
+					transcriptionDdo: {
+						component_tipo: target.tipo,
+						section_tipo: target.section_tipo,
+						section_id: target.section_id,
+					},
+					segments: [],
+				}),
+			);
+		},
+	};
+}
+
+/**
+ * tool_tc `change_all_timecodes` — its HANDLER (T2-S05-b), not the declarative
+ * record_tipo gate the generic kind probe drives: the handler asks the write
+ * door itself and saves the grant's coordinates. A served cell offsets by 0
+ * seconds, so nothing moves and nothing is written.
+ */
+function tcHandlerProbe(handler: ToolActionSpec['handler']): Probe {
+	return {
+		expect: { ...FULL, DD1725: 'refused', READ_COMPONENT: 'refused', READ_ONLY: 'refused' },
+		refusalTipo: { NO_COMPONENT: AUTHZ_TEXT, READ_COMPONENT: AUTHZ_TEXT },
+		run: (identity) => {
+			const principal = principalOf(identity);
+			const target = recordTarget(identity, AUTHZ_TEXT);
+			const context = {
+				principal,
+				userId: principal.userId,
+				options: {
+					section_tipo: target.section_tipo,
+					tipo: target.tipo,
+					section_id: target.section_id,
+					lang: 'lg-spa',
+					offset_seconds: 0,
 				},
 				background: false,
 			};
@@ -2213,6 +2274,18 @@ async function deriveCensus(): Promise<Census> {
 		'tool:tool_posterframe:create_identifying_image:host',
 		posterframeHostProbe(createIdentifying.handler),
 	);
+	// tool_tc's HANDLER door (T2-S05-b) — probed under its own key, beside the
+	// generic kind probe of the action's declarative gate.
+	const changeAllTimecodes = (await loadToolModules()).get('tool_tc')?.module.apiActions
+		.change_all_timecodes;
+	if (changeAllTimecodes === undefined)
+		throw new Error('tool_tc.change_all_timecodes is not loaded');
+	probes.set(
+		'tool:tool_tc:change_all_timecodes:handler',
+		tcHandlerProbe(changeAllTimecodes.handler),
+	);
+	// The transcript writer (T2-S05-a) — its own write door, probed directly.
+	probes.set('engine:transcription_asr.saveTranscriptionResult', transcriptWriterProbe());
 	// The ingest companions' engine (req 10) — the writer every ingest door shares.
 	probes.set('engine:media_ingest.companion_writes', companionProbe());
 	// The mapped-record importer's engine (req 10) — MARC21 / Zotero / RDF write through it.

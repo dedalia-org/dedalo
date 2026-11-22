@@ -34,9 +34,9 @@ export const DD128_PROBED: Readonly<Record<string, readonly string[]>> = {
 		'tool:tool_image_rotation:apply_rotation',
 		'tool:tool_tc:change_all_timecodes',
 	],
-	// (tool_tc is NOT here: the matrix probes its declarative GATE — the
-	// security.ts row above — never its handler, so the file claims nothing of
-	// its own; its census row is PENDING.)
+	// tool_tc's HANDLER is its own door (T2-S05-b): the probe runs the handler,
+	// not the declarative gate above, with the manager's own (dd128, dd1725).
+	'tools/tool_tc/server/index.ts': ['tool:tool_tc:change_all_timecodes:handler'],
 
 	// The tag-delete wire door and the engine it is the ONLY importer of (the
 	// importer set is DERIVED by the census — DELEGATING_ENGINES).
@@ -91,7 +91,15 @@ export const DD128_PROBED: Readonly<Record<string, readonly string[]>> = {
 	'tools/tool_time_machine/server/tool_time_machine.ts': [
 		'tool:tool_time_machine:apply_value:section',
 	],
-	// (transcription_asr.ts is NOT here: its exported saveTranscriptionResult is
-	// an UNGATED writer any importer may call, and no matrix door drives the
-	// poll's save with the DD1725 manager — PENDING until one does.)
+	// The transcript writer (T2-S05-a): saveTranscriptionResult takes the
+	// principal and asks the write door itself — probed directly, its DD1725 leg
+	// aims the transcript at the manager's own (dd128, dd1725).
+	'src/core/tools/transcription_asr.ts': ['engine:transcription_asr.saveTranscriptionResult'],
+	// The dataframe restore ENGINE (T2-S05-c) stands on its writer importers
+	// (DELEGATING_ENGINES): apply_value's section restore and the bulk revert
+	// writer, each a probed door whose authorizeSlot is the write door.
+	'tools/tool_time_machine/server/dataframe_restore.ts': [
+		'tool:tool_time_machine:apply_value:section',
+		'tool:tool_time_machine:bulk_revert_process:units',
+	],
 };

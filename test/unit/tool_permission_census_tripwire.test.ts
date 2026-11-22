@@ -272,7 +272,9 @@ const CENSUS: Record<string, CensusEntry> = {
 	'tool_transcription:BACKGROUND_POLL_ACTION': {
 		entry: 'backgroundTranscriberPoll',
 		gate: 'authorizeRecordAccess',
-		why: 'background-only: absent from apiActions, so unroutable from the wire; the enqueuing wire action gated first, and the SAVE re-runs the write door (closure Step 3, TOOLS-3 revocation)',
+		// T2-S05-a: the transcript writer asks the write door itself.
+		files: ['src/core/tools/transcription_asr.ts'],
+		why: 'background-only: absent from apiActions, so unroutable from the wire; the enqueuing wire action gated first, and the SAVE re-runs the write door (closure Step 3, TOOLS-3 revocation) — saveTranscriptionResult asks it for the live principal the save resolves (T2-S05-a)',
 	},
 	'tool_transcription:input.action': {
 		entry: null,

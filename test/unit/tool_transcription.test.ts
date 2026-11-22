@@ -764,6 +764,7 @@ describe('saveTranscriptionResult — the id-1 slot contract', () => {
 	// editor showed the empty item 1 (an install's rsc167/528, 2026-07-28).
 	test('an empty component receives the transcript as item id 1', async () => {
 		const { saveTranscriptionResult } = await import('../../src/core/tools/transcription_asr.ts');
+		const { resolvePrincipal } = await import('../../src/core/security/permissions.ts');
 		const { insertMatrixRecordWithCounter, deleteMatrixRecord } = await import(
 			'../../src/core/db/matrix_write.ts'
 		);
@@ -781,7 +782,7 @@ describe('saveTranscriptionResult — the id-1 slot contract', () => {
 					section_id: sectionId,
 				},
 				segments: [{ start: 0, end: 4, text: ' Hello world.' }],
-				userId: -1,
+				principal: await resolvePrincipal(-1),
 			});
 			expect(outcome.saved).toBe(true);
 

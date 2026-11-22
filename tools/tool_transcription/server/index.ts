@@ -593,6 +593,9 @@ export interface BackgroundPollSeams {
 	readonly intervalMs?: number;
 }
 
+/** The write door's name for the detached poll's transcript save. */
+const BACKGROUND_SAVE_DOOR = 'tool_transcription.background_save';
+
 /**
  * The detached completion poll (PHP babel_transcriber::
  * check_background_transcriber_status). Runs under the background executor;
@@ -638,10 +641,31 @@ export async function backgroundTranscriberPoll(
 			...(seams.statusProvider === undefined ? {} : { provider: seams.statusProvider }),
 			...(seams.maxAttempts === undefined ? {} : { maxAttempts: seams.maxAttempts }),
 			...(seams.intervalMs === undefined ? {} : { intervalMs: seams.intervalMs }),
+			// THE SAVE RE-GATES: the principal resolved NOW (not the one captured at
+			// enqueue), and only for a LIVE account — a deactivated (dd131 = No) or
+			// deleted user writes nothing even while their profile still grants the
+			// pair (`resolveLivePrincipal`) — handed to saveTranscriptionResult, which
+			// asks the write door on the transcription target itself (T2-S05-a)
+			// before writing. A typed refusal is the job's terminal state (the
+			// sentence the job records), never an escape from the poll.
 			save: async (input) => {
-				const refusal = await authorizeBackgroundSave(ctx.userId, input.transcriptionDdo);
-				if (refusal !== null) return { saved: false, msg: refusal };
-				const saved = await saveTranscriptionResult(input);
+				let saved: { saved: boolean; msg: string };
+				try {
+					const principal = await resolveLivePrincipal(ctx.userId, BACKGROUND_SAVE_DOOR);
+					saved = await saveTranscriptionResult({
+						lang: input.lang,
+						transcriptionDdo: input.transcriptionDdo,
+						segments: input.segments,
+						principal,
+						door: BACKGROUND_SAVE_DOOR,
+					});
+				} catch (error) {
+					if (!(error instanceof DedaloError)) throw error;
+					console.error(
+						`[tool_transcription] the background save was refused (${error.code}): ${error.message}`,
+					);
+					return { saved: false, msg: `the transcript was not saved: ${error.code}` };
+				}
 				if (saved.saved) seams.onSaved?.();
 				return saved;
 			},
@@ -669,36 +693,6 @@ function dropTemporaryAudio(cleanupPath: string): void {
 			`[tool_transcription] could not delete the temporary audio ${cleanupPath}:`,
 			error,
 		);
-	}
-}
-
-/**
- * The background save's re-gate: the write door on the transcription target,
- * for the principal resolved NOW (not the one captured at enqueue) — and only
- * for a LIVE account: a deactivated (dd131 = No) or deleted user writes nothing
- * even while their profile still grants the pair (`resolveLivePrincipal`).
- * Returns null when authorized, else the refusal sentence the job records — a
- * typed refusal is the job's terminal state, never an escape from the poll.
- */
-async function authorizeBackgroundSave(
-	userId: number,
-	target: { component_tipo: string; section_tipo: string; section_id: number },
-): Promise<string | null> {
-	try {
-		const principal = await resolveLivePrincipal(userId, 'tool_transcription.background_save');
-		await authorizeRecordAccess(principal, target, {
-			mode: 'write',
-			level: 2,
-			sectionFloor: 1,
-			door: 'tool_transcription.background_save',
-		});
-		return null;
-	} catch (error) {
-		if (!(error instanceof DedaloError)) throw error;
-		console.error(
-			`[tool_transcription] the background save was refused (${error.code}): ${error.message}`,
-		);
-		return `the transcript was not saved: ${error.code}`;
 	}
 }
 

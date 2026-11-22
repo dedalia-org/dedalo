@@ -293,8 +293,11 @@ describe('tool_lossless_writeback — the server cells, EXECUTED (behaviour, not
 					},
 					maxAttempts: 1,
 					// The engine's guarded save itself (the save is REQUIRED of the caller —
-					// integrator request 12): the tether is the save's own lossless write.
-					save: saveTranscriptionResult,
+					// integrator request 12): the tether is the save's own lossless write,
+					// as the principal the poll's caller resolves (T2-S05-a: the writer asks
+					// the write door itself).
+					save: async (input) =>
+						saveTranscriptionResult({ ...input, principal: await resolvePrincipal(input.userId) }),
 				},
 			);
 

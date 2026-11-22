@@ -108,6 +108,52 @@ describe('tool_tc change_all_timecodes validation', () => {
 		).toBe(expected);
 	});
 
+	test('T2-S05-b: tipo and component_tipo naming DIFFERENT components is refused by the handler itself', async () => {
+		// The record_tipo gate refuses this too; the handler must not pick one alias
+		// when called without it (the pair written is the pair authorized).
+		expect(
+			await refusalMessage({
+				tipo: 'test17',
+				component_tipo: 'test52',
+				section_tipo: 'test3',
+				section_id: 1,
+				lang: 'lg-spa',
+			}),
+		).toBe('tipo and component_tipo name different components');
+		// The SAME tipo under both keys is one target, not a conflict: past the
+		// alias check (refused further down only because the record does not exist).
+		const agreed = await refusalOf(
+			drive({
+				tipo: 'test17',
+				component_tipo: 'test17',
+				section_tipo: 'test3',
+				section_id: 99999999,
+				lang: 'lg-spa',
+			}),
+		);
+		expect(agreed.publicMessage).not.toBe('tipo and component_tipo name different components');
+	});
+
+	test("T2-S05-b: a non-positive section_id is refused by the handler's own write door (lang present)", async () => {
+		for (const sectionId of [0, -3]) {
+			const refusal = await refusalOf(
+				drive({
+					component_tipo: 'test17',
+					section_tipo: 'test3',
+					section_id: sectionId,
+					lang: 'lg-spa',
+				}),
+			);
+			expect({
+				sectionId,
+				door: refusal.code.startsWith('perm.') || refusal.code.startsWith('request.invalid'),
+			}).toEqual({
+				sectionId,
+				door: true,
+			});
+		}
+	});
+
 	test('a non-numeric offset is refused', async () => {
 		expect(
 			await refusalMessage({

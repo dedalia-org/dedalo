@@ -19,9 +19,11 @@
 
 import { segments_to_html as segmentsToHtml } from '../../../tools/tool_transcription/transcribers/lib/paragraphs.js';
 import { DedaloError } from '../errors/index.ts';
+import type { Principal } from '../security/permissions.ts';
 // The ONE transcript formatter, shared verbatim with the browser engine (plain
 // ESM, no build step — see segmentsToTcText).
 import { fetchGuardedText, isSsrfRefusal } from '../security/ssrf_guard.ts';
+import { authorizeRecordAccess } from '../security/write_door.ts';
 import { localAsrProvider, localAsrStatusProvider } from './transcription_local_asr.ts';
 
 /**
@@ -400,14 +402,29 @@ export function hasExistingTranscription(items: readonly unknown[], lang: string
  * NOTE (PHP divergence, deliberate): PHP passes a raw STRING to the
  * array-typed component_common::set_data_lang (a latent TypeError). We write
  * the intended shape — one { value, lang } item in the target lang slice.
+ *
+ * ITS OWN WRITE DOOR (T2-S05-a). The writer takes the writing PRINCIPAL —
+ * required, no default — and asks authorizeRecordAccess (write, level 2,
+ * section floor 1, the dd128-aware pair, the write scope) BEFORE anything is
+ * read or written; the save addresses the GRANT's coordinates and actor, never
+ * the raw ddo. It used to check nothing itself and trust its one caller's save
+ * seam, so any future importer would have written ungated (the dd128 census
+ * held it PENDING). A refusal THROWS the door's typed error — the caller (the
+ * background poll's save seam) turns it into the job's terminal state.
  */
-export async function saveTranscriptionResult(input: {
-	lang: string;
-	transcriptionDdo: TranscriptionDdo;
-	segments: readonly TranscriptionSegment[];
-	userId: number;
-}): Promise<{ saved: boolean; msg: string }> {
-	const { lang, transcriptionDdo, segments, userId } = input;
+export async function saveTranscriptionResult(
+	input: TranscriptionSaveInput,
+): Promise<TranscriptionSaveOutcome> {
+	const { lang, transcriptionDdo, segments, principal } = input;
+	const grant = await authorizeRecordAccess(
+		principal,
+		{
+			section_tipo: transcriptionDdo.section_tipo,
+			component_tipo: transcriptionDdo.component_tipo,
+			section_id: transcriptionDdo.section_id,
+		},
+		{ mode: 'write', level: 2, sectionFloor: 1, door: input.door ?? TRANSCRIPT_WRITE_DOOR },
+	);
 	if (!Array.isArray(segments) || segments.length === 0) {
 		return { saved: false, msg: 'transcription has no segments — nothing to save' };
 	}
@@ -417,23 +434,17 @@ export async function saveTranscriptionResult(input: {
 	const { readMatrixRecord } = await import('../db/matrix.ts');
 	const { readComponentItems } = await import('../resolve/component_data.ts');
 
-	const model = await getModelByTipo(transcriptionDdo.component_tipo);
+	const model = await getModelByTipo(grant.componentTipo);
 	if (model === null) {
-		return { saved: false, msg: `unknown component tipo '${transcriptionDdo.component_tipo}'` };
+		return { saved: false, msg: `unknown component tipo '${grant.componentTipo}'` };
 	}
-	const table = await getMatrixTableFromTipo(transcriptionDdo.section_tipo);
+	const table = await getMatrixTableFromTipo(grant.sectionTipo);
 	if (table === null) {
-		return { saved: false, msg: `no matrix table for section '${transcriptionDdo.section_tipo}'` };
+		return { saved: false, msg: `no matrix table for section '${grant.sectionTipo}'` };
 	}
-	const record = await readMatrixRecord(
-		table,
-		transcriptionDdo.section_tipo,
-		transcriptionDdo.section_id,
-	);
+	const record = await readMatrixRecord(table, grant.sectionTipo, grant.sectionId);
 	const items =
-		record !== null
-			? (readComponentItems(record, transcriptionDdo.component_tipo, model) ?? [])
-			: [];
+		record !== null ? (readComponentItems(record, grant.componentTipo, model) ?? []) : [];
 	if (hasExistingTranscription(items, lang)) {
 		return {
 			saved: false,
@@ -443,9 +454,9 @@ export async function saveTranscriptionResult(input: {
 
 	const { saveComponentData } = await import('../section/record/save_component.ts');
 	const result = await saveComponentData({
-		componentTipo: transcriptionDdo.component_tipo,
-		sectionTipo: transcriptionDdo.section_tipo,
-		sectionId: transcriptionDdo.section_id,
+		componentTipo: grant.componentTipo,
+		sectionTipo: grant.sectionTipo,
+		sectionId: grant.sectionId,
 		lang,
 		// THE transcription is the lang's single main text: always item id 1,
 		// stated explicitly. An id-less update relies on slice/sibling resolution
@@ -454,12 +465,36 @@ export async function saveTranscriptionResult(input: {
 		// showed the empty item 1 (rsc167/528, 2026-07-28). Same contract as the
 		// browser tool's save_transcription.
 		changedData: [{ action: 'update', id: 1, key: 0, value: { id: 1, value: data, lang } }],
-		userId,
+		userId: grant.userId,
 	});
 	return {
 		saved: result.ok,
 		msg: result.ok ? 'OK. Transcription saved' : result.message,
 	};
+}
+
+/** The write door's name for a transcript written by this module (the grant's `door`). */
+export const TRANSCRIPT_WRITE_DOOR = 'transcription_asr.save_result';
+
+/** What a transcript save did: written, or why not (a message, never a throw past the door). */
+export interface TranscriptionSaveOutcome {
+	saved: boolean;
+	msg: string;
+}
+
+/** What the poll hands its save: the job's captured coordinates and actor id. */
+export interface TranscriptionPollSave {
+	lang: string;
+	transcriptionDdo: TranscriptionDdo;
+	segments: readonly TranscriptionSegment[];
+	userId: number;
+}
+
+/** The writer's input: the poll's save plus the PRINCIPAL the write door judges. */
+export interface TranscriptionSaveInput extends Omit<TranscriptionPollSave, 'userId'> {
+	principal: Principal;
+	/** The calling door's name for the grant/log line (default TRANSCRIPT_WRITE_DOOR). */
+	door?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -483,12 +518,12 @@ export interface TranscriptionPollOptions {
 	 */
 	provider?: TranscriberStatusProvider;
 	/**
-	 * The save — REQUIRED, with no default: saveTranscriptionResult is an
-	 * UNGATED writer (no pair, dd128 or scope check), so the caller that owns the
-	 * authorization supplies the gated save (tool_transcription's re-runs the
-	 * write door for a live principal immediately before writing).
+	 * The save — REQUIRED, with no default: the job carries a user ID, never a
+	 * principal, and only the caller can resolve one that is still LIVE when the
+	 * job finishes (tool_transcription resolves it, then hands it to
+	 * saveTranscriptionResult, which asks the write door itself).
 	 */
-	save: typeof saveTranscriptionResult;
+	save: (input: TranscriptionPollSave) => Promise<TranscriptionSaveOutcome>;
 	/** PHP recurses forever every 4 s; we BOUND the loop (default ~30 min). */
 	maxAttempts?: number;
 	intervalMs?: number;

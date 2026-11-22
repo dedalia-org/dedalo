@@ -373,7 +373,7 @@ const CENSUS: Record<string, CensusRow> = {
 			'self-service recovery writes the requester’s own dd133 after a one-time emailed code; the account is re-validated (exists + dd131 active) at confirm time.',
 	},
 
-	// --- PENDING (real SEC-03 residuals) ----------------------------------
+	// --- (the former PENDING rows — closed; each row states its verdict) ---
 	'src/core/components/component_text_area/tag_delete.ts': {
 		verdict: 'delegates',
 		reason:
@@ -396,9 +396,9 @@ const CENSUS: Record<string, CensusRow> = {
 			'executeCsvImport takes the importing PRINCIPAL: a row that creates its record asks authorizeSectionTarget (section) first; every column — and every slot a legacy frame envelope names — of an existing record asks authorizeRecordAccess (write, level 2, section floor 1, dd128-aware pair, write scope), of a new one authorizeSectionTarget (the pair); a refused column is reported IGNORED, never written, its metadata never applied (req 10). Matrix engine:import_csv_execute.executeCsvImport DD1725 leg (existing record); the create door, the column pair of a created row and the legacy frame slots: import_create_door_native.',
 	},
 	'src/core/tools/transcription_asr.ts': {
-		verdict: 'PENDING',
+		verdict: 'delegates',
 		reason:
-			'the transcript writer: pollTranscriptionCompletion REQUIRES its caller’s save (no default since closure Step 3), and tool_transcription passes one that re-runs the write door for a live principal — but the exported saveTranscriptionResult itself checks no pair, dd128 or scope (any future importer writes ungated), and no matrix door drives the poll’s save with a (dd128, dd1725) manager, so the file claims nothing of its own.',
+			'the transcript writer saveTranscriptionResult TAKES the writing PRINCIPAL (required, T2-S05-a) and asks authorizeRecordAccess (write, level 2, section floor 1, the dd128-aware pair, the write scope) before anything is read or written; the save addresses the GRANT, never the raw ddo. pollTranscriptionCompletion still requires its caller’s save (tool_transcription resolves the LIVE principal and hands it over). Matrix engine:transcription_asr.saveTranscriptionResult DD1725 leg.',
 	},
 	'src/core/media/ingest/companion_writes.ts': {
 		verdict: 'delegates',
@@ -446,9 +446,9 @@ const CENSUS: Record<string, CensusRow> = {
 			'process_uploaded_file writes ONE component named by the payload tipo — a media component\u2019s master file + files_info, or a component_json value through saveComponentData (the parsed upload) — and the declarative record_tipo kind (src/core/tools/security.ts) authorizes exactly that (section, component) pair at level 2 through authorizeRecordAccess (dd128-aware pair, record scope) before the handler runs; a tipo/component_tipo disagreement is refused, so the component written is the one authorized.',
 	},
 	'tools/tool_tc/server/index.ts': {
-		verdict: 'PENDING',
+		verdict: 'delegates',
 		reason:
-			'its one writer, change_all_timecodes, is behind the declarative record_tipo kind — the write door, proven for the GATE by the security.ts row — but that the handler writes exactly the pair the gate authorized is not measured (the matrix never runs the handler), so this row claims nothing of its own.',
+			'change_all_timecodes is behind the declarative record_tipo kind AND is its own door (T2-S05-b): it refuses a payload whose tipo and component_tipo disagree, then asks authorizeRecordAccess (write, level 2, section floor 1, the dd128-aware pair, the write scope) and saves the GRANT’s coordinates — so the pair written is the pair authorized. Matrix tool:tool_tc:change_all_timecodes:handler runs the HANDLER (not the gate): its DD1725 leg.',
 	},
 	'tools/tool_update_cache/server/index.ts': {
 		verdict: 'delegates',
@@ -476,8 +476,9 @@ const CENSUS: Record<string, CensusRow> = {
 			'apply_value: the COMPONENT branch asks authorizeComponentWrite (authorizeRecordAccess: write, level 2, section floor 1, the dd128-aware pair, the write scope) for the main and every slot it writes; the SECTION branch (a whole-record row) hands persistRecordColumns a door that asks the same for EVERY component the restore changes, behind the row lock (the chokepoint\u2019s own modified stamps excepted); a refusal rolls the restore back. An undelete (no live row) is section-level, like a create (cross-write:r3). Matrix tool:tool_time_machine:apply_value:section DD1725 leg.',
 	},
 	'tools/tool_time_machine/server/dataframe_restore.ts': {
-		verdict: 'PENDING',
-		reason: 'the dataframe half of the same restore path, writing through persistRecordKeys.',
+		verdict: 'delegates',
+		reason:
+			'the dataframe half of the restore path, an ENGINE with no principal: its one writer applyDataframeRestore REQUIRES the caller’s authorizeSlot (the write door per slot, C58) and calls it for every slot before persistRecordKeys. It stands on its WRITER importers (DELEGATING_ENGINES, derived on every run): apply_value (tool_time_machine.ts) and the bulk revert writer (bulk_revert_undo.ts), each a probed delegating door.',
 	},
 };
 
@@ -502,40 +503,118 @@ const EXTRA_ROWS: Record<string, CensusRow> = {
 };
 
 /** PINNED. Shrink-only: this may go DOWN, never up. */
-const PENDING_COUNT = 3;
+const PENDING_COUNT = 0;
 
 /**
  * THE DELEGATING ENGINES — a `delegates` row on a file with no principal of its
- * own stands ONLY on its callers. Each engine names the exact set of files that
- * import it; the set is DERIVED from the source (static and dynamic imports
- * across src/ and tools/) on every run and must be EQUAL, and every importer
- * must itself be a probed `delegates` door. A new importer — which would write
- * through the engine with no gate of its own — is red here until it is named
- * and probed, or the engine row goes back to PENDING.
+ * own stands ONLY on its callers. Each engine names its WRITERS (the exported
+ * functions that reach a write primitive) and the exact set of files that
+ * import one of them; both are DERIVED from the source on every run:
+ *
+ *   - every write-primitive call in the engine lies in the body of a NAMED,
+ *     EXPORTED writer (a primitive reached from an unnamed function — a new
+ *     writer, or a private helper — is red until it is named);
+ *   - the files that import a writer (static or dynamic; a namespace / default
+ *     / dynamic import counts as importing everything, a type-only import as
+ *     importing nothing) must EQUAL the named importers, and every named
+ *     importer must itself be a probed `delegates` door.
+ *
+ * An importer of the engine's read-only planners (dataframe_restore's
+ * planDataframeRestore, frameSliceOf…) writes nothing through it and is not on
+ * the list. A new importer of a WRITER — which would write through the engine
+ * with no gate of its own — is red here until it is named and probed, or the
+ * engine row goes back to PENDING.
  */
-const DELEGATING_ENGINES: Readonly<Record<string, readonly string[]>> = {
-	'src/core/components/component_text_area/tag_delete.ts': [
-		'src/core/api/handlers/dd_component_text_area_api.ts',
-	],
+interface DelegatingEngine {
+	/** The engine's exported functions that reach a write primitive. */
+	readonly writers: readonly string[];
+	/** The files that import a writer — each a probed `delegates` door. */
+	readonly importers: readonly string[];
+}
+
+const DELEGATING_ENGINES: Readonly<Record<string, DelegatingEngine>> = {
+	'src/core/components/component_text_area/tag_delete.ts': {
+		writers: ['deleteTagFromAllLangs'],
+		importers: ['src/core/api/handlers/dd_component_text_area_api.ts'],
+	},
+	// T2-S05-c: applyDataframeRestore requires the caller's authorizeSlot (C58).
+	'tools/tool_time_machine/server/dataframe_restore.ts': {
+		writers: ['applyDataframeRestore'],
+		importers: [
+			'tools/tool_time_machine/server/bulk_revert_undo.ts',
+			'tools/tool_time_machine/server/tool_time_machine.ts',
+		],
+	},
 };
 
-/** Every non-test .ts file under src/ and tools/ that imports `engine` (static or dynamic). */
-function importersOf(engine: string): string[] {
+/** What one file imports from `engine`: the runtime symbol names, or '*' for everything. */
+type ImportedSymbols = readonly string[] | '*';
+
+/** The runtime names a static import clause binds (`{a, type B, c as d}` → a, c). */
+function clauseSymbols(clause: string): ImportedSymbols {
+	const trimmed = clause.trim();
+	if (trimmed.startsWith('type ')) return [];
+	const braces = /\{([^}]*)\}/.exec(trimmed);
+	// A default or namespace binding (alone or beside braces) reaches everything.
+	const outside = trimmed
+		.replace(/\{[^}]*\}/, '')
+		.replace(/,/g, '')
+		.trim();
+	if (outside !== '' || braces === null) return '*';
+	return (braces[1] as string)
+		.split(',')
+		.map((part) => part.trim())
+		.filter((part) => part !== '' && !part.startsWith('type '))
+		.map((part) => (part.split(/\s+as\s+/)[0] as string).trim());
+}
+
+/** Every non-test .ts file under src/ and tools/ that imports `engine`, with what it imports. */
+function importersOf(engine: string): { file: string; symbols: ImportedSymbols }[] {
 	const target = join(ROOT, engine);
-	const importers: string[] = [];
+	const importers: { file: string; symbols: ImportedSymbols }[] = [];
 	for (const file of [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'tools'))]) {
 		if (file === target) continue;
 		const source = readFileSync(file, 'utf8');
+		const symbols: string[] = [];
+		let everything = false;
+		let found = false;
 		for (const match of source.matchAll(
-			/(?:\bfrom\s*|\bimport\s*\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g,
+			/\bimport\s+((?:type\s+)?[^'";]*?)\s+from\s*['"](\.{1,2}\/[^'"]+)['"]/g,
 		)) {
-			if (resolve(dirname(file), match[1] as string) === target) {
-				importers.push(relative(ROOT, file));
-				break;
-			}
+			if (resolve(dirname(file), match[2] as string) !== target) continue;
+			found = true;
+			const bound = clauseSymbols(match[1] as string);
+			if (bound === '*') everything = true;
+			else symbols.push(...bound);
+		}
+		for (const match of source.matchAll(/\bimport\s*\(\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+			if (resolve(dirname(file), match[1] as string) !== target) continue;
+			found = true;
+			everything = true;
+		}
+		if (found) importers.push({ file: relative(ROOT, file), symbols: everything ? '*' : symbols });
+	}
+	return importers.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/**
+ * The top-level function enclosing each write-primitive call of `source` (null
+ * when the call sits outside any top-level function), and whether it is exported.
+ */
+function primitiveCallSites(source: string): { fn: string | null; exported: boolean }[] {
+	const declarations = [...source.matchAll(/^(export\s+)?(?:async\s+)?function\s+(\w+)/gm)].map(
+		(match) => ({ at: match.index ?? 0, name: match[2] as string, exported: !!match[1] }),
+	);
+	const sites: { fn: string | null; exported: boolean }[] = [];
+	for (const primitive of WRITE_PRIMITIVES) {
+		let at = source.indexOf(primitive);
+		while (at !== -1) {
+			const enclosing = declarations.filter((declaration) => declaration.at < at).at(-1);
+			sites.push({ fn: enclosing?.name ?? null, exported: enclosing?.exported ?? false });
+			at = source.indexOf(primitive, at + primitive.length);
 		}
 	}
-	return importers.sort();
+	return sites;
 }
 
 function walk(dir: string, acc: string[] = []): string[] {
@@ -632,17 +711,30 @@ describe('the verdicts are true of the source, not just of the table', () => {
 		}
 	});
 
-	test('a delegating ENGINE stands on its callers: its DERIVED importer set equals the named delegating doors', () => {
+	test('a delegating ENGINE stands on its callers: every primitive call sits in a named writer, and the DERIVED writer-importer set equals the named delegating doors', () => {
 		expect(Object.keys(DELEGATING_ENGINES).length).toBeGreaterThan(0);
-		for (const [engine, named] of Object.entries(DELEGATING_ENGINES)) {
+		for (const [engine, { writers, importers: named }] of Object.entries(DELEGATING_ENGINES)) {
 			expect({ engine, verdict: allRows[engine]?.verdict }).toEqual({
 				engine,
 				verdict: 'delegates',
 			});
+			// THE WRITERS ARE DERIVED: every primitive call lies in a named, exported writer.
+			const sites = primitiveCallSites(readFileSync(join(ROOT, engine), 'utf8'));
+			// FLOOR: the engine really writes (a broken scan would pass on []).
+			expect(sites.length, `${engine}: no write-primitive call found`).toBeGreaterThan(0);
+			for (const site of sites) {
+				expect(
+					{ engine, fn: site.fn, exported: site.exported, named: writers.includes(site.fn ?? '') },
+					`${engine}: a write primitive is reached from '${site.fn ?? '(top level)'}', which is not a NAMED, EXPORTED writer`,
+				).toEqual({ engine, fn: site.fn, exported: true, named: true });
+			}
 			const derivedImporters = importersOf(engine);
 			// FLOOR: the scan really resolved an import (a broken regex would pass on []).
 			expect(derivedImporters.length, `${engine}: no importer found at all`).toBeGreaterThan(0);
-			expect({ engine, importers: derivedImporters }).toEqual({
+			const writerImporters = derivedImporters
+				.filter(({ symbols }) => symbols === '*' || symbols.some((name) => writers.includes(name)))
+				.map(({ file }) => file);
+			expect({ engine, importers: writerImporters }).toEqual({
 				engine,
 				importers: [...named].sort(),
 			});
@@ -654,6 +746,28 @@ describe('the verdicts are true of the source, not just of the table', () => {
 				expect((DD128_PROBED[importer]?.length ?? 0) > 0, `${importer} is not probed`).toBe(true);
 			}
 		}
+	});
+
+	test('positive control: the importer scan sees a writer import, a type-only import and a dynamic import for what they are', () => {
+		expect(clauseSymbols('{ applyDataframeRestore, type FrameSlice, planX as y }')).toEqual([
+			'applyDataframeRestore',
+			'planX',
+		]);
+		expect(clauseSymbols('type { DataframeSlotRestore, FrameSlice }')).toEqual([]);
+		expect(clauseSymbols('* as engine')).toBe('*');
+		expect(clauseSymbols('engine, { x }')).toBe('*');
+		// The planner-only importers of dataframe_restore are SEEN, and seen as non-writers.
+		const derived = importersOf('tools/tool_time_machine/server/dataframe_restore.ts');
+		const planners = derived.filter(
+			({ symbols }) => symbols !== '*' && !symbols.includes('applyDataframeRestore'),
+		);
+		expect(planners.map(({ file }) => file)).toContain(
+			'tools/tool_time_machine/server/bulk_revert_legacy.ts',
+		);
+		// A primitive reached from a non-exported helper is reported as such.
+		expect(primitiveCallSites('async function helper() { await persistRecordKeys(a); }\n')).toEqual(
+			[{ fn: 'helper', exported: false }],
+		);
 	});
 
 	test("every 'PENDING' door really does NOT — so a fix cannot land silently", () => {

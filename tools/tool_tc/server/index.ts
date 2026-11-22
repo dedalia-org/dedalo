@@ -48,6 +48,7 @@ import {
 	isLangSlicedModel,
 	saveComponentData,
 } from '../../../src/core/section/record/save_component.ts';
+import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -56,23 +57,24 @@ import {
 } from '../../../src/core/tools/module.ts';
 
 async function changeAllTimecodes(ctx: ToolActionContext): Promise<ToolResponse> {
-	// SAME ORDER as the record_tipo gate (src/core/tools/security.ts): reading these
-	// two aliases in the opposite order authorized one component and rewrote another.
-	const componentTipo = String(ctx.options.tipo ?? ctx.options.component_tipo ?? '');
+	// AMBIGUITY IS A DENIAL — HERE TOO (T2-S05-b). The record_tipo gate refuses a
+	// payload whose two aliases disagree; the handler refuses it again rather
+	// than pick one, so the component it rewrites can never differ from the one a
+	// gate authorized, whoever calls it.
+	const { tipo, component_tipo: componentTipoAlias } = ctx.options;
+	if (tipo != null && componentTipoAlias != null && String(tipo) !== String(componentTipoAlias)) {
+		throw new DedaloError('request.invalid_options', {
+			publicMessage: 'tipo and component_tipo name different components',
+		});
+	}
+	const componentTipo = String(tipo ?? componentTipoAlias ?? '');
 	const sectionTipo = String(ctx.options.section_tipo ?? '');
-	const sectionId = Number(ctx.options.section_id);
 	// PHP `empty($lang)` (:127): a bulk rewrite must name the slice it rewrites.
 	// Defaulting to lg-nolan silently addressed a DIFFERENT slice than the caller
 	// meant — and, since the save writes the slice back whole, could move data.
 	const lang = String(ctx.options.lang ?? '');
 	const offsetSeconds = Number(ctx.options.offset_seconds ?? 0);
-	if (
-		componentTipo === '' ||
-		sectionTipo === '' ||
-		!Number.isInteger(sectionId) ||
-		sectionId <= 0 ||
-		lang === ''
-	) {
+	if (componentTipo === '' || sectionTipo === '' || lang === '') {
 		throw new DedaloError('request.invalid_options', {
 			publicMessage: 'component_tipo, section_tipo, a positive section_id and lang are required',
 		});
@@ -82,6 +84,23 @@ async function changeAllTimecodes(ctx: ToolActionContext): Promise<ToolResponse>
 			publicMessage: 'offset_seconds must be a number',
 		});
 	}
+	// THE HANDLER IS ITS OWN DOOR (T2-S05-b): the write door on the one
+	// (section, component, record) it rewrites — grammar (a non-positive or
+	// malformed id refused), section floor 1, the dd128-aware pair at 2, the
+	// write scope — and the GRANT addresses the read and the save below. The
+	// declarative record_tipo gate asked the same; asking here makes "the pair
+	// written is the pair authorized" a property of the handler, measured by the
+	// authorization matrix running it (tool:tool_tc:change_all_timecodes:handler).
+	const grant = await authorizeRecordAccess(
+		ctx.principal,
+		{
+			section_tipo: sectionTipo,
+			component_tipo: componentTipo,
+			section_id: ctx.options.section_id,
+		},
+		{ mode: 'write', level: 2, sectionFloor: 1, door: 'tool_tc.change_all_timecodes' },
+	);
+	const sectionId = grant.sectionId;
 
 	const model = await getModelByTipo(componentTipo);
 	const table = await getMatrixTableFromTipo(sectionTipo);
@@ -144,12 +163,12 @@ async function changeAllTimecodes(ctx: ToolActionContext): Promise<ToolResponse>
 		// literal classes exactly like set_data_lang — sibling languages survive,
 		// and the data write + TM row land in a single transaction.
 		const saved = await saveComponentData({
-			componentTipo,
-			sectionTipo,
-			sectionId,
+			componentTipo: grant.componentTipo,
+			sectionTipo: grant.sectionTipo,
+			sectionId: grant.sectionId,
 			lang,
 			changedData: [{ action: 'set_data', value: newSlice }],
-			userId: ctx.userId,
+			userId: grant.userId,
 		});
 		if (!saved.ok) {
 			throw new DedaloError('record.save_failed', {
