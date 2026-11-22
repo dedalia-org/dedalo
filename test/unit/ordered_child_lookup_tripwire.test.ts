@@ -16,10 +16,13 @@
  *
  *   A  PICK. A statement over `dd_ontology` with a `model` predicate that keeps
  *      one row — `LIMIT 1` / `LIMIT $n` / `LIMIT ${…}`, `FETCH FIRST|NEXT`, or
- *      `DISTINCT ON` — and whose ORDER BY does not END in the sibling order
- *      (the constant's hole, or its exact expansion) is an offender. A pick by
- *      ADDRESS (a `tipo =` predicate: the row is named, not chosen) is out of
- *      the law.
+ *      `DISTINCT ON` — and whose ORDER BY is not EXACTLY the sibling order
+ *      (the constant's hole, or its exact expansion; the one allowed lead is
+ *      the statement's own DISTINCT ON keys) is an offender — `ORDER BY id,
+ *      ${…}` picks by write order. A pick by ADDRESS (the model-filtered
+ *      table's OWN `tipo` equated to one value: the row is named, not chosen)
+ *      is out of the law; `tipo = ANY(…)` or the other table's `tipo` is no
+ *      address.
  *   B  UNLIMITED CHILD-BY-MODEL. The realistic rewrite of an offender is to
  *      drop the `LIMIT 1` and keep `rows[0]`. So every statement with BOTH a
  *      `parent` predicate and a `model` predicate that is not ordered by the
@@ -117,11 +120,21 @@ const READS_DD_ONTOLOGY =
 	/\b(?:from|join)\s+(?:only\s+)?(?:"?public"?\.)?"?dd_ontology"?(?![a-z0-9_])/;
 const MODEL_PREDICATE =
 	/(?<![a-z0-9_])(?:[a-z_][a-z0-9_]*\.)?"?model"?\s*(?:=|<>|!=|~|\bin\b|\blike\b|\bilike\b|\bis\b|\bnot\b)/;
+/** MODEL_PREDICATE with its alias captured. */
+const MODEL_PREDICATE_ALIAS =
+	/(?<![a-z0-9_])(?:([a-z_][a-z0-9_]*)\.)?"?model"?\s*(?:=|<>|!=|~|\bin\b|\blike\b|\bilike\b|\bis\b|\bnot\b)/g;
 const PARENT_PREDICATE = /(?<![a-z0-9_])(?:[a-z_][a-z0-9_]*\.)?"?parent"?\s*(?:=|\bin\b|\bis\b)/;
-const TIPO_ADDRESS = /(?<![a-z0-9_])(?:[a-z_][a-z0-9_]*\.)?"?tipo"?\s*=/;
 const KEEPS_ONE_ROW = /\blimit\s+(?:1\b|\$\d|\$\{)|\bfetch\s+(?:first|next)\b|\bdistinct\s+on\b/;
+const SIBLING_ORDER_HOLE = /^\$\{\s*dd_ontology_sibling_order_sql\s*\}$/;
 
-/** Does the statement's ORDER BY END in the sibling order (the constant or its expansion)? */
+/**
+ * Does the statement's ORDER BY consist of the sibling order (the constant or
+ * its exact expansion)? EXACTLY that — a key in front of it would decide the
+ * pick before the sibling order is consulted (`ORDER BY id, ${…}` is write
+ * order). The ONE allowed lead is the statement's own `DISTINCT ON (…)` key
+ * list, verbatim: Postgres requires it there, and per group the sibling order
+ * then picks.
+ */
 function orderedBySiblingOrder(sql: string): boolean {
 	const orderBy = sql.lastIndexOf('order by');
 	if (orderBy === -1) return false;
@@ -129,10 +142,50 @@ function orderedBySiblingOrder(sql: string): boolean {
 		.slice(orderBy + 'order by'.length)
 		.replace(/\b(?:limit|offset|fetch)\b.*$/, '')
 		.trim();
-	return (
-		/(?:^|,\s*)\$\{\s*dd_ontology_sibling_order_sql\s*\}$/.test(tail) ||
-		tail === SIBLING_ORDER_EXPANSION ||
-		tail.endsWith(`, ${SIBLING_ORDER_EXPANSION}`)
+	const isSiblingOrder = (text: string): boolean =>
+		SIBLING_ORDER_HOLE.test(text) || text === SIBLING_ORDER_EXPANSION;
+	if (isSiblingOrder(tail)) return true;
+	const distinctOn = /\bdistinct\s+on\s*\(([^)]*)\)/.exec(sql);
+	if (distinctOn === null) return false;
+	const lead = (distinctOn[1] as string)
+		.split(',')
+		.map((key) => key.trim())
+		.join(', ');
+	return tail.startsWith(`${lead}, `) && isSiblingOrder(tail.slice(lead.length + 2).trim());
+}
+
+/** Every alias the statement filters by MODEL ('' = unqualified). */
+function modelAliases(sql: string): Set<string> {
+	const aliases = new Set<string>();
+	for (const match of sql.matchAll(MODEL_PREDICATE_ALIAS)) aliases.add(match[1] ?? '');
+	return aliases;
+}
+
+/** `<alias>.tipo` (bare `tipo` for '') as a regex source. */
+function tipoOf(alias: string): string {
+	return alias === ''
+		? '(?<![a-z0-9_."])"?tipo"?(?![a-z0-9_])'
+		: String.raw`(?<![a-z0-9_])${alias}\."?tipo"?(?![a-z0-9_])`;
+}
+
+/** `= <one value>` — never a set comparison (`= ANY (…)` / `SOME` / `ALL`). */
+const EQUALS_ONE = String.raw`\s*=(?!\s*(?:any|some|all)\s*\()`;
+
+/**
+ * Is the PICKED row named, not chosen by position? Every model-filtered alias
+ * must have its OWN `tipo` equated to one value — a bind, a literal, a column
+ * or an expression (`t.tipo = rel.link->>'tipo'`: the row a relation names) —
+ * never a set (`tipo = ANY($1)`, `tipo IN (…)`). A join that addresses the
+ * OTHER table (`ON p.tipo = c.parent`) leaves `c`, the picked table, unnamed.
+ * A statement without a JOIN reads one table, so a bare `tipo = $1` names it
+ * whatever alias the model predicate carries.
+ */
+function pickedRowIsAddressed(sql: string): boolean {
+	const named = (alias: string): boolean =>
+		new RegExp(String.raw`${tipoOf(alias)}${EQUALS_ONE}|[^=<>!]=\s*${tipoOf(alias)}`).test(sql);
+	const singleTable = !/\bjoin\b/.test(sql);
+	return [...modelAliases(sql)].every(
+		(alias) => named(alias) || (singleTable && alias !== '' && named('')),
 	);
 }
 
@@ -141,7 +194,7 @@ function classifyStatement(text: string): StatementClass {
 	const sql = normalized(text);
 	if (!READS_DD_ONTOLOGY.test(sql) || !MODEL_PREDICATE.test(sql)) return 'not_in_law';
 	if (orderedBySiblingOrder(sql)) return 'ordered';
-	if (KEEPS_ONE_ROW.test(sql)) return TIPO_ADDRESS.test(sql) ? 'not_in_law' : 'unordered_pick';
+	if (KEEPS_ONE_ROW.test(sql)) return pickedRowIsAddressed(sql) ? 'not_in_law' : 'unordered_pick';
 	return PARENT_PREDICATE.test(sql) ? 'set_read' : 'not_in_law';
 }
 
@@ -283,6 +336,55 @@ describe('positive controls — the classifier sees every clause', () => {
 				"SELECT properties FROM dd_ontology WHERE parent = $1 AND /* x */ model = 'section_map'",
 			),
 		).toBe('set_read');
+	});
+
+	test('a key IN FRONT of the sibling order decides the pick — offending (B6 review L1a)', () => {
+		// write order first, the sibling order only breaks its (impossible) ties
+		expect(
+			classifyStatement(
+				`SELECT tipo FROM dd_ontology WHERE parent = $1 AND model = $2 ORDER BY id, \${${PRIMITIVE}} LIMIT 1`,
+			),
+		).toBe('unordered_pick');
+		expect(
+			classifyStatement(
+				`SELECT tipo FROM dd_ontology WHERE parent = $1 AND model = $2 ORDER BY id, ${DD_ONTOLOGY_SIBLING_ORDER_SQL} LIMIT 1`,
+			),
+		).toBe('unordered_pick');
+		// a lead is allowed ONLY as the statement's own DISTINCT ON keys
+		expect(
+			classifyStatement(
+				`SELECT tipo FROM dd_ontology WHERE parent = $1 AND model = $2 ORDER BY parent, \${${PRIMITIVE}} LIMIT 1`,
+			),
+		).toBe('unordered_pick');
+		expect(
+			classifyStatement(
+				`SELECT DISTINCT ON (parent) tipo FROM dd_ontology WHERE model = $1 ORDER BY parent, id, \${${PRIMITIVE}}`,
+			),
+		).toBe('unordered_pick');
+	});
+
+	test("a set comparison or the OTHER table's address names no row — offending (B6 review L1b)", () => {
+		expect(
+			classifyStatement(
+				'SELECT c.tipo FROM dd_ontology c WHERE c.parent = $1 AND c.model = $2 AND c.tipo = ANY($3) LIMIT 1',
+			),
+		).toBe('unordered_pick');
+		expect(
+			classifyStatement(
+				'SELECT tipo FROM dd_ontology WHERE parent = $1 AND model = $2 AND tipo = any ($3) LIMIT 1',
+			),
+		).toBe('unordered_pick');
+		expect(
+			classifyStatement(
+				"SELECT c.tipo FROM dd_ontology p JOIN dd_ontology c ON p.tipo = c.parent WHERE p.tipo = $1 AND c.model = 'section_map' LIMIT 1",
+			),
+		).toBe('unordered_pick');
+		// control: the picked table's OWN tipo named by a relation is an address
+		expect(
+			classifyStatement(
+				"SELECT t.tipo FROM dd_ontology s, jsonb_array_elements(s.relations) AS rel(link) JOIN dd_ontology t ON t.tipo = rel.link->>'tipo' AND t.model = 'matrix_table' WHERE s.tipo = $1 LIMIT 1",
+			),
+		).toBe('not_in_law');
 	});
 
 	test('an address pick, a model-less read and another table are outside the law', () => {
