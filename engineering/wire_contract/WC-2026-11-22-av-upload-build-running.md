@@ -47,4 +47,6 @@
   `media.build_running` (409) like every other busy-component refusal — one
   condition, one code. `media.av_build_refused` keeps the refusals that do not
   depend on another job (no source, no profile, no audio stream, the original as
-  target). The panel renders either through `handle_api_error`.
+  target). The panel renders either through `handle_api_error`. **Owner-confirmed
+  2026-11-22**: the 400 → 409 change for the own-tier-busy refusal is the ruled
+  shape, not a provisional one.
