@@ -23,6 +23,8 @@
  * not-emitted census but must not satisfy this), and its closing WC entry still
  * names it. `transliterate_value` closed 2026-10-31
  * (WC-2026-10-31-transliterate-value-emitted: the `lang_versions` emit hook).
+ * `permissions_indexation` closed 2026-11-22 the other way — its readers were
+ * DELETED (T2 THES-07: assigned, never consumed; v6 field, no consumer).
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -41,8 +43,6 @@ const DATA_FIELD_READ = /\bself\.data\.([a-z_][a-z0-9_]*)/g;
  */
 const NOT_EMITTED: Record<string, string> = {
 	q_lang: 'A search-language annotation the client is prepared to show and never receives.',
-	permissions_indexation:
-		'An indexation-permission hint the client branches on and never receives.',
 };
 
 /**

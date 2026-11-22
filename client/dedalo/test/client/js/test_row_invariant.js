@@ -1759,7 +1759,6 @@ describe('ROW INVARIANT — scratch situation', function () {
 								children_tipo: 'test71',
 								permissions_button_new: 3,
 								permissions_button_delete: 3,
-								permissions_indexation: 3,
 								ar_elements: [
 									{ type: 'term', tipo: 'test71_term', value: 'Term', model: 'component_input_text' },
 								],

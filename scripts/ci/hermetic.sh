@@ -605,6 +605,10 @@ HERMETIC_TRIPWIRES=(
 	#     client/dedalo and tools plus planted strings (verified with DB_HOST=127.0.0.1
 	#     DB_PORT=59999).
 	test/unit/client_no_dynamic_code_tripwire.test.ts
+	# --- 2026-11-22 (T2 SC-4, ordered-child lookup). DB-free: a source scan of the write-path
+	#     corpus plus planted statements (verified with DB_HOST=127.0.0.1 DB_PORT=59999:
+	#     9 pass / 0 fail).
+	test/unit/ordered_child_lookup_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

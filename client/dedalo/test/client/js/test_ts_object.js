@@ -81,7 +81,6 @@ describe('TS_OBJECT : ', function() {
 					has_descriptor_children		: false,
 					permissions_button_new		: 3,
 					permissions_button_delete	: 3,
-					permissions_indexation		: 3,
 					ar_elements					: [
 						{
 							type	: 'term',
@@ -182,7 +181,6 @@ describe('TS_OBJECT : ', function() {
 					model						: "ts_object",
 					permissions_button_delete	: undefined,
 					permissions_button_new		: undefined,
-					permissions_indexation		: undefined,
 					section_id					: section_id, // "1",
 					section_tipo				: section_tipo, // "ts1",
 					status						: "initialized",
@@ -376,7 +374,6 @@ describe('TS_OBJECT : ', function() {
 					has_descriptor_children		: false,
 					permissions_button_new		: 3,
 					permissions_button_delete	: 3,
-					permissions_indexation		: 3,
 					ar_elements					: [
 						{
 							type	: 'term',
@@ -526,7 +523,6 @@ describe('TS_OBJECT : ', function() {
 				has_descriptor_children		: false,
 				permissions_button_new		: 3,
 				permissions_button_delete	: 3,
-				permissions_indexation		: 3,
 				ar_elements					: [
 					Object.assign({ type : 'term', tipo : [`${section_tipo}_term`], model : 'component_input_text' }, term)
 				]
@@ -629,7 +625,6 @@ describe('TS_OBJECT : ', function() {
 						has_descriptor_children		: false,
 						permissions_button_new		: 3,
 						permissions_button_delete	: 3,
-						permissions_indexation		: 3,
 						ar_elements					: [
 							{
 								type	: 'term',

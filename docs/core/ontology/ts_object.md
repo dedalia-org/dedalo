@@ -160,7 +160,11 @@ The unit `ts_object.ts` produces is a flat `TsNodeData` object:
   `resolveElementValue()` when a node has ND children).
 - **`is_descriptor`** starts `true` and is flipped to `false` inline (inside
   `resolveElementValue()`'s `icon`/`ND` branch) when the ND icon's component
-  resolves to "no" (`section_id === 2`).
+  resolves to "no" (`section_id === 2`). A node with NO is_descriptor value
+  (a tree-created term whose flag component declares no default) therefore
+  renders as a descriptor itself, while its parent's `has_descriptor_children`
+  counts only children whose flag is `1` (and the ND button only `2`): a parent
+  whose children are all unflagged draws no expand arrow on a fresh read.
 - **`children_tipo`** is the `component_relation_children` tipo, captured from
   the `link_children` element — set to `null` for non-descriptors (ND terms
   carry no children config).
@@ -172,7 +176,7 @@ These are the rules in `resolveElementValue()` / `getComponentDataLang()`
 
 | element | how its value is built |
 | --- | --- |
-| `term` | First value of the term component(s); empty terms fall back to `componentDataFallbackValue()` (main-lang → `lg-nolan` → any non-empty), wrapped as `` `<mark>${value}</mark>` `` to mark it untranslated. |
+| `term` | Every non-empty value of the term component(s) in the data language, joined with `' \| '`; an empty language falls back through the term language chain (see *The term language chain* below) and is wrapped as `` `<mark>${value}</mark>` `` (after escaping) to mark it untranslated. |
 | `icon` `ND` | Consumed server-side: sets `data.is_descriptor = false`, then **skips** the element (never rendered as an icon). |
 | `icon` `CH` | Always skipped. |
 | `icon` `U` (model `component_relation_index`) | Value becomes `` `${icon}:${total}` `` from `getCountDataGroupBy()`; zero-use icons are dropped. The element also carries a `count_result` whose `totals_group` entries are enriched with their section labels (`termByTipo()`, a direct `dd_ontology.term` read, structure-lang-first). |
@@ -220,8 +224,7 @@ rules:
    `fields_separator` (default `', '`), multiple locators with
    `records_separator` (default `' | '`).
 3. Each value resolves through `getDdoValueByLocator()` (`term_resolver.ts`) with
-   a **wider** language fallback than a term read: data-lang → hierarchy main
-   lang → `lg-nolan` → any non-empty, for translatable components only. This is
+   the same term language chain as every term read (below). This is
    load-bearing — model-name records store their term in a single language, so a
    strict data-lang read would leave every badge empty in any other UI language.
 
@@ -320,13 +323,28 @@ There is **no manual "clear everything" call** — every `dd_ontology` write fan
 out through `clearOntologyDerivedCaches()`, which both `term_resolver.ts`'s
 `clearTermCache()` and the resolver's caches register with.
 
+### The term language chain
+
+Every literal term part — the section_map term, an explicit ddo label, the tree's
+`term` element, a portal showing a thesaurus term — follows one rule. The part is
+every non-empty value of its language, joined with `' | '`. A translatable
+component with no value in the requested language takes the first non-empty one
+of: the hierarchy's main language, `lg-nolan`, then the project languages in
+configuration order. Nothing past the project languages: a value held only in a
+language no project declares is not shown. A non-translatable component reads
+`lg-nolan` only. `getTermTextByLocator()` reports whether the fallback supplied
+the text (`untranslated`); the tree turns that into its `<mark>`, while
+`getTermByLocator()` — what exports, publication and search read — returns the
+plain text.
+
 ### `term_resolver.ts` — public API
 
 | function | purpose |
 | --- | --- |
-| `getTermByLocator(locator, lang = DATA_LANG, fromCache = false, scope = 'thesaurus')` | Resolve the term **string**: gather the scope's term tipos, read each component value (with main-lang fallback via a private `getMainLang()`), join with the scope separator. Falls back to a locator-string id when no term map exists. Caches per scope + lang. |
+| `getTermByLocator(locator, lang = DATA_LANG, fromCache = false, scope = 'thesaurus')` | Resolve the term **string**: gather the scope's term tipos, read each component value through the term language chain, join with the scope separator. Falls back to a locator-string id when no term map exists. Caches per scope + lang. |
+| `getTermTextByLocator(locator, lang = DATA_LANG, fromCache = false, scope = 'thesaurus')` | `getTermByLocator()` plus the `untranslated` flag: `{text, untranslated}`. For screens, which decorate after escaping. |
 | `getTermDataByLocator(locator, scope = 'thesaurus')` | Resolve the merged **raw** component data across the scope's term tipos. Not cached. |
-| `getDdoValueByLocator(locator, tipos, fieldsSeparator = ', ', lang = DATA_LANG)` | Resolve a locator's display string from an **explicit tipo list** instead of the section_map term scope — the `M` model badge. Wider lang fallback (data-lang → main → `lg-nolan` → any, translatable only). Shares the cache under a `` `ddo:${tipos}` `` scope key. |
+| `getDdoValueByLocator(locator, tipos, fieldsSeparator = ', ', lang = DATA_LANG)` | Resolve a locator's display string from an **explicit tipo list** instead of the section_map term scope — the `M` model badge. Same term language chain. Shares the cache under a `` `ddo:${tipos}` `` scope key. |
 | `invalidateNode(sectionTipo, sectionId)` | Evict all cache keys for one node (all langs/scopes) on the `` `${tipo}_${id}_` `` prefix. |
 | `clearTermCache()` | Full cache reset — registered with `clearOntologyDerivedCaches()`, so it runs automatically on any ontology write. |
 

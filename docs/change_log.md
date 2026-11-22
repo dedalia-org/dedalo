@@ -223,6 +223,19 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-section-containment-law`.
 
+- **A term added from the thesaurus tree is no longer marked descriptor and indexable automatically.**
+
+    The "+" of the thesaurus tree used to set *descriptor* and *indexable* to Yes on every new
+    term, even where the thesaurus defines another default (a term defined to start as a
+    non-descriptor was created as a descriptor). A new term now starts with exactly the
+    defaults its thesaurus defines. Where the thesaurus defines none — the case for the
+    standard thesauri — both fields start empty: set them on the new term yourself. Until
+    *descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
+    a term's children has it set, the term shows no arrow to open its children after the page is
+    reloaded, and the new term is reached from its section's list until you set it.
+
+    Wire contract: `WC-2026-08-09-record-birth-defaults`.
+
 - **"Zotero import: a whole-number call number is the record number — checked, and refused when it would overwrite another reference."**
 
     Zotero has no identifier you can edit, so the record number of a reference is read from its
@@ -571,6 +584,14 @@ Merged since the last release; these ship with the next one.
     logged for the ontology's author.
 
     Wire contract: `WC-2026-11-22-state-of-component-msg-refused`.
+
+- **A thesaurus term missing in your language now shows in another of your project languages, marked as untranslated, and shows every value it holds.**
+
+    When a term has no value in the language you work in, Dédalo looks for it in the thesaurus's own language, then in the language-neutral value, then in each of your project languages in order, and shows the first one it finds. Before, the tree, portals and exports each followed a different rule: a term could show empty in one place and in another language elsewhere. In the tree, a term shown from another language is highlighted as untranslated; exports and publications follow the same order and receive the plain text, never the highlight — so a published or exported term missing in the chosen language now carries its text from one of your other project languages instead of staying empty. A value held only in a language that none of your projects uses is no longer shown.
+
+    A term that holds two values in the same language now shows both, separated by ` | `, instead of only the first one. The labels of the indexation groups in the tree now follow your interface language.
+
+    Wire contract: `WC-2026-11-22-term-fallback-chain`.
 
 - **"Tool names and help texts missing in the interface language fall back to its declared equivalent language (Valencian shows Catalan) instead of English."**
 
@@ -2018,6 +2039,8 @@ Merged since the last release; these ship with the next one.
     section: the first in form order, where it used to be the lowest identifier.
     That walk now also looks inside a node that has no model, as the form tree already did;
     only a nested section or area stops it.
+    The thesaurus and ontology tree reads its row layout (the section's tree list definition)
+    the same way.
 
 - **The Update data panel speaks the administrator's language throughout**
 
@@ -2466,7 +2489,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 105 entries"
+??? note "Wire contract — 106 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2572,6 +2595,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
     - `WC-2026-11-22-state-of-component-msg-refused`
+    - `WC-2026-11-22-term-fallback-chain`
     - `WC-2026-11-22-tool-availability-context`
 
 ## 7.0.0-beta.8 — 2026-11-08

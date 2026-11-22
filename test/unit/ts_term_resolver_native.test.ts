@@ -10,25 +10,27 @@
  * eviction path. Order matters everywhere below: seed, read stale, invalidate,
  * re-read.
  *
- * The two chains are deliberately NOT the same, and that difference is the
- * subtlest thing here:
- *   - `termComponentValue`  (getTermByLocator):  data-lang → hierarchy main lang. STOP.
- *   - `ddoComponentValue`   (getDdoValueByLocator): data-lang → main lang →
- *     lg-nolan → any non-empty (PHP's grid `fallback_value`, translatable only).
- * `test3/27` holds its `test52` in lg-spa only and test3's main lang resolves to
- * lg-eng, so an lg-eng read is the exact fixture that separates them: the term
- * resolver returns `''`, the ddo resolver returns 'El dos'.
+ * ONE chain since T2 THES-01/03 (2026-11-22; the two doors used to differ — the
+ * term door stopped at the main lang, the ddo door ran on to "any non-empty"):
+ * a translatable part reads data-lang → hierarchy main lang → lg-nolan → the
+ * project langs in config order, and STOPS there (PHP
+ * get_value_with_fallback_from_data); a non-translatable part reads lg-nolan
+ * only. `test3/27` holds its `test52` in lg-spa only (a project lang), so an
+ * lg-eng read resolves 'El dos' through BOTH doors; a value held only in a
+ * language no project declares (`lg-tlh`) resolves through neither.
  *
  * Fixtures: canonical playground rows test3/1 and test3/27 (re-seeded by
  * test/preload/canonical_test3.ts) for the read cases; scratch test3 rows in
  * 924000-924999 (this file's assigned namespace) for every case a canonical row
- * cannot reach — the lg-nolan / any-non-empty tail, the non-translatable branch,
+ * cannot reach — the lg-nolan / project-lang rungs, the non-project stop, the
+ * non-translatable branch,
  * a multi-fragment join, and the rename that invalidateNode must expose.
  * Scratch rows are inserted raw (no counter bump, no TM tail) and removed
  * fail-loud in afterAll.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import {
 	clearTermCache,
@@ -43,7 +45,7 @@ const SCRATCH_MAX = 924999;
 
 /** translatable value only under lg-nolan → exercises the ddo lg-nolan step. */
 const ID_NOLAN = 924001;
-/** translatable value only under lg-fra → exercises the ddo any-non-empty tail. */
+/** translatable value only under lg-fra (a project lang) → the project-lang rung. */
 const ID_ANY = 924002;
 /** NON-translatable component stored under lg-eng only → the no-fallback branch. */
 const ID_NOTRANS_ENG = 924003;
@@ -55,6 +57,9 @@ const ID_TWO_FRAGMENTS = 924005;
 const ID_RENAME = 924006;
 /** a second node renamed at the same time → proves the eviction is SCOPED. */
 const ID_NEIGHBOUR = 924007;
+/** translatable value only under lg-tlh (NO project lang) → the chain's stop. */
+const ID_FOREIGN = 924008;
+const FOREIGN_LANG = 'lg-tlh';
 
 async function seedTest3(sectionId: number, stringColumn: unknown): Promise<void> {
 	await sql.unsafe(
@@ -87,6 +92,7 @@ beforeAll(async () => {
 	});
 	await seedTest3(ID_RENAME, { test52: [{ lang: 'lg-eng', value: 'ORIGINAL' }] });
 	await seedTest3(ID_NEIGHBOUR, { test52: [{ lang: 'lg-eng', value: 'NEIGHBOUR' }] });
+	await seedTest3(ID_FOREIGN, { test52: [{ lang: FOREIGN_LANG, value: 'Only Klingon' }] });
 });
 
 // Both functions share ONE module cache; a case that did not clear it would
@@ -131,7 +137,7 @@ describe('getTermByLocator — term resolution', () => {
 
 	test('main-lang fallback: an lg-spa read of test3/1 still returns the ENGLISH value', async () => {
 		// test3/1 has no lg-spa test52; test3's hierarchy main lang resolves to
-		// lg-eng, so termComponentValue's second step supplies the value. This is
+		// lg-eng, so the chain's main-lang rung supplies the value. This is
 		// the case that makes test3/1 useless for contrasting the two resolvers.
 		const value = await getTermByLocator({ section_tipo: 'test3', section_id: 1 }, 'lg-spa');
 		expect(value).toBe('input text content of one');
@@ -142,11 +148,20 @@ describe('getTermByLocator — term resolution', () => {
 		expect(value).toBe('El dos');
 	});
 
-	test('STRICT chain: test3/27 in lg-eng is EMPTY — the term chain stops at the main lang', async () => {
-		// lg-eng missing, main lang (lg-eng) missing ⇒ ''. No lg-nolan step, no
-		// any-non-empty tail: that is what separates this from getDdoValueByLocator.
+	test('project-lang rung: test3/27 in lg-eng resolves its lg-spa value', async () => {
+		// lg-eng missing, main lang (lg-eng) missing, lg-nolan missing ⇒ the
+		// project langs in config order supply lg-spa.
+		expect(config.menu.projectsDefaultLangs).toContain('lg-spa');
 		const value = await getTermByLocator({ section_tipo: 'test3', section_id: 27 }, 'lg-eng');
-		expect(value).toBe('');
+		expect(value).toBe('El dos');
+	});
+
+	test('the chain STOPS at the project langs: a value only in a non-project lang is EMPTY', async () => {
+		expect(config.menu.projectsDefaultLangs).not.toContain(FOREIGN_LANG);
+		const locator = { section_tipo: 'test3', section_id: ID_FOREIGN };
+		expect(await getTermByLocator(locator, 'lg-eng')).toBe('');
+		// …and the read is not failing: in its own lang the value is there.
+		expect(await getTermByLocator(locator, FOREIGN_LANG)).toBe('Only Klingon');
 	});
 
 	test('a section with no term tipos falls back to the legacy locator STRING', async () => {
@@ -175,12 +190,12 @@ describe('getTermByLocator — term resolution', () => {
 });
 
 describe('getTermByLocator — cache discipline', () => {
-	test('the cache key includes the LANG: a cached lg-eng miss never leaks into lg-spa', async () => {
-		const locator = { section_tipo: 'test3', section_id: 27 };
+	test('the cache key includes the LANG: a cached lg-eng miss never leaks into another lang', async () => {
+		const locator = { section_tipo: 'test3', section_id: ID_FOREIGN };
 		// Seed the cache with the empty English result…
 		expect(await getTermByLocator(locator, 'lg-eng')).toBe('');
-		// …then read Spanish FROM CACHE. A lang-less key would serve '' here.
-		expect(await getTermByLocator(locator, 'lg-spa', true)).toBe('El dos');
+		// …then read the record's own lang FROM CACHE. A lang-less key would serve '' here.
+		expect(await getTermByLocator(locator, FOREIGN_LANG, true)).toBe('Only Klingon');
 		// and the English entry is still the cached one.
 		expect(await getTermByLocator(locator, 'lg-eng', true)).toBe('');
 	});
@@ -230,6 +245,7 @@ describe('getTermByLocator — cache discipline', () => {
 
 		await seedTest3(ID_RENAME, { test52: [{ lang: 'lg-eng', value: 'ORIGINAL' }] });
 		await seedTest3(ID_NEIGHBOUR, { test52: [{ lang: 'lg-eng', value: 'NEIGHBOUR' }] });
+		await seedTest3(ID_FOREIGN, { test52: [{ lang: FOREIGN_LANG, value: 'Only Klingon' }] });
 	});
 });
 
@@ -272,12 +288,15 @@ describe('getDdoValueByLocator — guards', () => {
 	});
 });
 
-describe('getDdoValueByLocator — the WIDE language chain', () => {
-	test('the any-non-empty tail resolves test3/27 in lg-eng where getTermByLocator cannot', async () => {
+describe('getDdoValueByLocator — the SAME language chain', () => {
+	test('both doors share ONE chain: test3/27 in lg-eng resolves through each', async () => {
 		const locator = { section_tipo: 'test3', section_id: 27 };
 		expect(await getDdoValueByLocator(locator, ['test52'], ', ', 'lg-eng')).toBe('El dos');
-		// The contrast IS the contract: same record, same lang, same component.
-		expect(await getTermByLocator(locator, 'lg-eng')).toBe('');
+		expect(await getTermByLocator(locator, 'lg-eng')).toBe('El dos');
+		// …and both STOP at the project langs (no any-non-empty tail).
+		const foreign = { section_tipo: 'test3', section_id: ID_FOREIGN };
+		expect(await getDdoValueByLocator(foreign, ['test52'], ', ', 'lg-eng')).toBe('');
+		expect(await getTermByLocator(foreign, 'lg-eng')).toBe('');
 	});
 
 	test('lg-nolan step: a translatable component stored under lg-nolan resolves in lg-eng', async () => {
@@ -291,7 +310,8 @@ describe('getDdoValueByLocator — the WIDE language chain', () => {
 		).toBe('Nolan stored');
 	});
 
-	test('any-non-empty tail: a value stored only under an unrelated lang still renders', async () => {
+	test('project-lang rung: a value stored only under another project lang renders', async () => {
+		expect(config.menu.projectsDefaultLangs).toContain('lg-fra');
 		expect(
 			await getDdoValueByLocator(
 				{ section_tipo: 'test3', section_id: ID_ANY },

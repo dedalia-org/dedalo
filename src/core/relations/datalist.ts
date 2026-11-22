@@ -1115,10 +1115,13 @@ export async function resolveLocatorLabels(
 		const targetId = Number(locator.section_id ?? 0);
 		if (targetSection === '' || !Number.isFinite(targetId)) continue;
 		// A THESAURUS target whose configured label IS its term component
-		// (toponymy, thesauri) is read through the term resolver: data lang first,
-		// then the thesaurus's OWN main lang — never the install default or the
-		// first lang found, which the component chain below would pick. Toponymy
-		// stays untranslated. A portal showing another component keeps that one.
+		// (toponymy, thesauri) is read through the term resolver's one chain
+		// (T2 THES-01): data lang, the thesaurus's OWN main lang, lg-nolan, then
+		// the project langs in config order — never the install default first,
+		// which the component chain below would pick, and never a lang no project
+		// declares. Toponymy shows its own lang before any other. Text only: the
+		// untranslated flag is for screens. A portal showing another component
+		// keeps that one.
 		if ((await getTermTipos(targetSection, 'thesaurus')).includes(labelDdo.tipo)) {
 			const term = await getTermByLocator(
 				{ section_tipo: targetSection, section_id: targetId },

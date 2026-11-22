@@ -479,6 +479,8 @@ const TRIPWIRES = [
 	'test/unit/session_read_confinement_tripwire.test.ts',
 	// T2 S10-a — the client builds no code from strings (2026-11-19).
 	'test/unit/client_no_dynamic_code_tripwire.test.ts',
+	// T2 SC-4 — "the first X of model M" is read in sibling order (2026-11-22).
+	'test/unit/ordered_child_lookup_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

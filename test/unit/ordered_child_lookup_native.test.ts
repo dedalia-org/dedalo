@@ -21,6 +21,8 @@
  *   - findFirstDescendantTipoByModel   (ontology/resolver.ts — depth-first)
  *   - getRecursiveChildrenTipos        (ontology/resolver.ts — the same walk)
  *   - resolveVirtualEditScope          (ontology/virtual_scope.ts — tied exclude_elements)
+ *   - getArElements                    (ts_object/ts_object.ts — the section_list_thesaurus
+ *                                       ddo_map a tree node renders, T2-SC-4b)
  *
  * SITUATION (`zzoc`, scratch TLD, no records), dropped in afterAll with
  * residue asserted 0.
@@ -43,11 +45,15 @@ import {
 	ensureSituation,
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
+import { getArElements } from '../../src/core/ts_object/ts_object.ts';
 
 const SECTION = 'zzoc1';
 /** section_map written FIRST with the HIGHER order_number — the wrong answer. */
 const MAP_LATE = 'zzoc2';
 const MAP_FIRST = 'zzoc3';
+/** section_list_thesaurus written FIRST with the HIGHER order_number — the wrong answer. */
+const TREE_LIST_LATE = 'zzoc4';
+const TREE_LIST_FIRST = 'zzoc5';
 const TERM_A = 'zzoc20';
 const TERM_B = 'zzoc21';
 const PORTAL = 'zzoc10';
@@ -104,6 +110,20 @@ const S = situation({
 			model: 'section_map',
 			order_number: 1,
 			properties: { thesaurus: { term: [TERM_A, TERM_B], parent: TERM_B, model: [] } },
+		},
+		{
+			tipo: TREE_LIST_LATE,
+			parent: SECTION,
+			model: 'section_list_thesaurus',
+			order_number: 2,
+			properties: { show: { ddo_map: [{ type: 'term', tipo: TERM_A }] } },
+		},
+		{
+			tipo: TREE_LIST_FIRST,
+			parent: SECTION,
+			model: 'section_list_thesaurus',
+			order_number: 1,
+			properties: { show: { ddo_map: [{ type: 'term', tipo: TERM_B }] } },
 		},
 		{ tipo: TERM_A, parent: SECTION, model: 'component_input_text', order_number: 3 },
 		{ tipo: TERM_B, parent: SECTION, model: 'component_input_text', order_number: 4 },
@@ -217,6 +237,13 @@ describe('first child of a model = lowest order_number (T2-SC-4a)', () => {
 		expect((await findSectionChildByModel(SECTION, 'section_map'))?.tipo).toBe(MAP_FIRST);
 		expect(await findSectionListChild(PORTAL)).toBe(LIST_FIRST);
 		expect(await findSectionListChild(NULL_PORTAL)).toBe(NUMBERED_LIST);
+	});
+});
+
+describe('the tree row map is the first section_list_thesaurus child (T2-SC-4b)', () => {
+	test('a tree node renders the lower order_number ddo_map, whatever was written first', async () => {
+		const elements = await getArElements(SECTION);
+		expect(elements.map((element) => element.tipo)).toEqual([TERM_B]);
 	});
 });
 

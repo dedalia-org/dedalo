@@ -73,3 +73,14 @@ emits). One TS-era client defect surfaced by the emission was fixed with it:
 component_iri's `render_transliterate_value` read `self.context.render_class`
 in a module-level function with no `self` in scope (a TypeError the moment an
 IRI counterpart rendered); the component context is now a parameter.
+
+## Closure — `permissions_indexation` (2026-11-22, T2 THES-07)
+
+Closed by DELETION, not emission. The client assigned the field (`ts_object.js`
+constructor, `init` from `options`, `build` from `self.data`) and no module ever
+read it back — no branch, no render, no request; the v6 client had no consumer
+either, and the frozen PHP v7 client had already dropped it. Its assignments and
+the five fixture lines in four browser suites (`test_ts_object.js`,
+`test_ts_object_extended.js`, `test_row_invariant.js`, `test_render_budget.js`)
+are gone; the engine emits nothing new. `wire_field_agreement_tripwire` lost the
+entry (a stale entry is red there). One field remains open: `q_lang`.

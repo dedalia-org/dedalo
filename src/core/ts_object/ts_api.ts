@@ -28,11 +28,7 @@ import { clampClientLimit } from '../concepts/sqo.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { acquireNodeLock } from '../db/postgres.ts';
 import { DedaloError, isDedaloError, SectionIdRefused } from '../errors/index.ts';
-import {
-	RELATION_TYPE_LINK,
-	RELATION_TYPE_PARENT,
-	YES_NO_SECTION,
-} from '../ontology/ontology_tipos.ts';
+import { RELATION_TYPE_PARENT } from '../ontology/ontology_tipos.ts';
 import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import { getSectionIdFromTipo, requiredOntologyTld } from '../ontology/tld.ts';
@@ -490,17 +486,6 @@ async function clientChildrenList(
 	return { data: { ar_children_data: arChildrenData, pagination } };
 }
 
-/** The default si/no "yes" locator (dd64/1) an is_descriptor/is_indexable defaults to. */
-function siNoYesLocator(componentTipo: string): Record<string, unknown> {
-	return {
-		id: 1,
-		type: RELATION_TYPE_LINK,
-		section_id: '1',
-		section_tipo: YES_NO_SECTION,
-		from_component_tipo: componentTipo,
-	};
-}
-
 // ===========================================================================
 // ADD_CHILD (PHP :352).
 // ===========================================================================
@@ -523,9 +508,12 @@ export async function addChild(rqo: Rqo, principal: Principal): Promise<TsApiOut
 		is_descriptor?: unknown;
 		is_indexable?: unknown;
 	};
-	// NON-FATAL (unchanged): an incomplete section_map only skips the si/no
-	// default below — the child is still created, and the finding travels back
-	// as a warning.
+	// NON-FATAL (unchanged): an incomplete section_map is reported — the child is
+	// still created, and the finding travels back as a warning. The flags' VALUES
+	// are not this door's: a tree-created term is born with what the ontology
+	// declares (the create door's birth seed, record_defaults.ts `dato_default`)
+	// and nothing else — no hardcoded dd64/1 (T2 THES-04/05, owner ruling
+	// 2026-11-19 M4: "the user must handle these properties manually").
 	const warnings: string[] = [];
 	if (thesaurus.is_descriptor === undefined) {
 		warnings.push("Invalid section_map 'is_descriptor' property from section");
@@ -551,23 +539,15 @@ export async function addChild(rqo: Rqo, principal: Principal): Promise<TsApiOut
 			const table = await getMatrixTableFromTipo(sectionTipo);
 			if (table === null) throw new Error('Failed to resolve matrix table for new section');
 
-			// The new node's defaults, written through the chokepoint in ONE
-			// update (PHP add_child: each default is an edit-mode component that
-			// autosaves — stamped and historied; persistTreeKeys reads each key's
-			// before-image itself).
+			// The new node's own writes go through the chokepoint in ONE update
+			// (stamped and historied; persistTreeKeys reads each key's before-image
+			// itself). The is_descriptor / is_indexable flags are NOT among them:
+			// the birth seed already wrote whatever the ontology declares.
 			const target = { table, sectionTipo, sectionId: createdId };
 			const defaults: TreeKeyWrite[] = [];
 			const stage = (column: TreeKeyWrite['column'], key: string, after: unknown[] | null) => {
 				defaults.push({ column, key, after });
 			};
-			// is_descriptor default (dd64/1) when the section_map defines it.
-			if (typeof thesaurus.is_descriptor === 'string' && thesaurus.is_descriptor !== '') {
-				stage('relation', thesaurus.is_descriptor, [siNoYesLocator(thesaurus.is_descriptor)]);
-			}
-			// is_indexable default (dd64/1) when defined.
-			if (typeof thesaurus.is_indexable === 'string' && thesaurus.is_indexable !== '') {
-				stage('relation', thesaurus.is_indexable, [siNoYesLocator(thesaurus.is_indexable)]);
-			}
 
 			// ontology7 (ONT-TLD): for a GOVERNED `<tld>0` section nothing happens
 			// here — createSectionRecord's birth defaults derive the value from the

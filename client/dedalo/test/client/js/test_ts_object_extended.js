@@ -94,7 +94,6 @@ describe('TS_OBJECT EXTENDED : ', function() {
                     has_descriptor_children: false,
                     permissions_button_new: 3,
                     permissions_button_delete: 3,
-                    permissions_indexation: 3,
                     ar_elements: [
                         {
                             type: 'term',

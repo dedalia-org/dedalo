@@ -150,8 +150,6 @@ export const ts_object = function() {
 	this.permissions_button_delete
 	// int permissions_button_new. Create-child permission level. Values: 0 (none) – 3 (full).
 	this.permissions_button_new
-	// int permissions_indexation. Indexation permission level. Values: 0 (none) – 3 (full).
-	this.permissions_indexation
 
 	// bool has_descriptor_children. True when this node has at least one descriptor child.
 	// Controls whether the expand arrow is rendered.
@@ -438,8 +436,6 @@ ts_object.prototype.init = async function(options) {
 	self.permissions_button_delete = options.permissions_button_delete
 	// int permissions_button_new. Values from 0,1,2,3
 	self.permissions_button_new	= options.permissions_button_new
-	// int permissions_indexation. Values from 0,1,2,3
-	self.permissions_indexation	= options.permissions_indexation
 	// string area_model. Model of current thesaurus/ontology area
 	self.area_model = options.area_model
 	// int order. Order value from ts data
@@ -488,7 +484,6 @@ ts_object.prototype.build = async function(autoload=false) {
 			// fix permissions
 			self.permissions_button_new		= self.data.permissions_button_new
 			self.permissions_button_delete	= self.data.permissions_button_delete
-			self.permissions_indexation		= self.data.permissions_indexation
 
 			self.is_descriptor				= self.data.is_descriptor
 			self.is_indexable				= self.data.is_indexable
@@ -516,7 +511,7 @@ ts_object.prototype.build = async function(autoload=false) {
 * so the server can tailor the response (e.g. ontology model labels).
 * @returns {Promise<Object>} Resolves to the API response payload on success.
 *   Result shape: { ar_elements, ts_id, ts_parent, is_descriptor, order,
-*     permissions_button_new, permissions_button_delete, permissions_indexation,
+*     permissions_button_new, permissions_button_delete,
 *     has_descriptor_children, ... }
 * @throws {Error} Re-throws with extended context (section_tipo, section_id)
 *   on network failure or when the API returns no result.

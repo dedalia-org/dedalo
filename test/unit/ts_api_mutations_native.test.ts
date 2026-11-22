@@ -26,13 +26,18 @@
  *    and cannot be chosen, so they are tracked in `autoCreatedIds` and swept
  *    with the rest.
  *  - matrix_time_machine tails for both of the above.
+ *  - the `zztad` situation (addChild's flags, THES-04 — 2026-11-22): two
+ *    thesaurus sections whose section_map names an is_descriptor (and one an
+ *    is_indexable) component, each flag's `dato_default` declared or not; the
+ *    records add_child creates there are swept with the TLD (records, TM,
+ *    counter, generation and activity rows), residue asserted 0.
  * dd_ontology is NOT a scratch surface: saveOrder's post-commit
  * syncOrderToDdOntology would write `order_number` outside every scratch
  * surface if getTermIdFromLocator resolved a scratch locator — the flagship
  * case pins that it does not, with a digest taken immediately around the call.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { readMatrixRecord } from '../../src/core/db/matrix.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
@@ -40,8 +45,16 @@ import { DedaloError } from '../../src/core/errors/index.ts';
 import type { ParentLocator } from '../../src/core/relations/parent.ts';
 import * as parentModule from '../../src/core/relations/parent.ts';
 import { addParent } from '../../src/core/relations/parent.ts';
+import { createSectionRecord } from '../../src/core/section/record/create_record.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { addChild, saveOrder, updateParentData } from '../../src/core/ts_object/ts_api.ts';
+import { buildNodeData } from '../../src/core/ts_object/ts_object.ts';
+import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 
 const SECTION = 'test3';
 const TABLE = 'matrix_test';
@@ -507,43 +520,310 @@ describe('saveOrder', () => {
 });
 
 // ===========================================================================
-// ADD_CHILD
+// ADD_CHILD — the flags a tree-created term is born with (THES-04/05)
 // ===========================================================================
-describe('addChild', () => {
-	test('creates the record, stamps the si/no descriptor default and links it to the parent', async () => {
-		await seedNode(P1);
-		const since = await tmWatermark();
+/**
+ * The is_descriptor / is_indexable flags are what the ONTOLOGY declares, and
+ * nothing else (owner ruling 2026-11-19, M4: no dato_default is added on the
+ * master ontology — "the user must handle these properties manually"). The
+ * create door's birth seed (record_defaults.ts) writes a declared
+ * `dato_default`; add_child adds NO value of its own — it used to stamp dd64/1
+ * on both flags, overwriting a declared default and inventing one where none
+ * was declared (THES-04), with a string section_id (THES-05).
+ *
+ *   FLAGS_A  is_descriptor declares dd64/2 → born /2 (the hardcode overwrote it to /1)
+ *            is_indexable declares nothing → no value at all (the hardcode wrote /1)
+ *   FLAGS_B  is_descriptor declares dd64/1 → born /1, ONE item, int section_id; the
+ *            birth state is not a change: no Time Machine row for the key (the
+ *            hardcode re-wrote the seeded value and logged it as a save)
+ *            section_map names no is_indexable → the warning, verbatim
+ *   FLAGS_C  is_descriptor declares NOTHING (the shipped master-ontology case) +
+ *            a tree row map with an ND icon and link_children: the STATED
+ *            consequence (WC-2026-08-09 addendum 2026-11-22, owner question
+ *            open — B6 review M1) — the unflagged child renders as a
+ *            descriptor itself, but its parent counts it as neither, so a
+ *            parent whose children are all unflagged draws no expand arrow
+ *            and no ND button on a fresh read
+ */
+const FLAG_TLD = 'zztad';
+const FLAGS_A = {
+	section: 'zztad1',
+	term: 'zztad2',
+	parent: 'zztad3',
+	children: 'zztad4',
+	order: 'zztad5',
+	map: 'zztad6',
+	button: 'zztad9',
+	descriptor: 'zztad7',
+	indexable: 'zztad8',
+};
+const FLAGS_B = {
+	section: 'zztad20',
+	term: 'zztad21',
+	parent: 'zztad22',
+	children: 'zztad23',
+	order: 'zztad24',
+	map: 'zztad25',
+	button: 'zztad29',
+	descriptor: 'zztad27',
+	indexable: null,
+};
+const FLAGS_C = {
+	section: 'zztad40',
+	term: 'zztad41',
+	parent: 'zztad42',
+	children: 'zztad43',
+	order: 'zztad44',
+	map: 'zztad45',
+	button: 'zztad49',
+	descriptor: 'zztad47',
+	indexable: null,
+};
+/** FLAGS_C's tree row map: term, the ND icon on the flag, the children arrow. */
+const FLAGS_C_ROW_MAP = {
+	tipo: 'zztad46',
+	parent: FLAGS_C.section,
+	model: 'section_list_thesaurus',
+	order_number: 9,
+	properties: {
+		show: {
+			ddo_map: [
+				{ tipo: FLAGS_C.term, type: 'term' },
+				{ tipo: FLAGS_C.descriptor, type: 'icon', icon: 'ND' },
+				{ tipo: FLAGS_C.children, type: 'link_children' },
+			],
+		},
+	},
+};
 
-		const response = await callAddChild({ section_tipo: SECTION, section_id: P1 }, SUPERUSER);
+function selfRequestConfig(termTipo: string): Record<string, unknown> {
+	return {
+		source: {
+			records_mode: 'list',
+			request_config: [
+				{
+					sqo: { section_tipo: [{ source: 'self' }] },
+					show: { ddo_map: [{ tipo: termTipo, parent: 'self', section_tipo: 'self' }] },
+				},
+			],
+		},
+	};
+}
+
+function siNoRequestConfig(): Record<string, unknown> {
+	return {
+		source: {
+			request_config: [
+				{
+					sqo: { section_tipo: [{ source: 'section', value: ['dd64'] }] },
+					show: { ddo_map: [{ tipo: 'dd62', parent: 'self', section_tipo: 'dd64' }] },
+				},
+			],
+		},
+	};
+}
+
+function flagSectionNodes(
+	s: typeof FLAGS_A | typeof FLAGS_B | typeof FLAGS_C,
+	descriptorDefault: number | null,
+	indexable: boolean,
+): (Record<string, unknown> & { tipo: string; model: string })[] {
+	const siNo = (tipo: string, order: number, defaultId: number | null) => ({
+		tipo,
+		parent: s.section,
+		model: 'component_radio_button',
+		order_number: order,
+		properties: {
+			...siNoRequestConfig(),
+			...(defaultId === null
+				? {}
+				: { dato_default: [{ section_id: defaultId, section_tipo: 'dd64' }] }),
+		},
+	});
+	return [
+		{
+			tipo: s.section,
+			parent: 'test1',
+			model: 'section',
+			term: { 'lg-eng': `${s.section} flags` },
+		},
+		{
+			tipo: s.term,
+			parent: s.section,
+			model: 'component_input_text',
+			is_translatable: true,
+			order_number: 1,
+		},
+		{
+			tipo: s.parent,
+			parent: s.section,
+			model: 'component_relation_parent',
+			relations: [{ tipo: s.children }],
+			properties: selfRequestConfig(s.term),
+			order_number: 2,
+		},
+		{
+			tipo: s.children,
+			parent: s.section,
+			model: 'component_relation_children',
+			relations: [{ tipo: s.parent }],
+			properties: selfRequestConfig(s.term),
+			order_number: 3,
+		},
+		{ tipo: s.order, parent: s.section, model: 'component_number', order_number: 4 },
+		siNo(s.descriptor, 5, descriptorDefault),
+		...(indexable && s.indexable !== null ? [siNo(s.indexable, 6, null)] : []),
+		{
+			tipo: s.map,
+			parent: s.section,
+			model: 'section_map',
+			order_number: 7,
+			properties: {
+				thesaurus: {
+					term: s.term,
+					parent: s.parent,
+					children: s.children,
+					order: s.order,
+					is_descriptor: s.descriptor,
+					...(indexable && s.indexable !== null ? { is_indexable: s.indexable } : {}),
+				},
+			},
+		},
+		{ tipo: s.button, parent: s.section, model: 'button_new', order_number: 8 },
+	];
+}
+
+const FLAG_SITUATION = situation({
+	tld: FLAG_TLD,
+	name: 'add_child flags (THES-04)',
+	nodes: [
+		...flagSectionNodes(FLAGS_A, 2, true),
+		...flagSectionNodes(FLAGS_B, 1, false),
+		...flagSectionNodes(FLAGS_C, null, false),
+		FLAGS_C_ROW_MAP,
+	] as never,
+});
+
+async function dropFlagSituation(): Promise<number> {
+	let activity = 0;
+	for (const s of [FLAGS_A, FLAGS_B, FLAGS_C]) {
+		await sql.unsafe('DELETE FROM dedalo_ts_record_generation WHERE section_tipo = $1', [
+			s.section,
+		]);
+		await sweepActivityRows(s.section);
+		activity += await countActivityRows(s.section);
+	}
+	return activity + (await dropSituation(FLAG_SITUATION));
+}
+
+/** One relation key of a zztad record (null when the key is absent). */
+async function flagKeyOf(
+	sectionTipo: string,
+	sectionId: number,
+	tipo: string,
+): Promise<Locator[] | null> {
+	const record = await readMatrixRecord(TABLE, sectionTipo, sectionId);
+	const relation = (record?.columns.relation ?? null) as Record<string, Locator[]> | null;
+	return relation?.[tipo] ?? null;
+}
+
+/** Time Machine rows of one zztad record key above `since`. */
+async function flagHistoryOf(
+	sectionTipo: string,
+	sectionId: number,
+	tipo: string,
+	since: number,
+): Promise<number> {
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM matrix_time_machine
+		  WHERE section_tipo = $1 AND section_id = $2 AND tipo = $3 AND id > $4`,
+		[sectionTipo, sectionId, tipo, since],
+	)) as { n: number }[];
+	return Number(rows[0]?.n ?? -1);
+}
+
+describe('addChild — the flags are what the ontology declares (THES-04/05)', () => {
+	beforeAll(async () => {
+		await dropFlagSituation();
+		await ensureSituation(FLAG_SITUATION);
+	});
+	afterAll(async () => {
+		expect(await dropFlagSituation()).toBe(0);
+	});
+
+	test('declared /2 stays /2; an undeclared flag gets NO value; the child is linked', async () => {
+		const parentId = await createSectionRecord(FLAGS_A.section, SUPERUSER.userId);
+		const response = await addChild(
+			{ source: { section_tipo: FLAGS_A.section, section_id: parentId } } as never,
+			SUPERUSER,
+		);
 		const newId = Number(response.data);
-
-		expect(Number.isInteger(newId)).toBe(true);
-		expect(newId).toBeGreaterThan(0);
-		// test3's section_map defines is_descriptor (test88) but NOT is_indexable —
-		// so the action COMPLETES and reports that one warning verbatim. A warning
-		// is not a refusal: the child exists.
-		expect(response.warnings).toEqual(["Invalid section_map 'is_indexable' property from section"]);
-
-		expect(await relationOf(newId, PARENT_TIPO)).toEqual([
+		expect(Number.isInteger(newId) && newId > parentId).toBe(true);
+		expect(response.warnings ?? []).toEqual([]);
+		expect(await flagKeyOf(FLAGS_A.section, newId, FLAGS_A.parent)).toEqual([
 			{
-				section_tipo: SECTION,
-				section_id: P1,
-				from_component_tipo: PARENT_TIPO,
+				section_tipo: FLAGS_A.section,
+				section_id: parentId,
+				from_component_tipo: FLAGS_A.parent,
 				type: 'dd47',
 				id: 1,
 			},
 		]);
-		expect(await relationOf(newId, DESCRIPTOR_TIPO)).toEqual([siNoYes(DESCRIPTOR_TIPO)]);
-		// the initial sibling order is paired to the parent-link item id.
-		expect(await orderItemsOf(newId)).toEqual([{ value: 1, id: 1 }]);
-		// The DEFAULT is a save like any other (PHP: an autosaving edit-mode
-		// component): ONE history row of exactly the stored value, by the actor.
-		const descriptorRows = await historyOf(newId, since, DESCRIPTOR_TIPO);
-		expect(descriptorRows.length).toBe(1);
-		expect(descriptorRows[0]?.data).toEqual(await relationOf(newId, DESCRIPTOR_TIPO));
-		expect(Number(descriptorRows[0]?.user_id)).toBe(SUPERUSER.userId);
+		const descriptor = await flagKeyOf(FLAGS_A.section, newId, FLAGS_A.descriptor);
+		expect(descriptor?.length).toBe(1);
+		expect(descriptor?.[0]).toMatchObject({ section_tipo: 'dd64', section_id: 2 });
+		expect(await flagKeyOf(FLAGS_A.section, newId, FLAGS_A.indexable as string)).toBeNull();
 	});
 
+	test('declared /1 is born /1 (one item, int id), and the birth state writes no history row', async () => {
+		const parentId = await createSectionRecord(FLAGS_B.section, SUPERUSER.userId);
+		const since = await tmWatermark();
+		const response = await addChild(
+			{ source: { section_tipo: FLAGS_B.section, section_id: parentId } } as never,
+			SUPERUSER,
+		);
+		const newId = Number(response.data);
+		expect(Number.isInteger(newId) && newId > parentId).toBe(true);
+		// the section_map names no is_indexable: the action completes and says so
+		expect(response.warnings).toEqual(["Invalid section_map 'is_indexable' property from section"]);
+		const descriptor = await flagKeyOf(FLAGS_B.section, newId, FLAGS_B.descriptor);
+		expect(descriptor?.length).toBe(1);
+		expect(descriptor?.[0]).toMatchObject({ section_tipo: 'dd64', section_id: 1 });
+		expect(typeof descriptor?.[0]?.section_id).toBe('number');
+		expect(await flagHistoryOf(FLAGS_B.section, newId, FLAGS_B.descriptor, since)).toBe(0);
+		// the parent link IS a write of add_child's own, and is historied
+		expect(await flagHistoryOf(FLAGS_B.section, newId, FLAGS_B.parent, since)).toBe(1);
+	});
+
+	test('undeclared is_descriptor: the child renders as a descriptor, its parent counts it as neither (stated consequence, owner question open)', async () => {
+		const parentId = await createSectionRecord(FLAGS_C.section, SUPERUSER.userId);
+		const response = await addChild(
+			{ source: { section_tipo: FLAGS_C.section, section_id: parentId } } as never,
+			SUPERUSER,
+		);
+		const newId = Number(response.data);
+		expect(Number.isInteger(newId) && newId > parentId).toBe(true);
+		expect(await flagKeyOf(FLAGS_C.section, newId, FLAGS_C.descriptor)).toBeNull();
+		// the child itself: a descriptor (is_descriptor starts true; only an ND /2 flips it)
+		const child = await buildNodeData(FLAGS_C.section, newId, {}, null, SUPERUSER);
+		expect(child.is_descriptor).toBe(true);
+		// its parent, read fresh (the children read finds the child: a null flag
+		// read as a descriptor turns this leg red — mutation-checked) …
+		const parent = await buildNodeData(FLAGS_C.section, parentId, {}, null, SUPERUSER);
+		expect(parent.children_tipo).toBe(FLAGS_C.children);
+		// … but counted as neither: no arrow, no ND button
+		expect(parent.has_descriptor_children).toBe(false);
+		expect(parent.ar_elements.some((element) => element.type === 'link_children_nd')).toBe(false);
+		expect(parent.ar_elements.find((element) => element.type === 'link_children')?.value).toBe(
+			'button show children unactive',
+		);
+	});
+});
+
+// ===========================================================================
+// ADD_CHILD
+// ===========================================================================
+describe('addChild', () => {
 	test('a section without a component_relation_parent is refused before any record is created', async () => {
 		const before = await test3RowCount();
 		const listCountBefore = (

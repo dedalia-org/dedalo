@@ -34,14 +34,14 @@
 
 import { statSync } from 'node:fs';
 import { config } from '../../config/config.ts';
+import { getFlatValueFamily } from '../components/registry.ts';
 import type { RenderClass } from '../components/types.ts';
 import { compareLocators, type Locator } from '../concepts/locator.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../concepts/section_id.ts';
 import { type MatrixRecord, readMatrixRecord } from '../db/matrix.ts';
-import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/index.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
-import { labelByTipo, ONTOLOGY_LABEL_FALLBACK_LANG } from '../ontology/labels.ts';
+import { labelByTipo } from '../ontology/labels.ts';
 import {
 	HIERARCHY_BUTTON_NEW,
 	HIERARCHY_MAIN_SECTION,
@@ -51,6 +51,7 @@ import {
 	THESAURUS_SECTION,
 } from '../ontology/ontology_tipos.ts';
 import {
+	findFirstChildByModel,
 	findFirstDescendantTipoByModel,
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -84,14 +85,13 @@ import {
 	getDdoValueByLocator,
 	getTermByLocator,
 	invalidateNode as invalidateTermNode,
+	stringTermFragment,
 	type TermLocator,
 } from './term_resolver.ts';
 
 // DEDALO_DATA_LANG is read PER REQUEST via currentDataLang() at each use site
 // (S2-11): PHP passes the per-request data lang (class.ts_object.php:1441-1445);
 // a module-level capture froze the install default for every session.
-/** DEDALO_DATA_LANG_DEFAULT — the main-lang fallback for untranslated term data. */
-const DATA_LANG_DEFAULT = config.lang.dataLangDefault;
 /** DEDALO_ONTOLOGY_SECTION_TIPO — the ontology main section root. */
 const ONTOLOGY_SECTION_TIPO = 'ontology35';
 
@@ -180,22 +180,23 @@ export function invalidateNode(sectionTipo: string, sectionId: number): void {
 // GET_AR_ELEMENTS (PHP :212).
 // ---------------------------------------------------------------------------
 
-/** The section_list_thesaurus ddo_map of a section (direct child, virtual-aware). */
+/**
+ * The section_list_thesaurus ddo_map of a section (direct child, virtual-aware).
+ * The FIRST such child in sibling order — the one ordered primitive
+ * (resolver.ts findFirstChildByModel, T2-SC-4b): a section holding two never
+ * answers by the order its rows were written. Gate:
+ * ordered_child_lookup_native (T2-SC-4b) + ordered_child_lookup_tripwire.
+ */
 async function readDdoMap(sectionTipo: string): Promise<DdoMapEntry[] | null> {
 	const read = async (parent: string) =>
-		(await sql.unsafe(
-			`SELECT properties FROM dd_ontology WHERE parent = $1 AND model = 'section_list_thesaurus' LIMIT 1`,
-			[parent],
-		)) as { properties: { show?: { ddo_map?: DdoMapEntry[] } } | null }[];
-	let rows = await read(sectionTipo);
-	let props = rows[0]?.properties ?? null;
+		((await findFirstChildByModel(parent, 'section_list_thesaurus'))?.properties ?? null) as {
+			show?: { ddo_map?: DdoMapEntry[] };
+		} | null;
+	let props = await read(sectionTipo);
 	if (props?.show?.ddo_map === undefined) {
 		// virtual section → real section fallback (the one law, getSectionRealTipo).
 		const real = await getSectionRealTipo(sectionTipo);
-		if (real !== sectionTipo) {
-			rows = await read(real);
-			props = rows[0]?.properties ?? null;
-		}
+		if (real !== sectionTipo) props = await read(real);
 	}
 	const ddoMap = props?.show?.ddo_map;
 	return Array.isArray(ddoMap) ? ddoMap : null;
@@ -365,15 +366,13 @@ export async function getCountDataGroupBy(
 	const totalsGroup: { key: string; label: string | null; value: number }[] = [];
 	for (const group of counted.totals_group ?? []) {
 		const key = group.key[0] ?? '';
-		// The label chain in the label-fallback lang (the old private copy read
-		// the structure lang first), null when the node has none — S2-27:
-		// resolved through the cached canonical label module instead of a raw
-		// per-call query.
-		totalsGroup.push({
-			key,
-			label: await labelByTipo(key, ONTOLOGY_LABEL_FALLBACK_LANG),
-			value: group.value,
-		});
+		// The pointing section's label in the REQUEST application lang, through
+		// the one ontology label chain (labels.ts resolveLabel: requested →
+		// equivalent → label-fallback lang → …), null when the node has none
+		// (T2 THES-06: it used to be pinned to the install's label-fallback
+		// lang, so every user read the group names in one language). S2-27:
+		// the cached canonical label module, not a raw per-call query.
+		totalsGroup.push({ key, label: await labelByTipo(key), value: group.value });
 	}
 	return { total: counted.total, totals_group: totalsGroup };
 }
@@ -547,21 +546,6 @@ async function svgElementUrl(
 	} catch {
 		return '';
 	}
-}
-
-/** get_component_data_fallback: main-lang → nolan → any non-empty (PHP :310). */
-function componentDataFallbackValue(items: Record<string, unknown>[]): string {
-	const pick = (lang: string): string => {
-		const item = items.find((entry) => (entry.lang ?? 'lg-nolan') === lang);
-		return typeof item?.value === 'string' ? item.value : '';
-	};
-	let value = pick(DATA_LANG_DEFAULT);
-	if (value === '') value = pick('lg-nolan');
-	if (value === '') {
-		const any = items.find((entry) => typeof entry.value === 'string' && entry.value !== '');
-		value = (any?.value as string | undefined) ?? '';
-	}
-	return value;
 }
 
 /**
@@ -1077,6 +1061,45 @@ async function targetTiposShown(locator: TermLocator, tipos: string[]): Promise<
 	return termTiposShown(sectionTipo, target, tipos);
 }
 
+/**
+ * One ESCAPED piece of the tree's `term` element (resolveElementValue).
+ * A literal part follows THE string-fragment law (term_resolver.ts — every item
+ * of the lang, then requested → hierarchy main → lg-nolan → project langs); its
+ * `untranslated` flag is the ONE source of the `<mark>` decoration, applied
+ * after escaping (THES-02, WC-2026-11-22-term-fallback-chain). Any other family
+ * shows its first item, escaped.
+ */
+async function termElementPiece(
+	sectionTipo: string,
+	elementTipo: string,
+	model: string,
+	componentData: unknown[] | string,
+	record: MatrixRecord | null,
+): Promise<string> {
+	if (getFlatValueFamily(model) === 'string') {
+		const part = await stringTermFragment(
+			sectionTipo,
+			elementTipo,
+			readItemsFromRecord(record, elementTipo, model),
+			currentDataLang(),
+		);
+		const escaped = escapeHtml(part.text);
+		return part.untranslated && escaped !== '' ? `<mark>${escaped}</mark>` : escaped;
+	}
+	return escapeHtml(firstItemText(componentData));
+}
+
+/** A non-literal term part: its first item's value (or the item itself), as text. */
+function firstItemText(componentData: unknown[] | string): string {
+	if (componentData.length === 0) return '';
+	const first = componentData[0] as { value?: unknown } | string | undefined;
+	return toStr(
+		first !== null && typeof first === 'object'
+			? ((first as { value?: unknown }).value ?? '')
+			: (first ?? ''),
+	);
+}
+
 /** PHP resolve_element_value (:1504): dispatch by element type; false = skip. */
 async function resolveElementValue(
 	current: DdoMapEntry,
@@ -1099,22 +1122,13 @@ async function resolveElementValue(
 			// before the composite join — a term may not carry markup (owner
 			// ruling 2026-11-11, WC-2026-11-12-tree-term-escaped). Caches above
 			// hold raw text; the accumulated elementObj.value is already escaped.
-			let elementValue: string;
-			if (componentData.length === 0) {
-				// lang fallback: main-lang → nolan → any, decorated as untranslated.
-				const rawItems = readItemsFromRecord(record, elementTipo, model);
-				const fallback = escapeHtml(toStr(componentDataFallbackValue(rawItems)));
-				elementValue = fallback === '' ? '' : `<mark>${fallback}</mark>`;
-			} else {
-				const first = componentData[0] as { value?: unknown } | string | undefined;
-				elementValue = escapeHtml(
-					toStr(
-						first !== null && typeof first === 'object'
-							? ((first as { value?: unknown }).value ?? '')
-							: (first ?? ''),
-					),
-				);
-			}
+			const elementValue = await termElementPiece(
+				sectionTipo,
+				elementTipo,
+				model,
+				componentData,
+				record,
+			);
 			elementObj.value =
 				elementObj.value !== undefined
 					? `${toStr(elementObj.value)} ${elementValue}`

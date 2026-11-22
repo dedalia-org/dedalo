@@ -6,9 +6,27 @@
  * `term` key holding one OR several component tipos whose values are joined by a
  * scope-defined `fields_separator` (default ', '). This module reads those term
  * components straight off the matrix JSONB columns (no PHP component machinery —
- * TS has none) and joins them, with a per-tipo language fallback to the
- * hierarchy's main language so a term never renders empty just because the
- * requested lang has no value.
+ * TS has none) and joins them.
+ *
+ * THE STRING-FRAGMENT LAW (T2 THES-01/03, 2026-11-22) — ONE rule for a literal
+ * (string-family) term part, whichever door asks (the section_map term, the
+ * explicit ddo_map label, the tree's term element): the part is EVERY non-empty
+ * item of its lang slice joined with the flat reader's ' | ' (PHP get_value
+ * joins every item — reading only the first lost the rest), the slice being the
+ * requested lang for a translatable component, lg-nolan otherwise. An empty
+ * slice of a TRANSLATABLE component falls back, first non-empty wins (a
+ * non-translatable one reads lg-nolan only, as both doors always did): requested lang → the hierarchy's main
+ * lang → lg-nolan → the project langs in config order (PHP
+ * component_string_common::get_value_with_fallback_from_data). Nothing past
+ * the project langs: a value held only in a language the install does not
+ * declare is not shown.
+ *
+ * THE UNTRANSLATED FLAG (T2 THES-02, FYI-3): a part supplied by the fallback is
+ * flagged, and a term with any flagged part is (getTermTextByLocator →
+ * {text, untranslated}). The TEXT never carries markup (owner ruling T1-18): a
+ * screen may decorate it AFTER escaping (the tree's `<mark>`), what an export,
+ * a publication or the RAG index reads (getTermByLocator) never is.
+ * Wire contract: WC-2026-11-22-term-fallback-chain.
  *
  * Cache discipline (spec §4 / plan constraint): the cache is module-level and
  * keyed ONLY by CONTENT — `${section_tipo}_${section_id}_${scope}_${lang}` — never
@@ -41,7 +59,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config } from '../../config/config.ts';
-import { getFlatValueFamily } from '../components/registry.ts';
+import { getComponentModel, getFlatValueFamily } from '../components/registry.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
@@ -55,6 +73,7 @@ import {
 } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import { getTldFromTipo } from '../ontology/tld.ts';
+import { isEmptyDataItem } from '../resolve/data_item_emptiness.ts';
 import type { CellFrontier, CellValueResolveOptions } from '../resolve/relation_list.ts';
 import { currentDataLang } from '../resolve/request_lang.ts';
 
@@ -76,6 +95,21 @@ function cellOptsOf(opts: TermReadOptions): CellValueResolveOptions | undefined 
 
 /** section_map::DEFAULT_FIELDS_SEPARATOR. */
 const DEFAULT_FIELDS_SEPARATOR = ', ';
+/** The flat reader's multi-item glue (resolve/relation_list.ts resolveCellValue). */
+const ITEM_SEPARATOR = ' | ';
+/** DEDALO_DATA_NOLAN — the structural no-language token. */
+const NOLAN = 'lg-nolan';
+
+/**
+ * A term (or one part of it) as a screen needs it: the TEXT — never markup —
+ * and whether a language fallback supplied it (THES-02).
+ */
+export interface TermText {
+	text: string;
+	untranslated: boolean;
+}
+
+const NO_TEXT: TermText = Object.freeze({ text: '', untranslated: false });
 /** section_map::SCOPE_FALLBACK. */
 const SCOPE_FALLBACK = ['main', 'thesaurus', 'relation_list'];
 
@@ -107,7 +141,7 @@ export interface TermLocator {
 // cache. PHP needs no such hook — its twin cache is request-scoped (S3-15);
 // this eviction plus the hub clear is the process-lifetime replacement.
 // ---------------------------------------------------------------------------
-const termByLocatorCache = createDataCache<string, string | null>((cache, sectionTipo) => {
+const termByLocatorCache = createDataCache<string, TermText>((cache, sectionTipo) => {
 	const prefix = `${sectionTipo}_`;
 	for (const key of cache.keys()) {
 		if (key.startsWith(prefix)) cache.delete(key);
@@ -354,32 +388,78 @@ async function modelFlatFragment(
 	return value ?? '';
 }
 
-/** The value of one term component in `lang` with main-lang fallback. */
-async function termComponentValue(
+/**
+ * One term part in `lang` (THE string-fragment law, header): a non-literal
+ * family through the flat reader (never flagged — no language fallback there),
+ * a literal one through {@link stringTermFragment}.
+ */
+async function termPartText(
 	sectionTipo: string,
 	sectionId: number | string,
 	tipo: string,
 	lang: string,
 	opts: TermReadOptions,
-): Promise<string> {
+): Promise<TermText> {
 	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
-		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
+		return {
+			text: await modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts),
+			untranslated: false,
+		};
 	}
-	const items = await readComponentItems(sectionTipo, sectionId, tipo);
-	if (items.length === 0) return '';
-	const translatable = await getTranslatableByTipo(tipo);
-	// Non-translatable term components store their value under lg-nolan.
-	const effectiveLang = translatable ? lang : 'lg-nolan';
-	const pick = (target: string): string => {
-		const item = items.find((entry) => (entry.lang ?? 'lg-nolan') === target);
-		return typeof item?.value === 'string' ? item.value : '';
-	};
-	let value = pick(effectiveLang);
-	if (value === '' && translatable) {
-		// lang fallback (PHP get_value_with_fallback_from_data → section main lang).
-		value = pick(await getMainLang(sectionTipo));
+	return stringTermFragment(
+		sectionTipo,
+		tipo,
+		await readComponentItems(sectionTipo, sectionId, tipo),
+		lang,
+	);
+}
+
+/** The fallback langs, in order, deduplicated (THES-01: lang → main → nolan → project langs). */
+async function termLangChain(sectionTipo: string, lang: string): Promise<string[]> {
+	const chain = [lang, await getMainLang(sectionTipo), NOLAN, ...config.menu.projectsDefaultLangs];
+	return chain.filter((code, index) => code !== '' && chain.indexOf(code) === index);
+}
+
+/**
+ * THE STRING-FRAGMENT LAW over a literal part's stored items (header): the
+ * slice of the component's own lang (`lang` when translatable, lg-nolan
+ * otherwise) — every non-empty item, by the model's emptiness rule, joined
+ * with ' | ' — else, for a translatable component only, the first non-empty
+ * slice of the fallback chain, flagged untranslated. Exported for the tree, which holds the record already
+ * (ts_object.ts term element).
+ */
+export async function stringTermFragment(
+	sectionTipo: string,
+	tipo: string,
+	items: readonly { lang?: string; value?: unknown }[],
+	lang: string,
+): Promise<TermText> {
+	if (items.length === 0) return NO_TEXT;
+	const model = await getModelByTipo(tipo);
+	// A string-family model without a declared rule (component_number: not
+	// class-translatable) reads PHP's common emptiness ('0' and 0 are values).
+	const rule =
+		(model === null ? undefined : getComponentModel(model)?.dataItemEmptiness) ?? 'common';
+	const sliceText = (target: string): string =>
+		items
+			.filter((item) => (item.lang ?? NOLAN) === target && !isEmptyDataItem(rule, item))
+			.map((item) => String(item.value))
+			.join(ITEM_SEPARATOR);
+	// A NON-translatable component reads lg-nolan ONLY — no fallback of any
+	// kind (unchanged: neither prior door fell back for one; PHP's callers pass
+	// the chain only for translatable data).
+	if (!(await getTranslatableByTipo(tipo))) {
+		const text = sliceText(NOLAN);
+		return text === '' ? NO_TEXT : { text, untranslated: false };
 	}
-	return value;
+	const direct = sliceText(lang);
+	if (direct !== '') return { text: direct, untranslated: false };
+	for (const candidate of await termLangChain(sectionTipo, lang)) {
+		if (candidate === lang) continue;
+		const text = sliceText(candidate);
+		if (text !== '') return { text, untranslated: true };
+	}
+	return NO_TEXT;
 }
 
 /**
@@ -413,6 +493,10 @@ export async function getTermDataByLocator(
  * so orphan locators always render something. Writes the cache unless the term
  * crosses into other records (termCrossesRecords). A frontier-armed caller
  * passes its frontier in `opts` (TermReadOptions).
+ *
+ * TEXT ONLY — never markup, never the untranslated flag: this is what an export,
+ * a publication, the RAG index and every non-screen consumer read. A screen that
+ * decorates a fallback asks {@link getTermTextByLocator}.
  */
 export async function getTermByLocator(
 	locator: TermLocator,
@@ -424,6 +508,22 @@ export async function getTermByLocator(
 	scope: string | null = 'thesaurus',
 	opts: TermReadOptions = {},
 ): Promise<string | null> {
+	return (await getTermTextByLocator(locator, lang, fromCache, scope, opts))?.text ?? null;
+}
+
+/**
+ * {@link getTermByLocator} with the untranslated flag (THES-02): `untranslated`
+ * is true when any term part was supplied by the language fallback. Null when
+ * the locator names no section. For a SCREEN: decorate after escaping, never
+ * store or publish the decoration.
+ */
+export async function getTermTextByLocator(
+	locator: TermLocator,
+	lang: string = currentDataLang(),
+	fromCache = false,
+	scope: string | null = 'thesaurus',
+	opts: TermReadOptions = {},
+): Promise<TermText | null> {
 	const sectionTipo = locator.section_tipo;
 	if (typeof sectionTipo !== 'string') return null;
 	const sectionId = locator.section_id;
@@ -433,20 +533,30 @@ export async function getTermByLocator(
 	const termTipos = await getTermTipos(sectionTipo, scope);
 	// A term crossing into other records never touches the cache (T1-32).
 	const cacheable = !(await termCrossesRecords(sectionTipo, termTipos));
-	if (cacheable && fromCache && termByLocatorCache.has(cacheUid)) {
-		return termByLocatorCache.get(cacheUid) ?? null;
+	if (cacheable && fromCache) {
+		const cached = termByLocatorCache.get(cacheUid);
+		if (cached !== undefined) return cached;
 	}
 
-	const value =
+	const value: TermText =
 		termTipos.length === 0
-			? locatorStringFallback(locator, sectionTipo)
+			? { text: locatorStringFallback(locator, sectionTipo), untranslated: false }
 			: await joinCrossingGuarded(cacheable, cacheUid, async () =>
-					(await termParts(sectionTipo, sectionId ?? '', termTipos, lang, opts)).join(
+					joinParts(
+						await termParts(sectionTipo, sectionId ?? '', termTipos, lang, opts),
 						await getFieldsSeparator(sectionTipo, scope),
 					),
 				);
 	if (cacheable) storeTerm(cacheUid, value);
 	return value;
+}
+
+/** The non-empty parts joined; untranslated when any of them is. */
+function joinParts(parts: readonly TermText[], separator: string): TermText {
+	return {
+		text: parts.map((part) => part.text).join(separator),
+		untranslated: parts.some((part) => part.untranslated),
+	};
 }
 
 /** The legacy locator-string label `${section_tipo}_${section_id}[_component_tipo[_tag_id]]`. */
@@ -464,17 +574,17 @@ async function termParts(
 	termTipos: readonly string[],
 	lang: string,
 	opts: TermReadOptions,
-): Promise<string[]> {
-	const fragments: string[] = [];
+): Promise<TermText[]> {
+	const fragments: TermText[] = [];
 	for (const tipo of termTipos) {
-		const current = await termComponentValue(sectionTipo, sectionId, tipo, lang, opts);
-		if (current !== '') fragments.push(current);
+		const current = await termPartText(sectionTipo, sectionId, tipo, lang, opts);
+		if (current.text !== '') fragments.push(current);
 	}
 	return fragments;
 }
 
 /** Bounded content-keyed store (PHP's O(1) whole-cache drop on overflow). */
-function storeTerm(cacheUid: string, value: string | null): void {
+function storeTerm(cacheUid: string, value: TermText): void {
 	if (termByLocatorCache.size >= 1000) termByLocatorCache.clear();
 	termByLocatorCache.set(cacheUid, value);
 }
@@ -495,11 +605,11 @@ const crossingTermTrail = new AsyncLocalStorage<ReadonlySet<string>>();
 async function joinCrossingGuarded(
 	recordLocal: boolean,
 	key: string,
-	compute: () => Promise<string>,
-): Promise<string> {
+	compute: () => Promise<TermText>,
+): Promise<TermText> {
 	if (recordLocal) return compute();
 	const trail = crossingTermTrail.getStore();
-	if (trail?.has(key) === true) return '';
+	if (trail?.has(key) === true) return NO_TEXT;
 	return crossingTermTrail.run(new Set([...(trail ?? []), key]), compute);
 }
 
@@ -511,12 +621,11 @@ async function joinCrossingGuarded(
  * so a component that displays its target by something other than the section's
  * thesaurus term resolves the same string PHP renders.
  *
- * Lang chain, WIDER than termComponentValue's: data-lang → hierarchy main lang →
- * lg-nolan → any non-empty. The tail is PHP's grid `fallback_value`, which
- * get_grid_value sets ONLY for translatable components — and it is load-bearing
- * here: the dd0 model-name records ('area_tool', 'component_portal') hold their
- * value in ONE lang (lg-spa on a standard install), so a strict data-lang read
- * renders every badge empty in an English UI.
+ * Lang chain: THE string-fragment law (header) — the same as the section_map
+ * term's (THES-01: the two used to differ, this one ending on "any non-empty").
+ * A label held in ONE lang (a dd0 model record named by its lg-spa label)
+ * resolves through the chain's project langs; a model record named by its
+ * machine name reads the lg-nolan rung.
  *
  * Shares termByLocatorCache under a `ddo:<tipos>` scope key so it inherits the
  * per-section-tipo eviction on save/delete and the ontology-hub clear; a private
@@ -540,48 +649,11 @@ export async function getDdoValueByLocator(
 	const cacheUid = `${sectionTipo}_${sectionId}_ddo:${tipos.join('+')}_${lang}`;
 	const cacheable = !(await termCrossesRecords(sectionTipo, tipos));
 	const cached = cacheable ? termByLocatorCache.get(cacheUid) : undefined;
-	if (cached !== undefined) return cached ?? '';
+	if (cached !== undefined) return cached.text;
 
-	const value = await joinCrossingGuarded(cacheable, cacheUid, async () => {
-		const fragments: string[] = [];
-		for (const tipo of tipos) {
-			const current = await ddoComponentValue(sectionTipo, sectionId, tipo, lang, opts);
-			if (current !== '') fragments.push(current);
-		}
-		return fragments.join(fieldsSeparator);
-	});
+	const value = await joinCrossingGuarded(cacheable, cacheUid, async () =>
+		joinParts(await termParts(sectionTipo, sectionId, tipos, lang, opts), fieldsSeparator),
+	);
 	if (cacheable) storeTerm(cacheUid, value);
-	return value;
-}
-
-/** One ddo_map component value with the full grid fallback chain (see above). */
-async function ddoComponentValue(
-	sectionTipo: string,
-	sectionId: number | string,
-	tipo: string,
-	lang: string,
-	opts: TermReadOptions,
-): Promise<string> {
-	if ((await modelFlatFamily(sectionTipo, tipo)) !== null) {
-		return modelFlatFragment(sectionTipo, sectionId, tipo, lang, opts);
-	}
-	const items = await readComponentItems(sectionTipo, sectionId, tipo);
-	if (items.length === 0) return '';
-	const translatable = await getTranslatableByTipo(tipo);
-	const pick = (target: string): string => {
-		const item = items.find((entry) => (entry.lang ?? 'lg-nolan') === target);
-		return typeof item?.value === 'string' ? item.value : '';
-	};
-	// Non-translatable components store under lg-nolan and get NO fallback —
-	// PHP sets fallback_value only when is_translatable() (component_common :1074).
-	if (!translatable) return pick('lg-nolan');
-
-	let value = pick(lang);
-	if (value === '') value = pick(await getMainLang(sectionTipo));
-	if (value === '') value = pick('lg-nolan');
-	if (value === '') {
-		const any = items.find((entry) => typeof entry.value === 'string' && entry.value !== '');
-		value = typeof any?.value === 'string' ? any.value : '';
-	}
-	return value;
+	return value.text;
 }
