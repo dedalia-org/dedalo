@@ -77,14 +77,17 @@ import {
 	runWithRequestContext,
 } from '../security/request_context.ts';
 import {
+	abandonComponentLock,
 	acquireComponentLock,
 	type ComponentLockContext,
 	type ComponentLockHandle,
 	componentLockBusy,
+	componentLockIsOurs,
 	refreshComponentLock,
+	relabelComponentLock,
 	releaseComponentLock,
 } from './component_lock.ts';
-import { runWithJobSignal } from './job_scope.ts';
+import { runWithJobHold, runWithJobSignal } from './job_scope.ts';
 import {
 	resolveProcessesDir,
 	TEST_PROCESSES_MARKER,
@@ -103,8 +106,13 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'interrupted' 
  * restart the user did not cause. The cause rides on `signal.reason` (an
  * `AbortError` DOMException, so anything that rejects with the reason still
  * rejects with an AbortError); `jobAbortInfo` reads it back.
+ *
+ * `lock_lost` (A1-01): a component-scoped job whose cross-process component
+ * lock was reclaimed by another instance (its heartbeat found another token).
+ * Not a stop: the job FAILS ('error'), and its publication steps refuse
+ * (job_scope.ts assertJobHold) — the component belongs to someone else now.
  */
-export type JobAbortCause = 'stop' | 'deadline' | 'shutdown';
+export type JobAbortCause = 'stop' | 'deadline' | 'shutdown' | 'lock_lost';
 
 export interface JobAbortInfo {
 	readonly cause: JobAbortCause;
@@ -125,6 +133,7 @@ const JOB_ABORT_CAUSES: ReadonlySet<unknown> = new Set<JobAbortCause>([
 	'stop',
 	'deadline',
 	'shutdown',
+	'lock_lost',
 ]);
 
 /** Why `signal` was aborted by the job manager; null when it was not (or by someone else). */
@@ -134,6 +143,15 @@ export function jobAbortInfo(signal: AbortSignal | null | undefined): JobAbortIn
 	return JOB_ABORT_CAUSES.has((info as { cause?: unknown } | undefined)?.cause)
 		? (info as JobAbortInfo)
 		: null;
+}
+
+/**
+ * The terminal status an ABORTED signal means: a lost component lock FAILS the
+ * job ('error'); every other abort is a stop. null when not aborted.
+ */
+function abortedStatus(signal: AbortSignal): 'stopped' | 'error' | null {
+	if (!signal.aborted) return null;
+	return jobAbortInfo(signal)?.cause === 'lock_lost' ? 'error' : 'stopped';
 }
 
 /**
@@ -837,9 +855,15 @@ export interface MediaJobManagerOptions {
 	clock?: () => number;
 	/** This manager's identity in a component lock file (default: random per manager). */
 	instanceId?: string;
-	/** Component-lock heartbeat period and stale bound (ms) — see component_lock.ts. */
+	/**
+	 * Component-lock heartbeat period and stale bound (ms) — see
+	 * component_lock.ts. A period of 0 arms NO timer: the heartbeat runs only
+	 * through `heartbeatNow()` (the gates' deterministic tick).
+	 */
 	lockHeartbeatMs?: number;
 	lockStaleAfterMs?: number;
+	/** The lock READER's clock for staleness sightings (monotonic by default; gates inject one). */
+	lockClock?: () => number;
 }
 
 /** What a submit site must declare. `lane` is REQUIRED — see `submit`. */
@@ -927,6 +951,11 @@ export class MediaJobManager {
 	 * every `scope: 'component'` holder, released with it (component_lock.ts).
 	 */
 	private readonly fileLocks = new Map<string, ComponentLockHandle>();
+	/** This manager's own sightings of other holders' locks (component_lock.ts staleness). */
+	private readonly lockObservations = new Map<string, { signature: string; since: number }>();
+	/** Jobs whose WORKER has not settled yet (a deadline makes the record terminal first). */
+	private readonly activeWorkers = new Set<string>();
+	private readonly lockClock: (() => number) | undefined;
 	private readonly instance: string;
 	private readonly lockHeartbeatMs: number;
 	private readonly lockStaleAfterMs: number;
@@ -940,6 +969,7 @@ export class MediaJobManager {
 		this.instance = options.instanceId ?? crypto.randomUUID();
 		this.lockHeartbeatMs = options.lockHeartbeatMs ?? COMPONENT_LOCK_HEARTBEAT_MS;
 		this.lockStaleAfterMs = options.lockStaleAfterMs ?? COMPONENT_LOCK_STALE_AFTER_MS;
+		this.lockClock = options.lockClock;
 	}
 
 	/** Allocate a deterministic job id (no Date/Math.random — resume-safe). */
@@ -1026,11 +1056,27 @@ export class MediaJobManager {
 		this.indexKeys(record.id, record.target);
 	}
 
-	/** Drop a job from the live-by-target index AND its component lock (EVERY terminal path). */
+	/**
+	 * Drop a job from the live-by-target index AND its component lock. Idempotent
+	 * (the terminal transition and the worker's settle may both call it).
+	 */
 	private unindexLive(record: JobRecord): void {
 		if (record.target === undefined) return;
 		this.unindexKeys(record.id, record.target);
 		this.dropFileLock(record.id);
+	}
+
+	/**
+	 * The TERMINAL transition's unindex. A component-scoped job whose worker is
+	 * still running (a deadline finished the record first) keeps the component
+	 * until the worker SETTLES — like its lane slot (A1-01 review L4): ffmpeg
+	 * does not observe the abort, and freeing the component under a running
+	 * encode would admit a second writer of the same files. run()'s settle
+	 * releases it.
+	 */
+	private unindexAtTerminal(record: JobRecord): void {
+		if (record.target?.scope === 'component' && this.activeWorkers.has(record.id)) return;
+		this.unindexLive(record);
 	}
 
 	/** Where and as whom this manager takes component locks (the SHARED processes dir). */
@@ -1039,7 +1085,8 @@ export class MediaJobManager {
 			dir: join(processesDir(), 'component_locks'),
 			instance: this.instance,
 			staleAfterMs: this.lockStaleAfterMs,
-			holdsInMemory: (token) => [...this.fileLocks.values()].some((held) => held.token === token),
+			observations: this.lockObservations,
+			...(this.lockClock === undefined ? {} : { now: this.lockClock }),
 		};
 	}
 
@@ -1072,18 +1119,30 @@ export class MediaJobManager {
 		}
 	}
 
-	/** A job ADOPTING a claim keeps the claim's lock file: the component is never free in between. */
+	/**
+	 * A job ADOPTING a claim keeps the claim's lock file: the component is never
+	 * free in between. The lock's heartbeat is re-labelled with the job id (L7),
+	 * so the directory names the job that holds it, not a finished claim.
+	 */
 	private moveFileLock(fromId: string, toId: string): void {
 		const handle = this.fileLocks.get(fromId);
 		if (handle === undefined) return;
 		this.fileLocks.delete(fromId);
-		this.fileLocks.set(toId, handle);
+		let relabelled = handle;
+		try {
+			relabelled = relabelComponentLock(handle, toId);
+		} catch (error) {
+			console.error(
+				`[media lock] relabel ${handle.key} → ${toId} failed: ${(error as Error).message}`,
+			);
+		}
+		this.fileLocks.set(toId, relabelled);
 	}
 
 	/** Refresh every held lock's heartbeat while any is held (unref'd: never keeps the process up). */
 	private armHeartbeat(): void {
-		if (this.heartbeat !== null) return;
-		this.heartbeat = setInterval(() => this.refreshFileLocks(), this.lockHeartbeatMs);
+		if (this.heartbeat !== null || this.lockHeartbeatMs <= 0) return;
+		this.heartbeat = setInterval(() => this.heartbeatNow(), this.lockHeartbeatMs);
 		this.heartbeat.unref?.();
 	}
 
@@ -1093,19 +1152,54 @@ export class MediaJobManager {
 		this.heartbeat = null;
 	}
 
-	/** One heartbeat pass; a lock no longer ours (reclaimed past the bound) is logged. */
-	private refreshFileLocks(): void {
-		for (const [holderId, handle] of this.fileLocks) {
+	/**
+	 * One heartbeat pass (the interval's tick; public as the gates' deterministic
+	 * tick). A lock that is no longer ours — another instance reclaimed it — is a
+	 * LOST hold: forgotten (never released: it is someone else's now) and, for a
+	 * job, its controller is aborted with `lock_lost`, which fails the job; its
+	 * publication steps refuse on their own (assertHolds).
+	 */
+	heartbeatNow(): void {
+		for (const [holderId, handle] of [...this.fileLocks]) {
 			try {
-				if (!refreshComponentLock(handle)) {
-					console.error(
-						`[media lock] ${handle.key} (${holderId}) was reclaimed by another instance`,
-					);
-				}
+				if (refreshComponentLock(handle)) continue;
+				this.loseFileLock(holderId, handle);
 			} catch (error) {
 				console.error(`[media lock] heartbeat ${handle.key} failed: ${(error as Error).message}`);
 			}
 		}
+	}
+
+	/** A hold found LOST: forget it, abort its job, say so. */
+	private loseFileLock(holderId: string, handle: ComponentLockHandle): void {
+		this.fileLocks.delete(holderId);
+		if (this.fileLocks.size === 0) this.disarmHeartbeat();
+		try {
+			abandonComponentLock(handle);
+		} catch (error) {
+			console.error(`[media lock] abandoning ${handle.key} failed: ${(error as Error).message}`);
+		}
+		console.error(
+			`[media lock] ${handle.key} (${holderId}) was reclaimed by another instance — hold LOST`,
+		);
+		this.controllers.get(holderId)?.abort(jobAbortReason({ cause: 'lock_lost' }));
+	}
+
+	/**
+	 * The running job's hold check (job_scope.ts assertJobHold): a
+	 * component-scoped job must still hold its lock — in memory AND on disk —
+	 * immediately before it publishes. Throws media.build_running when the
+	 * component is someone else's now.
+	 */
+	private assertHolds(record: JobRecord): void {
+		if (record.target?.scope !== 'component') return;
+		const handle = this.fileLocks.get(record.id);
+		if (handle !== undefined && componentLockIsOurs(handle)) return;
+		if (handle !== undefined) this.loseFileLock(record.id, handle);
+		throw new DedaloError('media.build_running', {
+			message: `media job ${record.id}: the component lock of '${jobTargetKey(record.target)}' was lost — nothing published`,
+			coordinates: { target: jobTargetKey(record.target) },
+		});
 	}
 
 	/** Enter one holder (a job id or a claim id) under every key its target occupies. */
@@ -1442,7 +1536,7 @@ export class MediaJobManager {
 	): Promise<void> {
 		const acquired = await this.acquire(record.lane, controller.signal);
 		if (!acquired || controller.signal.aborted) {
-			this.endNeverStarted(record, acquired);
+			this.endNeverStarted(record, acquired, controller.signal);
 			return;
 		}
 		record.status = 'running';
@@ -1451,6 +1545,7 @@ export class MediaJobManager {
 		// THE DEADLINE IS ARMED HERE, not at submit: a job that waited behind a full
 		// lane must not be killed for having waited (the clock decision, header).
 		this.armDeadline(record, controller);
+		this.activeWorkers.add(record.id);
 		try {
 			const result = await this.runWorker(
 				record,
@@ -1472,13 +1567,18 @@ export class MediaJobManager {
 				},
 				scope,
 			);
+			this.activeWorkers.delete(record.id);
 			record.data = result;
-			this.finish(record, controller.signal.aborted ? 'stopped' : 'done');
+			this.finish(record, abortedStatus(controller.signal) ?? 'done');
 		} catch (error) {
-			this.failRun(record, error, controller.signal.aborted);
+			this.activeWorkers.delete(record.id);
+			this.failRun(record, error, controller.signal);
 		} finally {
+			this.activeWorkers.delete(record.id);
 			this.clearDeadline(record.id);
 			this.release(record.lane);
+			// THE SETTLE: a component held past a deadline is released here (L4).
+			this.unindexLive(record);
 		}
 	}
 
@@ -1487,13 +1587,10 @@ export class MediaJobManager {
 	 * (recordFailure — see JobRecord.errors / .error), the log line the full
 	 * (log-only) message.
 	 */
-	private failRun(record: JobRecord, error: unknown, aborted: boolean): void {
-		if (isLiveStatus(record.status)) recordFailure(record, error, aborted);
-		this.finish(
-			record,
-			aborted ? 'stopped' : 'error',
-			error instanceof Error ? error.message : String(error),
-		);
+	private failRun(record: JobRecord, error: unknown, signal: AbortSignal): void {
+		const status = abortedStatus(signal) ?? 'error';
+		if (isLiveStatus(record.status)) recordFailure(record, error, status === 'stopped');
+		this.finish(record, status, error instanceof Error ? error.message : String(error));
 	}
 
 	/**
@@ -1507,13 +1604,14 @@ export class MediaJobManager {
 	 * (update_code_phases resolve_final_frame; the pre-lane wire served
 	 * `errors: []` here too). The operator log gets the line instead.
 	 */
-	private endNeverStarted(record: JobRecord, acquired: boolean): void {
+	private endNeverStarted(record: JobRecord, acquired: boolean, signal: AbortSignal): void {
 		if (isLiveStatus(record.status)) {
 			console.log(
 				`[media jobs] job ${record.id} (${record.kind}, lane ${record.lane}) stopped before it started (was queued)`,
 			);
 		}
-		this.finish(record, 'stopped');
+		// A hold lost while queued FAILS the job ('error'); any other abort is a stop.
+		this.finish(record, abortedStatus(signal) ?? 'stopped');
 		if (acquired) this.release(record.lane);
 	}
 
@@ -1535,7 +1633,7 @@ export class MediaJobManager {
 	 * (test/unit/media_jobs_reconcile.test.ts).
 	 */
 	protected runWorker(
-		_record: JobRecord,
+		record: JobRecord,
 		controller: AbortController,
 		worker: JobWorker,
 		ctx: Parameters<JobWorker>[0],
@@ -1543,7 +1641,12 @@ export class MediaJobManager {
 	): Promise<unknown> {
 		return runWithRequestContext(scope.context, () =>
 			runWithRequestLangs(scope.langs, () =>
-				runWithJobSignal(controller.signal, () => worker(ctx)),
+				runWithJobSignal(controller.signal, () =>
+					runWithJobHold(
+						() => this.assertHolds(record),
+						() => worker(ctx),
+					),
+				),
 			),
 		);
 	}
@@ -1606,8 +1709,9 @@ export class MediaJobManager {
 		record.finishedAtWall = Date.now();
 		// Out of the live index BEFORE the frame is published: a subscriber woken by
 		// the terminal commit may immediately re-submit the same target (the panel's
-		// retry), and it must not be refused by the job that just ended.
-		this.unindexLive(record);
+		// retry), and it must not be refused by the job that just ended. (A
+		// component-scoped job still RUNNING past a deadline keeps it — L4.)
+		this.unindexAtTerminal(record);
 		// The TERMINAL frame: subscribers see is_running:false and close their
 		// stream. Committed before the subscriber set is dropped below.
 		this.commit(record);
@@ -1686,6 +1790,10 @@ export class MediaJobManager {
 			this.notifyTerminal(record);
 			interrupted.push(record.id);
 		}
+		// Held claims own lock FILES too (L3): a shutdown between an upload's claim
+		// and its transcode must not leave the component locked for the fleet.
+		for (const claimId of [...this.claims.keys()]) this.releaseClaim(claimId);
+		this.disarmHeartbeat();
 		return interrupted;
 	}
 

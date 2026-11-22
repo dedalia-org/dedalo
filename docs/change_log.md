@@ -623,7 +623,8 @@ Merged since the last release; these ship with the next one.
 
     The rule holds across server instances: when several instances serve the same installation, they
     must share one media processes directory (`DEDALO_MEDIA_PROCESSES_DIR`), where the per-field build
-    locks live. See [the configuration reference](./administration/configuration/config.md).
+    locks live; on a network share, mount it so that a server that stops answering cannot freeze the
+    instances. See [the configuration reference](./administration/configuration/config.md).
 
     The other Media versions actions that rewrite an audio/video field's files — *Conform headers*,
     deleting a quality or a version, *Regenerate*, rebuilding the thumbnail — and creating or

@@ -1524,12 +1524,39 @@ atomic exclusive create and rename (any local filesystem; NFSv3+ for a network
 share). Instances with separate processes dirs see each other's builds as free —
 the guard degrades to per-instance, silently.
 
-The lock file names its holder (host, pid, instance, start, heartbeat refreshed
-every 15 s). A lock is reclaimed — and logged `[media lock] reclaimed …` — when
-its holder's pid is dead on the same host, or its heartbeat is older than
-120 s (a dead or hung host). Keep the hosts' clocks NTP-synchronized: a clock
-skew near the 120 s bound makes a live remote lock look stale. A crash leaves
-nothing to clean by hand: the next acquire reclaims it.
+Each hold is two files: the immutable `<key>.lock` (host + boot/pid-namespace
+id, pid, instance, token, start — published with an atomic `link()`) and the
+holder's own heartbeat `<key>.lock.<token>.hb` (a beat counter and the current
+holder id, re-labelled to the job when a job adopts an upload's claim), beaten
+every 15 s. Every release or reclaim is compare-and-swap (rename aside, verify
+the token, then unlink — or put back), so no instance ever deletes a lock that
+is not the one it judged. A lock is reclaimed — and logged
+`[media lock] reclaimed …` — when its holder is on the SAME machine (hostname +
+boot id + pid namespace on Linux) and its pid is dead, or is this very process
+but held by no manager in it; otherwise when this instance has SEEN its
+heartbeat stay unchanged for 120 s of its OWN clock. No timestamp written by
+another host is compared with this host's clock, so clock skew cannot make a
+live lock stale; a dead holder on another host costs at most one bound of
+waiting. A crash leaves nothing to clean by hand: the next acquire reclaims it,
+and a shutdown releases the locks of every held job and claim.
+
+A holder that finds its lock reclaimed (its heartbeat sees another token —
+it stalled past the bound) has LOST the component: the job is aborted and
+FAILS, and its two publication steps refuse on their own — the atomic rename of
+an encoded tier and the files_info write-back re-check the lock immediately
+before they act — so nothing it produced after the loss is published.
+
+**Filesystem stall risk.** The lock calls are SYNCHRONOUS by design: the job
+manager's claim, exclusive submit and pre-flight are synchronous APIs, and the
+in-memory index taken in the same tick is what makes "check, then claim"
+indivisible. On an NFS share mounted `hard` (the default), a server that stops
+answering blocks those calls — and with them the instance's whole event loop —
+until it answers. Either keep the processes dir on LOCAL disk and run ONE
+instance per media tree, or mount the share `soft,timeo=<deciseconds>,retrans=<n>`
+(e.g. `soft,timeo=50,retrans=2`), so a dead server turns into an error the lock
+door reports (`media.operation_failed`) instead of a frozen instance. Do not
+put the processes dir on a share whose server is less available than the
+instances themselves.
 
 ## 9. Residue lifecycle (S3-46/62/63/64)
 

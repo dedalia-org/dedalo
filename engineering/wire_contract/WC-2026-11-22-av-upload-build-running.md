@@ -95,3 +95,22 @@
   the 409 refusal covers them. No frozen fixture carries a get_record_jobs
   answer; no re-harvest. Gates: `test/unit/activity_aggregate_native.test.ts`
   (scope projection), client suite `test_tool_media_versions` (6 tests).
+- **Addendum 2026-11-22 (review M1/M2/L1–L5/L7, the lock's own soundness):**
+  no wire shape changes; the guarantees behind the 409 tighten.
+  (1) The lock is two files — the immutable `<key>.lock` (published with
+  `link()`) and the holder's own `<key>.lock.<token>.hb` heartbeat (beat
+  counter + holder, re-labelled to the job on adoption) — and every release /
+  reclaim / stale-mutex clear is compare-and-swap (rename aside, verify token or
+  inode/mtime, unlink or put back with `link()`), ENOENT-tolerant; a raw
+  filesystem failure is typed `media.operation_failed`, never
+  `internal.unexpected`. (2) Staleness: same machine (hostname + boot id + pid
+  namespace) → dead pid (EPERM = alive) or this process's pid with a token no
+  manager here holds; otherwise only a heartbeat SEEN unchanged for the bound on
+  the reader's own clock — no cross-host time comparison. (3) A holder that
+  finds its lock reclaimed aborts its job with the new abort cause `lock_lost`
+  (status `error`, not `stopped`), and the atomic rename (`writeAtomically`) and
+  the av files_info write-back re-check the hold immediately before acting
+  (`job_scope.ts` `assertJobHold`) and refuse with `media.build_running`. (4) A
+  component held past a deadline stays held until the worker settles; a
+  shutdown releases held claims' locks too. Gate:
+  `test/unit/media_component_lock_native.test.ts` (28).

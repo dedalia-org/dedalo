@@ -38,6 +38,7 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sweepSequenceSiblings } from './engine/imagemagick.ts';
+import { assertJobHold } from './job_scope.ts';
 
 /**
  * A unique temp path in the same dir as `target` (atomic-rename staging). The
@@ -91,6 +92,10 @@ export async function writeAtomically(
 	try {
 		await produce(temp);
 		beforeRename?.();
+		// A job that LOST its component hold (another instance reclaimed it) must
+		// not publish: checked at the last moment before the one publication step
+		// (job_scope.ts assertJobHold — a no-op outside a held job).
+		assertJobHold();
 		renameSync(temp, target);
 		return target;
 	} finally {

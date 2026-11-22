@@ -224,6 +224,8 @@ const RENAME = /\brenameSync\s*\(/;
  * a copy and a failure mode without adding a guarantee.
  */
 const MOVE_ONLY_RENAME: Record<string, string> = {
+	'src/core/media/component_lock.ts':
+		'the cross-process component lock (A1-01) — its renames are COMPARE-AND-SWAP moves of an EXISTING lock or reclaim mutex to a unique aside name (release, reclaim, stale-mutex clear), never the publication of a produced file: a lock is published with link() (EEXIST-atomic) and its heartbeat through writeAtomicallySync. Not in the media tree (<processes>/component_locks); nothing to sweep',
 	'src/core/media/ingest/add_file.ts':
 		'moves the STAGED UPLOAD into the media tree (the irreversible step every derivative failure now happens after); the bytes already exist and are not produced here',
 	'src/core/media/file_ops.ts':

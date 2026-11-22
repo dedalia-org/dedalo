@@ -302,7 +302,11 @@ const CEILING_FILES = 49;
 // cross-process av component lock — O_EXCL create + write, owner read, heartbeat
 // write of a few hundred bytes of JSON; sync by design (the claim must not yield
 // between the file create and the in-memory index). MEASURED: 141.
-const CEILING_CALLS = 141;
+// 141 → 143 (2026-11-22, A1-01 review M1/M2/L2): component_lock.ts reads the
+// heartbeat file (its own, separate from the immutable lock) and, once at load,
+// /proc/sys/kernel/random/boot_id (the machine identity) — both a few bytes.
+// MEASURED: 143.
+const CEILING_CALLS = 143;
 
 const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
@@ -392,7 +396,7 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
 		file: 'src/core/media/component_lock.ts',
 		reason:
-			'the cross-process av component lock (A1-01, owner ruling 5): one lock file of a few hundred bytes of owner JSON per held component. It is SYNC BY DESIGN — the claim is check-then-index inside one turn of the event loop (MediaJobManager.claimTarget), and an await between the O_EXCL create and the in-memory index would let two claims of one component interleave. Bounded by the owner record, never by media bytes',
+			'the cross-process av component lock (A1-01, owner ruling 5): one lock file and one heartbeat of a few hundred bytes of JSON per held component. SYNC BECAUSE ITS CALLERS ARE SYNCHRONOUS APIs — MediaJobManager.claimTarget, submit (its exclusive admission) and isOccupied answer in the same tick, and the in-memory index taken in that tick is what makes the check and the claim indivisible; an async lock would split them. Bounded by the owner record, never by media bytes. RISK, documented in engineering/PRODUCTION.md §8.1: on a hung HARD NFS mount these calls freeze the event loop',
 	},
 	{
 		file: 'src/core/media/jobs.ts',

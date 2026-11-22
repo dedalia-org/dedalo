@@ -34,6 +34,7 @@ import {
 import { getFfmpegProfile, settingName } from './engine/ffmpeg_profiles.ts';
 import type { SpawnOptions } from './engine/spawn.ts';
 import { scanContextFromItem, scanFilesInfo } from './files_info.ts';
+import { assertJobHold } from './job_scope.ts';
 import { type JobTarget, type JobTargetClaim, mediaJobs } from './jobs.ts';
 import { buildMediaLocation, type MediaIdentity, type MediaPathOptions } from './path.ts';
 import { resolveMasterSource } from './processing.ts';
@@ -333,11 +334,14 @@ export async function persistTranscodedFilesInfo(
  * (console.error + a `persist_error` in the payload) because a record that does
  * not know its own files is exactly the bug this exists to fix.
  */
-async function persistOrReport(
+export async function persistTranscodedOrReport(
 	spec: MediaTypeSpec,
 	identity: MediaIdentity,
 	pathOpts: MediaPathOptions,
 ): Promise<string | null> {
+	// A job that LOST its component hold writes nothing: the throw fails the job
+	// (outside the try below, which reports only the write-back's own failure).
+	assertJobHold();
 	try {
 		await persistTranscodedFilesInfo(spec, identity, pathOpts);
 		return null;
@@ -455,7 +459,7 @@ export function submitAvTranscode(
 			}
 			onProgress(95);
 
-			const persistError = await persistOrReport(spec, identity, pathOpts);
+			const persistError = await persistTranscodedOrReport(spec, identity, pathOpts);
 			onProgress(100);
 			return {
 				created,
@@ -623,7 +627,7 @@ export async function submitAvVersionBuild(
 				throw new Error(`build_version: '${quality}' not built (${outcome.skipped})`);
 			}
 			onProgress(90);
-			const persistError = await persistOrReport(spec, identity, pathOpts);
+			const persistError = await persistTranscodedOrReport(spec, identity, pathOpts);
 			onProgress(100);
 			return {
 				created: [outcome.built],
