@@ -30,6 +30,23 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **"Propagate component data now requires access to the section, not only to the field."**
+
+    Before, a user who could edit one field but had no access to its section could still
+    propagate a value into that field across the section's records. Propagation now asks the same
+    questions as editing a record by hand: access to the section, write permission on the field,
+    and — record by record — whether the record is within the user's projects. A record the user
+    may not edit is listed in the run's warnings and left untouched; the rest of the run goes on.
+
+    The same check now guards the transcription tools: a transcript saved by the automatic
+    transcription, and the timecode shift of a transcription, are written only where the user may
+    edit the record.
+
+    **Action needed:** none. Details:
+    [Propagate component data](./using/tools/using_propagate_component_data.md).
+
+    Wire contract: `WC-2026-09-30-write-door`.
+
 - **Record text shown by widgets and tools is always displayed as text; markup stored in a record no longer runs there.**
 
     Every place outside the record editor that shows a value typed into a record now shows it as text: the state, archive-states, archive-weights, sum-dates, media-icons, tags and user-activity widgets; the typology names in the thesaurus, graph and search panels; and the tools that print or edit record text — transcription print, subtitles, print layouts (including the free text of a layout, which is now kept as plain text), propagate component data, indexation, translation (the live preview of the Local AI translator) and the CSV import mapper.
@@ -509,6 +526,21 @@ Merged since the last release; these ship with the next one.
     from leaving the record. The reload and add-point icons now explain themselves on hover.
 
 #### Fixed
+
+- **"An audiovisual record without a stored duration shows its measured duration, or nothing — never 00:00:00."**
+
+    The duration shown beside an interview's recordings used to read `00:00:00.000` whenever no
+    duration was stored, and an upload whose file could not be measured stored that zero. Now the
+    stored duration is shown; when there is none, the file on the server is measured and its
+    duration shown (nothing is written by looking at a record); when there is no file, the
+    duration is left empty. An upload whose file cannot be measured no longer stores a zero.
+
+    To store the durations of recordings that show none, run
+    [Update cache](./using/tools/using_update_cache.md) with the audiovisual component ticked.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-22-media-icons-tc`.
 
 - **Searching through a field without its own configuration uses the same columns as its list.**
 
@@ -1872,6 +1904,18 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Update cache brings old stored formats up to date: legacy time codes in text areas and JSON stored as text."**
+
+    Running **Update cache** over a text area now rewrites time codes kept in the old form
+    (`[TC_00:01:02_TC]`) to the current one (`[TC_00:01:02.000_TC]`), and over a JSON field stores
+    a value kept as text as real JSON. A JSON value that is not valid is left untouched and listed
+    at the end of the run; the other records are still processed. Records already in the current
+    form are not written. The run's label is now written in your interface language.
+
+    **Action needed:** none. Details: [Update cache](./using/tools/using_update_cache.md).
+
+    Wire contract: `WC-2026-11-22-regenerate-facet`.
+
 - **A relation list that names two sections resolves to the last one, and never shows a section as a column.**
 
     When the ontology relations of a field without its own request configuration — or of a
@@ -2315,7 +2359,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 97 entries"
+??? note "Wire contract — 99 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2413,6 +2457,8 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-media-icons-tc`
+    - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
 
 ## 7.0.0-beta.8 — 2026-11-08

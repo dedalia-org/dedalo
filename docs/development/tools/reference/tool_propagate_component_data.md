@@ -21,7 +21,7 @@ Use it when: the same component value must be set, appended, or removed across a
 **Server** (`tools/tool_propagate_component_data/server/{index,propagate}.ts`) — a single action, `propagate_component_data`, runs the whole batch:
 
 1. Validates the required options and the `action` value (`replace` | `delete` | `add`).
-2. **Permission gate:** `apiActions` declares `permission: null` here because the target is a `(section_tipo, component_tipo)` **pair with no single record**, and the request carries the component side of that pair under `component_tipo`, not `tipo` — the field name the declarative `tipo` gate kind reads. The handler therefore gates imperatively via `getPermissions(section_tipo, component_tipo)` itself, at write level 2. Propagation is a bulk *write*, so the caller must hold write (level 2) on the pair.
+2. **Permission gate — the write door:** `apiActions` declares `permission: null` here because the target is a `(section_tipo, component_tipo)` **pair with no single record**, and the request carries the component side of that pair under `component_tipo`, not `tipo` — the field name the declarative `tipo` gate kind reads. The handler therefore asks the shared write door itself: `authorizeSectionTarget` up front (read on the section — the section floor, level 1 — then write, level 2, on the pair), so a caller with no access to the section is refused before any record is searched, even when it holds a grant on the component; then, for every matched row, `authorizeRecordAccess` (write, level 2, section floor 1, the dd128-aware pair, the write scope), whose grant addresses that row's save. A refused row is reported in `errors` (`out of the user scope` / `no write permission …`) and never written; the batch goes on.
 3. Resolves the component model; refuses a **derived** model outright (`isDerivedModel` — e.g. `component_relation_children`: it stores nothing, so the stored region would be leftover bytes and the write would re-parent every real child missing from them), before the search and the bulk-process record; refuses `add` for mono-value components (the `COMPONENTS_WITH_RELATIONS`/monovalue set defined in `propagate.ts`).
 4. **Runs the SQO** with the full result set (via `buildSearchSql`, no limit).
 5. **Security total check:** if the server's row count is *greater* than the client-supplied `total`, it aborts — the SQO may have drifted between client and server, so a larger-than-expected match set is refused rather than silently over-writing more records than the user saw.
@@ -38,11 +38,11 @@ The action is also listed in `backgroundRunnable`; the client always invokes it 
 
 ## Actions & options
 
-`apiActions = { propagate_component_data: { permission: null, handler: propagateComponentData } }` and `backgroundRunnable = ['propagate_component_data']`. `permission: null` here means the framework runs no declarative gate — the handler gates imperatively via `getPermissions` at level 2 on the `(section_tipo, component_tipo)` pair (this is also the defense-in-depth gate for the background path, since `scheduleBackground` does not re-run the declarative gate — there being none to re-run here).
+`apiActions = { propagate_component_data: { permission: null, handler: propagateComponentData } }` and `backgroundRunnable = ['propagate_component_data']`. `permission: null` here means the framework runs no declarative gate — the handler asks the write door itself (`authorizeSectionTarget` on the `(section_tipo, component_tipo)` pair up front, `authorizeRecordAccess` per row; this is also the defense-in-depth gate for the background path, since `scheduleBackground` does not re-run the declarative gate — there being none to re-run here).
 
 | Action | Permission gate | Background | Reads from `options` |
 | --- | --- | --- | --- |
-| `propagate_component_data` | `permission: null` + imperative `getPermissions(section_tipo, component_tipo) >= 2` inside the handler | yes (`backgroundRunnable`; client sends `background_running:true`) | see below |
+| `propagate_component_data` | `permission: null` + the write door inside the handler (`authorizeSectionTarget` level 2 on the pair, section floor 1; `authorizeRecordAccess` per row) | yes (`backgroundRunnable`; client sends `background_running:true`) | see below |
 
 Key options read by `propagate_component_data`:
 
