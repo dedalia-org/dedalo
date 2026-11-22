@@ -59,12 +59,13 @@ export const areaMaintenanceApiActions: Record<string, ActionHandler> = {
 	},
 	lock_components_actions: async (rqo, context) => {
 		// lock_components widget area-level action (PHP dd_area_maintenance_api::
-		// lock_components_actions). Admin-gated inside the dispatcher. fn_action ∈
+		// lock_components_actions). Gated inside the dispatcher. fn_action ∈
 		// {get_active_users, force_unlock_all_components}.
 		const principal = requirePrincipal(context);
 		const { dispatchLockComponentsActions } = await import(
 			'../../area_maintenance/widgets/registry.ts'
 		);
+		// (the dispatcher opens with THE maintenance rule — lock_components.ts)
 		const out = await dispatchLockComponentsActions(
 			principal,
 			(rqo.options ?? {}) as Record<string, unknown>,
@@ -74,10 +75,10 @@ export const areaMaintenanceApiActions: Record<string, ActionHandler> = {
 	parse_simple_schema_changes_files: async (rqo, context) => {
 		// component_security_access "Latest changes": one ontology schema-change
 		// file, labelled (PHP dd_area_maintenance_api::parse_simple_schema_changes_files).
-		// Admin-gated like every maintenance action (PHP: the whole api needed dd88).
+		// THE maintenance rule like every maintenance action (PHP: the whole api needed dd88).
 		const principal = requirePrincipal(context);
-		const { requireMaintenanceAdmin } = await import('../../area_maintenance/widgets/registry.ts');
-		requireMaintenanceAdmin(principal);
+		const { requireMaintenanceAccess } = await import('../../area_maintenance/widgets/registry.ts');
+		await requireMaintenanceAccess(principal);
 		const { parseSchemaChangesFile } = await import('../../ontology/schema_changes.ts');
 		const options = (rqo.options ?? {}) as { filename?: unknown };
 		return widgetEnvelope(

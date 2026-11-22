@@ -23,7 +23,7 @@ import { typedMaintenanceLockWait, withUnboundedStatements } from '../../db/post
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { getLabels } from '../../labels/catalog.ts';
 import { currentApplicationLang } from '../../resolve/request_lang.ts';
-import type { Principal } from '../../security/permissions.ts';
+import { canAccessMaintenanceArea, type Principal } from '../../security/permissions.ts';
 import { widget as add_hierarchy } from './add_hierarchy.ts';
 import { widget as ai_models } from './ai_models.ts';
 import { widget as build_database_version } from './build_database_version.ts';
@@ -276,14 +276,15 @@ export async function buildMaintenanceDataItem(): Promise<Record<string, unknown
 }
 
 /**
- * The admin gate both dispatchers open with: the maintenance area is a
- * global-admin surface (`perm.denied`, 403 — the message names nothing,
- * it is shown to the refused user).
+ * The gate every maintenance dispatcher opens with: THE maintenance rule
+ * (security/permissions.ts canAccessMaintenanceArea — the menu, the area read
+ * and start ask the same; T2-O15-2). `perm.denied`, 403 — the message names
+ * nothing, it is shown to the refused user.
  */
-export function requireMaintenanceAdmin(principal: Principal): void {
-	if (!principal.isGlobalAdmin) {
+export async function requireMaintenanceAccess(principal: Principal): Promise<void> {
+	if (!(await canAccessMaintenanceArea(principal))) {
 		throw new DedaloError('perm.denied', {
-			message: 'maintenance widgets are an admin surface',
+			message: 'maintenance widgets need the maintenance area',
 		});
 	}
 }
@@ -293,7 +294,7 @@ export async function dispatchGetWidgetValue(
 	principal: Principal,
 	source: { model?: unknown },
 ): Promise<WidgetResponse> {
-	requireMaintenanceAdmin(principal);
+	await requireMaintenanceAccess(principal);
 	const widgetId = typeof source.model === 'string' ? source.model : '';
 	if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/.test(widgetId)) {
 		throw new DedaloError('maintenance.widget_unknown', { coordinates: { widget: widgetId } });
@@ -314,7 +315,7 @@ export async function dispatchGetWidgetValue(
  * dd_area_maintenance_api::widget_request; spec §7.1 — a widget method exists
  * on this API only if its module registers it):
  *
- *  1. ADMIN-ONLY — the maintenance area is a global-admin surface;
+ *  1. THE MAINTENANCE RULE (canAccessMaintenanceArea);
  *  2. options must be an object (PHP type guard);
  *  3. the widget id must be in the maintenance catalog;
  *  4. the method must be registered (`tool.method_not_allowed` otherwise);
@@ -328,8 +329,8 @@ export async function dispatchWidgetRequest(
 	source: { model?: unknown; action?: unknown },
 	options: unknown,
 ): Promise<WidgetResponse> {
-	// Gate 1: admin-only surface.
-	requireMaintenanceAdmin(principal);
+	// Gate 1: THE maintenance rule.
+	await requireMaintenanceAccess(principal);
 	// Gate 2: options must be an object when present.
 	if (options !== undefined && (typeof options !== 'object' || options === null)) {
 		throw new DedaloError('request.invalid_options', { publicMessage: 'invalid options' });

@@ -7,12 +7,12 @@
  */
 
 import { DedaloError } from '../../errors/dedalo_error.ts';
-import type { Principal } from '../../security/permissions.ts';
+import { canAccessMaintenanceArea, type Principal } from '../../security/permissions.ts';
 import type { WidgetModule, WidgetResponse } from './support.ts';
 
 /**
  * dd_area_maintenance_api.lock_components_actions — the lock_components widget's
- * area-level action (PHP class_request). Admin-gated. Dispatches on fn_action:
+ * area-level action (PHP class_request). Gated by THE maintenance rule. Dispatches on fn_action:
  *  - 'get_active_users' → the enriched live lock map ({result, ar_user_actions});
  *  - 'force_unlock_all_components' → clear ONE user's locks (options.user_id) or
  *    ALL locks (user_id null/empty), then report the freed count.
@@ -23,9 +23,10 @@ export async function dispatchLockComponentsActions(
 	principal: Principal,
 	options: Record<string, unknown>,
 ): Promise<WidgetResponse> {
-	if (!principal.isGlobalAdmin) {
+	// THE maintenance rule (T2-O15-2 — every maintenance dispatcher asks it)
+	if (!(await canAccessMaintenanceArea(principal))) {
 		throw new DedaloError('perm.denied', {
-			message: 'maintenance widgets are an admin surface',
+			message: 'maintenance widgets need the maintenance area',
 		});
 	}
 	const fnAction = typeof options.fn_action === 'string' ? options.fn_action : '';

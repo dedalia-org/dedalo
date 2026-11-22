@@ -388,6 +388,18 @@ const DOORS: readonly { name: string; run: () => Promise<unknown> }[] = [
 			]),
 	},
 	{
+		// The maintenance personas (test/helpers/maintenance_persona_fixture.ts):
+		// users/profiles at explicit ids — refused, writing nothing.
+		name: 'installMaintenancePersonas',
+		run: async () =>
+			(await import('../helpers/maintenance_persona_fixture.ts')).installMaintenancePersonas(),
+	},
+	{
+		name: 'removeMaintenancePersonas',
+		run: async () =>
+			(await import('../helpers/maintenance_persona_fixture.ts')).removeMaintenancePersonas(),
+	},
+	{
 		// The rdf publication-services record (test/helpers/rdf_services_fixture.ts):
 		// a dd1010 record at an explicit id — refused, writing nothing.
 		name: 'ensureRdfServicesRecord',

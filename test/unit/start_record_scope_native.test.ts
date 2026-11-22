@@ -16,8 +16,9 @@
  *   5. the superuser on the out-of-project record → 200 (non-vacuity: it exists);
  *   6. a COMPONENT deep link to the record is gated the same way
  *      (WC-2026-10-28-start-component-deep-link-record-scope); id 0 stays untouched.
- *   7. no tipo in the URL → the user's dd1603 "Default section" when it names a
- *      section they may read (TODO-070); an ungranted or malformed one falls back.
+ *   7. no tipo in the URL → the superuser lands on Maintenance (dd88, T2-P03-a);
+ *      anyone else on their dd1603 "Default section" when it names a section
+ *      they may open (TODO-070); an ungranted or malformed one falls back.
  *
  * Situation `zzsrs` (scratch TLD, torn down): section zzsrs1, project-gated by
  * component_filter zzsrs3, one record in the persona's project and one outside.
@@ -395,6 +396,13 @@ describe.if(DB_READY)('start: a section deep link is record-scope gated', () => 
 			id: String(OUT_OF_SCOPE_ID),
 		});
 		expect(superuser.status).toBe(200);
+	});
+
+	test('no tipo in the URL: the SUPERUSER lands on Maintenance (dd88) — before any dd1603 read (T2-P03-a)', async () => {
+		const answer = await start(-1, {});
+		expect(answer.status).toBe(200);
+		const pages = (answer.body.data as { context?: Record<string, unknown>[] }).context ?? [];
+		expect(pages.map((entry) => [entry.tipo, entry.model])).toEqual([['dd88', 'area_maintenance']]);
 	});
 
 	test('no tipo in the URL: the user lands on their dd1603 default section — only one they may read', async () => {

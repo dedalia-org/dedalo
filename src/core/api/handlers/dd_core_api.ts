@@ -11,7 +11,7 @@
 
 import { config } from '../../../config/config.ts';
 import { dispatchAreaRead, refuseAreaWrite } from '../../area/read.ts';
-import { isAreaModel } from '../../concepts/area.ts';
+import { AREA_MAINTENANCE_TIPO, isAreaModel } from '../../concepts/area.ts';
 import { isTemporalSource, type Rqo, type RqoSource } from '../../concepts/rqo.ts';
 import { isConsultationOnlySection, TM_NOTES_SECTION_TIPO } from '../../concepts/section.ts';
 import {
@@ -37,9 +37,11 @@ import {
 	saveComponentData,
 } from '../../section/record/save_component.ts';
 import {
+	canAccessMaintenanceArea,
 	getPermissions,
 	isTmNoteCreatorWithAccess,
 	type Principal,
+	SUPERUSER_ID,
 } from '../../security/permissions.ts';
 import { sourceComponentLevel } from '../../security/write_door.ts';
 import type { TargetSearchScope } from '../../security/writer_chain_scope.ts';
@@ -1779,7 +1781,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 		// context the user cannot read). For a section_tool this gates the
 		// REROUTED target section — the element the context actually describes.
 		const pagePermissions = await getPermissions(principal, pageSectionTipo, pageTipo);
-		if (pagePermissions < 1) {
+		if (pagePermissions < 1 || !(await pageDoorOpen(principal, pageTipo))) {
 			// THE ENVIRONMENT RIDES THE REFUSAL
 			// (WC-2026-08-12-authorization-denial-token). `start` is the client's
 			// FIRST call: without it there is no `labels_version` to fetch labels by,
@@ -2462,16 +2464,38 @@ async function readMenu(
 }
 
 /**
- * TODO-070: with no tipo in the URL, the user's own dd1603 "Default section" wins
- * over MAIN_FALLBACK_SECTION — but only a section/area the user may read; a stale
- * or ungranted default falls through silently (it must never block a login).
+ * The landing page when the URL names no tipo (WC-2026-10-29-start-user-default-section):
+ *   1. the SUPERUSER lands on Maintenance (dd88) — PHP's get_default_section
+ *      answered the maintenance area for root before reading anything (T2-P03-a);
+ *   2. the user's own dd1603 "Default section" (TODO-070) — but only a
+ *      section/area the user may open; a stale or ungranted default falls
+ *      through silently (it must never block a login);
+ *   3. null → MAIN_FALLBACK_SECTION / the menu (the caller).
  */
 async function userLandingTipo(principal: Principal): Promise<string | null> {
+	if (principal.userId === SUPERUSER_ID) return AREA_MAINTENANCE_TIPO;
 	const { resolveUserDefaultSection } = await import('../../security/user_identity.ts');
 	const tipo = await resolveUserDefaultSection(principal.userId);
 	if (tipo === null) return null;
+	return (await landingPageOpens(principal, tipo)) ? tipo : null;
+}
+
+/** A dd1603 default is a landing only when it is a section/area page the user may open. */
+async function landingPageOpens(principal: Principal, tipo: string): Promise<boolean> {
 	const { getModelByTipo } = await import('../../ontology/resolver.ts');
 	const model = (await getModelByTipo(tipo)) ?? '';
-	if (model !== 'section' && !model.startsWith('area')) return null;
-	return (await getPermissions(principal, tipo, tipo)) >= 1 ? tipo : null;
+	if (model !== 'section' && !model.startsWith('area')) return false;
+	if ((await getPermissions(principal, tipo, tipo)) < 1) return false;
+	return pageDoorOpen(principal, tipo);
+}
+
+/**
+ * A page whose area has its OWN door rule beyond the grant: the maintenance
+ * area answers THE maintenance rule (canAccessMaintenanceArea — the menu, the
+ * area read and the dispatchers ask the same; T2-O15-2), so `start` never
+ * describes a page the next read refuses.
+ */
+async function pageDoorOpen(principal: Principal, pageTipo: string): Promise<boolean> {
+	if (pageTipo !== AREA_MAINTENANCE_TIPO) return true;
+	return canAccessMaintenanceArea(principal);
 }

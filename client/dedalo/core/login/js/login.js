@@ -558,8 +558,8 @@ login.quit = async function() {
 * 1. custom_action_dispatch: if the caller injected its own handler, delegate entirely and return.
 * 2. Successful login (payload true): warm the file cache (via SW or worker),
 *    show the animated progress ring, then navigate to the correct page once the worker reports
-*    'finish'. Navigation priority: server-supplied redirect → URL ?tipo param → user
-*    default_section → plain reload.
+*    'finish', then reload: the landing page is the server's `start` decision
+*    (superuser → Maintenance, else the user's dd1603 default section), never the client's.
 * 3. Failed login: publishes 'login_failed' — the render layer is responsible for showing the
 *    error message; this function does not navigate on failure.
 *
@@ -572,9 +572,6 @@ login.quit = async function() {
 *   extension key, top level); DEDALO_SUPERUSER (-1) activates the raspa_loading animation
 * @param {string|null} [api_response.user_image] - URL of the user's avatar (dd522); the
 *   bundled Dédalo icon is used when absent/null
-* @param {string} [api_response.redirect] - PHP-era key, not sent by the TS engine.
-*   When present, overrides all other navigation targets
-* @param {string} [api_response.default_section] - Tipo string for the user's default section
 * @param {string} [api_response.saml_redirect] - SAML SSO redirect URL (handled by quit, not here)
 * @returns {Promise<boolean>} Always resolves to true
 */
@@ -668,35 +665,12 @@ login.prototype.action_dispatch = async function(api_response) {
 			// load_finish. Redirects to the proper page after the login
 			// Fired by render_files_loader when the worker finishes loading all files.
 				const load_finish = () => {
-
-					// api_response.result_options.redirect is set when the user is root or developer and the tools are not registered.
-					// It's defined in dd_init_test to force to go to the development area to control the DDBB and ontology version
-					if (api_response.result_options?.redirect) {
-
-						dd_request_idle_callback(
-							() => {
-								window.location.replace( api_response.result_options.redirect )
-							}
-						)
-						return
-					}
-
-					// has_tipo in url
-					// If the current URL already targets a specific section tipo, reloading
-					// (rather than replacing with the default section) preserves that intent.
-						const urlParams	= new URLSearchParams(window.location.search);
-						const has_tipo	= urlParams.has('tipo')
-
-					if (api_response.default_section && !has_tipo) {
-						// user has defined default_section case in database
-						window.location.replace(
-							DEDALO_CORE_URL + '/page/?tipo=' + api_response.default_section
-						);
-					}else{
-						// non defined user default_section case
-						window.location.reload();
-					}
-
+					// the SERVER decides where a login lands (start, no tipo in the URL:
+					// the superuser → Maintenance, else the user's dd1603 default section
+					// they may open, else the fall-back — WC-2026-10-29-start-user-default-section);
+					// a URL that names a tipo keeps it. The login answer carries no
+					// navigation target, so the client only reloads.
+					window.location.reload();
 				}//end load_finish
 
 			// files loader. Circle with progressive fill draw based on percentage of loaded files by worker (updated by messages info)

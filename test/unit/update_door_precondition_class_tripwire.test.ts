@@ -38,16 +38,29 @@ import {
 	holdUpdateRunLock,
 } from '../../src/core/update/door_class.ts';
 import { createRunJournal, writeRunJournal } from '../../src/core/update/run/journal.ts';
+import {
+	installMaintenancePersonas,
+	MAINTENANCE_ADMIN_USER_ID,
+	removeMaintenancePersonas,
+} from '../helpers/maintenance_persona_fixture.ts';
 
-const ADMIN = { userId: 4242, isGlobalAdmin: true, isDeveloper: false } as Principal;
+// A non-superuser global admin who PASSES the maintenance rule (dd88 granted at
+// level 2 — T2-O15-2), so the door's own superuser rule is what refuses.
+const ADMIN = {
+	userId: MAINTENANCE_ADMIN_USER_ID,
+	isGlobalAdmin: true,
+	isDeveloper: false,
+} as Principal;
 const SUPERUSER = { userId: SUPERUSER_ID, isGlobalAdmin: true, isDeveloper: true } as Principal;
 
 const roots: string[] = [];
 let maintenanceBefore = false;
-beforeAll(() => {
+beforeAll(async () => {
 	maintenanceBefore = getServerState().maintenance_mode === true;
+	await installMaintenancePersonas();
 });
-afterAll(() => {
+afterAll(async () => {
+	await removeMaintenancePersonas();
 	setServerState({ maintenance_mode: maintenanceBefore });
 	for (const root of roots) rmSync(root, { recursive: true, force: true });
 });

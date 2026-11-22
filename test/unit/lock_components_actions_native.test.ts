@@ -54,7 +54,9 @@ const SCRATCH_USERS = [USER_A, USER_B, USER_C];
 const SECTION_TIPO = 'test3';
 const COMPONENT_TIPO = 'test78';
 
-const ADMIN: Principal = { userId: 1, isGlobalAdmin: true, isDeveloper: true };
+// The superuser: always through THE maintenance rule (T2-O15-2 — a flag alone
+// is no dd88 grant; the rule itself is maintenance_access_agreement_native's).
+const ADMIN: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
 const NON_ADMIN: Principal = { userId: USER_A, isGlobalAdmin: false, isDeveloper: false };
 
 /** Seed one lock through the real acquisition path. */
@@ -142,7 +144,7 @@ describe('dispatchLockComponentsActions', () => {
 
 		const error = await refusedAction(NON_ADMIN, { fn_action: 'force_unlock_all_components' });
 		expect(error.code).toBe('perm.denied');
-		expect(error.message).toBe('maintenance widgets are an admin surface');
+		expect(error.message).toBe('maintenance widgets need the maintenance area');
 
 		// The load-bearing half: the refusal must not have released anything.
 		expect(await lockCount(USER_A)).toBe(1);

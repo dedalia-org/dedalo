@@ -24,17 +24,27 @@ self-contained back-office operation.
 In the area behavior taxonomy (`src/core/concepts/area.ts`) it carries the
 `maintenance` behavior — its own branch, its own subsystem.
 
-!!! warning "Administrators only"
-    The whole area is a **global-admin surface** and fails closed. The read is
-    refused with `403` for a non-admin, and *every* widget dispatch re-checks
-    `principal.isGlobalAdmin` independently — the gate is not delegated to the
-    menu having hidden the area.
+!!! warning "Who may use Maintenance"
+    One rule opens the area, and every door asks it — the menu entry, the
+    page, the area read and *every* widget dispatch
+    (`canAccessMaintenanceArea` in `src/core/security/permissions.ts`):
+
+    - the superuser (`root`), always;
+    - a **global administrator** or a **developer** whose profile grants the
+      Maintenance area (`dd88`) at level 2 (read and write).
+
+    The role alone is not enough, and neither is the grant alone. Anyone else
+    gets no menu entry, and the read and every dispatch answer `403`; the gate
+    is not delegated to the menu having hidden the area. A user whose *Default
+    section* is Maintenance but who fails the rule simply lands elsewhere after
+    login. The superuser lands on Maintenance after every login that names no
+    page.
 
 ## Where the engine lives
 
 | module | role |
 | --- | --- |
-| `src/core/area/read.ts` | The `maintenance` behavior branch of `dispatchAreaRead`: admin gate, structure context, and the widget catalog as `data[0].datalist`. |
+| `src/core/area/read.ts` | The `maintenance` behavior branch of `dispatchAreaRead`: the maintenance rule, structure context, and the widget catalog as `data[0].datalist`. |
 | `src/core/area_maintenance/widgets/registry.ts` | The catalog assembly and the three dispatchers (`buildMaintenanceDataItem`, `dispatchWidgetRequest`, `dispatchGetWidgetValue`). |
 | `src/core/area_maintenance/widgets/support.ts` | The shared contract: `WidgetModule`, `WidgetSpec`, `WidgetHandler`, `WidgetResponse`. |
 | `src/core/area_maintenance/widgets/<widget_id>.ts` | One module per widget — the unit of work. |
@@ -118,14 +128,14 @@ Adding a widget is **one new module file plus one import line** in
 
 `dispatchWidgetRequest` (`registry.ts`) applies four gates, in order:
 
-1. **Admin only** — a non-admin principal is refused outright.
+1. **The maintenance rule** — a principal it refuses is refused outright.
 2. **Options must be an object** when present.
 3. **The widget id must be in the catalog** — checked against the static module
    list, so an action never pays for the catalog's eager values.
 4. **The method must be registered** in that widget's `apiActions` — otherwise
    `unauthorized_method`.
 
-`dispatchGetWidgetValue` applies the admin gate, validates the widget id against
+`dispatchGetWidgetValue` applies the maintenance rule, validates the widget id against
 an identifier pattern, and calls the widget's `getValue`.
 
 ```mermaid
@@ -134,9 +144,9 @@ flowchart TB
     C -->|"action: widget_request"| WR["dispatchWidgetRequest"]
     C -->|"action: get_widget_value"| GV["dispatchGetWidgetValue"]
     C -->|"action: lock_components_actions"| LC["dispatchLockComponentsActions"]
-    WR -->|"admin → options → catalog id → apiActions"| WM["widgets/&lt;id&gt;.ts — the registered handler"]
-    GV -->|"admin → id pattern → getValue"| WM
-    LC -->|"admin"| LCW["widgets/lock_components.ts"]
+    WR -->|"rule → options → catalog id → apiActions"| WM["widgets/&lt;id&gt;.ts — the registered handler"]
+    GV -->|"rule → id pattern → getValue"| WM
+    LC -->|"rule"| LCW["widgets/lock_components.ts"]
 ```
 
 !!! warning "Dispatchability is not authorization"
@@ -247,7 +257,7 @@ and puts their projects back:
   it held no longer exists — it is still restored, and should be re-filed by
   hand); or `unrecoverable` (its history holds no earlier projects — it is
   never written, because a project is never guessed).
-- **Apply** (any global admin) restores the recoverable records one by one, each
+- **Apply** (anyone the maintenance rule admits) restores the recoverable records one by one, each
   re-checked under a row lock and recorded in the Time Machine. A second apply
   lists only the `unrecoverable` records.
 
@@ -304,8 +314,9 @@ lists, the menu skip tipos and the media-access override. A `null` entry means
 ## How it fits with the rest of Dédalo
 
 - **[area](area.md) / [Menu](../ui/menu.md)** — `area_maintenance` is one of the
-  root menu areas, reachable only by an administrator. It cannot be removed by
-  the `areas.deny` list: the `config_areas` widget is anti-lockout guarded.
+  root menu areas, reachable only by the principals the maintenance rule admits
+  (above). It cannot be removed by the `areas.deny` list: the area is guarded
+  in the deny filter itself, and the `config_areas` widget refuses to save it.
 - **[Ontology](../ontology/index.md)** — `update_ontology` rewrites `dd_ontology`,
   the active schema; `register_tools` imports the tool nodes.
 - **[Media protection](../../administration/configuration/media_protection.md)** — the `media_control`

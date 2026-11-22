@@ -32,8 +32,10 @@
  *
  * SCOPE — both viewer paths: admin+developer receives the walk unfiltered;
  * any other viewer gets the PHP permission filter (self-key-authorized areas
- * from their dd774 table; dd88 additionally needs admin-or-developer, dd770
- * developer) applied per node before the menu transforms.
+ * from their dd774 table; dd770 additionally needs developer) applied per node
+ * before the menu transforms. dd88 answers THE maintenance rule
+ * (security/permissions.ts canAccessMaintenanceArea) for every viewer, and dd5
+ * the ontology-area rule.
  *
  * REWRITES (PHP menu switch cases, all implemented):
  * - section_tool nodes WITH a `tool_config`: tipo/model rewritten to the
@@ -62,7 +64,7 @@ import { createOntologyCache } from '../../ontology/cache_factory.ts';
 import { registerOntologyCacheClearer } from '../../ontology/cache_invalidation.ts';
 import { resolveLabel } from '../../ontology/labels.ts';
 import { compareSiblingOrder, getModelByTipo } from '../../ontology/resolver.ts';
-import { canAccessOntologyArea } from '../../security/permissions.ts';
+import { canAccessMaintenanceArea, canAccessOntologyArea } from '../../security/permissions.ts';
 import { buildSectionToolContext } from '../../tools/section_tool_context.ts';
 
 /** One navigation node (PHP tree_datalist item). */
@@ -316,52 +318,55 @@ function getVisibleParent(node: AreaNode, skipByTipo: Map<string, AreaNode>): st
 	return parentTipo;
 }
 
+/** The menu's viewer — absent for the internal/superuser tree. */
+type MenuViewer = { userId: number; isGlobalAdmin: boolean; isDeveloper: boolean };
+
+/**
+ * The areas a viewer is offered (an undefined viewer is the internal/superuser
+ * tree: everything).
+ *
+ * Non-(admin AND developer) viewers get the FILTERED menu (PHP
+ * get_tree_datalist): EVERY area must be self-key-authorized in the viewer's
+ * permissions table, and the development area needs developer. The role is a
+ * precondition, never a grant. PHP applies the filter per node (children of a
+ * dropped area were collected independently and survive on their own
+ * authorization).
+ *
+ * Then two areas answer their OWN rule for EVERY viewer, the admin+developer
+ * path included: area_maintenance (dd88) THE maintenance rule
+ * (canAccessMaintenanceArea — the area read, start and every maintenance
+ * dispatcher ask the same; T2-O15-2), area_ontology (dd5) the ontology-area
+ * rule (engineering/AREA_SPEC.md §9, canAccessOntologyArea).
+ */
+async function areasForViewer(areas: AreaNode[], viewer?: MenuViewer): Promise<AreaNode[]> {
+	if (viewer === undefined) return areas;
+	let kept = areas;
+	if (!(viewer.isGlobalAdmin && viewer.isDeveloper)) {
+		const { getAuthorizedAreaTipos } = await import('../../security/permissions.ts');
+		const authorized = await getAuthorizedAreaTipos(viewer.userId);
+		kept = kept.filter(
+			(area) =>
+				authorized.has(area.tipo) && (area.tipo !== DEVELOPMENT_AREA_TIPO || viewer.isDeveloper),
+		);
+	}
+	if (!(await canAccessMaintenanceArea(viewer))) {
+		kept = kept.filter((area) => area.tipo !== MAINTENANCE_AREA_TIPO_MENU);
+	}
+	if (!(await canAccessOntologyArea(viewer))) {
+		kept = kept.filter((area) => area.tipo !== AREA_ONTOLOGY_TIPO);
+	}
+	return kept;
+}
+
 /**
  * Build the menu tree_datalist for the superuser path (see module doc for the
  * scope and ledger).
  */
-export async function getMenuTreeDatalist(viewer?: {
-	userId: number;
-	isGlobalAdmin: boolean;
-	isDeveloper: boolean;
-}): Promise<MenuTreeResult> {
+export async function getMenuTreeDatalist(viewer?: MenuViewer): Promise<MenuTreeResult> {
 	let areas = await getOntologyAreas();
 	const allAreasByTipo = new Map(areas.map((area) => [area.tipo, area]));
 
-	// Non-(admin AND developer) viewers get the FILTERED menu (PHP
-	// get_tree_datalist): EVERY area must be self-key-authorized in the viewer's
-	// permissions table; the maintenance area additionally needs
-	// admin-or-developer and the development area developer. The role is a
-	// precondition, never a grant (PHP `continue`s past the role check into the
-	// same authorized lookup) — offering dd88 on the flag alone showed a non-root
-	// admin an entry getPermissions then refused. PHP applies the filter per
-	// node (children of a dropped area were collected independently and survive
-	// on their own authorization).
-	if (viewer !== undefined && !(viewer.isGlobalAdmin && viewer.isDeveloper)) {
-		const { getAuthorizedAreaTipos } = await import('../../security/permissions.ts');
-		const authorized = await getAuthorizedAreaTipos(viewer.userId);
-		areas = areas.filter((area) => {
-			if (
-				area.tipo === MAINTENANCE_AREA_TIPO_MENU &&
-				!viewer.isGlobalAdmin &&
-				!viewer.isDeveloper
-			) {
-				return false;
-			}
-			if (area.tipo === DEVELOPMENT_AREA_TIPO && !viewer.isDeveloper) {
-				return false;
-			}
-			return authorized.has(area.tipo);
-		});
-	}
-
-	// area_ontology (dd5): the SAME rule as the area read (engineering/AREA_SPEC.md §9,
-	// canAccessOntologyArea) — superuser, or global admin whose profile grants
-	// dd5. Runs independently: the admin+developer path above skips the filter.
-	// An undefined viewer is the internal/superuser tree.
-	if (viewer !== undefined && !(await canAccessOntologyArea(viewer))) {
-		areas = areas.filter((area) => area.tipo !== AREA_ONTOLOGY_TIPO);
-	}
+	areas = await areasForViewer(areas, viewer);
 
 	const { getEffectiveMenuSkipTipos } = await import('../../resolve/server_state.ts');
 	const skipTipos = new Set(getEffectiveMenuSkipTipos(config.menu.skipTipos));

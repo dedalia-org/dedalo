@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser.
     - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
     - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
@@ -1612,6 +1613,22 @@ Merged since the last release; these ship with the next one.
 
 #### Security
 
+- **The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser.** *(action needed)*
+
+    Who could use the Maintenance area depended on where you asked: the menu offered it to
+    administrators and developers, the panel itself opened for any global administrator whatever
+    their profile said, and a developer could see an entry that then refused. One rule now opens
+    every door — the menu entry, the page, and every panel action: the superuser always, plus a
+    global administrator or a developer whose profile grants the Maintenance area at level 2
+    (read and write). The role alone no longer opens it, and neither does the grant alone.
+
+    **Action needed:** give the profiles of the administrators who use Maintenance the Maintenance
+    area at level 2 (profile permissions, under Administration). An administrator without it no
+    longer sees the area. Details:
+    [Who may use Maintenance](./core/areas/area_maintenance.md).
+
+    Wire contract: `WC-2026-11-22-maintenance-access-predicate`.
+
 - **The `root` password can no longer be changed from inside the application**
 
     Until now `root` could type a new password for its own account in the application, like any other user. A session is not proof of the person: an unattended `root` session, or a tool running as `root`, could replace the installation's most privileged password without knowing the current one.
@@ -2205,6 +2222,14 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** none.
 
+- **After logging in as the superuser you land on the Maintenance area again.**
+
+    Logging in as the superuser (`root`) with no page in the address opened the general fall-back
+    page. It now opens the Maintenance area, as before version 7. Other users keep landing on their
+    own *Default section* when they may open it, and a link that names a page still opens that page.
+
+    Wire contract: `WC-2026-10-29-start-user-default-section`.
+
 - **"Update cache brings old stored formats up to date: legacy time codes in text areas and JSON stored as text."**
 
     Running **Update cache** over a text area now rewrites time codes kept in the old form
@@ -2696,7 +2721,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 112 entries"
+??? note "Wire contract — 114 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2801,11 +2826,13 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-diffusion-ddo-empty-value`
     - `WC-2026-11-22-hierarchy-root-link-rule`
     - `WC-2026-11-22-indexation-fragment-served`
+    - `WC-2026-11-22-maintenance-access-predicate`
     - `WC-2026-11-22-media-icons-tc`
     - `WC-2026-11-22-permissions-tree-containment`
     - `WC-2026-11-22-properties-label-override-chain`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
+    - `WC-2026-11-22-start-component-lang`
     - `WC-2026-11-22-state-of-component-msg-refused`
     - `WC-2026-11-22-term-fallback-chain`
     - `WC-2026-11-22-tm-recover-consumes-deleted-listing`

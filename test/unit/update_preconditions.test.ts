@@ -7,7 +7,7 @@
  * refusal carries — the PHP sentence itself moved into the registry.
  */
 
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEnv } from '../../src/config/env.ts';
@@ -20,6 +20,11 @@ import {
 	checkUpdatePreconditions,
 	requireFreshBackup,
 } from '../../src/core/update/preconditions.ts';
+import {
+	installMaintenancePersonas,
+	MAINTENANCE_ADMIN_USER_ID,
+	removeMaintenancePersonas,
+} from '../helpers/maintenance_persona_fixture.ts';
 import { scratchDir } from '../helpers/scratch_dir.ts';
 
 /** The DedaloError a thunk threw (fails the test when it threw nothing typed). */
@@ -53,11 +58,17 @@ if (STATE_PATH === undefined) {
 }
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true } as Principal;
-// Global-admin but NOT superuser: passes the dispatch admin gate, must fail
-// the superuser precondition.
-const PLAIN_ADMIN: Principal = { userId: 5, isGlobalAdmin: true, isDeveloper: false } as Principal;
+// Global-admin but NOT superuser: passes the dispatch's maintenance rule (dd88
+// granted at level 2 — T2-O15-2), must fail the superuser precondition.
+const PLAIN_ADMIN: Principal = {
+	userId: MAINTENANCE_ADMIN_USER_ID,
+	isGlobalAdmin: true,
+	isDeveloper: false,
+} as Principal;
 
-afterAll(() => {
+beforeAll(installMaintenancePersonas);
+afterAll(async () => {
+	await removeMaintenancePersonas();
 	setServerState({ maintenance_mode: false });
 });
 

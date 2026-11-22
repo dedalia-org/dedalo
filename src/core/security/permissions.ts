@@ -424,6 +424,37 @@ export async function canAccessOntologyArea(principal: Principal): Promise<boole
 }
 
 /**
+ * The level a profile must grant on the maintenance area (dd88) — PHP's
+ * `security::get_security_permissions(dd88, dd88) >= 2` (edit), the level the
+ * maintenance surface has always meant: every panel there WRITES.
+ */
+export const MAINTENANCE_AREA_GRANT_LEVEL = 2;
+
+/**
+ * Who may use the MAINTENANCE area (dd88) — ONE rule for every door that
+ * opens it: the menu entry, the area read, the `start` page, and the
+ * maintenance dispatchers (widget_request / get_widget_value /
+ * lock_components_actions / parse_simple_schema_changes_files) — T2-O15-2,
+ * owner ruling Q5 (2026-11-19), WC-2026-11-22-maintenance-access-predicate:
+ *
+ *   - the superuser, ALWAYS (no grant asked — it is how the area is recovered);
+ *   - a global admin OR a developer whose profile grants dd88 at
+ *     {@link MAINTENANCE_AREA_GRANT_LEVEL} or more.
+ *
+ * The role is a precondition, never a grant; the grant alone is no role.
+ * Inside the area a panel may ask more (the root-only and destructive doors,
+ * core/update/door_class.ts) — never less.
+ */
+export async function canAccessMaintenanceArea(principal: Principal): Promise<boolean> {
+	if (principal.userId === SUPERUSER_ID) return true;
+	if (!principal.isGlobalAdmin && !principal.isDeveloper) return false;
+	return (
+		(await getPermissions(principal, AREA_MAINTENANCE, AREA_MAINTENANCE)) >=
+		MAINTENANCE_AREA_GRANT_LEVEL
+	);
+}
+
+/**
  * The self-keyed area permissions WITH their level (PHP
  * security::get_ar_authorized_areas_for_user): every `X_X` entry as
  * {tipo, value}. Callers that need the level (e.g. component_filter_records

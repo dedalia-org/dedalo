@@ -40,6 +40,7 @@ import {
 } from '../relations/picker_constraint.ts';
 import { buildStructureContext } from '../resolve/structure_context.ts';
 import {
+	canAccessMaintenanceArea,
 	canAccessOntologyArea,
 	getPermissionGrant,
 	getPermissions,
@@ -434,8 +435,9 @@ export async function dispatchAreaRead(rqo: Rqo, principal: Principal): Promise<
 
 	if (behavior === 'maintenance') {
 		// Maintenance-area read (PHP area_maintenance_json): the widget catalog
-		// rides as `datalist`. Admin-only, like the PHP area.
-		if (!principal.isGlobalAdmin) {
+		// rides as `datalist`. THE maintenance rule (canAccessMaintenanceArea —
+		// the menu, start and the dispatchers ask the same; T2-O15-2).
+		if (!(await canAccessMaintenanceArea(principal))) {
 			throw new DedaloError('perm.denied', { coordinates: { area_tipo: rqo.source?.tipo ?? '' } });
 		}
 		const maintTipo = rqo.source?.tipo ?? '';
