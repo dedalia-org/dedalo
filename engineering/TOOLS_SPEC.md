@@ -266,11 +266,15 @@ After the actor filter, in PHP `get_tools` order:
    `mode` REQUIRED, so every caller states them (WC-2026-11-22-tool-availability-context).
 
 Then the STAMP (`stampElementToolConfigs`, `src/core/tools/section_tool_context.ts`)
-— the ONE place every toolbar passes, section included — drops a tool whose
-`properties.mode` names another mode (PHP `build_structure_context` :1869), and
-attaches each remaining tool's config. The mode is a stamp rule, not a registry
-one: `getSectionTools` still lists an edit-only tool in list mode; the section's
-LIST context does not ship it.
+— the ONE place every structure-context toolbar passes (component, area and
+section) — drops a tool whose `properties.mode` names another mode (PHP
+`build_structure_context` :1869), and attaches each remaining tool's config. The
+mode is a stamp rule, not a registry one: `getSectionTools` still lists an
+edit-only tool in list mode; the section's LIST context does not ship it.
+NOT covered: the indexation grid's embedded tool cells
+(`section/indexation_grid.ts` `elementToolContext`, mode `indexation_list`) read
+`getElementTools` directly and apply no mode filter — an open owner question
+(T2-B5), current behaviour kept.
 
 ### Reaching a component tool from a section LIST
 

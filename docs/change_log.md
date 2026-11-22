@@ -574,8 +574,10 @@ Merged since the last release; these ship with the next one.
 - **"Tool names and help texts missing in the interface language fall back to its declared equivalent language (Valencian shows Catalan) instead of English."**
 
     A tool translated into Catalan but not Valencian now shows its Catalan strings in a Valencian
-    interface. The Catalan interface's state-icon sentences also fill in the field they name (a
-    spacing typo in the catalog kept them from it).
+    interface. Catalog placeholders were also repaired: the Catalan state-icon sentences now fill in
+    the field they name (a spacing typo kept them from it), the Catalan pagination sentence shows the
+    page total (its placeholder had been translated), and the Italian state-icon sentences gained the
+    missing field placeholder.
 
     Wire contract: `WC-2026-08-02-tool-string-lang-fallback`.
 
@@ -2414,10 +2416,11 @@ Merged since the last release; these ship with the next one.
 
     A tool registration may restrict where it is offered with `affected_tipos`: an exact tipo, a
     `<tld>*` wildcard covering every element of a TLD, or a `/pattern/flags` regular expression. The
-    wildcard and the expression were read as literal tipos, so such a tool appeared nowhere. A
-    malformed entry is reported once and matches nothing; the tool stays restricted to its valid
-    entries. A tool whose `properties.mode` names a mode now appears on component toolbars only in
-    that mode.
+    wildcard kept its `*` when compared, so it matched no element and a tool restricted by one
+    appeared nowhere. A malformed entry, or a regular expression with a flag other than `i`, `m`, `s`
+    or `u`, is reported once and matches nothing; the tool stays restricted to its valid entries. A
+    tool whose `properties.mode` names a mode now appears on the section toolbar only in that mode, as
+    it already did on component toolbars.
 
 - **"A tool's availability check receives the real section and mode of the element it is offered on; inside Time Machine (dd15) only the export tool is offered."**
 
