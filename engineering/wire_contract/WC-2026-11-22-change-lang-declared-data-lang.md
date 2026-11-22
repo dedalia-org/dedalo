@@ -133,3 +133,18 @@ installation whose installer-written `.env` still carries an early spelling refu
 the line is renamed. `request_lang_law_tripwire` rule 1 forbids env reads of BOTH spellings. No
 wire change. Gate: `test/unit/lang_keys_renamed.test.ts` (reads measured in a child with an empty
 private dir, so "alone" is alone).
+
+## Addendum 2026-11-22 — chain review: one choice predicate, held at boot; client refusal path
+
+The choice rule now lives in config as `isChoosableDataLangOf(lang, declared)`
+(`src/config/data_langs.ts`: declared AND not `lg-nolan`); `request_lang.ts`
+`isChoosableDataLang` delegates to it over the live set, so change_lang, the sync copy, the seed
+clamp and login repair still ask ONE rule. Boot holds the MENU data language to it
+(`resolveCurrentDataLang`): `DEDALO_DATA_LANG=lg-nolan` is overruled by
+`DEDALO_DATA_LANG_DEFAULT` and reported (the undeclared-value precedent), and
+`DEDALO_DATA_LANG_DEFAULT=lg-nolan` refuses the boot — so the fallback every fresh session, MCP
+stdio and the repair use is never the storage slot. Client: `menu.prototype.change_lang`
+publishes the `change_lang` event (sections drop their caches on it) ONLY when the server stored
+the change; on a refusal the selector is reset to the session value (`page_globals[lang_type]`).
+No wire shape change. Gates: `test/unit/menu_data_lang_working.test.ts` (boot legs),
+`test/unit/write_lang_provenance_native.test.ts` (pure leg), client suite `test_menu_change_lang`.

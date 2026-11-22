@@ -59,6 +59,8 @@ It defines the data language used by Dédalo to process and render textual infor
 
 This is a dynamic parameter that can be changed by the user in any moment. Dédalo is a real multi-language application, it can manage information in multiple languages and process it as unique information block (the field store any translated version of his data). The user can translate any information directly or using specific tools. This parameter define the current language used.
 
+It must be a working language: \`lg-nolan\` (the no-language storage slot) is overruled by \`DEDALO_DATA_LANG_DEFAULT\` and reported at startup, like a language the installation does not declare.
+
 \`\`\`bash
 DEDALO_DATA_LANG="lg-spa"
 \`\`\`
@@ -166,7 +168,7 @@ DEDALO_APPLICATION_LANGS_DEFAULT="lg-eng"
 		typeLabel: 'string',
 		doc: `Defines the main language will used by Dédalo to manage and process data.
 
-**Required** — the server refuses to boot without it. The installer writes it (default: the first working language picked, \`lg-eng\` by default).
+**Required** — the server refuses to boot without it. The installer writes it (default: the first working language picked, \`lg-eng\` by default). It must be a real working language: \`lg-nolan\` (the no-language storage slot) refuses the boot.
 
 The main language is the mandatory language for the text data in the catalog or inventory. Dédalo is a real multi-language application, it can manage multiple translation of the textual information.
 

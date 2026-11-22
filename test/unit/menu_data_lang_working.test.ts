@@ -77,6 +77,16 @@ describe('the menu data language is a working language (boot)', () => {
 		);
 	});
 
+	test('a MISSPELT lg-nolan default is refused by the GRAMMAR (no spelling slips past the slot check)', () => {
+		for (const misspelt of [' lg-nolan', 'LG-NOLAN']) {
+			const boot = bootWith({ DEDALO_DATA_LANG_DEFAULT: misspelt });
+			expect(boot.exitCode, misspelt).not.toBe(0);
+			expect(boot.stderr, misspelt).toContain(
+				`DEDALO_DATA_LANG_DEFAULT = '${misspelt}' does not name one real language`,
+			);
+		}
+	});
+
 	test('DEDALO_DATA_LANG_DEFAULT = lg-nolan REFUSES the boot, naming the key', () => {
 		const boot = bootWith({ DEDALO_DATA_LANG_DEFAULT: 'lg-nolan' });
 		expect(boot.exitCode).not.toBe(0);
