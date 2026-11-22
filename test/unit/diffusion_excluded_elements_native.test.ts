@@ -80,7 +80,7 @@ async function panelElements(): Promise<string[]> {
 	);
 }
 
-/** dd996 records that name tool_diffusion (the migration's own, swept by id). */
+/** dd996 records that name tool_diffusion (a census: beforeAll proves it starts empty). */
 async function diffusionConfigRecords(): Promise<number[]> {
 	const rows = (await sql`
 		SELECT section_id FROM matrix_tools
@@ -89,16 +89,40 @@ async function diffusionConfigRecords(): Promise<number[]> {
 	return rows.map((row) => Number(row.section_id));
 }
 
-/** Sweep the dd996 records naming tool_diffusion (+ `extraIds`), their TM and activity rows. */
-async function sweepDiffusionConfigRecords(extraIds: readonly number[] = []): Promise<void> {
+/**
+ * The dd996 records THIS FILE wrote through the engine's doors (the migration's
+ * own records, and the scratch fixture's id once a save audited it). Only these
+ * are swept and only these are residue-asserted — never the whole dd996 section,
+ * which is install-global state another gate (or a person) may own.
+ */
+const touchedConfigIds = new Set<number>();
+
+/** Track `ids` as written by this file (swept and residue-asserted by id). */
+function track(ids: readonly number[]): void {
+	for (const id of ids) touchedConfigIds.add(id);
+}
+
+/** Sweep the tracked dd996 records, their TM and activity rows — by id, nothing else. */
+async function sweepTrackedConfigRecords(): Promise<void> {
 	await assertTestDatabase('diffusion_excluded_elements_native sweep');
-	const ids = [...new Set([...(await diffusionConfigRecords()), ...extraIds])];
+	const ids = [...touchedConfigIds];
 	for (const id of ids) {
 		await sql`DELETE FROM matrix_time_machine WHERE section_tipo = 'dd996' AND section_id = ${id}`;
 		await sql`DELETE FROM matrix_tools WHERE section_tipo = 'dd996' AND section_id = ${id}`;
 	}
 	await sweepActivityRows('dd996', ids);
 	resetConfigCache();
+}
+
+/** TM rows left on the tracked dd996 records. */
+async function trackedTimeMachineRows(): Promise<number> {
+	const ids = [...touchedConfigIds];
+	if (ids.length === 0) return 0;
+	const rows = (await sql.unsafe(
+		`SELECT count(*)::int AS n FROM matrix_time_machine WHERE section_tipo = 'dd996' AND section_id = ANY(string_to_array($1, ',')::int[])`,
+		[ids.join(',')],
+	)) as { n: number }[];
+	return rows[0]?.n ?? 0;
 }
 
 /** Jobs queued for `element` since `since` (the table, not a label another gate may reuse). */
@@ -196,20 +220,23 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 		await assertTestDatabase('diffusion_excluded_elements_native');
 		await ensureZzdifDomain();
 		await ensureDiffusionScratchTables();
-		await sweepDiffusionConfigRecords();
+		// A dd996 record already configuring tool_diffusion is someone else's
+		// state: REFUSE, never delete it (the census below would also misread it).
+		const preexisting = await diffusionConfigRecords();
+		if (preexisting.length > 0) {
+			throw new Error(
+				`diffusion_excluded_elements_native: dd996 record(s) ${preexisting.join(', ')} already configure '${EXCLUSION_TOOL}' in the suite database — this gate would read and overwrite them. Remove them, then run again. Nothing was written.`,
+			);
+		}
 		root = await resolvePrincipal(-1);
 	});
 	afterAll(async () => {
 		await deleteJobsForTests(createdJobIds);
-		await sweepDiffusionConfigRecords();
-		// Residue: no dd996 record, TM row or creation activity row this file wrote.
+		await sweepTrackedConfigRecords();
+		// Residue, BY ID: no record, TM row or activity row this file wrote.
 		expect(await diffusionConfigRecords()).toHaveLength(0);
-		const tm = (await sql`
-			SELECT count(*)::int AS n FROM matrix_time_machine WHERE section_tipo = 'dd996'`) as {
-			n: number;
-		}[];
-		expect(tm[0]?.n).toBe(0);
-		expect(await countActivityRows('dd996')).toBe(0);
+		expect(await trackedTimeMachineRows()).toBe(0);
+		expect(await countActivityRows('dd996', [...touchedConfigIds])).toBe(0);
 		expect(await dropZzdifDomain()).toBe(0);
 	});
 
@@ -337,19 +364,21 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				moveValueIntoToolConfig({ toolName: move.tool, key: move.key, value, userId: -1 });
 			try {
 				expect(await apply(move.value)).toBe('created');
-				expect(await diffusionConfigRecords()).toHaveLength(1);
+				// The only record naming the tool (beforeAll proved none existed): ours.
+				const created = await diffusionConfigRecords();
+				track(created);
+				expect(created).toHaveLength(1);
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 				expect(await panelElements()).not.toContain(EXCLUDED);
 				// The tool config already holds a non-empty list: v6 read it first.
 				expect(await apply(['zzdif999'])).toBe('kept');
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 			} finally {
-				await sweepDiffusionConfigRecords();
+				await sweepTrackedConfigRecords();
 			}
 		});
 
 		test('a record with an EMPTY list → WRITTEN into it (v6 fell back to the define)', async () => {
-			let scratchIds: number[] = [];
 			await withScratchToolConfig(
 				EXCLUSION_TOOL,
 				{ other_option: 'kept', [EXCLUSION_KEY]: [] },
@@ -363,12 +392,13 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 						}),
 					).toBe('written');
 					expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
-					scratchIds = await diffusionConfigRecords();
-					expect(scratchIds).toHaveLength(1);
+					// The save audited the scratch record (TM + activity): tracked by its id.
+					const written = await diffusionConfigRecords();
+					track(written);
+					expect(written).toHaveLength(1);
 				},
 			);
-			// The save audited the scratch record (TM): swept by its id.
-			await sweepDiffusionConfigRecords(scratchIds);
+			await sweepTrackedConfigRecords();
 		});
 
 		test('an empty define moves nothing', async () => {
