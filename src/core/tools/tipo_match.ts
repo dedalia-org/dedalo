@@ -87,10 +87,8 @@ function admits(compiled: CompiledValue, tipo: string): boolean {
 export function compileTipoMatcher(values: readonly unknown[], owner: string): TipoMatcher {
 	const exact = new Set<string>();
 	const forms: CompiledValue[] = [];
-	let names = false;
-	for (const value of values) {
-		if (value === '' || value === null || value === undefined) continue;
-		names = true;
+	const named = values.filter(namesSomething);
+	for (const value of named) {
 		if (typeof value !== 'string') {
 			reportUnusable(owner, value, 'not a string');
 			continue;
@@ -100,7 +98,12 @@ export function compileTipoMatcher(values: readonly unknown[], owner: string): T
 		if (compiled !== null) forms.push(compiled);
 	}
 	return {
-		isEmpty: !names,
+		isEmpty: named.length === 0,
 		matches: (tipo) => exact.has(tipo) || forms.some((form) => admits(form, tipo)),
 	};
+}
+
+/** A list entry that names something (`''` / null — a cleared field — names nothing). */
+function namesSomething(value: unknown): boolean {
+	return value !== '' && value !== null && value !== undefined;
 }

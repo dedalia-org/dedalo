@@ -597,6 +597,24 @@ async function isEffectivelyTranslatable(target: ElementToolsTarget): Promise<bo
 	return hasLangVersions(target.tipo, target.model);
 }
 
+/**
+ * The element-side rules, in PHP get_tools order: the declaration match + the
+ * affected_tipos restriction (toolApplies); the dd15 rule (element-centric
+ * policy kept in core — an element living in the Time Machine section offers
+ * tool_export only); requirement_translatable (a tool requiring translatability
+ * only on an effectively translatable element).
+ */
+function toolFitsElement(
+	tool: RegisteredTool,
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+	effectiveTranslatable: boolean,
+): boolean {
+	if (!toolApplies(tool, target, inPropertyTools)) return false;
+	if (target.sectionTipo === TIME_MACHINE_SECTION_TIPO && tool.name !== 'tool_export') return false;
+	return !tool.requirementTranslatable || effectiveTranslatable;
+}
+
 export async function getElementTools(target: ElementToolsTarget): Promise<ElementToolsResult> {
 	// Models that hard-override get_tools() to [] never show a toolbar.
 	if (NO_TOOLS_MODELS.has(target.model)) return { tools: [], ledgered: [] };
@@ -627,13 +645,7 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		// The user_tools membership gate, BEFORE the applies/availability work.
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
 		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
-		if (!toolApplies(tool, target, inPropertyTools)) continue;
-		// The dd15 rule (PHP get_tools, element-centric policy kept in core): an
-		// element living in the Time Machine section offers tool_export only.
-		if (target.sectionTipo === TIME_MACHINE_SECTION_TIPO && tool.name !== 'tool_export') continue;
-		// requirement_translatable: a tool requiring translatability is shown only
-		// when the element is (effectively) translatable (PHP requirement === translatable).
-		if (tool.requirementTranslatable && !effectiveTranslatable) continue;
+		if (!toolFitsElement(tool, target, inPropertyTools, effectiveTranslatable)) continue;
 
 		const available = await toolIsAvailable(tool.name, {
 			...context,
