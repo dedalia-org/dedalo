@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Idazketa-tresnak ez daude gaituta gainazal honetan",
 	"error_media_action_failed": "Ezin izan da multimedia-eragiketa osatu",
 	"error_media_av_build_refused": "Bertsioaren eraikuntza baztertu egin da",
+	"error_media_build_running": "Fitxategi honen bertsio bat sortzen ari da dagoeneko. Itxaron amaitu arte eta saiatu berriro",
 	"error_media_engine_unavailable": "Multimedia-bihurketa hau ez dago erabilgarri zerbitzari honetan",
 	"error_media_file_not_found": "Ez da multimedia-fitxategia aurkitu",
 	"error_media_invalid_extension": "Multimedia-fitxategiaren luzapen baliogabea",

@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "اس سطح پر لکھنے کے ٹولز فعال نہیں",
 	"error_media_action_failed": "میڈیا کا عمل مکمل نہیں ہو سکا",
 	"error_media_av_build_refused": "ورژن بنانا مسترد کر دیا گیا",
+	"error_media_build_running": "اس فائل کا ایک ورژن پہلے ہی بنایا جا رہا ہے۔ اس کے مکمل ہونے کا انتظار کریں اور دوبارہ کوشش کریں",
 	"error_media_engine_unavailable": "یہ میڈیا تبدیلی اس سرور پر دستیاب نہیں",
 	"error_media_file_not_found": "میڈیا فائل نہیں ملی",
 	"error_media_invalid_extension": "میڈیا فائل کی غلط ایکسٹینشن",

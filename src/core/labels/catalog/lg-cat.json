@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Les eines d'escriptura no estan activades en aquesta superfície",
 	"error_media_action_failed": "No s'ha pogut completar l'operació multimèdia",
 	"error_media_av_build_refused": "S'ha rebutjat la generació de la versió",
+	"error_media_build_running": "Ja s'està generant una versió d'aquest fitxer. Espereu que acabi i torneu-ho a provar",
 	"error_media_engine_unavailable": "Aquesta conversió multimèdia no està disponible en aquest servidor",
 	"error_media_file_not_found": "No s'ha trobat el fitxer multimèdia",
 	"error_media_invalid_extension": "Extensió de fitxer multimèdia no vàlida",

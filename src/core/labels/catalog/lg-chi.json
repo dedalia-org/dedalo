@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "此界面未启用写入工具",
 	"error_media_action_failed": "无法完成媒体操作",
 	"error_media_av_build_refused": "版本生成被拒绝",
+	"error_media_build_running": "此文件的版本生成已在进行中。请等待其完成后重试",
 	"error_media_engine_unavailable": "此服务器不提供此媒体转换",
 	"error_media_file_not_found": "未找到媒体文件",
 	"error_media_invalid_extension": "无效的媒体文件扩展名",

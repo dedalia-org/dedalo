@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "이 화면에서는 쓰기 도구가 활성화되어 있지 않습니다",
 	"error_media_action_failed": "미디어 작업을 완료할 수 없습니다",
 	"error_media_av_build_refused": "버전 생성이 거부되었습니다",
+	"error_media_build_running": "이 파일의 버전 생성이 이미 진행 중입니다. 완료될 때까지 기다린 후 다시 시도하세요",
 	"error_media_engine_unavailable": "이 서버에서는 이 미디어 변환을 사용할 수 없습니다",
 	"error_media_file_not_found": "미디어 파일을 찾을 수 없습니다",
 	"error_media_invalid_extension": "잘못된 미디어 파일 확장자",

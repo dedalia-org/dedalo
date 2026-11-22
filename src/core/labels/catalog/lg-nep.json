@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "यो सतहमा लेखन उपकरणहरू सक्रिय छैनन्",
 	"error_media_action_failed": "मिडिया कार्य पूरा गर्न सकिएन",
 	"error_media_av_build_refused": "संस्करण निर्माण अस्वीकार गरियो",
+	"error_media_build_running": "यो फाइलको संस्करण निर्माण पहिले नै चलिरहेको छ। यो सकिएसम्म पर्खनुहोस् र फेरि प्रयास गर्नुहोस्",
 	"error_media_engine_unavailable": "यो मिडिया रूपान्तरण यो सर्भरमा उपलब्ध छैन",
 	"error_media_file_not_found": "मिडिया फाइल भेटिएन",
 	"error_media_invalid_extension": "अमान्य मिडिया फाइल एक्सटेन्सन",

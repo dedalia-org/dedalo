@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Schreibwerkzeuge sind auf dieser Oberfläche nicht aktiviert",
 	"error_media_action_failed": "Der Medienvorgang konnte nicht abgeschlossen werden",
 	"error_media_av_build_refused": "Die Erstellung der Version wurde abgelehnt",
+	"error_media_build_running": "Für diese Datei wird bereits eine Version erstellt. Warten Sie, bis der Vorgang abgeschlossen ist, und versuchen Sie es erneut",
 	"error_media_engine_unavailable": "Diese Medienkonvertierung ist auf diesem Server nicht verfügbar",
 	"error_media_file_not_found": "Die Mediendatei wurde nicht gefunden",
 	"error_media_invalid_extension": "Ungültige Dateierweiterung der Mediendatei",

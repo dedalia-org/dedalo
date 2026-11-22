@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "এই পৃষ্ঠতলে লেখার টুল সক্রিয় নয়",
 	"error_media_action_failed": "মিডিয়া অপারেশনটি সম্পন্ন করা যায়নি",
 	"error_media_av_build_refused": "সংস্করণ তৈরি প্রত্যাখ্যাত হয়েছে",
+	"error_media_build_running": "এই ফাইলের একটি সংস্করণ তৈরির কাজ ইতিমধ্যে চলছে। এটি শেষ হওয়া পর্যন্ত অপেক্ষা করুন এবং আবার চেষ্টা করুন",
 	"error_media_engine_unavailable": "এই মিডিয়া রূপান্তর এই সার্ভারে উপলব্ধ নয়",
 	"error_media_file_not_found": "মিডিয়া ফাইলটি পাওয়া যায়নি",
 	"error_media_invalid_extension": "মিডিয়া ফাইলের অবৈধ এক্সটেনশন",

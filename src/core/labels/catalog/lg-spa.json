@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Las herramientas de escritura no están activadas en esta superficie",
 	"error_media_action_failed": "No se pudo completar la operación de medios",
 	"error_media_av_build_refused": "Se rechazó la generación de la versión",
+	"error_media_build_running": "Ya se está generando una versión de este fichero. Espere a que termine e inténtelo de nuevo",
 	"error_media_engine_unavailable": "Esta conversión de medios no está disponible en este servidor",
 	"error_media_file_not_found": "No se encontró el fichero de medios",
 	"error_media_invalid_extension": "Extensión de fichero de medios no válida",

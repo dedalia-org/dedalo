@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Инструменты записи не включены в этом интерфейсе",
 	"error_media_action_failed": "Не удалось завершить операцию с медиа",
 	"error_media_av_build_refused": "Создание версии отклонено",
+	"error_media_build_running": "Для этого файла уже создаётся версия. Дождитесь завершения и повторите попытку",
 	"error_media_engine_unavailable": "Это преобразование медиа недоступно на этом сервере",
 	"error_media_file_not_found": "Медиафайл не найден",
 	"error_media_invalid_extension": "Недопустимое расширение медиафайла",

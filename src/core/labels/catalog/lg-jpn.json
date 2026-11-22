@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "この画面では書き込みツールが有効になっていません",
 	"error_media_action_failed": "メディア操作を完了できませんでした",
 	"error_media_av_build_refused": "バージョンの作成は拒否されました",
+	"error_media_build_running": "このファイルのバージョンはすでに作成中です。完了するまで待ってから、もう一度お試しください",
 	"error_media_engine_unavailable": "このメディア変換はこのサーバーでは利用できません",
 	"error_media_file_not_found": "メディアファイルが見つかりませんでした",
 	"error_media_invalid_extension": "無効なメディアファイル拡張子",

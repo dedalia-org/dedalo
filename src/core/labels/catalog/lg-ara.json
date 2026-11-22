@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "أدوات الكتابة غير مفعّلة على هذه الواجهة",
 	"error_media_action_failed": "تعذّر إكمال عملية الوسائط",
 	"error_media_av_build_refused": "رُفض إنشاء الإصدار",
+	"error_media_build_running": "إنشاء إصدار لهذا الملف قيد التشغيل بالفعل. انتظر حتى ينتهي ثم حاول مرة أخرى",
 	"error_media_engine_unavailable": "تحويل الوسائط هذا غير متاح على هذا الخادم",
 	"error_media_file_not_found": "لم يُعثر على ملف الوسائط",
 	"error_media_invalid_extension": "امتداد ملف الوسائط غير صالح",

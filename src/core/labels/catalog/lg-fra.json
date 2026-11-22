@@ -254,6 +254,7 @@
 	"error_mcp_write_disabled": "Les outils d'écriture ne sont pas activés sur cette interface",
 	"error_media_action_failed": "L'opération sur le média n'a pas pu être terminée",
 	"error_media_av_build_refused": "La construction de la version a été refusée",
+	"error_media_build_running": "Une version de ce fichier est déjà en cours de construction. Attendez la fin et réessayez",
 	"error_media_engine_unavailable": "Cette conversion de média n'est pas disponible sur ce serveur",
 	"error_media_file_not_found": "Le fichier média est introuvable",
 	"error_media_invalid_extension": "Extension de fichier média non valide",
