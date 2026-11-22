@@ -137,6 +137,22 @@ export const DIFFUSION_STATUS: Record<
 	interrupted: 'interrupted',
 };
 
+/** The row fields a media job's TARGET decides (null/empty for a record-less job). */
+function targetFieldsOf(
+	target: JobRecord['target'],
+): Pick<ActivityRow, 'record' | 'also_qualities' | 'scope'> {
+	if (target === undefined) return { record: null, also_qualities: [], scope: null };
+	return {
+		record: {
+			section_tipo: target.section_tipo,
+			section_id: target.section_id,
+			component_tipo: target.component_tipo,
+		},
+		also_qualities: target.also_qualities ?? [],
+		scope: target.scope ?? null,
+	};
+}
+
 /** Project one media job record into a tray row. */
 export function activityRowFromMediaJob(record: JobRecord): ActivityRow {
 	const target = record.target;
@@ -146,16 +162,7 @@ export function activityRowFromMediaJob(record: JobRecord): ActivityRow {
 		// The tier is the useful name ("404"); the kind is the fallback for the
 		// record-less jobs (backup, unit tests) that legitimately carry no target.
 		label: target?.label ?? target?.quality ?? record.kind,
-		record:
-			target === undefined
-				? null
-				: {
-						section_tipo: target.section_tipo,
-						section_id: target.section_id,
-						component_tipo: target.component_tipo,
-					},
-		also_qualities: target?.also_qualities ?? [],
-		scope: target?.scope ?? null,
+		...targetFieldsOf(target),
 		errors: record.errors,
 		status: MEDIA_STATUS[record.status],
 		progress: record.progress,
