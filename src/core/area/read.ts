@@ -38,6 +38,7 @@ import {
 	type PickerConstraint,
 	resolvePickerConstraint,
 } from '../relations/picker_constraint.ts';
+import { currentDataLang } from '../resolve/request_lang.ts';
 import { buildStructureContext } from '../resolve/structure_context.ts';
 import {
 	canAccessMaintenanceArea,
@@ -445,7 +446,7 @@ export async function dispatchAreaRead(rqo: Rqo, principal: Principal): Promise<
 		const context = await buildAreaContext(
 			maintTipo,
 			rqo.source?.mode ?? 'list',
-			rqo.source?.lang ?? 'lg-spa',
+			rqo.source?.lang ?? currentDataLang(),
 			permissions,
 		);
 		const { buildMaintenanceDataItem } = await import('../area_maintenance/widgets/registry.ts');
@@ -487,7 +488,7 @@ async function readDashboardArea(rqo: Rqo, principal: Principal): Promise<ApiRes
 		});
 	}
 	const mode = rqo.source?.mode ?? 'list';
-	const lang = rqo.source?.lang ?? 'lg-spa';
+	const lang = rqo.source?.lang ?? currentDataLang();
 	const permissions = await getPermissions(principal, areaTipo, areaTipo);
 
 	const context = await buildAreaContext(areaTipo, mode, lang, permissions);
@@ -880,7 +881,7 @@ async function readTreeArea(
 	if (level < 1 && !principal.isGlobalAdmin) {
 		throw new DedaloError('perm.denied', { coordinates: { area_tipo: areaTipo } });
 	}
-	const lang = rqo.source?.lang ?? 'lg-spa';
+	const lang = rqo.source?.lang ?? currentDataLang();
 
 	// THE PICKER CALLER (engineering/AREA_SPEC.md §5) — resolved from the
 	// declaration alone; see resolveDeclaredPickerCaller.
