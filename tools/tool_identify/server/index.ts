@@ -44,9 +44,11 @@ import {
 	type ClusterReport,
 	clusterRecords,
 } from '../../../src/ai/identify/cluster.ts';
+import { isValidLang } from '../../../src/core/concepts/ontology.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { DEFAULT_CLUSTER_POOL_CAP } from '../../../src/core/identify/record_pool.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { isInstalledDataLang } from '../../../src/core/section/record/save_component.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -156,6 +158,8 @@ async function cluster(ctx: ToolActionContext): Promise<ToolResponse> {
 		});
 	}
 
+	// Validated BEFORE anything runs (R2): a refused lang reaches no reader.
+	const lang = clusterLang(ctx.options.lang);
 	const rawCap = Number(ctx.options.cap);
 	const cap =
 		Number.isFinite(rawCap) && rawCap > 0
@@ -181,10 +185,7 @@ async function cluster(ctx: ToolActionContext): Promise<ToolResponse> {
 		...(Number.isFinite(rawMinSize) && rawMinSize > 1
 			? { minClusterSize: Math.trunc(rawMinSize) }
 			: {}),
-		// The client's lang when it names one, else the REQUEST data lang (read at
-		// this boundary; the clusterer never reads request identity itself) —
-		// review M2: omitted, the criteria resolved in the install default.
-		lang: typeof ctx.options.lang === 'string' ? ctx.options.lang : currentDataLang(),
+		lang,
 		...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
 		...(publish !== undefined
 			? {
@@ -220,6 +221,39 @@ async function cluster(ctx: ToolActionContext): Promise<ToolResponse> {
 	// The human summary is PART OF THE PAYLOAD (the curator reads it beside the
 	// clusters) — the legacy body carried it only as the response `msg`.
 	return ok({ ...toWire(report), summary: msg }, { requestId: toolRequestId(ctx) });
+}
+
+/**
+ * The run's data lang: the client's when it names one, else the REQUEST data
+ * lang (read at this boundary; the clusterer never reads request identity
+ * itself — review M2: omitted, the criteria resolved in the install default).
+ *
+ * A CLIENT lang is caller input that keys the path reader's JSONB slices, so it
+ * is VALIDATED before anything runs (owner ruling 2026-11-22, R2): the lang
+ * grammar first (`isValidLang`, the identifier gate's own check), then
+ * membership in the data languages this installation declares
+ * (`isInstalledDataLang` — the read-reachable set, src/config/data_langs.ts,
+ * the same one the write chokepoint admits). Either failure refuses as
+ * `request.invalid_options` and the clusterer is never called. Exported for
+ * its gate: test/unit/tool_identify_cluster_lang.test.ts.
+ */
+export function clusterLang(raw: unknown): string {
+	if (raw === undefined || raw === null) return currentDataLang();
+	if (typeof raw !== 'string' || !isValidLang(raw)) {
+		throw new DedaloError('request.invalid_options', {
+			message: `cluster: malformed lang ${JSON.stringify(raw)}`,
+			publicMessage: 'lang is not a language code',
+			coordinates: { lang: String(raw) },
+		});
+	}
+	if (!isInstalledDataLang(raw)) {
+		throw new DedaloError('request.invalid_options', {
+			message: `cluster: lang '${raw}' is not a data language this installation declares`,
+			publicMessage: `lang '${raw}' is not a data language of this installation`,
+			coordinates: { lang: raw },
+		});
+	}
+	return raw;
 }
 
 export const tool: ToolServerModule = {

@@ -2783,6 +2783,16 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Object identification's grouping run refuses a language the installation does not have.**
+
+    The `cluster` action of the identification tool accepted any `lang` the caller sent
+    and compared records in it, so a misspelled code or a language the installation does
+    not catalogue in silently compared empty values. The `lang` option is now checked
+    before anything runs: it must be a language code and one of the installation's data
+    languages, or the request is refused with `request.invalid_options`. Leaving it out
+    still uses the request's data language. See the
+    [tool_identify reference](./development/tools/reference/tool_identify.md).
+
 - **"A tool's `affected_tipos` honours its declared wildcard (`test*` = every element of that TLD) and regular-expression entries, and a tool restricted to a mode (`properties.mode`) only shows in that mode."**
 
     A tool registration may restrict where it is offered with `affected_tipos`: an exact tipo, a
