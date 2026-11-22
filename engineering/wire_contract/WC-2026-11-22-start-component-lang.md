@@ -12,7 +12,7 @@
   the URL's `lang` was ignored.
 - **Shape after (TS):** section / area / menu page elements unchanged (`lang` = `langOverride` =
   the request data lang — the client threads it into every child read/save). A COMPONENT page
-  element gets no override: the validated URL `lang` (`search_obj.lang` or the locator's) rides as
+  element gets no override: the validated URL `lang` (the locator's `lang` first, else `search_obj.lang`) rides as
   `requestedLang`, and the element's own lang law decides — translatable → the URL lang, else the
   data lang; non-translatable → `lg-nolan`; transliterable (`with_lang_versions`) → the URL lang,
   else its `lg-nolan` base. A URL lang that is not a language code (`isDiffusionLangCode`) is

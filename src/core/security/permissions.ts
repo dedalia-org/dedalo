@@ -22,7 +22,7 @@
 
 import { readString } from '../../config/readers.ts';
 import { allComponentModels, getComponentModel } from '../components/registry.ts';
-import { AREA_ONTOLOGY_TIPO } from '../concepts/area.ts';
+import { AREA_ONTOLOGY_TIPO, areaBehaviorOf } from '../concepts/area.ts';
 import {
 	AUDIT_TIPOS,
 	isConsultationOnlySection,
@@ -452,6 +452,30 @@ export async function canAccessMaintenanceArea(principal: Principal): Promise<bo
 		(await getPermissions(principal, AREA_MAINTENANCE, AREA_MAINTENANCE)) >=
 		MAINTENANCE_AREA_GRANT_LEVEL
 	);
+}
+
+/**
+ * THE AREA PAGE DOOR — the rule an area asks BEYOND its grant, ONE function for
+ * the area read and the `start` page/landing, so `start` never describes a page
+ * the next read refuses (WC-2026-11-22-start-area-page-door):
+ *
+ *   - area_ontology (or dd5 by tipo) → {@link canAccessOntologyArea};
+ *   - a maintenance-behaviour area (area_maintenance) → {@link canAccessMaintenanceArea};
+ *   - any other area / a section → open (the grant alone decides, asked by the caller).
+ *
+ * `model` is the element's REAL model (the read validates source.model against
+ * the tipo before asking; `start` resolves it from the tipo).
+ */
+export async function canOpenAreaPage(
+	principal: Principal,
+	tipo: string | undefined,
+	model: string,
+): Promise<boolean> {
+	if (model === 'area_ontology' || tipo === AREA_ONTOLOGY_TIPO) {
+		return canAccessOntologyArea(principal);
+	}
+	if (areaBehaviorOf(model) === 'maintenance') return canAccessMaintenanceArea(principal);
+	return true;
 }
 
 /**

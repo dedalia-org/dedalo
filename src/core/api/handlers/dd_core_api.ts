@@ -38,7 +38,7 @@ import {
 	saveComponentData,
 } from '../../section/record/save_component.ts';
 import {
-	canAccessMaintenanceArea,
+	canOpenAreaPage,
 	getPermissions,
 	isTmNoteCreatorWithAccess,
 	type Principal,
@@ -2491,14 +2491,15 @@ async function landingPageOpens(principal: Principal, tipo: string): Promise<boo
 }
 
 /**
- * A page whose area has its OWN door rule beyond the grant: the maintenance
- * area answers THE maintenance rule (canAccessMaintenanceArea — the menu, the
- * area read and the dispatchers ask the same; T2-O15-2), so `start` never
- * describes a page the next read refuses.
+ * A page whose area has its OWN door rule beyond the grant answers THE area
+ * page door (security/permissions.ts canOpenAreaPage — the one the area read
+ * asks: the ontology rule on dd5, the maintenance rule on dd88; T2-O15-2,
+ * WC-2026-11-22-start-area-page-door), so `start` never describes a page the
+ * next read refuses.
  */
 async function pageDoorOpen(principal: Principal, pageTipo: string): Promise<boolean> {
-	if (pageTipo !== AREA_MAINTENANCE_TIPO) return true;
-	return canAccessMaintenanceArea(principal);
+	const { getModelByTipo } = await import('../../ontology/resolver.ts');
+	return canOpenAreaPage(principal, pageTipo, (await getModelByTipo(pageTipo)) ?? '');
 }
 
 /**
@@ -2521,7 +2522,8 @@ function pageElementLangs(
 	}
 	if (urlLang !== null && !isDiffusionLangCode(urlLang)) {
 		throw new DedaloError('request.invalid_source', {
-			message: 'start: search_obj.lang is not a language code',
+			message:
+				'start: the page lang (search_obj.locator.lang, else search_obj.lang) is not a language code',
 			coordinates: { lang: urlLang },
 		});
 	}

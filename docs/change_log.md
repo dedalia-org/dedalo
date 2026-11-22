@@ -2221,6 +2221,16 @@ Merged since the last release; these ship with the next one.
 
     **Action needed:** none.
 
+- **A link to the Ontology area no longer opens a page that then refuses**
+
+    The Ontology area opens for the superuser and for global administrators whose profile grants
+    it. A user who held the grant without being an administrator could still follow a link to it, or
+    have it as their *Default section*, and got a page that refused everything it tried to load. Such
+    a link now answers "no access" at once, and such a *Default section* is skipped at login, as for
+    the Maintenance area.
+
+    Wire contract: `WC-2026-11-22-start-area-page-door`.
+
 - **"The process-state widget now follows a multi-step path to its state field."**
 
     The process-state widget (the `state` widget of a `component_info` field) reads each configured
@@ -2733,7 +2743,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 114 entries"
+??? note "Wire contract — 115 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2844,6 +2854,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-properties-label-override-chain`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
+    - `WC-2026-11-22-start-area-page-door`
     - `WC-2026-11-22-start-component-lang`
     - `WC-2026-11-22-state-of-component-msg-refused`
     - `WC-2026-11-22-term-fallback-chain`

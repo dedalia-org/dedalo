@@ -26,20 +26,31 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { dispatchRqo } from '../../src/core/api/dispatch.ts';
 import { getMenuTreeDatalist } from '../../src/core/api/handlers/menu.ts';
 import { canAccessMaintenanceArea, resolvePrincipal } from '../../src/core/security/permissions.ts';
-import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	createSession,
+	destroySession,
+	getSession,
+} from '../../src/core/security/session_store.ts';
 import {
 	installMaintenancePersonas,
 	MAINTENANCE_PERSONAS,
+	ONTOLOGY_AREA_OPEN_USER_IDS,
 	removeMaintenancePersonas,
 } from '../helpers/maintenance_persona_fixture.ts';
 
 const DD88 = 'dd88';
+const DD5 = 'dd5';
+
+/** Every session a door call mints — destroyed in afterAll (no residue in the suite store). */
+const mintedTokens: string[] = [];
 
 const PERSONAS = [{ userId: -1, label: 'superuser', open: true }, ...MAINTENANCE_PERSONAS] as const;
 
 async function call(userId: number, rqo: Record<string, unknown>) {
 	const principal = await resolvePrincipal(userId);
-	const session = getSession(createSession(userId, `zzmaint_${userId}`, principal.isGlobalAdmin));
+	const token = createSession(userId, `zzmaint_${userId}`, principal.isGlobalAdmin);
+	mintedTokens.push(token);
+	const session = getSession(token);
 	const result = await dispatchRqo(
 		structuredClone(rqo) as never,
 		{
@@ -128,7 +139,10 @@ async function doorsFor(userId: number): Promise<Record<string, boolean>> {
 }
 
 beforeAll(installMaintenancePersonas);
-afterAll(removeMaintenancePersonas);
+afterAll(async () => {
+	for (const token of mintedTokens.splice(0)) destroySession(token);
+	await removeMaintenancePersonas();
+});
 
 describe('the maintenance rule — every door agrees, per persona (T2-O15-2)', () => {
 	for (const persona of PERSONAS) {
@@ -144,5 +158,46 @@ describe('the maintenance rule — every door agrees, per persona (T2-O15-2)', (
 		const closed = PERSONAS.filter((p) => !p.open).map((p) => p.label);
 		expect(open.length).toBeGreaterThanOrEqual(3);
 		expect(closed.length).toBeGreaterThanOrEqual(3);
+	});
+});
+
+/**
+ * THE AREA PAGE DOOR (WC-2026-11-22-start-area-page-door): `start` asks the
+ * SAME door the area read asks (security/permissions.ts canOpenAreaPage), so it
+ * never describes a page the next read refuses. Driven on the ontology area
+ * (dd5: superuser, or a global admin whose profile grants dd5): before, `start`
+ * asked only the grant and handed a dd5 page to a developer / a role-less user
+ * holding it, whose next read answered perm.denied.
+ */
+describe('start agrees with the area read on a door-ruled area page (dd5)', () => {
+	for (const persona of PERSONAS) {
+		const open = persona.userId === -1 || ONTOLOGY_AREA_OPEN_USER_IDS.has(persona.userId);
+		test(`${persona.label} (${persona.userId}): start and read both ${open ? 'OPEN' : 'REFUSE'} dd5`, async () => {
+			const start = await call(persona.userId, {
+				action: 'start',
+				dd_api: 'dd_core_api',
+				prevent_lock: true,
+				options: { search_obj: { tipo: DD5 }, menu: false },
+			});
+			const read = await call(persona.userId, {
+				action: 'read',
+				dd_api: 'dd_core_api',
+				prevent_lock: true,
+				source: { tipo: DD5, section_tipo: DD5, model: 'area_ontology', mode: 'list' },
+			});
+			expect({ start: start.status === 200, read: read.status === 200 }).toEqual({
+				start: open,
+				read: open,
+			});
+		});
+	}
+
+	test('non-vacuity: the grant-without-role cell exists, and both outcomes occur', () => {
+		expect(ONTOLOGY_AREA_OPEN_USER_IDS.size).toBeGreaterThanOrEqual(1);
+		// 954004 (developer) and 954006 (no role) hold dd5 without the admin role
+		expect([954004, 954006].some((id) => ONTOLOGY_AREA_OPEN_USER_IDS.has(id))).toBe(false);
+		expect(
+			PERSONAS.some((p) => p.userId !== -1 && !ONTOLOGY_AREA_OPEN_USER_IDS.has(p.userId)),
+		).toBe(true);
 	});
 });

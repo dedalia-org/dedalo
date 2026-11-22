@@ -12,11 +12,17 @@
  *   954005  developer  + no dd88    → closed
  *   954006  neither    + dd88 = 2   → closed (the grant is no role)
  *
- * Profiles 954011 (dd88 = 2), 954012 (no dd88), 954013 (dd88 = 1); each also
- * grants test3 = 1 so a profile is never empty. Every user's dd1603 "Default
- * section" names dd88, so the no-tipo login landing is asked the same rule. Users and profiles are ordinary
- * dd128 / dd234 records at EXPLICIT ids in the scratch band (no counter touched);
- * no ontology node. Install is idempotent (a crashed run's rows are swept
+ * Profiles 954011 (dd88 = 2, dd5 = 1), 954012 (no dd88), 954013 (dd88 = 1); each
+ * also grants test3 = 1 so a profile is never empty. The dd5 grant on 954011
+ * makes the same personas the area-page-door cells for the ontology area
+ * (canAccessOntologyArea: superuser, or a global admin granted dd5): 954001
+ * opens, 954004 / 954006 hold the grant without the admin role.
+ *
+ * Every user's dd1603 "Default section" names dd88, so the no-tipo login
+ * landing is asked the same rule. Users and profiles are ordinary dd128 / dd234
+ * records at EXPLICIT ids the fixture owns and sweeps (isolation is the marked
+ * suite database, never the id; the floor below only keeps a typo off a low,
+ * real-looking id); no ontology node. Install is idempotent (a crashed run's rows are swept
  * first); the sweep THROWS on a 0-row delete. Both refuse a database without
  * the suite marker.
  */
@@ -105,11 +111,18 @@ export const MAINTENANCE_PERSONAS: readonly MaintenancePersona[] = PERSONA_ROWS.
 	({ userId, label, open }) => ({ userId, label, open }),
 );
 
-const PROFILE_GRANTS: readonly { id: number; dd88: number | null }[] = [
-	{ id: PROFILE_GRANT_2, dd88: 2 },
-	{ id: PROFILE_NO_GRANT, dd88: null },
-	{ id: PROFILE_GRANT_1, dd88: 1 },
+const PROFILE_GRANTS: readonly { id: number; dd88: number | null; dd5: boolean }[] = [
+	{ id: PROFILE_GRANT_2, dd88: 2, dd5: true },
+	{ id: PROFILE_NO_GRANT, dd88: null, dd5: false },
+	{ id: PROFILE_GRANT_1, dd88: 1, dd5: false },
 ];
+
+/** The personas the ontology-area rule opens (a global admin whose profile grants dd5). */
+export const ONTOLOGY_AREA_OPEN_USER_IDS: ReadonlySet<number> = new Set(
+	PERSONA_ROWS.filter(
+		(row) => row.admin && PROFILE_GRANTS.find((profile) => profile.id === row.profile)?.dd5,
+	).map((row) => row.userId),
+);
 
 const OWNED: readonly { table: string; sectionTipo: string; sectionId: number }[] = [
 	...PERSONA_ROWS.map((row) => ({
@@ -195,6 +208,7 @@ export async function installMaintenancePersonas(): Promise<void> {
 		if (profile.dd88 !== null) {
 			dd774.push({ id: 2, tipo: 'dd88', section_tipo: 'dd88', value: profile.dd88 });
 		}
+		if (profile.dd5) dd774.push({ id: 3, tipo: 'dd5', section_tipo: 'dd5', value: 1 });
 		await insert('matrix_profiles', 'dd234', profile.id, {
 			string: { dd237: [{ id: 1, lang: 'lg-eng', value: `zzmaint profile ${profile.id}` }] },
 			misc: { dd774 },

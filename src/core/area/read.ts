@@ -11,7 +11,6 @@
 
 import type { ApiResult } from '../api/response.ts';
 import {
-	AREA_ONTOLOGY_TIPO,
 	areaBehaviorOf,
 	isAreaModel,
 	PICKER_CALLER_MALFORMED_MESSAGE,
@@ -41,8 +40,7 @@ import {
 import { currentDataLang } from '../resolve/request_lang.ts';
 import { buildStructureContext } from '../resolve/structure_context.ts';
 import {
-	canAccessMaintenanceArea,
-	canAccessOntologyArea,
+	canOpenAreaPage,
 	getPermissionGrant,
 	getPermissions,
 	type Principal,
@@ -421,13 +419,14 @@ export async function dispatchAreaRead(rqo: Rqo, principal: Principal): Promise<
 		}
 	}
 
-	// area_ontology: superuser, or a global admin whose profile grants dd5
-	// (engineering/AREA_SPEC.md §9 — canAccessOntologyArea is the one rule, shared
-	// with the menu). Fail-closed: refuse before touching the ontology.
-	if (model === 'area_ontology' || areaTipo === AREA_ONTOLOGY_TIPO) {
-		if (!(await canAccessOntologyArea(principal))) {
-			throw new DedaloError('perm.denied', { coordinates: { area_tipo: areaTipo ?? model } });
-		}
+	// THE AREA PAGE DOOR (security/permissions.ts canOpenAreaPage — `start` asks
+	// the same, WC-2026-11-22-start-area-page-door): area_ontology answers
+	// canAccessOntologyArea (superuser, or a global admin whose profile grants
+	// dd5; engineering/AREA_SPEC.md §9, shared with the menu); the maintenance
+	// area answers canAccessMaintenanceArea (T2-O15-2). Fail-closed: refuse
+	// before touching the ontology or the widget catalog.
+	if (!(await canOpenAreaPage(principal, areaTipo, model))) {
+		throw new DedaloError('perm.denied', { coordinates: { area_tipo: areaTipo ?? model } });
 	}
 
 	if (behavior === 'tree') {
@@ -436,11 +435,8 @@ export async function dispatchAreaRead(rqo: Rqo, principal: Principal): Promise<
 
 	if (behavior === 'maintenance') {
 		// Maintenance-area read (PHP area_maintenance_json): the widget catalog
-		// rides as `datalist`. THE maintenance rule (canAccessMaintenanceArea —
-		// the menu, start and the dispatchers ask the same; T2-O15-2).
-		if (!(await canAccessMaintenanceArea(principal))) {
-			throw new DedaloError('perm.denied', { coordinates: { area_tipo: rqo.source?.tipo ?? '' } });
-		}
+		// rides as `datalist`. Already past THE maintenance rule (the area page
+		// door above — the menu, start and the dispatchers ask the same; T2-O15-2).
 		const maintTipo = rqo.source?.tipo ?? '';
 		const permissions = await getPermissions(principal, maintTipo, maintTipo);
 		const context = await buildAreaContext(
