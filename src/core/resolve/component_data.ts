@@ -37,6 +37,7 @@ import { equivalentLangsOf } from './lang_alias.ts';
  * the INSTALL config defines it (../private/.env DEDALO_DATA_LANG_DEFAULT);
  * languages are configuration, never module literals (owner rule, 2026-07-09).
  */
+// lang-law-exempt(component_data.main_lang): the read fallback chain's FIRST candidate IS the install main data lang by definition (PHP get_component_data_fallback $main_lang = DEDALO_DATA_LANG_DEFAULT) — static for every request; the requested lang is tried before it
 const DEFAULT_DATA_LANG = config.lang.dataLangDefault;
 const NOLAN = 'lg-nolan'; // PHP DEDALO_DATA_NOLAN — the structural no-language token
 /**

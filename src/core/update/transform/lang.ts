@@ -27,6 +27,7 @@ export async function executeMoveLang(
 	recorder: TransformRecorder,
 ): Promise<void> {
 	const items = Array.isArray(rawItems) ? (rawItems as LangMoveItem[]) : [];
+	// lang-law-exempt(update.move_lang.default_lang): an UPDATE transform runs with no request (the update runner); the legacy un-langed data it re-keys was written in the install main data lang
 	const dataLangDefault = config.lang.dataLangDefault;
 
 	for (const item of items) {

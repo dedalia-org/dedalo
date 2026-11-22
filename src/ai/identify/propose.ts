@@ -159,6 +159,8 @@ export type NeighbourFinder = (input: {
 	seed: CandidateRecord;
 	principal: Principal;
 	topK: number;
+	/** The run's data language (ProposeInput.lang), threaded to the matcher. */
+	lang?: string;
 }) => Promise<NeighbourReport>;
 
 /**
@@ -332,7 +334,7 @@ export async function proposeElements(input: ProposeInput): Promise<ProposeRepor
 		open.push(criterion);
 	}
 
-	const found = await findNeighbours({ profile, seed, principal, topK });
+	const found = await findNeighbours({ profile, seed, principal, topK, lang: input.lang });
 	// The record gate runs BEFORE any neighbour value is read: the read is what
 	// pulls another record's values into a string a curator will see.
 	const readable = await filterAccessible(
@@ -579,6 +581,7 @@ export interface NeighbourPorts {
 		seed: CandidateRecord;
 		principal: Principal;
 		topK: number;
+		lang?: string;
 	}): Promise<ProposalNeighbour[]>;
 }
 
@@ -593,7 +596,7 @@ export interface NeighbourPorts {
  * what proposals are for. It is reported as the fallback it is.
  */
 export function buildNeighbourFinder(ports: NeighbourPorts): NeighbourFinder {
-	return async ({ profile, seed, principal, topK }) => {
+	return async ({ profile, seed, principal, topK, lang }) => {
 		if (await ports.hasImageIndex(seed.sectionTipo)) {
 			const neighbours = await ports.imageNeighbours({ seed, principal, topK });
 			if (neighbours.length > 0) {
@@ -606,13 +609,13 @@ export function buildNeighbourFinder(ports: NeighbourPorts): NeighbourFinder {
 			return {
 				source: 'structural',
 				reason: `section '${seed.sectionTipo}' declares an image index but this record has no indexed image (or no visual neighbours); fell back to records agreeing on the criteria it does record`,
-				neighbours: await ports.structuralNeighbours({ profile, seed, principal, topK }),
+				neighbours: await ports.structuralNeighbours({ profile, seed, principal, topK, lang }),
 			};
 		}
 		return {
 			source: 'structural',
 			reason: `section '${seed.sectionTipo}' declares no image index; neighbours are records agreeing on the criteria this record does record`,
-			neighbours: await ports.structuralNeighbours({ profile, seed, principal, topK }),
+			neighbours: await ports.structuralNeighbours({ profile, seed, principal, topK, lang }),
 		};
 	};
 }
@@ -643,8 +646,14 @@ export function defaultNeighbourPorts(): NeighbourPorts {
 			});
 			return hits.map(candidateToNeighbour);
 		},
-		async structuralNeighbours({ profile, seed, principal, topK }): Promise<ProposalNeighbour[]> {
-			const report = await findMatches({ profile, seed, principal, limit: topK });
+		async structuralNeighbours({
+			profile,
+			seed,
+			principal,
+			topK,
+			lang,
+		}): Promise<ProposalNeighbour[]> {
+			const report = await findMatches({ profile, seed, principal, limit: topK, lang });
 			return report.results.map((result) => ({
 				sectionTipo: result.sectionTipo,
 				sectionId: result.sectionId,

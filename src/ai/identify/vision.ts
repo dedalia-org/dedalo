@@ -425,6 +425,7 @@ const WIRE_MEDIA_TYPES: Readonly<Record<string, 'image/jpeg' | 'image/png' | 'im
  */
 export async function proposeFromVision(input: VisionProposeInput): Promise<VisionProposeReport> {
 	const { profile, seed, principal } = input;
+	// lang-law-exempt(identify.vision.default_lang): this module never reads request identity (header: explicit, like the principal); its request caller dd_identify_api get_proposals passes currentDataLang() — the default serves scope-less callers only
 	const lang = input.lang ?? config.lang.dataLangDefault;
 	const componentGrant = input.componentGrant ?? getPermissions;
 	// ONE path-reader scope per run: every landed record is authorized on its

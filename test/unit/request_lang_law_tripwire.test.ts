@@ -10,12 +10,19 @@
  *   request-lang module (`src/core/resolve/request_lang.ts`, whose accessors
  *   ARE the fallback): `config.menu.applicationLang` / `config.menu.dataLang`
  *   (also `menu.X` after a destructure, `menu['X']`, `const { dataLang } =
- *   config.menu`) and an env read of `DATA_LANG` / `APPLICATION_LANG` (the
- *   `readString('DATA_LANG')` shape SL-2 deleted from the search assembler).
- *   On a request path the value is the INSTALL default, not the caller's:
- *   a label, a sort or a write lands in a language the user did not choose.
- *   `currentApplicationLang()` / `currentDataLang()` answer instead (and fall
- *   back to the install default outside any scope).
+ *   config.menu`), the install's STATIC main data lang
+ *   `config.lang.dataLangDefault` (also `config.lang['dataLangDefault']`,
+ *   `const { dataLangDefault } = config.lang` — review M2: `x ??
+ *   config.lang.dataLangDefault` is the same fallback as `x ??
+ *   config.menu.dataLang` one key over) and an env read of `DATA_LANG` /
+ *   `APPLICATION_LANG` / `DATA_LANG_DEFAULT` (the `readString('DATA_LANG')`
+ *   shape SL-2 deleted from the search assembler). On a request path the
+ *   value is the INSTALL default, not the caller's: a label, a sort or a write
+ *   lands in a language the user did not choose. `currentApplicationLang()` /
+ *   `currentDataLang()` answer instead (and fall back to the install default
+ *   outside any scope). A site that WANTS the static default (the read
+ *   chain's first candidate, a cached thesaurus main lang, a diffusion plan's
+ *   last resort, a background-job default) says so with a marker.
  *
  *   RULE 2 — no language-code literal used as a DEFAULT: `?? 'lg-…'`,
  *   `|| 'lg-…'` (and `??=` / `||=`), a default parameter or destructuring
@@ -47,7 +54,12 @@
  * a ternary (`x !== undefined ? x : 'lg-spa'`), an `if (x === undefined) x =
  * 'lg-spa'` assignment, or a named constant holding a language and passed as
  * one is not a default SHAPE and is not seen; a config value aliased through a
- * second binding (`const m = config.menu; m.dataLang`) is not seen. The
+ * second binding (`const m = config.menu; m.dataLang`, `const l = config.lang;
+ * l.dataLangDefault`) is not seen, and neither is a MARKED read's value once
+ * it travels (`DEFAULT_DATA_LANG` in component_data.ts is exempt where it is
+ * read; a later `x ?? DEFAULT_DATA_LANG` is a named constant, invisible here).
+ * Whether a marked static read is reachable from a request path is a JUDGMENT
+ * the marker's reason states — not something this scan proves. The
  * behavioural twins live in request_lang_law_native and the per-site gates.
  */
 
@@ -171,7 +183,12 @@ const RULE1_SHAPES: readonly RegExp[] = [
 	/\bmenu\s*\??\.\s*(?:applicationLang|dataLang)\b/g,
 	/\bmenu\s*\[\s*['"](?:applicationLang|dataLang)['"]\s*\]/g,
 	/\{[^{}]*\b(?:applicationLang|dataLang)\b[^{}]*\}\s*=\s*config\s*\.\s*menu\b/g,
-	/\b(?:readEnv|readString|readOptionalString|requireString|requireEnv)\s*\(\s*['"](?:DEDALO_)?(?:DATA_LANG|APPLICATION_LANG)['"]/g,
+	// The install's static main data lang (review M2): any read, the `??` / `||`
+	// fallback shape included — a site that wants it names why with a marker.
+	/\bconfig\s*\??\.\s*lang\s*\??\.\s*dataLangDefault\b/g,
+	/\bconfig\s*\.\s*lang\s*\[\s*['"]dataLangDefault['"]\s*\]/g,
+	/\{[^{}]*\bdataLangDefault\b[^{}]*\}\s*=\s*config\s*\.\s*lang\b/g,
+	/\b(?:readEnv|readString|readOptionalString|requireString|requireEnv)\s*\(\s*['"](?:DEDALO_)?(?:DATA_LANG|APPLICATION_LANG|DATA_LANG_DEFAULT)['"]/g,
 ];
 
 /** RULE 2 — a language literal used as a default. */
@@ -337,6 +354,15 @@ describe('the detector, driven on synthetic text (positive + negative controls)'
 			"const L = readString('DATA_LANG');",
 			"const L = readEnv('DEDALO_APPLICATION_LANG');",
 			'const x = config.menu?.applicationLang;',
+			// review M2: the static main data lang, the fallback shape first.
+			'const lang = options.lang ?? config.lang.dataLangDefault;',
+			'const lang = options.lang || config.lang.dataLangDefault;',
+			'lang ??= config.lang.dataLangDefault;',
+			'f(x ??\n\tconfig.lang.dataLangDefault);',
+			'const main = config.lang.dataLangDefault;',
+			"const main = config.lang['dataLangDefault'];",
+			'const { dataLangDefault } = config.lang;',
+			"const L = readString('DEDALO_DATA_LANG_DEFAULT');",
 		]) {
 			expect(rulesOf(source), source).toContain(1);
 		}
@@ -358,7 +384,7 @@ describe('the detector, driven on synthetic text (positive + negative controls)'
 		}
 	});
 
-	test('NOT offenders: lg-nolan, comparisons, statements, comments, dataLangSync, config.lang', () => {
+	test('NOT offenders: lg-nolan, comparisons, statements, comments, dataLangSync, other config.lang keys', () => {
 		for (const source of [
 			"const lang = input.lang ?? 'lg-nolan';",
 			"function f(lang = 'lg-nolan') {}",
@@ -370,8 +396,11 @@ describe('the detector, driven on synthetic text (positive + negative controls)'
 			"// const lang = input.lang ?? 'lg-eng'; config.menu.dataLang",
 			"/* lang = 'lg-spa', config.menu.applicationLang */",
 			'const sync = config.menu.dataLangSync;',
-			'const main = config.lang.dataLangDefault;',
-			"const s = 'a // b'; const t = config.lang.dataLangDefault;",
+			'const groups = config.lang.equivalences;',
+			"const s = 'a // b'; const t = config.lang.equivalences;",
+			'const d = langConfig.dataLangDefault;',
+			'const d = `${lang.dataLangDefault}`;',
+			'// const lang = x ?? config.lang.dataLangDefault;',
 			'const t = `${x}` + y;',
 		]) {
 			expect(rulesOf(source), source).toEqual([]);

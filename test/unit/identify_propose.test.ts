@@ -156,6 +156,24 @@ describe('proposeElements — the weighted vote', () => {
 		expect(report.neighboursConsidered).toBe(3);
 	});
 
+	test('the run’s data lang reaches the neighbour finder (review M2: the matcher read the install default)', async () => {
+		const seen: (string | undefined)[] = [];
+		await proposeElements({
+			principal: ADMIN,
+			profile: profileWith([criterion()]),
+			seed: SEED,
+			lang: 'lg-cat',
+			findNeighbours: async (input) => {
+				seen.push(input.lang);
+				return { source: 'structural', reason: 'fixed by the test', neighbours: [] };
+			},
+			readValues: readerFor({}),
+			filterAccessible: allowAll,
+			componentGrant: grantAll,
+		});
+		expect(seen).toEqual(['lg-cat']);
+	});
+
 	test('confidence IS the vote distribution, not a fixed dial', async () => {
 		const split = await proposeElements({
 			principal: ADMIN,
@@ -499,6 +517,30 @@ describe('buildNeighbourFinder — which leg ran is part of the answer', () => {
 			principal: ADMIN,
 			topK: 5,
 		});
+
+	test('the run’s data lang reaches the structural leg on both paths (review M2)', async () => {
+		const seen: (string | undefined)[] = [];
+		const structuralNeighbours: NeighbourPorts['structuralNeighbours'] = async ({ lang }) => {
+			seen.push(lang);
+			return [];
+		};
+		const input = {
+			profile: profileWith([criterion()]),
+			seed: SEED,
+			principal: ADMIN,
+			topK: 5,
+			lang: 'lg-cat',
+		};
+		await buildNeighbourFinder(ports({ structuralNeighbours }))(input);
+		await buildNeighbourFinder(
+			ports({
+				hasImageIndex: async () => true,
+				imageNeighbours: async () => [],
+				structuralNeighbours,
+			}),
+		)(input);
+		expect(seen).toEqual(['lg-cat', 'lg-cat']);
+	});
 
 	test('no image index → structural neighbours, REPORTED as structural', async () => {
 		const report = await call(buildNeighbourFinder(ports()));

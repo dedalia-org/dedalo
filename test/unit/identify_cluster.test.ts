@@ -239,6 +239,29 @@ describe('clusterRecords — the threshold is the boundary, and it is echoed', (
 		expect(ids(report.singletons)).toEqual([3]);
 	});
 
+	test('the run’s data lang reaches the criteria leg (review M2: the matcher read the install default)', async () => {
+		const seen: (string | undefined)[] = [];
+		await clusterRecords({
+			sectionTipos: ['test3'],
+			principal: ADMIN,
+			records: [rec(1), rec(2)],
+			lang: 'lg-cat',
+			ports: {
+				...portsFor({}, 'criteria'),
+				criteriaNeighbours: async ({ lang }) => {
+					seen.push(lang);
+					return [];
+				},
+			},
+			filterAccessible: allowAll,
+			loadProfile: async () => profileWith(),
+			readValues: async () => null,
+			componentGrant: async () => 1,
+		});
+		// FLOOR: the leg ran once per record, each time in the run's lang.
+		expect(seen).toEqual(['lg-cat', 'lg-cat']);
+	});
+
 	test('the criteria leg uses the PROFILE’s own sameType threshold', async () => {
 		const report = await clusterRecords({
 			sectionTipos: ['test3'],

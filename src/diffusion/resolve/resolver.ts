@@ -430,6 +430,7 @@ const RECORD_KEY = recordKey;
 /** The run's component_info env (info_value.ts): main lang, run principal, run memo. */
 function infoEnvOf(ctx: RunContext): InfoPublicationEnv {
 	return {
+		// lang-law-exempt(diffusion.info_env.main_lang): a publication run follows its PLAN's langs, never a request's (the info law below); the install main data lang is the last resort of a plan with no main lang
 		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
 		principal: ctx.options.principal,
 		readMemo: (key) => getBoundedRunMemo(ctx.infoItemsCache, key),
@@ -445,6 +446,7 @@ function infoEnvOf(ctx: RunContext): InfoPublicationEnv {
  */
 function externalEnvOf(ctx: RunContext, prepared: PreparedField): ExternalPublicationEnv {
 	return {
+		// lang-law-exempt(diffusion.external_env.main_lang): the fetch lang is the PLAN's main lang (the info law — never the trigger's ambient lang); the install main data lang is the last resort of a plan with no main lang
 		lang: ctx.plan.langPolicy.mainLang ?? config.lang.dataLangDefault,
 		emission: ctx.externalEmission,
 		report: (degradation) => {

@@ -188,6 +188,7 @@ function desiredFromSource(law: ObservedDataLaw, source: unknown): DesiredLocato
 	return tagLocatorsAcrossLangs(
 		items as StoredTextItem[],
 		law.tags,
+		// lang-law-exempt(observed_data.lang_order): the stored mirror is lang-agnostic (header, THE LANG RULE) — the union's lang ORDER is fixed by the install main data lang so the mirror never depends on who saved last; a request lang here would reintroduce exactly that
 		config.lang.dataLangDefault,
 	) as unknown as DesiredLocator[];
 }

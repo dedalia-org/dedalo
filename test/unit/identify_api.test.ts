@@ -43,6 +43,7 @@ import { ProfileError, parseProfile } from '../../src/core/identify/profile.ts';
 import type { IdentificationProfile } from '../../src/core/identify/types.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
+import { inSplitLane, laneLabel, SPLIT_LANES } from '../helpers/split_request_langs.ts';
 
 const SUPERUSER: Principal = { userId: -1, isGlobalAdmin: true, isDeveloper: true };
 const NO_ACCESS: Principal = { userId: 999999, isGlobalAdmin: false, isDeveloper: false };
@@ -50,6 +51,13 @@ const NO_ACCESS: Principal = { userId: 999999, isGlobalAdmin: false, isDeveloper
 const SEED_ID = 9990301;
 const TWIN_ID = 9990302;
 const SHARED_TEXT = 'identify api shared legend fixture';
+/** The lane pair (review M2): equal in lg-eng, different in lg-spa. */
+const LANE_SEED_ID = 9990303;
+const LANE_TWIN_ID = 9990304;
+const LANE_VALUES: Readonly<Record<number, Readonly<Record<string, string>>>> = {
+	[LANE_SEED_ID]: { 'lg-eng': 'identify api lane legend', 'lg-spa': 'leyenda de la semilla' },
+	[LANE_TWIN_ID]: { 'lg-eng': 'identify api lane legend', 'lg-spa': 'leyenda del gemelo' },
+};
 
 const rqo = (options: Record<string, unknown>): Rqo => ({ options }) as unknown as Rqo;
 
@@ -91,8 +99,8 @@ function textProfile(): IdentificationProfile {
 beforeAll(async () => {
 	if (!DB_READY) return;
 	// Two records holding the same legend — the minimal "these are the same
-	// type" corpus. The data lang is the install's own, because the reader
-	// resolves in config.menu.dataLang when no lang is threaded in.
+	// type" corpus. The data lang is the install's main one: outside a request
+	// scope the handler threads currentDataLang(), which answers it.
 	for (const id of [SEED_ID, TWIN_ID]) {
 		await sql.unsafe(
 			`INSERT INTO matrix_test (section_id, section_tipo, string)
@@ -100,7 +108,23 @@ beforeAll(async () => {
 			[
 				id,
 				JSON.stringify({
-					test52: [{ id: 1, lang: config.menu.dataLang, value: SHARED_TEXT }],
+					test52: [{ id: 1, lang: config.lang.dataLangDefault, value: SHARED_TEXT }],
+				}),
+			],
+		);
+	}
+	for (const [id, values] of Object.entries(LANE_VALUES)) {
+		await sql.unsafe(
+			`INSERT INTO matrix_test (section_id, section_tipo, string)
+			 VALUES ($1, 'test3', $2::text::jsonb)`,
+			[
+				Number(id),
+				JSON.stringify({
+					test52: Object.entries(values).map(([lang, value], index) => ({
+						id: index + 1,
+						lang,
+						value,
+					})),
 				}),
 			],
 		);
@@ -109,7 +133,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	if (!DB_READY) return;
-	for (const id of [SEED_ID, TWIN_ID]) {
+	for (const id of [SEED_ID, TWIN_ID, LANE_SEED_ID, LANE_TWIN_ID]) {
 		await sql.unsafe('DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2', [
 			'test3',
 			id,
@@ -247,6 +271,28 @@ describe('find_matches — what reaches the engine', () => {
 		expect((seen as unknown as MatchInput).seed).toEqual({ sectionTipo: 'test3', sectionId: 7 });
 	});
 
+	test('the REQUEST data lang reaches the engine, never the interface one (review M2)', async () => {
+		for (const lane of SPLIT_LANES) {
+			let seen: MatchInput | null = null;
+			await inSplitLane(lane, () =>
+				buildFindMatches(
+					fakeDeps({
+						runMatches: async (input: MatchInput) => {
+							seen = input;
+							return {
+								results: [],
+								moreAvailable: false,
+								blindCriteria: [],
+								restrictedCriteria: [],
+							};
+						},
+					}),
+				)(rqo({ section_tipo: 'test3', section_id: 7 }), ctx(SUPERUSER)),
+			);
+			expect((seen as MatchInput | null)?.lang, laneLabel(lane)).toBe(lane.dataLang);
+		}
+	});
+
 	test('limit is clamped, and defaulted when absent or unusable', async () => {
 		const limits: number[] = [];
 		const handler = buildFindMatches(
@@ -311,6 +357,30 @@ describe('find_matches — the answer', () => {
 		// The seed never matches itself.
 		expect(body.results.some((result) => result.section_id === SEED_ID)).toBe(false);
 	});
+
+	test.if(DB_READY)(
+		'the real reader resolves criteria in the REQUEST data lang (review M2)',
+		async () => {
+			// The pair agrees in lg-eng and differs in lg-spa: the twin is a full
+			// match only when the criterion values are read in lg-eng. Before, the
+			// production reader got no lang and read the install default.
+			const handler = buildFindMatches({
+				...defaultIdentifyApiDeps(),
+				loadProfile: async () => textProfile(),
+			});
+			for (const lane of SPLIT_LANES) {
+				const res = await inSplitLane(lane, () =>
+					handler(rqo({ section_tipo: 'test3', section_id: LANE_SEED_ID }), ctx(SUPERUSER)),
+				);
+				expect(res.body.ok, laneLabel(lane)).toBe(true);
+				const results = (res.body.data as { results: { section_id: number; score: number }[] })
+					.results;
+				const twin = results.find((result) => result.section_id === LANE_TWIN_ID);
+				if (lane.dataLang === 'lg-eng') expect(twin?.score, laneLabel(lane)).toBe(1);
+				else expect(twin?.score ?? 0, laneLabel(lane)).toBeLessThan(1);
+			}
+		},
+	);
 
 	test.if(DB_READY)('a denied principal gets NOTHING from the real stack (DoD)', async () => {
 		const handler = buildFindMatches({

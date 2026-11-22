@@ -324,6 +324,7 @@ async function langData(
 	// the first candidate of the engine's one read chain) — never the menu's
 	// DATA_LANG, a per-session selection (request-language law, T2 B10).
 	const tried = new Set([effectiveLang]);
+	// lang-law-exempt(indexation_grid.fallback_main_lang): owner ruling — the fallback's first candidate is the install DATA_LANG_DEFAULT (v6 $main_lang), static; the request data lang was tried first (effectiveLang)
 	const candidates = [config.lang.dataLangDefault, 'lg-nolan', ...config.menu.projectsDefaultLangs];
 	for (const candidate of candidates) {
 		if (tried.has(candidate)) continue;

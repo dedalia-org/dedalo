@@ -408,6 +408,7 @@ async function walk(
 		return null;
 	}
 
+	// lang-law-exempt(identify.path_read.default_lang): REQUEST IDENTITY IS A PARAMETER here (header) — every request caller passes its currentDataLang() (dd_identify_api ×3 + findMatches via its MatchInput.lang, the clusterer / proposer via theirs); omitted = a background job, the install's main data lang
 	const lang = options.lang ?? config.lang.dataLangDefault;
 	const seedTable = await getMatrixTableFromTipo(seed.sectionTipo);
 	if (seedTable === null) {

@@ -634,7 +634,10 @@ Merged since the last release; these ship with the next one.
       whatever the data language;
     - for the assistant tools (MCP), an omitted language was English: section lists,
       section descriptions, record reads and searches now default to the data
-      language.
+      language;
+    - object identification (similar records, clustering, the neighbour vote of
+      proposals) compared records in the installation's main data language; it now
+      compares them in the user's data language.
 
     When a value is missing in the chosen language, the thesaurus term and the
     indexation grid now fall back to the installation's main data language

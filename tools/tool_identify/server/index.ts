@@ -46,6 +46,7 @@ import {
 } from '../../../src/ai/identify/cluster.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { DEFAULT_CLUSTER_POOL_CAP } from '../../../src/core/identify/record_pool.ts';
+import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -180,7 +181,10 @@ async function cluster(ctx: ToolActionContext): Promise<ToolResponse> {
 		...(Number.isFinite(rawMinSize) && rawMinSize > 1
 			? { minClusterSize: Math.trunc(rawMinSize) }
 			: {}),
-		...(typeof ctx.options.lang === 'string' ? { lang: ctx.options.lang } : {}),
+		// The client's lang when it names one, else the REQUEST data lang (read at
+		// this boundary; the clusterer never reads request identity itself) —
+		// review M2: omitted, the criteria resolved in the install default.
+		lang: typeof ctx.options.lang === 'string' ? ctx.options.lang : currentDataLang(),
 		...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
 		...(publish !== undefined
 			? {

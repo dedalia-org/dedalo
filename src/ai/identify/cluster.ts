@@ -277,6 +277,8 @@ export interface ClusterPorts {
 		seed: CandidateRecord;
 		principal: Principal;
 		topK: number;
+		/** The run's data language (ClusterInput.lang), threaded to the matcher. */
+		lang?: string;
 	}): Promise<NeighbourHit[]>;
 }
 
@@ -648,7 +650,13 @@ export async function clusterRecords(input: ClusterInput): Promise<ClusterReport
 		if (profile !== null) {
 			const threshold = criteriaThresholdOverride ?? profile.thresholds.sameType;
 			criteriaThresholdBySection.set(node.sectionTipo, threshold);
-			const hits = await ports.criteriaNeighbours({ profile, seed: node, principal, topK });
+			const hits = await ports.criteriaNeighbours({
+				profile,
+				seed: node,
+				principal,
+				topK,
+				lang: input.lang,
+			});
 			for (const hit of hits) {
 				if (hit.similarity < threshold) continue;
 				if (!admitted.has(recordKey(hit.record))) continue;
@@ -838,8 +846,14 @@ export function defaultClusterPorts(): ClusterPorts {
 				};
 			});
 		},
-		async criteriaNeighbours({ profile, seed, principal, topK }): Promise<NeighbourHit[]> {
-			const report: MatchReport = await findMatches({ profile, seed, principal, limit: topK });
+		async criteriaNeighbours({ profile, seed, principal, topK, lang }): Promise<NeighbourHit[]> {
+			const report: MatchReport = await findMatches({
+				profile,
+				seed,
+				principal,
+				limit: topK,
+				lang,
+			});
 			return report.results.map((result) => ({
 				record: { sectionTipo: result.sectionTipo, sectionId: result.sectionId },
 				similarity: result.score,

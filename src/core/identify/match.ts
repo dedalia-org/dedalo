@@ -113,6 +113,15 @@ export interface MatchInput {
 	/** Max results to return, best first. */
 	limit?: number;
 	/**
+	 * Data language the production reader resolves values in (path_read's
+	 * `lang`). Explicit, like the principal: a request caller passes its
+	 * `currentDataLang()` (dd_identify_api, the tool_identify server via the
+	 * clusterer / proposer); omitted, path_read answers the install's main data
+	 * lang — the background-job default (review M2: the request path used to
+	 * fall through to it).
+	 */
+	lang?: string;
+	/**
 	 * Injectable seams. Production omits all four. They exist so the SCORING
 	 * rules — partial agreement, tolerances, the required gate, exact-set
 	 * identity — and the ACCESS rules can be tested exhaustively as pure logic; a
@@ -667,7 +676,8 @@ async function matchWithinReadScope(input: MatchInput): Promise<MatchReport> {
 		...(input.componentGrant === undefined ? {} : { componentGrant: input.componentGrant }),
 	});
 	const readValues: ValueReader =
-		input.readValues ?? ((record, path) => readPathValues(record, path, { scope: pathScope }));
+		input.readValues ??
+		((record, path) => readPathValues(record, path, { lang: input.lang, scope: pathScope }));
 	const poolFinder = input.findPool ?? findPool;
 	const filterAccessible = input.filterAccessible ?? filterReadableRecords;
 	const isReadable = memoizeReadability(principal, input.componentGrant);

@@ -363,6 +363,10 @@ export function buildFindMatches(deps: IdentifyApiDeps): ActionHandler {
 					principal,
 					poolCap: DEFAULT_POOL_CAP,
 					limit: clampLimit(options?.limit),
+					// The REQUEST's data lang, read at this boundary and passed down
+					// (path_read never reads request identity itself) — review M2:
+					// omitted, the values resolved in the install default.
+					lang: currentDataLang(),
 				});
 			} catch (error) {
 				// The seed itself is not readable by this principal. Same envelope as the
