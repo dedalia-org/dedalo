@@ -325,3 +325,95 @@ describe('tool names in src/ code are ledgered and shrink-only', () => {
 		}
 	});
 });
+
+/**
+ * THE ONE LEDGERED NAME HAS ALIASES. `src/config/element_tipo_list.ts` names
+ * tool_diffusion once (EXCLUDED_ELEMENTS_LOCATION), and the name census above
+ * cannot see a consumer that branches on `EXCLUDED_ELEMENTS_LOCATION.tool` or on
+ * its re-export `EXCLUSION_TOOL` (diffusion/api/excluded_elements.ts) — the same
+ * coupling with the literal moved one hop away. So every reference to either
+ * alias in src/ CODE (comments stripped) is counted per (file, alias) and must
+ * EQUAL this ledger: a new consumer, or one more use in an existing one, is red
+ * (shrink-only, as LEDGERED_NAMES).
+ */
+const LOCATION_ALIASES = ['EXCLUDED_ELEMENTS_LOCATION', 'EXCLUSION_TOOL'] as const;
+
+const LEDGERED_LOCATION_CONSUMERS: Record<
+	string,
+	{ uses: Readonly<Record<string, number>>; reason: string }
+> = {
+	'src/config/element_tipo_list.ts': {
+		uses: { EXCLUDED_ELEMENTS_LOCATION: 1 },
+		reason: 'the definition itself — the one place the tool name is written (ledgered above).',
+	},
+	'src/config/migration_map.ts': {
+		uses: { EXCLUDED_ELEMENTS_LOCATION: 3 },
+		reason:
+			'the import + the v6 migration’s TOOL_CONFIG move target ({tool, key}): the define is moved to WHERE THE READER READS, so it must name the same location.',
+	},
+	'src/diffusion/api/excluded_elements.ts': {
+		uses: { EXCLUDED_ELEMENTS_LOCATION: 3, EXCLUSION_TOOL: 4 },
+		reason:
+			'the reader: the import, the EXCLUSION_TOOL/EXCLUSION_KEY re-exports, the getToolConfigValue read, and the tool.config_invalid refusal that names where the value lives.',
+	},
+	'src/diffusion/jobs/queue.ts': {
+		uses: { EXCLUSION_TOOL: 3 },
+		reason:
+			'the import + the stale-job sweeper’s two refusal messages, which name where the list lives (text, not a branch).',
+	},
+};
+
+/** file (repo-relative) → alias → count, in code (comments stripped). */
+function locationAliasCensus(files: readonly string[]): Map<string, Record<string, number>> {
+	const pattern = new RegExp(`\\b(${LOCATION_ALIASES.join('|')})\\b`, 'g');
+	const census = new Map<string, Record<string, number>>();
+	for (const file of files) {
+		const found: Record<string, number> = {};
+		for (const match of stripComments(readFileSync(file, 'utf8')).matchAll(pattern)) {
+			const alias = match[1] as string;
+			found[alias] = (found[alias] ?? 0) + 1;
+		}
+		if (Object.keys(found).length > 0) census.set(relative(REPO_ROOT, file), found);
+	}
+	return census;
+}
+
+describe('the excluded-elements location aliases are ledgered and shrink-only', () => {
+	const census = locationAliasCensus(srcFiles());
+
+	test('the scan finds the definition and the reader (anti-vacuity)', () => {
+		expect(census.get('src/config/element_tipo_list.ts')).toEqual({
+			EXCLUDED_ELEMENTS_LOCATION: 1,
+		});
+		expect(census.get('src/diffusion/api/excluded_elements.ts')?.EXCLUSION_TOOL).toBeGreaterThan(0);
+	});
+
+	test('every consumer of the location matches the ledger exactly', () => {
+		const drift: string[] = [];
+		const files = new Set([...census.keys(), ...Object.keys(LEDGERED_LOCATION_CONSUMERS)]);
+		for (const file of [...files].sort()) {
+			const found = census.get(file) ?? {};
+			const allowed = LEDGERED_LOCATION_CONSUMERS[file]?.uses ?? {};
+			for (const alias of LOCATION_ALIASES) {
+				const have = found[alias] ?? 0;
+				const ledgered = allowed[alias] ?? 0;
+				if (have > ledgered)
+					drift.push(
+						`${file}: ${alias} ×${have} > ledgered ${ledgered} (NEW consumer of the tool name)`,
+					);
+				else if (have < ledgered)
+					drift.push(`${file}: ${alias} ×${have} < ledgered ${ledgered} (lower the ledger)`);
+			}
+		}
+		expect(
+			drift,
+			'src/ reaches tool_diffusion through its location constant. A new branch on `.tool` is the coupling the name census forbids, one hop away — register the behaviour through the ToolServerModule contract, or ledger it here with a reason',
+		).toEqual([]);
+	});
+
+	test('every location-consumer entry says why', () => {
+		for (const [file, entry] of Object.entries(LEDGERED_LOCATION_CONSUMERS)) {
+			expect(entry.reason.length, `${file}: the reason says why`).toBeGreaterThan(40);
+		}
+	});
+});
