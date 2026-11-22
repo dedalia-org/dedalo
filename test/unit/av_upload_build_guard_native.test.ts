@@ -149,16 +149,16 @@ const stagedPath = (tmpName: string, root?: string, userId = USER_ID): string =>
 const originalPath = (identity: MediaIdentity): string =>
 	buildMediaLocation(av, identity, av.originalQuality, 'mp4', pathOpts).absolutePath;
 
-/** A scratch test3 record with a real av ORIGINAL already on disk. */
-async function recordWithOriginal(): Promise<MediaIdentity> {
+/** A scratch test3 record created here (deleted in afterAll) — no media yet. */
+async function scratchRecord(): Promise<MediaIdentity> {
 	const sectionId = await createSectionRecord(SECTION, -1);
 	scratchIds.push(sectionId);
-	const identity: MediaIdentity = {
-		componentTipo: AV_COMPONENT,
-		sectionTipo: SECTION,
-		sectionId,
-		lang: null,
-	};
+	return { componentTipo: AV_COMPONENT, sectionTipo: SECTION, sectionId, lang: null };
+}
+
+/** A scratch test3 record with a real av ORIGINAL already on disk. */
+async function recordWithOriginal(): Promise<MediaIdentity> {
+	const identity = await scratchRecord();
 	await writeVideo(originalPath(identity));
 	return identity;
 }
@@ -246,6 +246,9 @@ afterAll(async () => {
 });
 
 describe('A1-01 job manager: claims + the exclusive submit', () => {
+	// PURE arbiter cases: a private MediaJobManager each, workers that touch
+	// nothing, pfiles in the scratch processes dir. The section ids below are
+	// index keys only — no record, no media file, no DB row is read or written.
 	test('a claim is refused while any tier it occupies is live, and frees on release', async () => {
 		const manager = new MediaJobManager({ budgets: { media: 2, maintenance: 4 } });
 		const identity: MediaIdentity = {
@@ -362,12 +365,7 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 	);
 
 	test('an ingest that throws after the claim gives the build target back', async () => {
-		const identity: MediaIdentity = {
-			componentTipo: AV_COMPONENT,
-			sectionTipo: SECTION,
-			sectionId: 4,
-			lang: null,
-		};
+		const identity = await scratchRecord();
 		// No staged file: the move (after the claim) throws media.file_not_found.
 		const refused = await refusalOf(ingest(identity, 'never_staged.mp4'));
 		expect(refused.code).toBe('media.file_not_found');
@@ -381,12 +379,7 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 		async () => {
 			// An av file parked in the audio tier of a record with NO original: there
 			// is nothing to derive from, so no transcode is offered (media_ingest).
-			const identity: MediaIdentity = {
-				componentTipo: AV_COMPONENT,
-				sectionTipo: SECTION,
-				sectionId: 5,
-				lang: null,
-			};
+			const identity = await scratchRecord();
 			await writeVideo(stagedPath('parked.mp4', ROOT));
 			const result = await processUploadedFile({
 				spec: av,
@@ -556,14 +549,7 @@ describe('A1-01 review MED-2: one build per COMPONENT (v6 build lock parity)', (
 	test('a busy component is answered FIRST: build_running before the source is even looked for', async () => {
 		// A record with NO original: a pre-flight that asked about the source
 		// before the component would answer media.av_build_refused ("no original").
-		const sectionId = await createSectionRecord(SECTION, -1);
-		scratchIds.push(sectionId);
-		const identity: MediaIdentity = {
-			componentTipo: AV_COMPONENT,
-			sectionTipo: SECTION,
-			sectionId,
-			lang: null,
-		};
+		const identity = await scratchRecord();
 		const claim = mustGet(mediaJobs.claimTarget(avIngestTarget(av, identity)), 'upload claim');
 		try {
 			const refused = await refusalOf(submitAvVersionBuild(av, identity, pathOpts, '1080'));
