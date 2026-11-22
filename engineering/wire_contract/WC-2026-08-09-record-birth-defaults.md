@@ -287,7 +287,17 @@ divergence from PHP.
   a child with no is_descriptor value is listed under its parent (the children list reads
   every child) but counts as neither descriptor nor non-descriptor
   (`relations/children.ts getChildrenOfType`), so it does not light `has_descriptor_children`
-  until a curator sets the flag.
+  until a curator sets the flag. Stated in full (B6 review M1, 2026-11-22): the unflagged
+  node renders ITSELF as a descriptor (`is_descriptor` starts true; only an ND `/2` flips it),
+  but a parent whose children are ALL unflagged draws no expand arrow and no ND button on a
+  fresh read (`render_ts_line.js` link_children) — the client forces the arrow on only in the
+  session that added the child. After a reload such a term is not reachable by expanding its
+  parent in the tree; it is reached from its section's list until a curator sets the flag. On
+  the shipped ontology this holds where the flag component declares no default (measured on a
+  suite DB: rsc3→rsc678, rsc75→rsc1027, rsc295→rsc1032, hierarchy1→hierarchy4; the standard
+  thesauri hierarchy23/24 and ontology4 declare one). Whether a null flag should count as a
+  descriptor for the arrow (the node's own rendering) is an OPEN owner question; current
+  behaviour kept and pinned.
 - **THES-05:** the string id disappeared with the hardcode. Its sibling at
   `ontology_write.ts` (the registry row's project-filter locator, `section_id: '1'`) was
   verified canonical: it passes `relationLocator`, which stores `canonicalizeStoredSectionId`
@@ -296,5 +306,8 @@ divergence from PHP.
   ontology declares* on the `zztad` situation: declared `/2` → `/2`; undeclared → no key;
   declared `/1` → one item, int id, zero Time Machine rows for the flag key (the parent link,
   add_child's own write, keeps its one). Red before on every leg; mutations (hardcode on the
-  undeclared flag only; on the declared flag only, int id) red.
+  undeclared flag only; on the declared flag only, int id) red. The stated consequence is
+  pinned on a third section (`FLAGS_C`, no declared default, a tree row map with an ND icon and
+  link_children): child `is_descriptor` true, parent `has_descriptor_children` false, no
+  `link_children_nd`; mutation (a null flag counted as a descriptor) red.
 - **Gate reconciliation:** TS-native only; no fixture, no re-harvest.

@@ -53,6 +53,7 @@ import {
 	situation,
 } from '../../src/core/test_data/situations/situation.ts';
 import { addChild, saveOrder, updateParentData } from '../../src/core/ts_object/ts_api.ts';
+import { buildNodeData } from '../../src/core/ts_object/ts_object.ts';
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 
 const SECTION = 'test3';
@@ -536,6 +537,13 @@ describe('saveOrder', () => {
  *            birth state is not a change: no Time Machine row for the key (the
  *            hardcode re-wrote the seeded value and logged it as a save)
  *            section_map names no is_indexable → the warning, verbatim
+ *   FLAGS_C  is_descriptor declares NOTHING (the shipped master-ontology case) +
+ *            a tree row map with an ND icon and link_children: the STATED
+ *            consequence (WC-2026-08-09 addendum 2026-11-22, owner question
+ *            open — B6 review M1) — the unflagged child renders as a
+ *            descriptor itself, but its parent counts it as neither, so a
+ *            parent whose children are all unflagged draws no expand arrow
+ *            and no ND button on a fresh read
  */
 const FLAG_TLD = 'zztad';
 const FLAGS_A = {
@@ -559,6 +567,33 @@ const FLAGS_B = {
 	button: 'zztad29',
 	descriptor: 'zztad27',
 	indexable: null,
+};
+const FLAGS_C = {
+	section: 'zztad40',
+	term: 'zztad41',
+	parent: 'zztad42',
+	children: 'zztad43',
+	order: 'zztad44',
+	map: 'zztad45',
+	button: 'zztad49',
+	descriptor: 'zztad47',
+	indexable: null,
+};
+/** FLAGS_C's tree row map: term, the ND icon on the flag, the children arrow. */
+const FLAGS_C_ROW_MAP = {
+	tipo: 'zztad46',
+	parent: FLAGS_C.section,
+	model: 'section_list_thesaurus',
+	order_number: 9,
+	properties: {
+		show: {
+			ddo_map: [
+				{ tipo: FLAGS_C.term, type: 'term' },
+				{ tipo: FLAGS_C.descriptor, type: 'icon', icon: 'ND' },
+				{ tipo: FLAGS_C.children, type: 'link_children' },
+			],
+		},
+	},
 };
 
 function selfRequestConfig(termTipo: string): Record<string, unknown> {
@@ -589,8 +624,8 @@ function siNoRequestConfig(): Record<string, unknown> {
 }
 
 function flagSectionNodes(
-	s: typeof FLAGS_A | typeof FLAGS_B,
-	descriptorDefault: number,
+	s: typeof FLAGS_A | typeof FLAGS_B | typeof FLAGS_C,
+	descriptorDefault: number | null,
 	indexable: boolean,
 ): (Record<string, unknown> & { tipo: string; model: string })[] {
 	const siNo = (tipo: string, order: number, defaultId: number | null) => ({
@@ -661,12 +696,17 @@ function flagSectionNodes(
 const FLAG_SITUATION = situation({
 	tld: FLAG_TLD,
 	name: 'add_child flags (THES-04)',
-	nodes: [...flagSectionNodes(FLAGS_A, 2, true), ...flagSectionNodes(FLAGS_B, 1, false)] as never,
+	nodes: [
+		...flagSectionNodes(FLAGS_A, 2, true),
+		...flagSectionNodes(FLAGS_B, 1, false),
+		...flagSectionNodes(FLAGS_C, null, false),
+		FLAGS_C_ROW_MAP,
+	] as never,
 });
 
 async function dropFlagSituation(): Promise<number> {
 	let activity = 0;
-	for (const s of [FLAGS_A, FLAGS_B]) {
+	for (const s of [FLAGS_A, FLAGS_B, FLAGS_C]) {
 		await sql.unsafe('DELETE FROM dedalo_ts_record_generation WHERE section_tipo = $1', [
 			s.section,
 		]);
@@ -753,6 +793,30 @@ describe('addChild — the flags are what the ontology declares (THES-04/05)', (
 		expect(await flagHistoryOf(FLAGS_B.section, newId, FLAGS_B.descriptor, since)).toBe(0);
 		// the parent link IS a write of add_child's own, and is historied
 		expect(await flagHistoryOf(FLAGS_B.section, newId, FLAGS_B.parent, since)).toBe(1);
+	});
+
+	test('undeclared is_descriptor: the child renders as a descriptor, its parent counts it as neither (stated consequence, owner question open)', async () => {
+		const parentId = await createSectionRecord(FLAGS_C.section, SUPERUSER.userId);
+		const response = await addChild(
+			{ source: { section_tipo: FLAGS_C.section, section_id: parentId } } as never,
+			SUPERUSER,
+		);
+		const newId = Number(response.data);
+		expect(Number.isInteger(newId) && newId > parentId).toBe(true);
+		expect(await flagKeyOf(FLAGS_C.section, newId, FLAGS_C.descriptor)).toBeNull();
+		// the child itself: a descriptor (is_descriptor starts true; only an ND /2 flips it)
+		const child = await buildNodeData(FLAGS_C.section, newId, {}, null, SUPERUSER);
+		expect(child.is_descriptor).toBe(true);
+		// its parent, read fresh (the children read finds the child: a null flag
+		// read as a descriptor turns this leg red — mutation-checked) …
+		const parent = await buildNodeData(FLAGS_C.section, parentId, {}, null, SUPERUSER);
+		expect(parent.children_tipo).toBe(FLAGS_C.children);
+		// … but counted as neither: no arrow, no ND button
+		expect(parent.has_descriptor_children).toBe(false);
+		expect(parent.ar_elements.some((element) => element.type === 'link_children_nd')).toBe(false);
+		expect(parent.ar_elements.find((element) => element.type === 'link_children')?.value).toBe(
+			'button show children unactive',
+		);
 	});
 });
 

@@ -160,7 +160,11 @@ The unit `ts_object.ts` produces is a flat `TsNodeData` object:
   `resolveElementValue()` when a node has ND children).
 - **`is_descriptor`** starts `true` and is flipped to `false` inline (inside
   `resolveElementValue()`'s `icon`/`ND` branch) when the ND icon's component
-  resolves to "no" (`section_id === 2`).
+  resolves to "no" (`section_id === 2`). A node with NO is_descriptor value
+  (a tree-created term whose flag component declares no default) therefore
+  renders as a descriptor itself, while its parent's `has_descriptor_children`
+  counts only children whose flag is `1` (and the ND button only `2`): a parent
+  whose children are all unflagged draws no expand arrow on a fresh read.
 - **`children_tipo`** is the `component_relation_children` tipo, captured from
   the `link_children` element — set to `null` for non-descriptors (ND terms
   carry no children config).

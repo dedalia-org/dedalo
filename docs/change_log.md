@@ -229,8 +229,9 @@ Merged since the last release; these ship with the next one.
     non-descriptor was created as a descriptor). A new term now starts with exactly the
     defaults its thesaurus defines. Where the thesaurus defines none — the case for the
     standard thesauri — both fields start empty: set them on the new term yourself. Until
-    *descriptor* is set, the term is listed under its parent but is not counted as a descriptor
-    or a non-descriptor.
+    *descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
+    a term's children has it set, the term shows no arrow to open its children after the page is
+    reloaded, and the new term is reached from its section's list until you set it.
 
     Wire contract: `WC-2026-08-09-record-birth-defaults`.
 
@@ -559,7 +560,7 @@ Merged since the last release; these ship with the next one.
 
 - **A thesaurus term missing in your language now shows in another of your project languages, marked as untranslated, and shows every value it holds.**
 
-    When a term has no value in the language you work in, Dédalo looks for it in the thesaurus's own language, then in the language-neutral value, then in each of your project languages in order, and shows the first one it finds. Before, the tree, portals and exports each followed a different rule: a term could show empty in one place and in another language elsewhere. In the tree, a term shown from another language is highlighted as untranslated; exports and publications receive the plain text, never the highlight. A value held only in a language that none of your projects uses is no longer shown.
+    When a term has no value in the language you work in, Dédalo looks for it in the thesaurus's own language, then in the language-neutral value, then in each of your project languages in order, and shows the first one it finds. Before, the tree, portals and exports each followed a different rule: a term could show empty in one place and in another language elsewhere. In the tree, a term shown from another language is highlighted as untranslated; exports and publications follow the same order and receive the plain text, never the highlight — so a published or exported term missing in the chosen language now carries its text from one of your other project languages instead of staying empty. A value held only in a language that none of your projects uses is no longer shown.
 
     A term that holds two values in the same language now shows both, separated by ` | `, instead of only the first one. The labels of the indexation groups in the tree now follow your interface language.
 

@@ -10,5 +10,6 @@ term, even where the thesaurus defines another default (a term defined to start 
 non-descriptor was created as a descriptor). A new term now starts with exactly the
 defaults its thesaurus defines. Where the thesaurus defines none — the case for the
 standard thesauri — both fields start empty: set them on the new term yourself. Until
-*descriptor* is set, the term is listed under its parent but is not counted as a descriptor
-or a non-descriptor.
+*descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
+a term's children has it set, the term shows no arrow to open its children after the page is
+reloaded, and the new term is reached from its section's list until you set it.
