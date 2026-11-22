@@ -903,6 +903,18 @@ async function compileSectionPlan(
 		return null;
 	}
 
+	// TABLE-level is_publishable (T2-DIF-1): a plan fact, never a run-time tree
+	// read — the run builds no tree unless a rewriter needs recovering, so a
+	// tree read silently dropped the flag. Boolean or a loud refusal.
+	const tablePublishable = tableNode.properties?.is_publishable;
+	if (tablePublishable !== undefined && typeof tablePublishable !== 'boolean') {
+		diagnostics.errors.push(
+			`section '${sectionTipo}' (table node '${tableNode.tipo}'): properties.is_publishable ` +
+				`must be a boolean, got ${JSON.stringify(tablePublishable)}`,
+		);
+		return null;
+	}
+
 	// Columns come from the table node's DIRECT children (oracle
 	// dd_diffusion_api::process_datum :996 — get_ar_children is first-level
 	// only). childrenTipos is the RECURSIVE UI list: using it makes a nested
@@ -926,6 +938,7 @@ async function compileSectionPlan(
 		sectionTipo,
 		tableName,
 		tableTipo: tableNode.tipo,
+		...(tablePublishable === undefined ? {} : { publishable: tablePublishable }),
 		fields,
 	};
 	// v6 global_table_maps: the section's rows ALSO land in aggregate tables

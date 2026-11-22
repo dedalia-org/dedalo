@@ -299,7 +299,7 @@ export interface RunContext {
 	sectionPlans: Map<string, SectionPlan>;
 	/** section_tipo → published table name (map_section_tipo_to_name lookup). */
 	planTables: Map<string, string>;
-	/** section_tipo → ontology is_publishable override (table-node property). */
+	/** section_tipo → table-node is_publishable override (SectionPlan.publishable). */
 	sectionPublishableOverride: Map<string, boolean | null>;
 	preparedFields: Map<string, PreparedField>;
 	/** section_tipo → matrix table name. */
@@ -2898,8 +2898,8 @@ export async function* resolvePublication(
 		throw new Error('diffusion resolver: options.runStartedAt (epoch seconds) is required');
 	}
 
-	// Rewriter recovery + section publishable overrides need the ontology tree
-	// (transitional — see module doc). Reuse the caller's when provided.
+	// Rewriter recovery needs the ontology tree (transitional — see module
+	// doc); the section publishable override does NOT (it is a plan fact). Reuse the caller's when provided.
 	// get_diffusion_iconography fields also read the tree: the compiler keeps
 	// hop fns as warnings, so the fn ddo's OPTIONS live only in the ontology.
 	const needsRecovery = plan.warnings.some(
@@ -2913,15 +2913,11 @@ export async function* resolvePublication(
 	const planTables = new Map(
 		plan.sections.map((section) => [section.sectionTipo, section.tableName]),
 	);
-	const sectionPublishableOverride = new Map<string, boolean | null>();
-	for (const section of plan.sections) {
-		const tableNode = tree?.nodes.find((node) => node.tipo === section.tableTipo);
-		const override = tableNode?.properties?.is_publishable;
-		sectionPublishableOverride.set(
-			section.sectionTipo,
-			typeof override === 'boolean' ? override : null,
-		);
-	}
+	// Table-level is_publishable is COMPILED into the SectionPlan (T2-DIF-1):
+	// read from the plan, never from the (often absent) tree.
+	const sectionPublishableOverride = new Map<string, boolean | null>(
+		plan.sections.map((section) => [section.sectionTipo, section.publishable ?? null]),
+	);
 
 	const rewriterEnv: RewriterEnv = { planTables, runStartedAt: options.runStartedAt };
 	const ctx: RunContext = {

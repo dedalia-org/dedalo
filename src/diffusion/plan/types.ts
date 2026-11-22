@@ -227,6 +227,14 @@ export interface SectionPlan {
 	tableName: string;
 	/** The table/diffusion-section node tipo this plan came from. */
 	tableTipo: string;
+	/**
+	 * The table node's `is_publishable` (v6: always honoured), compiled here so
+	 * the run never needs the ontology tree to honour it (T2-DIF-1). `false`
+	 * unpublishes every record of the section, `true` publishes every one
+	 * whatever its component_publication says; ABSENT = no override, the
+	 * per-record gate decides. Any non-boolean value refuses the compile.
+	 */
+	publishable?: boolean;
 	fields: FieldPlan[];
 	/**
 	 * Secondary aggregate tables this section's rows ALSO land in — the v6
