@@ -21,7 +21,11 @@
  *    an await);
  *  - THE WIRE: tool_upload's handler throws the code; a persist that throws
  *    gives the claim back (IngestResult.releaseBuildClaim), or the component
- *    would refuse every upload until a restart.
+ *    would refuse every upload until a restart;
+ *  - ONE BUILD PER COMPONENT (review MED-2): any tier's build and an upload
+ *    exclude each other; a build gives the component back on done, error and
+ *    stop. Every "freed" probe is componentFree — the engine's SCOPED target —
+ *    so a holder left on the component key cannot pass unseen.
  *
  * Situation: the generic `test` TLD (test3 playground, test94 = component_av),
  * scratch records created here and deleted after; media in a scratch root (the
@@ -89,9 +93,11 @@ const deletedIds: number[] = [];
 const releases: (() => void)[] = [];
 
 /**
- * The ingest transcode's target, stated HERE rather than imported: the gate
+ * The ingest transcode's TIERS, stated HERE rather than imported: the gate
  * pins which tiers the upload must treat as busy (the default + the audio
  * tier the same job writes), independent of the engine's own derivation.
+ * UNSCOPED on purpose — a tier-only holder (blockers, the pure arbiter cases).
+ * Never a "freed" probe: those use componentFree (the scoped engine target).
  */
 function ingestTarget(identity: MediaIdentity, quality: string = av.defaultQuality): JobTarget {
 	return {
@@ -101,6 +107,20 @@ function ingestTarget(identity: MediaIdentity, quality: string = av.defaultQuali
 		lang: identity.lang ?? null,
 		quality,
 	};
+}
+
+/**
+ * Is the component free for a NEW upload? Probes with the ENGINE's own scoped
+ * ingest target (avIngestTarget: the tiers AND the component key), then gives
+ * the probe back. Every "the claim was freed" assertion goes through here: an
+ * unscoped probe (ingestTarget) never looks at the component key, so a holder
+ * left behind on it — the leak that refuses every later upload and build of
+ * the component — would pass unseen.
+ */
+function componentFree(identity: MediaIdentity): boolean {
+	const probe = mediaJobs.claimTarget(avIngestTarget(av, identity));
+	probe?.release();
+	return probe !== null;
 }
 
 /** A live build on `target` that runs until released (maintenance lane: never holds the media slot). */
@@ -359,7 +379,7 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 			expect(liveJobsOf(identity)).toBe(1);
 			await awaitJob(jobId);
 			expect(mediaJobs.status(jobId)?.status).toBe('done');
-			expect(mediaJobs.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+			expect(componentFree(identity)).toBe(true);
 		},
 		120_000,
 	);
@@ -369,9 +389,7 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 		// No staged file: the move (after the claim) throws media.file_not_found.
 		const refused = await refusalOf(ingest(identity, 'never_staged.mp4'));
 		expect(refused.code).toBe('media.file_not_found');
-		const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
-		expect(claim).not.toBeNull();
-		claim?.release();
+		expect(componentFree(identity)).toBe(true);
 	});
 
 	test.if(HAVE_FFMPEG)(
@@ -392,9 +410,7 @@ describe('A1-01 the av upload door (processUploadedFile)', () => {
 				quality: 'audio',
 			});
 			expect(result.startTranscode).toBeNull();
-			const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
-			expect(claim).not.toBeNull();
-			claim?.release();
+			expect(componentFree(identity)).toBe(true);
 		},
 		60_000,
 	);
@@ -580,6 +596,43 @@ describe('A1-01 review MED-2: one build per COMPONENT (v6 build lock parity)', (
 	);
 
 	test.if(HAVE_FFMPEG)(
+		'a 1080 build gives the COMPONENT back in every terminal state: done, error, stop',
+		async () => {
+			// The component key is entered on submit and must leave on EVERY terminal
+			// path, or the component refuses every later upload until a restart.
+			const done = await recordWithOriginal();
+			const doneJob = await submitAvVersionBuild(av, done, pathOpts, '1080');
+			expect(componentFree(done)).toBe(false);
+			await awaitJob(doneJob);
+			expect(mediaJobs.status(doneJob)?.status).toBe('done');
+			expect(componentFree(done)).toBe(true);
+
+			const failed = await recordWithOriginal();
+			const stopped = await recordWithOriginal();
+			const freeLane = holdMediaLane();
+			const held: string[] = [];
+			try {
+				// error: the source vanishes while the build waits for its slot.
+				held.push(await queuedBuild(failed, '1080'));
+				rmSync(originalPath(failed));
+				// stop: the operator cancels it while queued.
+				held.push(await queuedBuild(stopped, '1080'));
+				expect(mediaJobs.stop(mustGet(held[1], 'stop job'))).toBe(true);
+				expect(componentFree(failed)).toBe(false);
+			} finally {
+				freeLane();
+				for (const jobId of held) await awaitJob(jobId);
+			}
+			const [errorJob, stopJob] = held;
+			expect(mediaJobs.status(mustGet(errorJob, 'error job'))?.status).toBe('error');
+			expect(componentFree(failed)).toBe(true);
+			expect(mediaJobs.status(mustGet(stopJob, 'stop job'))?.status).toBe('stopped');
+			expect(componentFree(stopped)).toBe(true);
+		},
+		180_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
 		'different components of one record: a build of one leaves the other free to upload and build',
 		async () => {
 			const identity = await recordWithOriginal();
@@ -616,14 +669,7 @@ describe('A1-01 the ingest door (ingest_and_persist.ts)', () => {
 		'deferred: the build claim is held until the caller settles it — release frees it, start adopts it',
 		async () => {
 			const identity = await recordWithOriginal();
-			const busy = (): boolean => {
-				const probe = mediaJobs.claimTarget({
-					...ingestTarget(identity),
-					also_qualities: ['audio'],
-				});
-				probe?.release();
-				return probe === null;
-			};
+			const busy = (): boolean => !componentFree(identity);
 			await writeVideo(stagedPath('deferred_a.mp4', ROOT));
 			const released = await ingestAndPersistDeferred({
 				spec: av,
@@ -721,12 +767,7 @@ describe('A1-01 the tool_upload wire', () => {
 			const refused = await refusalOf(callUpload(sectionId, tmpName));
 			expect(refused.code).toBe('resource.not_found');
 			// Held, this would refuse every later upload of the component.
-			const claim = mediaJobs.claimTarget({
-				...ingestTarget(identity),
-				also_qualities: ['audio'],
-			});
-			expect(claim).not.toBeNull();
-			claim?.release();
+			expect(componentFree(identity)).toBe(true);
 		},
 		60_000,
 	);
@@ -779,12 +820,7 @@ describe('A1-01 the MCP upload door', () => {
 					rmSync(join(userStaging, entry), { recursive: true, force: true });
 				}
 			}
-			const claim = mediaJobs.claimTarget({
-				...ingestTarget(identity),
-				also_qualities: ['audio'],
-			});
-			expect(claim).not.toBeNull();
-			claim?.release();
+			expect(componentFree(identity)).toBe(true);
 		},
 		60_000,
 	);
@@ -837,9 +873,7 @@ describe('A1-01 the tool_import_files door', () => {
 					extension: 'mp4',
 				}),
 			).rejects.toThrow('a101: injected persist failure');
-			const claim = mediaJobs.claimTarget({ ...ingestTarget(identity), also_qualities: ['audio'] });
-			expect(claim).not.toBeNull();
-			claim?.release();
+			expect(componentFree(identity)).toBe(true);
 		},
 		60_000,
 	);
@@ -878,7 +912,7 @@ describe('A1-01 the tool_import_files door', () => {
 			expect(passed.errors).toEqual([]);
 			expect(passed.imported).toBe(1);
 			for (const job of mediaJobs.jobsForRecord(SECTION, sectionId)) await awaitJob(job.id);
-			expect(mediaJobs.hasLiveJobForTarget(ingestTarget(identity))).toBe(false);
+			expect(componentFree(identity)).toBe(true);
 		},
 		120_000,
 	);
