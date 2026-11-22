@@ -26,6 +26,7 @@ import {
 	type ParserClassifier,
 	validateElementPlan,
 } from '../../src/diffusion/plan/compile.ts';
+import { compileRdfSection } from '../../src/diffusion/plan/rdf_compile.ts';
 import type { PublicationPlan } from '../../src/diffusion/plan/types.ts';
 import type {
 	OntologyIndex,
@@ -33,6 +34,7 @@ import type {
 	VirtualDiffusionTree,
 	VirtualTreeNode,
 } from '../../src/diffusion/plan/virtual_tree.ts';
+import { RdfNamespaceTable } from '../../src/diffusion/resolve/rdf_graph_ir.ts';
 import {
 	type ResolvedBatch,
 	type RunContext,
@@ -320,6 +322,79 @@ describe('table-level is_publishable is compiled into the SectionPlan', () => {
 			expect(report.result).toBeNull();
 			expect(report.errors.join('\n')).toContain("'tb1'");
 			expect(report.errors.join('\n')).toContain('is_publishable');
+		}
+	});
+});
+
+/**
+ * The same plan fact for an rdf owl:Class (the SectionPlan of a graph). Before
+ * T2-DIF-1 the run read `is_publishable` off whichever tree node was the
+ * section's tableTipo — the class node, for rdf — so the compile must carry it
+ * for classes too, by the same boolean-or-refuse rule. Red before: the class
+ * SectionPlan carried no `publishable`.
+ */
+describe('owl:Class is_publishable is compiled into the SectionPlan', () => {
+	const classNode = (isPublishable: unknown): VirtualTreeNode => ({
+		tipo: 'cl1',
+		model: 'owl:Class',
+		label: 'skos:Concept',
+		properties: {
+			process: {
+				type: 'entity_publication_uri',
+				base_uri_entity: { section_tipo: 'dd1010', component_tipo: 'dd1011', title: 'self' },
+			},
+			...(isPublishable === undefined ? {} : { is_publishable: isPublishable }),
+		},
+		realTipo: null,
+		isAlias: false,
+		parents: [],
+		childrenTipos: [],
+		directChildrenTipos: [],
+		relatedSections: ['test6813'],
+	});
+	const compileClass = async (isPublishable: unknown) => {
+		const errors: string[] = [];
+		const index: OntologyIndex = {
+			nodeOf: async () => null,
+			childTipos: async () => [],
+			relatedByModel: async () => [],
+			relationTipos: async () => [],
+			resolveAlias: async () => null,
+		};
+		const section = await compileRdfSection(
+			{
+				index,
+				namespaces: new RdfNamespaceTable(),
+				resolveModel: async () => null,
+				compileChain: async () => [],
+				errors,
+				warnings: [],
+			},
+			classNode(isPublishable),
+			'test6813',
+		);
+		return { section, errors };
+	};
+
+	test('a boolean class flag lands on the SectionPlan; absent stays absent', async () => {
+		for (const flag of [false, true]) {
+			const { section, errors } = await compileClass(flag);
+			expect(errors).toEqual([]);
+			expect(section?.rdfClass?.classTipo).toBe('cl1');
+			expect(section?.publishable).toBe(flag);
+		}
+		const none = await compileClass(undefined);
+		expect(none.errors).toEqual([]);
+		expect(none.section).not.toBeNull();
+		expect(none.section?.publishable).toBeUndefined();
+	});
+
+	test('a non-boolean class flag refuses the class, naming it', async () => {
+		for (const bad of ['false', 0, null, { value: false }]) {
+			const { section, errors } = await compileClass(bad);
+			expect(section).toBeNull();
+			expect(errors.join('\n')).toContain("'cl1'");
+			expect(errors.join('\n')).toContain('is_publishable');
 		}
 	});
 });
