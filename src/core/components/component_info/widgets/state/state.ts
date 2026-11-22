@@ -26,6 +26,7 @@ import { config } from '../../../../../config/config.ts';
 import { DedaloError } from '../../../../errors/dedalo_error.ts';
 import { getModelByTipo, getNode } from '../../../../ontology/resolver.ts';
 import type { WalkDdo } from '../../../../relations/component_data_walk.ts';
+import { currentDataLang } from '../../../../resolve/request_lang.ts';
 import {
 	type InfoWidgetDescriptor,
 	phpRound,
@@ -332,7 +333,10 @@ async function computeStateDataList(ipo: unknown[], context: WidgetContext): Pro
 				componentTipo,
 				node?.properties ?? null,
 				{ section_tipo: ownerSection, section_id: null },
-				'lg-nolan',
+				// The option labels (dd185/dd503 vocabularies are translatable) in the
+				// REQUEST data lang — PHP get_ar_list_of_values / get_list_of_values
+				// default DEDALO_DATA_LANG (A1-04, T2 B10 request-language law).
+				currentDataLang(),
 			);
 			for (const item of items) {
 				data.push({ ...item, widget: 'state', key });

@@ -1153,6 +1153,33 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 		expect(datalist).toEqual(adoptedGolden(golden.state_edit_datalist) as never);
 	}, 30000);
 
+	// A1-04 (T2 B10 request-language law): the vocabulary option labels follow
+	// the REQUEST data lang (PHP default DEDALO_DATA_LANG), never a fixed
+	// lg-nolan. The application lang is pinned to the OTHER lane so a default
+	// that read it reds too.
+	test('state EDIT datalist: option labels in the request DATA lang', async () => {
+		const { computeInfoDataList } = await import(
+			'../../src/core/components/component_info/widgets/registry.ts'
+		);
+		const { runWithRequestLangs } = await import('../../src/core/resolve/request_lang.ts');
+		const labelsIn = async (dataLang: string, applicationLang: string) =>
+			(
+				await runWithRequestLangs({ applicationLang, dataLang }, () =>
+					computeInfoDataList(STATE_INFO, {
+						sectionTipo: MEDIA_RESOURCE,
+						sectionId: IW.stateRecord,
+						mode: 'edit',
+						lang: 'lg-nolan',
+					}),
+				)
+			).map((item) => item.label);
+		const spanish = await labelsIn('lg-spa', 'lg-eng');
+		const english = await labelsIn('lg-eng', 'lg-spa');
+		expect(spanish).toContain('Pendiente');
+		expect(english.length).toBe(spanish.length);
+		expect(english).not.toContain('Pendiente');
+	}, 30000);
+
 	test('tc SLOW PATH: no stored duration and no file → NO tc value, and NEVER a write during the read', async () => {
 		const entries = (await tsEntries(
 			readRqo(INTERVIEW, IW.interviewSlow, MEDIA_ICONS, 'list'),

@@ -680,6 +680,13 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-state-of-component-msg-refused`.
 
+- **"The state widget's edit options now show in the data language you chose."**
+
+    In edit mode, the options of the state widget (for example "Pending", "To review",
+    "Validated") were looked up in no particular language, so they could appear in a
+    language other than the one selected in the menu. They now follow the current data
+    language, as in version 6.
+
 - **A thesaurus term missing in your language now shows in another of your project languages, marked as untranslated, and shows every value it holds.**
 
     When a term has no value in the language you work in, Dédalo looks for it in the thesaurus's own language, then in the language-neutral value, then in each of your project languages in order, and shows the first one it finds. Before, the tree, portals and exports each followed a different rule: a term could show empty in one place and in another language elsewhere. In the tree, a term shown from another language is highlighted as untranslated; exports and publications follow the same order and receive the plain text, never the highlight — so a published or exported term missing in the chosen language now carries its text from one of your other project languages instead of staying empty. A value held only in a language that none of your projects uses is no longer shown.
