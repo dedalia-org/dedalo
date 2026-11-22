@@ -40,9 +40,14 @@ Standing spec for the section family, companion to `engineering/REWRITE_SPEC.md`
 > `tipoInSectionContainment`. Consequence stated plainly: **`delete_data`
 > leaves the data of a component parked under a box** (v6 did the same); search
 > "any relation component", birth defaults, the observer host predicate, the
-> covered-slot restore, the media stem rules, the archive's ontology subtree
-> and the write door's fixed-slot main all ignore it. The structural walk
-> (`crossSections`: diffusion tree, ontology update) is law-free. The pair
+> covered-slot restore, the media stem rules and the write door's fixed-slot
+> main all ignore it. The structural walk (`crossSections`: diffusion tree,
+> ontology update) is law-free; so is the DEFINITIONS walk
+> (`getSectionDefinitionTipos`: law-free, nested sections not entered) — the
+> archive's `ontology.json` reads it (a box-parked value stays stored, so its
+> definition travels), and a `component_filter` / `component_publication` the
+> law hides is REFUSED (`ontology.invalid_node`), never answered null (null
+> would open the records). The pair
 > honesty check `tipoBelongsToSection` is deliberately NOT the law (a root
 > reads and writes a box-parked component, as in v6). Law:
 > `engineering/wire_contract/WC-2026-11-22-section-containment-law.md`; gate:

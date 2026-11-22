@@ -1,5 +1,5 @@
 ---
-title: "A field placed inside a `box elements` container of the ontology is no longer treated as a field of its section — deleting a record's data leaves it, and searches, lookups and archives ignore it, as in v6."
+title: "A field placed inside a `box elements` container of the ontology is no longer treated as a field of its section — deleting a record's data leaves it, and searches and lookups ignore it, as in v6."
 type: changed
 audience: user
 date: 2026-11-22
@@ -15,8 +15,12 @@ it as a field of the section; they no longer do, which is how v6 worked:
   are not removed.
 - A search for "any related record" of the section no longer looks into such a field.
 - A new record gets no default value for such a field.
-- An archive of the section no longer includes the definition of such a field (the record values
-  are archived as they are stored).
+- An archive of the section still includes the definition of such a field, because its values
+  stay in the record and are archived as they are stored.
+- A projects filter (`component_filter`) or a publication field (`component_publication`) placed
+  inside such a container is not ignored silently: the section refuses to load with an error
+  naming the node, because ignoring it would show every record to every user, or publish every
+  record. Move the node out of the container.
 
 Nothing stored is changed or removed by the update. A field that should belong to the section
 must sit directly under the section or under one of its groups (section group, tab), not inside a

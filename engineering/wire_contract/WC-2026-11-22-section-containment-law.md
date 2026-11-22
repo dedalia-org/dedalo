@@ -14,7 +14,8 @@
   it), a `component_semantic_node`, an area (`area*`). A nested section is returned but not
   entered (the declared-components census crosses it, the law still applies on the far side).
   The structural walk (`crossSections`: the diffusion tree, the ontology update) is not a section
-  walk and applies neither rule.
+  walk and applies neither rule. Nor is the DEFINITIONS walk (`getSectionDefinitionTipos`: law-free,
+  a nested section returned but not entered — every key a record of the section may store).
 - **Shape before (PHP v6):** `section::get_ar_recursive_children` excluded `box elements`, `area`
   and `component_semantic_node` with their subtrees by default, so every section lookup built on
   it (children by model, search fields, `delete_data`'s component list, permissions) never saw a
@@ -34,8 +35,19 @@
     key stays, and is reachable as before through the pair check below.
   - a search over "any relation component" of the section no longer matches a locator held only
     by a box-parked component;
-  - the archive's `ontology.json` `subtree` no longer carries the box-parked rows (their stored
-    values still ride along in the raw record columns);
+  - the archive's `ontology.json` `subtree` is NOT a section walk: it reads the definitions walk,
+    so it still carries the box-parked rows — their values stay stored (and archived raw), and an
+    artifact must define every key it stores (`engineering/ARCHIVE_FORMAT.md` self-description;
+    fixer 2026-11-22, review MEDIUM 2);
+  - a SECURITY singleton the law hides is refused, never answered null: when the section walk
+    finds no `component_filter` (null = no projects ACL) or `component_publication` (null = every
+    record publishable) but the definitions walk finds one under an outside node,
+    `findFirstDescendantTipoByModel` / `getComponentFilterTipo` throw `ontology.invalid_node`
+    naming it (fail closed; v6 answered null — honouring the parked node instead is an open owner
+    choice). No installation measured has that shape (app DB, suite DB: 0);
+  - a fixed-dataframe-slot frame naming a box-parked main is refused (`request.invalid_source`)
+    while the main itself stays readable/writable by the pair check below — the frame door follows
+    the every-main walk, the main's door the pair;
   - a record birth seeds no default for a box-parked component.
 - **NOT the law — the pair honesty check.** `tipoBelongsToSection` / `getAncestorSectionTipo`
   (read floor, area caller declaration, writer chain, host component read, TM subject, observer
@@ -45,8 +57,8 @@
 - **Fixture interaction:** none — no frozen fixture records a box-parked component's walk; no
   re-harvest. TS-native gates only.
 - **Gate reconciliation:** `section_containment_native` (new; every walker on the scratch TLD
-  `zzsctn`, the upward form, the archive extraction, the write door, and the pair check pinned as
-  NOT the law). Re-homed in the same change: `relation_search_coherence_native` (its holder was
+  `zzsctn`, the upward form, the write door, and the pair check pinned as NOT the law; the
+  archive extraction pinned to the definitions walk, the security-singleton refusal). Re-homed in the same change: `relation_search_coherence_native` (its holder was
   test3/`test205`, parked under the box `test115` — the wipe no longer empties it; now its own
   scratch section `zzrscoh1` with an autocomplete_hi carrying test205's definition) and
   `test3_canonical_fixture` (test3's components under `test115` leave the coverage census; they
