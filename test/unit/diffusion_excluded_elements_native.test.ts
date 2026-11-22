@@ -336,7 +336,7 @@ function panelNode(
 		parents: [
 			{ tipo: element.tipo, model: element.model, label: null, realTipo: element.realTipo },
 		],
-		relatedSections: ['zzsec1'],
+		relatedSections: ['zzxel1'],
 		childrenTipos: [],
 	} as unknown as VirtualTreeNode;
 }
@@ -417,7 +417,7 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 	test('C. alias: an alias whose REAL element is listed is excluded (panel + door resolution)', () => {
 		const excluded = new Set(['zzreal1']);
 		const aliasPanel = panelNode('zztable1', {
-			tipo: 'zzalias1',
+			tipo: 'zzxel2',
 			model: 'diffusion_element_alias',
 			realTipo: 'zzreal1',
 		});
@@ -426,18 +426,18 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 			model: 'diffusion_element',
 			realTipo: null,
 		});
-		const kept = selectPublishablePanelNodes([aliasPanel, otherPanel], 'zzsec1', excluded);
+		const kept = selectPublishablePanelNodes([aliasPanel, otherPanel], 'zzxel1', excluded);
 		expect(kept.map((node) => node.tipo)).toEqual(['zztable2']);
 
 		const tree = {
 			nodes: [
-				{ ...aliasPanel, tipo: 'zzalias1', model: 'diffusion_element_alias', realTipo: 'zzreal1' },
+				{ ...aliasPanel, tipo: 'zzxel2', model: 'diffusion_element_alias', realTipo: 'zzreal1' },
 				{ ...otherPanel, tipo: 'zzreal2', model: 'diffusion_element', realTipo: null },
 			],
 		};
-		const realTipo = elementRealTipo(tree, 'zzalias1');
+		const realTipo = elementRealTipo(tree, 'zzxel2');
 		expect(realTipo).toBe('zzreal1');
-		expect(() => assertElementNotExcluded({ tipo: 'zzalias1', realTipo }, excluded)).toThrow(
+		expect(() => assertElementNotExcluded({ tipo: 'zzxel2', realTipo }, excluded)).toThrow(
 			DedaloError,
 		);
 		expect(() =>
@@ -726,7 +726,7 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 				expect(await panelElements()).not.toContain(EXCLUDED);
 				// The tool config already holds a non-empty list: v6 read it first.
-				expect((await apply(move, ['zzdif999'])).outcome).toBe('kept');
+				expect((await apply(move, ['zzxel999'])).outcome).toBe('kept');
 				expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 			} finally {
 				await sweepTrackedConfigRecords();
@@ -753,7 +753,7 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 			const move = plannedMove(`['${EXCLUDED}']`);
 			await withScratchToolConfig(
 				EXCLUSION_TOOL,
-				{ other_option: 'kept', [EXCLUSION_KEY]: { type: 'array', value: 'zzdif80' } },
+				{ other_option: 'kept', [EXCLUSION_KEY]: { type: 'array', value: EXCLUDED } },
 				async () => {
 					// FLOOR: the reader refuses what is stored now.
 					expect(await excludedDiffusionElements().catch((error: unknown) => error)).toBeInstanceOf(
@@ -762,7 +762,7 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 					const replaced = await apply(move);
 					track([replaced.sectionId as number]);
 					expect(replaced.outcome).toBe('replaced');
-					expect(replaced.replaced).toBe('zzdif80');
+					expect(replaced.replaced).toBe(EXCLUDED);
 					expect([...(await excludedDiffusionElements())]).toEqual([EXCLUDED]);
 				},
 			);
