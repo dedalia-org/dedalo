@@ -634,12 +634,17 @@ export function breakdownUsesOwnerCarrier(
 /**
  * PostgreSQL array literals for the owner carrier.
  *
- * Bun.sql does NOT serialize a JS array into a PG array — `sql.unsafe('… =
- * ANY($1::text[])', [['a','b']])` dies with `malformed array literal: "a,b"`
- * (reproduced 2026-08-07). So the carrier is assembled as a literal STRING and
- * bound through `push()` like any other value; it is a BOUND PARAMETER, never
- * interpolated SQL text. A malformed element can therefore only ever raise a
- * bind-time array-literal error — it can never reach the parser.
+ * HISTORY, NOT A CURRENT LIMIT: when this was written (2026-08-07, an older
+ * Bun) `sql.unsafe('… = ANY($1::text[])', [['a','b']])` died with `malformed
+ * array literal: "a,b"`. On Bun 1.4.4 (the `.bun-version` pin) a JS array DOES
+ * bind as `$n::text[]` — measured 2026-11-22 with elements carrying `"` and
+ * `,`, and the diffusion stale-job sweeper relies on it
+ * (`src/diffusion/jobs/queue.ts`, `ANY($4::text[])`). The literal form below
+ * is kept because it is correct and gated, not because a real array would
+ * fail; it is assembled as a STRING and bound through `push()` like any other
+ * value — a BOUND PARAMETER, never interpolated SQL text, so a malformed
+ * element can only raise a bind-time array-literal error, never reach the
+ * parser.
  */
 function pgTextArrayLiteral(values: string[]): string {
 	return `{${values.map((value) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join(',')}}`;
