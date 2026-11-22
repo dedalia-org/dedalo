@@ -61,7 +61,9 @@ function stripComments(source: string): string {
 /** The defining module as a specifier: any path ending in process_uploaded_file(.ts). */
 const MODULE_SPECIFIER = String.raw`['"\`][^'"\`]*\bprocess_uploaded_file(?:\.ts)?['"\`]`;
 /** `export * from '…'` / `export * as x from '…'` of the defining module. */
-const EXPORT_STAR = new RegExp(String.raw`\bexport\s*\*\s*(?:as\s+[\w$]+\s+)?from\s*` + MODULE_SPECIFIER);
+const EXPORT_STAR = new RegExp(
+	String.raw`\bexport\s*\*\s*(?:as\s+[\w$]+\s+)?from\s*` + MODULE_SPECIFIER,
+);
 
 /**
  * Does this source take `processUploadedFile` from the defining module? Either
