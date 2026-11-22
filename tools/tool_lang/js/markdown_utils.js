@@ -12,10 +12,10 @@
  *
  *   HTML → html_to_markdown → [LLM translates] → markdown_to_html → HTML
  *
- * Dédalo inline tags (indexIn, tc, svg, geo, …) are replaced with [[n]] number placeholders
- * BEFORE calling html_to_markdown, so the LLM never sees or corrupts them. The caller
- * (browser_translation.js) is responsible for that substitution and for restoring the
- * originals after markdown_to_html.
+ * Dédalo inline tags (indexIn, tc, svg, geo, …) are replaced with [[[n]]] triple-bracket
+ * placeholders (placeholders.js) BEFORE calling html_to_markdown, so the LLM never sees or
+ * corrupts them. The caller (browser_translation.js) is responsible for that substitution
+ * and for restoring the originals after markdown_to_html.
  *
  * Exports:
  *   html_to_markdown            — DOM-parser walk: HTML string → Markdown string
@@ -47,7 +47,7 @@
  *
  * Text-node escaping: markdown metacharacters (*, _, [, ], `, \) are
  * backslash-escaped so literal text characters survive the HTML→MD→HTML round-trip.
- * [[n]] placeholder tokens are intentionally NOT escaped — they must pass through
+ * [[[n]]] placeholder tokens are intentionally NOT escaped — they must pass through
  * the LLM unchanged and be detected by restore_placeholders after conversion back.
  *
  * Empty paragraph special case: whitespace-only <p> emits &nbsp; so that the
@@ -58,7 +58,7 @@
  * Table with colspan/rowspan: falls back to raw outerHTML — Markdown pipe tables
  * cannot represent merged cells without losing structure.
  *
- * @param {string} html - HTML string with Dédalo tags already replaced by [[n]] placeholders.
+ * @param {string} html - HTML string with Dédalo tags already replaced by [[[n]]] placeholders.
  * @returns {string} Markdown string with trailing whitespace trimmed and runs of 3+ newlines
  *   collapsed to 2 (a single paragraph boundary).
  */
@@ -68,25 +68,25 @@ export function html_to_markdown(html) {
 	const doc		= parser.parseFromString(html, 'text/html');
 	const result	= [];
 
-	// Regex to detect [[n]] placeholder strings — do NOT escape these
-	const placeholder_re = /^\[\[\d+\]\]$/;
+	// Regex to detect [[[n]]] placeholder strings — do NOT escape these
+	const placeholder_re = /^\[\[\[\d+\]\]\]$/;
 
 	/**
 	 * ESCAPE_MD (inner)
 	 * Backslash-escape Markdown metacharacters in a plain text string so they
 	 * are treated as literal characters by markdown_to_html.
 	 *
-	 * The text is first split on [[n]] placeholder tokens; the placeholders pass
+	 * The text is first split on [[[n]]] placeholder tokens; the placeholders pass
 	 * through unmodified (they must survive to restore_placeholders); only the
 	 * non-placeholder segments are escaped. Escaped chars: \ * _ [ ] `
 	 *
 	 * @param {string} text - Raw text-node content.
-	 * @returns {string} Escaped text with [[n]] tokens preserved verbatim.
+	 * @returns {string} Escaped text with [[[n]]] tokens preserved verbatim.
 	 */
 	function escape_md(text) {
 		if (!text) return '';
-		// Split around [[n]] placeholders, escape non-placeholder parts
-		const parts = text.split(/(\[\[\d+\]\])/);
+		// Split around [[[n]]] placeholders, escape non-placeholder parts
+		const parts = text.split(/(\[\[\[\d+\]\]\])/);
 		return parts.map(part => {
 			if (placeholder_re.test(part)) return part;
 			return part
@@ -355,7 +355,7 @@ export function html_to_markdown(html) {
  * Convert a Markdown string back to HTML after LLM translation.
  *
  * This is the inverse of html_to_markdown and is applied to the LLM's output
- * before restoring the [[n]] Dédalo-tag placeholders. It implements a subset of
+ * before restoring the [[[n]]] Dédalo-tag placeholders. It implements a subset of
  * CommonMark + GFM sufficient for CKEditor-compatible output.
  *
  * Algorithm (two-pass):
@@ -518,7 +518,10 @@ function process_inline(text) {
 	text = text.replace(/__([^_\n]+)__/g, '<u>$1</u>');
 
 	// 7. Links [text](url)
-	text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+	// The inner class excludes brackets so that a [[[n]]] placeholder followed by an
+	// opening parenthesis — '…[[[5]]] (see below)' — is not mistaken for link syntax
+	// and swallowed into an <a> (v6 d3991c3a66).
+	text = text.replace(/\[([^[\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
 	return text;
 }

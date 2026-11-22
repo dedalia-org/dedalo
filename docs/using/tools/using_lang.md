@@ -56,6 +56,9 @@ Which engines appear, and whether machine translation is available at all, depen
 !!! warning
     Running *Automatic translation* overwrites whatever is currently in the target field with the engine's result. If the target already holds a hand-written value you want to keep, copy it somewhere safe first. Machine translation of a long text can take a while; leave the window open until it finishes.
 
+!!! note "Marks with the Local AI translator"
+    Index marks, time codes and the other marks in a text are kept out of the model's reach and put back after the translation. If the model drops one, it is asked again; if it still does, the translator places the mark itself, as close as it can to where it stood in the source. When it does, or when it has to put an opening and closing mark back in order, the translation is saved with **Translation saved — check the marks** and a line saying what was moved: check those marks in the target pane. If a mark is still missing at the end, or the result holds a mark the source does not have, **nothing is saved**: the target keeps its previous text and the panel shows **Translation needs review before saving**. Try again, or use a server engine for that field.
+
 ## Related
 
 - **[Translate to many languages](using_lang_multi.md)** — fill every project language from one source in a single pass.

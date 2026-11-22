@@ -206,7 +206,7 @@
       {
         "id": 1,
         "lang": "lg-nolan",
-        "value": "2.5.0"
+        "value": "2.5.1"
       }
     ],
     "dd1328": [
@@ -1195,6 +1195,391 @@
             "lang": "lg-eus",
             "name": "all",
             "value": "Guztiak birsortu"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_review_needed",
+            "value": "Translation needs review before saving"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_review_needed",
+            "value": "La traducción necesita revisión antes de guardar"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_review_needed",
+            "value": "La traduction doit être vérifiée avant l’enregistrement"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_review_needed",
+            "value": "La traduzione richiede una revisione prima del salvataggio"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_review_needed",
+            "value": "A tradução precisa de revisão antes de guardar"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_review_needed",
+            "value": "La traducció necessita revisió abans de desar"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_review_needed",
+            "value": "Die Übersetzung muss vor dem Speichern geprüft werden"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_review_needed",
+            "value": "सुरक्षित गर्नु अघि अनुवाद समीक्षा गर्नुपर्छ"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "translation_review_needed",
+            "value": "تحتاج الترجمة إلى مراجعة قبل الحفظ"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_review_needed",
+            "value": "Η μετάφραση χρειάζεται έλεγχο πριν την αποθήκευση"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_review_needed",
+            "value": "Itzulpena berrikusi behar da gorde aurretik"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_saved_with_warnings",
+            "value": "Translation saved — check the marks"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_saved_with_warnings",
+            "value": "Traducción guardada — revise las marcas"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_saved_with_warnings",
+            "value": "Traduction enregistrée — vérifiez les marques"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_saved_with_warnings",
+            "value": "Traduzione salvata — controllare i marcatori"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_saved_with_warnings",
+            "value": "Tradução guardada — verifique as marcas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_saved_with_warnings",
+            "value": "Traducció desada — reviseu les marques"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_saved_with_warnings",
+            "value": "Übersetzung gespeichert — Markierungen prüfen"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_saved_with_warnings",
+            "value": "अनुवाद सुरक्षित गरियो — चिन्हहरू जाँच्नुहोस्"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "translation_saved_with_warnings",
+            "value": "تم حفظ الترجمة — تحقق من العلامات"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_saved_with_warnings",
+            "value": "Η μετάφραση αποθηκεύτηκε — ελέγξτε τις σημάνσεις"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_saved_with_warnings",
+            "value": "Itzulpena gorde da — egiaztatu markak"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_unplaced",
+            "value": "%s marks could not be placed"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_unplaced",
+            "value": "No se han podido colocar %s marcas"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_unplaced",
+            "value": "%s marques n’ont pas pu être placées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_unplaced",
+            "value": "Non è stato possibile collocare %s marcatori"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_unplaced",
+            "value": "Não foi possível colocar %s marcas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_unplaced",
+            "value": "No s’han pogut col·locar %s marques"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_unplaced",
+            "value": "%s Markierungen konnten nicht platziert werden"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_unplaced",
+            "value": "%s चिन्हहरू राख्न सकिएन"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "marks_unplaced",
+            "value": "تعذر وضع %s علامة"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_unplaced",
+            "value": "%s σημάνσεις δεν μπόρεσαν να τοποθετηθούν"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_unplaced",
+            "value": "%s marka ezin izan dira kokatu"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_invented",
+            "value": "%s marks that are not in the source text appeared in the translation"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_invented",
+            "value": "Han aparecido en la traducción %s marcas que no están en el texto original"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_invented",
+            "value": "%s marques absentes du texte source sont apparues dans la traduction"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_invented",
+            "value": "Nella traduzione sono comparsi %s marcatori assenti nel testo di origine"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_invented",
+            "value": "Apareceram na tradução %s marcas que não existem no texto de origem"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_invented",
+            "value": "Han aparegut a la traducció %s marques que no són al text original"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_invented",
+            "value": "In der Übersetzung sind %s Markierungen aufgetaucht, die im Ausgangstext nicht vorkommen"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_invented",
+            "value": "स्रोत पाठमा नभएका %s चिन्ह अनुवादमा देखा परे"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "marks_invented",
+            "value": "ظهرت في الترجمة %s علامة غير موجودة في النص المصدر"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_invented",
+            "value": "Εμφανίστηκαν στη μετάφραση %s σημάνσεις που δεν υπάρχουν στο αρχικό κείμενο"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_invented",
+            "value": "Jatorrizko testuan ez dauden %s marka agertu dira itzulpenean"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_repositioned",
+            "value": "%s of %s marks were repositioned automatically"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_repositioned",
+            "value": "%s de %s marcas se han reposicionado automáticamente"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_repositioned",
+            "value": "%s marques sur %s ont été repositionnées automatiquement"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_repositioned",
+            "value": "%s di %s marcatori sono stati riposizionati automaticamente"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_repositioned",
+            "value": "%s de %s marcas foram reposicionadas automaticamente"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_repositioned",
+            "value": "%s de %s marques s’han reposicionat automàticament"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_repositioned",
+            "value": "%s von %s Markierungen wurden automatisch neu positioniert"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_repositioned",
+            "value": "{1} मध्ये {0} चिन्ह स्वतः पुनःस्थापित गरिए"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "marks_repositioned",
+            "value": "تمت إعادة وضع %s من %s علامة تلقائيًا"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_repositioned",
+            "value": "%s από %s σημάνσεις επανατοποθετήθηκαν αυτόματα"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_repositioned",
+            "value": "%s/%s marka automatikoki birkokatu dira"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_reordered",
+            "value": "%s linked marks were reversed by the translation and reordered"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_reordered",
+            "value": "%s marcas enlazadas se invirtieron en la traducción y se reordenaron"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_reordered",
+            "value": "%s marques liées ont été inversées par la traduction et réordonnées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_reordered",
+            "value": "%s marcatori collegati sono stati invertiti dalla traduzione e riordinati"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_reordered",
+            "value": "%s marcas ligadas foram invertidas pela tradução e reordenadas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_reordered",
+            "value": "%s marques enllaçades s’han invertit en la traducció i s’han reordenat"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_reordered",
+            "value": "%s verknüpfte Markierungen wurden von der Übersetzung vertauscht und neu geordnet"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_reordered",
+            "value": "%s जोडिएका चिन्ह अनुवादले उल्टाएका थिए र पुनः क्रमबद्ध गरिए"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "marks_reordered",
+            "value": "تم عكس %s علامة مرتبطة أثناء الترجمة وأُعيد ترتيبها"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_reordered",
+            "value": "%s συνδεδεμένες σημάνσεις αντιστράφηκαν από τη μετάφραση και αναδιατάχθηκαν"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_reordered",
+            "value": "Lotutako %s marka itzulpenak alderantzikatu ditu eta berrantolatu dira"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_removed_invalid",
+            "value": "%s invalid markers were removed"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_removed_invalid",
+            "value": "Se han eliminado %s marcadores no válidos"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_removed_invalid",
+            "value": "%s marqueurs non valides ont été supprimés"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_removed_invalid",
+            "value": "Sono stati rimossi %s marcatori non validi"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_removed_invalid",
+            "value": "Foram removidos %s marcadores inválidos"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_removed_invalid",
+            "value": "S’han eliminat %s marcadors no vàlids"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_removed_invalid",
+            "value": "%s ungültige Markierungen wurden entfernt"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_removed_invalid",
+            "value": "%s अमान्य चिन्ह हटाइए"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "marks_removed_invalid",
+            "value": "تمت إزالة %s علامة غير صالحة"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_removed_invalid",
+            "value": "%s μη έγκυρες σημάνσεις αφαιρέθηκαν"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_removed_invalid",
+            "value": "%s marka baliogabe kendu dira"
           }
         ]
       }

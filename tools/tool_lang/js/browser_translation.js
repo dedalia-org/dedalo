@@ -21,27 +21,41 @@
 *
 * Translation pipeline for each call to translate_component_browser():
 *   1. Extract source HTML from component data (entries[] or value[]).
-*   2. Replace Dédalo inline tags (indexIn, tc, svg, …) with [[n]] placeholders
-*      so the LLM never sees or corrupts them.
+*   2. Replace Dédalo inline marks (index, tc, svg, …) with [[[n]]] placeholders
+*      (placeholders.js) in document order, so the LLM never sees or corrupts them,
+*      and classify each as the open/close half of a pair or a standalone atom.
 *   3. Convert the resulting HTML to Markdown via html_to_markdown().
-*   4. Split into ≤1000-char chunks via group_markdown_into_chunks().
-*   5. Post chunks + lang codes to the shared worker.
-*   6. Stream 'on_chunk' partial results into the target component's DOM.
-*   7. On 'end' AND ONLY when every block translated: restore placeholders,
-*      rebuild v7 entry objects, save() + refresh().
+*   4. Split into ≤1000-char chunks via group_markdown_into_chunks() and renumber
+*      each chunk's placeholders locally (build_blocks).
+*   5. Post the blocks + lang codes to the shared worker. The worker (block_runner.js)
+*      normalises the tokens the model mangled, asks the model again for the ones it
+*      dropped, and re-inserts the rest itself (repair_placeholders), naming every
+*      token IT placed in repair_stats.
+*   6. Stream 'on_chunk' partial results (marks restored) into the target component's DOM.
+*   7. On 'end' AND ONLY when every block translated: restore the marks (duplicated /
+*      invented tokens dropped), put inverted open/close pairs back in order
+*      (reorder_inverted_pairs), account for every mark against the source
+*      (validate_translation), rebuild v7 entry objects, save() + refresh(). Marks WE
+*      placed are saved and reported ('translation_saved_with_warnings'), never as a
+*      clean completion.
 *   8. When any block failed (the worker posts 'on_block_error' and SKIPS the
-*      block, so its accumulated text is short), or the run produced no text at
-*      all, the run is REFUSED: nothing is saved, the target component's pre-run
-*      data is put back, the lost blocks are named in the status area and the
-*      returned Promise REJECTS. Saving what survived would overwrite the target
-*      language's existing — possibly human-made — text with a silently
-*      shortened machine translation, and report it as a success.
+*      block, so its accumulated text is short), the run produced no text at all, or
+*      a mark is missing, invented or could not be placed, the run is REFUSED:
+*      nothing is saved, the target component's pre-run data is put back, the
+*      reason is named in the status area and the returned Promise REJECTS. Saving
+*      what survived would overwrite the target language's existing — possibly
+*      human-made — text with a silently damaged machine translation, and report it
+*      as a success.
 *
 * Exports:
 *   get_browser_worker          — lazy-initialise the shared Worker
 *   dispose_browser_worker      — terminate and null the shared Worker
 *   cancel_browser_translation  — post a cancel signal to the worker
 *   translate_component_browser — the main orchestrator (async)
+* The pure steps between the model's output and the record are exported too —
+* extract_dedalo_marks, replace_dedalo_marks_with_placeholders, build_blocks,
+* restore_placeholders, reorder_inverted_pairs, validate_translation and
+* mark_report_lines — so they stay side-effect-free and independently testable.
 */
 
 // imports
@@ -51,6 +65,7 @@
 	import {render_value} from '../../../core/common/js/utils/render_escape.js'
 	import {tr} from '../../../core/common/js/tr.js'
 	import {html_to_markdown, markdown_to_html, group_markdown_into_chunks} from './markdown_utils.js'
+	import {make_placeholder, placeholder_re, extract_placeholders} from './placeholders.js'
 
 
 
@@ -230,90 +245,489 @@ const dedalo_to_locale = function(dedalo_lang, json_langs) {
 
 
 /**
-* REPLACE_DEDALO_TAGS_WITH_PLACEHOLDERS
-* Substitute Dédalo inline-markup tags with numbered [[n]] tokens so the LLM
-* never sees (and thus cannot corrupt) them.
+* Dédalo inline marks shielded from the model.
 *
-* Dédalo transcriptions embed structured annotations directly in the HTML text
-* using a custom tag syntax handled by the TR class (e.g. index markers, time-
-* codes, SVG anchors). These must survive translation verbatim. Passing them to
-* the model as-is risks garbling, partial translation, or removal of the tag.
+* Deliberately excludes 'html_style' (<strong>/<em>/<i>/<u>): those have native Markdown
+* equivalents that html_to_markdown/markdown_to_html already round-trip, and the model
+* handles Markdown emphasis far better than an opaque [[[n]]] token.
 *
-* How it works:
-*   For each tag name in the hardcoded list, tr.get_mark_pattern(tag) returns
-*   a compiled global RegExp. Every match in the source text is replaced with a
-*   unique '[[n]]' placeholder (counter starts at 1, increments per match across
-*   all tag types). The original matched string is stored in the `placeholders`
-*   map keyed by its placeholder token.
-*
-*   restore_placeholders() reverses this transformation after translation.
-*
-* Tag names handled (order matters — patterns must not overlap):
-*   indexIn, indexOut, tc, svg, geo, page, person, note, reference, lang
-*
-* @param {string} source_text - Full HTML string, possibly containing Dédalo markup tags.
-* @returns {{ safe_source_text: string, placeholders: Object }}
-*   safe_source_text — input with all Dédalo tags replaced by [[n]] tokens.
-*   placeholders     — map of { '[[n]]': original_tag_string } for restoration.
+* 'reference' matches both halves of a reference pair (its pattern takes an optional '/').
+* @type {string[]}
 */
-const replace_dedalo_tags_with_placeholders = function(source_text) {
+const DEDALO_MARKS = [
+	'indexIn',
+	'indexOut',
+	'tc',
+	'svg',
+	'geo',
+	'page',
+	'person',
+	'note',
+	'reference',
+	'lang'
+]
 
-	const tags = [
-		'indexIn',
-		'indexOut',
-		'tc',
-		'svg',
-		'geo',
-		'page',
-		'person',
-		'note',
-		'reference',
-		'lang'
-	]
 
-	let safe_source_text = source_text
-	const placeholders = {}
-	let counter = 1
-	for (let i = 0; i < tags.length; i++) {
-		const tag = tags[i]
-		const pattern = tr.get_mark_pattern(tag)
 
-		safe_source_text = safe_source_text.replace(pattern, (match) => {
-			const key = `[[${counter}]]`
-			placeholders[key] = match
-			counter++
-			return key
-		})
+/**
+* EXTRACT_DEDALO_MARKS
+* Find every Dédalo inline mark in a text, in document order, with its offsets.
+*
+* Two mark patterns can in principle match overlapping ranges; when they do, the
+* first (and longest) match wins and the overlapped one is discarded, so a mark is
+* never counted twice.
+* @param {string} text - HTML string possibly containing Dédalo marks.
+* @returns {Array<{start:number, end:number, mark:string}>} Sorted by start offset.
+*/
+export const extract_dedalo_marks = function(text) {
+
+	const found = []
+	for (let i = 0; i < DEDALO_MARKS.length; i++) {
+		// tr.get_mark_pattern returns a FRESH global regex per call; matchAll copies it
+		// and steps past a zero-length match, so the loop always terminates
+		const pattern = tr.get_mark_pattern(DEDALO_MARKS[i])
+		for (const match of text.matchAll(pattern)) {
+			found.push({
+				start	: match.index,
+				end		: match.index + match[0].length,
+				mark	: match[0]
+			})
+		}
 	}
 
-	return { safe_source_text, placeholders }
-}//end replace_dedalo_tags_with_placeholders
+	// longest match first at any given offset, then drop anything it swallows
+	found.sort((a, b) => (a.start - b.start) || (b.end - a.end))
+
+	const marks = []
+	let cursor = -1
+	for (let i = 0; i < found.length; i++) {
+		if (found[i].start < cursor) {
+			continue
+		}
+		marks.push(found[i])
+		cursor = found[i].end
+	}
+
+	return marks
+}//end extract_dedalo_marks
+
+
+
+/**
+* CLASSIFY_MARK
+* Decide whether a mark is one half of a paired mark or a standalone atom.
+*
+* index and reference marks come in pairs that wrap a span of text and share a numeric
+* id — '[index-n-7-…]' … '[/index-n-7-…]'. Knowing that a token is the *close* of a
+* specific *open* is what lets the repair place it deterministically when the model
+* drops it. Everything else (tc, note, person, svg, geo, page, lang) stands alone.
+* @param {string} mark - The raw mark string.
+* @returns {{kind:string, pair_key:string|null}} kind is 'open' | 'close' | 'atom'.
+*/
+const classify_mark = function(mark) {
+
+	const match = mark.match(/^\[(\/)?(index|reference)-[a-z]-([0-9]{1,6})/)
+	if (!match) {
+		return { kind : 'atom', pair_key : null }
+	}
+
+	return {
+		kind		: match[1] ? 'close' : 'open',
+		pair_key	: `${match[2]}-${match[3]}`
+	}
+}//end classify_mark
+
+
+
+/**
+* REORDER_INVERTED_PAIRS
+* Put a paired mark back in order when translation reversed it.
+*
+* index and reference marks come in an open/close pair sharing an id. Translation
+* reorders words, and the model can emit the close before the open, producing invalid
+* markup ('[/index-n-105]…[index-n-105]'). The mark multiset is intact, so the count
+* check in validate_translation does not notice.
+*
+* The correct order is knowable from the mark itself (the '/' says which is the close),
+* so this is a deterministic fix, not a guess: for any id whose close sits before its
+* open, swap the two mark strings. Whatever text lies between them is then wrapped by a
+* well-formed pair — approximately the right span, and always valid markup, which an
+* inverted pair is not.
+*
+* Every reordered pair is returned so the caller can report it: we changed what the
+* model produced, and the operator must see that we did. (v6 2cd51f17c7, 2026-07-15.)
+* @param {string} text - Restored HTML, marks already back in place.
+* @returns {{text:string, reordered:string[]}} reordered lists the open mark of each swapped pair.
+*/
+export const reorder_inverted_pairs = function(text) {
+
+	const marks = extract_dedalo_marks(text)
+
+	// group open/close by shared id
+	const groups = new Map()
+	for (const item of marks) {
+		const classification = classify_mark(item.mark)
+		if (!classification.pair_key) {
+			continue
+		}
+		if (!groups.has(classification.pair_key)) {
+			groups.set(classification.pair_key, {})
+		}
+		groups.get(classification.pair_key)[classification.kind] = item
+	}
+
+	// an edit swaps the two mark strings at their original offsets
+	const edits		= []
+	const reordered	= []
+	for (const group of groups.values()) {
+		if (group.open && group.close && group.close.start < group.open.start) {
+			// the close currently sits earlier — put the open string there, and vice versa
+			edits.push({ start : group.close.start, end : group.close.end, replacement : group.open.mark })
+			edits.push({ start : group.open.start,  end : group.open.end,  replacement : group.close.mark })
+			reordered.push(group.open.mark)
+		}
+	}
+
+	if (edits.length===0) {
+		return { text, reordered }
+	}
+
+	// apply right-to-left so earlier offsets stay valid as lengths change
+	edits.sort((a, b) => b.start - a.start)
+
+	let out = text
+	for (const edit of edits) {
+		out = out.slice(0, edit.start) + edit.replacement + out.slice(edit.end)
+	}
+
+	return { text : out, reordered }
+}//end reorder_inverted_pairs
+
+
+
+/**
+* REPLACE_DEDALO_MARKS_WITH_PLACEHOLDERS
+* Substitute Dédalo inline marks with numbered [[[n]]] tokens so the LLM never sees
+* (and thus cannot corrupt) them.
+*
+* Tokens are numbered in DOCUMENT ORDER, not grouped by mark type, so that token number
+* and text position agree — which the repair and the corrective retry prompts rely on.
+* @param {string} source_text - Full HTML string, possibly containing Dédalo marks.
+* @returns {{safe_source_text:string, placeholders:Object, descriptors:Array}}
+*   placeholders maps token → original mark string.
+*   descriptors is [{ token, kind, pair_key, pair }] with pair naming the token of the other half.
+*/
+export const replace_dedalo_marks_with_placeholders = function(source_text) {
+
+	const marks = extract_dedalo_marks(source_text)
+
+	const placeholders	= {}
+	const descriptors	= []
+
+	let safe_source_text	= ''
+	let cursor				= 0
+
+	for (let i = 0; i < marks.length; i++) {
+		const mark	= marks[i]
+		const token	= make_placeholder(i + 1)
+
+		safe_source_text	+= source_text.slice(cursor, mark.start) + token
+		cursor				= mark.end
+
+		placeholders[token] = mark.mark
+
+		const classification = classify_mark(mark.mark)
+		descriptors.push({
+			token		: token,
+			kind		: classification.kind,
+			pair_key	: classification.pair_key,
+			pair		: null
+		})
+	}
+	safe_source_text += source_text.slice(cursor)
+
+	// link the two halves of each paired mark by their shared id
+	const groups = new Map()
+	for (let i = 0; i < descriptors.length; i++) {
+		const descriptor = descriptors[i]
+		if (!descriptor.pair_key) {
+			continue
+		}
+		if (!groups.has(descriptor.pair_key)) {
+			groups.set(descriptor.pair_key, [])
+		}
+		groups.get(descriptor.pair_key).push(descriptor)
+	}
+	for (const group of groups.values()) {
+		const open	= group.find(item => item.kind==='open')
+		const close	= group.find(item => item.kind==='close')
+		if (open && close) {
+			open.pair	= close.token
+			close.pair	= open.token
+		} else {
+			// an unmatched half has no partner to anchor against — treat it as an atom
+			// so the repair does not go looking for a token that was never there
+			for (const item of group) {
+				item.kind = 'atom'
+			}
+		}
+	}
+
+	return { safe_source_text, placeholders, descriptors }
+}//end replace_dedalo_marks_with_placeholders
+
+
+
+/**
+* BUILD_BLOCKS
+* Turn the chunked Markdown into the block payload the worker consumes.
+*
+* Each chunk's tokens are renumbered to a local 1..k sequence: local single-digit ids
+* are cheaper for the model to copy and more reliably reproduced than document-wide ids
+* like [[[47]]]. The worker translates and repairs in local space, then maps back to the
+* document-wide tokens via restore_map (block_runner.js to_global_tokens), so everything
+* downstream keeps working in one namespace. (v6 d3991c3a66.)
+* @param {string[]} chunks      - Markdown chunks carrying document-wide tokens.
+* @param {Array}    descriptors - Document-wide descriptors from replace_dedalo_marks_with_placeholders.
+* @returns {Array<{text:string, placeholders:Array, restore_map:Object}>}
+*/
+export const build_blocks = function(chunks, descriptors) {
+
+	const by_token = new Map(descriptors.map(item => [item.token, item]))
+
+	return chunks.map(function(chunk){
+
+		// global token → local token, in order of appearance within this chunk
+		const local_of = new Map()
+		const tokens = extract_placeholders(chunk)
+		for (let i = 0; i < tokens.length; i++) {
+			if (!local_of.has(tokens[i])) {
+				local_of.set(tokens[i], make_placeholder(local_of.size + 1))
+			}
+		}
+
+		// single pass, so a rewritten token can never be rewritten again
+		const text = chunk.replace(placeholder_re(), (match) => local_of.get(match) || match)
+
+		const block_placeholders	= []
+		const restore_map			= {}
+		for (const [global_token, local_token] of local_of) {
+
+			restore_map[local_token] = global_token
+
+			const descriptor = by_token.get(global_token)
+			// the other half of a pair may have landed in a different chunk; within this
+			// block it has no anchor, so it behaves as an atom
+			const pair_local = descriptor?.pair
+				? local_of.get(descriptor.pair)
+				: null
+
+			block_placeholders.push({
+				token	: local_token,
+				kind	: pair_local ? descriptor.kind : 'atom',
+				pair	: pair_local || null
+			})
+		}
+
+		return {
+			text			: text,
+			placeholders	: block_placeholders,
+			restore_map		: restore_map
+		}
+	})
+}//end build_blocks
 
 
 
 /**
 * RESTORE_PLACEHOLDERS
-* Reverse the substitution performed by replace_dedalo_tags_with_placeholders,
-* reinserting original Dédalo tag strings at their placeholder positions.
+* Put the original Dédalo marks back where their tokens ended up.
 *
-* Uses `replaceAll` with a function form to avoid treating the original tag
-* strings as replacement patterns (which would misinterpret '$' characters
-* that appear inside Dédalo tag data payloads).
+* Two model artefacts are handled here rather than being written to the record:
+*   - a DUPLICATED token. Emitting the mark twice would produce broken markup (two
+*     opens for one close), so only the first occurrence becomes a mark and the rest
+*     are dropped.
+*   - an INVENTED token ([[[99]]] when only 12 marks exist). It maps to nothing, and
+*     leaving it in place would save the literal text '[[[99]]]' into the component.
+* Both are returned so the caller can report them.
 *
-* The function form `() => original` ensures the replacement value is treated
-* as a literal string rather than a replacement-pattern string. This is
-* important because Dédalo tags can contain data payloads with special chars.
-* @param {string} translated_text - Text returned by the LLM, still containing [[n]] tokens.
-* @param {Object} placeholders    - Map produced by replace_dedalo_tags_with_placeholders.
-* @returns {string} Translated text with all [[n]] tokens replaced by their original tags.
+* A token absent from the text restores nothing — validate_translation counts its mark
+* as missing and the run is refused.
+* @param {string} translated_text - Text from the model, carrying document-wide tokens.
+* @param {Object} placeholders    - token → original mark string.
+* @returns {{text:string, duplicated:string[], residual:string[]}}
 */
-const restore_placeholders = function(translated_text, placeholders) {
+export const restore_placeholders = function(translated_text, placeholders) {
 
-	return Object.entries(placeholders).reduce(
-		(text, [key, original]) => text.replaceAll(key, () => original),
-		translated_text
-	)
+	const known		= new Set(Object.keys(placeholders))
+	const residual	= extract_placeholders(translated_text).filter(token => !known.has(token))
+
+	const duplicated = []
+
+	let text = translated_text
+	for (const [token, mark] of Object.entries(placeholders)) {
+
+		const first = text.indexOf(token)
+		if (first===-1) {
+			continue
+		}
+
+		text = text.slice(0, first) + mark + text.slice(first + token.length)
+
+		if (text.indexOf(token)!==-1) {
+			duplicated.push(mark)
+			text = text.split(token).join('')
+		}
+	}
+
+	// strip whatever tokens are left: by construction they map to no mark at all
+	if (residual.length>0) {
+		text = text.replace(placeholder_re(), '')
+	}
+
+	return { text, duplicated, residual }
 }//end restore_placeholders
+
+
+
+/**
+* VALIDATE_TRANSLATION
+* Account for every Dédalo mark between the source value and the translated one.
+*
+* The invariant that matters is that the set of marks is preserved exactly: the
+* translation may reorder them (word order changes between languages) but it must not
+* drop, invent or duplicate one. A dropped index mark silently breaks a thesaurus link;
+* an invented one links text to something the source never linked.
+*
+* Anything the MODEL did not place — a token it dropped that we re-inserted, a pair we
+* put back in order, a duplicate or invented token we removed — is counted too: we may
+* have put it in the right place, but we chose it.
+*
+* Lost blocks are not counted here: translate_component_browser refuses a run that
+* lost a block before it gets this far (REFUSAL 1).
+* @param {string} source_text   - The original HTML value (marks intact).
+* @param {string} restored_text - The translated HTML value, marks restored and reordered.
+* @param {Object} extra         - { duplicated, residual, repaired, unrepairable, reordered }
+* @returns {Object} report:
+*   missing / added   — marks in the source but not the result, and the reverse
+*   unrepairable      — marks the worker could not place (appended, position unknown)
+*   repaired / reordered / duplicated / residual — what WE changed
+*   total_marks       — marks in the source
+*   refused           — true when a mark is missing, added or unplaceable: NOT saveable
+*   uncertain_count   — repaired + reordered + duplicated + residual (saved, reported)
+*/
+export const validate_translation = function(source_text, restored_text, extra) {
+
+	const source_marks = extract_dedalo_marks(source_text).map(item => item.mark)
+	const result_marks = extract_dedalo_marks(restored_text).map(item => item.mark)
+
+	const counts = new Map()
+	for (const mark of source_marks) {
+		counts.set(mark, (counts.get(mark) || 0) + 1)
+	}
+	for (const mark of result_marks) {
+		counts.set(mark, (counts.get(mark) || 0) - 1)
+	}
+
+	const missing	= []
+	const added		= []
+	for (const [mark, delta] of counts) {
+		for (let i = 0; i < delta; i++) {
+			missing.push(mark)
+		}
+		for (let i = 0; i < -delta; i++) {
+			added.push(mark)
+		}
+	}
+
+	const report = {
+		missing			: missing,
+		added			: added,
+		duplicated		: extra?.duplicated || [],
+		residual		: extra?.residual || [],
+		repaired		: extra?.repaired || [],
+		unrepairable	: extra?.unrepairable || [],
+		reordered		: extra?.reordered || [],
+		total_marks		: source_marks.length
+	}
+
+	// A mark that is gone, that the source never had, or that nobody could place is not
+	// a translation the record can take: the run is REFUSED (owner ruling A1-02 — v6
+	// asked the operator to accept or discard; TS never saves it).
+	report.refused =
+		report.missing.length>0 ||
+		report.added.length>0 ||
+		report.unrepairable.length>0
+
+	// marks whose final position or presence WE decided, rather than the model
+	report.uncertain_count =
+		report.repaired.length +
+		report.reordered.length +
+		report.duplicated.length +
+		report.residual.length
+
+	return report
+}//end validate_translation
+
+
+
+/**
+* MARK_REPORT_LINES
+* The operator-facing account of what happened to the marks, one line per kind.
+* Used both for a refused run (under 'translation_review_needed') and for a run saved
+* with marks we placed (under 'translation_saved_with_warnings').
+* @param {Object} report - validate_translation() output.
+* @param {Function} get_label - (key, ...args) => string|null; the tool label resolver.
+* @returns {string[]}
+*/
+export const mark_report_lines = function(report, get_label) {
+
+	const lines = []
+
+	// marks that are simply gone, or that nobody could find a place for
+	const unplaced = report.missing.length + report.unrepairable.length
+	if (unplaced>0) {
+		lines.push(
+			get_label('marks_unplaced', unplaced)
+			|| `${unplaced} marks could not be placed`
+		)
+	}
+
+	// marks in the translation that the source does not have
+	if (report.added.length>0) {
+		lines.push(
+			get_label('marks_invented', report.added.length)
+			|| `${report.added.length} marks that are not in the source text appeared in the translation`
+		)
+	}
+
+	// marks we re-inserted ourselves: present, but WE chose the position
+	if (report.repaired.length>0) {
+		lines.push(
+			get_label('marks_repositioned', report.repaired.length, report.total_marks)
+			|| `${report.repaired.length} of ${report.total_marks} marks were repositioned automatically`
+		)
+	}
+
+	// paired marks the translation reversed, which we put back in open→close order
+	if (report.reordered.length>0) {
+		lines.push(
+			get_label('marks_reordered', report.reordered.length)
+			|| `${report.reordered.length} linked marks were reversed by the translation and reordered`
+		)
+	}
+
+	// markers the model duplicated or invented, dropped before saving
+	const invalid = report.residual.length + report.duplicated.length
+	if (invalid>0) {
+		lines.push(
+			get_label('marks_removed_invalid', invalid)
+			|| `${invalid} invalid markers were removed`
+		)
+	}
+
+	return lines
+}//end mark_report_lines
 
 
 
@@ -427,6 +841,15 @@ const save_landed = function(target_component, save_response, entry) {
 *   translation is never written and never marked with a placeholder — writing
 *   either into a heritage record destroys the curator's existing text.
 *
+* Refusal on a mark that cannot be accounted for (A1-02):
+*   validate_translation counts the Dédalo marks of the final value against the
+*   source. A mark that is missing, one the source does not have, or one the worker
+*   reported as unplaceable refuses the run the same way (nothing saved, the
+*   target's own data put back, 'translation_review_needed' + the per-kind lines in
+*   the status area, the Promise REJECTS). Marks we re-inserted, reordered or
+*   de-duplicated are saved, and the resolve says so: msg 'OK. Translation saved
+*   with warnings' and the status area lists them.
+*
 * @param {Object} options
 * @param {Object}        options.source_component           - Initialised component
 *                                                             supplying the source text.
@@ -447,19 +870,21 @@ const save_landed = function(target_component, save_response, entry) {
 *                                                             Fetched via get_json_langs() when
 *                                                             absent (avoids duplicate network
 *                                                             requests in multi-lang loops).
-* @param {Function}      [options.get_label]                - Tool label resolver: (key) => string.
+* @param {Function}      [options.get_label]                - Tool label resolver: (key, ...args) => string
+*                                                             (args fill the label's %s slots).
 *                                                             Defaults to identity (key => key).
 * @returns {Promise<{result: boolean, msg: string}>}
 *   Resolves {result:true} only on a COMPLETE translation whose save ANSWERED
 *   that the value is stored (save_landed), and {result:false} on user
 *   cancellation (nothing saved — callers must treat any result other than true
 *   as not done); rejects on fatal worker errors, empty source text, an
-*   incomplete run — see "Refusal" above — and a save that did not land. Rejection (not a resolve carrying
-*   result:false) is load-bearing: tool_lang's click handler paints its own
-*   'Translation completed' banner in .then(), and tool_lang_multi's
-*   automatic_translation_all counts every resolved promise as ok in its
-*   (n/total) summary — so a resolve here would report success for a run that
-*   saved nothing.
+*   incomplete run or an unaccounted mark — see "Refusal" above — and a save
+*   that did not land. Rejection (not a resolve carrying result:false) is
+*   load-bearing: tool_lang_multi's automatic_translation_all counts every
+*   resolved promise as ok in its (n/total) summary — so a resolve here would
+*   report success for a run that saved nothing. The status area is this
+*   driver's alone: tool_lang's click handler no longer paints over it (it would
+*   erase a refusal or the saved-with-warnings account).
 */
 export const translate_component_browser = async function(options) {
 
@@ -493,8 +918,9 @@ export const translate_component_browser = async function(options) {
 	// model input; replace them with regular spaces before further processing.
 		const clean_source_text = source_text.replace(/&nbsp;/g, ' ')
 
-	// create placeholders to avoid translating Dédalo tags
-		const { safe_source_text, placeholders } = replace_dedalo_tags_with_placeholders(clean_source_text)
+	// shield the Dédalo marks from the model: [[[n]]] tokens in document order, each
+	// classified as the open/close half of a pair or a standalone atom (the repair needs it)
+		const { safe_source_text, placeholders, descriptors } = replace_dedalo_marks_with_placeholders(clean_source_text)
 
 	// convert HTML to markdown for the LLM
 		const md_source_text = html_to_markdown(safe_source_text)
@@ -502,7 +928,10 @@ export const translate_component_browser = async function(options) {
 	// parse markdown into chunks
 	// The worker translates one chunk at a time; the 1000-char limit keeps each
 	// block well within the model's MAX_NEW_TOKENS=2048 budget.
-		const blocks = group_markdown_into_chunks(md_source_text, 1000)
+		const chunks = group_markdown_into_chunks(md_source_text, 1000)
+
+	// one block per chunk, its tokens renumbered locally (see build_blocks)
+		const blocks = build_blocks(chunks, descriptors)
 
 	// reusable worker (model cached across calls)
 		const translate_worker = get_browser_worker()
@@ -599,13 +1028,11 @@ export const translate_component_browser = async function(options) {
 		* component's own data back, re-render it from that data, name what went
 		* wrong in the status area and reject.
 		*
-		* Rejecting (instead of resolving with result:false) is load-bearing on both
-		* callers: tool_lang's click handler paints its own 'Translation completed'
-		* banner over this status area in .then() (render_tool_lang.js
-		* build_automatic_translation), and tool_lang_multi's
-		* automatic_translation_all counts every resolved promise as ok in its
-		* (n/total) summary. A resolve here would erase this message and report
-		* success for a run that saved nothing.
+		* Rejecting (instead of resolving with result:false) is load-bearing:
+		* tool_lang_multi's automatic_translation_all counts every resolved promise
+		* as ok in its (n/total) summary, and tool_lang's click handler treats a
+		* resolve as a finished run. A resolve here would report success for a run
+		* that saved nothing.
 		* @param {Array<string>} lines - operator-facing message, one line each.
 		* @return void
 		*/
@@ -701,7 +1128,8 @@ export const translate_component_browser = async function(options) {
 					// Convert the accumulated markdown to HTML and push into the
 					// component's live data so the component's own render reflects
 					// the in-progress translation without a server round-trip.
-					const html_accumulated = markdown_to_html(accumulated_text)
+					// marks restored for the preview; the decision on them is taken at 'end'
+					const html_accumulated = restore_placeholders(markdown_to_html(accumulated_text), placeholders).text
 					if (!target_component.data.value) {
 						target_component.data.value = []
 					}
@@ -759,9 +1187,15 @@ export const translate_component_browser = async function(options) {
 					// the raw data payload for non-streaming worker implementations.
 					const translated_md = accumulated_text ?? String(data)
 
-					// markdown -> HTML, then restore Dédalo tag placeholders
-					const translated_html = markdown_to_html(translated_md)
-					const restored_text = restore_placeholders(translated_html, placeholders)
+					// markdown -> HTML, then restore the Dédalo marks (duplicated and
+					// invented tokens are dropped here and reported)
+					const translated_html	= markdown_to_html(translated_md)
+					const restored			= restore_placeholders(translated_html, placeholders)
+
+					// translation can reverse a paired mark (close before open) — put it
+					// back in order before validating and saving, and report it
+					const ordered		= reorder_inverted_pairs(restored.text)
+					const restored_text	= ordered.text
 
 					// REFUSAL 2 — the run produced no text at all.
 					// The source was checked non-empty before the worker was started (the
@@ -772,6 +1206,32 @@ export const translate_component_browser = async function(options) {
 					if (!restored_text || restored_text.trim()==='') {
 						refuse_run([
 							get_label('translation_empty_result') || 'Translation refused: the model returned no text',
+							get_label('nothing_saved') || 'Nothing was saved. The existing text in the target language is unchanged.',
+							get_label('translation_retry') || 'Run the translation again to retry.'
+						])
+						break;
+					}
+
+					// REFUSAL 3 — a mark could not be accounted for.
+					// Every source mark must come back exactly once. The worker re-inserts
+					// the tokens the model dropped (block_runner.js → repair_placeholders) and
+					// names any it could not place; this check does not trust that alone —
+					// it counts the marks of the final value against the source. A mark
+					// that is gone, invented or unplaceable is never written: the target
+					// language would lose an index/tc/svg link with the run reported done.
+					const repair_stats	= data.repair_stats || {}
+					const report		= validate_translation(clean_source_text, restored_text, {
+						duplicated		: restored.duplicated,
+						residual		: restored.residual,
+						repaired		: repair_stats.repaired || [],
+						unrepairable	: repair_stats.unrepairable || [],
+						reordered		: ordered.reordered
+					})
+					const mark_lines = mark_report_lines(report, get_label)
+					if (report.refused) {
+						refuse_run([
+							get_label('translation_review_needed') || 'Translation needs review before saving',
+							...mark_lines,
 							get_label('nothing_saved') || 'Nothing was saved. The existing text in the target language is unchanged.',
 							get_label('translation_retry') || 'Run the translation again to retry.'
 						])
@@ -860,13 +1320,24 @@ export const translate_component_browser = async function(options) {
 							fail_save(lines)
 							return
 						}
+						// marks WE placed (repositioned, reordered, removed) are saved but
+						// never reported as a clean completion: the operator checks them
+						const with_warnings = report.uncertain_count > 0
 						if (status_container) {
 							status_container.classList.remove('loading_status')
-							status_container.replaceChildren(status_lines_node('success_text', [
-								get_label('translation_completed') || 'Translation completed'
-							]))
+							status_container.replaceChildren(with_warnings
+								? status_lines_node('warning', [
+									get_label('translation_saved_with_warnings') || 'Translation saved — check the marks',
+									...mark_lines
+								])
+								: status_lines_node('success_text', [
+									get_label('translation_completed') || 'Translation completed'
+								])
+							)
 						}
-						resolve({result: true, msg: 'OK. Translation completed'})
+						resolve(with_warnings
+							? {result: true, msg: 'OK. Translation saved with warnings'}
+							: {result: true, msg: 'OK. Translation completed'})
 						// the value is stored: a failed repaint does not change that outcome
 						Promise.resolve()
 						.then(function(){
@@ -911,7 +1382,8 @@ export const translate_component_browser = async function(options) {
 						]))
 					}
 					if (data.accumulated_text && streaming_overlay_content) {
-						streaming_overlay_content.innerHTML = render_value(markdown_to_html(data.accumulated_text), target_component.context?.render_class)
+						const preview = restore_placeholders(markdown_to_html(data.accumulated_text), placeholders).text
+						streaming_overlay_content.innerHTML = render_value(preview, target_component.context?.render_class)
 					}
 					break;
 				}

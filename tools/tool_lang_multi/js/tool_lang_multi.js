@@ -568,7 +568,7 @@ tool_lang_multi.prototype.run_browser_translation = async function(options) {
 		streaming_overlay			: container ? container.streaming_overlay : null,
 		streaming_overlay_content	: container ? container.streaming_overlay_content : null,
 		json_langs					: self.json_langs,
-		get_label					: (key) => self.get_tool_label(key)
+		get_label					: (key, ...args) => self.get_tool_label(key, ...args)
 	})
 }//end run_browser_translation
 

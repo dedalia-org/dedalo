@@ -317,7 +317,7 @@ tool_lang.prototype.automatic_translation_browser = async function(options) {
 			streaming_overlay			: self.streaming_overlay,
 			streaming_overlay_content	: self.streaming_overlay_content,
 			json_langs					: self.json_langs,
-			get_label					: (key) => self.get_tool_label(key)
+			get_label					: (key, ...args) => self.get_tool_label(key, ...args)
 		})
 }//end automatic_translation_browser
 
