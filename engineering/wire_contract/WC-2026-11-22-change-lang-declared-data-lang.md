@@ -27,8 +27,14 @@
     `dedalo_lang` cookie — a mixed request stores neither half.
   - Under `DATA_LANG_SYNC`: an interface-language change drives the data language ONLY when that
     language is a declared data language; otherwise the data language is left unchanged (as
-    requested, or untouched when none was). A data-language change still drives the interface
-    language (it is declared by the check above).
+    requested, or untouched when none was). A data-language change drives the interface language
+    ONLY when that language is one of `DEDALO_APPLICATION_LANGS` (re-review LOW-5 — symmetric);
+    otherwise the interface language is left unchanged.
+  - `change_lang` with a grammar-valid `dedalo_application_lang` that is not one of
+    `DEDALO_APPLICATION_LANGS` is refused `request.invalid_options` (public message
+    `dedalo_application_lang '<code>' is not an interface language of this installation`), nothing
+    stored, no cookie (re-review LOW-5 — the same membership as the `dedalo_lang` cookie door,
+    `isApplicationLang` in `src/core/resolve/request_lang.ts`; before: grammar only).
   - tool_identify `cluster`: the omitted-`lang` branch (the request's data language) is held to
     the same membership rule as a sent one — one rule, `assertInstalledDataLang`.
   - Grammar-invalid values keep their old treatment (ignored per field; none valid →

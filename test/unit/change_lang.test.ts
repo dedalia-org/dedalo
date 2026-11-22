@@ -108,6 +108,26 @@ describe('change_lang action', () => {
 		expect(getSession(token)?.dataLang).toBeNull();
 	});
 
+	test('re-review LOW-5: refuses an interface language outside DEDALO_APPLICATION_LANGS — session unchanged', async () => {
+		const { config } = await import('../../src/config/config.ts');
+		const { isValidLang } = await import('../../src/core/concepts/ontology.ts');
+		// FLOOR: grammar-valid (only MEMBERSHIP can refuse it), and not an interface language.
+		expect(isValidLang(UNDECLARED_DATA_LANG)).toBe(true);
+		expect(Object.hasOwn(config.lang.applicationLangs, UNDECLARED_DATA_LANG)).toBe(false);
+		const result = await dispatchRqo(
+			{
+				dd_api: 'dd_utils_api',
+				action: 'change_lang',
+				options: { dedalo_application_lang: UNDECLARED_DATA_LANG },
+			} as Rqo,
+			contextFor(token),
+		);
+		expect(result.body.ok).toBe(false);
+		expect((result.body.error as { code: string }).code).toBe('request.invalid_options');
+		expect(getSession(token)?.applicationLang).toBeNull();
+		expect(result.setPreauthLangCookie).toBeUndefined();
+	});
+
 	test('MED-3: refuses a data language this installation does not declare — session unchanged', async () => {
 		const { isValidLang } = await import('../../src/core/concepts/ontology.ts');
 		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');

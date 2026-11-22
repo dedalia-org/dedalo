@@ -30,6 +30,10 @@ else {
 
 	/** An interface language that is NOT a data language (grammar-valid, undeclared). */
 	const UI_ONLY_LANG = 'lg-zzzq';
+	/** A declared DATA language that is not an interface language of this child. */
+	const DATA_ONLY_LANG = 'lg-nep';
+	/** Grammar-valid, and neither an interface nor a data language. */
+	const NOT_AN_INTERFACE_LANG = 'lg-zzzr';
 
 	/** One change_lang on a fresh superuser session; answers the session after it. */
 	const changeLang = async (options: Record<string, string>) => {
@@ -48,7 +52,12 @@ else {
 				{ dd_api: 'dd_utils_api', action: 'change_lang', options } as Rqo,
 				context,
 			);
-			return { ok: result.body.ok, stored: getSession(token) };
+			return {
+				ok: result.body.ok,
+				code: (result.body.error as { code?: string } | undefined)?.code,
+				cookie: result.setPreauthLangCookie,
+				stored: getSession(token),
+			};
 		} finally {
 			destroySession(token);
 		}
@@ -122,6 +131,34 @@ else {
 			expect(ok).toBe(true);
 			expect(stored?.applicationLang).toBe(UI_ONLY_LANG);
 			expect(stored?.dataLang).toBeNull();
+		});
+
+		test('re-review LOW-5: a data language drives the interface one ONLY when it is an interface language', async () => {
+			// FLOOR: lg-nep is a declared data language, and NOT an interface language
+			// of this child (pinned DEDALO_APPLICATION_LANGS).
+			expect(installedDataLangs()).toContain(DATA_ONLY_LANG);
+			expect(Object.hasOwn(config.lang.applicationLangs, DATA_ONLY_LANG)).toBe(false);
+			const { ok, stored } = await changeLang({ dedalo_data_lang: DATA_ONLY_LANG });
+			expect(ok).toBe(true);
+			expect(stored?.dataLang).toBe(DATA_ONLY_LANG);
+			expect(stored?.applicationLang).toBeNull();
+		});
+
+		test('re-review LOW-5: an interface language outside DEDALO_APPLICATION_LANGS is refused, nothing stored', async () => {
+			expect(isValidLang(NOT_AN_INTERFACE_LANG)).toBe(true);
+			expect(Object.hasOwn(config.lang.applicationLangs, NOT_AN_INTERFACE_LANG)).toBe(false);
+			for (const options of <Record<string, string>[]>[
+				{ dedalo_application_lang: NOT_AN_INTERFACE_LANG },
+				{ dedalo_application_lang: NOT_AN_INTERFACE_LANG, dedalo_data_lang: 'lg-eng' },
+			]) {
+				const { ok, code, stored, cookie } = await changeLang(options);
+				const label = JSON.stringify(options);
+				expect(ok, label).toBe(false);
+				expect(code, label).toBe('request.invalid_options');
+				expect(stored?.applicationLang, label).toBeNull();
+				expect(stored?.dataLang, label).toBeNull();
+				expect(cookie, label).toBeUndefined();
+			}
 		});
 
 		test('a data language drives the interface one (declared), an undeclared one is refused', async () => {

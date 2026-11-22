@@ -50,7 +50,18 @@ export function runWithRequestLangs<T>(langs: RequestLangs, fn: () => T): T {
  */
 export function allowlistedPreauthLang(raw: string | null | undefined): string | null {
 	if (typeof raw !== 'string' || raw === '') return null;
-	return Object.hasOwn(config.lang.applicationLangs, raw) ? raw : null;
+	return isApplicationLang(raw) ? raw : null;
+}
+
+/**
+ * Is `lang` one of THIS install's interface languages (DEDALO_APPLICATION_LANGS)?
+ * THE membership rule for an interface language — the cookie door above,
+ * `change_lang`'s `dedalo_application_lang` and the DATA_LANG_SYNC copy of a data
+ * language into the interface one all ask it (re-review LOW-5), so none can
+ * store an interface language the install does not serve.
+ */
+export function isApplicationLang(lang: string): boolean {
+	return Object.hasOwn(config.lang.applicationLangs, lang);
 }
 
 /** A session's stored language overrides (core/security/session_store.ts `Session`); null = none chosen. */

@@ -8,6 +8,7 @@ import { readString } from '../../../config/readers.ts';
 import { isValidTipo } from '../../concepts/ontology.ts';
 import { DedaloError, isDedaloError, ok } from '../../errors/index.ts';
 import { publicOrigin, publicOriginIsLocal } from '../../resolve/public_origin.ts';
+import { isApplicationLang } from '../../resolve/request_lang.ts';
 import {
 	assertInstalledDataLang,
 	isInstalledDataLang,
@@ -200,12 +201,17 @@ async function joinedThumbnailUrl(
 
 /**
  * DEDALO_DATA_LANG_SYNC (PHP change_lang): when the install couples the two
- * languages, a change to either drives the other — but the DATA language follows
- * the interface language ONLY when that language is a declared data language
- * (review MED-3): an install may offer an interface in a language it does not
- * catalogue in, and copying it would store a session data language no read
- * reaches. Otherwise the data language is left as requested (unchanged when none
- * was). A requested data language is already declared (checked before this).
+ * languages, a change to either drives the other — each ONLY into a language the
+ * other side serves, symmetric by construction:
+ *   - the DATA language follows the interface language only when that language
+ *     is a declared data language (review MED-3): an install may offer an
+ *     interface in a language it does not catalogue in;
+ *   - the INTERFACE language follows the data language only when that language
+ *     is one of DEDALO_APPLICATION_LANGS (re-review LOW-5): an install may
+ *     catalogue in a language it has no interface for.
+ * Otherwise the other side is left as requested (unchanged when none was). Both
+ * requested languages are already members of their own set (checked before
+ * this, by change_lang; login adopts an allowlisted interface language only).
  * Gate: test/unit/change_lang_sync_native.test.ts.
  */
 function syncChangedLangs(
@@ -214,7 +220,12 @@ function syncChangedLangs(
 ): { applicationLang: string | undefined; dataLang: string | undefined } {
 	if (!sync) return requested;
 	const { applicationLang, dataLang } = requested;
-	if (applicationLang === undefined) return { applicationLang: dataLang, dataLang };
+	if (applicationLang === undefined) {
+		return {
+			applicationLang: dataLang !== undefined && isApplicationLang(dataLang) ? dataLang : undefined,
+			dataLang,
+		};
+	}
 	return {
 		applicationLang,
 		dataLang: isInstalledDataLang(applicationLang) ? applicationLang : dataLang,
@@ -585,8 +596,19 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		if (requestedDataLang !== undefined) {
 			assertInstalledDataLang(requestedDataLang, 'dedalo_data_lang');
 		}
+		// …and an INTERFACE language must be one this install serves (re-review
+		// LOW-5) — the same membership the cookie door applies (isApplicationLang):
+		// grammar alone let a session hold an interface language with no catalogue.
+		const requestedApplicationLang = readLang(options.dedalo_application_lang);
+		if (requestedApplicationLang !== undefined && !isApplicationLang(requestedApplicationLang)) {
+			throw new DedaloError('request.invalid_options', {
+				message: `dedalo_application_lang '${requestedApplicationLang}' is not an interface language this installation serves`,
+				publicMessage: `dedalo_application_lang '${requestedApplicationLang}' is not an interface language of this installation`,
+				coordinates: { lang: requestedApplicationLang },
+			});
+		}
 		const { applicationLang, dataLang } = syncChangedLangs(
-			{ applicationLang: readLang(options.dedalo_application_lang), dataLang: requestedDataLang },
+			{ applicationLang: requestedApplicationLang, dataLang: requestedDataLang },
 			config.menu.dataLangSync === true,
 		);
 		if (applicationLang === undefined && dataLang === undefined) {
