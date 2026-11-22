@@ -15,10 +15,11 @@ you use (a plain array or one array per language):
   per-language form.
 - `id` must be a whole number of 1 or more; `title` and `lang` must be text.
 - An empty item (`{}`), or one with neither an `iri` nor a `title`, is refused instead of being
-  stored as an empty value.
+  stored as an empty value. An empty `iri` (`""`) counts as absent, so a title-only item is
+  accepted with or without it.
 - In the per-language form an item with only a `title` is now accepted, like in the plain form.
 
-A raw export of the field still imports back unchanged.
+A raw export of the field still imports back, including title-only items saved with an empty `iri`.
 
 **Action needed:** if your import files add their own properties to URI items, remove them.
 Details: [Importing data — URI](./using/importing_data.md#uri).

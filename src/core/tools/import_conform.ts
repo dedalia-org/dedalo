@@ -1170,9 +1170,14 @@ function refusedIriItem(error: string): ConformedIriItem {
 /** One whitelisted field read: its conformed value (undefined = absent) or why it was refused. */
 type IriFieldOutcome = { value: unknown } | { error: string };
 
-/** `iri`, when present: a string with an http(s) protocol, TRIMMED. */
+/**
+ * `iri`, when present: a string with an http(s) protocol, TRIMMED. A BLANK iri
+ * (null, "", whitespace) is ABSENT, like the other fields and PHP's `!empty`:
+ * the edit UI stores a title-only row as `{iri:"",title:"…"}`, so refusing it
+ * would break a raw export's re-import.
+ */
 function iriFieldOf(raw: unknown, value: string): IriFieldOutcome {
-	if (raw === undefined) return { value: undefined };
+	if (isBlankIriField(raw)) return { value: undefined };
 	if (typeof raw !== 'string') {
 		return { error: `IGNORED: malformed data, iri must be a string ${asText(value)}` };
 	}

@@ -1196,10 +1196,10 @@ Component: `component_iri`. The component is never translatable: a URI has no la
 }]
 ```
 
-- `iri` property, **mandatory**. Defines the URL, it needs to have the protocol and a valid structure with domain.
+- `iri` property. Defines the URL, it needs to have the protocol and a valid structure with domain. It is required unless the item carries the deprecated `title`: an item needs one of the two. An empty `iri` (`""`) counts as absent.
 - `id` property **optional**. Defines the unique id of the data, it will be used to be linked with the label dataframe. If omitted, it is auto-assigned on save. It must be an integer >= 1, otherwise the cell is refused.
 - `label_id` property **optional**. The `section_id` of an existing record of the label list (`dd1706`, the label value in `dd1715`). It must be an integer >= 1 and name a record that exists, otherwise the cell is refused.
-- `lang` and the deprecated `title` are accepted as text, so a raw export of the field imports back unchanged. Surrounding spaces of the `iri` are removed.
+- `lang` and the deprecated `title` are accepted as text, so a raw export of the field imports back (a title-only item exported with an empty `iri` imports as title-only). Surrounding spaces of the `iri` are removed.
 - Any **other** property refuses the cell, naming the property: it would be stored and never read. An item with neither an `iri` nor a `title` (`{}`) is refused too.
 
 !!! note "`label_id` is converted, never stored"

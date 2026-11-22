@@ -365,6 +365,22 @@ describe('the json iri ITEM whitelist (T2-IMP-2)', () => {
 		]);
 	});
 
+	test('a BLANK iri is absent: the title-only item the edit UI stores (`iri:""`) re-imports', async () => {
+		// The client's build_value persists a title-only row as {iri:"",title:"…"}
+		// and the emptiness law keeps it; refusing it on re-import made the raw
+		// export's round trip a lie. Blank = absent (PHP: !empty), flat and lang-keyed.
+		const flat = await conform('[{"id":3,"iri":"","lang":"lg-nolan","title":"Only title"}]');
+		expect(flat.errors).toHaveLength(0);
+		expect(flat.result).toEqual([{ id: 3, lang: 'lg-nolan', title: 'Only title' }]);
+		const keyed = await conform('{"lg-eng":[{"iri":"  ","title":"Only title"}]}');
+		expect(keyed.errors).toHaveLength(0);
+		expect(keyed.result).toEqual({ 'lg-eng': [{ title: 'Only title' }] });
+		// Blank iri AND blank title is still nothing: refused, never stored.
+		const empty = await conform('[{"iri":"","title":""}]');
+		expect(empty.result).toBeNull();
+		expect(empty.errors[0]?.msg).toContain('needs an iri or a title');
+	});
+
 	test('a whitelisted key of the wrong TYPE is refused (id not a positive integer, title/lang not strings)', async () => {
 		for (const cell of [
 			'[{"iri":"https://a.test/1","id":"2"}]',

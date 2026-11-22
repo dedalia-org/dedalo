@@ -122,7 +122,7 @@ wrong label, and drops other language slices' labels.
 - **After:** ONE conformer (`conformIriObject`) for both json branches. Keys: `iri`, `id`, `title`,
   `lang` (the stored item shape — a raw export re-imports) + `label_id` (split off as the dd560
   intent, unchanged). Any other key REFUSES the cell (`IGNORED: unknown key "<key>" in an iri
-  item …`). `iri`, when present: a string with an http(s) protocol, TRIMMED. `id`: a positive
+  item …`). `iri`, when present: a string with an http(s) protocol, TRIMMED; a BLANK `iri` (null, `""`, whitespace) is ABSENT (PHP `!empty`) — the edit UI stores a title-only row as `{iri:"",title:"…"}`, so it must re-import (the blank key is dropped). `id`: a positive
   integer. `title` / `lang`: strings (null = absent). An item with neither an `iri` nor a `title`
   is refused (`IGNORED: an iri item needs an iri or a title …`; with a `label_id`, the T0-12 "a
   label needs an iri" sentence). A lang-keyed title-only item is now accepted like a flat one (PHP
@@ -131,5 +131,5 @@ wrong label, and drops other language slices' labels.
   key silently; `id` was not type-checked. TS refuses instead of dropping: a dropped key is data the
   operator believes imported.
 - **Gate:** `test/unit/import_conform_iri_native.test.ts` "the json iri ITEM whitelist (T2-IMP-2)"
-  (unknown key both branches, flat trim, `{}` ×3 shapes, round-trip of the stored shape, wrong
-  types). Write path; no fixture.
+  (unknown key both branches, flat trim, `{}` ×3 shapes, round-trip of the stored shape, blank
+  iri = absent, wrong types). Write path; no fixture.
