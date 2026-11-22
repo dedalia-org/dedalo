@@ -1981,6 +1981,17 @@ Merged since the last release; these ship with the next one.
     guide). Image vectors indexed before this version show no thumbnail until their record is indexed
     again, and that indexing computes each image vector once more.
 
+- **"The References panel no longer opens a column for a section, the exclude marker or the old security field."**
+
+    A section's list of columns for "records that point here" (its `relation_list`, or the
+    `relation_list` entry of its section map) may name nodes that are not fields: the section
+    itself, an `exclude_elements` marker, or the retired security-areas field `dd249`. The
+    inverse-relations field of a record already skipped them; the References panel and the related
+    search showed each of them as an empty column. Both now apply the same rule and show only real
+    fields.
+
+    **Action needed:** none.
+
 - **"The process-state widget now follows a multi-step path to its state field."**
 
     The process-state widget (the `state` widget of a `component_info` field) reads each configured

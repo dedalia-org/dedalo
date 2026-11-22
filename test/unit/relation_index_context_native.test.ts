@@ -41,12 +41,18 @@ import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
 import { flattenConfigDdoMaps } from '../../src/core/relations/config_ddo_map.ts';
 import {
 	clearFieldsSeparatorCache,
+	getRelationListColumns,
 	resolveCellValue,
 } from '../../src/core/resolve/relation_list.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { createSession, getSession } from '../../src/core/security/session_store.ts';
+import {
+	dropSituation,
+	ensureSituation,
+	situation,
+} from '../../src/core/test_data/situations/situation.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { clearAclIdentityCaches } from '../helpers/acl_identity_fixture.ts';
 import {
@@ -1004,4 +1010,123 @@ describe('the empty-show-map log silences ONLY the relation_index placeholder', 
 			}
 		});
 	}
+});
+
+/**
+ * T2-REL-1 — a relation_list's `relations` may name nodes that are NEVER a
+ * column (PHP clean_and_extract_related): the section node itself, the
+ * exclude_elements marker, and the deprecated dd249 security component. The
+ * index's related_list ddo map and its data cells drop them (the clean step,
+ * section/related_list.ts), and so does the References grid's column list
+ * (resolve/relation_list.ts getRelationListColumns — folded onto the SAME clean
+ * step, both the legacy relation_list node and the section_map scope; before,
+ * it returned the declared tipos verbatim and the grid opened a column for a
+ * section, for dd249 and for the exclude marker).
+ *
+ * Situation `zzric` (dropped with residue 0): pointing section zzric1 whose
+ * relation_list zzric2 names [zzric1 (the section), dd249, zzric3
+ * (exclude_elements), zzric4 (the one real column)]; pointer slot zzric6 (dd96
+ * → a scratch test3 host). Section zzric10 declares the same four shapes
+ * through section_map relation_list.term.
+ */
+const REL1_TLD = 'zzric';
+const REL1_SECTION = `${REL1_TLD}1`;
+const REL1_RELATION_LIST = `${REL1_TLD}2`;
+const REL1_EXCLUDE = `${REL1_TLD}3`;
+const REL1_COLUMN = `${REL1_TLD}4`;
+const REL1_POINTER_SLOT = `${REL1_TLD}6`;
+const REL1_MAP_SECTION = `${REL1_TLD}10`;
+const REL1_SECTION_MAP = `${REL1_TLD}11`;
+const REL1_MAP_EXCLUDE = `${REL1_TLD}12`;
+const REL1_MAP_COLUMN = `${REL1_TLD}13`;
+/** PHP DEDALO_COMPONENT_SECURITY_AREAS_PROFILES_TIPO (core, model component_security_areas). */
+const SECURITY_AREAS = `dd${249}`;
+const REL1_HOST_ID = 948371;
+const REL1_COLUMN_VALUE = 'zzric related_list column value';
+const NEVER_COLUMNS = [REL1_SECTION, SECURITY_AREAS, REL1_EXCLUDE];
+
+const REL1_SITUATION = situation({
+	name: 'zzric related_list clean step',
+	tld: REL1_TLD,
+	nodes: [
+		{ tipo: REL1_SECTION, model: 'section', parent: 'test1', relations: [{ tipo: 'test24' }] },
+		{
+			tipo: REL1_RELATION_LIST,
+			model: 'relation_list',
+			parent: REL1_SECTION,
+			relations: [
+				{ tipo: REL1_SECTION },
+				{ tipo: SECURITY_AREAS },
+				{ tipo: REL1_EXCLUDE },
+				{ tipo: REL1_COLUMN },
+			],
+		},
+		{ tipo: REL1_EXCLUDE, model: 'exclude_elements', parent: REL1_SECTION },
+		{ tipo: REL1_COLUMN, model: 'component_input_text', parent: REL1_SECTION },
+		{ tipo: REL1_POINTER_SLOT, model: 'component_portal', parent: REL1_SECTION },
+		{ tipo: REL1_MAP_SECTION, model: 'section', parent: 'test1', relations: [{ tipo: 'test24' }] },
+		{
+			tipo: REL1_SECTION_MAP,
+			model: 'section_map',
+			parent: REL1_MAP_SECTION,
+			properties: {
+				relation_list: {
+					term: [REL1_MAP_SECTION, SECURITY_AREAS, REL1_MAP_EXCLUDE, REL1_MAP_COLUMN],
+				},
+			},
+		},
+		{ tipo: REL1_MAP_EXCLUDE, model: 'exclude_elements', parent: REL1_MAP_SECTION },
+		{ tipo: REL1_MAP_COLUMN, model: 'component_input_text', parent: REL1_MAP_SECTION },
+	],
+	records: [
+		{
+			section_tipo: REL1_SECTION,
+			section_id: 1,
+			columns: {
+				relation: dd96Pointer(REL1_POINTER_SLOT, REL1_HOST_ID),
+				string: { [REL1_COLUMN]: [{ id: 1, lang: 'lg-nolan', value: REL1_COLUMN_VALUE }] },
+			},
+		},
+	],
+});
+
+describe('T2-REL-1: a relation_list section node, dd249 and exclude_elements are never a ddo / cell', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('relation_index_context_native zzric');
+		await cleanScratchRecord(HOST_SECTION, REL1_HOST_ID, 'matrix_test');
+		await dropSituation(REL1_SITUATION);
+		await ensureSituation(REL1_SITUATION);
+		await createScratchRecord(HOST_SECTION, REL1_HOST_ID, {});
+	}, 60_000);
+
+	afterAll(async () => {
+		await assertTestDatabase('relation_index_context_native zzric');
+		await cleanScratchRecord(HOST_SECTION, REL1_HOST_ID, 'matrix_test');
+		expect(await dropSituation(REL1_SITUATION)).toBe(0);
+		expect(await readMatrixRecord('matrix_test', HOST_SECTION, REL1_HOST_ID)).toBeNull();
+	}, 60_000);
+
+	for (const mode of ['list', 'edit'] as const) {
+		test(`get_data ${mode}: the pointing section's ddo map and cells hold ONLY the real column`, async () => {
+			const answer = await getData(REL1_HOST_ID, mode, { limit: 10, offset: 0 });
+			const entry = indexEntry(answer, mode);
+			const sectionDdos = ddoMapOf(entry).filter((ddo) => ddo.section_tipo === REL1_SECTION);
+			expect(sectionDdos.map((ddo) => ddo.tipo)).toEqual([REL1_COLUMN]);
+			// the real column's cell is there (floor) …
+			expect(cellItems(answer, REL1_COLUMN).length).toBeGreaterThan(0);
+			// … and no never-a-column node has a cell or a related_list context
+			for (const tipo of NEVER_COLUMNS) {
+				expect(cellItems(answer, tipo), `${tipo} became a cell`).toEqual([]);
+				expect(cellEntries(answer, tipo), `${tipo} became a context`).toEqual([]);
+			}
+		});
+	}
+
+	test('References grid columns: the relation_list node, cleaned by the SAME step', async () => {
+		expect(await getRelationListColumns(REL1_SECTION)).toEqual([REL1_COLUMN]);
+	});
+
+	test('References grid columns: the section_map relation_list scope, cleaned too', async () => {
+		expect(await getRelationListColumns(REL1_MAP_SECTION)).toEqual([REL1_MAP_COLUMN]);
+	});
 });

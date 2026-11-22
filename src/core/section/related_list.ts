@@ -109,6 +109,19 @@ async function columnCandidates(tipos: readonly string[]): Promise<Map<string, s
 }
 
 /**
+ * THE clean step on any declared column list (ontology order kept, duplicates
+ * dropped): the tipos that may become a related_list / References column —
+ * never a section node, the exclude_elements marker, dd249, a label node or an
+ * unresolvable tipo. The References grid's column list
+ * (resolve/relation_list.ts getRelationListColumns) runs its declared tipos —
+ * relation_list node or section_map scope — through it, so the grid and the
+ * relation_index columns cannot disagree on what a column is (T2-REL-1).
+ */
+export async function cleanRelatedColumnTipos(tipos: readonly string[]): Promise<string[]> {
+	return [...(await columnCandidates(tipos)).keys()];
+}
+
+/**
  * The section's related_list COLUMN tipos with their models, principal-free
  * (the clean step only, ontology order) — the per-locator children of a
  * config-less component_relation_index in the export / flat reader
