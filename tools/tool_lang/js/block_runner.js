@@ -71,6 +71,9 @@
  *   to_global_tokens   — local → document-wide tokens
  *   process_block      — translate one block, return it with every marker accounted for
  *   run_blocks         — the block loop and its messages
+ *   run_precondition   — the soft refusal a run gets before any model is touched (no model,
+ *                        no language code), or null
+ *   smaller_model_advice — the 'try a smaller model' sentence, from the OFFERED catalogue
  */
 
 // imports
@@ -128,6 +131,59 @@ const MIN_UNIGRAM_REPEATS = 5;
  * @type {number}
  */
 export const MAX_LENGTH_RATIO = 2.5;
+
+/**
+ * RUN_PRECONDITION
+ * What the worker must refuse (SOFT: the worker stays usable, nothing is touched) before it
+ * loads anything (A1-02 re-review):
+ *   - no model DEFINITION. The main thread sends the definition the operator chose from the
+ *     catalogue the installation OFFERS (register.json → browser_transformer.models through
+ *     offered_models). There is no fallback: a name looked up in the shipped catalogue, or
+ *     its first entry, could run a model the installation does not offer (NLLB, CC-BY-NC).
+ *   - no source or target language code. A language without a locale mapping must never be
+ *     translated as 'en' → 'es' (it would be saved as the other language's text).
+ * @param {Object} options - the worker's options message
+ * @returns {{code:string, message:string}|null} null when the run may proceed
+ */
+export const run_precondition = (options) => {
+	const model = options?.model;
+	if (!model || typeof model !== 'object' || typeof model.name !== 'string' || !model.name) {
+		return {
+			code: 'no_model',
+			message: 'No translation model was chosen: this installation offers none for the browser engine.',
+		};
+	}
+	for (const [side, code] of [
+		['source', options.sourceLangCode],
+		['target', options.targetLangCode],
+	]) {
+		if (typeof code !== 'string' || !code) {
+			return {
+				code: 'unsupported_lang',
+				message: `The ${side} language has no language code the '${model.name}' model understands.`,
+			};
+		}
+	}
+	return null;
+}; //end run_precondition
+
+/**
+ * SMALLER_MODEL_ADVICE
+ * The 'try a smaller model' sentence of a needs_webgpu / model_too_large refusal, built from
+ * the models the installation OFFERS (options.alternatives: [{name, requires_webgpu}]) — never
+ * from a hard-coded list, which named NLLB (listed, not offered). A model that itself needs
+ * WebGPU is no smaller alternative; the current one is not an alternative. Nothing to offer
+ * → '' (the refusal still says why).
+ * @param {Array<{name:string, label?:string, requires_webgpu?:boolean}>|undefined} alternatives
+ * @param {string} current_name
+ * @returns {string} ' Try a smaller model: a, b.' or ''
+ */
+export const smaller_model_advice = (alternatives, current_name) => {
+	const names = (Array.isArray(alternatives) ? alternatives : [])
+		.filter((item) => item && typeof item.name === 'string' && item.name !== current_name && !item.requires_webgpu)
+		.map((item) => (typeof item.label === 'string' && item.label ? item.label : item.name));
+	return names.length > 0 ? ` Try a smaller model: ${names.join(', ')}.` : '';
+}; //end smaller_model_advice
 
 /**
  * STRIP_FENCES

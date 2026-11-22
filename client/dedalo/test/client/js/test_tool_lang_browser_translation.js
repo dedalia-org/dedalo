@@ -44,7 +44,12 @@ import {
 	translate_component_browser,
 	validate_translation,
 } from '../../../tools/tool_lang/js/browser_translation.js';
+import { BROWSER_MODELS, offered_models } from '../../../tools/tool_lang/js/browser_models.js';
 import { marks_in_text_nodes } from '../../../tools/tool_lang/js/markdown_utils.js';
+import {
+	append_engine_selector,
+	selected_browser_options,
+} from '../../../tools/tool_lang/js/translator_engine_select.js';
 import { translation_summary } from '../../../tools/tool_lang_multi/js/tool_lang_multi.js';
 import { get_tool_label } from '../../../core/tools_common/js/tool_common.js';
 
@@ -76,7 +81,13 @@ const LOOP = 'una vez una vez una vez una vez una vez una vez una vez una vez';
 const JSON_LANGS = [
 	{ dd_lang: 'lg-eng', locale: 'en-US' },
 	{ dd_lang: 'lg-spa', locale: 'es-ES' },
+	// declared, but no locale: no model can be told this language (A1-02 re-review)
+	{ dd_lang: 'lg-nolan' },
 ];
+
+// the model definition the run is given (the fake worker never loads it). A run without one
+// is refused before the worker starts — there is no fallback model.
+const TEST_MODEL = offered_models(null).find((model) => model.name === 'opus');
 
 /** The last FakeWorker constructed, and how many were (a refusal before the run makes none). */
 let last_worker = null;
@@ -135,6 +146,10 @@ const make_fake_worker = (behaviour) =>
  * @param {string} [options.source=SOURCE] - the source value
  * @param {Object} [options.target_data] - the target's data (default: STORED in value + entries)
  * @param {Function} [options.get_label] - default: the null resolver (literal fallbacks fire)
+ * @param {Object|null} [options.model=TEST_MODEL] - the model definition (null: none offered)
+ * @param {Array} [options.alternatives] - the offered models a refusal may suggest
+ * @param {string} [options.source_lang='lg-eng']
+ * @param {string} [options.target_lang='lg-spa']
  * @return {Promise<{saves, target, status_text, overlay, resolved, rejected}>}
  */
 const run_translation = async (options = {}) => {
@@ -158,8 +173,10 @@ const run_translation = async (options = {}) => {
 	await translate_component_browser({
 		source_component: { data: { entries: [{ id: 7, value: options.source ?? SOURCE }] } },
 		target_component: target_component,
-		source_lang: 'lg-eng',
-		target_lang: 'lg-spa',
+		source_lang: options.source_lang ?? 'lg-eng',
+		target_lang: options.target_lang ?? 'lg-spa',
+		model: options.model === undefined ? TEST_MODEL : options.model,
+		alternatives: options.alternatives,
 		status_container: status_container,
 		streaming_overlay: overlay,
 		streaming_overlay_content: overlay_content,
@@ -350,7 +367,7 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.include(run.status_text, '2 linked marks were reversed by the translation and reordered');
 	});
 
-	it('a shielded tag (span / sup) round-trips byte-identical; the model never sees markup', async () => {
+	it('a shielded tag (span / sup) round-trips as the same tag; the model never sees markup', async () => {
 		const source = '<p>The <span style="color:red" data-x="1">white</span> whale<sup>2</sup> swims.</p>';
 		const sent = [];
 		window.Worker = make_fake_worker({
@@ -401,6 +418,172 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.notInclude(value, '<img');
 		assert.include(value, '&lt;script&gt;x()&lt;/script&gt;');
 		assert.include(value, '&lt;img onerror=y&gt;');
+	});
+
+	// --- block structure comes from the SOURCE, never from the model's text (A1-02 re-review) ---
+
+	it('a year-leading paragraph, a dialogue dash and "---" stay paragraphs of text', async () => {
+		const source = '<p>1984. The museum opened.</p><p>- Where was it?</p><p>---</p>';
+		window.Worker = make_fake_worker({
+			translate: async (text) =>
+				text.replace('The museum opened.', 'El museo abrió.').replace('Where was it?', '¿Dónde estaba?'),
+		});
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), '<p>1984. El museo abrió.</p><p>- ¿Dónde estaba?</p><p>---</p>');
+	});
+
+	it('Markdown block syntax the MODEL writes is text: a "# …" / "> …" answer never becomes a heading or quote', async () => {
+		window.Worker = make_fake_worker({ translate: async (text) => (text === 'May 5' ? '# 5 de mayo' : '> cita') });
+
+		const run = await run_translation({ source: '<p>May 5</p><p>quote</p>' });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), '<p># 5 de mayo</p><p>&gt; cita</p>');
+	});
+
+	it('a heading, a list, a rule and a quote of the SOURCE keep their structure; the model sees none of it', async () => {
+		const source =
+			'<h2>The whale</h2><ul><li>It swims.</li><li>It dives.</li></ul><hr><blockquote>It sings.</blockquote><p>End.</p>';
+		const sent = [];
+		window.Worker = make_fake_worker({
+			translate: async (text) => {
+				sent.push(text);
+				return text
+					.replace('The whale', 'La ballena')
+					.replace('It swims.', 'Nada.')
+					.replace('It dives.', 'Bucea.')
+					.replace('It sings.', 'Canta.')
+					.replace('End.', 'Fin.');
+			},
+		});
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(
+			saved_value(run.saves),
+			'<h2>La ballena</h2><ul><li>Nada.</li><li>Bucea.</li></ul><hr><blockquote>Canta.</blockquote><p>Fin.</p>',
+		);
+		assert.notMatch(sent.join('\n'), /^\s*(#|-|\d+\.|>)\s/m, 'no Markdown block syntax reaches the model');
+		assert.notInclude(sent.join(' '), '---');
+	});
+
+	// --- refused softly before the worker: no model, a language no model can be told ---
+
+	it('NO model offered: refused before the worker starts — nothing saved, value back, no fallback model', async () => {
+		window.Worker = make_fake_worker({ translate: async () => MODEL_CLEAN });
+
+		const run = await run_translation({ model: null });
+
+		assert.equal(workers_constructed, 0, 'the worker never started');
+		assert.deepEqual(run.saves, []);
+		assert.isNull(run.rejected);
+		assert.deepEqual(run.resolved, {
+			result: false,
+			msg: 'Translation not started: this installation offers no browser translation model',
+			code: 'no_model',
+		});
+		assert.deepEqual(run.target.data.value, [STORED]);
+		assert.include(run.status_text, 'Nothing was saved');
+	});
+
+	it('a TARGET language with no locale is refused (never translated as English): nothing saved', async () => {
+		window.Worker = make_fake_worker({ translate: async () => MODEL_CLEAN });
+
+		const run = await run_translation({ target_lang: 'lg-nolan' });
+
+		assert.equal(workers_constructed, 0, 'the worker never started');
+		assert.deepEqual(run.saves, []);
+		assert.deepEqual(run.resolved, {
+			result: false,
+			msg: 'Translation not started: the language lg-nolan has no locale code a translation model understands',
+			code: 'unsupported_lang',
+		});
+		assert.deepEqual(run.target.data.value, [STORED]);
+	});
+
+	it('a SOURCE language the registry does not know is refused the same way', async () => {
+		window.Worker = make_fake_worker({ translate: async () => MODEL_CLEAN });
+
+		const run = await run_translation({ source_lang: 'lg-xxx' });
+
+		assert.equal(workers_constructed, 0);
+		assert.deepEqual(run.saves, []);
+		assert.equal(run.resolved?.code, 'unsupported_lang');
+		assert.include(run.status_text, 'lg-xxx');
+	});
+
+	it('the worker is sent the model definition and the OFFERED alternatives — never a bare name', async () => {
+		const alternatives = [{ name: 'qwen', label: 'Qwen3 4B', requires_webgpu: true }];
+		window.Worker = make_fake_worker({ translate: async () => MODEL_CLEAN });
+
+		const run = await run_translation({ alternatives });
+
+		assert.isNull(run.rejected, run.status_text);
+		const posted = last_worker.posted[0].options;
+		assert.deepEqual(posted.model, TEST_MODEL);
+		assert.deepEqual(posted.alternatives, alternatives);
+		assert.equal(posted.sourceLangCode, 'en');
+		assert.equal(posted.targetLangCode, 'es');
+	});
+
+	it('selected_browser_options: the offered models are the alternatives; a not-offered name resolves to no model', () => {
+		const self = {
+			translator_models: offered_models(null),
+			translator_engine_model_select: { value: 'qwen' },
+			get_tool_label: (key) => (key === 'engine_opus' ? 'Opus-MT — ~75 MB, fast' : null),
+		};
+		const chosen = selected_browser_options(self);
+		assert.equal(chosen.model?.name, 'qwen');
+		assert.deepEqual(
+			chosen.alternatives.map((item) => item.name),
+			offered_models(null).map((model) => model.name),
+		);
+		assert.notInclude(
+			chosen.alternatives.map((item) => item.name),
+			'nllb',
+			'a model listed but not offered is never suggested',
+		);
+		assert.deepEqual(
+			chosen.alternatives.find((item) => item.name === 'opus'),
+			{ name: 'opus', label: 'Opus-MT', requires_webgpu: false },
+		);
+		self.translator_engine_model_select.value = 'nllb';
+		assert.isNull(selected_browser_options(self).model, 'not offered → no model → refused');
+	});
+
+	it('the rendered selector keeps ONLY the offered definitions: a not-offered model can never be sent', () => {
+		const render = (models) => {
+			const self = { get_tool_label: () => null, target_translator: 'browser_transformer' };
+			append_engine_selector({
+				self,
+				translator_engine: [{ name: 'browser_transformer', label: 'Browser', type: 'browser', models }],
+				parent: document.createElement('div'),
+			});
+			return self;
+		};
+
+		const self = render(structuredClone([...BROWSER_MODELS]));
+		const names = self.translator_models.map((model) => model.name);
+		assert.notInclude(names, 'nllb', 'NLLB is listed, not offered');
+		assert.deepEqual(names, offered_models(null).map((model) => model.name));
+		assert.deepEqual(
+			Array.from(self.translator_engine_model_select.options).map((option) => option.value),
+			names,
+		);
+		// a forged choice of the listed-but-not-offered model resolves to no definition
+		const forged = document.createElement('option');
+		forged.value = 'nllb';
+		self.translator_engine_model_select.append(forged);
+		self.translator_engine_model_select.value = 'nllb';
+		assert.isNull(selected_browser_options(self).model);
+
+		// an installation that enables it in its tool config gets it offered (owner ruling Q1)
+		const enabled = render(BROWSER_MODELS.map((model) => ({ ...model, offered_by_default: true })));
+		assert.include(enabled.translator_models.map((model) => model.name), 'nllb');
 	});
 
 	// --- many blocks: document-wide numbering ---

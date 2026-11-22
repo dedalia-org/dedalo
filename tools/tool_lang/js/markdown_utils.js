@@ -15,17 +15,27 @@
  *
  * THE MODEL'S OUTPUT IS TEXT, NEVER MARKUP (A1-02 review). markdown_to_html HTML-escapes
  * everything the model wrote; the only markup in its result is what the converter itself
- * emits (<p>, <br>, <strong>, <em>, <u>, <code>, headings, lists, blockquotes, simple
- * tables) — none of it carrying an attribute the model wrote. A model that answers
- * '<img src=x onerror=…>' or '<script>' therefore saves those characters as visible text.
+ * emits (<p>, <br>, <strong>, <em>, <u>, <code>) — none of it carrying an attribute the
+ * model wrote. A model that answers '<img src=x onerror=…>' or '<script>' therefore saves
+ * those characters as visible text.
+ *
+ * BLOCK STRUCTURE COMES FROM THE SOURCE, NEVER FROM THE MODEL'S TEXT (A1-02 re-review).
+ * Markdown block syntax is inferred from plain text: a paragraph that opens with '1984. '
+ * is an ordered list, '- ¿Dónde?' a bullet, '---' a rule, '# 5 de mayo' a heading, '> cita'
+ * a quote. So nothing here writes or reads Markdown block syntax: the only block forms are
+ * the paragraph (<p> ↔ a blank line) and the line break (<br> ↔ '\n'); headings, lists,
+ * quotes, rules, tables, <div> and every other block element travel as shielded tokens like
+ * any tag without a Markdown form, and the model's '1984. ' or '---' is just text.
  *
  * What makes that possible is that the model never receives markup either. Elements with
- * no Markdown equivalent — <span style>, <sub>, <sup>, <mark>, <a href>, <img>, a table
- * with merged cells, anything unknown — are SHIELDED: html_to_markdown hands each start
- * tag, end tag or whole void element to the caller's `shield` callback, which returns a
- * [[[n]]] token and remembers the original bytes, and the caller restores them exactly
- * like a Dédalo mark. The tags come back byte-identical from the source; the model only
- * sees (and translates) the text between them. v6 sent these elements to the model as raw
+ * no Markdown inline form — <span style>, <sub>, <sup>, <mark>, <a href>, <img>, <h2>, <ul>,
+ * <li>, <blockquote>, <hr>, <table>, <div>, anything unknown — are SHIELDED: html_to_markdown
+ * hands each start tag, end tag or whole void element to the caller's `shield` callback,
+ * which returns a [[[n]]] token and remembers the tag, and the caller restores it like a
+ * Dédalo mark. A restored tag is the source tag as the browser SERIALISES it (DOMParser +
+ * outerHTML: attribute quoting and entities normalised, the same form an editor saves) — not
+ * a byte copy of the stored string; the model only sees (and translates) the text between
+ * them. <pre> (code) is one atom and is not translated. v6 sent these elements to the model as raw
  * outerHTML (d3991c3a66), where it could corrupt them and where nothing stopped it from
  * writing its own; the per-block local token numbering and edge hoisting (55c816b41c) made
  * the extra tokens affordable.
@@ -68,6 +78,8 @@ const RAW_ATOM_TAGS = new Set([
 	'noscript',
 	'textarea',
 	'select',
+	// code is not prose, and its line breaks are content: one atom, restored as it was
+	'pre',
 ]);
 
 /**
@@ -88,6 +100,23 @@ const VOID_TAGS = new Set([
 	'track',
 	'wbr',
 ]);
+
+/**
+ * The void elements that are BLOCK-level: shielded as an atom set apart as its own block (a
+ * rule inside a <p> is not valid HTML). Every other void element (img, wbr …) is inline.
+ * @type {Set<string>}
+ */
+const BLOCK_VOID_TAGS = new Set(['hr']);
+
+/**
+ * IS_BLOCK_TAG
+ * Is a shielded element block-level? Unknown tags are (their content cannot weld onto a
+ * paragraph); known inline ones and inline void ones are not.
+ * @param {string} tag - lower-case tag name
+ * @returns {boolean}
+ */
+const is_block_tag = (tag) =>
+	BLOCK_VOID_TAGS.has(tag) || (!INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
 
 /**
  * Elements with no Markdown equivalent that are INLINE: their start and end tags become a
@@ -144,8 +173,12 @@ const ESCAPE_STANDINS = {
 /** The line-break stand-in: a '\n' inside a block, turned into <br> after the inline rules. */
 const LINE_BREAK_STANDIN = '';
 
+/** Brackets a set-aside inline code span's index inside process_inline (U+E007 <n> U+E007). */
+const CODE_STANDIN = '\uE007';
+const CODE_STANDIN_RE = /\uE007(\d+)\uE007/g;
+
 /** Every stand-in, so text that already contains one cannot be misread as ours. */
-const STANDIN_RE = /[-]/g;
+const STANDIN_RE = /[\uE000-\uE007]/g;
 
 /**
  * ASCII_TRIM
@@ -176,12 +209,10 @@ const escape_html = (text) =>
  * Convert an HTML string to Markdown for the translation model.
  *
  * Conversions:
- *   Block:  <p> → \n\n  |  <br> → \n  |  <h1>–<h6> → #…######
- *           <ul>/<ol>/<li> → -/1.  |  <blockquote> → >  |  <hr> → ---
- *           <div> → recurse + \n\n  |  simple <table> → GFM pipe table
- *           <pre> → fenced ``` code block
+ *   Block:  <p> → \n\n  |  <br> → \n
  *   Inline: <strong>/<b> → **  |  <em>/<i> → *  |  <u> → __  |  <code> → `code`
- *   Shielded (see the header): every other element, as tokens from options.shield.
+ *   Shielded (see the header): every other element — headings, lists, quotes, rules,
+ *   tables, <div> included — as tokens from options.shield; <pre> as one atom.
  *
  * <br> is a single '\n' (v6 55c816b41c): '\n\n' is a paragraph boundary, the strongest cut
  * of segment_markdown, and emitting it cut any inline element containing a <br> in half.
@@ -309,8 +340,7 @@ export function html_to_markdown(html, options = {}) {
 			if (!text) {
 				return '';
 			}
-			const in_pre = node.parentElement?.closest('pre');
-			return escape_md(in_pre ? text : text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
+			return escape_md(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
 		}
 
 		if (node.nodeType !== 1) {
@@ -320,7 +350,7 @@ export function html_to_markdown(html, options = {}) {
 		const tag = node.tagName.toLowerCase();
 
 		if (shield_depth > 0 && !MD_INLINE_TAGS.has(tag)) {
-			return shield_element(node, !INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
+			return shield_element(node, is_block_tag(tag));
 		}
 
 		switch (tag) {
@@ -331,53 +361,6 @@ export function html_to_markdown(html, options = {}) {
 
 			case 'br':
 				return '\n';
-
-			case 'h1':
-			case 'h2':
-			case 'h3':
-			case 'h4':
-			case 'h5':
-			case 'h6':
-				return `${'#'.repeat(Number(tag[1]))} ${walk_children(node)}\n\n`;
-
-			case 'ul': {
-				const items = [];
-				for (const child of node.children) {
-					if (child.tagName.toLowerCase() === 'li') {
-						items.push(`- ${walk_children(child)}`);
-					}
-				}
-				return `${items.join('\n')}\n\n`;
-			}
-
-			case 'ol': {
-				const items = [];
-				let n = 1;
-				for (const child of node.children) {
-					if (child.tagName.toLowerCase() === 'li') {
-						items.push(`${n}. ${walk_children(child)}`);
-						n++;
-					}
-				}
-				return `${items.join('\n')}\n\n`;
-			}
-
-			case 'blockquote':
-				return `${walk_children(node)
-					.split('\n')
-					.map((line) => `> ${line}`)
-					.join('\n')}\n\n`;
-
-			case 'hr':
-				return '---\n\n';
-
-			case 'div':
-				return `${walk_children(node)}\n\n`;
-
-			case 'table': {
-				const simple = convert_table(node);
-				return simple === null ? shield_element(node, true) : `${simple}\n\n`;
-			}
 
 			case 'strong':
 			case 'b': {
@@ -399,13 +382,10 @@ export function html_to_markdown(html, options = {}) {
 			case 'code':
 				return `\`${walk_children(node)}\``;
 
-			case 'pre':
-				return `\`\`\`\n${walk_children(node)}\n\`\`\`\n\n`;
-
 			default:
 				// no Markdown equivalent: shielded (an unknown tag is treated as block-level
 				// unless it is a known inline one, so its content cannot weld onto a paragraph)
-				return shield_element(node, !INLINE_SHIELD_TAGS.has(tag) && !VOID_TAGS.has(tag));
+				return shield_element(node, is_block_tag(tag));
 		}
 	};
 
@@ -415,48 +395,6 @@ export function html_to_markdown(html, options = {}) {
 	 * @returns {string}
 	 */
 	const walk_children = (node) => Array.from(node.childNodes).map(walk).join('');
-
-	/**
-	 * CONVERT_TABLE (inner)
-	 * A <table> as a GFM pipe table, or null when it cannot be one (merged cells, no
-	 * rows) — the caller then shields it as a block element, so its structure is kept
-	 * byte for byte and only its text is translated. The first row is the header.
-	 * @param {Element} table
-	 * @returns {string|null}
-	 */
-	const convert_table = (table) => {
-		if (table.querySelectorAll('td[colspan], td[rowspan], th[colspan], th[rowspan]').length > 0) {
-			return null;
-		}
-
-		const rows = table.querySelectorAll('tr');
-		if (rows.length === 0) {
-			return null;
-		}
-
-		const md_rows = [];
-		for (const row of rows) {
-			const cell_texts = [];
-			for (const cell of row.querySelectorAll('th, td')) {
-				cell_texts.push(walk_children(cell).trim().replace(/\n/g, ' ').replace(/\s+/g, ' '));
-			}
-			md_rows.push(cell_texts);
-		}
-
-		const col_count = Math.max(...md_rows.map((row) => row.length));
-		for (const row of md_rows) {
-			while (row.length < col_count) {
-				row.push('');
-			}
-		}
-
-		const lines = [`| ${md_rows[0].join(' | ')} |`, `| ${md_rows[0].map(() => '---').join(' | ')} |`];
-		for (let i = 1; i < md_rows.length; i++) {
-			lines.push(`| ${md_rows[i].join(' | ')} |`);
-		}
-
-		return lines.join('\n');
-	};
 
 	const md = Array.from(doc.body.childNodes).map(walk).join('');
 
@@ -471,16 +409,10 @@ export function html_to_markdown(html, options = {}) {
  * tags in the result are the ones emitted here. [[[n]]] tokens are untouched — the caller
  * restores them after this.
  *
- * Blocks (split on \n\n+), in priority order:
- *   ``` … ```        → <pre><code> (escaped)
- *   ---/***\/___      → <hr>
- *   # … ######        → <h1>…<h6>
- *   - / * / + lines   → <ul><li>
- *   1. 2. … lines     → <ol><li>
- *   > lines           → <blockquote>
- *   | … | + | --- |   → <table>
+ * Blocks (split on \n\n+) — NO block syntax is parsed (see the header: '1984. ', '- ',
+ * '---', '#', '>' at a line start are text the model wrote, never structure):
  *   starts with a block token (options.block_tokens) → its content, NO <p> wrapper (a
- *                       shielded block element: <p><table> is not valid HTML)
+ *                       shielded block element: <p><ul> is not valid HTML)
  *   anything else     → <p>, a single \n inside becoming <br>
  *
  * A <p>…</p> the model wrapped around a block is stripped (v6 55c816b41c): it would
@@ -515,58 +447,7 @@ export function markdown_to_html(md, options = {}) {
 			continue;
 		}
 
-		// fenced code block
-		const code_match = block.match(/^```([a-zA-Z0-9_-]*)\n([\s\S]*?)```$/);
-		if (code_match) {
-			const lang = code_match[1];
-			html_blocks.push(
-				`<pre><code${lang ? ` class="lang-${lang}"` : ''}>${escape_html(code_match[2])}</code></pre>`,
-			);
-			continue;
-		}
-
-		// horizontal rule
-		if (/^(-{3,}|\*{3,}|_{3,})$/.test(block)) {
-			html_blocks.push('<hr>');
-			continue;
-		}
-
-		// heading
-		const heading_match = block.match(/^(#{1,6})\s+(.+)$/);
-		if (heading_match) {
-			const level = heading_match[1].length;
-			html_blocks.push(`<h${level}>${process_inline(heading_match[2])}</h${level}>`);
-			continue;
-		}
-
 		const lines = block.split('\n');
-
-		// unordered list
-		if (lines.every((line) => /^\s*[-*+]\s+/.test(line))) {
-			const items = lines.map((line) => `<li>${process_inline(line.replace(/^\s*[-*+]\s+/, ''))}</li>`);
-			html_blocks.push(`<ul>${items.join('')}</ul>`);
-			continue;
-		}
-
-		// ordered list
-		if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
-			const items = lines.map((line) => `<li>${process_inline(line.replace(/^\s*\d+\.\s+/, ''))}</li>`);
-			html_blocks.push(`<ol>${items.join('')}</ol>`);
-			continue;
-		}
-
-		// blockquote
-		if (lines.every((line) => /^>\s?/.test(line))) {
-			const inner = lines.map((line) => line.replace(/^>\s?/, '')).join(LINE_BREAK_STANDIN);
-			html_blocks.push(`<blockquote>${with_line_breaks(process_inline(inner))}</blockquote>`);
-			continue;
-		}
-
-		// markdown table
-		if (lines.length >= 2 && lines[0].startsWith('|') && /^\|[\s\-:|]+\|$/.test(lines[1])) {
-			html_blocks.push(convert_md_table(lines));
-			continue;
-		}
 
 		// The lines are joined BEFORE process_inline (v6 55c816b41c): run per line, the
 		// inline rules (which exclude newlines) could never match emphasis spanning a <br>.
@@ -600,7 +481,8 @@ const with_line_breaks = (html) => html.split(LINE_BREAK_STANDIN).join('<br>');
  *      emphasis rule can read them; they come back as literal characters at the end.
  *   2. The whole text is HTML-escaped — from here on, the only '<' in it are the tags
  *      the rules below emit.
- *   3. Inline code `…`.
+ *   3. Inline code `…`, set aside as a stand-in until the end, so no emphasis rule reaches
+ *      into or across it.
  *   4. Bold+italic ***…***, then the two edge shapes (rule 3b, v6 55c816b41c):
  *      '**bold *both***' and '***both* bold**'.
  *   5. Bold **…** (may contain a lone '*': an italic in the middle of the bold run).
@@ -623,8 +505,14 @@ function process_inline(text) {
 	// 2. escape everything the model wrote
 	out = escape_html(out);
 
-	// 3. inline code
-	out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+	// 3. inline code, SET ASIDE until the end: no emphasis rule may reach into or across it
+	// ('**a `b** c`' must not become <strong>a <code>b</strong> c</code>)
+	const code_spans = [];
+	// (a code span never spans a line break: '```' fences are text, not a code block)
+	out = out.replace(/`([^`\n\uE000]+)`/g, (_match, code) => {
+		code_spans.push(`<code>${code}</code>`);
+		return `${CODE_STANDIN}${code_spans.length - 1}${CODE_STANDIN}`;
+	});
 
 	// 4. bold+italic, and emphasis at the edge of a bold run
 	out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -643,59 +531,14 @@ function process_inline(text) {
 	// 8. orphan delimiters
 	out = out.replace(/\*\*/g, '').replace(/__/g, '');
 
-	// the escaped metacharacters, as the literal characters they are
+	// the code spans, then the escaped metacharacters as the literal characters they are
+	out = out.replace(CODE_STANDIN_RE, (_match, index) => code_spans[Number(index)]);
 	for (const [char, standin] of Object.entries(ESCAPE_STANDINS)) {
 		out = out.split(standin).join(char);
 	}
 
 	return out;
 } //end process_inline
-
-/**
- * CONVERT_MD_TABLE
- * GFM pipe-table lines → <table> (header row, separator, data rows). Cells go through
- * process_inline, so their text is escaped like any other.
- * @param {string[]} lines
- * @returns {string}
- */
-function convert_md_table(lines) {
-	const header_cells = parse_md_row(lines[0]);
-	const data_lines = lines.slice(2);
-
-	let html = '<table><thead><tr>';
-	for (const cell of header_cells) {
-		html += `<th>${process_inline(cell)}</th>`;
-	}
-	html += '</tr></thead>';
-
-	if (data_lines.length > 0) {
-		html += '<tbody>';
-		for (const line of data_lines) {
-			html += '<tr>';
-			for (const cell of parse_md_row(line)) {
-				html += `<td>${process_inline(cell)}</td>`;
-			}
-			html += '</tr>';
-		}
-		html += '</tbody>';
-	}
-
-	return `${html}</table>`;
-} //end convert_md_table
-
-/**
- * PARSE_MD_ROW
- * '| a | b |' → ['a', 'b']
- * @param {string} line
- * @returns {string[]}
- */
-function parse_md_row(line) {
-	return line
-		.replace(/^\|/, '')
-		.replace(/\|$/, '')
-		.split('|')
-		.map((cell) => cell.trim());
-} //end parse_md_row
 
 /**
  * Paired Markdown emphasis delimiters, longest first so '**' is recognised before '*'.

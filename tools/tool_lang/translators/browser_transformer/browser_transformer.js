@@ -15,7 +15,7 @@
  *
  * Communication protocol (postMessage):
  *   Main → Worker:
- *     { options: { blocks[], sourceLangCode, targetLangCode, device, dtype?, engine?, model? } }
+ *     { options: { blocks[], sourceLangCode, targetLangCode, device, dtype?, engine?, model, alternatives? } }
  *     { cancel: true }                     – abort in-progress translation
  *   Worker → Main:
  *     { status: 'init',           data: { progress, status, device, file, engine } }        – model loading
@@ -24,8 +24,10 @@
  *     { status: 'end',            data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *     { status: 'cancelled',      data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *     { status: 'error',          data: { message, code?, name?, stack? } }
- *   An 'error' with a `code` (unsupported_pair | needs_webgpu | model_too_large) is a SOFT
- *   error: the user's choice cannot run here, the worker is still fine (v6).
+ *   An 'error' with a `code` (no_model | unsupported_lang | unsupported_pair | needs_webgpu |
+ *   model_too_large) is a SOFT error: the user's choice cannot run here, the worker is still
+ *   fine (v6). There is no model fallback: no `model` definition → no_model (A1-02 re-review;
+ *   block_runner.js run_precondition).
  *
  * The block loop, the repetition escalation, the repair of the tokens the model lost and the
  * re-attachment of the hoisted ones live in ../../js/block_runner.js (testable without the
@@ -41,10 +43,9 @@
 // copy under ./lib/, byte-identical to the 4.2.0 dist but outside every
 // integrity mechanism; before RC-01 it imported straight from a CDN.)
 import { pipeline, env } from '/dedalo/lib/transformers/dist/transformers.js';
-// The block loop + marker repair (testable without the model): ../../js/block_runner.js.
-import { run_blocks } from '../../js/block_runner.js';
-// The catalogue fallback for a stored config without `models` (one copy, gated).
-import { BROWSER_MODELS } from '../../js/browser_models.js';
+// The block loop + marker repair + the pre-load refusals (testable without the model):
+// ../../js/block_runner.js.
+import { run_blocks, run_precondition, smaller_model_advice } from '../../js/block_runner.js';
 
 // RC-01 (2026-07-28 audit): PIN the onnxruntime-web runtime to THIS install.
 // Without wasmPaths, transformers.js loads its WASM glue (.mjs + .wasm) from
@@ -64,7 +65,8 @@ env.allowRemoteModels	= true;	// "remote" here means our OWN origin (below)
 // model_pins.json, seeded by the operator with scripts/fetch_ai_models.ts or
 // rsync). The same door browser_whisper and remove_background use. Every model of
 // the catalogue is pinned there (the opus pairs that exist on the hub included), so
-// a model that is not in the store answers 404 — reported as 'unsupported_pair'.
+// a model that is not in the store answers 404 — reported as 'unsupported_pair' ("not
+// installed").
 // Model files never live in the code tree.
 env.remoteHost			= new URL('/dedalo/ai_models/', self.location.origin).href;
 env.remotePathTemplate	= '{model}/';
@@ -403,16 +405,25 @@ self.onmessage = async (e) => {
 		return;
 	}
 
-	const source_lang_code = options.sourceLangCode || 'en';
-	const target_lang_code = options.targetLangCode || 'es';
+	// no model definition, no language code: refused before anything loads (no fallback —
+	// a guessed model or an 'en' → 'es' guess would save the wrong text)
+	const precondition = run_precondition(options);
+	if (precondition) {
+		soft_error(precondition.code, precondition.message);
+		return;
+	}
+
+	const source_lang_code = options.sourceLangCode;
+	const target_lang_code = options.targetLangCode;
 	const device           = options.device || 'webgpu';
 
-	// The model DEFINITION comes from the tool config via the main thread; a name alone
-	// (a stored config without `models`) is resolved against the shipped catalogue. (v6)
-	const model = options.model
-		|| BROWSER_MODELS.find(item => item.name===options.engine)
-		|| BROWSER_MODELS[0];
+	// The model DEFINITION comes from the tool config via the main thread: the one the
+	// operator chose among the models the installation OFFERS.
+	const model       = options.model;
 	const engine_name = model.name;
+	// the alternatives a needs_webgpu / model_too_large refusal may name: the OFFERED
+	// catalogue (block_runner.js smaller_model_advice), never a fixed list
+	const advice      = smaller_model_advice(options.alternatives, engine_name);
 
 	const handler = SHAPE_HANDLERS[model.shape];
 	if (!handler) {
@@ -437,7 +448,7 @@ self.onmessage = async (e) => {
 			soft_error('needs_webgpu', `The '${engine_name}' model needs WebGPU (GPU). `
 				+ (webgpu_available
 					? 'Turn off the "more compatible / CPU" option to use it.'
-					: 'This browser has no WebGPU available, so this model cannot run here — try a smaller model (Opus-MT or NLLB).'));
+					: `This browser has no WebGPU available, so this model cannot run here.${advice}`));
 			return;
 		}
 	}
@@ -466,13 +477,13 @@ self.onmessage = async (e) => {
 				// a model that is not in this install's store: this engine has no model for
 				// the pair (the common case for opus). Soft, and the worker stays usable. (v6)
 				if (is_model_not_found(load_error)) {
-					soft_error('unsupported_pair', `No '${engine_name}' model is available for ${source_lang_code} → ${target_lang_code}.`);
+					soft_error('unsupported_pair', `The '${engine_name}' model for ${source_lang_code} → ${target_lang_code} is not installed in this installation's model store.`);
 					return;
 				}
 
 				// a model that does not fit in memory is a limit of the machine, not a crash (v6)
 				if (is_allocation_failure(load_error)) {
-					soft_error('model_too_large', `The '${engine_name}' model is too large to load on this device. Try a smaller model (Qwen3, NLLB or Opus-MT).`);
+					soft_error('model_too_large', `The '${engine_name}' model is too large to load on this device.${advice}`);
 					return;
 				}
 

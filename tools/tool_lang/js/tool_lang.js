@@ -21,7 +21,8 @@
 * TOOL_LANG
 * Tool to translate the content of a single text component from one Dédalo language
 * to another, supporting both server-side (Babel/Google Translate) and fully
-* client-side (TranslateGemma 4B via WebGPU/WASM Web Worker) translation modes.
+* client-side (a browser model — the one the operator picks among those the installation
+* offers, Qwen3 by default — via a WebGPU/WASM Web Worker) translation modes.
 *
 * Responsibilities:
 *  - Maintains a "source component" (the component being translated, keyed by its
@@ -277,7 +278,8 @@ tool_lang.prototype.build = async function(autoload=false) {
 /**
 * AUTOMATIC_TRANSLATION_BROWSER
 * Run translation entirely client-side using a Web Worker with
-* the transformers.js library and the TranslateGemma 4B model
+* the transformers.js library and the model chosen in the configuration panel (one the
+* installation offers: register.json → browser_transformer.models, Qwen3 by default)
 *
 * The worker is module-level and reused across calls (see browser_translation.js)
 * so the model is downloaded and compiled only once per page session. The first
@@ -294,9 +296,10 @@ tool_lang.prototype.build = async function(autoload=false) {
 * @param {string} options.source_lang - Dédalo lang tag for the source, e.g. 'lg-eng'
 * @param {string} options.target_lang - Dédalo lang tag for the target, e.g. 'lg-spa'
 * @param {string} [options.device='webgpu'] - ONNX runtime backend: 'webgpu' or 'wasm'
-* @param {string|null} [options.dtype] - quantisation override (TranslateGemma q4/q8)
+* @param {string|null} [options.dtype] - quantisation override (one of the chosen model's pinned dtypes)
 * @param {string|null} [options.engine] - selected model name (browser_models.js)
 * @param {Object|null} [options.model] - selected model definition from the tool config
+* @param {Array} [options.alternatives] - the offered models a 'try a smaller model' refusal may name
 * @param {HTMLElement} options.status_container - Element used to stream status/progress messages
 * @returns {Promise<Object>} Resolves with the response from translate_component_browser
 */
@@ -319,6 +322,7 @@ tool_lang.prototype.automatic_translation_browser = async function(options) {
 			dtype						: options.dtype || null,
 			engine						: options.engine || null,
 			model						: options.model || null,
+			alternatives				: options.alternatives || [],
 			status_container			: options.status_container,
 			streaming_overlay			: self.streaming_overlay,
 			streaming_overlay_content	: self.streaming_overlay_content,

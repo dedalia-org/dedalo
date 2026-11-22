@@ -7,7 +7,7 @@ import { data_manager } from '../../../core/common/js/data_manager.js';
 import { register_error_policy } from '../../../core/common/js/error_policy.js';
 // imports
 import { ui } from '../../../core/common/js/ui.js';
-import { BROWSER_MODELS, offered_models } from './browser_models.js';
+import { offered_models } from './browser_models.js';
 
 // error policy. Both translation tools (the only callers of automatic_translation)
 // show a translation.* refusal in their own panel, next to the language it is
@@ -135,9 +135,10 @@ export const append_engine_selector = ({ self, translator_engine, parent }) => {
 	const browser_engine = translator_engine.find((el) => el.type === 'browser');
 	const configured = Array.isArray(browser_engine?.models) && browser_engine.models.length > 0 ? browser_engine.models : null;
 	const models = offered_models(configured);
-	// the full definitions the worker is sent; the fallback copy when the stored config
-	// predates the catalogue (the worker then resolves the same definition by name)
-	self.translator_models = configured || BROWSER_MODELS;
+	// the full definitions the worker may be sent: the OFFERED ones only (A1-02 re-review). A
+	// name that is not offered — a remembered choice, a hand-edited select — resolves to no
+	// model, and the run is refused before the worker starts (browser_translation.js).
+	self.translator_models = models;
 
 	const model_container = ui.create_dom_element({
 		element_type: 'span',
@@ -253,7 +254,7 @@ export const append_engine_selector = ({ self, translator_engine, parent }) => {
  * name, its full definition from the tool config, and the dtype override (only one of the
  * model's pinned quantisations — forcing a dtype the store does not serve would fail to load).
  * @param {Object} self - tool instance (tool_lang | tool_lang_multi)
- * @returns {{device:string, engine:string|null, model:Object|null, dtype:string|null}}
+ * @returns {{device:string, engine:string|null, model:Object|null, alternatives:Array<{name:string, label:string, requires_webgpu:boolean}>, dtype:string|null}}
  */
 export const selected_browser_options = (self) => {
 	const engine = self.translator_engine_model_select?.value || null;
@@ -263,6 +264,12 @@ export const selected_browser_options = (self) => {
 		device: self.translator_device_checkbox?.checked ? 'wasm' : 'webgpu',
 		engine,
 		model,
+		// what a 'try a smaller model' refusal may name: the offered models, by their short label
+		alternatives: (self.translator_models || []).map((item) => ({
+			name: item.name,
+			label: String(self.get_tool_label?.(`engine_${item.name}`) || item.name).split(' — ')[0],
+			requires_webgpu: item.requires_webgpu === true,
+		})),
 		// only a quantisation the model is pinned at; null = its own default
 		dtype: model && chosen && model_dtypes(model).length > 1 && model_dtypes(model).includes(chosen) ? chosen : null,
 	};

@@ -9,7 +9,9 @@
  * register.json is the source of truth and reaches the client on the engine definition;
  * this copy is only the fallback for an installation whose STORED tool config predates the
  * `models` array (v6 kept the same fallback twice — FALLBACK_MODELS in render_tool_lang and
- * DEFAULT_MODELS in the worker; here both import this module). The unit gate
+ * DEFAULT_MODELS in the worker; here only the selector reads it, through offered_models —
+ * the worker runs the definition it is sent and never resolves a model by name, so a model
+ * that is not offered cannot be reached through it). The unit gate
  * test/unit/tool_lang_placeholder_repair.test.ts asserts it equals both register.json copies.
  *
  * A model definition:

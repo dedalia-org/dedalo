@@ -11,8 +11,14 @@
  * Usage:
  *   bun run scripts/fetch_ai_models.ts --list
  *   bun run scripts/fetch_ai_models.ts onnx-community/whisper-large-v3-turbo
- *   bun run scripts/fetch_ai_models.ts --all
+ *   bun run scripts/fetch_ai_models.ts --all [--dry-run]
  *   bun run scripts/fetch_ai_models.ts <model> --store /data/dedalo/ai_models
+ *
+ * `--all` fetches every OFFERED model. A model the catalogue lists but does not offer
+ * (`offered_by_default: false` — NLLB, CC-BY-NC, owner ruling Q1 2026-11-22) is skipped and
+ * named with its reason; it is fetched only when named explicitly, after the operator has
+ * confirmed its licence allows the use. `--list` marks it "[not offered: <reason>]".
+ * `--dry-run` prints what would be fetched (and skipped) and downloads nothing.
  *
  * The store location comes from DEDALO_AI_MODEL_STORE (default
  * <private>/ai_models) unless --store overrides it. Existing files are kept:
@@ -29,7 +35,13 @@ import { join } from 'node:path';
 import { downloadModel } from '../src/core/ai/model_fetch.ts';
 import { pinnedRevision } from '../src/core/ai/model_pins.ts';
 import { modelStoreRoot } from '../src/core/ai/model_store.ts';
-import { commonFilesFor, filesFor, readRegisterCatalog } from './lib/ai_model_register.ts';
+import {
+	allFetchTargets,
+	commonFilesFor,
+	filesFor,
+	notOfferedMark,
+	readRegisterCatalog,
+} from './lib/ai_model_register.ts';
 
 /**
  * THE catalog — read from the tool's own `register.json` through
@@ -44,7 +56,11 @@ function usage(): void {
 
   bun run scripts/fetch_ai_models.ts --list
   bun run scripts/fetch_ai_models.ts <model-id> [--store <dir>]
-  bun run scripts/fetch_ai_models.ts --all [--store <dir>]
+  bun run scripts/fetch_ai_models.ts --all [--dry-run] [--store <dir>]
+
+--all fetches every OFFERED model; a model the catalogue does not offer
+(--list marks it "[not offered: <reason>]") is fetched only when named.
+--dry-run prints what would be fetched and fetches nothing.
 
 Every model is fetched at the immutable hub revision pinned in
 src/core/ai/model_pins.json and verified by sha256 before it counts as
@@ -66,7 +82,7 @@ function listCatalog(): void {
 		);
 		const pinned = pinnedRevision(model.id) !== null ? '' : '  [NO PIN — cannot be fetched]';
 		console.log(
-			`  ${present ? '✓' : ' '} ${model.id}${pinned}\n      [${model.tool ?? 'tool_transcription'}] ${model.label}${model.note !== '' ? ` — ${model.note}` : ''}`,
+			`  ${present ? '✓' : ' '} ${model.id}${pinned}${notOfferedMark(model)}\n      [${model.tool ?? 'tool_transcription'}] ${model.label}${model.note !== '' ? ` — ${model.note}` : ''}`,
 		);
 	}
 	console.log('\n✓ = ready to use (all files the catalog asks for are present)');
@@ -120,10 +136,22 @@ if (args.includes('--list')) {
 	process.exit(0);
 }
 
-const models = args.includes('--all') ? readCatalog().map((model) => model.id) : requested;
+let models = requested;
+if (args.includes('--all')) {
+	const { ids, skipped } = allFetchTargets(readCatalog());
+	for (const { id, reason } of skipped) {
+		console.log(`skipped (not offered — fetch it by name only after checking): ${id} — ${reason}`);
+	}
+	models = [...ids, ...requested.filter((id) => !ids.includes(id))];
+}
 if (models.length === 0) {
 	usage();
 	process.exit(1);
+}
+
+if (args.includes('--dry-run')) {
+	for (const modelId of models) console.log(`would fetch: ${modelId}`);
+	process.exit(0);
 }
 
 for (const modelId of models) {

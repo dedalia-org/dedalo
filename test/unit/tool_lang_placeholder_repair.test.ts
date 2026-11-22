@@ -39,6 +39,8 @@ import {
 	REPETITION_ESCALATIONS,
 	REPETITION_PENALTY_FIRST,
 	run_blocks,
+	run_precondition,
+	smaller_model_advice,
 	strip_fences,
 	to_global_tokens,
 } from '../../tools/tool_lang/js/block_runner.js';
@@ -457,10 +459,106 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		expect(html).not.toContain('<a');
 	});
 
+	// A1-02 re-review: block structure comes from the source (shielded tags), never from text
+	// the model wrote. Each of these was a list / rule / heading / quote / table before.
+	test.each([
+		[
+			'a year-leading paragraph',
+			'1984. El museo abrió sus puertas.',
+			'<p>1984. El museo abrió sus puertas.</p>',
+		],
+		['a dialogue dash', '- ¿Dónde estaba?', '<p>- ¿Dónde estaba?</p>'],
+		['an asterisk bullet', '* uno', '<p>* uno</p>'],
+		['a rule', '---', '<p>---</p>'],
+		['a heading hash', '# 5 de mayo', '<p># 5 de mayo</p>'],
+		['a quote', '> cita', '<p>&gt; cita</p>'],
+		['a pipe table', '| a | b |\n|---|---|', '<p>| a | b |<br>|---|---|</p>'],
+		['a code fence', '```\ncode\n```', '<p>```<br>code<br>```</p>'],
+		['a dash on a second line', 'Dijo:\n- Sí.', '<p>Dijo:<br>- Sí.</p>'],
+	])('markdown_to_html infers NO block from model text: %s', (_name, md, html) => {
+		expect(markdown_to_html(md)).toBe(html);
+	});
+
+	test('markdown_to_html: a shielded block token keeps its own structure (no <p> wrapper)', () => {
+		expect(markdown_to_html('[[[1]]]uno[[[2]]]', { block_tokens: new Set(['[[[1]]]']) })).toBe(
+			'[[[1]]]uno[[[2]]]',
+		);
+	});
+
+	test('markdown_to_html: a code span is set aside — emphasis never reaches into or across it', () => {
+		expect(markdown_to_html('**a `b** c`')).toBe('<p>a <code>b** c</code></p>');
+		expect(markdown_to_html('x `**y**` z')).toBe('<p>x <code>**y**</code> z</p>');
+		expect(markdown_to_html('**a** `*b*` *c*')).toBe(
+			'<p><strong>a</strong> <code>*b*</code> <em>c</em></p>',
+		);
+	});
+
 	test('conform_emphasis drops emphasis the model invented; restore_wrapping_emphasis restores a dropped wrapper', () => {
 		expect(conform_emphasis('The white whale', 'La **ballena** blanca')).toBe('La ballena blanca');
 		expect(restore_wrapping_emphasis('**The white whale**', 'La ballena blanca')).toBe(
 			'**La ballena blanca**',
+		);
+	});
+});
+
+describe('the worker refuses before loading: no model, no language code (A1-02 re-review)', () => {
+	const model = { name: 'opus', requires_webgpu: false };
+	const ok = { model, sourceLangCode: 'en', targetLangCode: 'es' };
+
+	test('a complete run passes', () => {
+		expect(run_precondition(ok)).toBeNull();
+	});
+
+	test.each([
+		['no model at all', { ...ok, model: undefined }],
+		['only an engine name (no fallback lookup)', { ...ok, model: undefined, engine: 'nllb' }],
+		['a model without a name', { ...ok, model: {} }],
+	])('no_model: %s', (_name, options) => {
+		expect(run_precondition(options)?.code).toBe('no_model');
+	});
+
+	test.each([
+		['no source code', { ...ok, sourceLangCode: undefined }, 'source'],
+		['no target code', { ...ok, targetLangCode: null }, 'target'],
+		['an empty target code', { ...ok, targetLangCode: '' }, 'target'],
+	])('unsupported_lang: %s — never an en/es guess', (_name, options, side) => {
+		const refusal = run_precondition(options);
+		expect(refusal?.code).toBe('unsupported_lang');
+		expect(refusal?.message).toContain(`The ${side} language`);
+	});
+
+	test('smaller_model_advice names only OFFERED models that run without WebGPU, never the current one', () => {
+		const alternatives = [
+			{ name: 'qwen', label: 'Qwen3 4B', requires_webgpu: true },
+			{ name: 'madlad', label: 'MADLAD-400 3B', requires_webgpu: true },
+			{ name: 'opus', label: 'Opus-MT', requires_webgpu: false },
+		];
+		expect(smaller_model_advice(alternatives, 'qwen')).toBe(' Try a smaller model: Opus-MT.');
+		expect(smaller_model_advice(alternatives, 'opus')).toBe('');
+		expect(smaller_model_advice(undefined, 'qwen')).toBe('');
+		// the old fixed advice named NLLB — listed, NOT offered: only an offered list is read
+		expect(smaller_model_advice(alternatives, 'qwen')).not.toContain('NLLB');
+		expect(smaller_model_advice([{ name: 'x', requires_webgpu: false }], 'qwen')).toBe(
+			' Try a smaller model: x.',
+		);
+	});
+
+	test('the worker has no model fallback and no fixed model advice (it imports no catalogue)', () => {
+		const worker = readFileSync(
+			resolve(
+				import.meta.dir,
+				'../../tools/tool_lang/translators/browser_transformer/browser_transformer.js',
+			),
+			'utf8',
+		);
+		// (booleans: a failure must not print the whole worker source)
+		expect(/^import[^;]*browser_models\.js/m.test(worker), 'the worker imports a catalogue').toBe(
+			false,
+		);
+		// the advice is smaller_model_advice's alone: the worker writes none of its own
+		expect(/smaller model/i.test(worker), 'the worker writes its own model advice').toBe(false);
+		expect(worker.includes('run_precondition(options)'), 'the worker skips run_precondition').toBe(
+			true,
 		);
 	});
 });

@@ -49,8 +49,11 @@
 *      target component's pre-run data is put back, the reason is named in the status area
 *      and the returned Promise REJECTS. Saving it would overwrite the target language's
 *      existing — possibly human-made — text with a damaged machine translation.
-*   A worker 'error' with a code (unsupported_pair / needs_webgpu / model_too_large) is a
-*   SOFT error: the run resolves {result:false} with the worker's advice (v6).
+*   A worker 'error' with a code (no_model / unsupported_lang / unsupported_pair /
+*   needs_webgpu / model_too_large) is a SOFT error: the run resolves {result:false} with the
+*   worker's advice (v6). No model offered, or a source/target language with no locale code,
+*   is refused the same soft way BEFORE the worker starts (A1-02 re-review: no fallback model,
+*   no 'en' fallback language).
 *
 * Real-model behaviour is NOT exercised by any gate (no GPU in CI): the client suite drives
 * this file and block_runner.js with a scripted model. The manual check is in the tool's
@@ -161,7 +164,7 @@ let cancel_requested = false
 * which tool (tool_lang or tool_lang_multi) calls this function.
 *
 * The singleton pattern is intentional: re-using the same Worker across
-* repeated calls avoids re-downloading and re-compiling the ~1.5 GB ONNX
+* repeated calls avoids re-downloading and re-compiling the multi-GB ONNX
 * model. Callers that need a fresh worker (e.g. after a fatal error) must
 * call dispose_browser_worker() first.
 * @returns {Worker} The shared worker instance (newly created or cached).
@@ -255,24 +258,24 @@ export const cancel_browser_translation = function() {
 * (everything before the first '-' in a full locale like 'en-US') because
 * the worker's language tables expect short codes ('en', 'es', 'fr', …).
 *
-* Falls back to 'en' when the Dédalo code is unknown or the entry has no
-* `locale` field. This is a safe default (the model always understands English)
-* but callers should ensure json_langs is fully populated to avoid silent
-* fall-backs for languages other than English.
+* NO FALLBACK (A1-02 re-review): an unknown Dédalo code, or an entry without a `locale`
+* (lg-nolan, a language the registry does not map), is null and the caller REFUSES the
+* run. The old 'en' fallback translated such a language as English — and saved the result
+* as the target language's text.
 * @param {string} dedalo_lang - Dédalo internal lang identifier, e.g. 'lg-eng'.
 * @param {Array}  json_langs  - Array of lang-registry objects, each with at
 *                               minimum { dd_lang: string, locale: string }.
 *                               Obtained via get_json_langs() or options.json_langs.
-* @returns {string} Short locale code ('en', 'es', 'fr', …), default 'en'.
+* @returns {string|null} Short locale code ('en', 'es', 'fr', …), or null when unmapped.
 */
 const dedalo_to_locale = function(dedalo_lang, json_langs) {
 
 	const lang_obj = json_langs.find(item => item.dd_lang===dedalo_lang)
-	if (!lang_obj || !lang_obj.locale) {
-		return 'en'
-	}
+	const short = typeof lang_obj?.locale==='string'
+		? lang_obj.locale.split('-')[0].trim()
+		: ''
 
-	return lang_obj.locale.split('-')[0]
+	return short || null
 }//end dedalo_to_locale
 
 
@@ -555,12 +558,15 @@ export const source_has_token_shaped_text = function(source_text) {
 *   - every element with no Markdown form — <span style>, <sup>, <a href>, <img>, a table
 *     with merged cells, anything unknown — through html_to_markdown's shield callback:
 *     a start tag is an 'open' token, its end tag the paired 'close', a void or raw element
-*     an 'atom'. Their bytes are restored from the source exactly like a mark, so the model
-*     never sees (and cannot corrupt, or forge) markup, and markdown_to_html can escape
-*     everything it wrote (A1-02 review).
+*     an 'atom'. The tag is restored like a mark — as the browser serialises it from the
+*     source (DOMParser + outerHTML: attribute quoting and entities normalised, not a byte
+*     copy of the stored string) — so the model never sees (and cannot corrupt, or forge)
+*     markup, and markdown_to_html can escape everything it wrote (A1-02 review).
+*     Headings, lists, quotes, rules, tables and <div> are shielded too: block structure
+*     comes from the source, never from Markdown syntax the model writes (A1-02 re-review).
 * @param {string} source_text - The source HTML (marks intact, &nbsp; already cleaned).
 * @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>}}
-*   placeholders: token → original bytes (a mark or a tag); descriptors: one per token,
+*   placeholders: token → what it restores (a mark's bytes, or a serialised tag); descriptors: one per token,
 *   shield tokens flagged `shield: true`; block_tokens: the tokens of block-level tags.
 */
 export const source_to_markdown = function(source_text) {
@@ -1193,7 +1199,7 @@ const save_landed = function(target_component, save_response, entry) {
 * try instead. Nothing was saved.
 * @type {string[]}
 */
-const SOFT_ERROR_CODES = ['unsupported_pair', 'needs_webgpu', 'model_too_large']
+const SOFT_ERROR_CODES = ['no_model', 'unsupported_lang', 'unsupported_pair', 'needs_webgpu', 'model_too_large']
 
 
 
@@ -1210,6 +1216,10 @@ const SOFT_ERROR_CODES = ['unsupported_pair', 'needs_webgpu', 'model_too_large']
 * Worker communication (see browser_transformer.js for the full protocol):
 *   Main → Worker: { options: { blocks[], sourceLangCode, targetLangCode, device, dtype, engine, model } }
 *   Worker → Main: 'init' | 'on_chunk' | 'end' | 'on_block_error' | 'cancelled' | 'error'
+*
+* Before the worker starts, a run with no model definition (`model` null: none offered) or a
+* source/target language with no locale code resolves {result:false, code:'no_model' |
+* 'unsupported_lang'} (soft: nothing touched, the worker never started).
 *
 * Before the worker starts, the run is REFUSED (rejects, nothing touched) when a component
 * is not in 'edit' mode (v6: in list/tm mode the value is truncated rendered HTML, not the
@@ -1242,13 +1252,19 @@ const SOFT_ERROR_CODES = ['unsupported_pair', 'needs_webgpu', 'model_too_large']
 * @param {string}        options.target_lang                - Dédalo lang code, e.g. 'lg-spa'.
 * @param {string}        [options.device='webgpu']          - 'webgpu' or 'wasm' (CPU).
 * @param {string|null}   [options.dtype]                    - quantisation override (the q4/q8
-*                                                             choice of TranslateGemma); null:
+*                                                             choice, among the model's pinned dtypes); null:
 *                                                             the model's own dtype.
 * @param {string}        [options.engine]                   - model name (browser_models.js);
-*                                                             used by the worker only when no
-*                                                             `model` definition is passed.
-* @param {Object|null}   [options.model]                    - the selected model's definition
-*                                                             from the tool config.
+*                                                             informative only — the worker
+*                                                             runs `model`, never a name lookup.
+* @param {Object|null}   [options.model]                    - the selected model's definition,
+*                                                             one the installation OFFERS
+*                                                             (selected_browser_options); null
+*                                                             → soft refusal 'no_model'.
+* @param {Array}         [options.alternatives]             - the offered models
+*                                                             [{name, label, requires_webgpu}]
+*                                                             a needs_webgpu / model_too_large
+*                                                             refusal may suggest.
 * @param {HTMLElement}   options.status_container           - Element for status/progress text.
 * @param {HTMLElement|null} [options.streaming_overlay]     - Overlay element shown while
 *                                                             translation is streaming.
@@ -1278,6 +1294,7 @@ export const translate_component_browser = async function(options) {
 		const dtype						= options.dtype || null
 		const engine					= options.engine || null
 		const model						= options.model || null
+		const alternatives				= Array.isArray(options.alternatives) ? options.alternatives : []
 		const status_container			= options.status_container
 		const streaming_overlay			= options.streaming_overlay || null
 		const streaming_overlay_content	= options.streaming_overlay_content || null
@@ -1314,11 +1331,46 @@ export const translate_component_browser = async function(options) {
 			return Promise.reject('Empty source text')
 		}
 
-	// language mapping
+	// refuse_soft_before_run. The choice cannot run here (no model offered, a language the
+	// model cannot be told): nothing touched, nothing saved — say so and resolve
+	// {result:false, code}, like a soft worker error (the worker is never started).
+		const refuse_soft_before_run = function(code, msg) {
+			if (status_container) {
+				status_container.classList.remove('hide')
+				status_container.classList.remove('loading_status')
+				status_container.replaceChildren(status_lines_node('warning', [
+					msg,
+					get_label('nothing_saved') || 'Nothing was saved. The existing text in the target language is unchanged.'
+				]))
+			}
+			return Promise.resolve({ result : false, msg : msg, code : code })
+		}
+
+	// the model: the definition of one the installation OFFERS (selected_browser_options).
+	// No fallback — the worker would have to guess, and could guess a model not offered.
+		if (!model || typeof model.name!=='string' || !model.name) {
+			return refuse_soft_before_run(
+				'no_model',
+				get_label('translation_no_model')
+					|| 'Translation not started: this installation offers no browser translation model'
+			)
+		}
+
+	// language mapping. A language without a locale is REFUSED (no 'en' fallback: it would be
+	// translated as English and saved as the target language's text).
 		const json_langs = options.json_langs || await get_json_langs() || []
 
 		const source_lang_code = dedalo_to_locale(source_lang, json_langs)
 		const target_lang_code = dedalo_to_locale(target_lang, json_langs)
+		for (const [dedalo_lang, code] of [[source_lang, source_lang_code], [target_lang, target_lang_code]]) {
+			if (!code) {
+				return refuse_soft_before_run(
+					'unsupported_lang',
+					get_label('translation_lang_unmapped', dedalo_lang)
+						|| `Translation not started: the language ${dedalo_lang} has no locale code a translation model understands`
+				)
+			}
+		}
 
 	// clean hard coded spaces
 	// &nbsp; entities confuse the markdown converter and appear verbatim in the
@@ -1928,7 +1980,8 @@ export const translate_component_browser = async function(options) {
 				device			: device,
 				dtype			: dtype,
 				engine			: engine,
-				model			: model
+				model			: model,
+				alternatives	: alternatives
 			}
 		})
 	})

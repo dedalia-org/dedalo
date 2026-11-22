@@ -27,7 +27,8 @@
 * Supports two translation modes that can be selected per-session:
 *
 *   - Browser engine (client-side AI): uses the shared browser_translation worker
-*     (TranslateGemma 4B model via HuggingFace Transformers + ONNX).  The model is
+*     (the model chosen among those the installation offers — Qwen3 by default — via
+*     HuggingFace Transformers + ONNX).  The model is
 *     loaded once and kept alive in the worker until destroy() is called.  When
 *     translating to multiple targets, requests are serialised (single GPU/worker).
 *   - Server engine (babel / google): sends rqo requests to dd_tools_api via
@@ -502,7 +503,7 @@ tool_lang_multi.prototype.resolve_source_lang = function(exclude=null) {
 *     engine          : {Object|null}  — matched engine config entry,
 *     is_browser      : {boolean}      — true when engine.type === 'browser',
 *     device          : {string}       — 'wasm' | 'webgpu'
-*     browser_options : {Object}       — { device, engine, model, dtype } for the browser
+*     browser_options : {Object}       — { device, engine, model, alternatives, dtype } for the browser
 *                                         driver (translator_engine_select.js
 *                                         selected_browser_options)
 *   }
@@ -547,9 +548,10 @@ tool_lang_multi.prototype.resolve_engine = function(translator_engine) {
 * @param {string}      options.source_lang      - Source language code (e.g. 'lg-eng').
 * @param {string}      options.target_lang      - Target language code (e.g. 'lg-spa').
 * @param {string}      options.device           - Compute device: 'wasm' (CPU) | 'webgpu' (GPU).
-* @param {string|null} [options.dtype]          - Quantisation override (TranslateGemma q4/q8).
+* @param {string|null} [options.dtype]          - Quantisation override (one of the chosen model's pinned dtypes).
 * @param {string|null} [options.engine]         - Selected model name.
 * @param {Object|null} [options.model]          - Selected model definition from the tool config.
+* @param {Array}       [options.alternatives]   - The offered models a 'try a smaller model' refusal may name.
 * @param {HTMLElement} [options.container]      - The target_component_container; if present, its
 *                                                 .streaming_overlay and .streaming_overlay_content
 *                                                 properties are forwarded to the worker driver.
@@ -573,6 +575,7 @@ tool_lang_multi.prototype.run_browser_translation = async function(options) {
 		dtype						: options.dtype || null,
 		engine						: options.engine || null,
 		model						: options.model || null,
+		alternatives				: options.alternatives || [],
 		status_container			: self.status_container,
 		streaming_overlay			: container ? container.streaming_overlay : null,
 		streaming_overlay_content	: container ? container.streaming_overlay_content : null,

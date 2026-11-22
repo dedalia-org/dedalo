@@ -69,9 +69,11 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
+	allFetchTargets,
 	commonFilesFor,
 	expandTemplate,
 	filesFor,
+	notOfferedMark,
 	readRegisterCatalog,
 	readTranslationCatalog,
 	readTranslationTemplates,
@@ -948,6 +950,58 @@ describe('(j) the translation catalogue is first-class: pinned, expanded, licens
 		expect(checkTable(unexpanded, catalog)).toContain(
 			'Xenova/opus-mt-{src}-{tgt}: a templated catalog id with no recorded expansion (run --expand)',
 		);
+	});
+});
+
+describe('(j2) a model the catalogue does NOT offer is never seeded by --all (A1-02 re-review)', () => {
+	const NLLB = 'Xenova/nllb-200-distilled-600M';
+	const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+	/** Run the seeder CLI (never downloads: --dry-run / --list only). */
+	const runSeeder = (...args: string[]): string => {
+		const child = Bun.spawnSync(['bun', 'scripts/fetch_ai_models.ts', ...args], {
+			cwd: REPO_ROOT,
+			env: process.env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		expect(child.exitCode, child.stderr.toString()).toBe(0);
+		return child.stdout.toString();
+	};
+
+	test('the catalogue reader carries offered_by_default and its reason', () => {
+		const translators = readTranslationCatalog();
+		const nllb = translators.find((model) => model.id === NLLB)!;
+		expect(nllb.offered_by_default).toBe(false);
+		expect(nllb.not_offered_reason).toContain('CC-BY-NC');
+		for (const model of translators.filter((entry) => entry.id !== NLLB)) {
+			expect(model.offered_by_default, model.id).toBe(true);
+		}
+	});
+
+	test('allFetchTargets: every offered model, the not-offered one skipped with its reason', () => {
+		const catalog = readRegisterCatalog();
+		const { ids, skipped } = allFetchTargets(catalog);
+		expect(ids).not.toContain(NLLB);
+		expect(skipped.map((entry) => entry.id)).toEqual([NLLB]);
+		expect(skipped[0]!.reason).toContain('CC-BY-NC');
+		expect(ids.length).toBe(catalog.length - 1);
+		expect(notOfferedMark(catalog.find((model) => model.id === NLLB)!)).toMatch(
+			/^ {2}\[not offered: CC-BY-NC/,
+		);
+	});
+
+	test('the CLI: --all leaves it out and says so; naming it fetches it; --list marks it', () => {
+		const all = runSeeder('--all', '--dry-run');
+		expect(all).not.toContain(`would fetch: ${NLLB}`);
+		expect(all).toContain(
+			`skipped (not offered — fetch it by name only after checking): ${NLLB} — CC-BY-NC`,
+		);
+		expect(all).toContain('would fetch: onnx-community/Qwen3-4B-Instruct-2507-ONNX');
+		expect(runSeeder(NLLB, '--dry-run')).toContain(`would fetch: ${NLLB}`);
+		const listed = runSeeder('--list').split('\n');
+		expect(listed.find((line) => line.includes(NLLB))).toContain('[not offered: CC-BY-NC');
+		expect(listed.find((line) => line.includes('Qwen3-4B'))).not.toContain('not offered');
 	});
 });
 

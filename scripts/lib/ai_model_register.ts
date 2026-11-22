@@ -55,6 +55,14 @@ export interface RegisterCatalogModel {
 	task?: string;
 	/** The templated id this entry was expanded from (`Xenova/opus-mt-{src}-{tgt}`). */
 	template?: string;
+	/**
+	 * false: catalogued but NOT offered (owner ruling Q1, 2026-11-22 — NLLB, CC-BY-NC). The
+	 * selector hides it, and `fetch_ai_models.ts --all` does not fetch it: only naming it
+	 * does (allFetchTargets). Absent = offered.
+	 */
+	offered_by_default?: boolean;
+	/** Why it is not offered (shown by `fetch_ai_models.ts --list`). */
+	not_offered_reason?: string;
 }
 
 const TOOLS_DIR = resolve(import.meta.dir, '..', '..', 'tools');
@@ -148,6 +156,8 @@ interface RawTranslator {
 	task?: unknown;
 	dtype?: unknown;
 	note?: unknown;
+	offered_by_default?: unknown;
+	not_offered_reason?: unknown;
 }
 
 /** The browser engine's `models` array, from the `dd1633` tool-config record. */
@@ -189,7 +199,56 @@ function translatorModel(raw: unknown, registerPath: string): RegisterCatalogMod
 		kind,
 		tool: 'tool_lang',
 		task: entry.task as string,
+		...offerState(entry, where),
 	};
+}
+
+/** The entry's offer state: offered unless it says `offered_by_default: false`, which needs a reason. */
+function offerState(
+	entry: RawTranslator,
+	where: string,
+): Pick<RegisterCatalogModel, 'offered_by_default' | 'not_offered_reason'> {
+	if (entry.offered_by_default === undefined || entry.offered_by_default === true) {
+		return { offered_by_default: true };
+	}
+	if (entry.offered_by_default !== false || typeof entry.not_offered_reason !== 'string') {
+		throw new Error(
+			`${where}: ${String(entry.name)} offered_by_default must be a boolean, and false needs a not_offered_reason`,
+		);
+	}
+	return { offered_by_default: false, not_offered_reason: entry.not_offered_reason };
+}
+
+/** Is a catalogue model offered (the selector shows it, `--all` fetches it)? */
+export function isOffered(model: RegisterCatalogModel): boolean {
+	return model.offered_by_default !== false;
+}
+
+/**
+ * What `fetch_ai_models.ts --all` fetches: every OFFERED model of the catalogue. A model the
+ * installation does not offer (its licence forbids the use here unless the operator confirms
+ * otherwise) is fetched only when it is NAMED — `--all` never seeds it behind the operator's
+ * back. `skipped` is what the run says it left out, and why.
+ */
+export function allFetchTargets(catalog: readonly RegisterCatalogModel[]): {
+	ids: string[];
+	skipped: { id: string; reason: string }[];
+} {
+	const ids: string[] = [];
+	const skipped: { id: string; reason: string }[] = [];
+	for (const model of catalog) {
+		if (isOffered(model)) {
+			ids.push(model.id);
+		} else {
+			skipped.push({ id: model.id, reason: model.not_offered_reason ?? '' });
+		}
+	}
+	return { ids, skipped };
+}
+
+/** The `--list` marker of a model that is not offered ('' for an offered one). */
+export function notOfferedMark(model: RegisterCatalogModel): string {
+	return isOffered(model) ? '' : `  [not offered: ${model.not_offered_reason ?? ''}]`;
 }
 
 /**

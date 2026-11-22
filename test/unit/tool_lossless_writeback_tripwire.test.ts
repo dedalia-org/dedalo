@@ -545,6 +545,13 @@ else {
 					target_component: target,
 					source_lang: 'lg-eng',
 					target_lang: 'lg-spa',
+					// both languages mapped and a model offered: without either the run is refused
+					// softly before the worker starts (A1-02 re-review) — this leg is about the end
+					json_langs: [
+						{ dd_lang: 'lg-eng', locale: 'en-US' },
+						{ dd_lang: 'lg-spa', locale: 'es-ES' },
+					],
+					model: { name: 'opus', shape: 'seq2seq_pair', langs: 'pairs' },
 					// the .d.ts types this as an HTMLElement; the fake carries exactly the
 					// properties the tool writes to and nothing else.
 					status_container: status as unknown as HTMLElement,

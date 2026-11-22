@@ -1969,6 +1969,116 @@
           },
           {
             "lang": "lg-ara",
+            "name": "translation_no_model",
+            "value": "لم تبدأ الترجمة: لا يقدّم هذا التثبيت أي نموذج ترجمة في المتصفح"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_no_model",
+            "value": "Traducció no iniciada: aquesta instal·lació no ofereix cap model de traducció al navegador"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_no_model",
+            "value": "Übersetzung nicht gestartet: Diese Installation bietet kein Übersetzungsmodell für den Browser an"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_no_model",
+            "value": "Η μετάφραση δεν ξεκίνησε: αυτή η εγκατάσταση δεν προσφέρει κανένα μοντέλο μετάφρασης στο πρόγραμμα περιήγησης"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_no_model",
+            "value": "Translation not started: this installation offers no browser translation model"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_no_model",
+            "value": "Itzulpena ez da hasi: instalazio honek ez du nabigatzailerako itzulpen-eredurik eskaintzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_no_model",
+            "value": "Traduction non lancée : cette installation ne propose aucun modèle de traduction dans le navigateur"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_no_model",
+            "value": "Traduzione non avviata: questa installazione non offre alcun modello di traduzione nel browser"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_no_model",
+            "value": "अनुवाद सुरु भएन: यो स्थापनाले ब्राउजरका लागि कुनै अनुवाद मोडेल प्रदान गर्दैन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_no_model",
+            "value": "Tradução não iniciada: esta instalação não oferece nenhum modelo de tradução no navegador"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_no_model",
+            "value": "Traducción no iniciada: esta instalación no ofrece ningún modelo de traducción en el navegador"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "translation_lang_unmapped",
+            "value": "لم تبدأ الترجمة: اللغة %s ليس لها رمز لغة يفهمه نموذج الترجمة"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_lang_unmapped",
+            "value": "Traducció no iniciada: la llengua %s no té cap codi de llengua que un model de traducció entengui"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_lang_unmapped",
+            "value": "Übersetzung nicht gestartet: Die Sprache %s hat keinen Sprachcode, den ein Übersetzungsmodell versteht"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_lang_unmapped",
+            "value": "Η μετάφραση δεν ξεκίνησε: η γλώσσα %s δεν έχει κωδικό γλώσσας που να καταλαβαίνει ένα μοντέλο μετάφρασης"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_lang_unmapped",
+            "value": "Translation not started: the language %s has no locale code a translation model understands"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_lang_unmapped",
+            "value": "Itzulpena ez da hasi: %s hizkuntzak ez du itzulpen-eredu batek ulertzen duen hizkuntza-koderik"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_lang_unmapped",
+            "value": "Traduction non lancée : la langue %s n’a aucun code de langue qu’un modèle de traduction comprenne"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_lang_unmapped",
+            "value": "Traduzione non avviata: la lingua %s non ha alcun codice di lingua comprensibile per un modello di traduzione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_lang_unmapped",
+            "value": "अनुवाद सुरु भएन: भाषा %s को कुनै पनि अनुवाद मोडेलले बुझ्ने भाषा कोड छैन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_lang_unmapped",
+            "value": "Tradução não iniciada: a língua %s não tem nenhum código de língua que um modelo de tradução entenda"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_lang_unmapped",
+            "value": "Traducción no iniciada: la lengua %s no tiene ningún código de lengua que un modelo de traducción entienda"
+          },
+          {
+            "lang": "lg-ara",
             "name": "marks_outside_text",
             "value": "انتهت %s علامات داخل الترميز بدلاً من النص"
           },
