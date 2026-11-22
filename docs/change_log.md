@@ -1904,6 +1904,15 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-areas-deny-subtree`.
 
+- **"The data-language sync setting is now called DEDALO_DATA_LANG_SYNC, as in v6."**
+
+    The setting that keeps the interface language and the data language together was spelled
+    `DATA_LANG_SYNC` in early v7 installations, unlike its siblings (`DEDALO_DATA_LANG_SELECTOR`,
+    `DEDALO_DATA_LANG_DEFAULT`). It is now `DEDALO_DATA_LANG_SYNC`, the v6 name, so a v6
+    configuration carries over unchanged. The old spelling no longer configures anything: if it
+    is still in `../private/.env`, the server refuses to start and names the line to rename.
+    See [Defining data language sync](./administration/configuration/config.md#defining-data-language-sync).
+
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
     Clearing the last value of a text field (input text, text area, e-mail, IRI) used to leave an

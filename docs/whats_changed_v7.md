@@ -76,6 +76,10 @@ rather than silently ignoring it and falling back to a default.
 |---|---|
 | `DEDALO_PREFIX_TIPOS` | **`ACTIVE_ONTOLOGY_TLDS`** |
 
+`DEDALO_DATA_LANG_SYNC` keeps its v6 name. Early v7 installations spelled it
+`DATA_LANG_SYNC`; that spelling is retired the same way — rename the line to
+`DEDALO_DATA_LANG_SYNC`.
+
 `DEDALO_PREFIX_TIPOS` never described what it held. The value is the set of
 ontology **top-level domains** active in this installation (`dd`, `rsc`, `oh`, …)
 — which is the word the rest of Dédalo already used. See [Defining active
@@ -103,7 +107,6 @@ fallback, so a migrated `.env` needs no edit; the v7 name wins when both are set
 | `DEDALO_MEDIA_PATH` | `MEDIA_PATH` |
 | `DEDALO_APPLICATION_LANG` | `APPLICATION_LANG` |
 | `DEDALO_DATA_LANG` | `DATA_LANG` |
-| `DEDALO_DATA_LANG_SYNC` | `DATA_LANG_SYNC` |
 | `DEDALO_DATA_NOLAN` | `DATA_NOLAN` |
 | `DEDALO_PROJECTS_DEFAULT_LANGS` | `PROJECTS_DEFAULT_LANGS` |
 | `DEDALO_ENTITY_MENU_SKIP_TIPOS` | `MENU_SKIP_TIPOS` |

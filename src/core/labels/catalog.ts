@@ -137,7 +137,7 @@ export async function getLabels(lang: string): Promise<Record<string, string>> {
 /**
  * The lang whose dictionary is SERVED for `lang` — ONE allowlist shared by the
  * labels route and page_globals.labels_version, so every lang the environment
- * can emit (a session lang set outside DEDALO_APPLICATION_LANGS, DATA_LANG_SYNC,
+ * can emit (a session lang set outside DEDALO_APPLICATION_LANGS, DEDALO_DATA_LANG_SYNC,
  * APPLICATION_LANG, a lang removed from the list) gets a 200, and the public
  * route's cache keys stay bounded by config. A configured application lang
  * serves itself; any other serves the install default.

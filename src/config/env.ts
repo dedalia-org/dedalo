@@ -112,7 +112,6 @@ export const PHP_KEY_ALIASES: Readonly<Record<string, string>> = Object.freeze({
 	MEDIA_PATH: 'DEDALO_MEDIA_PATH',
 	APPLICATION_LANG: 'DEDALO_APPLICATION_LANG',
 	DATA_LANG: 'DEDALO_DATA_LANG',
-	DATA_LANG_SYNC: 'DEDALO_DATA_LANG_SYNC',
 	DATA_NOLAN: 'DEDALO_DATA_NOLAN',
 	PROJECTS_DEFAULT_LANGS: 'DEDALO_PROJECTS_DEFAULT_LANGS',
 	MENU_SKIP_TIPOS: 'DEDALO_ENTITY_MENU_SKIP_TIPOS',
@@ -139,6 +138,10 @@ export const RETIRED_ENV_KEYS: Readonly<Record<string, string>> = Object.freeze(
 	// relative file_path). The pair now names its AUDIENCE: WEB_BASE = the client,
 	// EXPORT_BASE = content that leaves the application.
 	DEDALO_MEDIA_BASE_URL: 'DEDALO_MEDIA_EXPORT_BASE',
+	// renamed 2026-11-22 (owner ruling): the TS-era spelling broke the catalog's
+	// naming — its siblings are DEDALO_DATA_LANG_SELECTOR / _DEFAULT, and v6 named
+	// it DEDALO_DATA_LANG_SYNC (which was an ALIAS of it until now).
+	DATA_LANG_SYNC: 'DEDALO_DATA_LANG_SYNC',
 });
 
 /**

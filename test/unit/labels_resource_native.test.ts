@@ -148,7 +148,7 @@ describe('environment', () => {
 	});
 
 	test('every lang page_globals can emit (configured or not) → the route answers 200 immutable', async () => {
-		// lg-zzzz: a session lang set via change_lang / DATA_LANG_SYNC outside the list.
+		// lg-zzzz: a session lang set via change_lang / DEDALO_DATA_LANG_SYNC outside the list.
 		for (const lang of [...Object.keys(config.lang.applicationLangs), 'lg-zzzz']) {
 			const globals = (
 				(

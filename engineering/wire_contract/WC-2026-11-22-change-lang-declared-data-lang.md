@@ -4,7 +4,7 @@
   `cluster` validates its lang against the installation's languages).
 - **Decision:** review MED-3 — fix at the root. Gates: `test/unit/change_lang.test.ts` (undeclared
   data lang refused, session and cookie unchanged, declared control stored),
-  `test/unit/change_lang_sync_native.test.ts` (isolated, `DATA_LANG_SYNC=true`),
+  `test/unit/change_lang_sync_native.test.ts` (isolated, `DEDALO_DATA_LANG_SYNC=true`),
   `test/unit/tool_identify_cluster_lang.test.ts` (omitted lang held to the same rule).
   Code: `src/core/section/record/save_component.ts` `assertInstalledDataLang` (THE membership rule
   for a caller-named data language), `src/core/api/handlers/dd_utils_api.ts` `change_lang` +
@@ -14,7 +14,7 @@
   copied it into the other.
 - **Shape before (TS):** the same, behind the lang GRAMMAR only (`isValidLang`): a grammar-valid
   code outside the installation's data languages was stored as the session data language, and
-  under `DATA_LANG_SYNC` any interface language (an install may offer an interface in a language
+  under `DEDALO_DATA_LANG_SYNC` any interface language (an install may offer an interface in a language
   it does not catalogue in) became the session data language. Every later request then read and
   wrote in a slice no read resolves, and tool_identify `cluster` — which the client always sends
   `lang: self.lang`, the page data language — refused a language the session legitimately held.
@@ -25,7 +25,7 @@
     refused `request.invalid_options` (public message `dedalo_data_lang '<code>' is not a data
     language of this installation`) before anything is stored: no session column, no
     `dedalo_lang` cookie — a mixed request stores neither half.
-  - Under `DATA_LANG_SYNC`: an interface-language change drives the data language ONLY when that
+  - Under `DEDALO_DATA_LANG_SYNC`: an interface-language change drives the data language ONLY when that
     language is a declared data language; otherwise the data language is left unchanged (as
     requested, or untouched when none was). A data-language change drives the interface language
     ONLY when that language is one of `DEDALO_APPLICATION_LANGS` (re-review LOW-5 — symmetric);
@@ -50,7 +50,7 @@
   language (`INSTALLED_DATA_LANGS`, built by `declaredDataLangs` — the single source); otherwise the
   request runs on the menu data language (`config.menu.dataLang`, itself resolved inside the declared
   set). The stored column is left as is (not rewritten). And `login`'s adoption of the pre-auth
-  `dedalo_lang` cookie under `DATA_LANG_SYNC` goes through the SAME `syncChangedLangs` rule — before,
+  `dedalo_lang` cookie under `DEDALO_DATA_LANG_SYNC` goes through the SAME `syncChangedLangs` rule — before,
   it copied any allowlisted interface language into the session data language. Gates:
   `test/unit/change_lang.test.ts` (stored undeclared → `page_globals.dedalo_data_lang` = menu data
   lang; declared control served as stored), `test/unit/change_lang_sync_native.test.ts` (login with
@@ -108,3 +108,15 @@ Gates: `test/unit/change_lang.test.ts` (the served set equals the choosable set,
 accepted by the door); client suite `test_menu_change_lang` (selector = `dedalo_data_langs`, no
 `lg-nolan`, differs from the interface langs on the suite; refused change: no reload, refusal
 published, loading cleared; stored change reloads).
+
+## Addendum 2026-11-22 — owner ruling: the switch is `DEDALO_DATA_LANG_SYNC`
+
+The config key was renamed from the TS-era `DATA_LANG_SYNC` to `DEDALO_DATA_LANG_SYNC` (its
+siblings' prefix, and the v6 name); this entry uses the new name throughout. Same default
+(`false`) and doc. The old spelling is RETIRED through `RETIRED_ENV_KEYS` (`src/config/env.ts`),
+the mechanism every renamed key uses: set alone it REFUSES the boot naming the new key; set beside
+the new key it configures nothing. Refuse, not honour-with-notice, because that is how the existing
+renamed keys behave (`DEDALO_PREFIX_TIPOS`, `DEDALO_MEDIA_BASE_URL`): a retired spelling left in
+place would otherwise silently fall back to the default. The v6 migration maps
+`DEDALO_DATA_LANG_SYNC` straight across (SAME; it was an alias before). No wire change:
+`page_globals.dedalo_data_lang_sync` is unchanged. Gate: `test/unit/data_lang_sync_key.test.ts`.

@@ -114,7 +114,7 @@ export interface MenuConfig {
 	/** Default DATA language for component values (PHP DEDALO_DATA_LANG). */
 	readonly dataLang: string;
 	/**
-	 * Couple the interface and data languages (PHP DEDALO_DATA_LANG_SYNC): when
+	 * Couple the interface and data languages (DEDALO_DATA_LANG_SYNC, the v6 name): when
 	 * true, changing either language from the menu drives the other. Off by
 	 * default (matches page_globals.dedalo_data_lang_sync=false on this install).
 	 */
@@ -1218,7 +1218,7 @@ export const config: DedaloConfig = Object.freeze({
 		applicationLang: readString('APPLICATION_LANG'),
 		// Resolved against the declared data languages above, never the raw key.
 		dataLang: currentDataLang.lang,
-		dataLangSync: readString('DATA_LANG_SYNC') === 'true',
+		dataLangSync: readString('DEDALO_DATA_LANG_SYNC') === 'true',
 		skipTipos: Object.freeze(readJsonArray('MENU_SKIP_TIPOS')),
 		areasDeny: Object.freeze(readJsonArray('AREAS_DENY')),
 		// Project languages are INSTALL configuration (owner rule 2026-07-09):

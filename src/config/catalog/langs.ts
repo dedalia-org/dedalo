@@ -57,19 +57,24 @@ DATA_LANG="lg-spa"
 > default data language, use [DEDALO_DATA_LANG_DEFAULT](#defining-default-data-language)
 > instead.`,
 	},
-	DATA_LANG_SYNC: {
+	DEDALO_DATA_LANG_SYNC: {
 		type: 'boolean',
 		scope: 'operator',
 		default: false,
 		heading: 'Defining data language sync',
 		typeLabel: 'bool',
-		doc: `Defines whether the application language and data language selection remain synchronized.
+		doc: `!!! info "Renamed — was \`DATA_LANG_SYNC\`"
+    The key now follows its siblings (\`DEDALO_DATA_LANG_SELECTOR\`, \`DEDALO_DATA_LANG_DEFAULT\`) and
+    the v6 name. The old spelling is retired — if it is still in your \`.env\` the server refuses to
+    boot and names the line to change.
+
+Defines whether the application language and data language selection remain synchronized.
 
 When set to ' true', it forces to keep DEDALO_APPLICATION_LANG and DEDALO_DATA_LANG synchronized across changes.
 The default value is 'false', which allows the application language and data language to be selected independently.
 
 \`\`\`bash
-DATA_LANG_SYNC=false
+DEDALO_DATA_LANG_SYNC=false
 \`\`\``,
 	},
 	DATA_NOLAN: {

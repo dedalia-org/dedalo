@@ -8,7 +8,7 @@
  * catalogue in got a session data language no read resolves (and that
  * tool_identify's cluster then refused, review MED-3).
  *
- * ISOLATED GATE: DATA_LANG_SYNC is boot config (config.menu.dataLangSync), so the
+ * ISOLATED GATE: DEDALO_DATA_LANG_SYNC is boot config (config.menu.dataLangSync), so the
  * file runs in a child with it pinned true (ISOLATED_GATE_ENV); the tier process
  * only mirrors that run. Driven through the real dispatch chokepoint.
  */
@@ -95,7 +95,7 @@ else {
 		}
 	};
 
-	describe('change_lang under DATA_LANG_SYNC (MED-3)', () => {
+	describe('change_lang under DEDALO_DATA_LANG_SYNC (MED-3)', () => {
 		test('floor: sync is ON in this child, and the probe is a valid, undeclared code', () => {
 			expect(config.menu.dataLangSync).toBe(true);
 			expect(isValidLang(UI_ONLY_LANG)).toBe(true);

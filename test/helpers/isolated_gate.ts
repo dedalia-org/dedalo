@@ -88,7 +88,7 @@ export const ISOLATED_GATE_ENV: Readonly<Record<string, Readonly<Record<string, 
 	// and lg-nolan, DECLARED as data but never a choosable one (owner ruling 2) —
 	// the probe that the sync copy asks the CHOICE rule, not mere membership.
 	'test/unit/change_lang_sync_native.test.ts': {
-		DATA_LANG_SYNC: 'true',
+		DEDALO_DATA_LANG_SYNC: 'true',
 		DEDALO_APPLICATION_LANGS:
 			'{"lg-spa":"Castellano","lg-cat":"Català","lg-eng":"English","lg-zzzq":"Zzzq (interface only)","lg-nolan":"No language (probe)"}',
 	},

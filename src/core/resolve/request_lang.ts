@@ -57,7 +57,7 @@ export function allowlistedPreauthLang(raw: string | null | undefined): string |
 /**
  * Is `lang` one of THIS install's interface languages (DEDALO_APPLICATION_LANGS)?
  * THE membership rule for an interface language — the cookie door above,
- * `change_lang`'s `dedalo_application_lang` and the DATA_LANG_SYNC copy of a data
+ * `change_lang`'s `dedalo_application_lang` and the DEDALO_DATA_LANG_SYNC copy of a data
  * language into the interface one all ask it (re-review LOW-5), so none can
  * store an interface language the install does not serve.
  */
@@ -110,7 +110,7 @@ export function seedRequestLangs(input: {
  *     declared — it is the non-translatable storage slot, valid wherever a
  *     write stores untranslated data — but it is not a language anyone works
  *     in, so it is never a session's choice.
- * Asked by `change_lang` (refusal), the DATA_LANG_SYNC copy (skip), login's
+ * Asked by `change_lang` (refusal), the DEDALO_DATA_LANG_SYNC copy (skip), login's
  * repair and the seed clamp below (fallback to the menu data language).
  */
 export function isChoosableDataLang(lang: string): boolean {
