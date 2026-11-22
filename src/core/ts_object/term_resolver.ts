@@ -229,9 +229,10 @@ registerOntologyCacheClearer(() => mainLangCache.clear());
  * record for the TLD, reads its hierarchy8 lang locator, and converts it to a
  * `lg-xxx` code via the lang record's hierarchy41 ISO-code component. The
  * hard-coded tails (es1→lg-spa, hierarchy1→DATA_LANG_DEFAULT, else lg-eng) match
- * v6.
+ * v6. Exported for its gate (request_lang_static_default_native: the cached
+ * hierarchy1 pick never follows the request lang).
  */
-async function getMainLang(sectionTipo: string): Promise<string> {
+export async function getMainLang(sectionTipo: string): Promise<string> {
 	if (sectionTipo === 'lg1') return 'lg-eng';
 	const cached = mainLangCache.get(sectionTipo);
 	if (cached !== undefined) return cached;

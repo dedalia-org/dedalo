@@ -60,7 +60,8 @@
  * read; a later `x ?? DEFAULT_DATA_LANG` is a named constant, invisible here).
  * Whether a marked static read is reachable from a request path is a JUDGMENT
  * the marker's reason states — not something this scan proves. The
- * behavioural twins live in request_lang_law_native and the per-site gates.
+ * behavioural twins live in request_lang_law_native and the per-site gates
+ * (request_lang_static_default_native for the two STATIC thesaurus picks).
  */
 
 import { describe, expect, test } from 'bun:test';

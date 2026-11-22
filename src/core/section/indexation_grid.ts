@@ -308,8 +308,12 @@ function sliceByLang(items: DataItem[], lang: string): DataItem[] {
 	return items.filter((item) => (item?.lang ?? 'lg-nolan') === lang);
 }
 
-/** {data, fallback} the way the PHP export atoms partition them. */
-async function langData(
+/**
+ * {data, fallback} the way the PHP export atoms partition them. Exported for its
+ * gate (request_lang_static_default_native: the fallback's main lang is the
+ * install DATA_LANG_DEFAULT whatever the request lang).
+ */
+export async function langData(
 	ctx: GridContext,
 	items: DataItem[],
 	tipo: string,

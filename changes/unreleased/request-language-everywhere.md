@@ -22,7 +22,9 @@ fixed language) instead of the one the user had chosen in the menu:
   whatever the data language;
 - for the assistant tools (MCP), an omitted language was English: section lists,
   section descriptions, record reads and searches now default to the data
-  language;
+  language (for the command-line MCP server, which has no user session, the
+  installation's main data language, `DEDALO_DATA_LANG_DEFAULT`; send `lang` to
+  ask for another);
 - object identification (similar records, clustering, the neighbour vote of
   proposals) compared records in the installation's main data language; it now
   compares them in the user's data language.

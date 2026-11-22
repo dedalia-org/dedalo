@@ -40,5 +40,45 @@ read from the request scope; a language is configuration, never a literal.
   request langs, were literal `lg-eng`.
 
 Response shapes unchanged; only the `lang` / label values of defaulted entries move.
-Outside a request scope every accessor answers the install default, so scope-less
-callers see no change.
+
+## Correction, 2026-11-22 — scope-less callers DO see a change (T2 B10 review M3)
+
+The sentence that closed the addendum above ("outside a request scope every
+accessor answers the install default, so scope-less callers see no change") was
+false, and is withdrawn. Outside a scope `currentApplicationLang()` answers
+`config.menu.applicationLang` (the value the label sites read before — no
+change there), but `currentDataLang()` answers **`DEDALO_DATA_LANG_DEFAULT`**
+(`config.lang.dataLangDefault`, DATA-01), NOT the menu's `DATA_LANG` and not
+whatever literal a site held. Where the two install values differ, every
+data-lang default this batch moved changed for a scope-less caller too:
+
+- **The stdio MCP server** (`src/ai/mcp/server.ts`) opens no request-lang scope:
+  `list_sections` / `describe_section` labels, `read_record`, `search_section`
+  and the link-target lang (`resolve_path`, `buildLlmMap`) default to
+  `DATA_LANG_DEFAULT`; they were literal `lg-eng` (the labels briefly the
+  interface lang between 364ec95baf and 413894b9c3) and, for `buildLlmMap`, the
+  install `DATA_LANG`. A client that relied on English by omission sends `lang`.
+- **request_config `filter_by_list`** without a context `lang`, built outside a
+  scope: literal `lg-spa` → `DATA_LANG_DEFAULT`.
+- **Lang-less ORDER BY** a translatable column outside a scope: the install
+  `DATA_LANG` → `DATA_LANG_DEFAULT`. The scope value is now also validated
+  before it reaches the SQL text (`assertValidLang`, `order lang (request
+  scope)` — review M5).
+- **THES-06 (69a3d01dfc) — term_resolver hierarchy1 main lang and the
+  indexation-grid fallback's first candidate**: `config.menu.dataLang` →
+  `config.lang.dataLangDefault` for EVERY caller, in or out of a scope. These
+  two are deliberately STATIC (owner ruling: install `DATA_LANG_DEFAULT`, v6
+  `get_main_lang` / `$main_lang`); the hierarchy1 pick is cached per section
+  tipo, so it must never follow a request lang. Gate
+  `request_lang_static_default_native` (isolated, `DATA_LANG` pinned apart from
+  `DATA_LANG_DEFAULT`): two request data langs, both apart from either install
+  value, get the same `DATA_LANG_DEFAULT` pick, in both cache-fill orders.
+- **Object identification** (review M2): `find_matches`, the clusterer's
+  criteria leg and the proposer's structural leg resolved criterion values with
+  no lang — path_read's `DATA_LANG_DEFAULT` — under every request; they now
+  thread the request data lang (`tool_identify` cluster: the client's `lang`,
+  else `currentDataLang()`). Scope-less callers keep `DATA_LANG_DEFAULT`.
+
+`config.lang.dataLangDefault` is itself now a rule-1 read of
+`request_lang_law_tripwire`: every remaining site names why it wants the static
+value with a `lang-law-exempt` marker.

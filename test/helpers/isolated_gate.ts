@@ -75,6 +75,9 @@ export const ISOLATED_GATE_ENV: Readonly<Record<string, Readonly<Record<string, 
 		DB_POOL_MAX: '4',
 		DEDALO_SEARCH_CLIENT_MAX_LIMIT: '3',
 	},
+	// The menu's DATA_LANG apart from DATA_LANG_DEFAULT (lg-spa in the suite), so a
+	// static pick that read the MENU lang instead of the install main one is red.
+	'test/unit/request_lang_static_default_native.test.ts': { DATA_LANG: 'lg-eng' },
 };
 
 /** Seams an isolated gate's pinned env may never set: the child derives them. */
