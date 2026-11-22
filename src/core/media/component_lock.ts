@@ -39,7 +39,6 @@ import {
 	mkdirSync,
 	openSync,
 	readFileSync,
-	renameSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
@@ -47,6 +46,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { writeAtomicallySync } from './atomic.ts';
 
 /** Who holds a component lock — the file's whole content. */
 export interface ComponentLockOwner {
@@ -290,8 +290,8 @@ export function releaseComponentLock(handle: ComponentLockHandle): void {
 }
 
 /**
- * Refresh the heartbeat of a held lock (write-then-rename: a reader never sees
- * a half-written file). False when the lock is no longer ours.
+ * Refresh the heartbeat of a held lock (through the atomic writer: a reader
+ * never sees a half-written file). False when the lock is no longer ours.
  */
 export function refreshComponentLock(
 	handle: ComponentLockHandle,
@@ -299,8 +299,8 @@ export function refreshComponentLock(
 ): boolean {
 	const owner = readOwner(handle.path);
 	if (owner?.token !== handle.token) return false;
-	const scratch = `${handle.path}.${handle.token}.hb`;
-	writeFileSync(scratch, JSON.stringify({ ...owner, heartbeat_at: now }), { mode: 0o640 });
-	renameSync(scratch, handle.path);
+	writeAtomicallySync(handle.path, (temp) => {
+		writeFileSync(temp, JSON.stringify({ ...owner, heartbeat_at: now }), { mode: 0o640 });
+	});
 	return true;
 }
