@@ -46,3 +46,7 @@ cannot learn the endpoint exists" property is expressed
   `dispatch_error_native.test.ts`, which pins the two bodies EQUAL.
 
 ## Addendum 2026-10-12 — superseded by WC-2026-10-12-install-surface-removed (the sentence naming `install.ip_denied` as the intake's IP refusal: the dispatcher throws `perm.denied` ("Error report not permitted from this address"), and the install code is deleted)
+
+## Addendum 2026-11-19 — email transport
+
+RETIRED. The action, its Gate 1c and every pre-auth row are deleted; reports travel by email from the sending installation. See WC-2026-11-19-error-report-email-transport.

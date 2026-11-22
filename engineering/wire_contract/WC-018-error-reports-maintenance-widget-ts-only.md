@@ -30,3 +30,7 @@
   main.css as PHP-bytes-exact-PREFIX + exactly this ONE marker-tagged tail
   (strict byte-identity minus the ledgered append; reconciled 2026-07-10 —
   the append had landed without updating this gate, turning verify red).
+
+## Addendum 2026-11-19 — email transport
+
+The widget is listed on every installation (each stores the reports its admins send); `target` names the mail recipient. See WC-2026-11-19-error-report-email-transport.

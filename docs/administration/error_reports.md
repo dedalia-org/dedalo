@@ -1,13 +1,13 @@
 # Error reports
 
 Lets an administrator report a problem straight from the browser, the moment it
-happens, and delivers that report — with the page context and any JavaScript
-errors captured since the page loaded — to a central **master** installation
-where the Dédalo maintainers can review it.
+happens. The report — with the page context, any JavaScript errors captured since
+the page loaded and an optional screenshot — is **stored on this installation**
+and, when an address is configured, **emailed** to the Dédalo maintainers.
 
 The feature has three parts: a **page-wide JS error buffer**, an admin-only
-**report tool**, and — on the master installation — an **intake endpoint** plus
-a dashboard **widget** to browse what comes in.
+**report tool**, and a dashboard **widget** to browse the reports this
+installation has sent.
 
 ## For the administrator: how to report
 
@@ -21,71 +21,67 @@ pop-up window. A dialog opens showing:
 - a **description** field for you to explain what went wrong.
 
 Nothing is sent until you press *Send report* — the captured errors accumulate
-locally in the browser and only leave the machine on that explicit click. The
-report is relayed by your own server to the configured master installation.
+locally in the browser and only leave the machine on that explicit click. Your own
+server stores the report and, if `DEDALO_ERROR_REPORT_EMAIL` is set, emails it.
+The dialog tells you whether the email went out; when it did not (no address, or
+the mail server refused), the report is still stored here.
 
 ## Configuration
 
-All keys are `DEDALO_ERROR_REPORT_*` in `../private/.env` (read once at boot —
-restart to apply). See the [settings reference](configuration/config.md#error_report).
-
-### Sender side (any installation that reports)
+All keys are in `../private/.env` (read once at boot — restart to apply). See the
+[settings reference](configuration/config.md#error_report).
 
 | Key | Meaning |
 |---|---|
-| `DEDALO_ERROR_REPORT_MASTER_URL` | The master installation's JSON API endpoint, e.g. `https://master.example/dedalo/core/api/v1/json/`. **Setting it enables reporting.** `https` required (plain `http` only for a loopback dev target). |
-| `DEDALO_ERROR_REPORT_TOKEN` | Optional shared secret; sent as the `X-Dedalo-Report-Token` header. A spam filter, not authentication (see below). |
-| `DEDALO_ERROR_REPORT_TIMEOUT_MS` | Outbound relay timeout (default 10000, min 1000). |
+| `DEDALO_ERROR_REPORT_EMAIL` | Where reports are emailed. **Unset = stored on this installation only.** Needs the mailer configured (`DEDALO_SMTP_*`). |
+| `DEDALO_ERROR_REPORT_RETENTION_DAYS` | Stored reports older than this are pruned (default 90; `0` = keep forever). |
+| `DEDALO_ERROR_REPORT_MAX_ROWS` | Highest number of stored reports; the oldest are dropped first (default 100000; `0` = no ceiling). |
+
+`DEDALO_ERROR_REPORT_MASTER_URL` and `DEDALO_ERROR_REPORT_RECEIVER` are **retired**
+(reports are no longer relayed over HTTP to a master installation): the server logs
+a warning at boot while either is still set. Remove them, and set
+`DEDALO_ERROR_REPORT_EMAIL` instead.
 
 The server stamps the trusted identity itself (user id, entity, engine version,
 languages, timestamp) — the browser cannot spoof who reported or from where.
-If no master URL is set but this installation is itself the receiver, the report
-is stored locally instead of relayed.
-
-### Receiver side (only the designated master installation)
-
-| Key | Meaning |
-|---|---|
-| `DEDALO_ERROR_REPORT_RECEIVER` | `true` exposes the pre-auth intake action on this server. **Default `false`** — when off, the endpoint is indistinguishable from an unregistered action. |
-| `DEDALO_ERROR_REPORT_TOKEN` | If set, incoming reports must carry the matching header. |
-| `DEDALO_ERROR_REPORT_ALLOWED_IPS` | Optional comma-separated IP allowlist (`loopback` shorthand accepted). Unset = open (still throttled + size-capped). |
-| `DEDALO_ERROR_REPORT_RETENTION_DAYS` | Reports older than this are pruned (default 90; `0` = keep forever). |
-
-Received reports are stored append-only in the `dedalo_ts_error_reports` table
+Reports are stored append-only in the `dedalo_ts_error_reports` table
 (provisioned by migration `0002_error_reports.sql`).
 
-## Browsing received reports
+### What the email contains
 
-On the master installation, the maintenance dashboard (Development → Maintenance)
-gains an **Error reports** widget (admin-only). It shows the total, where reports
-from this installation are sent, and — on demand — the reports themselves: each
-row expands to the full description, page URL, source IP, and the captured
-JavaScript errors and context. All report content is rendered as plain text.
+- a **plain-text** summary (installation, version, user id, section, page,
+  description, the last few JavaScript errors) — never HTML;
+- `report.json`: the full report;
+- `screenshot.png` / `.jpg` / `.webp` when one was attached.
 
-The widget also appears on a *sender-only* installation (one with a master URL
-but not the receiver flag), where it simply shows the configured relay target.
+The subject carries a short reference that also appears in the stored report, so
+a mailed report can be matched to its stored copy.
+
+## Browsing reports
+
+The maintenance dashboard (Development → Maintenance) has an **Error reports**
+widget (admin-only) on every installation. It shows the total, where reports are
+sent, and — on demand — the reports themselves: each row expands to the full
+description, page URL, email outcome, the captured JavaScript errors and context.
+All report content is rendered as plain text.
 
 ## Security & privacy
 
-The intake is an anonymous, rate-limited, append-only endpoint; the design and
-its trade-offs are recorded in
-`audits/2026-07_foundation/security/SECURITY_DECISIONS.md` (DECISION 7). In
-short:
-
-- The report payload is an **allowlist** — the CSRF token, username, database
-  name, and engine versions are never sent.
-- Free-text descriptions and JavaScript error messages **may contain record
-  data** (cultural-heritage, possibly personal). This is minimized (size caps)
-  and retention-bound, not scrubbed — the explicit *Send* click is the consent
-  moment. Administrators should be aware the report crosses to the master
-  operator.
-- The shared token is a **spam filter, never trust**: every field is treated as
-  untrusted on the receiver regardless. The receiver stamps `source_ip` and
-  `received_at` itself — the only fields it trusts.
+- No installation accepts reports from another over the network: there is no
+  anonymous endpoint. Only a global administrator can send a report, and sends are
+  rate-limited per installation.
+- The report payload is an **allowlist** — the CSRF token, username and database
+  name are never sent.
+- Free-text descriptions, JavaScript error messages and screenshots **may contain
+  record data** (cultural-heritage, possibly personal). The explicit *Send* click
+  is the consent moment. An email may pass through third-party mail servers, which
+  is why `DEDALO_ERROR_REPORT_EMAIL` is off by default — set it only if your
+  institution agrees to send reports off-site.
 
 ## Notes
 
 - The report tool and the browse widget are a TypeScript-native feature. See
-  `engineering/wire_contract/` WC-017/018/019.
+  `engineering/wire_contract/` WC-018/019 and
+  WC-2026-11-19-error-report-email-transport.
 - Client assets (the error buffer, the global launcher, the widget) are TS-owned
   and served by the TS server.

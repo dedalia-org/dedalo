@@ -182,7 +182,7 @@ export const get_content_data = function(self) {
 *     can upload an SVG file immediately. The tool descriptor is located by searching
 *     self.tools for model === 'tool_upload'.
 *
-* The URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* The URL is versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * (!) DEDALO_MEDIA_URL is used as a global but is NOT declared in the /*global*\/
 *     comment at the top of this file. Under the active /*eslint no-undef:"error"*\/

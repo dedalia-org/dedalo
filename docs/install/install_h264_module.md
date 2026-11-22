@@ -104,6 +104,10 @@ not to interfere:
   file exists and then get out of the way — the substitution is always a no-op
   and **the query string is never touched**, so `?start=` and `?end=` reach the
   clipping handler intact.
+- **Dédalo keeps clear of the module's own keys.** The Apache module also reads
+  `v` (a numeric value trims the file), so media URLs carry their cache version
+  as `?dv=`, never `?v=`. A page or proxy rule that adds `?v=` to an `.mp4` link
+  will get a clip a few seconds long.
 - **The gate is a `stat()`, not a proxy.** No Dédalo process is ever in the media
   byte path, so `sendfile`, HTTP `Range` and the clipping handler all keep
   working on multi-gigabyte files.

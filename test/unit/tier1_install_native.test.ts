@@ -4,8 +4,8 @@
  * readers. The destructive install orchestration around them stays exempt
  * (§5.2) — this file executes none of it. (Its address-allowlist family left
  * with the pre-auth install surface, 2026-10-12 —
- * WC-2026-10-12-install-surface-removed; the entry grammar it exercised is
- * test/unit/ip_allowlist.test.ts.)
+ * WC-2026-10-12-install-surface-removed; the grammar itself was retired
+ * 2026-11-19 with its last consumer, the error-report intake.)
  *
  * Operator-visible failure each family prevents:
  *  - pgBinaryCandidates: a client OLDER than the server refuses to connect, so

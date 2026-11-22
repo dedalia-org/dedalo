@@ -71,7 +71,7 @@ export const view_default_list_image = function() {
 *   2. entries entry matching page_globals.dedalo_quality_thumb — Dédalo-hosted file
 *   3. page_globals.fallback_image — placeholder when no suitable entry exists
 *
-* Dédalo-hosted URLs are versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* Dédalo-hosted URLs are versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * Side effects:
 *   - Appends the <img> to the returned wrapper element.

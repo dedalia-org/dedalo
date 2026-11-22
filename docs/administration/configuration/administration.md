@@ -125,7 +125,7 @@ the installer — see [the installer reference](../../install/installer_referenc
 ## 6. Secrets
 
 Secrets are ordinary keys in the same file — `DB_PASSWORD`,
-`DEDALO_DIFFUSION_DB_PASSWORD`, `ANTHROPIC_API_KEY`, `DEDALO_ERROR_REPORT_TOKEN`.
+`DEDALO_DIFFUSION_DB_PASSWORD`, `ANTHROPIC_API_KEY`.
 What protects them is **where the file is**: `../private/` is outside the web root
 and the `.env` is written `0600`.
 

@@ -45,8 +45,8 @@ export const view_text_list_av = function() {
 *
 * Image resolution priority (highest to lowest):
 *   1. Thumb entry from data.entries where quality==='thumb' AND file_exist===true.
-*      URL: get_media_url(thumb)  (versioned by its file (get_media_url, ?v=<file_time>-<size>)).
-*   2. data.posterframe_url (if present), versioned by the server (?v=<mtime ms>-<size>).
+*      URL: get_media_url(thumb)  (versioned by its file (get_media_url, ?dv=<file_time>-<size>)).
+*   2. data.posterframe_url (if present), versioned by the server (?dv=<mtime ms>-<size>).
 *   3. page_globals.fallback_image — the application-wide placeholder image.
 *
 * On <img> error the handler attempts one recovery: if the current src is not
@@ -86,7 +86,7 @@ view_text_list_av.render = async function(self, options) {
 
 	// posterframe_url
 	// The posterframe is a still image extracted from the video (set separately from the
-	// media renditions), versioned by the server (?v=<mtime ms>-<size>). Falls back to the global placeholder when absent.
+	// media renditions), versioned by the server (?dv=<mtime ms>-<size>). Falls back to the global placeholder when absent.
 		const posterframe_url = data.posterframe_url
 			? data.posterframe_url
 			: page_globals.fallback_image

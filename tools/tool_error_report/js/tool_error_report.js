@@ -17,8 +17,8 @@
 *     NEVER a spread of page_globals: no csrf_token, no username, no server
 *     internals; the server stamps real identity itself).
 * The admin adds a free-text description and submits; the tool's server half
-* (server/index.ts, action 'send_report') stamps identity and relays the
-* report to the master installation. Nothing is transmitted until the admin
+* (server/index.ts, action 'send_report') stamps identity, stores the report on
+* this installation and emails it when configured. Nothing is transmitted until the admin
 * explicitly clicks send — the buffer alone never leaves the browser.
 *
 * This tool renders no components: build() overrides the ddo_map loader with
@@ -247,7 +247,7 @@ tool_error_report.prototype.collect_report_data = function() {
 /**
 * SEND_REPORT
 * Submit the report to this installation's server (action 'send_report'),
-* which stamps identity and relays it to the master installation.
+* which stamps identity, stores it locally and emails it when configured.
 * @param {string} description - the admin's free-text problem description
 * @returns {Promise<Object>} API response envelope {result, msg, errors}
 */

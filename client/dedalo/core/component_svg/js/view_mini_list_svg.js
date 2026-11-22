@@ -107,7 +107,7 @@ view_mini_list_svg.render = function(self, options) {
 *   the global `page_globals.fallback_image` URL is used instead.
 *
 * Caching:
-*   Every non-fallback URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
+*   Every non-fallback URL is versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * (!) The loop iterates from 0 to `value_length` (= entries.length || 1) but the
 *     inner body performs a fixed `files_info.find(...)` that is independent of the

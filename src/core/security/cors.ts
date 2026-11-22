@@ -61,11 +61,10 @@ const ALLOWED_METHODS = 'POST, OPTIONS';
  * The request headers the client actually sends. `Content-Type: application/json`
  * is alone enough to force a preflight (it is not a CORS-safelisted value), and
  * `X-Dedalo-Csrf-Token` is injected by `data_manager.request` for every
- * non-bootstrap action. `X-Dedalo-Report-Token` rides the error-report path.
- * Omitting any of these makes the preflight fail with a header-not-allowed
+ * non-bootstrap action. Omitting either makes the preflight fail with a header-not-allowed
  * error that names the header — noisy, but only in the browser console.
  */
-const ALLOWED_HEADERS = 'Content-Type, X-Dedalo-Csrf-Token, X-Dedalo-Report-Token';
+const ALLOWED_HEADERS = 'Content-Type, X-Dedalo-Csrf-Token';
 
 /** Preflight cache lifetime, in seconds. PHP's default; a day is the common ceiling. */
 const MAX_AGE = '86400';

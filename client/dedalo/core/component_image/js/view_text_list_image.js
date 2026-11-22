@@ -73,7 +73,7 @@ export const view_text_list_image = function() {
 *   2. entries entry matching page_globals.dedalo_quality_thumb — Dédalo-hosted thumbnail
 *   3. page_globals.fallback_image — placeholder shown when no suitable entry exists
 *
-* Dédalo-hosted URLs are versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* Dédalo-hosted URLs are versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 *
 * The <img> element is created with document.createElement directly (rather than via
 * ui.create_dom_element) so that the src assignment and the error listener can be set

@@ -1,5 +1,8 @@
 # WC-2026-10-29-posterframe-url-version — media URLs carry `?v=<mtime ms>-<size>` (av/3d `posterframe_url`, image `base_svg_url`, grid cells)
 
+> **Amended 2026-11-19 — WC-2026-11-19-media-url-version-key:** the key is now `dv` (`?dv=<token>`);
+> every `?v=` below reads `?dv=`. Apache mod_h264_streaming read `?v=` as a trim parameter.
+
 - **Date:** 2026-10-29 (component_av render performance pass; same day extended to every media model).
 - **Decision:** DEC-12 (gated: `test/unit/media_url_version_native.test.ts`, `test/unit/client_media_url.test.ts`,
   `test/unit/media_url_version_tripwire.test.ts`). ONE helper per side: server

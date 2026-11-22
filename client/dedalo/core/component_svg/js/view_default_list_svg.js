@@ -108,7 +108,7 @@ view_default_list_svg.render = function(self, options) {
 *   1. Thumb quality JPG (`quality === 'thumb'`, `file_exist === true`) — used as
 *      the displayed preview image.
 *   2. SVG file matching the active quality.
-*   Both are versioned by their file (get_media_url, ?v=<file_time>-<size>).
+*   Both are versioned by their file (get_media_url, ?dv=<file_time>-<size>).
 *   3. `page_globals.fallback_image` — shown when no file exists at all.
 *
 *   If `data.external_source` is set, it overrides the locally resolved URL

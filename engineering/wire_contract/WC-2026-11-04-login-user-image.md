@@ -19,7 +19,7 @@
   `test/parity/fixtures/oracle_harvest/context_differential.json`, login RQO).
 - **Shape after (TS):** `ok(true, {data:true, user_id, user_image})` — envelope
   v2 extension keys ride at TOP LEVEL beside `data`. `user_image` is the account's
-  `dd522` file URL: `${config.media.webBase}${file_path}?v=<mtime>-<size>`,
+  `dd522` file URL: `${config.media.webBase}${file_path}?dv=<mtime>-<size>` (key `v`→`dv`, WC-2026-11-19-media-url-version-key),
   default quality first and the `thumb` tier as fallback, `null` when the
   account has no image on disk (the client then keeps its bundled icon — a
   grammar-only URL would 404 and blank the circle, which is why the resolver

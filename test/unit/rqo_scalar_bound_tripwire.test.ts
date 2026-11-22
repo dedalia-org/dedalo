@@ -301,8 +301,9 @@ describe('rqo scalar bound tripwire (audit 2026-08-26 SEC-21)', () => {
 		manyKeys.options = bag;
 		expect(rqoSchema.safeParse(manyKeys).success).toBe(false);
 
-		// A REAL error report (256 KiB is its own documented ceiling) still fits.
-		const realistic = ordinaryRqo('receive_report');
+		// A REAL error report (tool_error_report send_report; 256 KiB is its own
+		// documented ceiling) still fits.
+		const realistic = ordinaryRqo('tool_request');
 		realistic.options = { screenshot: `data:image/png;base64,${'A'.repeat(200 * 1024)}` };
 		expect(rqoSchema.safeParse(realistic).success).toBe(true);
 	});

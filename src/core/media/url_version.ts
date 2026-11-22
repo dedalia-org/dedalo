@@ -1,9 +1,11 @@
 /**
- * MEDIA URL VERSION — the ONE `?v=<mtime ms>-<size>` token every server-emitted
+ * MEDIA URL VERSION — the ONE `?dv=<mtime ms>-<size>` token every server-emitted
  * media URL carries (WC-2026-10-29-posterframe-url-version): versioned by the
  * FILE, not the render, so the browser reuses its HTTP cache across renders and
  * a re-published file (every producer publishes by atomic rename) gets a new
  * URL. Size too: some media mounts keep mtime to the second only.
+ * Key `dv`, never `v`: Apache mod_h264_streaming reads `?v=` as a trim parameter
+ * and serves a seconds-long clip (WC-2026-11-19-media-url-version-key).
  *
  * The client builds the same token for files_info entries
  * (client/dedalo/core/component_media_common/js/media_url.js); this side covers
@@ -29,7 +31,7 @@ export function fileVersionToken(absolutePath: string): string | null {
 }
 
 /**
- * A media web URL + `?v=<token>` of the file it names; returned bare when it
+ * A media web URL + `?dv=<token>` of the file it names; returned bare when it
  * names no readable file inside the media root (no file, no media root, a path
  * escaping the root, or not a media-web-base URL at all).
  */
@@ -43,5 +45,5 @@ export function versionedMediaUrl(url: string): string {
 		return url;
 	}
 	const token = fileVersionToken(absolutePath);
-	return token === null ? url : `${url}?v=${token}`;
+	return token === null ? url : `${url}?dv=${token}`;
 }

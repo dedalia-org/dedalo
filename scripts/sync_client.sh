@@ -70,8 +70,8 @@ ASSET_INCLUDES=(
 #    wizard; its diagnostics grid drops
 #    the PHP/Apache-only checkers (php_version/gd/mbstring/…) the Bun server has
 #    no PHP for. The PHP tree keeps its own PHP-era installer.
-#  - error_reports (WC-018): TS-only maintenance widget browsing the error-report
-#    intake (master installations only); it has no PHP twin to sync from.
+#  - error_reports (WC-018): TS-only maintenance widget browsing this installation's
+#    error reports; it has no PHP twin to sync from.
 #  - check_config render (WC-027): ONE file diverges — render_check_config.js gains
 #    the TS-native "Database details" + "Runtime mode" readouts (db_info/runtime_mode,
 #    payload fields the PHP server does not emit) and the eager-value folded-red fix.

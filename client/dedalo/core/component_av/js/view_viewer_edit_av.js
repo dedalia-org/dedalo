@@ -121,7 +121,7 @@ view_viewer_edit_av.render = async function(self, options) {
 	// url to download
 		// Resolve the playback file descriptor for the platform-default quality tier.
 		// The quality value comes from page_globals (e.g. '404' for 404p web quality).
-		// The URL is versioned by its file (get_media_url, ?v=<file_time>-<size>).
+		// The URL is versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 		// Falls back to page_globals.fallback_image when no matching file descriptor exists.
 		const quality	= page_globals.dedalo_av_quality_default // '404'
 		const file_info	= files_info.find(el => el.quality===quality && el.extension===extension)
@@ -338,7 +338,7 @@ const fit_viewer_window = function (media_width, media_height) {
 *
 * @param {Object} options
 * @param {string} options.download_url - Fully-qualified URL of the file to download,
-*   versioned by its file (?v=<file_time>-<size>).
+*   versioned by its file (?dv=<file_time>-<size>).
 * @param {string} options.name         - Base filename (without path); used as the
 *   suggested save name, prefixed with 'dedalo_download_'.
 * @returns {boolean} Always true.

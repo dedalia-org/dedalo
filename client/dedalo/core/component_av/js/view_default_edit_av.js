@@ -199,8 +199,8 @@ const get_content_data_edit = function(self) {
 *   Values > 2 indicate that the browser cannot load the resource.
 *
 * Cache versioning: media URLs carry the FILE's version, not the render's —
-* video/quality URLs `?v=<file_time.time>-<file_size>` (see get_media_url),
-* posterframe_url `?v=<mtime ms>-<size>` from the server — so renders reuse the HTTP cache and a
+* video/quality URLs `?dv=<file_time.time>-<file_size>` (see get_media_url),
+* posterframe_url `?dv=<mtime ms>-<size>` from the server — so renders reuse the HTTP cache and a
 * re-transcode or regenerated posterframe still gets a new URL.
 *
 * (!) The permissions===1 branch currently calls the same get_content_value path

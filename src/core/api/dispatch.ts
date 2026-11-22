@@ -35,11 +35,6 @@
 import { ragApiActions } from '../../ai/rag/api.ts';
 import { config } from '../../config/config.ts';
 import type { Rqo } from '../concepts/rqo.ts';
-import {
-	ERROR_REPORT_ACTION_KEYS,
-	receiverEnabled,
-	reporterIpAllowed,
-} from '../error_report/gate.ts';
 import { toErrorEnvelope } from '../errors/convert.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { logError } from '../errors/log.ts';
@@ -56,7 +51,6 @@ import { componentPortalApiActions } from './handlers/dd_component_portal_api.ts
 import { componentTextAreaApiActions } from './handlers/dd_component_text_area_api.ts';
 import { coreApiActions } from './handlers/dd_core_api.ts';
 import { diffusionApiActions } from './handlers/dd_diffusion_api.ts';
-import { errorReportApiActions } from './handlers/dd_error_report_api.ts';
 import { externalApiActions } from './handlers/dd_external_api.ts';
 import { identifyApiActions } from './handlers/dd_identify_api.ts';
 import { mcpApiActions } from './handlers/dd_mcp_api.ts';
@@ -89,9 +83,6 @@ export const NO_LOGIN_ACTIONS: ReadonlySet<string> = new Set([
 	// security/password_reset.ts.
 	'dd_utils_api:request_password_reset',
 	'dd_utils_api:confirm_password_reset',
-	// Machine-to-machine intake from remote installations' servers (WC-017);
-	// Gate 1c (flag + IP) runs first, the handler owns throttle/token/schema.
-	'dd_error_report_api:receive_report',
 	// Ontology-master surface (UPDATE_PROCESS Phase 2, PHP parity): remote
 	// installations probe reachability + fetch the update manifest without a
 	// session. Both handlers fail closed unless IS_AN_ONTOLOGY_SERVER is set;
@@ -123,12 +114,8 @@ export const CSRF_EXEMPT_ACTIONS: ReadonlySet<string> = new Set([
 	// context, outside the page that holds the token. Read-only; still
 	// AUTHENTICATED (deliberately NOT in NO_LOGIN_ACTIONS, matching PHP).
 	'dd_utils_api:get_dedalo_files',
-	// Error-report intake (WC-017): anonymous machine-to-machine POST — there
-	// is no session authority for a cross-site request to ride (the login
-	// posture); exempting also covers an authenticated master admin posting.
-	'dd_error_report_api:receive_report',
 	// Ontology + code master surfaces: anonymous machine-to-machine POSTs
-	// (same no-session-authority posture as receive_report).
+	// (no session authority for a cross-site request to ride).
 	'dd_utils_api:get_server_ready_status',
 	'dd_utils_api:get_ontology_update_info',
 	'dd_utils_api:get_code_update_info',
@@ -170,9 +157,6 @@ const ACTION_REGISTRY: Record<string, Record<string, ActionHandler>> = {
 	// CSRF_EXEMPT_ACTIONS: the action makes the SERVER open an outbound socket on
 	// the caller's behalf, so an anonymous visitor must never be able to drive it.
 	dd_external_api: externalApiActions,
-	// Error-report intake (WC-017, TS-only): ONE pre-auth action, reachable
-	// only where DEDALO_ERROR_REPORT_RECEIVER is on (Gate 1c below).
-	dd_error_report_api: errorReportApiActions,
 	// The in-process MCP/agent bridge for tool_assistant (fail-closed: every
 	// action refuses unless DEDALO_AGENT_HTTP_ENABLED=true — see the handler).
 	dd_mcp_api: mcpApiActions,
@@ -542,8 +526,6 @@ export const ACTION_IDEMPOTENCY: ReadonlyMap<string, ActionIdempotency> = new Ma
 	['dd_identify_api:resolve_type_link', 'idempotent'],
 	// ── dd_external_api ────────────────────────────────────────────────────
 	['dd_external_api:search', 'idempotent'],
-	// ── dd_error_report_api ────────────────────────────────────────────────
-	['dd_error_report_api:receive_report', 'mutating'],
 	// ── dd_mcp_api ─────────────────────────────────────────────────────────
 	// agent_apply's `plan_hash` is an INTEGRITY hash of the plan's own canonical
 	// JSON, not a one-shot nonce: the same plan resent passes it every time, and
@@ -1171,36 +1153,11 @@ function classTableFor(apiClass: unknown): Record<string, ActionHandler> | undef
 		: undefined;
 }
 
-/**
- * The Gate-1 refusal — ALSO what a disabled Gate-1c surface answers, so the
- * two bodies are byte-identical (minus request_id) and a probe cannot learn
- * the endpoint exists on this host.
- */
+/** The Gate-1 refusal (unregistered class/action pair). */
 function unknownAction(action: unknown): DedaloError {
 	return new DedaloError('request.unknown_action', {
 		details: { action: typeof action === 'string' ? action : String(action) },
 	});
-}
-
-/**
- * Gate 1c — the pre-auth error-report intake window (WC-017). Disabled ⇒ the
- * EXACT Gate-1 unregistered-action refusal (unknownAction), so a probe cannot
- * learn the endpoint exists on this host; the optional IP allowlist reads the
- * one entry grammar (security/ip_allowlist.ts). Throttle/token/schema live in
- * the handler. (Gate 1b — the install window — was removed with the browser
- * installer: WC-2026-10-12-install-surface-removed. No install action exists.)
- */
-function runPreAuthGates(actionKey: string, action: unknown, clientIp: string): void {
-	if (ERROR_REPORT_ACTION_KEYS.has(actionKey)) runErrorReportGate(action, clientIp);
-}
-
-function runErrorReportGate(action: unknown, clientIp: string): void {
-	if (!receiverEnabled()) throw unknownAction(action);
-	if (!reporterIpAllowed(clientIp)) {
-		throw new DedaloError('perm.denied', {
-			publicMessage: 'Error report not permitted from this address',
-		});
-	}
 }
 
 /**
@@ -1270,7 +1227,6 @@ async function runGatesAndHandler(rqo: Rqo, context: ApiRequestContext): Promise
 	const action = rqo.action;
 	const handler = resolveHandler(apiClass, action);
 	const actionKey = `${apiClass}:${action}`;
-	runPreAuthGates(actionKey, action, context.clientIp);
 	await runAuthGates(actionKey, action, context);
 
 	// Resolve the authorization identity ONCE per request, now that the auth gate

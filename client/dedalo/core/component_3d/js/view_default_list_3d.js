@@ -109,7 +109,7 @@ view_default_list_3d.render = async function(self, options) {
 *   1. 'thumb' entry in `data.entries` where `file_exist === true`
 *      → prepend DEDALO_MEDIA_URL to `file_path`
 *   2. `data.posterframe_url` (server-rendered still)
-*      → versioned by the server (?v=<mtime ms>-<size>)
+*      → versioned by the server (?dv=<mtime ms>-<size>)
 *   3. `page_globals.fallback_image` (global placeholder path)
 *
 * The resolved `quality` from `self.quality` or `self.context.features.quality`

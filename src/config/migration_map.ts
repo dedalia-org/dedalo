@@ -797,8 +797,8 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_GEOIP_DB_URL',
 	// tools
 	'DEDALO_ADDITIONAL_TOOLS',
-	// TOOLS_ENABLE_REGISTRY_IMPORT retired 2026-10-30 (U-39): no v7 consumer.
-	'TOOLS_REGISTRY_CACHE_TTL_MS',
+	// TOOLS_ENABLE_REGISTRY_IMPORT retired 2026-10-30 (U-39), TOOLS_REGISTRY_CACHE_TTL_MS
+	// 2026-11-20: no v7 consumer.
 	// site builder (the standalone publication/site_builder daemon)
 	'DEDALO_SITE_BUILDER_URL',
 	// The per-instance unix socket and the tenancy name it is paired with
@@ -856,12 +856,10 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_ACTIVITY_RETENTION_DAYS',
 	'DEDALO_DIFFUSION_LEDGER_RETENTION_DAYS',
 	'DEDALO_RETENTION_SCHEDULER_ENABLED',
-	// error report (WC-017/018/019)
+	// error report (email transport, 2026-11-19; MASTER_URL/RECEIVER retired, boot-warned)
+	'DEDALO_ERROR_REPORT_EMAIL',
 	'DEDALO_ERROR_REPORT_MASTER_URL',
 	'DEDALO_ERROR_REPORT_RECEIVER',
-	'DEDALO_ERROR_REPORT_TOKEN',
-	'DEDALO_ERROR_REPORT_ALLOWED_IPS',
-	'DEDALO_ERROR_REPORT_TIMEOUT_MS',
 	'DEDALO_ERROR_REPORT_RETENTION_DAYS',
 	'DEDALO_ERROR_REPORT_MAX_ROWS',
 	// RAG / AI / MCP — wholly new subsystems

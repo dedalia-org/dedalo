@@ -326,7 +326,7 @@ HERMETIC_TRIPWIRES=(
 	test/unit/external_config_narrowing_census.test.ts
 	test/unit/structure_context_own_census.test.ts
 	test/unit/external_registry_totality_tripwire.test.ts
-	test/unit/ip_allowlist.test.ts
+	test/unit/ip_address.test.ts
 	test/unit/migration_shared_row_tripwire.test.ts
 	test/unit/release_archive_tripwire.test.ts
 	test/unit/release_root_entries_tripwire.test.ts

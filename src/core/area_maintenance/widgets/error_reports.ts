@@ -1,32 +1,24 @@
 /**
- * error_reports widget — browse the error reports received by THIS master
- * installation's intake (WC-018; TS-only, no PHP twin).
+ * error_reports widget — browse the error reports THIS installation's admins
+ * sent (WC-018; transport per WC-2026-11-19-error-report-email-transport: each
+ * report is stored here and, when DEDALO_ERROR_REPORT_EMAIL is set, mailed).
  *
- * Appears in the maintenance catalog ONLY when the intake is enabled
- * (config.errorReport.receiverEnabled — registry.ts conditions the entry), so
- * every non-master installation's catalog stays byte-identical to PHP.
- * Admin-only by construction: dispatchWidgetRequest/dispatchGetWidgetValue
- * refuse non-global-admins before any handler runs. Reports contain UNTRUSTED
- * remote content — the client render (TS-owned widget JS) must emit every
- * report-derived string via textContent, never inner_html (DS-1).
+ * Listed on every installation. Admin-only by construction:
+ * dispatchWidgetRequest/dispatchGetWidgetValue refuse non-global-admins before
+ * any handler runs. Report fields are user/browser-supplied text — the client
+ * render must emit every report-derived string via textContent, never
+ * inner_html (DS-1).
  */
 
 import { config } from '../../../config/config.ts';
 import { countErrorReports, listErrorReports } from '../../error_report/store.ts';
 import type { WidgetModule, WidgetResponse } from './support.ts';
 
-/**
- * Where reports from THIS installation go (for the widget's target display):
- * the configured master API URL when relaying, else a note that reports are
- * stored on this installation (it is itself the receiver). Env-driven
- * (DEDALO_ERROR_REPORT_MASTER_URL / DEDALO_ERROR_REPORT_RECEIVER) so an
- * administrator can change it without a code edit.
- */
+/** Where this installation's reports go (the widget's target display). */
 function reportTarget(): string {
-	const url = config.errorReport.masterApiUrl;
-	if (url !== undefined && url !== '') return url;
-	if (config.errorReport.receiverEnabled) return 'This installation (stored locally)';
-	return 'Not configured';
+	const email = config.errorReport.email;
+	if (email !== undefined) return `${email} (by email; also stored here)`;
+	return 'Stored on this installation only (DEDALO_ERROR_REPORT_EMAIL not set)';
 }
 
 /** Panel load: totals only (the rows load on demand via get_reports). */
@@ -40,8 +32,8 @@ async function errorReportsGetValue(): Promise<WidgetResponse> {
 			data: { total, latest_received_at: latest[0]?.received_at ?? null, target: reportTarget() },
 		};
 	} catch (error) {
-		// getValue is fail-soft by contract (a missing table on a
-		// just-enabled master must not break the whole dashboard).
+		// getValue is fail-soft by contract (a missing table must not break
+		// the whole dashboard).
 		console.warn('[error_reports widget] get_value failed', error);
 		return { data: { total: null, latest_received_at: null, target: reportTarget() } };
 	}

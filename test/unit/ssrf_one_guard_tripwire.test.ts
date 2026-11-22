@@ -171,10 +171,6 @@ const EXEMPT: Record<string, string> = {
 	'src/ai/rag/multimodal_embedding_provider.ts':
 		'The multimodal embedding endpoint, operator-configured (endpointIsLocal names the ' +
 		'local case the guard would refuse). Signal + timeout at the call; NOT byte-capped (CARRY-14).',
-	'tools/tool_error_report/server/index.ts':
-		'Relays an error report to the operator-configured master (masterUrlAllowed: https, ' +
-		'or loopback http). Signal + timeout at the call; no resolve-and-vet and NOT ' +
-		'byte-capped — NOT YET on the guarded transport (CARRY-14).',
 };
 
 /**
@@ -2641,14 +2637,10 @@ describe('who reads carriers (import-graph census of the address primitives)', (
  */
 const ADDRESS_BYTE_SEEDS: Record<string, readonly string[]> = {
 	[IP_ADDRESS]: [
-		'peerBytes',
 		'sameBytes',
-		'sameAddress',
 		'packIpv4',
 		'packIpv6',
 		'packAddress',
-		'ipInCidr',
-		'peerBlock',
 		'packCidr',
 		'packedInBlock',
 		'extractRfc6052Ipv4',

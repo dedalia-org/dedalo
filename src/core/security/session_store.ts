@@ -739,6 +739,16 @@ export function recordFailedAttempt(attemptKey: string): void {
 		.run(nowSeconds() - (LOGIN_ATTEMPT_WINDOW_SECONDS + LOGIN_LOCKOUT_SECONDS));
 }
 
+/** Give back the newest attempt of `attemptKey` (a reserved slot whose action
+ * delivered nothing). No-op when the key has no attempt. */
+export function releaseAttempt(attemptKey: string): void {
+	database
+		.query(
+			'DELETE FROM login_attempts WHERE rowid = (SELECT rowid FROM login_attempts WHERE attempt_key = ? ORDER BY attempted_at DESC LIMIT 1)',
+		)
+		.run(attemptKey);
+}
+
 /**
  * Drop every session-store row that can no longer affect a decision: expired
  * sessions, spent login-attempt buckets, expired password resets.

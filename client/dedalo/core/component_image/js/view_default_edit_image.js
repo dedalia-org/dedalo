@@ -444,7 +444,7 @@ const render_image_external = function(file_url) {
 *
 * When data.base_svg_url is present (the server has generated the SVG
 * envelope), object_node.data is set to that URL as given (the server versions it,
-* ?v=<mtime ms>-<size>). When it is absent (image not yet uploaded / SVG not yet generated),
+* ?dv=<mtime ms>-<size>). When it is absent (image not yet uploaded / SVG not yet generated),
 * svg_fallback() points object_node.data to a generic placeholder SVG derived
 * from page_globals.fallback_image and, if the user has write permissions,
 * attaches a click handler that opens tool_upload so the user can upload an image.
@@ -545,7 +545,7 @@ const render_image_node = function(self, file_info, content_value) {
 
 			if (data.base_svg_url) {
 				// svg file already exists
-				object_node.data = data.base_svg_url // versioned by the server (?v=<mtime ms>-<size>)
+				object_node.data = data.base_svg_url // versioned by the server (?dv=<mtime ms>-<size>)
 			}else{
 				svg_fallback(object_node)
 			}

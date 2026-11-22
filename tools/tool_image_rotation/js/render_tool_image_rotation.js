@@ -746,7 +746,7 @@ const get_buttons = function(self) {
 				// asing the new processed image to the tool to show it
 				// The path does not change across rebuilds, so without a cache-buster the
 				// browser re-serves the bytes it already has and the preview looks untouched.
-				const image = DEDALO_MEDIA_URL + image_file?.file_path + '?v=' + Date.now()
+				const image = DEDALO_MEDIA_URL + image_file?.file_path + '?dv=' + Date.now()
 				nodes.main_element_image.src = image;
 			})
 		}

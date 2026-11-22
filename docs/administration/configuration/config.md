@@ -4004,41 +4004,39 @@ UPDATE_LOG_FILE="/srv/dedalo/private/update.log"
 
 ## Error reporting {#error_report}
 
-### Error reports: reporter IP allowlist
+### Error reports: recipient address
 
-DEDALO_ERROR_REPORT_ALLOWED_IPS `string`
+DEDALO_ERROR_REPORT_EMAIL `string`
 
-Only meaningful on the **master** installation (the one that receives reports). A
-comma-separated list of the IP addresses allowed to reach the intake; a report from any
-other address is refused. The shorthand `loopback` accepts the local machine. Write
-every IPv4 part in plain decimal: an entry with a leading zero (`010.0.0.1`) is refused,
-because some software reads it as octal — it matches no address at all.
+The email address this installation's error reports are sent to (normally the
+Dédalo maintainers' reporting mailbox). Global administrators get a report button on every
+page, from which they can describe a problem and send it — together with the page context,
+any JavaScript errors captured since the page loaded and an optional screenshot. Every
+report is first **stored on this installation** (the *Error reports* panel of the
+maintenance dashboard lists them); when this key is set it is then emailed through the
+configured mailer (`DEDALO_SMTP_*`). Nothing ever leaves the machine without that
+explicit click.
 
-Unset (the default) leaves the intake open to any address — it is still anonymous,
-rate-limited and size-capped, but if you know which installations report to you, listing
-them here is the cheapest way to keep everyone else out.
+Unset (the default) keeps reports on this installation only. Reports can contain user
+ids, page addresses, error stacks and screenshots, and an email may cross third-party mail
+servers — set it only if your institution agrees to send them off-site.
 
 ```bash
-DEDALO_ERROR_REPORT_ALLOWED_IPS="loopback,203.0.113.10,203.0.113.11"
+DEDALO_ERROR_REPORT_EMAIL="reports@example.org"
 ```
 
 *Default: (unset)*
 
 ---
 
-### Error reports: master installation URL
+### Error reports: master installation URL (retired)
 
-DEDALO_ERROR_REPORT_MASTER_URL `string`
+DEDALO_ERROR_REPORT_MASTER_URL `string` *no longer consulted*
 
-The JSON API endpoint of the **master** installation this Dédalo sends its error
-reports to. **Setting it is what enables reporting**: with a master URL configured, global
-administrators get a report button on every page, from which they can describe a problem
-and send it — together with the page context and any JavaScript errors captured since the
-page loaded — to the maintainers. Nothing ever leaves the machine without that explicit
-click.
-
-Leave it unset if this installation does not report anywhere. `https` is required (plain
-`http` is accepted only for a loopback target while developing).
+**Not honoured by the engine.** Reports are no longer relayed over HTTP to a master
+installation; they are stored locally and emailed to `DEDALO_ERROR_REPORT_EMAIL`. The key
+is still parsed, but only to log a boot warning. Remove the line and set
+`DEDALO_ERROR_REPORT_EMAIL` instead.
 
 ```bash
 DEDALO_ERROR_REPORT_MASTER_URL="https://master.example.org/dedalo/core/api/v1/json/"
@@ -4048,17 +4046,13 @@ DEDALO_ERROR_REPORT_MASTER_URL="https://master.example.org/dedalo/core/api/v1/js
 
 ---
 
-### Error reports: act as the receiver
+### Error reports: act as the receiver (retired)
 
-DEDALO_ERROR_REPORT_RECEIVER `bool`
+DEDALO_ERROR_REPORT_RECEIVER `bool` *no longer consulted*
 
-Set to `true` **only on the designated master installation** — the one other
-Dédalos point at with their master URL. It opens the intake endpoint that stores the
-incoming reports, and it turns on the *Error reports* widget of the maintenance dashboard,
-where an administrator can browse what has arrived.
-
-The default is `false`, and while it is off the endpoint is indistinguishable from an
-action that does not exist. A normal installation never turns this on.
+**Not honoured by the engine.** No installation receives reports from another over
+HTTP any more (reports travel by email to `DEDALO_ERROR_REPORT_EMAIL`). The key is still
+parsed, but only to log a boot warning. Remove the line.
 
 ```bash
 DEDALO_ERROR_REPORT_RECEIVER=true
@@ -4072,8 +4066,8 @@ DEDALO_ERROR_REPORT_RECEIVER=true
 
 DEDALO_ERROR_REPORT_RETENTION_DAYS `int`
 
-Only meaningful on the **master** installation. Received reports older than this many
-days are pruned. Default `90`; `0` keeps them forever.
+Reports stored on this installation older than this many days are
+pruned. Default `90`; `0` keeps them forever.
 
 Reports are user-written text and can quote record data, so a bounded retention is the
 recommended posture — shorten it if your institution's data-protection policy asks for it.
@@ -4090,58 +4084,16 @@ DEDALO_ERROR_REPORT_RETENTION_DAYS=90
 
 DEDALO_ERROR_REPORT_MAX_ROWS `int`
 
-Only meaningful on the **master** installation. The highest number of reports the
-store may hold. The age window (`DEDALO_ERROR_REPORT_RETENTION_DAYS`) cannot bound a burst:
-a flood arriving today is inside the window and stays for the whole of it, and since a
-report may carry an inline screenshot each one can be a few hundred kilobytes. When the
-store is over this ceiling the OLDEST reports are dropped until it is under it again —
-eviction, not refusal, because refusing would let a flood silence the genuine reports the
-intake exists for. Default `100000`; `0` removes the ceiling.
+The highest number of reports this installation's store may hold.
+Each report may carry an inline screenshot of a few hundred kilobytes. When the store is
+over this ceiling the OLDEST reports are dropped until it is under it again — eviction,
+not refusal, so a new report is never lost to an old one. Default `100000`; `0` removes the ceiling.
 
 ```bash
 DEDALO_ERROR_REPORT_MAX_ROWS=100000
 ```
 
 *Default: 100000*
-
----
-
-### Error reports: relay timeout
-
-DEDALO_ERROR_REPORT_TIMEOUT_MS `int`
-
-How long (in milliseconds) this server waits for the master installation to accept a
-relayed report before giving up. Default `10000` (ten seconds), minimum `1000`.
-
-Raise it if the master is reached over a slow link and administrators see reports fail to
-send; a timeout only loses that one report, it never blocks the user's work.
-
-```bash
-DEDALO_ERROR_REPORT_TIMEOUT_MS=10000
-```
-
-*Default: 10000*
-
----
-
-### Error reports: shared token
-
-DEDALO_ERROR_REPORT_TOKEN `string`
-
-An optional shared secret sent with every relayed report and checked by the master
-installation, which rejects a report that does not carry the matching value. It is a spam
-filter, not authentication: the sending server, not the browser, adds it.
-
-Both ends must hold the **same** value — set it on the master and on each installation
-that reports to it. This is a **secret**: the shipped template carries a placeholder only,
-so pick a long random string and set it for real. When it is unset on the master, the
-check is skipped and any report is accepted (still rate-limited and size-capped).
-
-```bash
-DEDALO_ERROR_REPORT_TOKEN="a-long-random-shared-secret"
-```
-
-*Default: (unset)*
 
 ---
 
@@ -5456,24 +5408,6 @@ DEDALO_TRANSFORM_DEFINITIONS_DIR="/srv/dedalo_transforms"
 ```
 
 *Default: `<private dir>/transform_definition_files` — a legacy `<install dir>/install/transform_definition_files` holding files keeps being used so nothing moves*
-
----
-
-### Tools registry cache expiry
-
-TOOLS_REGISTRY_CACHE_TTL_MS `int` *no longer consulted*
-
-This parameter defined how long, in milliseconds, the server kept the tools registry in memory before reading it from the database again.
-
-It is no longer consulted. The expiry existed because a second engine could write the tools registry behind this server's back, so the cache had to be assumed stale after a while. Dédalo is now the only writer of those records, and every write clears the cache the moment it happens — so the data can never be stale and there is nothing to expire.
-
-The key is still recognized, so an existing configuration carrying it still starts, but setting it has no effect and it can be removed.
-
-```bash
-TOOLS_REGISTRY_CACHE_TTL_MS=60000
-```
-
-*Default: 60000*
 
 ---
 

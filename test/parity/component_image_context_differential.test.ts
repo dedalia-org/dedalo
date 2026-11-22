@@ -176,10 +176,10 @@ describe.if(hasPhpCredentials())('component_image differential (edit read)', () 
 				lang: item?.lang,
 				external_source: item?.external_source ?? null,
 				// WC-2026-10-29-posterframe-url-version: TS versions base_svg_url by file
-				// (`?v=<mtime ms>-<size>`); the frozen PHP store has the bare path.
+				// (`?dv=<mtime ms>-<size>`); the frozen PHP store has the bare path.
 				base_svg_url:
 					typeof item?.base_svg_url === 'string'
-						? item.base_svg_url.replace(/\?v=\d+-\d+$/, '')
+						? item.base_svg_url.replace(/\?dv=\d+-\d+$/, '')
 						: (item?.base_svg_url ?? null),
 				entries: entries.map((entry) => ({
 					id: entry.id,

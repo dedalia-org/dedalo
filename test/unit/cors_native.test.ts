@@ -196,7 +196,7 @@ describe('preflight', () => {
 			buildCorsPreflightResponse(ALLOWED, LIST)?.headers.get('Access-Control-Allow-Headers') ?? '';
 		// Content-Type: application/json is itself what forces the preflight;
 		// X-Dedalo-Csrf-Token is injected for every non-bootstrap action.
-		for (const header of ['Content-Type', 'X-Dedalo-Csrf-Token', 'X-Dedalo-Report-Token']) {
+		for (const header of ['Content-Type', 'X-Dedalo-Csrf-Token']) {
 			expect(allow).toContain(header);
 		}
 	});

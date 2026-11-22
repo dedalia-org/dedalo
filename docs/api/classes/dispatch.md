@@ -58,4 +58,3 @@ Each `(dd_api, action)` pair the registry binds lives in one of these class page
 - [dd_external_api](dd_external_api.md) — search a third-party catalogue through the engine.
 - [dd_component_portal_api](dd_component_portal_api.md) · [dd_component_text_area_api](dd_component_text_area_api.md) · [dd_component_av_api](dd_component_av_api.md) · [dd_component_3d_api](dd_component_3d_api.md) · [dd_component_info](dd_component_info.md).
 - [dd_mcp_api](dd_mcp_api.md) — the in-process assistant / MCP bridge.
-- [dd_error_report_api](dd_error_report_api.md) — machine-to-machine error-report intake.

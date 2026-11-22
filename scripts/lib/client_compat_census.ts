@@ -222,7 +222,7 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 		file: 'client/dedalo/core/common/js/error_capture.js',
 		pattern: /\b(?:el|entry)\.msg\b/g,
 		reason:
-			'The captured JS-error entry the client buffers in window.dedalo_js_errors and posts to the report intake; never an API response.',
+			'The captured JS-error entry the client buffers in window.dedalo_js_errors and sends with an error report; never an API response.',
 	},
 	{
 		file: 'client/dedalo/core/common/js/render_common.js',

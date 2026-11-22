@@ -1,6 +1,7 @@
 ---
 name: dedalo-docs-authoring
-description: Writing and correcting the Dédalo v7 manual in docs/ — above all the LAW THAT EVERY ONTOLOGY TIPO IN AN EXAMPLE MUST BE A REAL, VERIFIED NODE (never lit5/unc1-style placeholders, never a real tipo with the wrong model), plus the mechanical gates (docs_current_engine_tripwire: PHP-free prose, resolvable internal links, no rewrite/ paths) and the storage-shape facts examples keep getting wrong (relation vs relations, keyed-by-tipo vs flat array). Use when adding or editing ANY file under docs/, when a doc example is reported as wrong or confusing, when docs_current_engine_tripwire fails, when documenting a component/tool/area, or when copying a config example out of the docs into an ontology. Canon: docs/development/documentation_style_guide.md.
+description: >-
+  Writing and correcting the Dédalo v7 manual in docs/ — above all the LAW THAT EVERY ONTOLOGY TIPO IN AN EXAMPLE MUST BE A REAL, VERIFIED NODE (never lit5/unc1-style placeholders, never a real tipo with the wrong model), plus the mechanical gates (docs_current_engine_tripwire: PHP-free prose, resolvable internal links, no rewrite/ paths) and the storage-shape facts examples keep getting wrong (relation vs relations, keyed-by-tipo vs flat array). Use when adding or editing ANY file under docs/, when a doc example is reported as wrong or confusing, when docs_current_engine_tripwire fails, when documenting a component/tool/area, or when copying a config example out of the docs into an ontology. Canon: docs/development/documentation_style_guide.md.
 ---
 
 # Authoring Dédalo v7 docs

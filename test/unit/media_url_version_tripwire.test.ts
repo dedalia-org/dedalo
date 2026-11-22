@@ -15,6 +15,9 @@
  *  4. The search renderer is lazy in every media component (CONVENTIONS S3-37 #3).
  *     (The thesaurus tree's own mtime-only icon URL, src/core/ts_object/ts_object.ts,
  *     is WC-2026-09-01-ts-object-svg-url — not a media component URL, out of scope.)
+ *  5. The version key is `dv`, never `v`: Apache mod_h264_streaming reads `?v=`
+ *     as a trim parameter and served a 2.5 s clip of a 1h26 video
+ *     (WC-2026-11-19-media-url-version-key).
  * Every exemption must still match (a stale one is red).
  */
 import { expect, test } from 'bun:test';
@@ -90,6 +93,21 @@ test('files_info URLs go through get_media_url, the one client builder', () => {
 test('the server version token is built in one place', () => {
 	const builders = writePathSourceFiles().filter((f) => /mtimeMs\)\}-/.test(read(f)));
 	expect(builders).toEqual(['src/core/media/url_version.ts']);
+});
+
+test('media URLs are versioned with ?dv=, never ?v= (streaming modules read v)', () => {
+	const builders = [
+		'client/dedalo/core/component_media_common/js/media_url.js',
+		'src/core/media/url_version.ts',
+		'src/core/media/component_emit.ts',
+		'src/core/media/svg_overlay.ts',
+	];
+	for (const f of builders) {
+		const code = codeLines(f).join('\n');
+		expect(code).toContain('?dv=');
+		expect(code).not.toMatch(/[?&]v=/);
+	}
+	expect(census(/[`'"]\?v=/)).toEqual(new Map());
 });
 
 test('the search renderer is lazy in every media component', () => {

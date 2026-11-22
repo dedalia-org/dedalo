@@ -1,13 +1,11 @@
 /**
- * Shared payload schema for the error-report flow (WC-017/019).
+ * Payload schema for the error-report flow (WC-019; transport per
+ * WC-2026-11-19-error-report-email-transport).
  *
- * ONE schema validates at BOTH trust boundaries:
- * - the sender tool handler (tools/tool_error_report/server) validates what the
- *   browser submitted before stamping identity and relaying;
- * - the receiver intake (api/handlers/dd_error_report_api.ts) re-validates the
- *   whole wire payload — the master cannot verify a remote installation, so
- *   every field arrives as an untrusted claim regardless of what the sender
- *   asserts (SECURITY_DECISIONS: error-report intake).
+ * - `reportSubmissionSchema` validates what the BROWSER submitted
+ *   (tools/tool_error_report/server) before the server stamps identity;
+ * - `ReportWire` is the stamped report that is stored locally and mailed as
+ *   report.json (`reportWireSchema` is its canonical shape).
  *
  * Shape rules (security design, 2026-07-10):
  * - `.strict()` everywhere: unknown fields are REJECTED, not stripped;
@@ -101,8 +99,8 @@ export const reportSubmissionSchema = z
 export type ReportSubmission = z.infer<typeof reportSubmissionSchema>;
 
 /**
- * The full wire payload the receiver accepts: the submission plus the fields
- * the SENDER'S SERVER stamped (self-reported claims on the receiving side).
+ * The stamped report: the submission plus the fields send_report stamps
+ * server-side (identity, version, langs, time). Stored and mailed as-is.
  */
 export const reportWireSchema = reportSubmissionSchema
 	.extend({

@@ -1188,7 +1188,7 @@ const SUBSYSTEM_OWNED_TABLES: readonly {
 		],
 	},
 	{
-		family: 'error-report intake (WC-017)',
+		family: 'error-report store (WC-018)',
 		tablePattern: /dedalo_ts_error_reports/,
 		owners: ['src/core/error_report/store.ts'],
 	},

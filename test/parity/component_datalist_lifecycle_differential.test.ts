@@ -173,9 +173,9 @@ describe.if(hasPhpCredentials())('six-component get_data lifecycle differential'
 	}
 
 	// AV media envelope.
-	// TS versions posterframe_url by file (`?v=<mtime ms>-<size>`); the frozen PHP store has
+	// TS versions posterframe_url by file (`?dv=<mtime ms>-<size>`); the frozen PHP store has
 	// the bare path (WC-2026-10-29-posterframe-url-version).
-	const unversioned = (u: unknown) => (typeof u === 'string' ? u.replace(/\?v=\d+-\d+$/, '') : u);
+	const unversioned = (u: unknown) => (typeof u === 'string' ? u.replace(/\?dv=\d+-\d+$/, '') : u);
 	test('av: posterframe + subtitles (edit) match PHP', async () => {
 		if (!ready) return;
 		const { php, ts } = await both('component_av', seed('rsc', 35), seed('rsc', 167), '1', 'edit');

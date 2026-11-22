@@ -179,10 +179,11 @@ live on disk. The media engine resolves them:
 - **Media URLs are versioned by the file, never by the render**, so the browser
   reuses its cache across renders and a changed file gets a new URL. The server
   stamps the URLs it builds (`posterframe_url`, `base_svg_url`, indexation-grid
-  thumbs) with `?v=<mtime ms>-<size>` through `media/url_version.ts`; the client
+  thumbs) with `?dv=<mtime ms>-<size>` through `media/url_version.ts`; the client
   builds every `files_info` URL with `get_media_url()`
   (`client/dedalo/core/component_media_common/js/media_url.js`) as
-  `?v=<file_time>-<file_size>`. All five media components share this, plus lazy
+  `?dv=<file_time>-<file_size>`. The key is `dv`, never `v`: the Apache H.264
+  clipping module reads `v` and would serve a seconds-long clip. All five media components share this, plus lazy
   `<img>` stills and lazily imported search/rare views; the rule is pinned by
   `test/unit/media_url_version_tripwire.test.ts`.
 

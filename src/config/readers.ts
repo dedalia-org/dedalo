@@ -319,7 +319,7 @@ export function readServerList(
 /**
  * THE UPDATE-SOURCE TRANSPORT RULE (update audit 2026-10-29, U-24): a code or
  * ontology master is `https://`, or plain http on THIS machine (loopback — the
- * two-server dev flow, as tool_error_report allows), or plain http anywhere
+ * two-server dev flow), or plain http anywhere
  * when the development seam DEDALO_UPDATE_HTTP_SOURCES_DEV is on. The shared
  * `code` and the archives must never cross a network in clear. Pure; the
  * downloaders re-check every URL with it (src/core/update/code_download.ts,
@@ -396,6 +396,25 @@ export function warnRetiredOntologyServerCode(
 	if (!isOntologyServer || retiredCode === undefined || retiredCode.trim() === '') return;
 	console.error(
 		'[config] ONTOLOGY_SERVER_CODE is retired and NOT honoured — clients presenting that code get "Invalid code". Move its value into an ONTOLOGY_SERVERS entry (code-only entry: {"name","url","code"}, https url) in ../private/.env, remove the ONTOLOGY_SERVER_CODE line and restart. See docs/administration/configuration/config.md#ontology-servers.',
+	);
+}
+
+/**
+ * ONE boot line when a RETIRED error-report transport key is still set (HTTP relay
+ * and pre-auth intake, retired 2026-11-19): reports are stored locally and mailed to
+ * DEDALO_ERROR_REPORT_EMAIL. Values are never logged.
+ */
+export function warnRetiredErrorReportKeys(
+	masterUrl: string | undefined,
+	receiver: string | undefined,
+): void {
+	const set = [
+		masterUrl !== undefined && masterUrl.trim() !== '' ? 'DEDALO_ERROR_REPORT_MASTER_URL' : null,
+		receiver !== undefined && receiver.trim() !== '' ? 'DEDALO_ERROR_REPORT_RECEIVER' : null,
+	].filter((key): key is string => key !== null);
+	if (set.length === 0) return;
+	console.error(
+		`[config] ${set.join(', ')} retired and NOT honoured — error reports are no longer relayed over HTTP. They are stored on this installation and emailed to DEDALO_ERROR_REPORT_EMAIL when set. Remove the line(s) from ../private/.env. See docs/administration/configuration/config.md.`,
 	);
 }
 

@@ -1,6 +1,7 @@
 ---
 name: dedalo-tools-ts
-description: Use when creating a new Dédalo v7 tool (tools/tool_<name>/) or adapting an existing one — scaffolding with scripts/create_tool.ts, register.json / the dd1340 → dd1324 registration, a server/index.ts apiActions permission kind, the tool client (wire_tool, tool_request, open_tool, open_as modal/window, ddo_map/tool_config, get_tool_label), tool CSS (identity colour, tool_header, css:tool-colors), making a tool work on a phone or touch screen, or when a tool "does not appear", "opens blank", throws "tool_request is not a function" / "view_window: caller is required", or a tool_* tripwire fails.
+description: >-
+  Use when creating a new Dédalo v7 tool (tools/tool_<name>/) or adapting an existing one — scaffolding with scripts/create_tool.ts, register.json / the dd1340 → dd1324 registration, a server/index.ts apiActions permission kind, the tool client (wire_tool, tool_request, open_tool, open_as modal/window, ddo_map/tool_config, get_tool_label), tool CSS (identity colour, tool_header, css:tool-colors), making a tool work on a phone or touch screen, or when a tool "does not appear", "opens blank", throws "tool_request is not a function" / "view_window: caller is required", or a tool_* tripwire fails.
 ---
 
 # Creating and adapting Dédalo tools

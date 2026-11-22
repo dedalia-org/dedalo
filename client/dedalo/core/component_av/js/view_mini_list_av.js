@@ -22,7 +22,7 @@
 *      (the file-info array returned by the server) — the first entry where
 *      quality === 'thumb' AND file_exist === true.
 *   2. If no valid thumb exists, the component falls back to data.posterframe_url
-*      (a static frame extracted from the video), versioned by the server (?v=<mtime ms>-<size>).
+*      (a static frame extracted from the video), versioned by the server (?dv=<mtime ms>-<size>).
 *   3. If neither thumb nor posterframe is available, page_globals.fallback_image
 *      (a system-wide placeholder defined at page bootstrap) is used.
 *   4. An 'error' listener on the <img> element implements a second-chance fallback:
@@ -66,7 +66,7 @@ export const view_mini_list_av = function() {
 *
 * Selects an image source using a three-tier priority chain:
 *   thumb entry (quality='thumb', file_exist=true)
-*     → data.posterframe_url (versioned by the server, ?v=<mtime ms>-<size>)
+*     → data.posterframe_url (versioned by the server, ?dv=<mtime ms>-<size>)
 *       → page_globals.fallback_image
 *
 * The returned wrapper is a <span> element (see ui.component.build_wrapper_mini).
@@ -104,7 +104,7 @@ view_mini_list_av.render = async function(self) {
 		const thumb	= files_info.find(el => el.quality==='thumb' && el.file_exist===true)
 
 	// posterframe_url
-	// The server versions the URL by file mtime+size (?v=), so a regenerated posterframe gets a new URL.
+	// The server versions the URL by file mtime+size (?dv=), so a regenerated posterframe gets a new URL.
 		const posterframe_url	= data.posterframe_url
 			? data.posterframe_url
 			: page_globals.fallback_image

@@ -382,7 +382,7 @@ describe('L6 emit: the edit view finds the <stem>.svg envelope (base_svg_url)', 
 			});
 			const url = (emission.items[0] as { base_svg_url?: unknown }).base_svg_url;
 			expect(typeof url).toBe('string');
-			expect(String(url)).toContain(`${envelope.relativePath}?v=`);
+			expect(String(url)).toContain(`${envelope.relativePath}?dv=`);
 		} finally {
 			rmSync(envelope.absolutePath, { force: true });
 		}

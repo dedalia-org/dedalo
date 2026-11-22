@@ -16,7 +16,7 @@
 * renaming or aliasing it here would silently break tool instantiation.
 *
 * Administrators-only: report a problem (page context + captured JS errors +
-* description) to the Dédalo master installation. Server half:
+* description) to this installation, which stores it and emails it when configured. Server half:
 * server/index.ts (action 'send_report').
 */
 

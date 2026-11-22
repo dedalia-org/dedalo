@@ -198,7 +198,7 @@
 		"test/unit/tier_assignment_tripwire.test.ts": 21,
 		"test/unit/tool_header_contract_tripwire.test.ts": 21,
 		"test/unit/deploy_env_contract_tripwire.test.ts": 20,
-		"test/unit/ip_allowlist.test.ts": 18,
+		"test/unit/ip_address.test.ts": 18,
 		"test/unit/external_outbound_tripwire.test.ts": 17,
 		"test/unit/media_alternate_versions_tripwire.test.ts": 16,
 		"test/unit/ontology_references_native.test.ts": 16,

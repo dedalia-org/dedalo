@@ -100,7 +100,7 @@ render_edit_component_3d.prototype.edit = async function(options) {
 *   }>
 *
 * On change, the selector publishes event '3d_quality_change_'+self.id with the
-* selected file URL, versioned by its file (get_media_url, ?v=<file_time>-<size>).
+* selected file URL, versioned by its file (get_media_url, ?dv=<file_time>-<size>).
 * view_default_edit_3d subscribes to this event via quality_change_handler.
 *
 * mousedown and click events are stopped at the selector to prevent the

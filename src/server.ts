@@ -344,10 +344,9 @@ function trustedProxyTransport(): string {
  * it ran on EVERY listener. On the direct TCP listener, which has no proxy in
  * front, a client simply sent its own `X-Forwarded-For` and chose what this
  * function returned — unlimited login-throttle buckets (the brute-force protection
- * this value exists for), forged addresses in dd544 activity rows, and, since the
- * address allowlists' `loopback` entry admits `127.0.0.1` (core/security/ip_allowlist.ts —
- * today the error-report intake; until 2026-10-12 also the install gate), a
- * spoofable claim to be loopback.
+ * this value exists for), forged addresses in dd544 activity rows, and (while the
+ * address allowlists existed — the install gate until 2026-10-12, the error-report
+ * intake until 2026-11-19) a spoofable claim to be loopback.
  * The old comment's "this is never an authorization input" was not true.
  *
  * A short header is treated as forged, not as a shorter chain: fewer entries than
@@ -390,13 +389,6 @@ export function clientIpFromRequest(request: Request, context?: RequestContext):
  * knowing is the password-reset VERIFY throttle, which is keyed by reset id.
  */
 const PROXY_MALFORMED_IP = 'proxy-malformed';
-
-/** Parse the Content-Length header to a non-negative integer, else undefined. */
-export function parseContentLength(header: string | null): number | undefined {
-	if (header === null) return undefined;
-	const value = Number(header);
-	return Number.isInteger(value) && value >= 0 ? value : undefined;
-}
 
 /**
  * Whether to mark the session cookie `Secure` (M4). Default TRUE — the app must
@@ -1401,8 +1393,6 @@ export async function handleRequest(request: Request, context: RequestContext): 
 					: parsedRqo.data.csrf_token !== undefined && parsedRqo.data.csrf_token !== null
 						? 'body'
 						: null,
-			reportTokenCandidate: request.headers.get('x-dedalo-report-token'),
-			bodyByteLength: parseContentLength(request.headers.get('content-length')),
 			startedAt: context.startedAt,
 		};
 

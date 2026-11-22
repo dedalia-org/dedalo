@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
     - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
     - Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused
     - The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.
@@ -604,6 +605,14 @@ Merged since the last release; these ship with the next one.
 - **Uploading a very large file no longer fails while the server is still assembling it.**
 
     When a multi-gigabyte upload finished transferring, assembling it on the server can take minutes. Any assembly still running about 25 seconds after the transfer ended was reported as an error ("the first attempt failed after it may already have been applied"), although the server went on to finish the file, which then never reached the record. The upload now waits for the assembly to finish, for as long as the server keeps making progress (it gives up only after 15 minutes without any), and attaches the file as usual, without an error message for every few seconds of waiting. If the server restarts during the assembly, the upload starts it again straight away instead of waiting 10 minutes. If the assembly fails, for example because the disk is full, the upload now stops with an error instead of retrying it endlessly in the background. Files that hit the error before this fix must be uploaded again.
+
+- **Videos on some servers no longer show a 2-second duration in the edit view and the versions tool.**
+
+    On servers whose Apache loads the H.264 streaming module, an audiovisual record played only its
+    first seconds in the record and in *Media versions*, although the file itself was complete. Media
+    links now carry their version under a key that module does not read, so the whole video plays.
+
+    Wire contract: `WC-2026-11-19-media-url-version-key`.
 
 - **Reverting a batch run cleans the values it puts back like a normal save**
 
@@ -1492,6 +1501,25 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-21-root-password-write-refused`.
 
+- **Error reports are stored on your installation and sent by email; the anonymous report intake is removed.** *(action needed)*
+
+    Before, an administrator's error report was relayed over HTTP to a "master" installation, which
+    accepted reports from anyone on the network without logging in. That door could be used to fill
+    the master's database. It is gone.
+
+    Now every report is **stored on the installation where it was written** (the *Error reports*
+    panel of the maintenance dashboard lists them) and, when `DEDALO_ERROR_REPORT_EMAIL` is set,
+    **emailed** there through the configured mailer: a plain-text summary, the full report as
+    `report.json` and the screenshot as an image. Unset, reports stay on your installation.
+
+    **Action needed:** remove `DEDALO_ERROR_REPORT_MASTER_URL`, `DEDALO_ERROR_REPORT_RECEIVER`,
+    `DEDALO_ERROR_REPORT_TOKEN`, `DEDALO_ERROR_REPORT_ALLOWED_IPS` and
+    `DEDALO_ERROR_REPORT_TIMEOUT_MS` from `../private/.env` (the server logs a warning at boot while
+    the first two are set), and set `DEDALO_ERROR_REPORT_EMAIL` if you want reports sent to the
+    maintainers. See [Error reports](./administration/error_reports.md).
+
+    Wire contract: `WC-2026-11-19-error-report-email-transport`.
+
 - **An external service's API addresses are no longer sent to the browser, and may not carry a query string**
 
     A section bound to an external record service declares the service's addresses in its `api_config`: `api_url`, `api_url_search` and `ui_base_url`. The first two are called by the Dédalo server, never by the browser, yet both were sent to every browser that opened the section — and an access key written into one of them as `?apikey=…` went with it.
@@ -1591,6 +1619,12 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-10-hierarchy-rebuild-ownership`.
 
 #### Removed
+
+- **The setting TOOLS_REGISTRY_CACHE_TTL_MS is removed.**
+
+    It has had no effect since Dédalo became the only writer of the tools registry (every change
+    refreshes the tools list at once). It is no longer listed in `sample.env` or the settings
+    reference. A leftover line in `../private/.env` is ignored; you can delete it.
 
 - **The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.** *(action needed)*
 
@@ -2362,7 +2396,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 99 entries"
+??? note "Wire contract — 101 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2450,9 +2484,11 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-13-use-real-sections-highest-grant`
     - `WC-2026-11-17-tm-restore-value-gates`
     - `WC-2026-11-19-data-version-unreachable`
+    - `WC-2026-11-19-error-report-email-transport`
     - `WC-2026-11-19-external-api-url-unpublished`
     - `WC-2026-11-19-legacy-aes-lazy-rehash-retired`
     - `WC-2026-11-19-maintenance-legacy-passwords-widget`
+    - `WC-2026-11-19-media-url-version-key`
     - `WC-2026-11-19-window-features-grammar`
     - `WC-2026-11-21-empty-literal-stored-absent`
     - `WC-2026-11-21-implicit-section-node-never-a-column`

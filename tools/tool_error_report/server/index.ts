@@ -1,25 +1,28 @@
 /**
- * tool_error_report — server half (WC-019; SECURITY_DECISIONS: error-report
- * intake). ONE action, `send_report`: the tool's client posts the admin's
- * report here (authenticated tool_request), and this handler validates,
- * SERVER-STAMPS identity, and relays it to the master installation's intake
- * (dd_error_report_api:receive_report, WC-017).
+ * tool_error_report — server half (WC-019, transport per
+ * WC-2026-11-19-error-report-email-transport). ONE action, `send_report`: the
+ * tool's client posts the admin's report here (authenticated tool_request), and
+ * this handler validates, SERVER-STAMPS identity, STORES the report on this
+ * installation, and — when DEDALO_ERROR_REPORT_EMAIL is set — mails it through
+ * the one mailer (src/core/mailer/mailer.ts).
  *
  * Trust model (RT-1/RT-2): the browser supplies only client-observable context
- * (description, page path, section locator, captured JS errors); this handler
- * stamps user_id/entity/version/langs/sent_at itself from principal + config —
- * the browser can never spoof who reported or from where. The receiver still
- * re-validates everything (the master trusts no remote installation).
+ * (description, page path, section locator, captured JS errors, screenshot);
+ * this handler stamps user_id/entity/version/langs/sent_at itself from
+ * principal + config — the browser can never spoof who reported or from where.
  *
- * Routing: DEDALO_ERROR_REPORT_MASTER_URL set → outbound relay (https-only,
- * loopback http allowed for dev; AbortController + config timeout; optional
- * X-Dedalo-Report-Token). Else, when THIS server is the master
- * (DEDALO_ERROR_REPORT_RECEIVER) → store directly, no HTTP loopback. Else →
- * honest "not configured" failure. Best-effort per CONVENTIONS §1: a failed
- * relay logs a message-only warn (never the payload or token) and returns an
- * honest failure envelope so the admin gets feedback.
+ * Mail discipline: the body is PLAIN TEXT only (never bodyHtml — report text is
+ * untrusted and must not become markup in a mail client); the full report rides
+ * as `report.json`, the screenshot as `screenshot.<ext>`, both under
+ * engine-constant filenames. A mail failure is NOT a submit failure: the report
+ * is already stored, the admin is told it was not mailed. Sends are throttled
+ * per installation so a hijacked admin session cannot turn it into a spammer.
+ *
+ * Ordering: mail FIRST, then store with the mail outcome in `context.mail` — the
+ * store is append-only (no UPDATE door), so the outcome must be known at insert.
  */
 
+import { randomUUID } from 'node:crypto';
 import { config } from '../../../src/config/config.ts';
 import {
 	type ReportWire,
@@ -30,8 +33,20 @@ import {
 	ensureErrorReportsTable,
 	insertErrorReport,
 } from '../../../src/core/error_report/store.ts';
-import { DedaloError, isDedaloError, ok } from '../../../src/core/errors/index.ts';
+import { DedaloError, ok } from '../../../src/core/errors/index.ts';
+import {
+	type MailAttachment,
+	type SendMailOptions,
+	type SendMailResult,
+	sendMail,
+} from '../../../src/core/mailer/mailer.ts';
 import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import {
+	buildThrottleKey,
+	isThrottled,
+	recordFailedAttempt,
+	releaseAttempt,
+} from '../../../src/core/security/session_store.ts';
 import {
 	type ToolActionContext,
 	type ToolResponse,
@@ -40,28 +55,46 @@ import {
 } from '../../../src/core/tools/module.ts';
 import { DEDALO_ENGINE_VERSION } from '../../../src/core/update/build_stamp.ts';
 
-/** The relay-routing settings (defaults to the boot config catalog). */
-export interface RelaySettings {
-	masterApiUrl: string | undefined;
-	receiverEnabled: boolean;
-	token: string | undefined;
-	relayTimeoutMs: number;
+/** Sends one installation may make per throttle window (session_store LOGIN_ATTEMPT_WINDOW). */
+export const SEND_MAX_PER_WINDOW = 10;
+
+/** Captured JS errors quoted in the plain-text body (all of them ride in report.json). */
+const BODY_MAX_JS_ERRORS = 5;
+
+/** What the store records about the mail attempt (inside `context`; no DDL). */
+export interface MailOutcome {
+	readonly status: 'sent' | 'failed' | 'not_configured';
+	readonly code?: string;
+	readonly ref: string;
 }
 
-/** Injectable seams for tests (mock fetch / local store / settings). */
+/** Injectable seams for tests (mail / local store / throttle / recipient). */
 export interface SendReportDeps {
-	fetchImpl: typeof fetch;
-	storeLocally: (report: ReportWire) => Promise<number>;
-	settings?: RelaySettings;
+	sendMail: (options: SendMailOptions) => Promise<SendMailResult>;
+	storeLocally: (report: ReportWire, mail: MailOutcome) => Promise<number>;
+	/** true = refuse this send; false = a slot is reserved for it. */
+	throttled: () => boolean;
+	/** Give the reserved slot back (the send delivered nothing). */
+	release: () => void;
+	recipient: () => string | undefined;
+}
+
+/** The per-installation send budget key (exported for its gate). */
+export const THROTTLE_KEY = buildThrottleKey('error_report_send', '', 'install');
+
+/** true = refuse this send; otherwise a slot is reserved in the same sync step
+ * (no await between check and count, so parallel sends cannot overshoot). */
+export function sendThrottled(): boolean {
+	if (isThrottled(THROTTLE_KEY, SEND_MAX_PER_WINDOW)) return true;
+	recordFailedAttempt(THROTTLE_KEY);
+	return false;
 }
 
 const defaultDeps: SendReportDeps = {
-	fetchImpl: fetch,
-	storeLocally: async (report) => {
+	sendMail,
+	storeLocally: async (report, mail) => {
 		await ensureErrorReportsTable();
 		return insertErrorReport({
-			// The master's own admin reporting on the master itself: the "sender"
-			// and receiver are the same process, so the source is local.
 			source_ip: 'local',
 			entity: report.entity,
 			dedalo_version: report.dedalo_version,
@@ -79,52 +112,77 @@ const defaultDeps: SendReportDeps = {
 				client_globals: report.client_globals,
 				report_version: report.report_version,
 				screenshot: report.screenshot ?? null,
+				mail,
 			},
 		});
 	},
+	throttled: sendThrottled,
+	release: () => releaseAttempt(THROTTLE_KEY),
+	recipient: () => config.errorReport.email,
 };
 
-/**
- * The relay/store refusals, as registered codes. The three relay conditions
- * share one wire code (`tool.dependency_unavailable` — the admin can only do
- * one thing about any of them: fix the relay), and stay distinguishable in the
- * LOG through the throw's `message`, which never reaches the wire.
- */
-function relayRefusal(reason: string): DedaloError {
-	return new DedaloError('tool.dependency_unavailable', {
-		coordinates: { tool: 'tool_error_report' },
-		message: reason,
-	});
+/** Screenshot data URL (schema-validated) → attachment; null when absent. */
+function screenshotAttachment(dataUrl: string | null | undefined): MailAttachment | null {
+	if (typeof dataUrl !== 'string') return null;
+	const match = /^data:image\/(png|jpeg|webp);base64,(.+)$/.exec(dataUrl);
+	if (match === null) return null;
+	const [, type, base64] = match;
+	return {
+		filename: `screenshot.${type === 'jpeg' ? 'jpg' : type}`,
+		content: Buffer.from(base64 ?? '', 'base64'),
+		contentType: `image/${type}`,
+	};
 }
 
-/**
- * A relay condition detected INSIDE the try: logged with its own specific
- * reason, then refused with the shared `relay_failed` refusal — exactly what
- * the catch below does for a transport throw, so a bad HTTP status and a dead
- * socket stay one wire fact and one log grammar.
- */
-function relayFault(reason: string): DedaloError {
-	console.warn('[tool_error_report] relay failed', reason);
-	return relayRefusal('relay_failed');
-}
-
-/** https-only, except loopback http for the two-server dev flow. */
-export function masterUrlAllowed(rawUrl: string): boolean {
-	let parsed: URL;
-	try {
-		parsed = new URL(rawUrl);
-	} catch {
-		return false;
+/** The plain-text body: a human summary; the full report is report.json. */
+export function reportMailText(report: ReportWire, ref: string): string {
+	const section = report.section_tipo
+		? report.section_tipo + (report.section_id ? ` / ${report.section_id}` : '')
+		: '-';
+	const lines = [
+		`Reference: ${ref}`,
+		`Installation: ${report.entity ?? '-'}${report.entity_label ? ` (${report.entity_label})` : ''}`,
+		`Version: ${report.dedalo_version ?? '-'}`,
+		`Reported at: ${report.sent_at ?? '-'}`,
+		`User id: ${report.user_id ?? '-'}`,
+		`Section: ${section}`,
+		`Page: ${report.page_url ?? '-'}`,
+		'',
+		'Description:',
+		report.description,
+		'',
+		`JavaScript errors: ${report.js_errors.length}`,
+	];
+	for (const item of report.js_errors.slice(-BODY_MAX_JS_ERRORS)) {
+		lines.push(`- [${item.type}] ${item.msg ?? '(no message)'}`);
 	}
-	if (parsed.protocol === 'https:') return true;
-	if (parsed.protocol !== 'http:') return false;
-	return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(parsed.hostname);
+	lines.push('', 'Full report: report.json (attached).');
+	return lines.join('\n');
+}
+
+/** The mail for one report (plain text + constant-named attachments). */
+export function reportMail(report: ReportWire, ref: string, to: string): SendMailOptions {
+	const { screenshot, ...withoutScreenshot } = report;
+	const attachments: MailAttachment[] = [
+		{
+			filename: 'report.json',
+			content: JSON.stringify(withoutScreenshot, null, 2),
+			contentType: 'application/json',
+		},
+	];
+	const image = screenshotAttachment(screenshot);
+	if (image !== null) attachments.push(image);
+	return {
+		to,
+		subject: `[Dédalo error report] ${report.entity ?? 'unknown'} ${ref}`,
+		bodyText: reportMailText(report, ref),
+		attachments,
+	};
 }
 
 /** Build the send_report handler with injectable deps (tests mock the seams). */
 export function buildSendReportHandler(deps: SendReportDeps = defaultDeps) {
 	return async function sendReport(context: ToolActionContext): Promise<ToolResponse> {
-		const settings: RelaySettings = deps.settings ?? config.errorReport;
 		// Defense in depth over the registry non-grant: admins only.
 		if (!context.principal.isGlobalAdmin) {
 			throw new DedaloError('perm.denied', {
@@ -140,11 +198,10 @@ export function buildSendReportHandler(deps: SendReportDeps = defaultDeps) {
 				publicMessage: 'Invalid error report submission',
 			});
 		}
-		const submission = parsed.data;
 
 		// Server-stamp identity/time (never from the browser).
 		const report: ReportWire = {
-			...submission,
+			...parsed.data,
 			user_id: context.userId,
 			entity: config.entity,
 			entity_label: config.identity.entityLabel ?? null,
@@ -165,70 +222,46 @@ export function buildSendReportHandler(deps: SendReportDeps = defaultDeps) {
 			});
 		}
 
-		const masterUrl = settings.masterApiUrl;
-		if (masterUrl !== undefined && masterUrl !== '') {
-			if (!masterUrlAllowed(masterUrl)) {
-				console.warn('[tool_error_report] DEDALO_ERROR_REPORT_MASTER_URL refused (https required)');
-				throw relayRefusal('relay_misconfigured');
-			}
-			// Outbound relay (the llm_provider fetch shape: abort + try/finally).
-			const controller = new AbortController();
-			const timer = setTimeout(() => controller.abort(), settings.relayTimeoutMs);
-			try {
-				const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-				if (settings.token !== undefined && settings.token !== '') {
-					headers['X-Dedalo-Report-Token'] = settings.token;
-				}
-				const response = await deps.fetchImpl(masterUrl, {
-					method: 'POST',
-					headers,
-					body: JSON.stringify({
-						dd_api: 'dd_error_report_api',
-						action: 'receive_report',
-						options: report,
-					}),
-					signal: controller.signal,
-				});
-				if (!response.ok) {
-					throw relayFault(`relay_http_${response.status}`);
-				}
-				// The master answers an envelope v2 (`ok`), never the compat `result` mirror.
-				const body = (await response.json()) as { ok?: unknown; report_id?: unknown };
-				if (body.ok !== true) {
-					throw relayFault('relay_rejected');
-				}
-				return ok({ delivered: true, via: 'master' }, { requestId: toolRequestId(context) });
-			} catch (error) {
-				// A refusal this function already typed passes through untouched.
-				if (isDedaloError(error)) throw error;
-				// Message only — NEVER the payload or the token (CONVENTIONS §1).
-				const message = error instanceof Error ? error.message : String(error);
-				console.warn('[tool_error_report] relay failed', message);
-				throw relayRefusal('relay_failed');
-			} finally {
-				clearTimeout(timer);
-			}
+		// Budget only sends that reach mail/store; a slot that delivers nothing is released.
+		if (deps.throttled()) {
+			throw new DedaloError('rate.limited');
 		}
 
-		if (settings.receiverEnabled) {
-			// THIS server is the master: store directly, no HTTP loopback.
-			try {
-				const id = await deps.storeLocally(report);
+		const ref = randomUUID().slice(0, 8);
+		const to = deps.recipient();
+		let mail: MailOutcome = { status: 'not_configured', ref };
+		if (to !== undefined && to !== '') {
+			const result = await deps.sendMail(reportMail(report, ref, to));
+			mail = result.ok
+				? { status: 'sent', ref }
+				: { status: 'failed', code: result.code ?? 'mailer.send_failed', ref };
+			// The mailer logs transport failures; this line names the flow, never the content.
+			if (!result.ok) console.warn('[tool_error_report] mail not sent', mail.code);
+		}
+
+		try {
+			const id = await deps.storeLocally(report, mail);
+			return ok(
+				{ delivered: true, report_id: id, ref, mailed: mail.status === 'sent' },
+				{ requestId: toolRequestId(context) },
+			);
+		} catch (error) {
+			console.warn('[tool_error_report] local store failed', error);
+			// Already mailed: the report reached the maintainers — a failure here
+			// would make the admin resend and duplicate the email.
+			if (mail.status === 'sent') {
 				return ok(
-					{ delivered: true, via: 'local', report_id: id },
+					{ delivered: true, report_id: null, ref, mailed: true },
 					{ requestId: toolRequestId(context) },
 				);
-			} catch (error) {
-				console.warn('[tool_error_report] local store failed', error);
-				throw new DedaloError('tool.action_failed', {
-					cause: error,
-					coordinates: { tool: 'tool_error_report' },
-					message: 'store_failed',
-				});
 			}
+			deps.release();
+			throw new DedaloError('tool.action_failed', {
+				cause: error,
+				coordinates: { tool: 'tool_error_report' },
+				message: 'store_failed',
+			});
 		}
-
-		throw relayRefusal('relay_not_configured');
 	};
 }
 
@@ -238,7 +271,7 @@ export const tool: ToolServerModule = {
 		send_report: {
 			permission: null,
 			gatedInHandler:
-				'context.principal.isGlobalAdmin — the first statement of the built sendReport handler, throwing perm.denied otherwise. Defense in depth over the registry non-grant that already hides the tool from non-admins; there is no section/record target (the payload is a browser error report relayed to the master install).',
+				'context.principal.isGlobalAdmin — the first statement of the built sendReport handler, throwing perm.denied otherwise. Defense in depth over the registry non-grant that already hides the tool from non-admins; there is no section/record target (the payload is a browser error report stored locally and optionally mailed).',
 			handler: buildSendReportHandler(),
 		},
 	},

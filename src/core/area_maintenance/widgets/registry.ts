@@ -19,7 +19,6 @@
  * mark-detection literal fallback for config_areas/menu_skip_tipos.
  */
 
-import { config } from '../../../config/config.ts';
 import { typedMaintenanceLockWait, withUnboundedStatements } from '../../db/postgres.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import { getLabels } from '../../labels/catalog.ts';
@@ -88,10 +87,9 @@ export interface MaintenanceWidget {
  * Every widget module that EXISTS IN THE CODE, ungated — the total EXECUTE surface.
  *
  * This is what update_ownership_tripwire classifies. It must NOT be the config-gated
- * catalog below: `error_reports` only joins that catalog when this installation
- * participates in error reporting, so on a machine whose ../private/.env disables it
- * (every bare CI runner) the widget disappears and its ENGINE_NATIVE exemption looks
- * "rotted". The gate's verdict would then depend on the developer's .env rather than
+ * catalog below: a config-gated widget (`serve_code`; `error_reports` until
+ * 2026-11-19) disappears on a machine whose ../private/.env disables it (every bare
+ * CI runner) and its ENGINE_NATIVE exemption looks "rotted". The gate's verdict would then depend on the developer's .env rather than
  * on the code — it passed locally and failed on the first real CI run (2026-07-11).
  * Ownership is a property of the code, so classify the code.
  */
@@ -145,11 +143,9 @@ export const ALL_WIDGET_MODULES: readonly WidgetModule[] = [
  * The ordered catalog THIS INSTALLATION serves — one module per PHP get_ar_widgets
  * block, same order.
  *
- * TS-only (WC-018): the catalog gains the error-report browser on any installation
- * that PARTICIPATES in error reporting — a master (receiver enabled, browses stored
- * reports) OR a sender (a master URL configured, shows the relay target).
- * Installations that do neither keep a catalog byte-identical to the PHP oracle
- * (widgets_differential filters the id). Runtime behaviour is unchanged by the
+ * TS-only (WC-018): every installation lists the error-report browser — each one
+ * stores the reports its admins send (WC-2026-11-19-error-report-email-transport).
+ * widgets_differential filters the id. Runtime behaviour is unchanged by the
  * ALL_WIDGET_MODULES split above.
  */
 export const WIDGET_MODULES: readonly WidgetModule[] = [
@@ -160,7 +156,7 @@ export const WIDGET_MODULES: readonly WidgetModule[] = [
 	...CORE_WIDGET_MODULES.flatMap((module) =>
 		module === update_code && servesCode() ? [module, serve_code] : [module],
 	),
-	...(config.errorReport.receiverEnabled || config.errorReport.masterApiUrl ? [error_reports] : []),
+	error_reports,
 ];
 
 const MODULE_BY_ID: ReadonlyMap<string, WidgetModule> = new Map(

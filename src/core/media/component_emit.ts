@@ -148,11 +148,11 @@ async function posterframeUrl(context: EmitHookContext): Promise<string | null> 
 	// (the posterframe is not copied) or any fresh av. The client's fallback
 	// chain (thumb → posterframe → placeholder) can only work if this field
 	// is null when there is no file.
-	// `?v=<mtime ms>-<size>` versions the URL by the FILE, not the render
+	// `?dv=<mtime ms>-<size>` versions the URL by the FILE, not the render
 	// (url_version.ts, WC-2026-10-29-posterframe-url-version); any stat error
 	// is "no file", never a failed read.
 	const version = location && fileVersionToken(location.absolutePath);
-	return version ? `${cfg.media.webBase}${location.relativePath}?v=${version}` : null;
+	return version ? `${cfg.media.webBase}${location.relativePath}?dv=${version}` : null;
 }
 
 /** AV edit: the subtitles descriptor for the player's <track>. */
