@@ -35,7 +35,19 @@
  * Dédalo mark. A restored tag is the source tag as the browser SERIALISES it (DOMParser +
  * outerHTML: attribute quoting and entities normalised, the same form an editor saves) — not
  * a byte copy of the stored string; the model only sees (and translates) the text between
- * them. <pre> (code) is one atom and is not translated. v6 sent these elements to the model as raw
+ * them. <pre> (code) is one atom and is not translated. A top-level <p> or a <strong>/<em>
+ * (any MD_INLINE_TAGS element) that carries an attribute is shielded too, so the attribute
+ * survives; emphasis INSIDE <code> is shielded (Markdown has no emphasis in code).
+ * Whitespace-only text is LAYOUT only where HTML gives it no meaning — a child of ul/ol/
+ * table/thead/tbody/tfoot/tr (NO_TEXT_PARENTS) or between two block siblings — and is
+ * dropped there; anywhere else it is one space, so '<strong>Roma</strong> <em>antigua</em>'
+ * never welds. A shielded block whose content is only whitespace (a '<p> </p>' spacer)
+ * keeps a NBSP, its height. Private-use characters U+E000–E008 of the TEXT (epigraphic
+ * fonts) are escaped around this module's own stand-ins (escape_pua/unescape_pua), never
+ * deleted. segment_markdown cuts at every block-token edge (block_token_cuts), so each list
+ * item / paragraph of a shielded container is its own segment, free of structural tokens
+ * once the edges are hoisted; long text inside one is still cut a few sentences at a time.
+ * v6 sent these elements to the model as raw
  * outerHTML (d3991c3a66), where it could corrupt them and where nothing stopped it from
  * writing its own; the per-block local token numbering and edge hoisting (55c816b41c) made
  * the extra tokens affordable.
@@ -156,6 +168,77 @@ const INLINE_SHIELD_TAGS = new Set([
 const MD_INLINE_TAGS = new Set(['strong', 'b', 'em', 'i', 'u', 'code']);
 
 /**
+ * The emphasis elements: written as Markdown (** * __) — except inside <code>, where
+ * Markdown is not read (a code span is literal) and they are shielded instead.
+ * @type {Set<string>}
+ */
+const MD_EMPHASIS_TAGS = new Set(['strong', 'b', 'em', 'i', 'u']);
+
+/**
+ * Elements whose content model admits NO text: a whitespace-only text node directly inside
+ * one is layout (the browser would even move it out of a <tr>), never a word space.
+ * @type {Set<string>}
+ */
+const NO_TEXT_PARENTS = new Set(['ul', 'ol', 'menu', 'dl', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'colgroup']);
+
+/**
+ * IS_BLOCK_ELEMENT
+ * Is a DOM node a block-level element (a paragraph, a shielded block)? Emphasis, code,
+ * inline shielded tags and inline void elements are not.
+ * @param {Node|null} node
+ * @returns {boolean}
+ */
+const is_block_element = (node) => {
+	if (!node || node.nodeType !== 1) {
+		return false;
+	}
+	const tag = node.tagName.toLowerCase();
+	return !MD_INLINE_TAGS.has(tag) && is_block_tag(tag);
+};
+
+/**
+ * ELEMENT_NEIGHBOUR
+ * The nearest sibling of a node in one direction, skipping comments.
+ * @param {Node} node
+ * @param {'previousSibling'|'nextSibling'} direction
+ * @returns {Node|null}
+ */
+const element_neighbour = (node, direction) => {
+	let sibling = node[direction];
+	while (sibling && sibling.nodeType === 8) {
+		sibling = sibling[direction];
+	}
+	return sibling;
+};
+
+/**
+ * IS_LAYOUT_WHITESPACE
+ * A whitespace-only text node (ASCII whitespace: U+00A0 is content, the editor's empty
+ * paragraph) that is LAYOUT, not a word space (A1-02 re-review): directly inside an element
+ * that admits no text (NO_TEXT_PARENTS), or standing only between block-level siblings (and
+ * the edges of its parent). Every other whitespace — between two inline elements
+ * ('<strong>Roma</strong> <em>antigua</em>'), alone in an element ('<p> </p>') — is a
+ * space and is kept, collapsed to one.
+ * @param {Node} node - a text node
+ * @returns {boolean}
+ */
+const is_layout_whitespace = (node) => {
+	const parent = node.parentElement;
+	if (parent && NO_TEXT_PARENTS.has(parent.tagName.toLowerCase())) {
+		return true;
+	}
+	const previous = element_neighbour(node, 'previousSibling');
+	const next = element_neighbour(node, 'nextSibling');
+	if (!previous && !next) {
+		return false;
+	}
+	return (!previous || is_block_element(previous)) && (!next || is_block_element(next));
+};
+
+/** ASCII whitespace only (U+00A0 is content). */
+const ASCII_WHITESPACE_ONLY_RE = /^[ \t\n\r\f]*$/;
+
+/**
  * Private-use characters standing in, inside process_inline, for a backslash-escaped
  * Markdown metacharacter: the escaped character must reach the record as a literal, never
  * be read by an emphasis rule (v6 unescaped FIRST, so '2\*3\*4' became '2<em>3</em>4').
@@ -177,8 +260,26 @@ const LINE_BREAK_STANDIN = '';
 const CODE_STANDIN = '\uE007';
 const CODE_STANDIN_RE = /\uE007(\d+)\uE007/g;
 
-/** Every stand-in, so text that already contains one cannot be misread as ours. */
-const STANDIN_RE = /[\uE000-\uE007]/g;
+/**
+ * The escape character of the stand-in range. A character of the text in U+E000–U+E008
+ * (private use: real in epigraphic fonts — a heritage text may carry them) is NEVER deleted
+ * (A1-02 re-review): markdown_to_html escapes it as U+E008 + a letter before any stand-in is
+ * made and restores it at the end, so no text character can be read as a stand-in and none
+ * is lost.
+ */
+const PUA_ESCAPE = '\uE008';
+const PUA_RE = /[\uE000-\uE008]/g;
+const PUA_ESCAPED_RE = /\uE008([a-i])/g;
+
+/**
+ * ESCAPE_PUA / UNESCAPE_PUA
+ * @param {string} text
+ * @returns {string}
+ */
+const escape_pua = (text) =>
+	text.replace(PUA_RE, (char) => PUA_ESCAPE + String.fromCharCode(0x61 + char.charCodeAt(0) - 0xe000));
+const unescape_pua = (text) =>
+	text.replace(PUA_ESCAPED_RE, (_match, letter) => String.fromCharCode(0xe000 + letter.charCodeAt(0) - 0x61));
 
 /**
  * ASCII_TRIM
@@ -212,7 +313,14 @@ const escape_html = (text) =>
  *   Block:  <p> → \n\n  |  <br> → \n
  *   Inline: <strong>/<b> → **  |  <em>/<i> → *  |  <u> → __  |  <code> → `code`
  *   Shielded (see the header): every other element — headings, lists, quotes, rules,
- *   tables, <div> included — as tokens from options.shield; <pre> as one atom.
+ *   tables, <div> included — as tokens from options.shield; <pre> as one atom. Also
+ *   shielded (A1-02 re-review): a <p>/<strong>/<em>/<u>/<code>… that carries ATTRIBUTES
+ *   (<p style="text-align:center">, <strong class>) — Markdown would drop them — and
+ *   emphasis INSIDE <code> (Markdown is not read there: '**x**' would be saved literally).
+ *
+ * Whitespace-only text: layout (is_layout_whitespace — inside a <ul>/<tr>…, or between
+ * block siblings) is dropped; any other is ONE space, so '<strong>Roma</strong>
+ * <em>antigua</em>' keeps its word space inside a shielded <li> or <h2>.
  *
  * <br> is a single '\n' (v6 55c816b41c): '\n\n' is a paragraph boundary, the strongest cut
  * of segment_markdown, and emitting it cut any inline element containing a <br> in half.
@@ -246,6 +354,9 @@ export function html_to_markdown(html, options = {}) {
 	// table converted to '\n\n' / '\n' would split the table's tokens across Markdown
 	// blocks. Only an outermost block-level shield is set apart as its own block.
 	let shield_depth = 0;
+
+	// how many <code> elements enclose the node being walked (emphasis in there is shielded)
+	let code_depth = 0;
 
 	/**
 	 * ESCAPE_MD (inner)
@@ -316,12 +427,15 @@ export function html_to_markdown(html, options = {}) {
 		const open = call_shield({ html: start_tag(node), kind: 'open', block, pair: null });
 
 		shield_depth++;
-		// whitespace-only text directly inside a block-level element is layout, not
-		// content (in a <tr> the browser would even move it out of the table)
-		const inner = Array.from(node.childNodes)
-			.map((child) => (block && child.nodeType === 3 && !child.textContent.trim() ? '' : walk(child)))
-			.join('');
+		// whitespace-only children are judged by walk (is_layout_whitespace): layout is
+		// dropped, a word space is kept
+		const walked = walk_children(node);
 		shield_depth--;
+
+		// a block whose only content is a space is an editor's spacer (<p>&nbsp;</p> — the
+		// driver turns &nbsp; into a space before this): U+00A0, as a top-level <p> does, so
+		// it keeps its height (a plain space collapses to nothing)
+		const inner = block && walked !== '' && ASCII_WHITESPACE_ONLY_RE.test(walked) ? '\u00A0' : walked;
 
 		const close = call_shield({ html: `</${tag}>`, kind: 'close', block, pair: open });
 
@@ -340,6 +454,9 @@ export function html_to_markdown(html, options = {}) {
 			if (!text) {
 				return '';
 			}
+			if (ASCII_WHITESPACE_ONLY_RE.test(text)) {
+				return is_layout_whitespace(node) ? '' : ' ';
+			}
 			return escape_md(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
 		}
 
@@ -348,6 +465,17 @@ export function html_to_markdown(html, options = {}) {
 		}
 
 		const tag = node.tagName.toLowerCase();
+
+		// a Markdown-form element with attributes: Markdown would drop them — shielded,
+		// restored as the source tag (A1-02 re-review)
+		if ((tag === 'p' || MD_INLINE_TAGS.has(tag)) && node.attributes.length > 0) {
+			return shield_element(node, tag === 'p');
+		}
+
+		// emphasis inside <code>: a code span is literal, '**x**' would be saved as text
+		if (code_depth > 0 && MD_EMPHASIS_TAGS.has(tag)) {
+			return shield_element(node, false);
+		}
 
 		if (shield_depth > 0 && !MD_INLINE_TAGS.has(tag)) {
 			return shield_element(node, is_block_tag(tag));
@@ -379,8 +507,12 @@ export function html_to_markdown(html, options = {}) {
 				return inner.trim() ? `__${inner}__` : inner;
 			}
 
-			case 'code':
-				return `\`${walk_children(node)}\``;
+			case 'code': {
+				code_depth++;
+				const inner = walk_children(node);
+				code_depth--;
+				return `\`${inner}\``;
+			}
 
 			default:
 				// no Markdown equivalent: shielded (an unknown tag is treated as block-level
@@ -434,8 +566,9 @@ export function markdown_to_html(md, options = {}) {
 		return first !== null && block_tokens.has(first[0]);
 	};
 
-	// our own stand-ins must not already be in the text (they would be read as ours)
-	const raw_blocks = ascii_trim(String(md).replace(STANDIN_RE, '')).split(/\n{2,}/);
+	// a text character in the stand-in range is ESCAPED (never deleted, never read as ours)
+	// and restored after every stand-in is gone
+	const raw_blocks = ascii_trim(escape_pua(String(md))).split(/\n{2,}/);
 
 	const html_blocks = [];
 
@@ -462,7 +595,7 @@ export function markdown_to_html(md, options = {}) {
 		html_blocks.push(`<p>${inline_html}</p>`);
 	}
 
-	return html_blocks.join('');
+	return unescape_pua(html_blocks.join(''));
 } //end markdown_to_html
 
 /**
@@ -733,37 +866,21 @@ const HARD_MAX_CHARS = 800;
 
 /**
  * SEGMENT_PROTECTED_RANGES
- * Spans a segment cut may never fall inside: Markdown links (their dots read as sentence
- * ends), inline code, fenced code, and GFM tables (a table cut in half stops being one). (v6)
+ * Spans a segment cut may never fall inside: bracketed link-shaped text (its dots read as
+ * sentence ends) and inline code. (v6) No fenced code or GFM table: neither is Markdown
+ * syntax here any more (A1-02 re-review — <pre> and <table> are shielded), so '|' and '```'
+ * are text and are cut like any other.
  * @param {string} md
  * @returns {Array<[number, number]>} [start, end) ranges, unsorted.
  */
 const segment_protected_ranges = (md) => {
 	const ranges = [];
-	const patterns = [/\[[^[\]]*\]\([^)\s]*\)/g, /`[^`\n]*`/g, /```[\s\S]*?```/g];
+	const patterns = [/\[[^[\]]*\]\([^)\s]*\)/g, /`[^`\n]*`/g];
 
 	for (const pattern of patterns) {
 		for (const match of md.matchAll(pattern)) {
 			ranges.push([match.index, match.index + match[0].length]);
 		}
-	}
-
-	// GFM tables: a run of consecutive lines that all start with '|'
-	let offset = 0;
-	let run = null;
-	for (const line of md.split('\n')) {
-		if (/^\s*\|/.test(line)) {
-			if (run === null) {
-				run = offset;
-			}
-		} else if (run !== null) {
-			ranges.push([run, offset]);
-			run = null;
-		}
-		offset += line.length + 1;
-	}
-	if (run !== null) {
-		ranges.push([run, md.length]);
 	}
 
 	return ranges;
@@ -838,7 +955,6 @@ const sentence_cuts = (md, ranges) => {
  * Offsets of paragraph and line breaks — MANDATORY cuts (v6): a '\n' left inside a segment
  * is a break the model has to reproduce, and it does not reliably do so (a <br> came back as
  * a <p>). Cut there, the break becomes the next segment's `sep` and is carried verbatim.
- * Newlines inside a protected range (a table, fenced code) are part of it and skipped.
  * @param {string} md
  * @param {Array<[number,number]>} ranges
  * @returns {number[]} Ascending; each points at the START of the separator run.
@@ -863,6 +979,61 @@ const structural_boundaries = (md, ranges) => {
 
 	return Array.from(boundaries).sort((a, b) => a - b);
 }; //end structural_boundaries
+
+/**
+ * BLOCK_TOKEN_CUTS
+ * MANDATORY cuts at the edges of shielded BLOCK tags (A1-02 re-review): before a block
+ * start tag (or block atom) unless a block start tag precedes it, and after a block end tag
+ * (or block atom) unless a block end tag follows it. So '</li><li>', '</p><p>',
+ * '</td><td>', '</h2><ul>' are cuts, and a list item / cell / paragraph of a shielded block
+ * is a segment of its own whose structural tokens all sit at its edges — hoisted, so the
+ * model sees the item's text and nothing else. Without them a shielded block is ONE line of
+ * tokens, cut only at sentence or word boundaries: a 40-item list became 10 segments of 8–10
+ * tokens each.
+ * @param {string} md
+ * @param {Map<string,string>|undefined} block_kinds - block token → 'open'|'close'|'atom'
+ * @param {Array<[number,number]>} ranges
+ * @returns {number[]} Offsets (the start of the separator run, like structural_boundaries).
+ */
+const block_token_cuts = (md, block_kinds, ranges) => {
+	const cuts = [];
+	if (!block_kinds || block_kinds.size === 0) {
+		return cuts;
+	}
+
+	const tokens = Array.from(md.matchAll(/\[\[\[\d+\]\]\]/g), (match) => ({
+		token: match[0],
+		start: match.index,
+		end: match.index + match[0].length,
+	}));
+	const ending_at = new Map(tokens.map((item) => [item.end, item]));
+	const starting_at = new Map(tokens.map((item) => [item.start, item]));
+	const kind_of = (item) => (item ? (block_kinds.get(item.token) ?? null) : null);
+
+	for (const item of tokens) {
+		const kind = kind_of(item);
+		if (kind === 'open' || kind === 'atom') {
+			let before = item.start;
+			while (before > 0 && (md[before - 1] === ' ' || md[before - 1] === '\t')) {
+				before--;
+			}
+			if (before > 0 && md[before - 1] !== '\n' && kind_of(ending_at.get(before)) !== 'open') {
+				cuts.push(before);
+			}
+		}
+		if (kind === 'close' || kind === 'atom') {
+			let after = item.end;
+			while (after < md.length && (md[after] === ' ' || md[after] === '\t')) {
+				after++;
+			}
+			if (after < md.length && md[after] !== '\n' && kind_of(starting_at.get(after)) !== 'close') {
+				cuts.push(item.end);
+			}
+		}
+	}
+
+	return cuts.filter((cut) => !in_protected(ranges, cut));
+}; //end block_token_cuts
 
 /**
  * WORD_CUTS
@@ -969,17 +1140,25 @@ const subdivide = (md, from, to, max_chars, sentences, ranges) => {
  * of the repetition loops seen on long low-resource translations, and at this size nearly
  * every token sits at a segment edge, where it is hoisted out of the model's way.
  *
+ * Every edge of a shielded block tag between two items is a cut too (block_token_cuts), when
+ * options.block_kinds names the block tokens.
+ *
  * @param {string} md
  * @param {number} [max_chars=250] - Soft upper bound per segment.
+ * @param {Object} [options]
+ * @param {Map<string,string>} [options.block_kinds] - block token → 'open'|'close'|'atom'
+ *   (browser_translation.js source_to_markdown).
  * @returns {Array<{text:string, sep:string}>} `sep` is '' for the first segment.
  */
-export function segment_markdown(md, max_chars = 250) {
+export function segment_markdown(md, max_chars = 250, options = {}) {
 	if (!md) {
 		return [];
 	}
 
 	const ranges = segment_protected_ranges(md);
-	const structural = structural_boundaries(md, ranges);
+	const structural = [
+		...new Set([...structural_boundaries(md, ranges), ...block_token_cuts(md, options.block_kinds, ranges)]),
+	].sort((a, b) => a - b);
 	const sentences = sentence_cuts(md, ranges);
 
 	// every structural boundary is a cut, unconditionally

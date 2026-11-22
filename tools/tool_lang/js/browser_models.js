@@ -32,7 +32,7 @@
  *                        here is still catalogued, not offered by default)
  *   not_offered_reason — why, when offered_by_default is false
  *
- * Exports: BROWSER_MODELS, offered_models
+ * Exports: BROWSER_MODELS, offered_models, is_offered
  */
 
 /**
@@ -112,13 +112,24 @@ export const BROWSER_MODELS = Object.freeze([
 /**
  * OFFERED_MODELS
  * The models a selector offers: the configured catalogue (or this fallback when the stored
- * config has none), minus every model whose offered_by_default is false.
+ * config has none), minus every model that is not offered (is_offered: a strict boolean).
  * @param {ReadonlyArray<BrowserModel>|null|undefined} configured - browser_transformer.models from the tool config
  * @returns {Array<BrowserModel>}
  */
 export const offered_models = (configured) => {
 	const catalogue = Array.isArray(configured) && configured.length > 0 ? configured : BROWSER_MODELS;
-	return catalogue.filter((model) => model.offered_by_default !== false);
+	return catalogue.filter((model) => is_offered(model));
 }; //end offered_models
+
+/**
+ * IS_OFFERED
+ * offered_by_default is a STRICT boolean (A1-02 re-review): absent → offered (the
+ * documented default), true → offered, false or ANY other value (the string 'false', 0,
+ * null) → not offered. A hand-edited config never offers a model by a truthy accident.
+ * @param {BrowserModel} model
+ * @returns {boolean}
+ */
+export const is_offered = (model) =>
+	model?.offered_by_default === undefined || model.offered_by_default === true; //end is_offered
 
 // @license-end

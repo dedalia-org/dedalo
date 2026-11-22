@@ -1969,6 +1969,61 @@
           },
           {
             "lang": "lg-ara",
+            "name": "tags_out_of_order",
+            "value": "%s من وسوم بنية النص (الفقرات، عناصر القوائم، خلايا الجداول) عادت بترتيب غير صحيح"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetes de l’estructura del text (paràgrafs, elements de llista, cel·les de taula) han tornat desordenades"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "tags_out_of_order",
+            "value": "%s Tags der Textstruktur (Absätze, Listeneinträge, Tabellenzellen) kamen in falscher Reihenfolge zurück"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "tags_out_of_order",
+            "value": "%s ετικέτες της δομής του κειμένου (παράγραφοι, στοιχεία λίστας, κελιά πίνακα) επέστρεψαν με λάθος σειρά"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "tags_out_of_order",
+            "value": "%s tags of the text's structure (paragraphs, list items, table cells) came back out of order"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "tags_out_of_order",
+            "value": "Testuaren egiturako %s etiketa (paragrafoak, zerrendako elementuak, taulako gelaxkak) ordenatu gabe itzuli dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "tags_out_of_order",
+            "value": "%s balises de la structure du texte (paragraphes, éléments de liste, cellules de tableau) sont revenues dans le désordre"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "tags_out_of_order",
+            "value": "%s tag della struttura del testo (paragrafi, voci di elenco, celle di tabella) sono tornati in ordine sbagliato"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "tags_out_of_order",
+            "value": "पाठको संरचनाका %s ट्यागहरू (अनुच्छेद, सूचीका वस्तु, तालिकाका कोठा) गलत क्रममा फर्किए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetas da estrutura do texto (parágrafos, itens de lista, células de tabela) voltaram fora de ordem"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetas de la estructura del texto (párrafos, elementos de lista, celdas de tabla) volvieron desordenadas"
+          },
+          {
+            "lang": "lg-ara",
             "name": "translation_no_model",
             "value": "لم تبدأ الترجمة: لا يقدّم هذا التثبيت أي نموذج ترجمة في المتصفح"
           },

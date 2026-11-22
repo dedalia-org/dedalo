@@ -957,16 +957,20 @@ describe('(j2) a model the catalogue does NOT offer is never seeded by --all (A1
 	const NLLB = 'Xenova/nllb-200-distilled-600M';
 	const REPO_ROOT = join(import.meta.dir, '..', '..');
 
-	/** Run the seeder CLI (never downloads: --dry-run / --list only). */
-	const runSeeder = (...args: string[]): string => {
+	/** Run the seeder CLI with a scratch store (never downloads: --dry-run / --list / refusals only). */
+	const spawnSeeder = (...args: string[]) => {
 		const child = Bun.spawnSync(['bun', 'scripts/fetch_ai_models.ts', ...args], {
 			cwd: REPO_ROOT,
 			env: process.env,
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		expect(child.exitCode, child.stderr.toString()).toBe(0);
-		return child.stdout.toString();
+		return { exitCode: child.exitCode, out: child.stdout.toString() + child.stderr.toString() };
+	};
+	const runSeeder = (...args: string[]): string => {
+		const { exitCode, out } = spawnSeeder(...args);
+		expect(exitCode, out).toBe(0);
+		return out;
 	};
 
 	test('the catalogue reader carries offered_by_default and its reason', () => {
@@ -989,6 +993,32 @@ describe('(j2) a model the catalogue does NOT offer is never seeded by --all (A1
 		expect(notOfferedMark(catalog.find((model) => model.id === NLLB)!)).toMatch(
 			/^ {2}\[not offered: CC-BY-NC/,
 		);
+	});
+
+	test('the CLI refuses an unknown option and a --store without a directory — nothing fetched', () => {
+		const scratch = mkdtempSync(join(tmpdir(), 'dd_seed_cli_'));
+		try {
+			for (const args of [
+				['--dryrun', NLLB, '--store', scratch],
+				['--all', '-n', '--store', scratch],
+				[NLLB, '--store'],
+			]) {
+				const { exitCode, out } = spawnSeeder(...args);
+				expect(exitCode, args.join(' ')).toBe(2);
+				expect(out).toContain('nothing was fetched');
+				expect(out).not.toContain('would fetch');
+			}
+			expect(readdirSync(scratch)).toEqual([]);
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	});
+
+	test('--dry-run refuses what a real run refuses: an id in no catalogue', () => {
+		const { exitCode, out } = spawnSeeder('--dry-run', 'nobody/not-a-model');
+		expect(exitCode).not.toBe(0);
+		expect(out).toContain('nobody/not-a-model is in no in-browser model catalog');
+		expect(out).not.toContain('would fetch');
 	});
 
 	test('the CLI: --all leaves it out and says so; naming it fetches it; --list marks it', () => {

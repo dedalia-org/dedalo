@@ -33,8 +33,10 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+	collapse_model_breaks,
 	detect_repetition,
 	MAX_LENGTH_RATIO,
+	needs_webgpu_message,
 	process_block,
 	REPETITION_ESCALATIONS,
 	REPETITION_PENALTY_FIRST,
@@ -43,8 +45,13 @@ import {
 	smaller_model_advice,
 	strip_fences,
 	to_global_tokens,
+	too_large_message,
 } from '../../tools/tool_lang/js/block_runner.js';
-import { BROWSER_MODELS, offered_models } from '../../tools/tool_lang/js/browser_models.js';
+import {
+	BROWSER_MODELS,
+	is_offered,
+	offered_models,
+} from '../../tools/tool_lang/js/browser_models.js';
 import {
 	conform_emphasis,
 	markdown_to_html,
@@ -479,6 +486,16 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		expect(markdown_to_html(md)).toBe(html);
 	});
 
+	test('markdown_to_html never DELETES a private-use character of the text (epigraphic fonts)', () => {
+		const pua = '\uE000\uE001\uE006\uE007\uE008\uE009';
+		expect(markdown_to_html(`a${pua}b`)).toBe(`<p>a${pua}b</p>`);
+		expect(markdown_to_html(`**a\uE007b** \`c\uE000\` x\ny`)).toBe(
+			'<p><strong>a\uE007b</strong> <code>c\uE000</code> x<br>y</p>',
+		);
+		// a text that LOOKS like our stand-ins (code span index, escape) stays text
+		expect(markdown_to_html('\uE0070\uE007 \uE008a')).toBe('<p>\uE0070\uE007 \uE008a</p>');
+	});
+
 	test('markdown_to_html: a shielded block token keeps its own structure (no <p> wrapper)', () => {
 		expect(markdown_to_html('[[[1]]]uno[[[2]]]', { block_tokens: new Set(['[[[1]]]']) })).toBe(
 			'[[[1]]]uno[[[2]]]',
@@ -491,6 +508,100 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		expect(markdown_to_html('**a** `*b*` *c*')).toBe(
 			'<p><strong>a</strong> <code>*b*</code> <em>c</em></p>',
 		);
+	});
+
+	// A1-02 re-review: block tag edges are mandatory cuts (block_kinds)
+	const list_md = (items: number) => {
+		// [[[1]]] <ul>, then per item an <li> open/close pair, then [[[last]]] </ul>
+		const kinds = new Map<string, string>([['[[[1]]]', 'open']]);
+		let md = '[[[1]]]';
+		for (let i = 0; i < items; i++) {
+			const open = `[[[${2 + 2 * i}]]]`;
+			const close = `[[[${3 + 2 * i}]]]`;
+			kinds.set(open, 'open');
+			kinds.set(close, 'close');
+			md += `${open}Item ${i} of the list, with **bold** words.${close}`;
+		}
+		const last = `[[[${2 + 2 * items}]]]`;
+		kinds.set(last, 'close');
+		return { md: md + last, kinds };
+	};
+
+	test('segment_markdown cuts at every block tag edge: one segment per list item, structural tokens only at its edges', () => {
+		const { md, kinds } = list_md(40);
+		const segments = segment_markdown(md, 250, { block_kinds: kinds }) as Array<{
+			text: string;
+			sep: string;
+		}>;
+		expect(segments.length).toBe(40);
+		expect(segments.map((segment) => segment.sep + segment.text).join('')).toBe(md);
+		for (const [i, { text }] of segments.entries()) {
+			const body = text.replace(/^(?:\[\[\[\d+\]\]\])+/, '').replace(/(?:\[\[\[\d+\]\]\])+$/, '');
+			expect(body).toBe(`Item ${i} of the list, with **bold** words.`);
+		}
+		// without the block kinds it is one line of tokens cut at arbitrary sentences
+		expect(segment_markdown(md, 250).length).toBeLessThan(40);
+	});
+
+	test('segment_markdown: a div of paragraphs is one segment per paragraph; open→open, close→close and inline tokens are no cut', () => {
+		const kinds = new Map<string, string>([
+			['[[[1]]]', 'open'],
+			['[[[14]]]', 'close'],
+		]);
+		let md = '[[[1]]]';
+		for (let i = 0; i < 6; i++) {
+			const open = `[[[${2 + 2 * i}]]]`;
+			const close = `[[[${3 + 2 * i}]]]`;
+			kinds.set(open, 'open');
+			kinds.set(close, 'close');
+			md += `${open}Paragraph ${i}.${close}`;
+		}
+		md += '[[[14]]]';
+		const segments = segment_markdown(md, 250, { block_kinds: kinds }) as Array<{ text: string }>;
+		expect(segments.map((segment) => segment.text)).toEqual([
+			'[[[1]]][[[2]]]Paragraph 0.[[[3]]]',
+			'[[[4]]]Paragraph 1.[[[5]]]',
+			'[[[6]]]Paragraph 2.[[[7]]]',
+			'[[[8]]]Paragraph 3.[[[9]]]',
+			'[[[10]]]Paragraph 4.[[[11]]]',
+			'[[[12]]]Paragraph 5.[[[13]]][[[14]]]',
+		]);
+		// an inline pair (span) inside a paragraph is never a cut
+		const inline = segment_markdown('[[[1]]]A [[[2]]]b[[[3]]] c.[[[4]]]', 250, {
+			block_kinds: new Map([
+				['[[[1]]]', 'open'],
+				['[[[4]]]', 'close'],
+			]),
+		}) as Array<{ text: string }>;
+		expect(inline.map((segment) => segment.text)).toEqual(['[[[1]]]A [[[2]]]b[[[3]]] c.[[[4]]]']);
+	});
+
+	test("segment_markdown: '|' and '```' are text now — a long line that starts with one is cut at sentences", () => {
+		const sentences = Array.from(
+			{ length: 12 },
+			(_, i) => `Sentence ${i} is long enough to count.`,
+		).join(' ');
+		for (const md of [`| ${sentences}`, `\`\`\`\n${sentences}\n\`\`\``]) {
+			const segments = segment_markdown(md, 120) as Array<{ text: string }>;
+			expect(segments.length, md.slice(0, 5)).toBeGreaterThan(2);
+		}
+	});
+
+	test('a line break the model wrote into a segment that had none is ONE space', () => {
+		expect(collapse_model_breaks('uno', 'uno\n\ndos')).toBe('uno dos');
+		expect(collapse_model_breaks('uno', ' uno \n dos\n')).toBe('uno dos');
+		expect(collapse_model_breaks('uno', 'uno dos')).toBe('uno dos');
+		// a segment that carries a break keeps the model's
+		expect(collapse_model_breaks('a\nb', 'x\ny')).toBe('x\ny');
+	});
+
+	test('process_block applies it: a shielded item never comes back as two paragraphs', async () => {
+		const outcome = await process_block(async () => 'Uno.\n\nDos.', {
+			text: 'One. Two.',
+			placeholders: [],
+			restore_map: {},
+		});
+		expect(outcome.text).toBe('Uno. Dos.');
 	});
 
 	test('conform_emphasis drops emphasis the model invented; restore_wrapping_emphasis restores a dropped wrapper', () => {
@@ -543,22 +654,22 @@ describe('the worker refuses before loading: no model, no language code (A1-02 r
 		);
 	});
 
-	test('the worker has no model fallback and no fixed model advice (it imports no catalogue)', () => {
-		const worker = readFileSync(
-			resolve(
-				import.meta.dir,
-				'../../tools/tool_lang/translators/browser_transformer/browser_transformer.js',
-			),
-			'utf8',
+	test('the refusal messages carry the advice from the OFFERED list (the real worker is driven by the client suite)', () => {
+		const alternatives = [
+			{ name: 'qwen', label: 'Qwen3 4B', requires_webgpu: true },
+			{ name: 'opus', label: 'Opus-MT', requires_webgpu: false },
+		];
+		expect(needs_webgpu_message('qwen', false, alternatives)).toBe(
+			"The 'qwen' model needs WebGPU (GPU). This browser has no WebGPU available, so this model cannot run here. Try a smaller model: Opus-MT.",
 		);
-		// (booleans: a failure must not print the whole worker source)
-		expect(/^import[^;]*browser_models\.js/m.test(worker), 'the worker imports a catalogue').toBe(
-			false,
+		expect(needs_webgpu_message('qwen', true, alternatives)).toBe(
+			'The \'qwen\' model needs WebGPU (GPU). Turn off the "more compatible / CPU" option to use it.',
 		);
-		// the advice is smaller_model_advice's alone: the worker writes none of its own
-		expect(/smaller model/i.test(worker), 'the worker writes its own model advice').toBe(false);
-		expect(worker.includes('run_precondition(options)'), 'the worker skips run_precondition').toBe(
-			true,
+		expect(too_large_message('qwen', alternatives)).toBe(
+			"The 'qwen' model is too large to load on this device. Try a smaller model: Opus-MT.",
+		);
+		expect(too_large_message('opus', alternatives)).toBe(
+			"The 'opus' model is too large to load on this device.",
 		);
 	});
 });
@@ -577,6 +688,24 @@ describe('browser_models.js — the one code copy of the register.json model cat
 		const engines = register.misc[column]?.[0]?.value.translator_engine?.value ?? [];
 		const browser = engines.find((engine) => engine.name === 'browser_transformer');
 		expect(browser?.models).toEqual(structuredClone([...BROWSER_MODELS]));
+	});
+
+	test('offered_by_default is a STRICT boolean: absent or true offers, anything else does not', () => {
+		const base = BROWSER_MODELS[0]!;
+		expect(is_offered({ ...base, offered_by_default: true })).toBe(true);
+		const { offered_by_default: _dropped, ...absent } = base;
+		expect(is_offered(absent as typeof base)).toBe(true);
+		for (const value of [false, 'false', 'true', 0, 1, null]) {
+			expect(
+				is_offered({ ...base, offered_by_default: value as unknown as boolean }),
+				String(value),
+			).toBe(false);
+		}
+		const configured = [
+			{ ...base, name: 'a', offered_by_default: 'false' },
+			{ ...base, name: 'b', offered_by_default: true },
+		] as unknown as typeof BROWSER_MODELS;
+		expect(offered_models(configured).map((model: { name: string }) => model.name)).toEqual(['b']);
 	});
 
 	test('a model whose licence forbids the use is catalogued but not offered by default, with its reason', () => {

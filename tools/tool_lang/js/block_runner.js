@@ -74,6 +74,8 @@
  *   run_precondition   — the soft refusal a run gets before any model is touched (no model,
  *                        no language code), or null
  *   smaller_model_advice — the 'try a smaller model' sentence, from the OFFERED catalogue
+ *   needs_webgpu_message, too_large_message — the two refusals that carry that advice
+ *   collapse_model_breaks — the model's line breaks in a segment that had none → one space
  */
 
 // imports
@@ -184,6 +186,31 @@ export const smaller_model_advice = (alternatives, current_name) => {
 		.map((item) => (typeof item.label === 'string' && item.label ? item.label : item.name));
 	return names.length > 0 ? ` Try a smaller model: ${names.join(', ')}.` : '';
 }; //end smaller_model_advice
+
+/**
+ * NEEDS_WEBGPU_MESSAGE
+ * The needs_webgpu refusal: with WebGPU present, the CPU option is what stands in the way;
+ * without it, the model cannot run here and the offered smaller models are named.
+ * @param {string} engine_name
+ * @param {boolean} webgpu_available
+ * @param {Array|undefined} alternatives - see smaller_model_advice
+ * @returns {string}
+ */
+export const needs_webgpu_message = (engine_name, webgpu_available, alternatives) =>
+	`The '${engine_name}' model needs WebGPU (GPU). ` +
+	(webgpu_available
+		? 'Turn off the "more compatible / CPU" option to use it.'
+		: `This browser has no WebGPU available, so this model cannot run here.${smaller_model_advice(alternatives, engine_name)}`); //end needs_webgpu_message
+
+/**
+ * TOO_LARGE_MESSAGE
+ * The model_too_large refusal, naming the offered smaller models.
+ * @param {string} engine_name
+ * @param {Array|undefined} alternatives - see smaller_model_advice
+ * @returns {string}
+ */
+export const too_large_message = (engine_name, alternatives) =>
+	`The '${engine_name}' model is too large to load on this device.${smaller_model_advice(alternatives, engine_name)}`; //end too_large_message
 
 /**
  * STRIP_FENCES
@@ -330,6 +357,11 @@ export const to_global_tokens = (text, restore_map) => {
  * An invented token ([[[9]]] in a block of three) maps to no mark of this block; left in,
  * it would reach the main thread as a document-wide number — very possibly a REAL mark of
  * another block. It carries no mark, so removing it loses nothing; it is counted.
+ *
+ * A line break the model wrote into a segment that had NONE is collapsed to a space
+ * (A1-02 re-review, collapse_model_breaks): '\n\n' is a paragraph and '\n' a <br> to
+ * markdown_to_html, so inside a shielded block ('<li>uno\n\ndos</li>') it built malformed
+ * HTML — a <p> across the </li>, a <br> between two </td><td>.
  * @param {*} raw - Model output.
  * @param {string} source - The block text sent to the model.
  * @param {Set<string>} known - The block's own tokens.
@@ -345,10 +377,34 @@ const clean_output = (raw, source, known) => {
 		return '';
 	});
 
-	const text = restore_wrapping_emphasis(source, conform_emphasis(source, normalised));
+	const text = restore_wrapping_emphasis(source, conform_emphasis(source, collapse_model_breaks(source, normalised)));
 
 	return { text, invented };
 }; //end clean_output
+
+/**
+ * COLLAPSE_MODEL_BREAKS
+ * The model's line breaks, when the segment it translated had none: every run of them (with
+ * the spaces around it) becomes ONE space, and the ends are trimmed where the source had no
+ * whitespace. A segment that carries a '\n' keeps the model's breaks (segment_markdown cuts
+ * at every break, so none does today).
+ * @param {string} source - The block text sent to the model.
+ * @param {string} output - The model's answer.
+ * @returns {string}
+ */
+export const collapse_model_breaks = (source, output) => {
+	if (!output || source.includes('\n') || !/[\r\n]/.test(output)) {
+		return output;
+	}
+	let text = output.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ');
+	if (!/^\s/.test(source)) {
+		text = text.replace(/^ +/, '');
+	}
+	if (!/\s$/.test(source)) {
+		text = text.replace(/ +$/, '');
+	}
+	return text;
+}; //end collapse_model_breaks
 
 /**
  * PROCESS_BLOCK

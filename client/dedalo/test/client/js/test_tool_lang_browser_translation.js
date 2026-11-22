@@ -35,7 +35,7 @@
  * asked to save (save()'s answer is a v2 success envelope).
  */
 
-import { run_blocks } from '../../../tools/tool_lang/js/block_runner.js';
+import { needs_webgpu_message, run_blocks } from '../../../tools/tool_lang/js/block_runner.js';
 import {
 	cancel_browser_translation,
 	dispose_browser_worker,
@@ -88,6 +88,9 @@ const JSON_LANGS = [
 // the model definition the run is given (the fake worker never loads it). A run without one
 // is refused before the worker starts — there is no fallback model.
 const TEST_MODEL = offered_models(null).find((model) => model.name === 'opus');
+
+/** The browser's own Worker, taken before any case installs a fake. */
+const REAL_WORKER = window.Worker;
 
 /** The last FakeWorker constructed, and how many were (a refusal before the run makes none). */
 let last_worker = null;
@@ -177,6 +180,7 @@ const run_translation = async (options = {}) => {
 		target_lang: options.target_lang ?? 'lg-spa',
 		model: options.model === undefined ? TEST_MODEL : options.model,
 		alternatives: options.alternatives,
+		device: options.device,
 		status_container: status_container,
 		streaming_overlay: overlay,
 		streaming_overlay_content: overlay_content,
@@ -469,6 +473,217 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		);
 		assert.notMatch(sent.join('\n'), /^\s*(#|-|\d+\.|>)\s/m, 'no Markdown block syntax reaches the model');
 		assert.notInclude(sent.join(' '), '---');
+	});
+
+	// --- the source's structure survives the shielding exactly (A1-02 re-review 2) ---
+
+	/** a model that answers with its input: the round trip must give the source back */
+	const IDENTITY = { translate: async (text) => text };
+
+	it('a word space between two inline elements survives inside a shielded <li>, <h2> and div > p', async () => {
+		for (const source of [
+			'<ul><li><strong>Roma</strong> <em>antigua</em></li></ul>',
+			'<h2><strong>A</strong> <em>B</em></h2>',
+			'<div><p><strong>a</strong> <em>b</em></p><p>c</p></div>',
+		]) {
+			window.Worker = make_fake_worker(IDENTITY);
+			dispose_browser_worker();
+			const run = await run_translation({ source });
+			assert.isNull(run.rejected, run.status_text);
+			assert.equal(saved_value(run.saves), source);
+		}
+	});
+
+	it('an empty spacer paragraph inside a div survives (a space, and the editor’s &nbsp;)', async () => {
+		window.Worker = make_fake_worker(IDENTITY);
+
+		const run = await run_translation({ source: '<div><p> </p><p>&nbsp;</p><p>Texto.</p></div>' });
+
+		assert.isNull(run.rejected, run.status_text);
+		// both come back as the editor's spacer: a plain space would collapse the paragraph
+		assert.equal(saved_value(run.saves), '<div><p>&nbsp;</p><p>&nbsp;</p><p>Texto.</p></div>');
+	});
+
+	it('layout whitespace between list items / cells is dropped, never sent or saved as text', async () => {
+		const sent = [];
+		window.Worker = make_fake_worker({
+			translate: async (text) => {
+				sent.push(text);
+				return text;
+			},
+		});
+
+		const run = await run_translation({ source: '<ul>\n  <li>Uno.</li>\n  <li>Dos.</li>\n</ul>' });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), '<ul><li>Uno.</li><li>Dos.</li></ul>');
+		assert.deepEqual(sent, ['Uno.', 'Dos.']);
+	});
+
+	it('a 40-item list is 40 segments, each the item text alone — no structural token reaches the model', async () => {
+		const items = Array.from({ length: 40 }, (_, i) => `<li>Item ${i} of the long list.</li>`);
+		window.Worker = make_fake_worker(IDENTITY);
+
+		const run = await run_translation({ source: `<ul>${items.join('')}</ul>` });
+
+		assert.isNull(run.rejected, run.status_text);
+		const blocks = last_worker.posted[0].options.blocks;
+		assert.equal(blocks.length, 40);
+		assert.deepEqual(
+			blocks.map((block) => block.text),
+			items.map((_, i) => `Item ${i} of the long list.`),
+		);
+	});
+
+	it('a div of 6 paragraphs is 6 segments with zero structural tokens', async () => {
+		const paragraphs = Array.from({ length: 6 }, (_, i) => `<p>Paragraph ${i} is here.</p>`);
+		window.Worker = make_fake_worker(IDENTITY);
+
+		const run = await run_translation({ source: `<div>${paragraphs.join('')}</div>` });
+
+		assert.isNull(run.rejected, run.status_text);
+		const texts = last_worker.posted[0].options.blocks.map((block) => block.text);
+		assert.deepEqual(texts, paragraphs.map((_, i) => `Paragraph ${i} is here.`));
+	});
+
+	it('a line break the MODEL writes inside a shielded item or cell is a space — never a <p> or <br> across the tags', async () => {
+		window.Worker = make_fake_worker({ translate: async (text) => (text === 'One.' ? 'Uno.\n\nDos.' : 'x\ny') });
+
+		const run = await run_translation({ source: '<ul><li>One.</li></ul><table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>' });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(
+			saved_value(run.saves),
+			'<ul><li>Uno. Dos.</li></ul><table><tbody><tr><td>x y</td><td>x y</td></tr></tbody></table>',
+		);
+	});
+
+	it('structural tags out of their source order REFUSE the run (never <li>a<li></li>b</li>)', async () => {
+		// <ul>=1 <li>=2 </li>=3 <li>=4 </li>=5 </ul>=6 ; the worker answers </li> and <li> swapped
+		window.Worker = make_fake_worker({
+			messages: [
+				{
+					status: 'end',
+					data: {
+						accumulated_text: '[[[1]]][[[2]]]a[[[4]]][[[3]]]b[[[5]]][[[6]]]',
+						remaining: 0,
+						repair_stats: {},
+						failed_blocks: [],
+					},
+				},
+			],
+		});
+
+		const run = await run_translation({ source: '<ul><li>a</li><li>b</li></ul>' });
+
+		assert.deepEqual(
+			refusal_problems(run, 'Translation needs review before saving', '2 tags of the text\'s structure'),
+			[],
+		);
+	});
+
+	it('emphasis INSIDE <code> keeps its tags (never saved as **x**)', async () => {
+		const source = '<p>Run <code><b>x</b> = <i>y</i></code> now.</p>';
+		window.Worker = make_fake_worker(IDENTITY);
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), source);
+	});
+
+	it('a paragraph or emphasis with ATTRIBUTES keeps them (alignment, class)', async () => {
+		const source = '<p style="text-align:center">Hello <strong class="k">world</strong>.</p><p>End <em title="t">now</em>.</p>';
+		window.Worker = make_fake_worker({
+			translate: async (text) => text.replace('Hello', 'Hola').replace('world', 'mundo').replace('End', 'Fin').replace('now', 'ya'),
+		});
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(
+			saved_value(run.saves),
+			'<p style="text-align:center">Hola <strong class="k">mundo</strong>.</p><p>Fin <em title="t">ya</em>.</p>',
+		);
+	});
+
+	it('a private-use character of the SOURCE (epigraphic font) is never deleted', async () => {
+		const glyphs = '';
+		const source = `<p>Inscripción ${glyphs} <strong>fin</strong>.</p>`;
+		window.Worker = make_fake_worker(IDENTITY);
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), source);
+	});
+
+	// --- the REAL worker (browser_transformer.js) refuses before loading anything ---
+
+	const WORKER_URL = new URL(
+		'../../../tools/tool_lang/translators/browser_transformer/browser_transformer.js',
+		import.meta.url,
+	);
+	const ONE_BLOCK = [{ text: 'Hello.', placeholders: [], restore_map: {}, prefix: '', suffix: '', sep: '' }];
+
+	/** Every message the real worker posts for one options message, within `wait` ms. */
+	const real_worker_messages = (options, wait = 1500) =>
+		new Promise((resolve) => {
+			const live = new REAL_WORKER(WORKER_URL, { type: 'module' });
+			const got = [];
+			live.onmessage = (event) => got.push(event.data);
+			live.onerror = (event) => got.push({ onerror: event.message || String(event) });
+			live.postMessage({ options });
+			setTimeout(() => {
+				live.terminate();
+				resolve(got);
+			}, wait);
+		});
+
+	it('the REAL worker with no model definition (only a name) posts ONE soft error no_model — nothing else', async () => {
+		const got = await real_worker_messages({
+			blocks: ONE_BLOCK,
+			sourceLangCode: 'en',
+			targetLangCode: 'es',
+			engine: 'nllb',
+		});
+		assert.deepEqual(got, [
+			{
+				status: 'error',
+				data: {
+					message: 'No translation model was chosen: this installation offers none for the browser engine.',
+					code: 'no_model',
+				},
+			},
+		]);
+	});
+
+	it('the REAL worker with no target language code posts ONE soft error unsupported_lang', async () => {
+		const got = await real_worker_messages({
+			blocks: ONE_BLOCK,
+			sourceLangCode: 'en',
+			model: { name: 'opus', shape: 'seq2seq_pair', langs: 'pairs' },
+		});
+		assert.equal(got.length, 1);
+		assert.equal(got[0].data.code, 'unsupported_lang');
+	});
+
+	it('the REAL worker, driven through the tool: a WebGPU-only model on CPU is a soft refusal naming OFFERED models — nothing saved', async () => {
+		window.Worker = REAL_WORKER;
+		const alternatives = [
+			{ name: 'qwen', label: 'Qwen3 4B', requires_webgpu: true },
+			{ name: 'opus', label: 'Opus-MT', requires_webgpu: false },
+		];
+		const qwen = offered_models(null).find((model) => model.name === 'qwen');
+
+		const run = await run_translation({ model: qwen, alternatives, device: 'wasm' });
+
+		assert.deepEqual(run.saves, []);
+		assert.isNull(run.rejected);
+		assert.equal(run.resolved?.code, 'needs_webgpu');
+		assert.equal(run.resolved?.msg, needs_webgpu_message('qwen', !!navigator.gpu, alternatives));
+		assert.notInclude(run.resolved?.msg, 'NLLB');
+		assert.deepEqual(run.target.data.value, [STORED]);
 	});
 
 	// --- refused softly before the worker: no model, a language no model can be told ---

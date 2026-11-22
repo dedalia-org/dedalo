@@ -45,7 +45,7 @@
 import { pipeline, env } from '/dedalo/lib/transformers/dist/transformers.js';
 // The block loop + marker repair + the pre-load refusals (testable without the model):
 // ../../js/block_runner.js.
-import { run_blocks, run_precondition, smaller_model_advice } from '../../js/block_runner.js';
+import { needs_webgpu_message, run_blocks, run_precondition, too_large_message } from '../../js/block_runner.js';
 
 // RC-01 (2026-07-28 audit): PIN the onnxruntime-web runtime to THIS install.
 // Without wasmPaths, transformers.js loads its WASM glue (.mjs + .wasm) from
@@ -421,9 +421,6 @@ self.onmessage = async (e) => {
 	// operator chose among the models the installation OFFERS.
 	const model       = options.model;
 	const engine_name = model.name;
-	// the alternatives a needs_webgpu / model_too_large refusal may name: the OFFERED
-	// catalogue (block_runner.js smaller_model_advice), never a fixed list
-	const advice      = smaller_model_advice(options.alternatives, engine_name);
 
 	const handler = SHAPE_HANDLERS[model.shape];
 	if (!handler) {
@@ -445,10 +442,8 @@ self.onmessage = async (e) => {
 	if (model.requires_webgpu) {
 		const webgpu_available = (typeof navigator!=='undefined') && !!navigator.gpu;
 		if (device!=='webgpu' || !webgpu_available) {
-			soft_error('needs_webgpu', `The '${engine_name}' model needs WebGPU (GPU). `
-				+ (webgpu_available
-					? 'Turn off the "more compatible / CPU" option to use it.'
-					: `This browser has no WebGPU available, so this model cannot run here.${advice}`));
+			// the advice names the OFFERED catalogue (options.alternatives), never a fixed list
+			soft_error('needs_webgpu', needs_webgpu_message(engine_name, webgpu_available, options.alternatives));
 			return;
 		}
 	}
@@ -483,7 +478,7 @@ self.onmessage = async (e) => {
 
 				// a model that does not fit in memory is a limit of the machine, not a crash (v6)
 				if (is_allocation_failure(load_error)) {
-					soft_error('model_too_large', `The '${engine_name}' model is too large to load on this device.${advice}`);
+					soft_error('model_too_large', too_large_message(engine_name, options.alternatives));
 					return;
 				}
 

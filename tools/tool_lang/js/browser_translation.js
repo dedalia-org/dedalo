@@ -565,16 +565,18 @@ export const source_has_token_shaped_text = function(source_text) {
 *     Headings, lists, quotes, rules, tables and <div> are shielded too: block structure
 *     comes from the source, never from Markdown syntax the model writes (A1-02 re-review).
 * @param {string} source_text - The source HTML (marks intact, &nbsp; already cleaned).
-* @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>}}
+* @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>, block_kinds:Map<string,string>}}
 *   placeholders: token → what it restores (a mark's bytes, or a serialised tag); descriptors: one per token,
-*   shield tokens flagged `shield: true`; block_tokens: the tokens of block-level tags.
+*   shield tokens flagged `shield: true`; block_tokens: the tokens of block-level tags;
+*   block_kinds: block token → 'open'|'close'|'atom' (segment_markdown cuts at their edges).
 */
 export const source_to_markdown = function(source_text) {
 
 	const { safe_source_text, placeholders, descriptors } = replace_dedalo_marks_with_placeholders(source_text)
 
-	const block_tokens = new Set()
-	const by_token = new Map(descriptors.map(item => [item.token, item]))
+	const block_tokens	= new Set()
+	const block_kinds	= new Map()
+	const by_token		= new Map(descriptors.map(item => [item.token, item]))
 
 	const shield = function(request) {
 
@@ -598,6 +600,7 @@ export const source_to_markdown = function(source_text) {
 		}
 		if (request.block) {
 			block_tokens.add(token)
+			block_kinds.set(token, request.kind)
 		}
 
 		return token
@@ -605,8 +608,44 @@ export const source_to_markdown = function(source_text) {
 
 	const md = html_to_markdown(safe_source_text, { shield })
 
-	return { md, placeholders, descriptors, block_tokens }
+	return { md, placeholders, descriptors, block_tokens, block_kinds }
 }//end source_to_markdown
+
+
+
+/**
+* STRUCTURE_OUT_OF_ORDER
+* How many of the shielded BLOCK tags (the text's structure: paragraphs of a shielded block,
+* list items, cells, headings…) are not where the source had them, in relative order
+* (A1-02 re-review). They never legitimately move — a translation moves words, not list
+* items — and every one of them sits at a segment edge, hoisted out of the model's way; a
+* model that still swapped '</li>' and '<li>' would build '<li>a<li></li>b</li>' and save
+* it. Counted over the block tokens present exactly once in the result (a missing or
+* duplicated one is accounted for elsewhere); any count above zero REFUSES the run.
+* @param {string} source_md - The Markdown sent (document-wide tokens).
+* @param {string} result_text - The translated Markdown (document-wide tokens).
+* @param {Set<string>} block_tokens - source_to_markdown block_tokens.
+* @returns {number} positions whose block token differs from the source's order.
+*/
+export const structure_out_of_order = function(source_md, result_text, block_tokens) {
+
+	const result_tokens = extract_placeholders(result_text)
+	const once = new Set(result_tokens.filter(token =>
+		block_tokens.has(token) && result_tokens.indexOf(token)===result_tokens.lastIndexOf(token)
+	))
+
+	const expected	= extract_placeholders(source_md).filter(token => once.has(token))
+	const got		= result_tokens.filter(token => once.has(token))
+
+	let moved = 0
+	for (let i = 0; i < expected.length; i++) {
+		if (expected[i]!==got[i]) {
+			moved++
+		}
+	}
+
+	return moved
+}//end structure_out_of_order
 
 
 
@@ -953,6 +992,7 @@ const is_degenerate = function(source_text, restored_text) {
 *   tags_missing          — shielded tags whose token did not come back
 *   stray                 — main-thread tokens that map to nothing
 *   outside_text          — marks that ended up inside markup rather than text
+*   structure_moved       — block tags out of their source order (structure_out_of_order)
 *   degenerate            — the result is a repetition loop (is_degenerate)
 * SAVED WITH WARNINGS (Q2: save-with-warning, no accept/discard step):
 *   repaired / reordered  — positions WE chose
@@ -961,7 +1001,7 @@ const is_degenerate = function(source_text, restored_text) {
 * @param {string} source_text   - The original HTML value (marks intact).
 * @param {string} restored_text - The translated HTML value, restored and reordered.
 * @param {Object} extra         - { repaired, unrepairable, duplicated, residual, reordered,
-*   tags_missing, stray, outside_text }
+*   tags_missing, stray, outside_text, structure_moved }
 * @returns {Object} the report; `refused` and `uncertain_count` decide.
 */
 export const validate_translation = function(source_text, restored_text, extra) {
@@ -996,6 +1036,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		tags_missing	: extra?.tags_missing || [],
 		stray			: extra?.stray || [],
 		outside_text	: extra?.outside_text || 0,
+		structure_moved	: extra?.structure_moved || 0,
 		degenerate		: is_degenerate(source_text, restored_text),
 		repaired		: extra?.repaired || [],
 		reordered		: extra?.reordered || [],
@@ -1012,6 +1053,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		report.tags_missing.length>0 ||
 		report.stray.length>0 ||
 		report.outside_text>0 ||
+		report.structure_moved>0 ||
 		report.degenerate===true
 
 	// positions or presence WE decided rather than the model: saved, and reported
@@ -1069,6 +1111,14 @@ export const mark_report_lines = function(report, get_label) {
 		lines.push(
 			get_label('marks_outside_text', report.outside_text)
 			|| `${report.outside_text} marks ended up inside the markup instead of the text`
+		)
+	}
+
+	// the text's structure (list items, cells, paragraphs of a shielded block) out of order
+	if (report.structure_moved>0) {
+		lines.push(
+			get_label('tags_out_of_order', report.structure_moved)
+			|| `${report.structure_moved} tags of the text's structure (paragraphs, list items, table cells) came back out of order`
 		)
 	}
 
@@ -1388,7 +1438,7 @@ export const translate_component_browser = async function(options) {
 
 	// shield the Dédalo marks and every tag without a Markdown form behind [[[n]]] tokens,
 	// and convert the rest to Markdown (see source_to_markdown)
-		const { md, placeholders, descriptors, block_tokens } = source_to_markdown(clean_source_text)
+		const { md, placeholders, descriptors, block_tokens, block_kinds } = source_to_markdown(clean_source_text)
 		if (has_token_shaped_text(md)) {
 			// two tokens (or a token and a bracket of the text) that touch can form one
 			return refuse_before_run([
@@ -1403,7 +1453,9 @@ export const translate_component_browser = async function(options) {
 	// sentence-level model and 1000-character blocks were the dominant cause of its
 	// repetition loops; at this size nearly every mark sits at a segment edge, where it is
 	// hoisted out of the model's way. The cost is more model calls per record.
-		const segments	= segment_markdown(md, SEGMENT_MAX_CHARS)
+		// every edge of a shielded block tag is a cut too (block_kinds): an item, a cell, a
+		// paragraph of a shielded block is its own segment, its structural tokens hoisted
+		const segments	= segment_markdown(md, SEGMENT_MAX_CHARS, { block_kinds })
 		const blocks	= build_blocks(segments, descriptors)
 
 	// mark html for markdown_to_html: a shielded block-level element is not wrapped in <p>
@@ -1651,6 +1703,7 @@ export const translate_component_browser = async function(options) {
 				reordered		: [...ordered.reordered, ...ordered_tokens.reordered],
 				tags_missing	: restored.missing.filter(token => shield_tokens.has(token)),
 				stray			: restored.residual,
+				structure_moved	: structure_out_of_order(md, ordered_tokens.text, block_tokens),
 				outside_text	: Math.max(0, outside_count(restored_text) - outside_count(clean_source_text))
 			})
 			const mark_lines = mark_report_lines(report, get_label)
