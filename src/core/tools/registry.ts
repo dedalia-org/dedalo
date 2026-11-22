@@ -36,6 +36,7 @@ import { isConsultationOnlySection, TIME_MACHINE_SECTION_TIPO } from '../concept
 import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
+import { translationLangOf } from '../resolve/lang_alias.ts';
 import { resolveLangItems } from '../resolve/lang_fallback.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { composeContains, locatorJsonVariants } from '../search/containment.ts';
@@ -694,17 +695,16 @@ export async function buildToolElementContext(
 	const baseUrl = getToolUrl(name);
 	const properties = row.misc?.[TIPO.PROPERTIES]?.[0]?.value ?? null;
 	// Labels (dd1372) are stored for every lang but PHP exposes only the
-	// application-lang entries in the tool context. SINGLE-LANG CONTRACT: the
-	// client's get_tool_label (client/dedalo/core/tools_common/js/tool_common.js) treats a name match
-	// as already-correct-language BECAUSE of this filter, and relies on its own
-	// `|| 'literal'` fallback when the lang has no entry (the array is then empty).
-	// Widening this to several langs is a wire change: it needs a WIRE_CONTRACT
-	// entry, a re-cut of the frozen tool_element_context fixture, and the client
-	// resolver taught to choose. Gated by test/unit/tool_context_labels_lang.test.ts.
+	// application-lang entries in the tool context (toolLabelsInLang). SINGLE-LANG
+	// CONTRACT: the client's get_tool_label (client/dedalo/core/tools_common/js/tool_common.js)
+	// treats a name match as already-correct-language BECAUSE of this filter, and
+	// relies on its own `|| 'literal'` fallback when the lang has no entry (the
+	// array is then empty). Widening this to several langs is a wire change: it
+	// needs a WIRE_CONTRACT entry, a re-cut of the frozen tool_element_context
+	// fixture, and the client resolver taught to choose. Gated by
+	// test/unit/tool_context_labels_lang.test.ts.
 	const allLabels = (row.misc?.[TIPO.LABELS]?.[0] as { value?: unknown })?.value;
-	const labels = Array.isArray(allLabels)
-		? allLabels.filter((item) => (item as { lang?: string }).lang === appLang)
-		: null;
+	const labels = Array.isArray(allLabels) ? toolLabelsInLang(allLabels, appLang) : null;
 	const developer = row.string?.[TIPO.DEVELOPER]?.[0]?.value ?? null;
 	const description = resolveLangItems(row.string?.[TIPO.DESCRIPTION], appLang);
 
@@ -734,6 +734,26 @@ export async function buildToolElementContext(
 	const clientConfig = await toolClientConfig(name);
 	if (Object.keys(clientConfig).length > 0) context.config = clientConfig;
 	return context;
+}
+
+/**
+ * The dd1372 label entries served for `appLang`: its own entries, then — per key
+ * it lacks — the entries of its declared linguistic ALIAS (lang_alias
+ * translationLangOf: a Valencian interface reads the Catalan labels, PHP
+ * lang::get_label_lang, T2-O11-3). The alias is the SAME language under another
+ * name, so the single-lang contract above holds; a key in neither stays absent
+ * (PHP's further first-stored fallback stays retired —
+ * WC-2026-08-02-tool-string-lang-fallback).
+ */
+function toolLabelsInLang(all: readonly unknown[], appLang: string): unknown[] {
+	const langOf = (item: unknown): unknown => (item as { lang?: unknown } | null)?.lang;
+	const nameOf = (item: unknown): unknown => (item as { name?: unknown } | null)?.name;
+	const own = all.filter((item) => langOf(item) === appLang);
+	const alias = translationLangOf(appLang);
+	if (alias === null) return own;
+	const covered = new Set(own.map(nameOf));
+	const fromAlias = all.filter((item) => langOf(item) === alias && !covered.has(nameOf(item)));
+	return [...own, ...fromAlias];
 }
 
 /** A tool's client config; a tool declaring configFrom (module.ts) serves that tool's config instead. */

@@ -24,6 +24,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import { translationLangOf } from '../../src/core/resolve/lang_alias.ts';
 import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { TIPO, TOOLS_REGISTER_SECTION_TIPO } from '../../src/core/tools/ontology_map.ts';
 import { buildToolElementContext } from '../../src/core/tools/registry.ts';
@@ -45,6 +46,10 @@ const SEEDED: LabelEntry[] = [
 	{ lang: 'lg-eng', name: 'eng_only_extra', value: 'English extra' },
 	{ lang: 'lg-spa', name: 'spa_only_extra', value: 'Extra en español' },
 	{ lang: 'lg-cat', name: 'only_cat', value: 'Només en català' },
+	// a Valencian-own string for ONE key: the alias leg must prefer it over Catalan
+	{ lang: 'lg-vlca', name: 'shared', value: 'Valor compartit (valencià)' },
+	// …and a Valencian-ONLY key, which Catalan must never read (directional alias)
+	{ lang: 'lg-vlca', name: 'only_vlca', value: 'Només en valencià' },
 ];
 
 const labelsFor = async (lang: string): Promise<LabelEntry[] | undefined> => {
@@ -109,5 +114,32 @@ describe('tool element context: labels are single-lang', () => {
 	test('a lang with no entry at all yields an empty array', async () => {
 		// The "untranslated" path the client's `|| 'literal'` fallback exists for.
 		expect(await labelsFor('lg-zzz')).toEqual([]);
+	});
+});
+
+describe('tool element context: the declared linguistic ALIAS leg (T2-O11-3)', () => {
+	// PHP get_label_lang: a Valencian interface reads the Catalan tool labels —
+	// the SAME language under another name (DEDALO_LANG_EQUIVALENCES), so the
+	// single-lang contract holds. PHP's further "first stored entry" fallback
+	// stays retired (WC-2026-08-02-tool-string-lang-fallback).
+	test('precondition: the shipped equivalence declares lg-vlca → lg-cat', () => {
+		expect(translationLangOf('lg-vlca')).toBe('lg-cat');
+	});
+
+	test('lg-vlca: its own entry first, every other key from lg-cat', async () => {
+		expect(await labelsFor('lg-vlca')).toEqual([
+			{ lang: 'lg-vlca', name: 'shared', value: 'Valor compartit (valencià)' },
+			{ lang: 'lg-vlca', name: 'only_vlca', value: 'Només en valencià' },
+			{ lang: 'lg-cat', name: 'only_cat', value: 'Només en català' },
+		]);
+	});
+
+	test('the alias is DIRECTIONAL: lg-cat never reads lg-vlca, and other langs get no alias', async () => {
+		expect(await labelsFor('lg-cat')).toEqual([
+			{ lang: 'lg-cat', name: 'shared', value: 'Valor compartit' },
+			{ lang: 'lg-cat', name: 'only_cat', value: 'Només en català' },
+		]);
+		const spanishNames = (await labelsFor('lg-spa'))?.map((l) => l.name) ?? [];
+		expect(spanishNames).not.toContain('only_cat');
 	});
 });
