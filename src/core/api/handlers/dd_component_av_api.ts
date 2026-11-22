@@ -61,20 +61,29 @@ async function posterframeAction(
 	// picture of the posterframe (THUMB_SOURCE_BY_MODEL) — and both cores keep the
 	// two in step. What the CORE cannot do is persist: it is filesystem-only by
 	// design, so the stored files_info is written back here (see below).
-	const result =
-		op === 'create'
-			? await createAvPosterframe(resolved.ctx, String(options.current_time ?? '0'))
-			: (await deletePosterframe(resolved.ctx)).ok;
-
-	// PERSIST what just changed on disk. Without this the record's stored index
-	// still claims the old thumb state, and every reader that trusts the cache —
-	// list mode's projection, the export path — serves it. av is re-scanned per
-	// read (component_emit.ts) so this was invisible on av alone; the same handler
-	// shape on 3d was NOT, which is how a freshly captured 3d thumb stayed
-	// invisible in lists.
-	if (result === true) {
-		await persistMediaFilesInfo(resolved.ctx);
-	}
+	// ONE AV OPERATION PER COMPONENT (A1-01, owner ruling 4): the posterframe
+	// write/delete, its thumb and the write-back hold the component claim, and
+	// refuse with media.build_running while a build or an upload holds it.
+	const { withAvComponentClaim } = await import('../../media/av_component_claim.ts');
+	const result = await withAvComponentClaim(
+		resolved.ctx.spec,
+		resolved.ctx.identity,
+		'posterframe',
+		async () => {
+			const written =
+				op === 'create'
+					? await createAvPosterframe(resolved.ctx, String(options.current_time ?? '0'))
+					: (await deletePosterframe(resolved.ctx)).ok;
+			// PERSIST what just changed on disk. Without this the record's stored
+			// index still claims the old thumb state, and every reader that trusts
+			// the cache — list mode's projection, the export path — serves it. av is
+			// re-scanned per read (component_emit.ts) so this was invisible on av
+			// alone; the same handler shape on 3d was NOT, which is how a freshly
+			// captured 3d thumb stayed invisible in lists.
+			if (written === true) await persistMediaFilesInfo(resolved.ctx);
+			return written;
+		},
+	);
 
 	// Activity audit (PHP logger 'DELETE FILE' code 12). Logged HERE rather than
 	// in deletePosterframe, which is synchronous and whose MediaContext carries

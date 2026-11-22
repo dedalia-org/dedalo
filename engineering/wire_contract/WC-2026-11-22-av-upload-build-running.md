@@ -62,3 +62,23 @@
   serving one media tree shares one processes dir
   (`engineering/PRODUCTION.md` §8.1). No wire shape changes. Gate:
   `test/unit/media_component_lock_native.test.ts`.
+- **Addendum 2026-11-22 (owner ruling 4, the other av writers):** every av
+  operation that writes tier files OUTSIDE the job manager now holds the same
+  component claim for its whole write and its files_info write-back
+  (`withAvComponentClaim`, `src/core/media/av_component_claim.ts` — the arbiter's
+  own `claimTarget`, so memory + the cross-process lock file; released in a
+  `finally`), and refuses with `media.build_running` (409) while a build, an
+  upload or another such operation holds the component. Covered:
+  `tool_media_versions` `conform_headers`, `delete_quality`, `delete_version`,
+  `sync_files` (Regenerate), `build_version` of the thumb tier (the only av tier
+  built synchronously — every other tier is a job that already holds the
+  component); `dd_component_av_api` `create_posterframe` / `delete_posterframe`;
+  the update-cache Regenerate sweep (`regenerateMediaDerivatives`), where a busy
+  component is a per-record VALUE in `errors` and the sweep goes on. NOT wrapped:
+  the ingest and the transcode (already the holder — the hold is taken at the
+  OPERATION's entry, never inside the shared thumb/posterframe cores, so the
+  holder never refuses itself); `rotate` (image-only, `tool_image_rotation`);
+  `tool_posterframe`'s identifying image (reads the av, writes an image record).
+  Non-av models are unchanged. Wire change: those actions can now answer 409
+  `media.build_running` where they used to run concurrently with a build. Gate:
+  `test/unit/av_component_operations_native.test.ts`.

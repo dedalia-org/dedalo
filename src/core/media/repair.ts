@@ -42,6 +42,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { config } from '../../config/config.ts';
 import { type MediaTypeSpec, mediaTypeOf } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
+import { withAvComponentClaim } from './av_component_claim.ts';
 import { moveToDeleted } from './file_ops.ts';
 import { refreshStoredFilesInfo } from './files_info.ts';
 import { resolveMediaPathOptions } from './ontology_path.ts';
@@ -145,12 +146,17 @@ export async function regenerateMediaDerivatives(input: MediaRegenerateInput): P
 		try {
 			// Non-fatal per-file failures (a twin this host cannot encode) come
 			// back as values; only a fatal one throws. Both land in `errors`.
+			// ONE AV OPERATION PER COMPONENT (A1-01, owner ruling 4): the av pass
+			// mints the posterframe + thumb, so it holds the component; a busy one
+			// (a build, an upload) is a per-record VALUE here — the sweep goes on.
 			errors.push(
-				...(await regenerateMissingDerivatives(model, spec, identity, pathOpts, {
-					rawExtension,
-					deleteNormalized: input.deleteNormalized === true,
-					bulkProcessId: input.bulkProcessId ?? null,
-				})),
+				...(await withAvComponentClaim(spec, identity, 'regenerate', () =>
+					regenerateMissingDerivatives(model, spec, identity, pathOpts, {
+						rawExtension,
+						deleteNormalized: input.deleteNormalized === true,
+						bulkProcessId: input.bulkProcessId ?? null,
+					}),
+				)),
 			);
 		} catch (error) {
 			errors.push((error as Error).message);

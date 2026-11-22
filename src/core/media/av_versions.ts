@@ -22,6 +22,7 @@ import { existsSync } from 'node:fs';
 import { AUDIO_TR_QUALITY, assertValidQuality, type MediaTypeSpec } from '../concepts/media.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { writeAtomically } from './atomic.ts';
+import { avComponentTarget } from './av_component_claim.ts';
 import {
 	applyFaststart,
 	extractAudio,
@@ -585,17 +586,10 @@ export async function submitAvVersionBuild(
 	rawExtension?: string | null,
 	userId?: number,
 ): Promise<string> {
-	const target: JobTarget = {
-		section_tipo: identity.sectionTipo,
-		section_id: identity.sectionId,
-		component_tipo: identity.componentTipo,
-		lang: identity.lang ?? null,
-		quality,
-		label: quality,
-		// ONE build per component (v6 build lock): a build of ANY tier excludes
-		// the upload, the ingest transcode and every other tier's build.
-		scope: 'component',
-	};
+	// ONE build per component (v6 build lock): a build of ANY tier excludes the
+	// upload, the ingest transcode, every other tier's build and every av
+	// operation (avComponentTarget is component-scoped).
+	const target: JobTarget = avComponentTarget(identity, quality);
 	const { source, profile } = await preflightAvBuild(
 		spec,
 		identity,

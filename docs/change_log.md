@@ -625,6 +625,12 @@ Merged since the last release; these ship with the next one.
     must share one media processes directory (`DEDALO_MEDIA_PROCESSES_DIR`), where the per-field build
     locks live. See [the configuration reference](./administration/configuration/config.md).
 
+    The other Media versions actions that rewrite an audio/video field's files — *Conform headers*,
+    deleting a quality or a version, *Regenerate*, rebuilding the thumbnail — and creating or
+    deleting the poster frame wait their turn the same way: while a build or an upload of the field is
+    running they are refused with the same message, and none of them can start a build behind its back.
+    The Update cache *Regenerate* pass reports such a field as busy and carries on with the rest.
+
     Wire contract: `WC-2026-11-22-av-upload-build-running`.
 
 - **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**
