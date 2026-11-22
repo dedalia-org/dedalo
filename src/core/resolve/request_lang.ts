@@ -53,6 +53,41 @@ export function allowlistedPreauthLang(raw: string | null | undefined): string |
 	return Object.hasOwn(config.lang.applicationLangs, raw) ? raw : null;
 }
 
+/** A session's stored language overrides (core/security/session_store.ts `Session`); null = none chosen. */
+export interface StoredSessionLangs {
+	readonly applicationLang: string | null;
+	readonly dataLang: string | null;
+}
+
+/**
+ * THE REQUEST-LANG SEED — the ONE derivation of a caller's effective languages,
+ * shared by every door that opens a scope on a user's behalf: dispatch (per RQO,
+ * from the web session) and the stdio MCP server (per tool call, for its service
+ * account — `src/ai/mcp/server.ts`). Two copies would be two answers to "which
+ * language does this user get".
+ *
+ * Rungs: the session's stored choice (change_lang, or the pre-auth cookie a
+ * login adopted), then the ANONYMOUS pre-auth cookie (login panel; through
+ * `allowlistedPreauthLang`, its one door), then the install's MENU langs
+ * (`APPLICATION_LANG` / `DATA_LANG` — a session's starting point, resolved
+ * against the declared data langs in src/config/). A fresh web login carries
+ * no per-account preference (session_store.ts `createSession` starts both
+ * columns NULL), so `{ session: null }` is exactly what a web login of the
+ * same account would be served before any menu choice.
+ */
+export function seedRequestLangs(input: {
+	session: StoredSessionLangs | null;
+	preauthLang?: string | null;
+}): RequestLangs {
+	return {
+		applicationLang:
+			input.session?.applicationLang ??
+			allowlistedPreauthLang(input.preauthLang) ??
+			config.menu.applicationLang,
+		dataLang: input.session?.dataLang ?? config.menu.dataLang,
+	};
+}
+
 /**
  * The effective interface/label language for the current request, or the
  * installation default when called outside a request scope.

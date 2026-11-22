@@ -634,9 +634,8 @@ Merged since the last release; these ship with the next one.
       whatever the data language;
     - for the assistant tools (MCP), an omitted language was English: section lists,
       section descriptions, record reads and searches now default to the data
-      language (for the command-line MCP server, which has no user session, the
-      installation's main data language, `DEDALO_DATA_LANG_DEFAULT`; send `lang` to
-      ask for another);
+      language (for the command-line MCP server, the data language its configured
+      account would get in the web application; send `lang` to ask for another);
     - object identification (similar records, clustering, the neighbour vote of
       proposals) compared records in the installation's main data language; it now
       compares them in the user's data language.
@@ -2230,6 +2229,19 @@ Merged since the last release; these ship with the next one.
     Observers configured only with `filter` behave as before.
 
     **Action needed:** none.
+
+- **The command-line MCP server answers in its account's languages.**
+
+    The command-line (stdio) MCP server, started with `DEDALO_MCP_USER_ID`, ran every
+    tool without a language of its own, so a tool called without `lang` (section lists
+    and descriptions, record reads, searches, link targets) answered in the
+    installation's main data language, `DEDALO_DATA_LANG_DEFAULT`. Each call now runs
+    in the languages the configured account gets when it logs in to the web
+    application: the installation's interface and data languages (`APPLICATION_LANG`,
+    `DATA_LANG`). Where `DATA_LANG` differs from `DEDALO_DATA_LANG_DEFAULT`, tools
+    called without `lang` now answer in `DATA_LANG`. Send `lang` to ask for another.
+
+    Wire contract: `WC-2026-10-20-element-context-default-lang`.
 
 - **The profile permissions no longer offer fields that are not part of the section.**
 

@@ -44,6 +44,11 @@ import { readEnv } from '../../config/env.ts';
 import { readOptionalList } from '../../config/readers.ts';
 import { toStructuredErr } from '../../core/errors/convert.ts';
 import { DedaloError } from '../../core/errors/dedalo_error.ts';
+import {
+	type RequestLangs,
+	runWithRequestLangs,
+	seedRequestLangs,
+} from '../../core/resolve/request_lang.ts';
 import { readAccountStateById } from '../../core/security/auth.ts';
 import { resolvePrincipal } from '../../core/security/permissions.ts';
 import { asToolResult } from './envelope.ts';
@@ -116,15 +121,42 @@ export function buildMcpServer(
 			// A refused call (permission, scope, allowlist) comes back as a
 			// structured {ok:false, error} envelope with a model-facing hint —
 			// never a transport-level crash the model cannot act on.
-			async (args: Record<string, unknown>) => {
-				const current = await currentServicePrincipal(principal, gates);
-				if (current instanceof DedaloError) return asToolResult(toStructuredErr(current));
-				return asToolResult(await runTool(spec, current, args, gates));
-			},
+			//
+			// Every call runs inside the SERVICE ACCOUNT's request-lang scope (owner
+			// ruling 2026-11-22): a tool default (`describe_section` labels,
+			// `read_record`, `search_section`, link targets) follows the account's
+			// langs, exactly as the same account's web session would — not the
+			// scope-less DATA_LANG_DEFAULT fallback.
+			async (args: Record<string, unknown>) =>
+				runWithRequestLangs(serviceAccountLangs(), async () => {
+					const current = await currentServicePrincipal(principal, gates);
+					if (current instanceof DedaloError) return asToolResult(toStructuredErr(current));
+					return asToolResult(await runTool(spec, current, args, gates));
+				}),
 		);
 	}
 
 	return server;
+}
+
+/**
+ * THE SERVICE ACCOUNT'S REQUEST LANGUAGES — resolved the way a web login of the
+ * same account resolves them, through the ONE seed (`seedRequestLangs`,
+ * core/resolve/request_lang.ts), never a copy of it.
+ *
+ * A web login stores NO per-account language preference: the session's lang
+ * columns start NULL (session_store.ts `createSession`) and the only thing a
+ * login adopts is the browser's pre-auth cookie, which a stdio process does not
+ * have. So the account's langs are the seed's last rung — the install MENU
+ * langs (`APPLICATION_LANG` / `DATA_LANG`) — which is exactly what that
+ * account's fresh web session is served. When a stored per-account preference
+ * exists (an owner decision: no store is defined today), it enters HERE (as the
+ * seed's `session` rung), and both doors keep agreeing through the seed.
+ *
+ * Exported for its gate: test/unit/mcp_stdio_request_lang_native.test.ts.
+ */
+export function serviceAccountLangs(): RequestLangs {
+	return seedRequestLangs({ session: null, preauthLang: null });
 }
 
 /**

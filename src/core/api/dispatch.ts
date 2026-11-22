@@ -33,7 +33,6 @@
  */
 
 import { ragApiActions } from '../../ai/rag/api.ts';
-import { config } from '../../config/config.ts';
 import type { Rqo } from '../concepts/rqo.ts';
 import { toErrorEnvelope } from '../errors/convert.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
@@ -1266,9 +1265,7 @@ async function runHandlerScoped(
 	handler: ActionHandler,
 ): Promise<ApiResult> {
 	const { runWithRequestContext } = await import('../security/request_context.ts');
-	const { allowlistedPreauthLang, runWithRequestLangs } = await import(
-		'../resolve/request_lang.ts'
-	);
+	const { runWithRequestLangs, seedRequestLangs } = await import('../resolve/request_lang.ts');
 	return runWithRequestContext(
 		{
 			principal: context.principal,
@@ -1278,18 +1275,11 @@ async function runHandlerScoped(
 		},
 		() =>
 			runWithRequestLangs(
-				{
-					// Session first, then the ANONYMOUS pre-auth language cookie (login
-					// panel), then the install default. allowlistedPreauthLang is the ONE
-					// door the cookie enters by (core/resolve/request_lang.ts).
-					applicationLang:
-						context.session?.applicationLang ??
-						allowlistedPreauthLang(context.preauthLang) ??
-						// lang-law-exempt(dispatch.seed.application): THE request-lang SEED — the install default is the last rung of session > pre-auth cookie > default
-						config.menu.applicationLang,
-					// lang-law-exempt(dispatch.seed.data): THE request-lang SEED — a session without a data lang starts at the install DATA_LANG, resolved against the declared data langs in src/config/
-					dataLang: context.session?.dataLang ?? config.menu.dataLang,
-				},
+				// Session first, then the ANONYMOUS pre-auth language cookie (login
+				// panel), then the install menu langs — the ONE seed
+				// (core/resolve/request_lang.ts seedRequestLangs), shared with the
+				// stdio MCP server.
+				seedRequestLangs({ session: context.session, preauthLang: context.preauthLang }),
 				() => handler(rqo, context),
 			),
 	);

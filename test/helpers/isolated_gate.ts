@@ -78,6 +78,9 @@ export const ISOLATED_GATE_ENV: Readonly<Record<string, Readonly<Record<string, 
 	// The menu's DATA_LANG apart from DATA_LANG_DEFAULT (lg-spa in the suite), so a
 	// static pick that read the MENU lang instead of the install main one is red.
 	'test/unit/request_lang_static_default_native.test.ts': { DATA_LANG: 'lg-eng' },
+	// The same split for the stdio MCP server: its service account is served the
+	// web-login seed (DATA_LANG), and a call with no scope would read DATA_LANG_DEFAULT.
+	'test/unit/mcp_stdio_request_lang_native.test.ts': { DATA_LANG: 'lg-eng' },
 };
 
 /** Seams an isolated gate's pinned env may never set: the child derives them. */

@@ -58,6 +58,15 @@ data-lang default this batch moved changed for a scope-less caller too:
   `DATA_LANG_DEFAULT`; they were literal `lg-eng` (the labels briefly the
   interface lang between 364ec95baf and 413894b9c3) and, for `buildLlmMap`, the
   install `DATA_LANG`. A client that relied on English by omission sends `lang`.
+  **Superseded 2026-11-22 (owner ruling R1):** the stdio server now opens a
+  request-lang scope per tool call, seeded from its SERVICE ACCOUNT's langs
+  through the ONE seed dispatch uses (`seedRequestLangs`,
+  `core/resolve/request_lang.ts`; `serviceAccountLangs`, `ai/mcp/server.ts`).
+  A web login stores no per-account preference (session lang columns start
+  NULL), so the account is served the install MENU langs (`APPLICATION_LANG` /
+  `DATA_LANG`) — what its fresh web session gets — not `DATA_LANG_DEFAULT`.
+  Gate `mcp_stdio_request_lang_native` (isolated, `DATA_LANG` pinned apart
+  from `DATA_LANG_DEFAULT`; describe_section over a real McpServer + client).
 - **request_config `filter_by_list`** without a context `lang`, built outside a
   scope: literal `lg-spa` → `DATA_LANG_DEFAULT`.
 - **Lang-less ORDER BY** a translatable column outside a scope: the install
