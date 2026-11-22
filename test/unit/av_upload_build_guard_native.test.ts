@@ -182,15 +182,15 @@ const liveJobsOf = (identity: MediaIdentity): number =>
 		.jobsForRecord(identity.sectionTipo, identity.sectionId)
 		.filter((job) => job.status === 'queued' || job.status === 'running').length;
 
-/** Every file under `dir` whose name carries `needle` (the suite root's cleanup). */
-function filesNamed(dir: string, needle: string): string[] {
+/** Every file under `dir` whose name matches `needle` (the suite root's cleanup). */
+function filesNamed(dir: string, needle: RegExp): string[] {
 	if (!existsSync(dir)) return [];
 	const found: string[] = [];
 	for (const entry of readdirSync(dir)) {
 		const full = join(dir, entry);
 		const stat = statSync(full);
 		if (stat.isDirectory()) found.push(...filesNamed(full, needle));
-		else if (entry.includes(needle)) found.push(full);
+		else if (needle.test(entry)) found.push(full);
 	}
 	return found;
 }
@@ -203,21 +203,12 @@ beforeAll(() => {
 
 afterAll(async () => {
 	for (const release of releases) release();
-	await Bun.sleep(50);
-	if (previousProcessesDir === undefined)
-		Reflect.deleteProperty(process.env, 'DEDALO_MEDIA_PROCESSES_DIR');
-	else process.env.DEDALO_MEDIA_PROCESSES_DIR = previousProcessesDir;
-	rmSync(ROOT, { recursive: true, force: true });
-	const failures: string[] = [];
+	// Every job this file started (transcodes into the SUITE root included) ends
+	// BEFORE the sweep, or it writes behind it.
 	for (const id of [...scratchIds, ...deletedIds]) {
-		// The tool-wire cases write into the SUITE media root (marked): sweep this
-		// file's identifiers out of it, staged copies included.
-		for (const file of filesNamed(requireMediaRoot(), `${AV_COMPONENT}_${SECTION}_${id}.`)) {
-			rmSync(file, { force: true });
-		}
+		for (const job of mediaJobs.jobsForRecord(SECTION, id)) await awaitJob(job.id);
 	}
-	// The tool wire stages under the suite root as user -1: this file's key dir.
-	rmSync(stagingDir(-1, KEY_DIR), { recursive: true, force: true });
+	const failures: string[] = [];
 	for (const id of scratchIds) {
 		try {
 			const outcome = await deleteSectionRecord(SECTION, id, -1);
@@ -226,12 +217,25 @@ afterAll(async () => {
 			failures.push(`${SECTION}/${id}: ${(error as Error).message}`);
 		}
 	}
+	// AFTER the deletes (which move a record's media to `deleted/` under a
+	// `<id>_deleted_<stamp>` name): sweep this file's identifiers out of the
+	// marked SUITE root, live and deleted copies alike.
+	for (const id of [...scratchIds, ...deletedIds]) {
+		const own = new RegExp(`^${AV_COMPONENT}_${SECTION}_${id}[._]`);
+		for (const file of filesNamed(requireMediaRoot(), own)) rmSync(file, { force: true });
+	}
+	// The tool wire stages under the suite root as user -1: this file's key dir.
+	rmSync(stagingDir(-1, KEY_DIR), { recursive: true, force: true });
 	for (const id of [...scratchIds, ...deletedIds]) {
 		await sql.unsafe(
 			'DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2',
 			[SECTION, id],
 		);
 	}
+	if (previousProcessesDir === undefined)
+		Reflect.deleteProperty(process.env, 'DEDALO_MEDIA_PROCESSES_DIR');
+	else process.env.DEDALO_MEDIA_PROCESSES_DIR = previousProcessesDir;
+	rmSync(ROOT, { recursive: true, force: true });
 	if (failures.length > 0) throw new Error(`scratch cleanup failed: ${failures.join('; ')}`);
 });
 
