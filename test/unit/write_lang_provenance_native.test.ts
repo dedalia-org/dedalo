@@ -315,6 +315,14 @@ const SAVE_DOORS: ReadonlyMap<string, { lang: string; reason: string }> = new Ma
 		},
 	],
 	[
+		'src/core/tools/tool_config_move.ts',
+		{
+			lang: 'nolan',
+			reason:
+				'The v6 config migration (EXCLUDE_DIFFUSION_ELEMENTS → tool_diffusion dd996 config) writes the tool config JSON and the tool-name field of an install config record — structural data, lg-nolan by definition, never a request or install language.',
+		},
+	],
+	[
 		'src/core/relations/declared_order_reconcile.ts',
 		{
 			lang: 'nolan',
@@ -894,7 +902,14 @@ describe('the declared data-language set', () => {
 		// install's do. The defect being pinned is a code shape, so the shape is
 		// what is asserted: the ALS falls back to the DEFAULT data language, never
 		// to the menu's current one.
-		const backstop = readFileSync(join(REPO_ROOT, 'src/core/resolve/request_lang.ts'), 'utf8');
+		// Scoped to the currentDataLang BODY: the same file also holds
+		// seedRequestLangs, whose session-less seed legitimately starts a REQUEST
+		// at the menu language (what a fresh web login is served) — that is a
+		// request's chosen lang, not the scope-less backstop this law pins.
+		const source = readFileSync(join(REPO_ROOT, 'src/core/resolve/request_lang.ts'), 'utf8');
+		const start = source.indexOf('export function currentDataLang(');
+		expect(start).toBeGreaterThan(-1);
+		const backstop = source.slice(start, source.indexOf('\n}', start) + 2);
 		expect(backstop).toContain('?? config.lang.dataLangDefault');
 		expect(backstop).not.toContain('?? config.menu.dataLang');
 		const readChain = readFileSync(join(REPO_ROOT, 'src/core/resolve/component_data.ts'), 'utf8');
