@@ -354,7 +354,7 @@ describe.if(hasPhpCredentials())('autocomplete picker search differential (BUG-0
 	test('multilingual thesaurus picker: fallback_value + ddinfo breadcrumb byte-equal (seed portal → test2830)', async () => {
 		// The rsc92 "Municipio de residencia" shape (2026-07-09): translatable
 		// terms stored only in lg-fra must arrive as fallback_value (the fallback
-		// chain iterates PROJECTS_DEFAULT_LANGS — config, never hardcoded), and
+		// chain iterates DEDALO_PROJECTS_DEFAULT_LANGS — config, never hardcoded), and
 		// each row carries its {tipo:'ddinfo'} ancestor breadcrumb ending at the
 		// ROOT TERM (no trailing hierarchy label — that shape belongs to the
 		// portal-cell ddinfo only).

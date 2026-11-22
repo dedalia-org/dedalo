@@ -81,7 +81,7 @@ export interface StoredSessionLangs {
  * Rungs: the session's stored choice (change_lang, or the pre-auth cookie a
  * login adopted), then the ANONYMOUS pre-auth cookie (login panel; through
  * `allowlistedPreauthLang`, its one door), then the install's MENU langs
- * (`APPLICATION_LANG` / `DATA_LANG` — a session's starting point, resolved
+ * (`DEDALO_APPLICATION_LANG` / `DEDALO_DATA_LANG` — a session's starting point, resolved
  * against the declared data langs in src/config/). A fresh web login carries
  * no per-account preference (session_store.ts `createSession` starts both
  * columns NULL), so `{ session: null }` is exactly what a web login of the

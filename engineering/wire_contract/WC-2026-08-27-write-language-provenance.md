@@ -68,7 +68,7 @@ session that has chosen no language, writes in) is closed at the source instead:
   (add it to `DEDALO_PROJECTS_DEFAULT_LANGS`), and overruled by
   `DEDALO_DATA_LANG_DEFAULT`. It reports and does not throw because a fresh box
   is exactly that shape — install mode boots on sentinels where the project
-  languages are `['lg-eng']` and `DATA_LANG` holds its catalog default `lg-spa`
+  languages are `['lg-eng']` and `DEDALO_DATA_LANG` holds its catalog default `lg-spa`
   — so a boot refusal would refuse every new installation.
 
 So every language the engine can pick on its own behalf is already a member, no

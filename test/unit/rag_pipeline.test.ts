@@ -178,7 +178,7 @@ function probeOntology(): OntologyPort {
  *  • `langs` — `[DOC_LANG]` rather than `config.menu.projectsDefaultLangs`:
  *    the fixture writes exactly one language, and inheriting the machine's
  *    list is the ambient-situation reading this suite forbids.
- *  • `nolan` — the literal `lg-nolan` rather than `readString('DATA_NOLAN')`,
+ *  • `nolan` — the literal `lg-nolan` rather than `readString('DEDALO_DATA_NOLAN')`,
  *    for that same reason.
  *  • `recordTitle` — deliberately EMPTY rather than `getTermByTipo`: the
  *    chunker prepends it to every chunk's embed text, so a shared title

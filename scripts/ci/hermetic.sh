@@ -19,7 +19,7 @@
 # LANGUAGE keys were missing. Nobody noticed, because on a developer machine
 # ../private/.env sits right there and silently satisfies them: the script passed
 # locally and died on the runner with `Missing required config key
-# 'PROJECTS_DEFAULT_LANGS'` (plus three cascading "Cannot access 'config' before
+# 'PROJECTS_DEFAULT_LANGS'` (then the key's name; now DEDALO_PROJECTS_DEFAULT_LANGS) (plus three cascading "Cannot access 'config' before
 # initialization" TDZ errors — module-init fallout from the same throw, not four
 # separate bugs). The stub list is now pinned to the catalog by rule 6 of
 # test/unit/ci_workflow_tripwire.test.ts: add a required key to src/config/config.ts
@@ -111,14 +111,14 @@ export DEDALO_VENDOR_DATED_CHECKS=0
 # NOT `: "${VAR:=<json>}"`: a `}` inside the default TERMINATES the parameter
 # expansion, so a JSON object map arrives truncated and the catalog rejects it
 # ("must be a non-empty JSON object map"). Plain if-blocks with single quotes.
-: "${PROJECTS_DEFAULT_LANGS:=[\"lg-eng\"]}"
+: "${DEDALO_PROJECTS_DEFAULT_LANGS:=[\"lg-eng\"]}"
 if [ -z "${DEDALO_APPLICATION_LANGS:-}" ]; then
 	DEDALO_APPLICATION_LANGS='{"lg-eng":"English"}'
 fi
 : "${DEDALO_APPLICATION_LANGS_DEFAULT:=lg-eng}"
 : "${DEDALO_DATA_LANG_DEFAULT:=lg-eng}"
 export ENTITY DB_NAME DB_HOST DB_PORT DB_USER
-export PROJECTS_DEFAULT_LANGS DEDALO_APPLICATION_LANGS DEDALO_APPLICATION_LANGS_DEFAULT DEDALO_DATA_LANG_DEFAULT
+export DEDALO_PROJECTS_DEFAULT_LANGS DEDALO_APPLICATION_LANGS DEDALO_APPLICATION_LANGS_DEFAULT DEDALO_DATA_LANG_DEFAULT
 
 # Tripwires proven to run with no DB, no ../private, no sibling PHP tree.
 HERMETIC_TRIPWIRES=(

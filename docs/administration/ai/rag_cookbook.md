@@ -272,7 +272,7 @@ template ships in `install/sample.env`; see the [settings reference](../configur
 | Key | Notes |
 |---|---|
 | `APPLICATION_LANGS` | Data langs a translatable component is indexed in. |
-| `DATA_NOLAN` | The no-lang code for non-translatable components (`lg-nolan`). |
+| `DEDALO_DATA_NOLAN` | The no-lang code for non-translatable components (`lg-nolan`). |
 
 ---
 

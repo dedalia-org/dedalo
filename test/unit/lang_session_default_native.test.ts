@@ -11,8 +11,8 @@ const fakeGet = (key: string): string => `<${key}>`;
 
 describe('session lang keys default to the install defaults', () => {
 	for (const [key, source] of [
-		['APPLICATION_LANG', 'DEDALO_APPLICATION_LANGS_DEFAULT'],
-		['DATA_LANG', 'DEDALO_DATA_LANG_DEFAULT'],
+		['DEDALO_APPLICATION_LANG', 'DEDALO_APPLICATION_LANGS_DEFAULT'],
+		['DEDALO_DATA_LANG', 'DEDALO_DATA_LANG_DEFAULT'],
 	] as const) {
 		test(`${key} ← ${source}`, () => {
 			const { default: value } = catalogEntry(key);

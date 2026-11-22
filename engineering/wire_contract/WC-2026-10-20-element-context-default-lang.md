@@ -32,7 +32,7 @@ read from the request scope; a language is configuration, never a literal.
   was literal `lg-spa` — the field context's `lang` value moves. Gate
   `request_lang_law_native`.
 - **Search ORDER BY** a translatable column without `lang` (SL-2): the request data
-  lang, was the install `DATA_LANG` (a module constant) — the row order moves. Gate
+  lang, was the install `DEDALO_DATA_LANG` (a module constant) — the row order moves. Gate
   `search_order_lang_less_native`.
 - **Labels** (OX7-1): tool_import_dedalo_csv, tool_posterframe, the ontology and
   thesaurus census picks, a new record's `data.label` and the login ddo `lang` speak
@@ -48,7 +48,7 @@ accessor answers the install default, so scope-less callers see no change") was
 false, and is withdrawn. Outside a scope `currentApplicationLang()` answers
 `config.menu.applicationLang` (the value the label sites read before — no
 change there), but `currentDataLang()` answers **`DEDALO_DATA_LANG_DEFAULT`**
-(`config.lang.dataLangDefault`, DATA-01), NOT the menu's `DATA_LANG` and not
+(`config.lang.dataLangDefault`, DATA-01), NOT the menu's `DEDALO_DATA_LANG` and not
 whatever literal a site held. Where the two install values differ, every
 data-lang default this batch moved changed for a scope-less caller too:
 
@@ -57,20 +57,20 @@ data-lang default this batch moved changed for a scope-less caller too:
   and the link-target lang (`resolve_path`, `buildLlmMap`) default to
   `DATA_LANG_DEFAULT`; they were literal `lg-eng` (the labels briefly the
   interface lang between 364ec95baf and 413894b9c3) and, for `buildLlmMap`, the
-  install `DATA_LANG`. A client that relied on English by omission sends `lang`.
+  install `DEDALO_DATA_LANG`. A client that relied on English by omission sends `lang`.
   **Superseded 2026-11-22 (owner ruling R1):** the stdio server now opens a
   request-lang scope per tool call, seeded from its SERVICE ACCOUNT's langs
   through the ONE seed dispatch uses (`seedRequestLangs`,
   `core/resolve/request_lang.ts`; `serviceAccountLangs`, `ai/mcp/server.ts`).
   A web login stores no per-account preference (session lang columns start
-  NULL), so the account is served the install MENU langs (`APPLICATION_LANG` /
-  `DATA_LANG`) — what its fresh web session gets — not `DATA_LANG_DEFAULT`.
-  Gate `mcp_stdio_request_lang_native` (isolated, `DATA_LANG` pinned apart
+  NULL), so the account is served the install MENU langs (`DEDALO_APPLICATION_LANG` /
+  `DEDALO_DATA_LANG`) — what its fresh web session gets — not `DATA_LANG_DEFAULT`.
+  Gate `mcp_stdio_request_lang_native` (isolated, `DEDALO_DATA_LANG` pinned apart
   from `DATA_LANG_DEFAULT`; describe_section over a real McpServer + client).
 - **request_config `filter_by_list`** without a context `lang`, built outside a
   scope: literal `lg-spa` → `DATA_LANG_DEFAULT`.
 - **Lang-less ORDER BY** a translatable column outside a scope: the install
-  `DATA_LANG` → `DATA_LANG_DEFAULT`. The scope value is now also validated
+  `DEDALO_DATA_LANG` → `DATA_LANG_DEFAULT`. The scope value is now also validated
   before it reaches the SQL text (`assertValidLang`, `order lang (request
   scope)` — review M5).
 - **THES-06 (69a3d01dfc) — term_resolver hierarchy1 main lang and the
@@ -79,7 +79,7 @@ data-lang default this batch moved changed for a scope-less caller too:
   two are deliberately STATIC (owner ruling: install `DATA_LANG_DEFAULT`, v6
   `get_main_lang` / `$main_lang`); the hierarchy1 pick is cached per section
   tipo, so it must never follow a request lang. Gate
-  `request_lang_static_default_native` (isolated, `DATA_LANG` pinned apart from
+  `request_lang_static_default_native` (isolated, `DEDALO_DATA_LANG` pinned apart from
   `DATA_LANG_DEFAULT`): two request data langs, both apart from either install
   value, get the same `DATA_LANG_DEFAULT` pick, in both cache-fill orders.
 - **Object identification** (review M2): `find_matches`, the clusterer's

@@ -34,10 +34,10 @@ export const SUITE_LANGS: Readonly<Record<string, string>> = Object.freeze({
 		'{"lg-spa":"Castellano","lg-cat":"Català","lg-eng":"English","lg-fra":"Français","lg-por":"Português","lg-deu":"German","lg-ell":"Ελληνικά","lg-ita":"Italiano"}',
 	DEDALO_APPLICATION_LANGS_DEFAULT: 'lg-spa',
 	DEDALO_DATA_LANG_DEFAULT: 'lg-spa',
-	PROJECTS_DEFAULT_LANGS:
+	DEDALO_PROJECTS_DEFAULT_LANGS:
 		'["lg-spa","lg-cat","lg-vlca","lg-eus","lg-eng","lg-por","lg-fra","lg-ara","lg-ell","lg-deu","lg-ita","lg-nep"]',
 	// THE PUBLICATION LANGUAGES (T1-4 review). Unset, config derives them from
-	// PROJECTS_DEFAULT_LANGS — but a developer .env that SETS it (lg-eng first,
+	// DEDALO_PROJECTS_DEFAULT_LANGS — but a developer .env that SETS it (lg-eng first,
 	// or without lg-eng) moved the plan's main lang and its lang set, and the
 	// diffusion gates that pin a published document (diffusion_rdf_graph_native's
 	// es-before-en literals, the main-lang fill of an untranslated slot) went
@@ -58,7 +58,7 @@ export function suiteLangPins(
 	shellSets: (key: string) => boolean,
 	shellValue: (key: string) => string | undefined = () => undefined,
 ): [string, string][] {
-	// DEDALO_DIFFUSION_LANGS is DERIVED from PROJECTS_DEFAULT_LANGS (the pin is
+	// DEDALO_DIFFUSION_LANGS is DERIVED from DEDALO_PROJECTS_DEFAULT_LANGS (the pin is
 	// "exactly what the derivation yields from the project languages above").
 	// A shell that sets its own project languages but not the publication ones
 	// (the hermetic tier: lg-eng only) gets the publication set derived from ITS
@@ -66,13 +66,13 @@ export function suiteLangPins(
 	// shell's project set (every plan compile refuses, config.ts
 	// langsOutsideProject), and leaving it unpinned would let a developer's
 	// ../private/.env value through.
-	const shellProject = shellSets('PROJECTS_DEFAULT_LANGS')
-		? shellValue('PROJECTS_DEFAULT_LANGS')
+	const shellProject = shellSets('DEDALO_PROJECTS_DEFAULT_LANGS')
+		? shellValue('DEDALO_PROJECTS_DEFAULT_LANGS')
 		: undefined;
 	const pins: [string, string][] = [];
 	for (const [key, value] of Object.entries(SUITE_LANGS)) {
 		if (shellSets(key)) continue;
-		if (key === 'DEDALO_DIFFUSION_LANGS' && shellSets('PROJECTS_DEFAULT_LANGS')) {
+		if (key === 'DEDALO_DIFFUSION_LANGS' && shellSets('DEDALO_PROJECTS_DEFAULT_LANGS')) {
 			if (shellProject !== undefined) pins.push([key, shellProject]);
 			continue;
 		}

@@ -371,7 +371,7 @@ hand-written `.env` has to carry them itself.
 
 ```dotenv
 DEDALO_APPLICATION_LANGS={"lg-eng":"English","lg-spa":"Castellano"}
-PROJECTS_DEFAULT_LANGS=["lg-eng","lg-spa"]
+DEDALO_PROJECTS_DEFAULT_LANGS=["lg-eng","lg-spa"]
 DEDALO_APPLICATION_LANGS_DEFAULT=lg-eng
 DEDALO_DATA_LANG_DEFAULT=lg-eng
 ```

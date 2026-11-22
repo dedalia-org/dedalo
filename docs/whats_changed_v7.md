@@ -76,9 +76,11 @@ rather than silently ignoring it and falling back to a default.
 |---|---|
 | `DEDALO_PREFIX_TIPOS` | **`ACTIVE_ONTOLOGY_TLDS`** |
 
-`DEDALO_DATA_LANG_SYNC` keeps its v6 name. Early v7 installations spelled it
-`DATA_LANG_SYNC`; that spelling is retired the same way — rename the line to
-`DEDALO_DATA_LANG_SYNC`.
+The language keys keep their v6 names: `DEDALO_APPLICATION_LANG`, `DEDALO_DATA_LANG`,
+`DEDALO_DATA_LANG_SYNC`, `DEDALO_DATA_NOLAN` and `DEDALO_PROJECTS_DEFAULT_LANGS`. Early v7
+installations spelled them without the `DEDALO_` prefix (`APPLICATION_LANG`, `DATA_LANG`,
+`DATA_LANG_SYNC`, `DATA_NOLAN`, `PROJECTS_DEFAULT_LANGS`); those spellings are retired the
+same way — rename each such line to its `DEDALO_` name.
 
 `DEDALO_PREFIX_TIPOS` never described what it held. The value is the set of
 ontology **top-level domains** active in this installation (`dd`, `rsc`, `oh`, …)
@@ -105,10 +107,6 @@ fallback, so a migrated `.env` needs no edit; the v7 name wins when both are set
 | `DEDALO_PASSWORD_CONN` | `DB_PASSWORD` |
 | `DEDALO_SOCKET_CONN` | `DB_SOCKET` |
 | `DEDALO_MEDIA_PATH` | `MEDIA_PATH` |
-| `DEDALO_APPLICATION_LANG` | `APPLICATION_LANG` |
-| `DEDALO_DATA_LANG` | `DATA_LANG` |
-| `DEDALO_DATA_NOLAN` | `DATA_NOLAN` |
-| `DEDALO_PROJECTS_DEFAULT_LANGS` | `PROJECTS_DEFAULT_LANGS` |
 | `DEDALO_ENTITY_MENU_SKIP_TIPOS` | `MENU_SKIP_TIPOS` |
 | `SLOW_QUERY_MS` | `DEDALO_SLOW_QUERY_MS` |
 

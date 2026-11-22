@@ -9,7 +9,7 @@
  * a host that has them all runs no package command.
  *
  * OCR LANGUAGES (T0-11 D3): one Tesseract language pack per WORKING language
- * (the answers' `langs`, written as PROJECTS_DEFAULT_LANGS) plus `osd`, named
+ * (the answers' `langs`, written as DEDALO_PROJECTS_DEFAULT_LANGS) plus `osd`, named
  * by the ONE map the OCR door reads (media/engine/ocr_langs.ts), in ocrmypdf's
  * lane (row.packages.ocrLangpacks). A working language Tesseract has no model
  * for is TOLD (Review to-do + run warning) — never fatal, never guessed.

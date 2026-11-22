@@ -550,7 +550,7 @@ env -i PATH="$PATH" HOME="$P" DEDALO_SMOKE_BOOT=true SERVER_UNIX_SOCKET="$P/heal
   DEDALO_PRIVATE_DIR="$P" DEDALO_SESSION_DB_PATH="$P/sessions.sqlite" DEDALO_TS_STATE_PATH="$P/ts_state.json" \
   ENTITY=smoke DB_NAME=smoke DB_USER=smoke DB_HOST="$P/no-database" \
   DEDALO_APPLICATION_LANGS='{"lg-eng":"English"}' DEDALO_APPLICATION_LANGS_DEFAULT=lg-eng \
-  DEDALO_DATA_LANG_DEFAULT=lg-eng PROJECTS_DEFAULT_LANGS='["lg-eng"]' \
+  DEDALO_DATA_LANG_DEFAULT=lg-eng DEDALO_PROJECTS_DEFAULT_LANGS='["lg-eng"]' \
   bun run src/server.ts >"$P/server.log" 2>&1 &
 server=$!
 served="$(bun -e '

@@ -413,13 +413,16 @@ describe('persist_config (P2)', () => {
 			'lg-eng': 'English',
 			'lg-spa': 'Castellano',
 		});
-		expect(JSON.parse(parsed.PROJECTS_DEFAULT_LANGS as string)).toEqual(['lg-eng', 'lg-spa']);
+		expect(JSON.parse(parsed.DEDALO_PROJECTS_DEFAULT_LANGS as string)).toEqual([
+			'lg-eng',
+			'lg-spa',
+		]);
 
-		// The scalar mandatory keys + the coherent APPLICATION_LANG/DATA_LANG mirror.
+		// The scalar mandatory keys + the coherent DEDALO_APPLICATION_LANG/DEDALO_DATA_LANG mirror.
 		expect(parsed.DEDALO_APPLICATION_LANGS_DEFAULT).toBe('lg-eng');
 		expect(parsed.DEDALO_DATA_LANG_DEFAULT).toBe('lg-spa');
-		expect(parsed.APPLICATION_LANG).toBe('lg-eng');
-		expect(parsed.DATA_LANG).toBe('lg-spa');
+		expect(parsed.DEDALO_APPLICATION_LANG).toBe('lg-eng');
+		expect(parsed.DEDALO_DATA_LANG).toBe('lg-spa');
 		expect(parsed.DEDALO_STRUCTURE_LANG).toBe('lg-spa');
 	});
 
@@ -430,7 +433,10 @@ describe('persist_config (P2)', () => {
 		const map = JSON.parse(parsed.DEDALO_APPLICATION_LANGS as string) as Record<string, string>;
 		expect(Object.keys(map)).toEqual(['lg-eng', 'lg-spa']);
 		expect(map['lg-eng']).toBe('English');
-		expect(JSON.parse(parsed.PROJECTS_DEFAULT_LANGS as string)).toEqual(['lg-eng', 'lg-spa']);
+		expect(JSON.parse(parsed.DEDALO_PROJECTS_DEFAULT_LANGS as string)).toEqual([
+			'lg-eng',
+			'lg-spa',
+		]);
 		expect(parsed.DEDALO_APPLICATION_LANGS_DEFAULT).toBe('lg-eng');
 		expect(parsed.DEDALO_DATA_LANG_DEFAULT).toBe('lg-eng');
 	});

@@ -146,7 +146,7 @@ export interface ResolveEmbedDocsInput {
 	groups: RagEmbedGroup[];
 	/** The install's DATA langs (config.menu.projectsDefaultLangs). */
 	langs: readonly string[];
-	/** The no-lang code (DATA_NOLAN) for lang-independent groups. */
+	/** The no-lang code (DEDALO_DATA_NOLAN) for lang-independent groups. */
 	nolan: string;
 }
 

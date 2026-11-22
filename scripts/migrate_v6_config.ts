@@ -52,7 +52,7 @@ const BOOT_CRITICAL = [
 	'DEDALO_APPLICATION_LANGS',
 	'DEDALO_APPLICATION_LANGS_DEFAULT',
 	'DEDALO_DATA_LANG_DEFAULT',
-	'PROJECTS_DEFAULT_LANGS',
+	'DEDALO_PROJECTS_DEFAULT_LANGS',
 ];
 
 function fail(message: string): never {
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
 	const projectLangs = planned.find((p) => p.from === 'DEDALO_PROJECTS_DEFAULT_LANGS');
 	// No project langs to compare against (absent, null, or runtime-computed) means we
 	// cannot prove the value is derived — keep it, and let the boot-critical section
-	// below complain about the missing PROJECTS_DEFAULT_LANGS.
+	// below complain about the missing DEDALO_PROJECTS_DEFAULT_LANGS.
 	const diffusionLangsDerived =
 		diffusionLangs !== undefined &&
 		projectLangs !== undefined &&

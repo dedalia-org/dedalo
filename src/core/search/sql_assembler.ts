@@ -241,7 +241,7 @@ async function orderSelectExpression(input: {
 	}
 	const translatable = await getTranslatableByTipo(input.componentTipo);
 	// T2-SL-2: an order entry without `lang` sorts in the REQUEST data lang (PHP
-	// DEDALO_DATA_LANG is per-request) — never the install DATA_LANG, which
+	// DEDALO_DATA_LANG is per-request) — never the install DEDALO_DATA_LANG, which
 	// answered every session the same slice.
 	// The lang is INTERPOLATED into the SQL text below, so the request-scope
 	// value is gated like the order entry's own (langRaw, validated at the

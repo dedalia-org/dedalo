@@ -352,8 +352,13 @@ describe('the detector, driven on synthetic text (positive + negative controls)'
 			'const { menu } = config;\nconst x = menu.dataLang;',
 			"const x = config.menu['dataLang'];",
 			'const { dataLang } = config.menu;',
+			// The env read, under the catalog name AND the retired TS-era spelling
+			// (owner ruling 2026-11-22: DATA_LANG → DEDALO_DATA_LANG, APPLICATION_LANG
+			// → DEDALO_APPLICATION_LANG; the old names stay forbidden reads too).
+			"const L = readString('DEDALO_DATA_LANG');",
 			"const L = readString('DATA_LANG');",
 			"const L = readEnv('DEDALO_APPLICATION_LANG');",
+			"const L = readEnv('APPLICATION_LANG');",
 			'const x = config.menu?.applicationLang;',
 			// review M2: the static main data lang, the fallback shape first.
 			'const lang = options.lang ?? config.lang.dataLangDefault;',

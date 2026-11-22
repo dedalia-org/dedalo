@@ -1102,7 +1102,7 @@ export function resolveDiffusionLangs(
 // EXACTLY ONCE: `menu.projectsDefaultLangs` publishes them and `diffusion.langs`
 // derives from them, so a second requireList call here would be a second source of
 // truth for the same install fact.
-const projectsDefaultLangs = requireList('PROJECTS_DEFAULT_LANGS');
+const projectsDefaultLangs = requireList('DEDALO_PROJECTS_DEFAULT_LANGS');
 
 // The other two language facts the DECLARED DATA-LANGUAGE SET is built from, read
 // once each for the same reason (a second read is a second source of truth), and
@@ -1130,7 +1130,7 @@ export const INSTALLED_DATA_LANGS: ReadonlySet<string> = declaredDataLangs({
 // DEDALO_DATA_LANG naming a language the install does not declare is overruled by
 // DEDALO_DATA_LANG_DEFAULT rather than becoming a write language no read reaches
 // (see resolveCurrentDataLang for why this reports instead of throwing).
-const configuredDataLang = readString('DATA_LANG');
+const configuredDataLang = readString('DEDALO_DATA_LANG');
 const currentDataLang = resolveCurrentDataLang(
 	configuredDataLang,
 	INSTALLED_DATA_LANGS,
@@ -1215,7 +1215,7 @@ export const config: DedaloConfig = Object.freeze({
 		password: readEnv('PHP_API_PASSWORD'),
 	}),
 	menu: Object.freeze({
-		applicationLang: readString('APPLICATION_LANG'),
+		applicationLang: readString('DEDALO_APPLICATION_LANG'),
 		// Resolved against the declared data languages above, never the raw key.
 		dataLang: currentDataLang.lang,
 		dataLangSync: readString('DEDALO_DATA_LANG_SYNC') === 'true',

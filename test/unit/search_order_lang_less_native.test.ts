@@ -301,7 +301,7 @@ describe('ORDER BY a lang-less component sorts by its value', () => {
 		]);
 	});
 
-	test('T2-SL-2: an order WITHOUT lang sorts in the REQUEST data lang, not the install DATA_LANG', async () => {
+	test('T2-SL-2: an order WITHOUT lang sorts in the REQUEST data lang, not the install DEDALO_DATA_LANG', async () => {
 		// Two request data langs, one translatable column, no `lang` on the order
 		// entry: each request must get the order of ITS slice. The install
 		// default (a module constant before T2-SL-2) answered the same order to

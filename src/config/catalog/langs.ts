@@ -7,7 +7,7 @@
 import type { CatalogEntry, CatalogGet } from '../catalog_types.ts';
 
 export const LANGS_KEYS = {
-	APPLICATION_LANG: {
+	DEDALO_APPLICATION_LANG: {
 		type: 'string',
 		scope: 'operator',
 		// Unset = the install's interface default: it is the language an anonymous caller
@@ -15,16 +15,21 @@ export const LANGS_KEYS = {
 		// DEDALO_APPLICATION_LANGS_DEFAULT (beta7 served lg-spa with the default lg-eng).
 		default: (get: CatalogGet) => get('DEDALO_APPLICATION_LANGS_DEFAULT'),
 		defaultDoc: 'the value of `DEDALO_APPLICATION_LANGS_DEFAULT`',
-		// An uncommented empty stub (`APPLICATION_LANG=`) must mean the default, not ''.
+		// An uncommented empty stub (`DEDALO_APPLICATION_LANG=`) must mean the default, not ''.
 		emptyIsUnset: true,
 		heading: 'Defining application language',
 		typeLabel: 'string',
-		doc: `This parameter defines the language will us Dédalo for the user interface.
+		doc: `!!! info "Renamed — was \`APPLICATION_LANG\`"
+    The key now carries its v6 name and the \`DEDALO_\` prefix of its siblings. The old spelling
+    is retired — if it is still in your \`.env\` the server refuses to boot and names the line to
+    change.
+
+This parameter defines the language will us Dédalo for the user interface.
 
 This is a dynamic parameter and it can be changed when the user login, or in application menu. When the language is changed it is saved into the user's session and it is read to maintain coherence in the diary workflow. If the user's session does not have defined the application language then Dédalo will use the application default language definition.
 
 \`\`\`bash
-APPLICATION_LANG="lg-spa"
+DEDALO_APPLICATION_LANG="lg-spa"
 \`\`\`
 
 > You can set this as a fixed value, but it is recommended you do not — to change the
@@ -36,21 +41,26 @@ APPLICATION_LANG="lg-spa"
 	// hardcoded 'lg-spa,lg-cat,lg-eng'. Any install whose languages were not Spanish/Catalan/
 	// English was silently indexed and searched in the wrong ones. Those sites now read
 	// config.menu.projectsDefaultLangs; the census tripwire makes the ghost unrevivable.
-	DATA_LANG: {
+	DEDALO_DATA_LANG: {
 		type: 'string',
 		scope: 'operator',
-		// Unset = the install's data default (same trap as APPLICATION_LANG above).
+		// Unset = the install's data default (same trap as DEDALO_APPLICATION_LANG above).
 		default: (get: CatalogGet) => get('DEDALO_DATA_LANG_DEFAULT'),
 		defaultDoc: 'the value of `DEDALO_DATA_LANG_DEFAULT`',
 		emptyIsUnset: true,
 		heading: 'Defining data language',
 		typeLabel: 'string',
-		doc: `It defines the data language used by Dédalo to process and render textual information.
+		doc: `!!! info "Renamed — was \`DATA_LANG\`"
+    The key now carries its v6 name and the \`DEDALO_\` prefix of its siblings. The old spelling
+    is retired — if it is still in your \`.env\` the server refuses to boot and names the line to
+    change.
+
+It defines the data language used by Dédalo to process and render textual information.
 
 This is a dynamic parameter that can be changed by the user in any moment. Dédalo is a real multi-language application, it can manage information in multiple languages and process it as unique information block (the field store any translated version of his data). The user can translate any information directly or using specific tools. This parameter define the current language used.
 
 \`\`\`bash
-DATA_LANG="lg-spa"
+DEDALO_DATA_LANG="lg-spa"
 \`\`\`
 
 > You can set this as a fixed value, but it is recommended you do not — to change the
@@ -77,20 +87,25 @@ The default value is 'false', which allows the application language and data lan
 DEDALO_DATA_LANG_SYNC=false
 \`\`\``,
 	},
-	DATA_NOLAN: {
+	DEDALO_DATA_NOLAN: {
 		type: 'string',
 		scope: 'operator',
 		default: 'lg-nolan',
 		heading: 'Defining data without language (no lang)',
 		typeLabel: 'string',
-		doc: `This parameter defines the tld used by Dédalo to tag data without translation possibility.
+		doc: `!!! info "Renamed — was \`DATA_NOLAN\`"
+    The key now carries its v6 name and the \`DEDALO_\` prefix of its siblings. The old spelling
+    is retired — if it is still in your \`.env\` the server refuses to boot and names the line to
+    change.
+
+This parameter defines the tld used by Dédalo to tag data without translation possibility.
 
 Dédalo is multi language by default, all information could be translated to other languages that the main lang, but some data is not susceptible to be translated, like numbers, dates or personal names. In these cases Dédalo defines this kind of data as "not translatable" with the specific tld define in this parameter.
 
 By default and for global Dédalo definition for non translatable data this tld is: \`lg-nolan\`
 
 \`\`\`bash
-DATA_NOLAN="lg-nolan"
+DEDALO_DATA_NOLAN="lg-nolan"
 \`\`\``,
 	},
 	DEDALO_APPLICATION_LANGS: {
@@ -262,7 +277,7 @@ DEDALO_STRUCTURE_LANG="lg-spa"
 >| lg-ces | Czech |
 >| lg-jpn | Japanese |`,
 	},
-	PROJECTS_DEFAULT_LANGS: {
+	DEDALO_PROJECTS_DEFAULT_LANGS: {
 		required: true,
 		installSentinel: ['lg-eng'],
 		type: 'string_list',
@@ -272,16 +287,21 @@ DEDALO_STRUCTURE_LANG="lg-spa"
 			'**required, no default** — the installer writes it (working languages: default `lg-eng`, `lg-spa`; interface and data default: the first one picked); the value shown in sample.env is the install-mode stand-in, never a fallback',
 		heading: 'Defining default projects languages',
 		typeLabel: 'array',
-		doc: `This parameter defines the languages that will use for export and publish data.
+		doc: `!!! info "Renamed — was \`PROJECTS_DEFAULT_LANGS\`"
+    The key now carries its v6 name and the \`DEDALO_\` prefix of its siblings. The old spelling
+    is retired — if it is still in your \`.env\` the server refuses to boot and names the line to
+    change.
 
-**Required** — the server refuses to boot without it. The installer writes it, in its legacy spelling \`DEDALO_PROJECTS_DEFAULT_LANGS\`, from the working languages picked (\`lg-eng\`, \`lg-spa\` by default).
+This parameter defines the languages that will use for export and publish data.
+
+**Required** — the server refuses to boot without it. The installer writes it from the working languages picked (\`lg-eng\`, \`lg-spa\` by default).
 
 This definition control the amount of languages that will be processed to export data or publish data in the publication process.
 
 When Dédalo export data or publish data, it check the languages of every field of every record to create a fixed version of the data with the language processed or his own correspondences of the main languages when the data is not available in the current language. This parameter reduce the amount languages used in those processes.
 
 \`\`\`bash
-PROJECTS_DEFAULT_LANGS=[ "lg-spa", "lg-cat", "lg-eng"]
+DEDALO_PROJECTS_DEFAULT_LANGS=[ "lg-spa", "lg-cat", "lg-eng"]
 \`\`\`
 
 > The parameter use the Dédalo tld definition for languages. See DEDALO_APPLICATION_LANGS definition to show some examples.`,

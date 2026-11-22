@@ -212,14 +212,19 @@ ENTITY="my_entity_name"
 
 ### Defining application language
 
-APPLICATION_LANG `string`
+DEDALO_APPLICATION_LANG `string`
+
+!!! info "Renamed — was `APPLICATION_LANG`"
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
+    is retired — if it is still in your `.env` the server refuses to boot and names the line to
+    change.
 
 This parameter defines the language will us Dédalo for the user interface.
 
 This is a dynamic parameter and it can be changed when the user login, or in application menu. When the language is changed it is saved into the user's session and it is read to maintain coherence in the diary workflow. If the user's session does not have defined the application language then Dédalo will use the application default language definition.
 
 ```bash
-APPLICATION_LANG="lg-spa"
+DEDALO_APPLICATION_LANG="lg-spa"
 ```
 
 > You can set this as a fixed value, but it is recommended you do not — to change the
@@ -231,14 +236,19 @@ APPLICATION_LANG="lg-spa"
 
 ### Defining data language
 
-DATA_LANG `string`
+DEDALO_DATA_LANG `string`
+
+!!! info "Renamed — was `DATA_LANG`"
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
+    is retired — if it is still in your `.env` the server refuses to boot and names the line to
+    change.
 
 It defines the data language used by Dédalo to process and render textual information.
 
 This is a dynamic parameter that can be changed by the user in any moment. Dédalo is a real multi-language application, it can manage information in multiple languages and process it as unique information block (the field store any translated version of his data). The user can translate any information directly or using specific tools. This parameter define the current language used.
 
 ```bash
-DATA_LANG="lg-spa"
+DEDALO_DATA_LANG="lg-spa"
 ```
 
 > You can set this as a fixed value, but it is recommended you do not — to change the
@@ -273,7 +283,12 @@ DEDALO_DATA_LANG_SYNC=false
 
 ### Defining data without language (no lang)
 
-DATA_NOLAN `string`
+DEDALO_DATA_NOLAN `string`
+
+!!! info "Renamed — was `DATA_NOLAN`"
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
+    is retired — if it is still in your `.env` the server refuses to boot and names the line to
+    change.
 
 This parameter defines the tld used by Dédalo to tag data without translation possibility.
 
@@ -282,7 +297,7 @@ Dédalo is multi language by default, all information could be translated to oth
 By default and for global Dédalo definition for non translatable data this tld is: `lg-nolan`
 
 ```bash
-DATA_NOLAN="lg-nolan"
+DEDALO_DATA_NOLAN="lg-nolan"
 ```
 
 *Default: lg-nolan*
@@ -453,18 +468,23 @@ DEDALO_STRUCTURE_LANG="lg-spa"
 
 ### Defining default projects languages
 
-PROJECTS_DEFAULT_LANGS `array`
+DEDALO_PROJECTS_DEFAULT_LANGS `array`
+
+!!! info "Renamed — was `PROJECTS_DEFAULT_LANGS`"
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
+    is retired — if it is still in your `.env` the server refuses to boot and names the line to
+    change.
 
 This parameter defines the languages that will use for export and publish data.
 
-**Required** — the server refuses to boot without it. The installer writes it, in its legacy spelling `DEDALO_PROJECTS_DEFAULT_LANGS`, from the working languages picked (`lg-eng`, `lg-spa` by default).
+**Required** — the server refuses to boot without it. The installer writes it from the working languages picked (`lg-eng`, `lg-spa` by default).
 
 This definition control the amount of languages that will be processed to export data or publish data in the publication process.
 
 When Dédalo export data or publish data, it check the languages of every field of every record to create a fixed version of the data with the language processed or his own correspondences of the main languages when the data is not available in the current language. This parameter reduce the amount languages used in those processes.
 
 ```bash
-PROJECTS_DEFAULT_LANGS=[ "lg-spa", "lg-cat", "lg-eng"]
+DEDALO_PROJECTS_DEFAULT_LANGS=[ "lg-spa", "lg-cat", "lg-eng"]
 ```
 
 > The parameter use the Dédalo tld definition for languages. See DEDALO_APPLICATION_LANGS definition to show some examples.

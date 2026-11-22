@@ -261,7 +261,7 @@ export async function getMainLang(sectionTipo: string): Promise<string> {
 		if (sectionTipo === 'es1') mainLang = 'lg-spa';
 		// hierarchy1 → DEDALO_DATA_LANG_DEFAULT (v6 get_main_lang): the install's
 		// main DATA lang — the first candidate of the one read chain — never the
-		// menu's DATA_LANG, a per-session selection (request-language law, T2 B10).
+		// menu's DEDALO_DATA_LANG, a per-session selection (request-language law, T2 B10).
 		// Cached per section tipo, so it must not be a request-scoped value.
 		// lang-law-exempt(term_resolver.hierarchy1_main_lang): owner ruling — hierarchy1's main lang is the install DATA_LANG_DEFAULT (v6 get_main_lang), static; cached per section tipo, so a request lang here would bleed across requests
 		else if (sectionTipo === 'hierarchy1') mainLang = config.lang.dataLangDefault;

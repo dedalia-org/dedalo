@@ -24,7 +24,7 @@
  *     search_section default to the request DATA lang (owner ruling
  *     2026-11-22; were
  *     literal lg-eng); buildLlmMap resolves link targets in the request data
- *     lang (was the install DATA_LANG).
+ *     lang (was the install DEDALO_DATA_LANG).
  *
  * SITUATION `zzrll` (matrix_test, dropped with residue 0): section zzrll1
  * (term differs per lang), translatable input_text zzrll2, portal zzrll3 whose

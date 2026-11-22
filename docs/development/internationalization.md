@@ -60,9 +60,9 @@ All language behaviour is configured by the `lang` domain of the typed config ca
 | `DEDALO_STRUCTURE_LANG` | interface | The ontology *authoring* language. Fixed at `lg-spa` — the master language of every ontology term. Do not change it. |
 | `DEDALO_APPLICATION_LANGS` | interface | The map of `lg-* => name` the application UI can be displayed in (the interface-language picker's options). |
 | `DEDALO_APPLICATION_LANGS_DEFAULT` | interface | Fallback application language when none is chosen (e.g. `lg-eng`). |
-| `DEDALO_APPLICATION_LANG` | interface | The **current** interface language, resolved **per request** from the caller's session (see [request-scoped resolution](#request-scoped-language-resolution)); the install default (`APPLICATION_LANG`) applies when the user has not overridden it. Labels resolve to this. |
+| `DEDALO_APPLICATION_LANG` | interface | The **current** interface language, resolved **per request** from the caller's session (see [request-scoped resolution](#request-scoped-language-resolution)); the install default (`DEDALO_APPLICATION_LANG`) applies when the user has not overridden it. Labels resolve to this. |
 | `DEDALO_DATA_LANG_DEFAULT` | data | The installation's primary content language; the first fallback step when a value's own language is empty. |
-| `DEDALO_DATA_LANG` | data | The **current** data language the cataloguer is editing/reading; also resolved **per request** from the session (install default `DATA_LANG`). Translatable components resolve in this language by default. |
+| `DEDALO_DATA_LANG` | data | The **current** data language the cataloguer is editing/reading; also resolved **per request** from the session (install default `DEDALO_DATA_LANG`). Translatable components resolve in this language by default. |
 | `DEDALO_DATA_LANG_SELECTOR` | data | Whether the data-language picker is shown in the [menu](../core/ui/menu.md). |
 | `DEDALO_DATA_LANG_SYNC` | both | When `true`, forces `DEDALO_APPLICATION_LANG` and `DEDALO_DATA_LANG` to move together. |
 | `DEDALO_DATA_NOLAN` | data | The `lg-nolan` sentinel (above). Do not change it. |
@@ -203,10 +203,10 @@ A museum catalogues *Objects* in Spanish, English and Catalan, and wants to publ
 
 ```shell
 # project content languages (the per-value slots + component_select_lang options)
-PROJECTS_DEFAULT_LANGS=["lg-spa","lg-eng","lg-cat"]
+DEDALO_PROJECTS_DEFAULT_LANGS=["lg-spa","lg-eng","lg-cat"]
 # install defaults for the two current-language values (overridable per session)
-DATA_LANG=lg-spa            # primary content language (DEDALO_DATA_LANG default)
-APPLICATION_LANG=lg-eng     # default UI language (DEDALO_APPLICATION_LANG default)
+DEDALO_DATA_LANG=lg-spa            # primary content language (DEDALO_DATA_LANG default)
+DEDALO_APPLICATION_LANG=lg-eng     # default UI language (DEDALO_APPLICATION_LANG default)
 ```
 
 This single change makes the three per-value slots appear on every translatable component and the three choices appear in `component_select_lang` option lists. No table or schema change — languages are data and config.
@@ -242,7 +242,7 @@ Switching the target to **Catalan** and repeating fills the third slot. (To do a
 Adding a language is configuration plus (sometimes) one data step — never a schema change.
 
 1. **Confirm the `lg1` record exists.** The languages section ships the full ISO 639-2 set, so the target language almost always already has a record (and therefore a stable `lg-xxx` code and `section_id`). If it does not, create the record in the languages section like any other thesaurus term: its alpha-3 code in `hierarchy41` and its names in `hierarchy25`.
-2. **Add the code to the project languages** (`PROJECTS_DEFAULT_LANGS` in `../private/.env`, the `DEDALO_PROJECTS_DEFAULT_LANGS` concept). This is what makes the per-value slot appear on translatable components and adds the option to `component_select_lang`. (Diffusion picks it up automatically unless `DEDALO_DIFFUSION_LANGS` is set explicitly — and if it is, the new code must be added there too, in the same step: a diffusion language that is not a project language is refused, and a project language absent from an explicit diffusion list is simply never published.)
+2. **Add the code to the project languages** (`DEDALO_PROJECTS_DEFAULT_LANGS` in `../private/.env`, the `DEDALO_PROJECTS_DEFAULT_LANGS` concept). This is what makes the per-value slot appear on translatable components and adds the option to `component_select_lang`. (Diffusion picks it up automatically unless `DEDALO_DIFFUSION_LANGS` is set explicitly — and if it is, the new code must be added there too, in the same step: a diffusion language that is not a project language is refused, and a project language absent from an explicit diffusion list is simply never published.)
 3. **To offer it as an *interface* language too**, add the `lg-xxx => Name` entry to the application-langs map (`DEDALO_APPLICATION_LANGS`). The application UI will then resolve labels from each ontology node's `lg-xxx` term key (falling back to `DEDALO_STRUCTURE_LANG` for any node not yet translated).
 4. **Translate the content** for the new slot. Existing records have an empty `lg-xxx` slot served by [fallback](#translatable-components) until filled; use [`tool_lang`](tools/reference/tool_lang.md) (or `tool_lang_multi` for bulk) to populate them, or re-import a CSV that carries the new language column.
 

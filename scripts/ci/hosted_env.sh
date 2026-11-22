@@ -55,8 +55,8 @@ if [ -z "${DEDALO_APPLICATION_LANGS:-}" ]; then
 fi
 : "${DEDALO_APPLICATION_LANGS_DEFAULT:=lg-spa}"
 : "${DEDALO_DATA_LANG_DEFAULT:=lg-spa}"
-: "${PROJECTS_DEFAULT_LANGS:=[\"lg-spa\",\"lg-cat\",\"lg-vlca\",\"lg-eus\",\"lg-eng\",\"lg-por\",\"lg-fra\",\"lg-ara\",\"lg-ell\",\"lg-deu\",\"lg-ita\",\"lg-nep\"]}"
-# The publication languages: what config derives from PROJECTS_DEFAULT_LANGS,
+: "${DEDALO_PROJECTS_DEFAULT_LANGS:=[\"lg-spa\",\"lg-cat\",\"lg-vlca\",\"lg-eus\",\"lg-eng\",\"lg-por\",\"lg-fra\",\"lg-ara\",\"lg-ell\",\"lg-deu\",\"lg-ita\",\"lg-nep\"]}"
+# The publication languages: what config derives from DEDALO_PROJECTS_DEFAULT_LANGS,
 # stated, so a local suite (test/helpers/suite_posture.ts) pins the same value.
 : "${DEDALO_DIFFUSION_LANGS:=[\"lg-spa\",\"lg-cat\",\"lg-vlca\",\"lg-eus\",\"lg-eng\",\"lg-por\",\"lg-fra\",\"lg-ara\",\"lg-ell\",\"lg-deu\",\"lg-ita\",\"lg-nep\"]}"
 
@@ -143,7 +143,7 @@ export DEDALO_DEV_MODE DEDALO_DIFFUSION_NATIVE DEDALO_DIFFUSION_DOMAIN DEDALO_EN
 export DEDALO_UPLOAD_SERVICE_CHUNK_FILES DEDALO_MEDIA_EXPORT_BASE
 export DEDALO_IMAGE_EXTENSIONS_SUPPORTED DEDALO_IMAGE_ALTERNATIVE_EXTENSIONS
 export DEDALO_APPLICATION_LANGS DEDALO_APPLICATION_LANGS_DEFAULT DEDALO_DATA_LANG_DEFAULT
-export PROJECTS_DEFAULT_LANGS DEDALO_DIFFUSION_LANGS DEDALO_TIMEZONE DEDALO_PG_BIN_PATH
+export DEDALO_PROJECTS_DEFAULT_LANGS DEDALO_DIFFUSION_LANGS DEDALO_TIMEZONE DEDALO_PG_BIN_PATH
 export DIFFUSION_JOBS_TABLE DIFFUSION_ACTIVITY_TABLE DEDALO_SESSION_DB_PATH DEDALO_TS_STATE_PATH
 
 # DELIBERATELY UNSET, each for a reason:

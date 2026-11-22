@@ -114,7 +114,7 @@ naming the key — it will not limp along half-configured):
 
 `ENTITY`, `DB_NAME`, `DB_HOST`, `DB_USER`, and the language block
 (`DEDALO_APPLICATION_LANGS`, `DEDALO_APPLICATION_LANGS_DEFAULT`,
-`DEDALO_DATA_LANG_DEFAULT`, `PROJECTS_DEFAULT_LANGS`).
+`DEDALO_DATA_LANG_DEFAULT`, `DEDALO_PROJECTS_DEFAULT_LANGS`).
 
 A **fresh, unconfigured** machine is different: with none of the four first keys
 set, the server refuses to start as *not installed* (exit 78) and tells you to run

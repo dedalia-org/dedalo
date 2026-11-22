@@ -10,6 +10,6 @@ tool without a language of its own, so a tool called without `lang` (section lis
 and descriptions, record reads, searches, link targets) answered in the
 installation's main data language, `DEDALO_DATA_LANG_DEFAULT`. Each call now runs
 in the languages the configured account gets when it logs in to the web
-application: the installation's interface and data languages (`APPLICATION_LANG`,
-`DATA_LANG`). Where `DATA_LANG` differs from `DEDALO_DATA_LANG_DEFAULT`, tools
-called without `lang` now answer in `DATA_LANG`. Send `lang` to ask for another.
+application: the installation's interface and data languages (`DEDALO_APPLICATION_LANG`,
+`DEDALO_DATA_LANG`). Where `DEDALO_DATA_LANG` differs from `DEDALO_DATA_LANG_DEFAULT`, tools
+called without `lang` now answer in `DEDALO_DATA_LANG`. Send `lang` to ask for another.

@@ -239,7 +239,7 @@ export async function buildPageGlobals(
 		dedalo_data_lang: currentDataLang(),
 		dedalo_data_lang_selector: config.lang.dataLangSelector,
 		dedalo_data_lang_sync: config.menu.dataLangSync,
-		dedalo_data_nolan: readString('DATA_NOLAN'),
+		dedalo_data_nolan: readString('DEDALO_DATA_NOLAN'),
 		dedalo_application_langs: APPLICATION_LANGS,
 		dedalo_projects_default_langs: projectsDefaultLangs,
 		// TS-ONLY (WC-2026-11-22-change-lang-declared-data-lang): the data-language

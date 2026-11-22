@@ -75,7 +75,7 @@ every key added since the install.
 
 A configured install must have `ENTITY`, `DB_NAME`, `DB_HOST`, `DB_USER` and the
 language block (`DEDALO_APPLICATION_LANGS`, `DEDALO_APPLICATION_LANGS_DEFAULT`,
-`DEDALO_DATA_LANG_DEFAULT`, `PROJECTS_DEFAULT_LANGS`), or the server refuses to
+`DEDALO_DATA_LANG_DEFAULT`, `DEDALO_PROJECTS_DEFAULT_LANGS`), or the server refuses to
 boot — loudly, naming the missing key. See
 [§5 Required settings](administration.md#5-required-settings).
 

@@ -21,7 +21,7 @@
     `DEDALO_APPLICATION_LANGS` is served the dictionary `labelsServingLang`
     picks (the install default) — the SAME mapping `labels_version` is computed
     with, so every lang page_globals can emit (a session lang set by
-    change_lang / DEDALO_DATA_LANG_SYNC / APPLICATION_LANG outside the list) answers
+    change_lang / DEDALO_DATA_LANG_SYNC / DEDALO_APPLICATION_LANG outside the list) answers
     200 and the page boots, as it did when `get_label` rode the environment. Body: the plain dictionary JSON, NOT an envelope;
     `Content-Type: application/json; charset=utf-8`; gzip-negotiated
     (`Vary: Accept-Encoding`). `v` equal to the current version →

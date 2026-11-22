@@ -43,7 +43,7 @@ const NOLAN = 'lg-nolan'; // PHP DEDALO_DATA_NOLAN — the structural no-languag
 /**
  * Project languages tried by the fallback chain — PHP get_component_data_fallback
  * iterates common::get_ar_all_langs() = DEDALO_PROJECTS_DEFAULT_LANGS
- * (class.common.php:1255), defined in ../private/.env (PROJECTS_DEFAULT_LANGS).
+ * (class.common.php:1255), defined in ../private/.env (DEDALO_PROJECTS_DEFAULT_LANGS).
  * The previous read of 'APPLICATION_LANGS' was DOUBLY wrong (2026-07-09, rsc92
  * picker bug): wrong key (UI langs, and stored as a JSON map so the CSV split
  * produced garbage → silently fell back to a 3-lang literal) — so values

@@ -9,10 +9,10 @@
  * ruling: each call runs in a scope seeded from the ACCOUNT's own langs,
  * resolved the way a web login of that account resolves them (the ONE seed,
  * `seedRequestLangs`, core/resolve/request_lang.ts). A web login stores no
- * per-account preference, so that is the seed's menu rung (`DATA_LANG`), which
+ * per-account preference, so that is the seed's menu rung (`DEDALO_DATA_LANG`), which
  * is NOT `DATA_LANG_DEFAULT`.
  *
- * To tell the two apart this file is an ISOLATED GATE with `DATA_LANG` pinned
+ * To tell the two apart this file is an ISOLATED GATE with `DEDALO_DATA_LANG` pinned
  * to lg-eng (`ISOLATED_GATE_ENV`, test/helpers/isolated_gate.ts — config is
  * read once at module load) while the suite's `DATA_LANG_DEFAULT` stays lg-spa;
  * the floor proves they differ and that the probed section's term differs in
@@ -27,7 +27,7 @@
 import { describe, expect, test } from 'bun:test';
 import { isIsolatedGateChild, mirrorIsolatedGate } from '../helpers/isolated_gate.ts';
 
-// ISOLATED GATE (test/helpers/isolated_gate.ts): this file needs DATA_LANG
+// ISOLATED GATE (test/helpers/isolated_gate.ts): this file needs DEDALO_DATA_LANG
 // pinned at boot (ISOLATED_GATE_ENV) — in the tier's process it only MIRRORS a
 // child run of itself; its body below registers in that child alone.
 if (!isIsolatedGateChild(import.meta.path)) mirrorIsolatedGate(import.meta.path);
@@ -63,7 +63,7 @@ else {
 	};
 
 	describe('floor: the situation can tell the account langs from the scope-less default', () => {
-		test('DATA_LANG (pinned) ≠ DATA_LANG_DEFAULT', () => {
+		test('DEDALO_DATA_LANG (pinned) ≠ DATA_LANG_DEFAULT', () => {
 			expect(MENU).toBe('lg-eng');
 			expect(MAIN).not.toBe(MENU);
 		});

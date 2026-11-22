@@ -67,7 +67,7 @@ export interface LangConfigInput {
 export interface DerivedLangConfig {
 	/** code→label map for the picked set (DEDALO_APPLICATION_LANGS). */
 	applicationLangs: Record<string, string>;
-	/** ordered codes (DEDALO_PROJECTS_DEFAULT_LANGS / PROJECTS_DEFAULT_LANGS). */
+	/** ordered codes (DEDALO_PROJECTS_DEFAULT_LANGS). */
 	projectsDefaultLangs: string[];
 	/** DEDALO_APPLICATION_LANGS_DEFAULT + DEDALO_APPLICATION_LANG. */
 	applicationLangsDefault: string;

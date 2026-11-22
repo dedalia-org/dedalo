@@ -11,9 +11,9 @@
  *     lang, the first fallback candidate is DATA_LANG_DEFAULT (v6 $main_lang),
  *     then lg-nolan, then the project langs.
  *
- * Both used to read the MENU's DATA_LANG (`config.menu.dataLang`, a per-session
+ * Both used to read the MENU's DEDALO_DATA_LANG (`config.menu.dataLang`, a per-session
  * starting point) until 69a3d01dfc. To tell the two install values apart this
- * file runs as an ISOLATED GATE with DATA_LANG pinned to lg-eng
+ * file runs as an ISOLATED GATE with DEDALO_DATA_LANG pinned to lg-eng
  * (`ISOLATED_GATE_ENV`, test/helpers/isolated_gate.ts — config is read once at
  * module load), while the suite's DATA_LANG_DEFAULT stays lg-spa; the floor
  * below proves the two differ, or the menu-lang mutation would be invisible.
@@ -28,7 +28,7 @@
 import { describe, expect, test } from 'bun:test';
 import { isIsolatedGateChild, mirrorIsolatedGate } from '../helpers/isolated_gate.ts';
 
-// ISOLATED GATE (test/helpers/isolated_gate.ts): this file needs DATA_LANG
+// ISOLATED GATE (test/helpers/isolated_gate.ts): this file needs DEDALO_DATA_LANG
 // pinned at boot (ISOLATED_GATE_ENV) — in the tier's process it only MIRRORS a
 // child run of itself; its body below registers in that child alone.
 if (!isIsolatedGateChild(import.meta.path)) mirrorIsolatedGate(import.meta.path);
@@ -54,7 +54,7 @@ else {
 		runWithRequestLangs({ applicationLang: dataLang, dataLang }, fn);
 
 	describe('floor: the situation can tell the picks apart', () => {
-		test('DATA_LANG (pinned) ≠ DATA_LANG_DEFAULT, and two request langs differ from both', () => {
+		test('DEDALO_DATA_LANG (pinned) ≠ DATA_LANG_DEFAULT, and two request langs differ from both', () => {
 			expect(MENU).toBe('lg-eng');
 			expect(MAIN).not.toBe(MENU);
 			expect(REQUEST_LANGS.length).toBe(2);

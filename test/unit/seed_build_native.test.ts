@@ -316,7 +316,7 @@ describe('seed compiler — pure halves', () => {
 		const inherited = {
 			PATH: '/usr/bin',
 			HOME: '/home/x',
-			APPLICATION_LANG: 'lg-spa',
+			DEDALO_APPLICATION_LANG: 'lg-spa',
 			DEDALO_TIMEZONE: 'Europe/Madrid',
 			DEDALO_TEST_MEDIA_ROOT: '/suite/media',
 			DB_NAME: 'the_installation',

@@ -120,3 +120,16 @@ renamed keys behave (`DEDALO_PREFIX_TIPOS`, `DEDALO_MEDIA_BASE_URL`): a retired 
 place would otherwise silently fall back to the default. The v6 migration maps
 `DEDALO_DATA_LANG_SYNC` straight across (SAME; it was an alias before). No wire change:
 `page_globals.dedalo_data_lang_sync` is unchanged. Gate: `test/unit/data_lang_sync_key.test.ts`.
+
+## Addendum 2026-11-22 — owner ruling: every language key carries its `DEDALO_` (v6) name
+
+The same rename for the four other un-prefixed language keys: `APPLICATION_LANG` →
+`DEDALO_APPLICATION_LANG`, `DATA_LANG` → `DEDALO_DATA_LANG`, `DATA_NOLAN` → `DEDALO_DATA_NOLAN`,
+`PROJECTS_DEFAULT_LANGS` → `DEDALO_PROJECTS_DEFAULT_LANGS` (all were PHP-catalog aliases of the
+TS-era names; the aliases are removed). Every reader moved (config.ts, environment.ts, the RAG
+modules, the installer writers, CI env, the isolated-gate pins); the early spellings are RETIRED
+through `RETIRED_ENV_KEYS`, same refusal; the v6 migration maps each straight across (SAME). An
+installation whose installer-written `.env` still carries an early spelling refuses to boot until
+the line is renamed. `request_lang_law_tripwire` rule 1 forbids env reads of BOTH spellings. No
+wire change. Gate: `test/unit/lang_keys_renamed.test.ts` (reads measured in a child with an empty
+private dir, so "alone" is alone).

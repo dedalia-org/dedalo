@@ -1250,11 +1250,11 @@ function langSection(l: LangConfig): EnvSection {
 		comment: '# --- Languages (mandatory: config.ts refuses boot without them) ---',
 		entries: [
 			entry('DEDALO_APPLICATION_LANGS', JSON.stringify(l.applicationLangs), true),
-			entry('PROJECTS_DEFAULT_LANGS', JSON.stringify(l.projectsDefaultLangs), true),
+			entry('DEDALO_PROJECTS_DEFAULT_LANGS', JSON.stringify(l.projectsDefaultLangs), true),
 			entry('DEDALO_APPLICATION_LANGS_DEFAULT', l.applicationLangsDefault),
 			entry('DEDALO_DATA_LANG_DEFAULT', l.dataLangDefault),
-			entry('APPLICATION_LANG', l.applicationLangsDefault),
-			entry('DATA_LANG', l.dataLangDefault),
+			entry('DEDALO_APPLICATION_LANG', l.applicationLangsDefault),
+			entry('DEDALO_DATA_LANG', l.dataLangDefault),
 			entry('DEDALO_STRUCTURE_LANG', l.structureLang),
 		],
 	};
@@ -1890,11 +1890,11 @@ export function cliBootEnv(plan: InstallPlan): Record<string, string> {
 		// --resume, booted from the written .env, found <backup_dir>/db missing).
 		...(backupDbDir(a) === '' ? {} : { DEDALO_BACKUP_DIR: backupDbDir(a) }),
 		DEDALO_APPLICATION_LANGS: JSON.stringify(l.applicationLangs),
-		PROJECTS_DEFAULT_LANGS: JSON.stringify(l.projectsDefaultLangs),
+		DEDALO_PROJECTS_DEFAULT_LANGS: JSON.stringify(l.projectsDefaultLangs),
 		DEDALO_APPLICATION_LANGS_DEFAULT: l.applicationLangsDefault,
 		DEDALO_DATA_LANG_DEFAULT: l.dataLangDefault,
-		APPLICATION_LANG: l.applicationLangsDefault,
-		DATA_LANG: l.dataLangDefault,
+		DEDALO_APPLICATION_LANG: l.applicationLangsDefault,
+		DEDALO_DATA_LANG: l.dataLangDefault,
 		DEDALO_STRUCTURE_LANG: l.structureLang,
 	};
 }

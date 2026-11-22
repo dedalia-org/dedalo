@@ -630,11 +630,11 @@ async function stagePackages(
  */
 export const SEED_CHILD_CONFIG: Readonly<Record<string, string>> = Object.freeze({
 	ENTITY: 'dedalo_seed_build',
-	APPLICATION_LANG: 'lg-eng',
+	DEDALO_APPLICATION_LANG: 'lg-eng',
 	DEDALO_APPLICATION_LANGS: '{"lg-eng":"English"}',
 	DEDALO_APPLICATION_LANGS_DEFAULT: 'lg-eng',
 	DEDALO_DATA_LANG_DEFAULT: 'lg-eng',
-	PROJECTS_DEFAULT_LANGS: '["lg-eng"]',
+	DEDALO_PROJECTS_DEFAULT_LANGS: '["lg-eng"]',
 	DEDALO_TIMEZONE: 'UTC',
 	// The PROCESS clock zone too: some stamps read the host's local time, not
 	// DEDALO_TIMEZONE (measured: the dd199 created-date component came out 16:08

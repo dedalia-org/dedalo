@@ -147,7 +147,7 @@ function declaredLangsOverTwoLangEnv(pinned: boolean): string[] {
 	}
 }
 
-const SUITE_PROJECT_LANGS: string[] = JSON.parse(SUITE_LANGS.PROJECTS_DEFAULT_LANGS ?? '[]');
+const SUITE_PROJECT_LANGS: string[] = JSON.parse(SUITE_LANGS.DEDALO_PROJECTS_DEFAULT_LANGS ?? '[]');
 
 describe('the suite posture — languages (C3-40)', () => {
 	test('the local suite and the hosted CI tier default to the SAME languages', () => {
@@ -183,11 +183,11 @@ describe('the suite posture — languages (C3-40)', () => {
 		// plan compile refuses (diffusion_publication_gate_native went red on it); the
 		// pin follows the shell's project value instead, so a developer .env cannot leak in
 		const hermetic = pinsFor({
-			PROJECTS_DEFAULT_LANGS: '["lg-eng"]',
+			DEDALO_PROJECTS_DEFAULT_LANGS: '["lg-eng"]',
 			DEDALO_APPLICATION_LANGS: '{"lg-eng":"English"}',
 		});
 		expect(hermetic.DEDALO_DIFFUSION_LANGS).toBe('["lg-eng"]');
-		expect(hermetic.PROJECTS_DEFAULT_LANGS).toBeUndefined();
+		expect(hermetic.DEDALO_PROJECTS_DEFAULT_LANGS).toBeUndefined();
 		// the shell's own publication value always wins, as for every key
 		expect(
 			pinsFor({ DEDALO_DIFFUSION_LANGS: '["lg-fra"]' }).DEDALO_DIFFUSION_LANGS,
@@ -196,12 +196,10 @@ describe('the suite posture — languages (C3-40)', () => {
 
 	test('this run actually carries them (the preload pinned them, or the shell chose)', async () => {
 		const { INSTALLED_DATA_LANGS } = await import('../../src/config/config.ts');
-		if (process.env.PROJECTS_DEFAULT_LANGS === SUITE_LANGS.PROJECTS_DEFAULT_LANGS) {
+		if (process.env.DEDALO_PROJECTS_DEFAULT_LANGS === SUITE_LANGS.DEDALO_PROJECTS_DEFAULT_LANGS) {
 			for (const lang of SUITE_PROJECT_LANGS) expect(INSTALLED_DATA_LANGS.has(lang)).toBe(true);
 		}
-		expect(
-			process.env.PROJECTS_DEFAULT_LANGS ?? process.env.DEDALO_PROJECTS_DEFAULT_LANGS,
-		).toBeDefined();
+		expect(process.env.DEDALO_PROJECTS_DEFAULT_LANGS).toBeDefined();
 	});
 
 	test('the PUBLICATION languages are pinned too: a developer DEDALO_DIFFUSION_LANGS never reaches a pinned diffusion document (T1-4 review)', async () => {

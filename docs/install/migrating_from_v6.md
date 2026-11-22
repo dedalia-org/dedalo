@@ -323,7 +323,7 @@ v6 computed some settings instead of stating them — the host from the request,
 | `MEDIA_PATH` | the absolute media root on the **new** host — the directory holding `image/`, `av/`, `pdf/`, `3d/`, `svg/` |
 | `DEDALO_HOST`, `DEDALO_PROTOCOL` | the server's real public hostname and scheme |
 | `DEDALO_BACKUP_PATH`, `ONTOLOGY_DATA_IO_DIR`, `UPDATE_LOG_FILE` | paths on the new host |
-| `APPLICATION_LANG`, `DATA_LANG` | the defaults you used in v6 |
+| `DEDALO_APPLICATION_LANG`, `DEDALO_DATA_LANG` | the defaults you used in v6 |
 | `DEDALO_FILTER_SECTION_TIPO_DEFAULT` | as in v6, if you set it |
 | `AREAS_DENY` | your denied areas, as a JSON array of tipos — v6 did not express them as a setting |
 

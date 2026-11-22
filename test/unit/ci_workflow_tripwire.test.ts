@@ -1351,7 +1351,7 @@ describe('CI workflow tripwire', () => {
 	 * The bug this exists to prevent (2026-07-11, the first real CI run): hermetic.sh
 	 * stubbed 5 of the 8 required keys. On a developer machine the missing three were
 	 * silently satisfied by ../private/.env, so the script passed locally and died on
-	 * the bare runner with `Missing required config key 'PROJECTS_DEFAULT_LANGS'`. A
+	 * the bare runner with `Missing required config key 'PROJECTS_DEFAULT_LANGS'` (that key's name then). A
 	 * hermetic script that reads a file it swears it does not read is not hermetic —
 	 * and only CI could tell us. Now the stub list cannot drift from the catalog.
 	 */

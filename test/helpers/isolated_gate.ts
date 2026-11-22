@@ -75,12 +75,12 @@ export const ISOLATED_GATE_ENV: Readonly<Record<string, Readonly<Record<string, 
 		DB_POOL_MAX: '4',
 		DEDALO_SEARCH_CLIENT_MAX_LIMIT: '3',
 	},
-	// The menu's DATA_LANG apart from DATA_LANG_DEFAULT (lg-spa in the suite), so a
+	// The menu's DEDALO_DATA_LANG apart from DATA_LANG_DEFAULT (lg-spa in the suite), so a
 	// static pick that read the MENU lang instead of the install main one is red.
-	'test/unit/request_lang_static_default_native.test.ts': { DATA_LANG: 'lg-eng' },
+	'test/unit/request_lang_static_default_native.test.ts': { DEDALO_DATA_LANG: 'lg-eng' },
 	// The same split for the stdio MCP server: its service account is served the
-	// web-login seed (DATA_LANG), and a call with no scope would read DATA_LANG_DEFAULT.
-	'test/unit/mcp_stdio_request_lang_native.test.ts': { DATA_LANG: 'lg-eng' },
+	// web-login seed (DEDALO_DATA_LANG), and a call with no scope would read DATA_LANG_DEFAULT.
+	'test/unit/mcp_stdio_request_lang_native.test.ts': { DEDALO_DATA_LANG: 'lg-eng' },
 	// change_lang's data-language sync is boot config: pinned ON so the rule
 	// "the data lang follows the interface lang only when it is a data lang" runs.
 	// DEDALO_APPLICATION_LANGS adds lg-zzzq: an INTERFACE language the install does

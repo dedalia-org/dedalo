@@ -1913,6 +1913,17 @@ Merged since the last release; these ship with the next one.
     is still in `../private/.env`, the server refuses to start and names the line to rename.
     See [Defining data language sync](./administration/configuration/config.md#defining-data-language-sync).
 
+- **"The language settings now all carry their v6 DEDALO_ names."**
+
+    Early v7 installations spelled four language settings without the `DEDALO_` prefix. They are now
+    `DEDALO_APPLICATION_LANG` (was `APPLICATION_LANG`), `DEDALO_DATA_LANG` (was `DATA_LANG`),
+    `DEDALO_DATA_NOLAN` (was `DATA_NOLAN`) and `DEDALO_PROJECTS_DEFAULT_LANGS` (was
+    `PROJECTS_DEFAULT_LANGS`) — the v6 names, so a v6 configuration carries over unchanged. The
+    installer has written `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG` and `DATA_LANG` into
+    `../private/.env` since 7.0.0-beta.6: rename those lines before updating. An old spelling no
+    longer configures anything — if it is still there, the server refuses to start and names the line
+    to rename. See [Defining application language](./administration/configuration/config.md#defining-application-language).
+
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
     Clearing the last value of a text field (input text, text area, e-mail, IRI) used to leave an
@@ -2290,9 +2301,9 @@ Merged since the last release; these ship with the next one.
     and descriptions, record reads, searches, link targets) answered in the
     installation's main data language, `DEDALO_DATA_LANG_DEFAULT`. Each call now runs
     in the languages the configured account gets when it logs in to the web
-    application: the installation's interface and data languages (`APPLICATION_LANG`,
-    `DATA_LANG`). Where `DATA_LANG` differs from `DEDALO_DATA_LANG_DEFAULT`, tools
-    called without `lang` now answer in `DATA_LANG`. Send `lang` to ask for another.
+    application: the installation's interface and data languages (`DEDALO_APPLICATION_LANG`,
+    `DEDALO_DATA_LANG`). Where `DEDALO_DATA_LANG` differs from `DEDALO_DATA_LANG_DEFAULT`, tools
+    called without `lang` now answer in `DEDALO_DATA_LANG`. Send `lang` to ask for another.
 
     Wire contract: `WC-2026-10-20-element-context-default-lang`.
 

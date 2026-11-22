@@ -148,7 +148,7 @@ export function buildMcpServer(
  * columns start NULL (session_store.ts `createSession`) and the only thing a
  * login adopts is the browser's pre-auth cookie, which a stdio process does not
  * have. So the account's langs are the seed's last rung — the install MENU
- * langs (`APPLICATION_LANG` / `DATA_LANG`) — which is exactly what that
+ * langs (`DEDALO_APPLICATION_LANG` / `DEDALO_DATA_LANG`) — which is exactly what that
  * account's fresh web session is served. When a stored per-account preference
  * exists (an owner decision: no store is defined today), it enters HERE (as the
  * seed's `session` rung), and both doors keep agreeing through the seed.

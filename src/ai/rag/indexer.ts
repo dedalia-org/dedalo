@@ -81,7 +81,7 @@ export interface RagIndexerDeps {
 	store: RagStore;
 	/** Data langs a lang-sensitive group resolves in. */
 	langs: readonly string[];
-	/** No-lang code for lang-independent groups (DATA_NOLAN). */
+	/** No-lang code for lang-independent groups (DEDALO_DATA_NOLAN). */
 	nolan: string;
 	/**
 	 * Resolve the record's embed documents (embed_source.resolveEmbedDocs in
@@ -539,10 +539,10 @@ export function buildRagIndexer(): RagIndexer {
 	// DEDALO_APPLICATION_LANGS and it is a JSON MAP, so a CSV split of it produces garbage.
 	// The read therefore ALWAYS fell through to a hardcoded 'lg-spa,lg-cat,lg-eng' literal —
 	// i.e. any install whose languages are not Spanish/Catalan/English was silently indexed
-	// and searched in the wrong ones. These are DATA languages (they pair with DATA_NOLAN), so
+	// and searched in the wrong ones. These are DATA languages (they pair with DEDALO_DATA_NOLAN), so
 	// they come from config, like every other language list (owner rule, 2026-07-09).
 	const langs = config.menu.projectsDefaultLangs;
-	const nolan = readString('DATA_NOLAN');
+	const nolan = readString('DEDALO_DATA_NOLAN');
 	return new RagIndexer({
 		config: new RagConfig(ontology),
 		provider: getEmbeddingProvider(),
