@@ -309,6 +309,11 @@
 			"skipped": 0,
 			"assertions": 109
 		},
+		"test/unit/area_read_default_lang_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 36
+		},
 		"test/unit/area_security.test.ts": {
 			"tests": 8,
 			"skipped": 0,
@@ -1524,6 +1529,11 @@
 			"skipped": 0,
 			"assertions": 92
 		},
+		"test/unit/diffusion_ddo_hop_native.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 24
+		},
 		"test/unit/diffusion_delete.test.ts": {
 			"tests": 6,
 			"skipped": 0,
@@ -1693,6 +1703,11 @@
 			"tests": 23,
 			"skipped": 0,
 			"assertions": 79
+		},
+		"test/unit/diffusion_report_url_split_origin.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 11
 		},
 		"test/unit/diffusion_resolver.test.ts": {
 			"tests": 11,
@@ -3244,6 +3259,11 @@
 			"skipped": 1,
 			"assertions": 17
 		},
+		"test/unit/maintenance_access_agreement_native.test.ts": {
+			"tests": 16,
+			"skipped": 0,
+			"assertions": 26
+		},
 		"test/unit/maintenance_door_unbounded_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -3884,6 +3904,11 @@
 			"skipped": 0,
 			"assertions": 82
 		},
+		"test/unit/observer_info_config_targets_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 14
+		},
 		"test/unit/observer_native.test.ts": {
 			"tests": 9,
 			"skipped": 0,
@@ -4253,6 +4278,11 @@
 			"tests": 10,
 			"skipped": 0,
 			"assertions": 28
+		},
+		"test/unit/ordered_child_lookup_tripwire.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 35
 		},
 		"test/unit/origin_limiter_native.test.ts": {
 			"tests": 49,
@@ -4859,6 +4889,11 @@
 			"skipped": 0,
 			"assertions": 8
 		},
+		"test/unit/rag_thumb_identity.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 8
+		},
 		"test/unit/ratchet_integrity_tripwire.test.ts": {
 			"tests": 19,
 			"skipped": 0,
@@ -5263,6 +5298,16 @@
 			"tests": 11,
 			"skipped": 0,
 			"assertions": 39
+		},
+		"test/unit/request_lang_law_native.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 30
+		},
+		"test/unit/request_lang_law_tripwire.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 43
 		},
 		"test/unit/restore_door_native.test.ts": {
 			"tests": 15,
@@ -5719,6 +5764,11 @@
 			"skipped": 0,
 			"assertions": 38
 		},
+		"test/unit/security_access_containment_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 14
+		},
 		"test/unit/security_access_datalist_cache_native.test.ts": {
 			"tests": 7,
 			"skipped": 0,
@@ -6009,10 +6059,25 @@
 			"skipped": 0,
 			"assertions": 196
 		},
+		"test/unit/structure_context_label_override_native.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 9
+		},
+		"test/unit/structure_context_matrix_dd_buttons_native.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 11
+		},
 		"test/unit/structure_context_own_census.test.ts": {
 			"tests": 11,
 			"skipped": 0,
 			"assertions": 19
+		},
+		"test/unit/structure_context_state_of_component_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 22
 		},
 		"test/unit/subdatum_own_level_iri_native.test.ts": {
 			"tests": 34,
@@ -6294,6 +6359,11 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/tipo_match.test.ts": {
+			"tests": 8,
+			"skipped": 0,
+			"assertions": 64
+		},
 		"test/unit/tld.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -6448,6 +6518,11 @@
 			"tests": 1,
 			"skipped": 0,
 			"assertions": 5
+		},
+		"test/unit/tm_recover_lifecycle_native.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 19
 		},
 		"test/unit/tm_relation_lane_native.test.ts": {
 			"tests": 11,
