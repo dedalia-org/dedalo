@@ -416,6 +416,7 @@ function imageIndexer(vectors: number[][], store: RagStore) {
 		extract: async ({ componentTipo }) => ({
 			base64: `b64:${componentTipo}`,
 			quality: '1.5MB',
+			thumbPath: '/image/thumb/0/x.jpg',
 			thumbUrl: '/dedalo/media/image/thumb/0/x.jpg',
 			width: 800,
 			height: 600,
@@ -548,7 +549,7 @@ const IMAGE_HIT: Candidate = {
 	modality: 'image',
 	egressClass: 'public',
 	parentKey: 'test3_1',
-	chunkMeta: { view: 'obverse', thumb_url: '/media/thumb/x.jpg', media_tipo: 'test99' },
+	chunkMeta: { view: 'obverse', thumb_path: '/media/thumb/x.jpg', media_tipo: 'test99' },
 	distance: 0.1,
 };
 

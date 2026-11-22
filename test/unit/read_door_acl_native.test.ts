@@ -590,7 +590,7 @@ describe.if(DB_READY)('read door ACL — every component door, paired', () => {
 						modality: 'image',
 						egressClass: 'public',
 						parentKey: null,
-						chunkMeta: { thumb_url: '/media/thumb/sibling.jpg' },
+						chunkMeta: { thumb_path: '/image/thumb/sibling.jpg' },
 						distance: 0.1,
 					},
 				],
@@ -627,7 +627,7 @@ describe.if(DB_READY)('read door ACL — every component door, paired', () => {
 					results: { section_tipo: string; thumb_url: string }[];
 				};
 				expect(servedBody.results.map((hit) => [hit.section_tipo, hit.thumb_url])).toEqual([
-					[DOOR_SIBLING_SECTION, '/media/thumb/sibling.jpg'],
+					[DOOR_SIBLING_SECTION, `${config.media.webBase}/image/thumb/sibling.jpg`],
 				]);
 			},
 		);
@@ -648,7 +648,7 @@ describe.if(DB_READY)('read door ACL — every component door, paired', () => {
 			modality: 'image',
 			egressClass: 'public',
 			parentKey: null,
-			chunkMeta: { thumb_url: '/media/thumb/sibling.jpg' },
+			chunkMeta: { thumb_path: '/image/thumb/sibling.jpg' },
 		});
 
 		test('the component granted WITHOUT its section is dropped; the control (section + component) is served', async () => {

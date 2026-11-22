@@ -398,7 +398,7 @@ For object collections (coins, amphorae, ceramics, …) the **retrieval** side o
   } } }
 ```
 
-Capabilities (all ACL-filtered via `aclFilterCandidates`; results carry the neighbour's stored `thumb_url` from `chunk_meta`):
+Capabilities (all ACL-filtered via `aclFilterCandidates`; each result carries a `thumb_url` built when it is read from the thumbnail path stored with the neighbour's vector (`chunk_meta.thumb_path`) on the current media web address, so a changed `DEDALO_MEDIA_WEB_BASE` is followed without re-indexing. A vector indexed before this storage carries no `thumb_path` and shows no thumbnail until its record is indexed again — the image staleness key changed with it, so that pass re-embeds it; see *Backfill* under Operations):
 
 - **`similar_objects`** (`findSimilarObjects`) — "objects close to this one". Reads the seed's *stored* image vectors (no re-embedding) and finds the visually nearest others. A multi-image object (a coin's obverse + reverse) **fuses the per-view result lists** with RRF, so an object close on *both* faces ranks above one close on a single face. `mode: 'hybrid'` (default) adds a lexical leg over the stored context summary (the seed's own `source_text`) — essential for heritage, where pure visual similarity confuses a bronze coin with a bronze button; `mode: 'visual'` skips it. A `near_duplicate: true` request floors results at `DEDALO_RAG_NEAR_DUPLICATE_SIMILARITY` (default `0.93`).
 - **`search_by_text_image`** (`searchByTextImage`) — a textual description → matching object images, encoded through the multimodal model's **text tower** (`embedTextForImageSearch` — never the plain text `EmbeddingProvider`, which lives in an unrelated vector space).

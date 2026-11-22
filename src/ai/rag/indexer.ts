@@ -216,7 +216,7 @@ export class RagIndexer {
 				continue;
 			}
 
-			const sourceHash = imageSourceHash(extracted.bytesHash, contextSummary);
+			const sourceHash = imageSourceHash(extracted.bytesHash, contextSummary, extracted.thumbPath);
 			const key = `${componentTipo}|${lang}|0`;
 			if (existingHashes.get(key) === sourceHash) {
 				// Unchanged: no provider call, no write — just keep it alive.
@@ -251,12 +251,15 @@ export class RagIndexer {
 				egressClass: 'public',
 				parentKey: `${locator.sectionTipo}_${locator.sectionId}`,
 				// snake_case: these keys are read back by the retrieval and API
-				// layers (chunk_meta.view, chunk_meta.thumb_url).
+				// layers (chunk_meta.view; chunk_meta.thumb_path through
+				// image_source.storedThumbUrl). The thumb is stored as its IDENTITY
+				// (media-root-relative path), never as a URL: the URL is derived at
+				// read on the current media web base (T2-D03-c).
 				chunkMeta: {
 					media_tipo: componentTipo,
 					view: declaredImage.view ?? null,
 					quality: extracted.quality,
-					thumb_url: extracted.thumbUrl,
+					thumb_path: extracted.thumbPath,
 					width: extracted.width,
 					height: extracted.height,
 				},

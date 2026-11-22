@@ -450,7 +450,18 @@ export function subtitlesPath(identity: MediaIdentity, lang: string, mediaRoot?:
  * <track> consumes (component_emit.ts item.subtitles.subtitles_url).
  */
 export function subtitlesUrl(identity: MediaIdentity, lang: string): string {
-	return `${config.media.webBase}${subtitlesRelativePath(identity, lang)}`;
+	return mediaUrlOf(subtitlesRelativePath(identity, lang));
+}
+
+/**
+ * The public URL of a media-root-relative path (`MediaLocation.relativePath`,
+ * leading '/') on TODAY's media web base. The one composition: a caller that
+ * PERSISTS a media reference stores the relative path (the identity) and derives
+ * the URL with this at read, so a moved `DEDALO_MEDIA_WEB_BASE` is followed
+ * (T2-D03-c — the RAG image index stored the URL, frozen on the day's base).
+ */
+export function mediaUrlOf(relativePath: string): string {
+	return `${config.media.webBase}${relativePath}`;
 }
 
 /**
@@ -472,7 +483,7 @@ export function mediaThumbUrl(
 	options: MediaPathOptions,
 ): string | null {
 	const location = mediaThumbLocation(spec, identity, options);
-	return location === null ? null : `${config.media.webBase}${location.relativePath}`;
+	return location === null ? null : mediaUrlOf(location.relativePath);
 }
 
 /**

@@ -112,6 +112,7 @@ import {
 	summarizeDates,
 } from '../rag/characterizer.ts';
 import { defaultOntologyPort, RagConfig } from '../rag/config.ts';
+import { storedThumbUrl } from '../rag/image_source.ts';
 import {
 	buildMultimodalProvider,
 	isMediaEnabled,
@@ -654,14 +655,16 @@ export function defaultNeighbourPorts(): NeighbourPorts {
 	};
 }
 
-/** A retrieval hit as a voter: RRF score preferred, then the uniform score. */
-function candidateToNeighbour(candidate: Candidate): ProposalNeighbour {
-	const thumb = candidate.chunkMeta?.thumb_url;
+/**
+ * A retrieval hit as a voter: RRF score preferred, then the uniform score; the
+ * thumb DERIVED from the stored identity (image_source.storedThumbUrl).
+ */
+export function candidateToNeighbour(candidate: Candidate): ProposalNeighbour {
 	return {
 		sectionTipo: candidate.sectionTipo,
 		sectionId: candidate.sectionId,
 		weight: candidate.rrfScore ?? candidate.score ?? 0,
-		thumbUrl: typeof thumb === 'string' ? thumb : null,
+		thumbUrl: storedThumbUrl(candidate.chunkMeta),
 	};
 }
 
