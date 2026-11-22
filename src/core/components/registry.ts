@@ -372,6 +372,24 @@ export type RegenerateOutcome =
 /** An old time code with no milliseconds (v6 `$old_tc_pattern`, verbatim). */
 const LEGACY_TC = /\[TC_([0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2})_TC\]/g;
 
+/** A stored item that is a plain object (the only shape carrying a `value`). */
+function isItemObject(item: unknown): item is Record<string, unknown> {
+	return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
+/** One item through `next`: unchanged, replaced, or null = refused. */
+function mapOneItem(
+	item: unknown,
+	next: (value: string) => { value: unknown } | null,
+): { readonly item: unknown; readonly changed: boolean } | null {
+	const value = isItemObject(item) ? item.value : undefined;
+	if (typeof value !== 'string') return { item, changed: false };
+	const mapped = next(value);
+	if (mapped === null) return null;
+	if (Object.is(mapped.value, value)) return { item, changed: false };
+	return { item: { ...(item as Record<string, unknown>), value: mapped.value }, changed: true };
+}
+
 /** Map every item's string `value` through `next`; null = refuse with the item's id. */
 function mapItemValues(
 	items: readonly unknown[],
@@ -381,23 +399,10 @@ function mapItemValues(
 	let changed = false;
 	const out: unknown[] = [];
 	for (const item of items) {
-		if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-			out.push(item);
-			continue;
-		}
-		const value = (item as { value?: unknown }).value;
-		if (typeof value !== 'string') {
-			out.push(item);
-			continue;
-		}
-		const mapped = next(value);
-		if (mapped === null) return { refused: refusal((item as { id?: unknown }).id) };
-		if (Object.is(mapped.value, value)) {
-			out.push(item);
-			continue;
-		}
-		changed = true;
-		out.push({ ...(item as Record<string, unknown>), value: mapped.value });
+		const step = mapOneItem(item, next);
+		if (step === null) return { refused: refusal((item as { id?: unknown }).id) };
+		changed ||= step.changed;
+		out.push(step.item);
 	}
 	return { items: out, changed };
 }

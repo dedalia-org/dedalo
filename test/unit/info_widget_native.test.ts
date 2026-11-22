@@ -1161,8 +1161,14 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 			expectPreserved: true,
 		}) as { tc?: { value?: unknown } }[][];
 		expect(expected[0]?.[0]?.tc?.value).toBe('00:00:00.000');
-		for (const row of expected.flat()) delete row.tc?.value;
-		expect(entries).toEqual(expected as never);
+		const withoutTcValue = expected.map((rows) =>
+			rows.map((row) => {
+				if (row.tc === undefined) return row;
+				const { value: _phpZero, ...tc } = row.tc;
+				return { ...row, tc };
+			}),
+		);
+		expect(entries).toEqual(withoutTcValue as never);
 		// READ-NO-WRITE (deliberate divergence — PHP persists the probed tc
 		// during the read; that write-back stays pinned in the differential)
 		const after = (await sql.unsafe(

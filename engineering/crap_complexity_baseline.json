@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 951,
-		"functions": 16818,
+		"files": 952,
+		"functions": 16888,
 		"functionsOverCap": 642,
-		"filesOverCap": 255
+		"filesOverCap": 254
 	},
 	"ledger": [
 		{
@@ -245,6 +245,11 @@
 			"generated": "2026-11-21",
 			"functionsOverCap": 642,
 			"filesOverCap": 255
+		},
+		{
+			"generated": "2026-11-22",
+			"functionsOverCap": 642,
+			"filesOverCap": 254
 		}
 	],
 	"files": {
@@ -299,7 +304,7 @@
 		"src/core/components/component_info/widgets/numisdata/get_archive_weights.ts": 26,
 		"src/core/components/component_info/widgets/numisdata/get_coins_by_period.ts": 27,
 		"src/core/components/component_info/widgets/oh/descriptors.ts": 17,
-		"src/core/components/component_info/widgets/oh/media_icons.ts": 27,
+		"src/core/components/component_info/widgets/oh/media_icons.ts": 26,
 		"src/core/components/component_info/widgets/oh/tags.ts": 9,
 		"src/core/components/component_info/widgets/registry.ts": 9,
 		"src/core/components/component_info/widgets/state/state.ts": 38,
@@ -357,7 +362,6 @@
 		"src/core/media/file_ops.ts": 17,
 		"src/core/media/files_info.ts": 12,
 		"src/core/media/ingest/add_file.ts": 8,
-		"src/core/media/ingest/companion_writes.ts": 7,
 		"src/core/media/ingest/process_uploaded_file.ts": 21,
 		"src/core/media/ingest/staged_files.ts": 12,
 		"src/core/media/ingest/staged_name_record.ts": 10,

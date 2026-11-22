@@ -191,6 +191,45 @@ export interface StoredMediaTarget {
 	items?: readonly unknown[];
 }
 
+/** A files_info entry as this module reads it. */
+interface FilesInfoEntry {
+	quality?: unknown;
+	file_exist?: unknown;
+	file_path?: unknown;
+	external?: unknown;
+}
+
+/** Whether a files_info entry names a LOCAL file of `quality` that exists. */
+function isLocalEntryOf(candidate: FilesInfoEntry | null, quality: string): boolean {
+	return (
+		candidate !== null &&
+		candidate.quality === quality &&
+		candidate.file_exist === true &&
+		candidate.external !== true &&
+		typeof candidate.file_path === 'string'
+	);
+}
+
+/** The stored files_info's existing file of `quality`, or null (READ-ONLY). */
+function locateFromFilesInfo(
+	items: readonly unknown[] | undefined,
+	quality: string,
+	mediaRoot: string | undefined,
+): string | null {
+	const filesInfo = (items?.[0] as { files_info?: unknown } | undefined)?.files_info;
+	if (!Array.isArray(filesInfo)) return null;
+	const entry = (filesInfo as (FilesInfoEntry | null)[]).find((candidate) =>
+		isLocalEntryOf(candidate, quality),
+	);
+	if (entry == null) return null;
+	try {
+		const absolute = absoluteFromRelative(entry.file_path as string, mediaRoot);
+		return existsSync(absolute) ? absolute : null;
+	} catch {
+		return null; // a stored path outside the media root locates nothing; the grammar decides
+	}
+}
+
 /**
  * The absolute path of a stored media record's DEFAULT-QUALITY file, or null
  * when none is on this server (PHP component_av::get_duration's file). The
@@ -206,29 +245,8 @@ export async function locateDefaultQualityFile(target: StoredMediaTarget): Promi
 		target.sectionTipo,
 		target.sectionId,
 	);
-	const filesInfo = ((target.items?.[0] as { files_info?: unknown } | undefined)?.files_info ??
-		null) as
-		| { quality?: unknown; file_exist?: unknown; file_path?: unknown; external?: unknown }[]
-		| null;
-	if (Array.isArray(filesInfo)) {
-		const entry = filesInfo.find(
-			(candidate) =>
-				candidate !== null &&
-				typeof candidate === 'object' &&
-				candidate.quality === spec.defaultQuality &&
-				candidate.file_exist === true &&
-				candidate.external !== true &&
-				typeof candidate.file_path === 'string',
-		);
-		if (entry !== undefined) {
-			try {
-				const absolute = absoluteFromRelative(entry.file_path as string, pathOpts.mediaRoot);
-				if (existsSync(absolute)) return absolute;
-			} catch {
-				// A stored path outside the media root locates nothing; the grammar decides.
-			}
-		}
-	}
+	const stored = locateFromFilesInfo(target.items, spec.defaultQuality, pathOpts.mediaRoot);
+	if (stored !== null) return stored;
 	const lang = (await getTranslatableByTipo(target.componentTipo)) ? currentDataLang() : null;
 	const location = buildMediaLocation(
 		spec,
