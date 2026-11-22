@@ -879,7 +879,7 @@ export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 	const swept = (await sql.unsafe(
 		`WITH stale AS (
 		     SELECT job_id,
-		            ($3::boolean OR COALESCE((spec->>'diffusion_element_tipo') = ANY(string_to_array($4, ',')), false)) AS blocked
+		            ($3::boolean OR COALESCE((spec->>'diffusion_element_tipo') = ANY($4::text[]), false)) AS blocked
 		       FROM "${DIFFUSION_JOBS_TABLE}"
 		      WHERE state = 'running'
 		        AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $1))
@@ -920,7 +920,9 @@ export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 			staleAfterSeconds,
 			runnerLost,
 			block.all,
-			block.tipos.join(','),
+			// A REAL array bind (re-review LOW-4): never a joined string the SQL
+			// splits again — an entry is matched exactly as the door matches it.
+			[...block.tipos],
 			JSON.stringify(toFailureRecord(block.error)),
 			block.msg,
 		],

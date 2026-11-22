@@ -127,3 +127,23 @@ own is created and the reader sees it; the door refuses a malformed value to mov
   is treated as not excluded — re-queued while budget remains, as before the guard existed.
 
 Gate: `diffusion_excluded_elements_native` F (hand-made rows with the element stripped).
+
+## Addendum 2026-11-22 — re-review LOW-4: every entry must be a tipo; the sweeper binds a real array
+
+- `parseElementTipoList` (`src/config/element_tipo_list.ts`, the reader's and the migration's one
+  parse) accepts an entry only when it is a TIPO (`isValidTipo`). Before: any non-empty string, so
+  a typo (`'oh 63'`, `'OH63'`) silently excluded nothing. Now such a list is MALFORMED —
+  `tool.config_invalid` at read/info/door, every lost run failed by the sweeper, and the migration
+  does not move such a define (reported under *TOOL_CONFIG NOT MOVED*).
+- The tipo grammar moved to the leaf `src/config/tipo_code.ts` (config may not import core);
+  `core/concepts/ontology.ts` RE-EXPORTS `TIPO_PATTERN`/`isValidTipo` — one copy, as
+  `lang_code.ts` did for the lang grammar (no second copy, so no agreement test to keep).
+- The sweeper binds the excluded set as a real `text[]` (`= ANY($4::text[])`), not a
+  comma-joined string split again in SQL. A comma-joined entry (`'zzdif80,zzdif42'`) used to
+  exclude both halves in the sweeper while the door matched it as one string; it is now malformed
+  at both (the grammar has no comma). With the grammar in force the bind is not separately
+  observable — it is the structural guarantee, not a gated behaviour.
+
+Gate: `diffusion_excluded_elements_native` D (`['oh 63']`, `['OH63']`, comma entry → config fault
+at read, info, door), F (comma entry: door and sweeper both `tool.config_invalid`), E (such defines
+not moved).

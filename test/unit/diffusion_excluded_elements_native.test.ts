@@ -469,7 +469,19 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 	});
 
 	test('D. a malformed list REFUSES as a CONFIG fault (tool.config_invalid) — read, info and door', async () => {
-		for (const malformed of [EXCLUDED, [EXCLUDED, 7], [''], { tipo: EXCLUDED }]) {
+		// Re-review LOW-4: an entry that is not a TIPO is malformed too — a typo
+		// ('oh 63', 'OH63') would otherwise exclude nothing, silently; a comma-joined
+		// entry the SQL used to split would exclude in the sweeper what the door let
+		// through. All refuse as the same config fault, at every door.
+		for (const malformed of [
+			EXCLUDED,
+			[EXCLUDED, 7],
+			[''],
+			{ tipo: EXCLUDED },
+			['oh 63'],
+			['OH63'],
+			[`${EXCLUDED},${INCLUDED}`],
+		]) {
 			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: malformed }, async () => {
 				const label = JSON.stringify(malformed);
 				const read = await excludedDiffusionElements().catch((error: unknown) => error);
@@ -564,6 +576,25 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 			await setJobState(sweptJob, 'cancelled');
 		});
 
+		test('re-review LOW-4: a comma-joined entry is treated by the sweeper exactly as by the door (config fault)', async () => {
+			const job = await scratchJob(INCLUDED, 'zzdifsw4');
+			await setJobState(job, 'running');
+			await withScratchToolConfig(
+				EXCLUSION_TOOL,
+				{ [EXCLUSION_KEY]: [`${EXCLUDED},${INCLUDED}`] },
+				async () => {
+					const door = await diffuse(root, INCLUDED);
+					expect(((door as { refused?: DedaloError }).refused as DedaloError)?.code).toBe(
+						CONFIG_FAULT,
+					);
+					const swept = await sweepStaleJobs(20);
+					expect(swept.refused).toContain(job);
+					expect(swept.refusedCode).toBe(CONFIG_FAULT);
+					expect(resultCode(await getJobById(job))).toBe(CONFIG_FAULT);
+				},
+			);
+		});
+
 		test('sweeper: while the list is MALFORMED no lost run is re-queued (tool.config_invalid)', async () => {
 			const job = await scratchJob(INCLUDED, 'zzdifsw3');
 			await setJobState(job, 'running');
@@ -620,7 +651,15 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 		});
 
 		test('MED-2: a define that is not a list is NOT moved — reported with its value', () => {
-			for (const literal of [`'${EXCLUDED}'`, '7', `['${EXCLUDED}', 7]`, "['']"]) {
+			for (const literal of [
+				`'${EXCLUDED}'`,
+				'7',
+				`['${EXCLUDED}', 7]`,
+				"['']",
+				// re-review LOW-4: not a tipo — the reader would refuse it, so it is not moved.
+				"['oh 63']",
+				"['OH63']",
+			]) {
 				const plan = planToolConfigMoves(v6Config(literal));
 				expect(plan.moves, literal).toEqual([]);
 				expect(plan.invalid, literal).toHaveLength(1);

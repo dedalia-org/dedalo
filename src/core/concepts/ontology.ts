@@ -24,8 +24,14 @@
 
 import { z } from 'zod';
 
-/** Tipo strings are strictly `letters+digits` — this regex IS the §7.6 gate shape. */
-export const TIPO_PATTERN = /^[a-z]+[0-9]+$/;
+/**
+ * Tipo codes: `letters+digits`, bounded — §7.6 gate shape.
+ *
+ * RE-EXPORTED, not redefined (as LANG_PATTERN below): the definition moved down
+ * to the leaf `src/config/tipo_code.ts` because config validates tipos itself
+ * (EXCLUDE_DIFFUSION_ELEMENTS, `src/config/element_tipo_list.ts`). ONE copy.
+ */
+import { TIPO_PATTERN } from '../../config/tipo_code.ts';
 
 /**
  * Language codes: 'lg-*' or the 'all' sentinel — §7.6 gate shape.
@@ -37,6 +43,7 @@ export const TIPO_PATTERN = /^[a-z]+[0-9]+$/;
  * ("link, never duplicate").
  */
 export { isValidLang, LANG_PATTERN } from '../../config/lang_code.ts';
+export { isValidTipo, TIPO_PATTERN } from '../../config/tipo_code.ts';
 
 /**
  * A TLD (top-level-domain namespace) is two-or-more lowercase ASCII letters,
@@ -55,20 +62,6 @@ export function isValidTld(candidate: unknown): candidate is string {
 
 export const tipoSchema = z.string().regex(TIPO_PATTERN, 'invalid ontology tipo');
 export type Tipo = z.infer<typeof tipoSchema>;
-
-/**
- * Max tipo length (INJ-06): a well-shaped but absurdly long tipo ('oh'+100k
- * digits) passes the pattern and no real ontology tipo approaches this — bound it
- * to the SQL identifier ceiling so it can never be interpolated into a key/jsonpath.
- */
-const MAX_TIPO_LENGTH = 64;
-
-/** Validate an ontology tipo (used by the search identifier chokepoint, §7.6). */
-export function isValidTipo(candidate: string): boolean {
-	return (
-		candidate.length >= 2 && candidate.length <= MAX_TIPO_LENGTH && TIPO_PATTERN.test(candidate)
-	);
-}
 
 /**
  * An ontology node as this server consumes it. Deliberately minimal for the

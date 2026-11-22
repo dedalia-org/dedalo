@@ -2220,9 +2220,9 @@ Merged since the last release; these ship with the next one.
     from the panel, from a hand-made request, from a requeue in the diffusion server
     control, or by the automatic restart of a run whose runner was lost (that run is marked
     failed instead). A publication already queued before the element was listed still runs.
-    A value that is not a list of element tipos refuses all of these, with
+    A value that is not a list of element tipos (a mistyped tipo such as `OH63` counts) refuses all of these, with
     `tool.config_invalid`, until it is fixed. Unpublishing is never blocked. The v6 → v7 configuration migration moves the
-    old define into this key on `--execute` — only when it is a list, as v6 only used it
+    old define into this key on `--execute` — only when it is a list of element tipos, as v6 only used it
     then; any other value is reported, with the value, and not moved. See the
     [tool_diffusion reference](./development/tools/reference/tool_diffusion.md) and
     [Migrating from v6](./install/migrating_from_v6.md).
