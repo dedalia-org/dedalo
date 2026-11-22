@@ -26,6 +26,11 @@
  *   — under this run's bulk id, so a revert clears the fill; a curated slice is
  *   kept and counted. No OCR from a sweep. This is also the operator's backfill
  *   (D4): a sweep over the pdf sections fills exactly the empty transcriptions.
+ *   A component_av RE-RUNS its duration companion (T2-WID-3, FYI-5;
+ *   ingest/companion_writes.ts rewriteDurationCompanion): the default-quality
+ *   file is measured and the time code written into the declared
+ *   target_duration, under this run's bulk id. No file = nothing written; an
+ *   unreadable one = an error line, never a fabricated 00:00:00.000.
  * - An EXTERNAL portal (`properties.source.mode === 'external'`, through an
  *   alias too) is RECOMPUTED by its law, never re-saved (PHP
  *   component_portal::regenerate_component's external branch,
@@ -135,6 +140,9 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		'../../../src/core/media/tools/files_info_persist.ts'
 	);
 	const { resolveMediaPathOptions } = await import('../../../src/core/media/ontology_path.ts');
+	const { rewriteDurationCompanion } = await import(
+		'../../../src/core/media/ingest/companion_writes.ts'
+	);
 	const { applyProvenanceRepair, resolveProvenanceRepair } = await import(
 		'../../../src/core/media/provenance_repair.ts'
 	);
@@ -267,6 +275,9 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 	let lockedOut = 0;
 	let stopped = false;
 	const mediaErrors: string[] = [];
+	// A duration companion that could not be written (T2-WID-3): reported, never counted
+	// as a derivative-rebuild failure.
+	const companionErrors: string[] = [];
 	/** Media components that wrote nothing because the record vanished / stayed locked. */
 	let mediaNotWritten = 0;
 	/** Non-media re-saves that wrote nothing (vanished, locked, refused by the save door). */
@@ -445,6 +456,25 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 					}
 					mediaHeld += heldShrinks;
 					regenerated += 1;
+					// THE DURATION COMPANION (T2-WID-3, FYI-5): an AV regenerate re-measures
+					// its default-quality file and writes the time code into the declared
+					// target_duration — the repair door for a duration never stored (or
+					// stored as a fabricated 00:00:00.000). A measurement, not a curated
+					// value (no read-modify-write); under this run's bulk id, so a revert
+					// restores the BEFORE value. No file on this server = nothing written.
+					if (model === 'component_av') {
+						const durationErrors = await rewriteDurationCompanion({
+							componentTipo: tipo,
+							sectionTipo: row.section_tipo,
+							sectionId: row.section_id,
+							items: storedItems,
+							userId: grant.userId,
+							bulkProcessId,
+						});
+						companionErrors.push(
+							...durationErrors.map((message) => `${tipo}#${row.section_id}: ${message}`),
+						);
+					}
 					// THE TRANSCRIPTION, AFTER the file pass and OUTSIDE the media row
 					// lock: the text_area save is its own transaction (locked read-decide-
 					// write, pdf_transcription.ts), never nested inside
@@ -514,7 +544,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 		refusedTargets.length > 0
 			? ` ${refusedTargets.length} target(s) the caller may not write were skipped (nothing written to them).`
 			: '';
-	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}${external.withheld > 0 ? ` ${external.withheld} external mirror(s) not refreshed (see errors).` : ''}${transcriptionNote(transcriptions)}`;
+	const msg = `${summaryMsg}${refusedNote}${derivedNote}${refusedResaves > 0 ? ` ${refusedResaves} re-save(s) refused by the save door (nothing written to them).` : ''}${rebuildFailures > 0 ? ` ${rebuildFailures} media derivative rebuild(s) failed (files_info still refreshed).` : ''}${companionErrors.length > 0 ? ` ${companionErrors.length} media duration(s) not written (see errors).` : ''}${mediaHeld > 0 ? ` ${mediaHeld} stored media index(es) kept (files not on this server — shrink held).` : ''}${vanished > 0 ? ` ${vanished} record(s) deleted during the run (nothing written).` : ''}${lockedOut > 0 ? ` ${lockedOut} record(s) stayed locked (nothing written).` : ''}${external.withheld > 0 ? ` ${external.withheld} external mirror(s) not refreshed (see errors).` : ''}${transcriptionNote(transcriptions)}`;
 	// Final frame: the client renders the summary from the last pfile data.
 	publish({
 		msg,
@@ -531,6 +561,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			summary: msg,
 			errors: [
 				...mediaErrors,
+				...companionErrors,
 				...resaveErrors,
 				...external.errors,
 				...refusedTargets,
@@ -544,6 +575,7 @@ async function updateCache(ctx: ToolActionContext): Promise<ToolResponse> {
 			stopped,
 			bulk_process_id: bulkProcessId,
 			media_errors: mediaErrors.length,
+			companion_errors: companionErrors.length,
 			media_held: mediaHeld,
 			vanished,
 			locked: lockedOut,

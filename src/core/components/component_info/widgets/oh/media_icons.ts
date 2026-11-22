@@ -8,12 +8,15 @@
  * and each ddo enriched with model/translatable/label (PHP
  * create_tool_simple_context).
  *
- * tc SLOW PATH divergence (deliberate): when the cached rsc54 duration is
- * missing, PHP probes the media FILE and WRITES the computed tc back during
- * the read (oracle-verified: missing file → '00:00:00.000' persisted to
- * rsc54). TS emits the same display value but NEVER writes — persisting an
- * unverified 0 duration would poison the cache for records whose real file
- * PHP could still measure. Both sides pinned in the gate.
+ * tc (T2-WID-3, FYI-5 / C52 — WC-2026-11-22-media-icons-tc): the duration
+ * STORED in the AV component's declared `target_duration` (PHP hardcoded
+ * 'rsc54', kept as the fallback for a component declaring none). When none is
+ * stored, the AV file of the path's last hop is MEASURED, read-only — PHP
+ * probed too, but WROTE the result back during the read, and wrote
+ * '00:00:00.000' for a missing file. Here a read never writes and never
+ * fabricates: no file (or none readable) = the cell carries no value, which
+ * the client renders as empty. The repair door that STORES the measurement is
+ * tool_update_cache's regenerate (rewriteDurationCompanion).
  */
 
 import { getModelByTipo, getNode } from '../../../../ontology/resolver.ts';
@@ -27,8 +30,45 @@ import {
 	type WidgetItem,
 } from '../widget_common.ts';
 
-/** The cached-duration component on media records (PHP hardcoded 'rsc54'). */
-const MEDIA_DURATION_TIPO = 'rsc54';
+/**
+ * The duration component when the AV component declares no `target_duration`
+ * (PHP hardcoded it for every media record).
+ */
+const FALLBACK_DURATION_TIPO = 'rsc54';
+
+/**
+ * The tc cell's value: the stored duration, else the file's measured duration
+ * (read-only), else undefined — never a fabricated `00:00:00.000`.
+ */
+async function resolveTc(
+	avTipo: string | undefined,
+	mediaSection: string,
+	mediaId: number | string,
+): Promise<unknown> {
+	// Dynamic: the media ingest layer reaches the write path; a widget read must
+	// not pull it into the read graph's static import set.
+	const { measureStoredMediaDuration, resolveMediaCompanionTargets } = await import(
+		'../../../../media/ingest/companion_writes.ts'
+	);
+	const durationTipo =
+		(avTipo === undefined ? null : (await resolveMediaCompanionTargets(avTipo)).durationTipo) ??
+		FALLBACK_DURATION_TIPO;
+	const durationItems = (await readWidgetComponentData(mediaSection, mediaId, durationTipo)) as {
+		value?: unknown;
+	}[];
+	const stored = durationItems[0]?.value;
+	if (stored !== undefined && stored !== null && stored !== '') return stored;
+	const sectionId = Number(mediaId);
+	if (avTipo === undefined || !Number.isInteger(sectionId) || sectionId <= 0) return undefined;
+	const avItems = (await readWidgetComponentData(mediaSection, sectionId, avTipo)) as unknown[];
+	const measured = await measureStoredMediaDuration({
+		componentTipo: avTipo,
+		sectionTipo: mediaSection,
+		sectionId,
+		items: avItems,
+	});
+	return measured ?? undefined;
+}
 
 async function computeMediaIcons(ipo: unknown[], context: WidgetContext): Promise<WidgetItem[]> {
 	const data: WidgetItem[] = [];
@@ -62,8 +102,8 @@ async function computeMediaIcons(ipo: unknown[], context: WidgetContext): Promis
 		}
 
 		for (const path of paths) {
-			void path; // only the last hop matters; the AV component itself is
-			// needed only for the slow-path file probe (not taken here)
+			// the last hop names the AV component whose file the tc measures
+			const avTipo = path.at(-1)?.component_tipo;
 			for (const locator of arLocator) {
 				const mediaSection = String(locator.section_tipo ?? '');
 				const mediaId = locator.section_id as number | string;
@@ -82,19 +122,9 @@ async function computeMediaIcons(ipo: unknown[], context: WidgetContext): Promis
 							cell.value = mediaId;
 							break;
 						case 'tc': {
-							const durationItems = (await readWidgetComponentData(
-								mediaSection,
-								mediaId,
-								MEDIA_DURATION_TIPO,
-							)) as { value?: unknown }[];
-							const cachedTc = durationItems[0]?.value;
-							if (cachedTc !== undefined && cachedTc !== null) {
-								cell.value = cachedTc;
-							} else {
-								// slow path (see doc): no file probe, no write-back
-								const { secondsToTc } = await import('../../../../resolve/tr_marks.ts');
-								cell.value = secondsToTc(0);
-							}
+							// unknown duration: the value stays UNSET (client renders '')
+							const tc = await resolveTc(avTipo, mediaSection, mediaId);
+							if (tc !== undefined) cell.value = tc;
 							break;
 						}
 						default: {

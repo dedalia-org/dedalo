@@ -291,7 +291,7 @@ byte-identical client (`client/dedalo/core/widgets/<tld>/<name>/js/`).
 | `get_archive_weights` | `numisdata` | `/numisdata/get_archive_weights` | Weight/diameter mean/max/min/count over the coins linked via the source portal. | — |
 | `get_coins_by_period` | `numisdata` | `/numisdata/get_coins_by_period` | Count/group coins by chronological period (thesaurus-driven). | — |
 | `descriptors` | `oh` | `/oh/descriptors` | Oral-history indexation count + merged descriptor **term grid** for a record. | edit-only (`list` mode → `[]`) |
-| `media_icons` | `oh` | `/oh/media_icons` | One row per linked media record: id + tc value columns + one tool-launch column per declared tool. | row objects; user-scoped tools |
+| `media_icons` | `oh` | `/oh/media_icons` | One row per linked media record: id + tc value columns + one tool-launch column per declared tool. The tc is the duration stored in the AV component's `target_duration`, else the file's measured duration (read-only), else empty — never `00:00:00.000`. | row objects; user-scoped tools |
 | `tags` | `oh` | `/oh/tags` | Transcription tag statistics over the current record's transcription text. | leads with raw text items (a legacy quirk) |
 | `test_info` | `test` | `/test/test_info` | Minimal reference widget used by tests/samples; emits both `id` and `widget_id` natively. | reference stub |
 

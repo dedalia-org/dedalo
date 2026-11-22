@@ -250,3 +250,11 @@ identifier on ingest.
   `src/core/media/**` and bans both shapes outside that writer; the alternative
   would have been a new exemption entry, and an exemption for a case the one
   writer already handles is a hole, not a carve-out.
+
+## Addendum 2026-11-22 — §2 superseded: an unmeasurable duration writes NOTHING (T2-WID-3)
+
+- **Shape after:** a file whose duration ffprobe cannot read (or that reports none) leaves the
+  `target_duration` component untouched; the message says `nothing was written`. PHP's
+  `00:00:00.000` is no longer stored (owner FYI-5, C52 — a zero is a fabricated measurement).
+  See WC-2026-11-22-media-icons-tc. Gate: `test/unit/media_icons_tc_native.test.ts` (the
+  unreadable-file leg, through the update_cache regenerate that re-runs the same companion).

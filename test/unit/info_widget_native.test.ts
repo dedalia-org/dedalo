@@ -49,9 +49,10 @@
  *    total items (WC-2026-08-03-state-widget-total-source-count — TS-only, so
  *    it is STRIPPED before the PHP-captured golden compare and pinned by its
  *    own arithmetic test; the goldens are never regenerated from TS output).
- *  - tc SLOW PATH        : READ-NO-WRITE — TS emits 00:00:00.000 for a tape
- *    without the cached duration and must NOT write it back (PHP persists it
- *    during the read — that write-back is pinned in the differential ONLY).
+ *  - tc SLOW PATH        : READ-NO-WRITE — a tape with no stored duration and
+ *    no file gets NO tc value (PHP emitted AND persisted 00:00:00.000 during
+ *    the read; WC-2026-11-22-media-icons-tc). The measured-file leg lives in
+ *    media_icons_tc_native.
  *
  * Live-data dependencies: SEEDED since 2026-08-23 — the PERIOD chronology
  * chain (term records 187/3 + the hierarchy1 registry root) and the three
@@ -1144,16 +1145,24 @@ describe('component_info widget read-time compute (TS-native, oracle-captured go
 		expect(datalist).toEqual(adoptedGolden(golden.state_edit_datalist) as never);
 	}, 30000);
 
-	test('tc SLOW PATH: TS emits 00:00:00.000 and NEVER writes back during the read', async () => {
+	test('tc SLOW PATH: no stored duration and no file → NO tc value, and NEVER a write during the read', async () => {
 		const entries = (await tsEntries(
 			readRqo(INTERVIEW, IW.interviewSlow, MEDIA_ICONS, 'list'),
 		)) as {
 			tc?: { value?: unknown };
 		}[][];
-		expect(entries[0]?.[0]?.tc?.value).toBe('00:00:00.000');
-		expect(entries).toEqual(
-			adoptedGolden(golden.tc_slow_list_entries, { expectPreserved: true }) as never,
-		);
+		expect(entries[0]?.[0]?.tc).toBeDefined();
+		expect(entries[0]?.[0]?.tc?.value).toBeUndefined();
+		// T2-WID-3 (FYI-5 / C52, WC-2026-11-22-media-icons-tc): PHP emitted (and
+		// persisted) '00:00:00.000' for a tape with no file; TS leaves the cell's
+		// value UNSET (the client renders ''). The captured golden keeps PHP's
+		// bytes; the one deliberate difference is removed from it here, nothing else.
+		const expected = adoptedGolden(golden.tc_slow_list_entries, {
+			expectPreserved: true,
+		}) as { tc?: { value?: unknown } }[][];
+		expect(expected[0]?.[0]?.tc?.value).toBe('00:00:00.000');
+		for (const row of expected.flat()) delete row.tc?.value;
+		expect(entries).toEqual(expected as never);
 		// READ-NO-WRITE (deliberate divergence — PHP persists the probed tc
 		// during the read; that write-back stays pinned in the differential)
 		const after = (await sql.unsafe(

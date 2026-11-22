@@ -873,6 +873,11 @@ else {
 					reason:
 						'T0-11 D2 = b: the PDF transcription is DERIVED from the record’s PDF (pdftotext) and written ONLY into an EMPTY lang slice — the emptiness is re-read UNDER the row lock in the transaction that writes (pdf_transcription.ts writeLocked: readMatrixKeyForUpdate, then readComponentItems), so a curated or concurrently committed transcription is kept, never transformed or replaced. Gate: pdf_transcription_native (gate 6). Under the run’s bulkProcessId: a bulk revert clears the fill.',
 				},
+				rewriteDurationCompanion: {
+					verdict: 'derived-state',
+					reason:
+						'T2-WID-3 (FYI-5): an AV regenerate re-runs the ingest’s duration companion — the default-quality file is MEASURED (ffprobe) and the time code set_data into the declared target_duration through the write door as the caller. The value is a measurement of the file, never computed from the stored one (no read-modify-write, nothing curated is transformed); an unmeasurable or absent file writes nothing. Under the run’s bulkProcessId: a bulk revert restores the BEFORE value. Gate: media_icons_tc_native.',
+				},
 			},
 		},
 

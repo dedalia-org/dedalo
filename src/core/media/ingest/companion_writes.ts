@@ -26,6 +26,14 @@
  * write door as the uploader before it is written (companionGrant) — the ingest
  * door authorized only the media component.
  *
+ * NEVER A FABRICATED DURATION (T2-WID-3, FYI-5 / C52). A file whose duration
+ * cannot be measured writes NOTHING to the duration target (and says so): PHP
+ * stored `00:00:00.000`, which every later reader took for a measurement. The
+ * same measurement is the media-icons widget's READ-ONLY fallback when no
+ * duration is stored (measureStoredMediaDuration — a read never writes), and
+ * tool_update_cache's regenerate re-runs the duration companion as the repair
+ * door (rewriteDurationCompanion).
+ *
  * NON-FATAL BY CONSTRUCTION. Every function here returns messages instead of
  * throwing: it runs AFTER `addFile` has irreversibly moved the staged upload, and
  * the ordering law of the ingest (see IngestResult.derivativeErrors) is that
@@ -33,13 +41,18 @@
  * record knows about. The messages are surfaced by the calling tool.
  */
 
+import { existsSync } from 'node:fs';
+import { mediaTypeOf } from '../../concepts/media.ts';
 import { isDedaloError } from '../../errors/dedalo_error.ts';
-import { getModelByTipo, getNode } from '../../ontology/resolver.ts';
+import { getModelByTipo, getNode, getTranslatableByTipo } from '../../ontology/resolver.ts';
+import { currentDataLang } from '../../resolve/request_lang.ts';
 import { secondsToTc } from '../../resolve/tr_marks.ts';
 import { saveComponentData } from '../../section/record/save_component.ts';
 import { resolvePrincipal } from '../../security/permissions.ts';
 import { authorizeRecordAccess, type RecordGrant } from '../../security/write_door.ts';
 import { probeFormat } from '../engine/ffmpeg.ts';
+import { resolveMediaPathOptions } from '../ontology_path.ts';
+import { absoluteFromRelative, buildMediaLocation } from '../path.ts';
 
 /** The sibling components an upload writes to, or null where none is declared. */
 export interface MediaCompanionTargets {
@@ -86,6 +99,11 @@ export interface CompanionWriteInput {
 	originalFileName: string;
 	/** Absolute path of the file just stored — the duration is measured from IT. */
 	mediaFilePath: string;
+	/**
+	 * The dd800 run this write belongs to (tool_update_cache's regenerate): the
+	 * save joins that run's undo log, so a bulk revert puts the BEFORE value back.
+	 */
+	bulkProcessId?: number | null;
 }
 
 /**
@@ -137,37 +155,139 @@ async function writeFilename(input: CompanionWriteInput, targetTipo: string): Pr
  * `get_duration($quality)` on the uploaded tier, not on a derivative that does
  * not exist yet at this point in the ingest.
  *
- * A file with no readable duration still writes PHP's value (`get_duration`
- * returns 0.0 → '00:00:00.000') AND reports it: the stored bytes stay oracle-
- * identical, and the curator is told that a zero-length reading was recorded
- * instead of it looking like a successful measurement.
+ * A file with no readable duration writes NOTHING and reports it (T2-WID-3,
+ * FYI-5): PHP stored `00:00:00.000` — a fabricated measurement (C52) that every
+ * reader, the media-icons widget first, then showed as the interview's length.
  */
 async function writeDuration(input: CompanionWriteInput, targetTipo: string): Promise<string[]> {
-	let seconds = 0;
-	let probeFailure: string | null = null;
+	const measured = await measureDuration(input.mediaFilePath);
+	if (typeof measured === 'string') {
+		return [`target_duration '${targetTipo}': ${measured} — nothing was written`];
+	}
+	return await saveCompanionValue(input, targetTipo, secondsToTc(measured), 'target_duration');
+}
+
+/**
+ * The duration of a media file in seconds, or the sentence saying why there is
+ * none (a probe failure, or a file reporting no positive duration). READ-ONLY.
+ */
+async function measureDuration(filePath: string): Promise<number | string> {
 	try {
-		const format = (await probeFormat(input.mediaFilePath)) as {
-			format?: { duration?: unknown };
-		} | null;
+		const format = (await probeFormat(filePath)) as { format?: { duration?: unknown } } | null;
 		const raw = Number(format?.format?.duration ?? 0);
-		seconds = Number.isFinite(raw) && raw > 0 ? raw : 0;
+		return Number.isFinite(raw) && raw > 0 ? raw : `${filePath} reports no duration`;
 	} catch (error) {
-		probeFailure = (error as Error).message;
+		return `the duration of ${filePath} could not be probed (${(error as Error).message})`;
 	}
-	const messages: string[] = [];
-	if (probeFailure !== null) {
-		messages.push(
-			`target_duration '${targetTipo}': the duration of ${input.mediaFilePath} could not be probed (${probeFailure}) — 00:00:00.000 recorded`,
-		);
-	} else if (seconds === 0) {
-		messages.push(
-			`target_duration '${targetTipo}': ${input.mediaFilePath} reports no duration — 00:00:00.000 recorded`,
-		);
-	}
-	messages.push(
-		...(await saveCompanionValue(input, targetTipo, secondsToTc(seconds), 'target_duration')),
+}
+
+/** A stored media record's component, addressed for a duration measurement. */
+export interface StoredMediaTarget {
+	/** The media component (its model must be a media model). */
+	componentTipo: string;
+	sectionTipo: string;
+	sectionId: number;
+	/** The component's stored items (files_info locates the file first), when at hand. */
+	items?: readonly unknown[];
+}
+
+/**
+ * The absolute path of a stored media record's DEFAULT-QUALITY file, or null
+ * when none is on this server (PHP component_av::get_duration's file). The
+ * stored files_info entry locates it first, the deterministic grammar location
+ * is the fallback. READ-ONLY: nothing is created, nothing written.
+ */
+export async function locateDefaultQualityFile(target: StoredMediaTarget): Promise<string | null> {
+	const model = await getModelByTipo(target.componentTipo);
+	const spec = model === null ? null : mediaTypeOf(model);
+	if (spec === null) return null;
+	const pathOpts = await resolveMediaPathOptions(
+		target.componentTipo,
+		target.sectionTipo,
+		target.sectionId,
 	);
-	return messages;
+	const filesInfo = ((target.items?.[0] as { files_info?: unknown } | undefined)?.files_info ??
+		null) as
+		| { quality?: unknown; file_exist?: unknown; file_path?: unknown; external?: unknown }[]
+		| null;
+	if (Array.isArray(filesInfo)) {
+		const entry = filesInfo.find(
+			(candidate) =>
+				candidate !== null &&
+				typeof candidate === 'object' &&
+				candidate.quality === spec.defaultQuality &&
+				candidate.file_exist === true &&
+				candidate.external !== true &&
+				typeof candidate.file_path === 'string',
+		);
+		if (entry !== undefined) {
+			try {
+				const absolute = absoluteFromRelative(entry.file_path as string, pathOpts.mediaRoot);
+				if (existsSync(absolute)) return absolute;
+			} catch {
+				// A stored path outside the media root locates nothing; the grammar decides.
+			}
+		}
+	}
+	const lang = (await getTranslatableByTipo(target.componentTipo)) ? currentDataLang() : null;
+	const location = buildMediaLocation(
+		spec,
+		{
+			componentTipo: target.componentTipo,
+			sectionTipo: target.sectionTipo,
+			sectionId: target.sectionId,
+			lang,
+		},
+		spec.defaultQuality,
+		spec.defaultExtension,
+		pathOpts,
+	);
+	return existsSync(location.absolutePath) ? location.absolutePath : null;
+}
+
+/**
+ * The MEASURED duration of a stored media record as a Dédalo time code, or null
+ * when it is unknown (no file on this server, or none readable). READ-ONLY — the
+ * media-icons widget's fallback when no duration is stored (T2-WID-3): a read
+ * never writes, and never fabricates `00:00:00.000`.
+ */
+export async function measureStoredMediaDuration(
+	target: StoredMediaTarget,
+): Promise<string | null> {
+	const file = await locateDefaultQualityFile(target);
+	if (file === null) return null;
+	const measured = await measureDuration(file);
+	return typeof measured === 'string' ? null : secondsToTc(measured);
+}
+
+/**
+ * RE-RUN the duration companion of a stored media record (T2-WID-3 — the
+ * repair door tool_update_cache's regenerate takes): measure its default-quality
+ * file and write the time code into the component's declared target_duration,
+ * through the write door as `userId`. Messages, never a throw (the module's
+ * posture); an empty array = written, or nothing declared. No file on this
+ * server = nothing to measure: nothing written, nothing reported (the files_info
+ * refresh already states the absence).
+ */
+export async function rewriteDurationCompanion(
+	target: StoredMediaTarget & { userId: number; bulkProcessId?: number | null },
+): Promise<string[]> {
+	const { durationTipo } = await resolveMediaCompanionTargets(target.componentTipo);
+	if (durationTipo === null) return [];
+	const file = await locateDefaultQualityFile(target);
+	if (file === null) return [];
+	return await writeDuration(
+		{
+			componentTipo: target.componentTipo,
+			sectionTipo: target.sectionTipo,
+			sectionId: target.sectionId,
+			userId: target.userId,
+			originalFileName: '',
+			mediaFilePath: file,
+			bulkProcessId: target.bulkProcessId ?? null,
+		},
+		durationTipo,
+	);
 }
 
 /**
@@ -195,6 +315,7 @@ async function saveCompanionValue(
 			lang: 'lg-nolan',
 			changedData: [{ action: 'set_data', id: null, value: [{ value, lang: 'lg-nolan' }] }],
 			userId: grant.userId,
+			bulkProcessId: input.bulkProcessId ?? null,
 		});
 		return result.ok ? [] : [`${role} '${targetTipo}' save failed: ${result.message}`];
 	} catch (error) {
