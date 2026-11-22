@@ -33,8 +33,11 @@ import { repairBrokenTags } from './tag_integrity.ts';
 /** text_area list values are HTML-truncated (PHP get_list_value max_chars=130). */
 const TEXT_AREA_LIST_MAX_CHARS = 130;
 
-/** Max raw chars any served-preview text processor sees — list AND edit fallback (DOS-01). */
-const LIST_SOURCE_CAP = 16 * 1024;
+/**
+ * Max raw chars any served-preview text processor sees — list, edit fallback
+ * AND the indexation grid's untagged fragment (DOS-01).
+ */
+export const LIST_SOURCE_CAP = 16 * 1024;
 
 /**
  * The per-read svg-tag path memo, on the emission's scratch (one per read —

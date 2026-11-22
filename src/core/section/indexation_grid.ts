@@ -37,7 +37,7 @@ import {
 	dateModeOf,
 	type PeriodLabels,
 } from '../components/component_date/date_value.ts';
-import { servedTextPreview } from '../components/component_text_area/emit.ts';
+import { LIST_SOURCE_CAP, servedTextPreview } from '../components/component_text_area/emit.ts';
 import {
 	createSvgTagPathMemo,
 	type SvgTagPathMemo,
@@ -211,6 +211,8 @@ interface GridContext {
 	quoteRefused: boolean;
 	/** The svg-glyph path memo of THIS grid build (servedFragmentText). */
 	svgTagMemo: SvgTagPathMemo;
+	/** Untagged fragment previews of THIS grid build, keyed by capped source text. */
+	untaggedPreviews: Map<string, Promise<string>>;
 }
 
 async function readRecordOnce(
@@ -774,16 +776,30 @@ const UNTAGGED_FRAGMENT_MAX_CHARS = 220;
  *  - untagged: THE served-text preview (component_text_area/emit.ts
  *    servedTextPreview — rebase → tags → HTML truncate) of the text with its
  *    marks deleted FIRST, so the 220 chars count readable text and a cut can
- *    never leave half a mark behind (PHP truncated, then deleted marks).
+ *    never leave half a mark behind (PHP truncated, then deleted marks) —
+ *    except a mark straddling the LIST_SOURCE_CAP cut of a text with under 220
+ *    readable chars before it (the bound wins over the cosmetics).
+ * `previews` (optional, the grid build's) memoizes the untagged preview per
+ * source text: N rows quoting one transcription compute it once.
  */
 export async function servedFragmentText(
 	tagged: { text: string } | null,
 	rawText: string,
 	memo: SvgTagPathMemo,
+	previews?: Map<string, Promise<string>>,
 ): Promise<string> {
 	if (tagged !== null) return appServedMediaSrc(tagged.text);
 	if (rawText === '') return '';
-	return servedTextPreview(deleteMarks(rawText), UNTAGGED_FRAGMENT_MAX_CHARS, memo);
+	// DOS-01 (B5 review M1): bound the source BEFORE deleteMarks — its lazy
+	// `(-data:.*?:data)?` bodies are quadratic on unterminated openers (320 KB
+	// ≈ 3 s, per grid row). A 220-char preview needs far less than the same
+	// prefix every served preview sees.
+	const capped = rawText.length > LIST_SOURCE_CAP ? rawText.slice(0, LIST_SOURCE_CAP) : rawText;
+	const known = previews?.get(capped);
+	if (known !== undefined) return known;
+	const preview = servedTextPreview(deleteMarks(capped), UNTAGGED_FRAGMENT_MAX_CHARS, memo);
+	previews?.set(capped, preview);
+	return preview;
 }
 
 /** PHP TR::deleteMarks — strip every Dédalo [tag] mark family. */
@@ -864,7 +880,12 @@ async function textAreaIndexationCell(
 			tag_in: null,
 			tag_out: null,
 		};
-		const textFragment = await servedFragmentText(tagged, fullRawText, ctx.svgTagMemo);
+		const textFragment = await servedFragmentText(
+			tagged,
+			fullRawText,
+			ctx.svgTagMemo,
+			ctx.untaggedPreviews,
+		);
 
 		const recordLinkColumn = cell({
 			type: 'column',
@@ -1888,6 +1909,7 @@ export async function buildIndexationGrid(
 		quoteGate,
 		quoteRefused: false,
 		svgTagMemo: createSvgTagPathMemo(),
+		untaggedPreviews: new Map(),
 	};
 
 	// Bun-native: prefetch every top record in one query per matrix table.
