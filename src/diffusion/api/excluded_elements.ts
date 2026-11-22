@@ -25,7 +25,9 @@
  *     way before writing, and the stale-job sweeper (`sweepStaleJobs`) FAILS a
  *     lost run of an excluded element instead of re-queueing it (review MED-1:
  *     both start a NEW run). NOT re-checked: a job already QUEUED before the
- *     element was excluded is run by the runner as queued (owner question).
+ *     element was excluded is run by the runner as queued (owner question);
+ *   - the dev/ops full-element harness (scripts/diffusion_harness_publish.ts)
+ *     refuses before compiling its plan (re-review INFO-6) — no back door.
  *
  * MATCHING. An element is excluded when its own tipo OR, for a
  * `diffusion_element_alias`, the real element it resolves to is listed. v6's map

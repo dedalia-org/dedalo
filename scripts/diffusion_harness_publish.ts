@@ -110,9 +110,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { config } from '../src/config/config.ts';
 import { closeDatabasePool } from '../src/core/db/postgres.ts';
+import { isDedaloError } from '../src/core/errors/index.ts';
 import { type RequestLangs, runWithRequestLangs } from '../src/core/resolve/request_lang.ts';
 import { type Principal, resolvePrincipal } from '../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../src/core/security/request_context.ts';
+import { assertPublishableElement } from '../src/diffusion/api/excluded_elements.ts';
 import { bumpOntologyRevision, getCompiledPlan } from '../src/diffusion/plan/cache.ts';
 import type { PublicationPlan } from '../src/diffusion/plan/types.ts';
 import { resolvePublication } from '../src/diffusion/resolve/resolver.ts';
@@ -296,6 +298,27 @@ const jsonPath = argValue('--run-info') ?? argValue('--json');
 // process has seen an invalidation event: bump the revision by hand before
 // compiling, or a plan cached earlier in this same process would be served.
 bumpOntologyRevision();
+
+// THE PUBLICATION GUARD (re-review INFO-6): tool_diffusion's
+// EXCLUDE_DIFFUSION_ELEMENTS withdraws an element from publication at every door
+// that starts a run (src/diffusion/api/excluded_elements.ts) — this harness is
+// one, so it asks the same question before compiling or writing anything. The
+// v6 twin never consulted the list (v6 filtered it in the tool UI only), so a
+// parity run of a listed element is refused here: remove it from the list on the
+// harness database first. A malformed list refuses as tool.config_invalid.
+try {
+	await assertPublishableElement(elementTipo);
+} catch (error) {
+	const code = isDedaloError(error) ? error.code : 'internal.unexpected';
+	console.error(
+		`REFUSED (${code}): element '${elementTipo}' may not be published on this installation.\n` +
+			`  ${error instanceof Error ? error.message : String(error)}\n` +
+			'  tool_diffusion EXCLUDE_DIFFUSION_ELEMENTS (Tools configuration, dd996) governs every\n' +
+			'  publication door, this harness included.',
+	);
+	await closeDatabasePool();
+	process.exit(2);
+}
 
 const plan: PublicationPlan = await getCompiledPlan(elementTipo);
 

@@ -41,6 +41,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import { parseElementTipoList } from '../../src/config/element_tipo_list.ts';
 import {
 	planToolConfigMoves,
@@ -606,6 +607,49 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 				expect(resultCode(row)).toBe(CONFIG_FAULT);
 			});
 		});
+	});
+
+	describe('G. the full-element harness is no back door (re-review INFO-6)', () => {
+		/** Run the harness CLI in a child (inherits the suite pin); answers exit + stderr. */
+		const runHarness = async (element: string) => {
+			const child = Bun.spawn(
+				[
+					process.execPath,
+					'scripts/diffusion_harness_publish.ts',
+					'--element',
+					element,
+					'--database',
+					'zzdif_no_such_database',
+					'--run-started-at',
+					'1751700000',
+				],
+				{
+					cwd: join(import.meta.dir, '..', '..'),
+					env: process.env,
+					stdout: 'pipe',
+					stderr: 'pipe',
+				},
+			);
+			const [exitCode, stderr] = await Promise.all([
+				child.exited,
+				new Response(child.stderr).text(),
+			]);
+			return { exitCode, stderr };
+		};
+
+		test('an excluded element is REFUSED before any plan or write; a listed-elsewhere one passes the guard', async () => {
+			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: [EXCLUDED] }, async () => {
+				const refused = await runHarness(EXCLUDED);
+				expect(refused.exitCode).toBe(2);
+				expect(refused.stderr).toContain('diffusion.element_excluded');
+				// FLOOR: an element the list does not name gets PAST the guard (it is
+				// then stopped by the target-database safety belt or plan compile —
+				// never by the exclusion).
+				const other = await runHarness(INCLUDED);
+				expect(other.exitCode).not.toBe(0);
+				expect(other.stderr).not.toContain('diffusion.element_excluded');
+			});
+		}, 60_000);
 	});
 
 	describe('E. the v6→v7 config migration MOVES the define', () => {

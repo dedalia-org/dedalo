@@ -147,3 +147,13 @@ Gate: `diffusion_excluded_elements_native` F (hand-made rows with the element st
 Gate: `diffusion_excluded_elements_native` D (`['oh 63']`, `['OH63']`, comma entry → config fault
 at read, info, door), F (comma entry: door and sweeper both `tool.config_invalid`), E (such defines
 not moved).
+
+## Addendum 2026-11-22 — re-review INFO-6: the full-element harness is a door too
+
+`scripts/diffusion_harness_publish.ts` (the v6↔v7 parity publisher) calls
+`assertPublishableElement` before it compiles a plan or opens a writer: an excluded element (or a
+malformed list) exits 2 with `REFUSED (<code>)`. No exemption: the v6 twin never consulted the list
+(v6 filtered it in the tool UI only), so a parity run of a listed element is refused — the operator
+removes it from the harness database's list first. Gate: `diffusion_excluded_elements_native` G
+(the CLI in a child: excluded → exit 2 naming `diffusion.element_excluded`; a non-listed element is
+not stopped by the guard).
