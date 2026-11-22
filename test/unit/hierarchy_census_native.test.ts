@@ -42,6 +42,7 @@ import {
 	type HierarchyCensus,
 } from '../../src/core/ontology/hierarchy_census.ts';
 import { sha256Hex } from '../../src/core/ontology/hierarchy_manifest_format.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 
 const TABLE = 'matrix_hierarchy_main';
@@ -244,6 +245,22 @@ describe('hierarchy census — a fully declared active row', () => {
 		const typology = census.manifest.typologies.find((item) => item.typology_id === 2);
 		expect(typology?.name).not.toBeNull();
 		expect(full?.typology_name).toBe(typology?.name as string);
+	});
+
+	test('T2-OX7-1b: the picked name speaks the REQUEST application lang', async () => {
+		// Two request langs → the FULL row's two stored names (name_data keeps
+		// both; only the human pick follows the caller). The install default
+		// answered both requests the same pick.
+		for (const [lang, expected] of [
+			['lg-eng', 'Census land'],
+			['lg-spa', 'Tierra del censo'],
+		] as const) {
+			const inLang = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+				buildHierarchyManifest({ dataDir }),
+			);
+			const full = inLang.manifest.active_hierarchies.find((item) => item.tld === FULL);
+			expect(full?.name, lang).toBe(expected);
+		}
 	});
 
 	test('dependencies come through the shared normalizer (tld lowercased)', () => {

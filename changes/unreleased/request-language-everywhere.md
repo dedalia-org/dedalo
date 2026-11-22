@@ -10,6 +10,9 @@ fixed language) instead of the one the user had chosen in the menu:
 - the CSV import tool (column mapper, file preview, import progress) and the
   posterframe tool named sections and fields in the installation's interface
   language; they now use the user's;
+- the thesaurus export (`hierarchy.json`) and the ontology census picked each
+  name in the installation's interface language; the pick now follows the
+  operator running it (every stored language is still exported);
 - a new record was stamped with the section name in the installation's
   interface language; it now takes the creating user's interface language;
 - the login page declared the installation's interface language even when the

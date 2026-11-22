@@ -47,11 +47,11 @@
  */
 
 import { join } from 'node:path';
-import { config } from '../../config/config.ts';
 import { readMatrixRecord } from '../db/matrix.ts';
 import { sql } from '../db/postgres.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { isCoreHierarchyTld } from '../install/hierarchy_meta.ts';
+import { currentApplicationLang } from '../resolve/request_lang.ts';
 import {
 	declaredDependencies,
 	isYesLocator,
@@ -322,7 +322,10 @@ export async function buildHierarchyManifest(options: {
 	dataDir: string;
 	now?: Date;
 }): Promise<HierarchyCensus> {
-	const appLang = config.menu.applicationLang;
+	// The human picks (name, typology and lang labels) follow the REQUEST
+	// application lang (T2-OX7-1b; PHP DEDALO_APPLICATION_LANG is per-request);
+	// name_data / scope_note_data carry every lang item regardless.
+	const appLang = currentApplicationLang();
 	const errors: string[] = [];
 	const typologies = validTypologies(await getHierarchyTypologies(appLang), errors);
 	const ctx: CensusContext = {

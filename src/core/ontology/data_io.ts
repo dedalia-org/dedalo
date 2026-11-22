@@ -57,6 +57,7 @@ import { sql } from '../db/postgres.ts';
 import { publishTempAsync, writeTextFileDurablyAsync } from '../files/durable_async.ts';
 import { tempPathFor } from '../files/temp_path.ts';
 import { connFromConfig, runPsqlScript } from '../install/pg_exec.ts';
+import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { saveComponentData } from '../section/record/save_component.ts';
 import {
 	DEDALO_DATA_VERSION,
@@ -288,7 +289,9 @@ export async function getActiveOntologies(
 	options: { activeOnly?: boolean } = {},
 ): Promise<{ ontologies: OntologyCensusEntry[]; errors: string[] }> {
 	const activeOnly = options.activeOnly === true;
-	const appLang = config.menu.applicationLang;
+	// The name / typology picks follow the REQUEST application lang (T2-OX7-1b;
+	// PHP DEDALO_APPLICATION_LANG is per-request); name_data keeps every item.
+	const appLang = currentApplicationLang();
 	const errors: string[] = [];
 
 	const rows = (await sql.unsafe(

@@ -1521,22 +1521,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 		],
 		// ── LABELS AND READ-PATH FALLBACKS (not a write language) ────────────
 		[
-			'src/core/ontology/data_io.ts',
-			{
-				count: 1,
-				reason:
-					'The ontology CENSUS label (getActiveOntologies). The write in the same file is lg-nolan, unaffected.',
-			},
-		],
-		[
-			'src/core/ontology/hierarchy_census.ts',
-			{
-				count: 1,
-				reason:
-					'The thesaurus CENSUS labels of hierarchy.json (buildHierarchyManifest) — an install-wide export file, the ontology.json twin; name_data/scope_note_data carry every lang item, the pick is only the human label. Nothing is written to storage.',
-			},
-		],
-		[
 			'src/core/section/indexation_grid.ts',
 			{
 				count: 1,
@@ -1567,8 +1551,10 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 	 * label, the login context lang and the LLM map's link-target lang read the
 	 * request scope. 18 → 13 (T2 B10 OX7-1b): the tool_import_dedalo_csv (4)
 	 * and tool_posterframe (1) report labels read currentApplicationLang().
+	 * 13 → 11: the ontology and thesaurus census picks (data_io,
+	 * hierarchy_census) too.
 	 */
-	const CENSUS_TOTAL = 13;
+	const CENSUS_TOTAL = 11;
 
 	const LANG_READ = /config\.menu\.(?:dataLang|applicationLang)\b/;
 

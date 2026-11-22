@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { getActiveOntologies } from '../../src/core/ontology/data_io.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 
 const SECTION = 'ontology35';
 const TABLE = 'matrix_ontology_main';
@@ -243,6 +244,20 @@ describe('getActiveOntologies — name resolution', () => {
 
 	test('prefers the application lang over the others', () => {
 		expect(byTld(censusAll, 'zztj')?.name).toBe('Nombre en castellano');
+	});
+
+	test('T2-OX7-1b: the picked name follows the REQUEST application lang', async () => {
+		// Two request langs → the row's two stored names; the install default
+		// answered both requests the Spanish one.
+		for (const [lang, expected] of [
+			['lg-eng', 'Name in English'],
+			['lg-spa', 'Nombre en castellano'],
+		] as const) {
+			const census = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+				getActiveOntologies(),
+			);
+			expect(byTld(census, 'zztj')?.name, lang).toBe(expected);
+		}
 	});
 
 	test('all-empty values give name null (not the empty string)', () => {
