@@ -43,10 +43,10 @@ describe('tipo_match: PHP tipo_in_array over a compiled list', () => {
 	});
 
 	test('an exact tipo matches itself only', () => {
-		const matcher = compileTipoMatcher(['rsc36'], 'tool_zz');
-		expect(matcher.matches('rsc36')).toBe(true);
-		expect(matcher.matches('rsc360')).toBe(false);
-		expect(matcher.matches('rsc3')).toBe(false);
+		const matcher = compileTipoMatcher(['test36'], 'tool_zz');
+		expect(matcher.matches('test36')).toBe(true);
+		expect(matcher.matches('test360')).toBe(false);
+		expect(matcher.matches('test3')).toBe(false);
 	});
 
 	test('a `/…/flags` regex matches like preg_match (the shipped tool_ontology patterns)', () => {
@@ -56,11 +56,11 @@ describe('tipo_match: PHP tipo_in_array over a compiled list', () => {
 		);
 		expect(matcher.matches('ontology35')).toBe(true);
 		expect(matcher.matches('ontology7')).toBe(true);
-		expect(matcher.matches('rsc0')).toBe(true);
+		expect(matcher.matches('test0')).toBe(true);
 		expect(matcher.matches('localontology0')).toBe(false);
-		expect(matcher.matches('rsc35')).toBe(false);
+		expect(matcher.matches('test35')).toBe(false);
 		// flags are honoured
-		expect(compileTipoMatcher(['/^RSC[0-9]+$/i'], 'tool_zz').matches('rsc36')).toBe(true);
+		expect(compileTipoMatcher(['/^TEST[0-9]+$/i'], 'tool_zz').matches('test36')).toBe(true);
 		expect(warn).not.toHaveBeenCalled();
 	});
 

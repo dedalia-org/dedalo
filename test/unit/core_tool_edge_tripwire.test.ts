@@ -121,9 +121,9 @@ const LEDGERED_NAMES: Record<string, { names: Readonly<Record<string, number>>; 
 				'The picker-wiring table keys two tools’ source/linker roles by name. A real name-keyed coupling. Clears when a ToolServerModule declares its own picker wiring.',
 		},
 		'src/core/tools/registry.ts': {
-			names: { tool_diffusion: 1, tool_lang_multi: 1 },
+			names: { tool_diffusion: 1, tool_export: 1, tool_lang_multi: 1 },
 			reason:
-				"Availability special case: tool_diffusion is offered only when a diffusion domain resolves (`if (name === …)`). A real name branch. Clears when availability moves to the tool module’s `isAvailable`. tool_lang_multi (owner C54, T1-P01 16b, 2026-11-13): the served client context of tool_lang_multi is tool_lang’s config MINUS the type:'browser' translator engines, keyed by name in toolClientConfig — the one place the context is served. Clears when the translategemma revision is pinned (16b lifted) or the filter moves to the tool module.",
+				"tool_export (T2-O11-4, 2026-11-22): an element living in the Time Machine section (dd15) is offered tool_export only — PHP common::get_tools keyed the same rule by name; a real name branch in toolFitsElement. Clears when a ToolServerModule declares that it is offered inside dd15. Availability special case: tool_diffusion is offered only when a diffusion domain resolves (`if (name === …)`). A real name branch. Clears when availability moves to the tool module’s `isAvailable`. tool_lang_multi (owner C54, T1-P01 16b, 2026-11-13): the served client context of tool_lang_multi is tool_lang’s config MINUS the type:'browser' translator engines, keyed by name in toolClientConfig — the one place the context is served. Clears when the translategemma revision is pinned (16b lifted) or the filter moves to the tool module.",
 		},
 		'src/core/tools/transcription_asr.ts': {
 			names: { tool_transcription: 3 },
@@ -288,6 +288,7 @@ describe('tool names in src/ code are ledgered and shrink-only', () => {
 	test('the scan finds a ledgered name branch (anti-vacuity)', () => {
 		expect(census.get('src/core/tools/registry.ts')).toEqual({
 			tool_diffusion: 1,
+			tool_export: 1,
 			tool_lang_multi: 1,
 		});
 	});
