@@ -531,6 +531,39 @@ describe.if(DB_READY)('R3 — EXCLUDE_DIFFUSION_ELEMENTS (tool_diffusion config)
 			await setJobState(includedJob, 'cancelled');
 		});
 
+		test('re-review LOW-3: a job whose spec names NO element — requeue REFUSES it, the sweeper re-queues it (no NULL logic)', async () => {
+			// HAND-MADE rows: no door enqueues a spec without an element, so the
+			// situation is built by stripping it from a scratch job's spec.
+			const requeueJob = await scratchJob(INCLUDED, 'zzdifnl1');
+			const sweptJob = await scratchJob(INCLUDED, 'zzdifnl2');
+			for (const id of [requeueJob, sweptJob]) {
+				await sql.unsafe(
+					`UPDATE "${DIFFUSION_JOBS_TABLE}" SET spec = spec - 'diffusion_element_tipo' WHERE job_id = $1`,
+					[id],
+				);
+			}
+			await setJobState(requeueJob, 'cancelled');
+			await setJobState(sweptJob, 'running');
+			const before = await getJobById(requeueJob);
+			expect(before?.spec.diffusion_element_tipo ?? null).toBeNull();
+			// A NON-EMPTY list: `NULL = ANY(<non-empty>)` is NULL, the three-valued case.
+			await withScratchToolConfig(EXCLUSION_TOOL, { [EXCLUSION_KEY]: [EXCLUDED] }, async () => {
+				const refused = await requeueTerminalJob(requeueJob).catch((error: unknown) => error);
+				expect(refused).toBeInstanceOf(DedaloError);
+				expect((refused as DedaloError).code).toBe('diffusion.not_requeueable');
+				expect(await getJobById(requeueJob)).toEqual(before);
+				// The sweeper decides on a definite boolean: not excluded → re-queued
+				// as any lost run with budget left (before: blocked NULL → 'failed'
+				// with the old result kept and the id reported as an ordinary failure).
+				const swept = await sweepStaleJobs(20);
+				expect(swept.requeued).toContain(sweptJob);
+				expect(swept.refused).not.toContain(sweptJob);
+				expect(swept.failed).not.toContain(sweptJob);
+				expect((await getJobById(sweptJob))?.state).toBe('queued');
+			});
+			await setJobState(sweptJob, 'cancelled');
+		});
+
 		test('sweeper: while the list is MALFORMED no lost run is re-queued (tool.config_invalid)', async () => {
 			const job = await scratchJob(INCLUDED, 'zzdifsw3');
 			await setJobState(job, 'running');

@@ -788,7 +788,16 @@ export async function requeueTerminalJob(jobId: string): Promise<DiffusionJobRow
 	)) as { element: string | null }[];
 	const target = eligible[0];
 	if (target === undefined) return null;
-	if (typeof target.element === 'string') await assertPublishableElement(target.element);
+	// A spec naming NO element is MALFORMED, not unguarded (re-review LOW-3): no
+	// door enqueues one, and the guard cannot clear what it cannot name — so it is
+	// refused, never re-run on the strength of a missing key.
+	if (typeof target.element !== 'string' || target.element === '') {
+		throw new DedaloError('diffusion.not_requeueable', {
+			message: `requeue: job ${jobId}'s spec names no diffusion element (malformed) — not re-run`,
+			coordinates: { job_id: jobId },
+		});
+	}
+	await assertPublishableElement(target.element);
 	const rows = (await sql.unsafe(
 		`UPDATE "${DIFFUSION_JOBS_TABLE}"
 		 SET state = 'queued', runner = '{}'::jsonb, heartbeat_at = NULL,
@@ -870,7 +879,7 @@ export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 	const swept = (await sql.unsafe(
 		`WITH stale AS (
 		     SELECT job_id,
-		            ($3::boolean OR (spec->>'diffusion_element_tipo') = ANY(string_to_array($4, ','))) AS blocked
+		            ($3::boolean OR COALESCE((spec->>'diffusion_element_tipo') = ANY(string_to_array($4, ',')), false)) AS blocked
 		       FROM "${DIFFUSION_JOBS_TABLE}"
 		      WHERE state = 'running'
 		        AND (heartbeat_at IS NULL OR heartbeat_at < now() - make_interval(secs => $1))
@@ -901,6 +910,9 @@ export async function sweepStaleJobs(staleAfterSeconds: number): Promise<{
 		 -- BLOCKED (R3 review MED-1): a re-queue starts a NEW run, so a lost run
 		 -- whose element is excluded (or every lost run while the list is
 		 -- malformed) is FAILED with the guard's own failure record instead.
+		 -- 'blocked' is a DEFINITE boolean (re-review LOW-3): a spec with no element
+		 -- makes 'NULL = ANY(...)' NULL, and a NULL in the CASEs above split the row
+		 -- (state 'failed', result kept) — COALESCE reads it as not excluded.
 		 FROM stale
 		 WHERE jobs.job_id = stale.job_id AND jobs.state = 'running'
 		 RETURNING jobs.job_id, jobs.state, stale.blocked`,

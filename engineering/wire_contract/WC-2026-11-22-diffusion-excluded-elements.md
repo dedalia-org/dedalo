@@ -115,3 +115,15 @@ Gate: `diffusion_excluded_elements_native` E (string/number/mixed/empty-string d
 and reported with the value; malformed stored value replaced and reported; non-object config
 refused, value unchanged; a decoy naming the tool second is not written into — a record of its
 own is created and the reader sees it; the door refuses a malformed value to move).
+
+## Addendum 2026-11-22 — re-review LOW-3: a job spec with no element
+
+- **Admin requeue** (`requeueTerminalJob`) of a job whose spec names no `diffusion_element_tipo`
+  is REFUSED `diffusion.not_requeueable` (malformed: the guard cannot clear what it cannot name),
+  nothing written. Before: the missing element skipped the guard and the job re-queued.
+- **The stale-run sweeper** decides on a definite boolean: `COALESCE(element = ANY(list), false)`.
+  Before, a NULL element made `blocked` NULL against a non-empty list, and the CASEs split the
+  row (state `failed`, previous result kept, reported as an ordinary failure). Now such a lost run
+  is treated as not excluded — re-queued while budget remains, as before the guard existed.
+
+Gate: `diffusion_excluded_elements_native` F (hand-made rows with the element stripped).
