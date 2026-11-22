@@ -37,6 +37,11 @@ import {
 	dateModeOf,
 	type PeriodLabels,
 } from '../components/component_date/date_value.ts';
+import { LIST_SOURCE_CAP, servedTextPreview } from '../components/component_text_area/emit.ts';
+import {
+	createSvgTagPathMemo,
+	type SvgTagPathMemo,
+} from '../components/component_text_area/tag_html.ts';
 import { getComponentModel, getRenderClass } from '../components/registry.ts';
 import type { RenderClass } from '../components/types.ts';
 import { mediaTypeOf } from '../concepts/media.ts';
@@ -51,6 +56,7 @@ import { logError } from '../errors/log.ts';
 import { getLabels } from '../labels/catalog.ts';
 import { additionalPath as mediaBucketPath } from '../media/path.ts';
 import { versionedMediaUrl } from '../media/url_version.ts';
+import { appServedMediaSrc } from '../media/web_base_src.ts';
 import { termByTipo } from '../ontology/labels.ts';
 import {
 	getColumnNameByModel,
@@ -65,7 +71,6 @@ import { buildRequestConfigForElement } from '../relations/request_config/build.
 import { decodeHtmlSpecialChars } from '../resolve/html_text.ts';
 import { optimizeTcIn, optimizeTcOut, secondsToTc, tcToSeconds } from '../resolve/optimize_tc.ts';
 import { currentApplicationLang, currentDataLang } from '../resolve/request_lang.ts';
-import { truncateHtml } from '../resolve/truncate_html.ts';
 import {
 	findInverseReferenceLocators,
 	findInverseReferenceLocatorsPast,
@@ -204,6 +209,10 @@ interface GridContext {
 	quoteGate?: IndexationQuoteGate;
 	/** Set by textAreaIndexationCell when the gate refused its quote: the row is withheld. */
 	quoteRefused: boolean;
+	/** The svg-glyph path memo of THIS grid build (servedFragmentText). */
+	svgTagMemo: SvgTagPathMemo;
+	/** Untagged fragment previews of THIS grid build, keyed by capped source text. */
+	untaggedPreviews: Map<string, Promise<string>>;
 }
 
 async function readRecordOnce(
@@ -643,6 +652,9 @@ async function elementToolContext(
 		const elementTools = await getElementTools({
 			model,
 			tipo: elementTipo,
+			sectionTipo: elementSectionTipo,
+			// PHP builds the grid's column components in 'indexation_list'.
+			mode: 'indexation_list',
 			isComponent: model.startsWith('component_'),
 			translatable: await getTranslatableByTipo(elementTipo),
 			toolConfigKeys: Object.keys(toolConfigBag),
@@ -752,6 +764,44 @@ export function fragmentFromTag(
 	};
 }
 
+/** PHP's untagged-fragment preview length (get_fragment_text_from_tag fallback). */
+const UNTAGGED_FRAGMENT_MAX_CHARS = 220;
+
+/**
+ * The fragment text the grid SERVES (T2-D03-b-b): the stored rich text is
+ * same-origin relative (WC-042), so its media `src` must be rebased onto
+ * webBase like every other served rich text — on a split-origin install the
+ * app origin serves no media.
+ *  - tagged (`fragmentFromTag` found the index tag): the slice, rebased;
+ *  - untagged: THE served-text preview (component_text_area/emit.ts
+ *    servedTextPreview — rebase → tags → HTML truncate) of the text with its
+ *    marks deleted FIRST, so the 220 chars count readable text and a cut can
+ *    never leave half a mark behind (PHP truncated, then deleted marks) —
+ *    except a mark straddling the LIST_SOURCE_CAP cut of a text with under 220
+ *    readable chars before it (the bound wins over the cosmetics).
+ * `previews` (optional, the grid build's) memoizes the untagged preview per
+ * source text: N rows quoting one transcription compute it once.
+ */
+export async function servedFragmentText(
+	tagged: { text: string } | null,
+	rawText: string,
+	memo: SvgTagPathMemo,
+	previews?: Map<string, Promise<string>>,
+): Promise<string> {
+	if (tagged !== null) return appServedMediaSrc(tagged.text);
+	if (rawText === '') return '';
+	// DOS-01 (B5 review M1): bound the source BEFORE deleteMarks — its lazy
+	// `(-data:.*?:data)?` bodies are quadratic on unterminated openers (320 KB
+	// ≈ 3 s, per grid row). A 220-char preview needs far less than the same
+	// prefix every served preview sees.
+	const capped = rawText.length > LIST_SOURCE_CAP ? rawText.slice(0, LIST_SOURCE_CAP) : rawText;
+	const known = previews?.get(capped);
+	if (known !== undefined) return known;
+	const preview = servedTextPreview(deleteMarks(capped), UNTAGGED_FRAGMENT_MAX_CHARS, memo);
+	previews?.set(capped, preview);
+	return preview;
+}
+
 /** PHP TR::deleteMarks — strip every Dédalo [tag] mark family. */
 function deleteMarks(text: string): string {
 	return text
@@ -819,24 +869,23 @@ async function textAreaIndexationCell(
 		const locSectionId = canonicalizeStoredSectionId(indexLocator.section_id);
 		let tagId = indexLocator.tag_id ?? '';
 
-		// fragment (PHP get_fragment_text_from_tag; 220-char truncation fallback)
-		let fragmentInfo: ReturnType<typeof fragmentFromTag> = null;
-		if (tagId !== '') {
-			fragmentInfo = fragmentFromTag(tagId, fullRawText);
-		}
-		if (fragmentInfo === null) {
-			if (indexLocator.tag_id === undefined) tagId = '';
-			let valueFragment = truncateHtml(220, fullRawText, true);
-			valueFragment = valueFragment !== '' ? deleteMarks(valueFragment) : '';
-			fragmentInfo = {
-				text: valueFragment,
-				tag_in_pos: null,
-				tag_out_pos: null,
-				tag_in: null,
-				tag_out: null,
-			};
-		}
-		const textFragment = fragmentInfo.text ?? '';
+		// fragment (PHP get_fragment_text_from_tag; 220-char preview fallback),
+		// SERVED on webBase (servedFragmentText, T2-D03-b-b)
+		const tagged = tagId !== '' ? fragmentFromTag(tagId, fullRawText) : null;
+		if (tagged === null && indexLocator.tag_id === undefined) tagId = '';
+		const fragmentInfo = tagged ?? {
+			text: '',
+			tag_in_pos: null,
+			tag_out_pos: null,
+			tag_in: null,
+			tag_out: null,
+		};
+		const textFragment = await servedFragmentText(
+			tagged,
+			fullRawText,
+			ctx.svgTagMemo,
+			ctx.untaggedPreviews,
+		);
 
 		const recordLinkColumn = cell({
 			type: 'column',
@@ -1859,6 +1908,8 @@ export async function buildIndexationGrid(
 		toolContexts: new Map(),
 		quoteGate,
 		quoteRefused: false,
+		svgTagMemo: createSvgTagPathMemo(),
+		untaggedPreviews: new Map(),
 	};
 
 	// Bun-native: prefetch every top record in one query per matrix table.

@@ -223,3 +223,71 @@ describe('component_text_area <img src>: stored relative, served on webBase', ()
 		expect(result.listFallbackSrc).toBe(relative);
 	}, 120_000);
 });
+
+/**
+ * T2-D03-b-b — the indexation grid's text fragment is served rich text too: its
+ * `<img src>` is rebased onto webBase on BOTH paths (the tagged slice and the
+ * untagged 220-char preview, which now goes through servedTextPreview with its
+ * marks deleted first). Pure child: no DB, the real grid function.
+ */
+const GRID_CHILD_PROGRAM = `
+const { config } = await import('./src/config/config.ts');
+const { fragmentFromTag, servedFragmentText } = await import('./src/core/section/indexation_grid.ts');
+const { createSvgTagPathMemo } = await import('./src/core/components/component_text_area/tag_html.ts');
+const img = '<img src="/dedalo/' + config.mediaDir + '/image/web/pic.jpg">';
+const raw = '<p>intro [TC_00:00:01.000_TC]' + img + ' [index-n-1]tagged ' + img + '[/index-n-1] after</p>';
+const srcOf = (html) => {
+  const m = /<img[^>]*src="([^"]*)"/.exec(html);
+  if (m === null) throw new Error('no <img src> in ' + html);
+  return m[1];
+};
+const memo = createSvgTagPathMemo();
+const tagged = await servedFragmentText(fragmentFromTag('1', raw), raw, memo);
+const untagged = await servedFragmentText(null, raw, memo);
+console.log(JSON.stringify({
+  webBase: config.media.webBase,
+  mediaDir: config.mediaDir,
+  taggedSrc: srcOf(tagged),
+  untaggedSrc: srcOf(untagged),
+  untaggedHasMarks: /\\[(TC_|\\/?index-)/.test(untagged),
+  taggedText: tagged.includes('tagged'),
+}));
+process.exit(0);
+`;
+
+interface GridProbe {
+	webBase: string;
+	mediaDir: string;
+	taggedSrc: string;
+	untaggedSrc: string;
+	untaggedHasMarks: boolean;
+	taggedText: boolean;
+}
+
+function gridProbe(mediaWebBase: string): GridProbe {
+	const run = Bun.spawnSync(['bun', '-e', GRID_CHILD_PROGRAM], {
+		cwd: `${import.meta.dir}/../..`,
+		env: { ...process.env, DEDALO_MEDIA_WEB_BASE: mediaWebBase },
+	});
+	const stdout = run.stdout.toString();
+	expect(`exit ${run.exitCode}\n${run.stderr.toString()}`).toBe('exit 0\n');
+	return JSON.parse(stdout.trim().split('\n').at(-1) ?? '') as GridProbe;
+}
+
+describe('indexation grid text fragment <img src>: served on webBase (T2-D03-b-b)', () => {
+	test('SPLIT ORIGIN — the tagged slice and the untagged preview are both rebased', () => {
+		const result = gridProbe(SPLIT_ORIGIN_BASE);
+		expect(result.webBase).toBe('http://media.example.test:8080/dedalo/media');
+		expect(result.taggedSrc).toBe(`${result.webBase}/image/web/pic.jpg`);
+		expect(result.untaggedSrc).toBe(`${result.webBase}/image/web/pic.jpg`);
+		expect(result.untaggedHasMarks).toBe(false);
+		expect(result.taggedText).toBe(true);
+	}, 120_000);
+
+	test('SAME ORIGIN (key unset) — both stay the relative url (no-op)', () => {
+		const result = gridProbe('');
+		const relative = `/dedalo/${result.mediaDir}/image/web/pic.jpg`;
+		expect(result.taggedSrc).toBe(relative);
+		expect(result.untaggedSrc).toBe(relative);
+	}, 120_000);
+});

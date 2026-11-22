@@ -30,6 +30,15 @@ export interface ElementToolsTarget {
 	/** The element's runtime model (e.g. 'section', 'component_input_text'). */
 	model: string;
 	tipo: string;
+	/**
+	 * The section the element LIVES in (PHP `$this->get_section_tipo()`): a
+	 * section's own tipo, a component's owning section. REQUIRED (T2-O11-4):
+	 * the dd15 rule and every tool's is_available hook read it — the old filter
+	 * fabricated it from `tipo`, so a component context lied about its section.
+	 */
+	sectionTipo: string;
+	/** The element's mode (PHP `$this->mode`), handed to is_available. REQUIRED. */
+	mode: string;
 	/** True for component_* models (enables the 'all_components' catch-all). */
 	isComponent: boolean;
 	/** The element's translatable flag (components: gates requirement_translatable). */

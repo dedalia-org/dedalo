@@ -129,7 +129,7 @@ describe.if(hasPhpCredentials())('section tools differential (Phase 6 gate)', ()
 		expect(adopted.rewrites.ids).toBe(0);
 		phpTools = ((adopted.body as Record<string, unknown>).tools as ToolDdo[]) ?? [];
 
-		const result = await getSectionTools(SECTION_TIPO);
+		const result = await getSectionTools(SECTION_TIPO, 'edit');
 		tsAll = result.tools as unknown as ToolDdo[];
 		tsTools = tsAll.filter((tool) => !TS_ONLY_TOOLS.includes(tool.name as never));
 		tsLedgered = result.ledgered;
@@ -223,7 +223,7 @@ describe.if(hasPhpCredentials())('tool_diffusion availability (diffusion section
 		expect(await haveSectionDiffusion('test3')).toBe(false);
 		expect(await haveSectionDiffusion(SECTION_TIPO)).toBe(false);
 
-		const result = await getSectionTools('test3');
+		const result = await getSectionTools('test3', 'edit');
 		expect(result.tools.map((tool) => (tool as { name?: string }).name)).not.toContain(
 			'tool_diffusion',
 		);

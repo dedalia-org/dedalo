@@ -43,11 +43,12 @@ import {
 	currentOntologyGeneration,
 	registerOntologyCacheClearer,
 } from '../ontology/cache_invalidation.ts';
-import { labelByTipo } from '../ontology/labels.ts';
+import { labelByTipo, resolveLabel, termByTipo } from '../ontology/labels.ts';
 import { ONTOLOGY_TLD } from '../ontology/ontology_tipos.ts';
 import {
 	elementLang,
 	getColumnNameByModel,
+	getMatrixTableFromTipo,
 	getModelByTipo,
 	getNode,
 	getTranslatableByTipo,
@@ -59,7 +60,7 @@ import { declaredOrderOf } from '../relations/order_locators.ts';
 import type { ParsedRequestConfigItem } from '../relations/request_config/explicit.ts';
 import type { RqoRequestConfigItem } from '../relations/request_config/from_rqo.ts';
 import { stampSectionContext } from '../section/context.ts';
-import type { Principal } from '../security/permissions.ts';
+import { type Principal, SUPERUSER_ID } from '../security/permissions.ts';
 import { currentApplicationLang } from './request_lang.ts';
 
 /** The cached structural CORE (request-invariant fields). */
@@ -1282,6 +1283,7 @@ export async function buildStructureContext(options: {
 	if (core.model === 'section') {
 		await stampSectionContext(entry, {
 			tipo: options.tipo,
+			mode: options.mode,
 			permissions,
 			properties: core.properties,
 			principal: options.principal,
@@ -1358,27 +1360,23 @@ export async function buildStructureContext(options: {
 		const elementTools = await getElementTools({
 			model: core.model,
 			tipo: options.tipo,
+			sectionTipo: options.sectionTipo,
+			mode: options.mode,
 			isComponent: isComponentModel,
 			translatable: isComponentModel ? core.translatable : false,
 			toolConfigKeys,
 		});
-		// PHP get_tools stamping (class.common.php:1868-1916): a tool declaring
-		// properties.mode shows only in that mode; each remaining tool carries
-		// its config through the ONE element stamp (ontology tool_config, the
-		// Tools-configuration / register override ddo_map, 'self' resolved,
-		// entries enriched — stampElementToolConfigs, T1-43).
+		// PHP get_tools stamping (class.common.php:1868-1916) through the ONE
+		// element stamp: the `properties.mode` filter, then each tool's config
+		// (ontology tool_config, the Tools-configuration / register override
+		// ddo_map, 'self' resolved, entries enriched — stampElementToolConfigs,
+		// T1-43 / T2-O11-1).
 		const { stampElementToolConfigs } = await import('../tools/section_tool_context.ts');
-		const modeTools = elementTools.tools.filter((tool) => {
-			const toolMode = (tool.properties as { mode?: unknown } | null | undefined)?.mode;
-			return toolMode === undefined || toolMode === options.mode;
+		entry.tools = await stampElementToolConfigs(entry, elementTools.tools, toolConfigBag, {
+			tipo: options.tipo,
+			sectionTipo: options.sectionTipo,
+			mode: options.mode,
 		});
-		entry.tools = await stampElementToolConfigs(
-			entry,
-			modeTools,
-			toolConfigBag,
-			options.tipo,
-			options.sectionTipo,
-		);
 	}
 
 	// request_config (spec §3.6): explicit from the Site-B SOURCE properties (with
@@ -1698,7 +1696,162 @@ export async function buildStructureContext(options: {
 			);
 		}
 	}
+
+	await stampPostEmission(entry, core.model, options);
 	return entry;
+}
+
+/**
+ * POST-EMISSION STAMPS (T2-SC-1/2/3) — ONE ordered block, run LAST: after every
+ * properties source has spoken (the ontology, an RQO override, a governing ddo
+ * — the re-emissions above) and the request_config is stamped, so none of them
+ * can ship around it. Each stamp reads and writes the EMITTED clone only:
+ *   1. the `properties.label` OBJECT override (SC-2);
+ *   2. `state_of_component` messages resolved (SC-1, components);
+ *   3. shared (matrix_dd) targets close button_edit/button_list for non-root
+ *      (SC-3, components with a request_config).
+ * Per call, per request lang and per principal — never cached.
+ */
+async function stampPostEmission(
+	entry: StructureContextEntry,
+	model: string,
+	options: { readonly tipo: string; readonly principal?: Principal },
+): Promise<void> {
+	const properties = entry.properties as Record<string, unknown> | null | undefined;
+	if (properties === null || typeof properties !== 'object') return;
+	applyLabelOverride(entry, properties);
+	if (!model.startsWith('component_')) return;
+	await resolveStateOfComponent(properties, options.tipo);
+	await closeSharedTargetButtons(entry, properties, options.principal);
+}
+
+/**
+ * SC-2 (PHP build_structure_context :1928-1941, v6 identical): an OBJECT
+ * `properties.label` — a lang map, `{"lg-spa": "…", "lg-eng": "…"}` — replaces
+ * the element's label, resolved through the engine's ONE ontology label chain
+ * (ontology/labels.ts resolveLabel: requested lang → declared equivalent →
+ * structure lang → first non-empty), not PHP's "requested lang, else first in
+ * stored order" (WC-2026-11-22-properties-label-override-chain). A STRING (or an
+ * array) never overrides — PHP reads only an object; a map with no non-empty
+ * value leaves the ontology label.
+ */
+function applyLabelOverride(
+	entry: StructureContextEntry,
+	properties: Record<string, unknown>,
+): void {
+	const label = properties.label;
+	if (label === null || typeof label !== 'object' || Array.isArray(label)) return;
+	const resolved = resolveLabel(label, currentApplicationLang());
+	if (resolved !== null) entry.label = resolved;
+}
+
+/**
+ * SC-1 (PHP :1994-2005, v6 :1788-1799): each `state_of_component.<key>.msg` is
+ * a UI-label KEY; the wire carries its text in the request's APPLICATION lang,
+ * `%s` filled with the term of `target_component` (`component_alternative` →
+ * "Alternative field … Use instead: Title"). A msg that is not a label key —
+ * or whose text keeps an unfilled `%s` (no target to name) — is REFUSED: the
+ * msg is dropped and the defect logged, so no raw key reaches the client (PHP
+ * shipped `<i>key</i>`, or the bare key when no target was declared).
+ */
+async function resolveStateOfComponent(
+	properties: Record<string, unknown>,
+	tipo: string,
+): Promise<void> {
+	const state = properties.state_of_component;
+	if (state === null || typeof state !== 'object' || Array.isArray(state)) return;
+	const lang = currentApplicationLang();
+	const { getLabels } = await import('../labels/catalog.ts');
+	const labels = await getLabels(lang);
+	const resolved: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(state as Record<string, unknown>)) {
+		resolved[key] = await resolveStateEntry(
+			value,
+			labels,
+			lang,
+			`${tipo} state_of_component.${key}`,
+		);
+	}
+	properties.state_of_component = resolved;
+}
+
+/** One state entry with its msg resolved, or without it when it cannot be. */
+async function resolveStateEntry(
+	value: unknown,
+	labels: Readonly<Record<string, string>>,
+	lang: string,
+	where: string,
+): Promise<unknown> {
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+	const entry = { ...(value as Record<string, unknown>) };
+	if (!('msg' in entry)) return entry;
+	const text = await stateMessageText(entry.msg, entry.target_component, labels, lang);
+	if (text !== null) {
+		entry.msg = text;
+		return entry;
+	}
+	console.warn(
+		`[structure_context] ${where}.msg ${JSON.stringify(entry.msg)} refused: not a UI label key, or its %s names no target_component (msg not shipped)`,
+	);
+	const { msg: _refused, ...withoutMsg } = entry;
+	return withoutMsg;
+}
+
+/** The label text of `msg` with `%s` = the target's term, or null when unresolvable. */
+async function stateMessageText(
+	msg: unknown,
+	targetComponent: unknown,
+	labels: Readonly<Record<string, string>>,
+	lang: string,
+): Promise<string | null> {
+	if (typeof msg !== 'string' || !Object.hasOwn(labels, msg)) return null;
+	let text = labels[msg] as string;
+	if (typeof targetComponent === 'string' && targetComponent !== '') {
+		const term = await termByTipo(targetComponent, lang);
+		// function replacer: the term is inserted literally (`$&`, `$'` … in an
+		// ontology term are not replacement patterns).
+		text = text.replace('%s', () => term);
+	}
+	return text.includes('%s') ? null : text;
+}
+
+/**
+ * SC-3 (PHP :2033-2054, v6 identical): a component whose request_config targets
+ * a SHARED section — one stored in matrix_dd, the yes/no-style lists shared
+ * between installations — gets `show_interface.button_edit` and `button_list`
+ * forced false for everyone but root: nobody else may open or edit those
+ * records. Per call and per principal (no principal = not root, fail closed);
+ * stamped after the override/governed re-emission, so neither can re-open it;
+ * merged, so sibling keys survive.
+ */
+async function closeSharedTargetButtons(
+	entry: StructureContextEntry,
+	properties: Record<string, unknown>,
+	principal: Principal | undefined,
+): Promise<void> {
+	if (!Array.isArray(entry.request_config)) return;
+	const { currentPrincipal } = await import('../security/request_context.ts');
+	if ((principal ?? currentPrincipal())?.userId === SUPERUSER_ID) return;
+	if (!(await targetsSharedSection(entry.request_config))) return;
+	properties.show_interface = {
+		...((properties.show_interface as Record<string, unknown> | undefined) ?? {}),
+		button_edit: false,
+		button_list: false,
+	};
+}
+
+/** The table of the sections shared between installations (PHP `matrix_table==='matrix_dd'`). */
+const SHARED_SECTION_TABLE = 'matrix_dd';
+
+/** Does any request_config item target a section stored in matrix_dd? */
+async function targetsSharedSection(requestConfig: unknown[]): Promise<boolean> {
+	const { extractSqoSectionTipos } = await import('../relations/request_config/explicit.ts');
+	for (const item of requestConfig as ParsedRequestConfigItem[]) {
+		for (const target of extractSqoSectionTipos(item)) {
+			if ((await getMatrixTableFromTipo(target)) === SHARED_SECTION_TABLE) return true;
+		}
+	}
+	return false;
 }
 
 /** PHP common::context_key — dedup identity for merged context arrays. */

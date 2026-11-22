@@ -206,6 +206,33 @@ describe('labels tripwire (WC-033 — master.json defines, catalogs translate)',
 		expect(duplicates, `${MASTER_SOURCE_LANG}.json duplicates master.json entries`).toEqual([]);
 	});
 
+	// A translation is FILLED by code: `%s`/`%d`/`%1$s` (sprintf — the
+	// state_of_component messages), `${name}` (client templates) and `%name%`.
+	// One the translator altered — `% s`, a translated `${total_pàgina}`, a
+	// dropped `%s` — is never filled: the user reads the raw marker or loses the
+	// value (T2-SC-1 found three). The SAME placeholders, as a multiset, as the
+	// master's.
+	test('every catalog entry carries exactly the master’s placeholders', () => {
+		const placeholders = (text: string): string =>
+			[...text.matchAll(/%[a-z_]+%|%(?:\d+\$)?[sd]|\$\{[A-Za-z_]+\}/g)]
+				.map((match) => match[0])
+				.sort()
+				.join(' ');
+		const carrying = Object.keys(master).filter(
+			(key) => placeholders(master[key] as string) !== '',
+		);
+		expect(carrying.length).toBeGreaterThan(0); // the census reads something
+		const drifted: string[] = [];
+		for (const { lang, map } of catalogs) {
+			for (const [key, text] of Object.entries(map)) {
+				const expected = placeholders(master[key] ?? '');
+				const found = placeholders(text);
+				if (found !== expected) drifted.push(`${lang} ${key}: [${found}] ≠ master [${expected}]`);
+			}
+		}
+		expect(drifted).toEqual([]);
+	});
+
 	test('every catalog key set is a subset of the master', () => {
 		for (const { lang, map } of catalogs) {
 			const orphans = Object.keys(map).filter((key) => !masterKeys.has(key));

@@ -241,6 +241,41 @@ takes. Clicking a tool re-authorizes independently (`src/core/tools/dispatch.ts`
 `dd_core_api` start), so this filter is a wire-correctness rule, not the access
 control — but omitting it ships buttons that 403.
 
+### The element filter, step by step (`getElementTools`)
+
+After the actor filter, in PHP `get_tools` order:
+
+1. **Declared** — the element's model is in `affected_models` (`all_components`
+   for any component), OR its tipo matches `affected_tipos`, OR it names the tool
+   in its own `properties.tool_config`.
+2. **`affected_tipos` restriction** — a list that names something must match the
+   tipo. The list is COMPILED once per registry load (`src/core/tools/tipo_match.ts`,
+   PHP `tipo_in_array`): an exact tipo; a `<tld>*` wildcard, both sides read
+   through `getTldFromTipo` (`ontology*` matches `ontology40`, not
+   `ontologytype14`; a bare `*` matches nothing); a `/pattern/flags` regex. A
+   malformed pattern or a non-string entry is reported ONCE at compile time,
+   naming the tool, and never matches — the list still restricts (fail closed).
+   `['']` (a cleared field) restricts nothing.
+3. **The dd15 rule** — an element whose SECTION is the Time Machine (`dd15`)
+   offers `tool_export` only (element-centric policy, kept in core).
+4. **`requirement_translatable`** — only on an effectively translatable element.
+5. **`is_available`** — the tool's own hook (`ToolServerModule.isAvailable`)
+   receives the element's REAL context: `callerModel`, `tipo`, `sectionTipo`
+   (the section the element lives in — a section's own tipo, a component's
+   owning section) and `mode`. `ElementToolsTarget` makes `sectionTipo` and
+   `mode` REQUIRED, so every caller states them (WC-2026-11-22-tool-availability-context).
+
+Then the STAMP (`stampElementToolConfigs`, `src/core/tools/section_tool_context.ts`)
+— the ONE place every structure-context toolbar passes (component, area and
+section) — drops a tool whose `properties.mode` names another mode (PHP
+`build_structure_context` :1869), and attaches each remaining tool's config. The
+mode is a stamp rule, not a registry one: `getSectionTools` still lists an
+edit-only tool in list mode; the section's LIST context does not ship it.
+NOT covered: the indexation grid's embedded tool cells
+(`section/indexation_grid.ts` `elementToolContext`, mode `indexation_list`) read
+`getElementTools` directly and apply no mode filter — an open owner question
+(T2-B5), current behaviour kept.
+
 ### Reaching a component tool from a section LIST
 
 The list exclusion above says a component in `mode:'list'` ships `tools: []`. That
@@ -740,7 +775,11 @@ maintenance widget re-imports it.
 (`src/core/tools/registry.ts`) emits ONLY the entries whose `lang` equals the
 request's application lang, and an EMPTY array when the tool has no label in that
 lang. A key missing in the requested lang is omitted, never substituted from
-another lang. PHP behaved identically — frozen in
+another LANGUAGE — with ONE leg: the lang's declared linguistic alias
+(`lang_alias.translationLangOf`, `DEDALO_LANG_EQUIVALENCES`), which is the same
+language under another name. A Valencian (`lg-vlca`) interface gets its own
+entries first, then, per key it lacks, the Catalan (`lg-cat`) entry (PHP
+`lang::get_label_lang`). Directional: Catalan never reads Valencian. PHP behaved identically — frozen in
 `test/parity/fixtures/oracle_harvest/tool_element_context_differential.json`,
 where every emitted label carries the single requested lang.
 
@@ -918,7 +957,7 @@ where the hierarchy `ensure` converges a fixed shape.
 
 ## Files
 
-- Machinery: `src/core/tools/{module,types,ontology_map,registry,paths,loader,security,dispatch,config,cache,background,job_status,register,register_schema,section_tool_context,import_wire}.ts` + `src/core/security/read_only_scope.ts` + `client/`.
+- Machinery: `src/core/tools/{module,types,ontology_map,registry,tipo_match,paths,loader,security,dispatch,config,cache,background,job_status,register,register_schema,section_tool_context,import_wire}.ts` + `src/core/security/read_only_scope.ts` + `client/`.
 - Serving: `src/core/tools/serving.ts`, wired in `src/server.ts`.
 - Dispatch entry: `src/core/api/dispatch.ts` (`dd_tools_api` + the get_element_context tool branch).
 - Widget: `src/core/area_maintenance/widgets/register_tools.ts`, dispatched by
@@ -935,6 +974,7 @@ where the hierarchy `ensure` converges a fixed shape.
   `tool_job_status`, `tool_dev_template` (the exemplar's contract),
   `tool_read_only_action_tripwire` (the read-only claim),
   `tool_context_labels_lang`, `section_tool_context`, `user_tools_nonadmin`,
+  `tipo_match`, `component_tools_stamp`,
   `register_tools_widget`, `register_tools_panel`, `dd_tools_api_stream_headers`,
   `local_db_stores_tripwire`.
 - Machinery parity (`test/parity/`): `{user_tools,section_tools,component_tools,tool_element_context,tools_register,section_tool_start,tool_component_read}_differential.test.ts`.

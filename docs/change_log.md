@@ -546,6 +546,42 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-media-icons-tc`.
 
+- **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**
+
+    The fragment shown for each indexation pointed its images at the application's address, which
+    does not serve media when the installation keeps media on another host. It is now served like
+    every other rich text. The short preview shown for an untagged text counts readable characters
+    only, so it no longer ends in a broken mark.
+
+    Wire contract: `WC-2026-11-22-indexation-fragment-served`.
+
+- **"A field that points to a list shared between installations (yes/no and the other common lists) no longer offers non-root users the buttons to open or edit that list's records."**
+
+    The common lists stored with the system's own records are maintained centrally; only the root
+    user may open or edit them. Their edit and list buttons are now closed for everyone else on
+    every field that targets them, whatever the request asks for.
+
+- **"The tooltip of a component's state icon (an alternative or deprecated field) shows readable text in your language, naming the field it points to — no longer a label key."**
+
+    A field marked in the ontology as an alternative to, or replaced by, another field shows a
+    state icon whose tooltip explained the situation with an untranslated key
+    (`component_alternative`). The tooltip now reads as a sentence in the interface language and
+    names the other field by its label. A message the ontology declares wrongly (a key that is not
+    a label, or a sentence with no field to name) is left out rather than shown as code, and is
+    logged for the ontology's author.
+
+    Wire contract: `WC-2026-11-22-state-of-component-msg-refused`.
+
+- **"Tool names and help texts missing in the interface language fall back to its declared equivalent language (Valencian shows Catalan) instead of English."**
+
+    A tool translated into Catalan but not Valencian now shows its Catalan strings in a Valencian
+    interface. Catalog placeholders were also repaired: the Catalan state-icon sentences now fill in
+    the field they name (a spacing typo kept them from it), the Catalan pagination sentence shows the
+    page total (its placeholder had been translated), and the Italian state-icon sentences gained the
+    missing field placeholder.
+
+    Wire contract: `WC-2026-08-02-tool-string-lang-fallback`.
+
 - **Searching through a field without its own configuration uses the same columns as its list.**
 
     A relation field whose ontology node carries no request configuration, but has a list
@@ -2396,7 +2432,41 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-13-sort-non-scalar-refused`.
 
-??? note "Wire contract — 101 entries"
+#### Added
+
+- **"An element's `properties.label` lang map now replaces its label in the edit and list contexts, chosen through the same language fallback as every ontology label."**
+
+    An ontology node (or a request's properties override) whose `properties.label` is an object
+    keyed by language code shows that text as the element's label instead of its term. A missing
+    language degrades like every other ontology label: the declared equivalent language (Valencian
+    reads Catalan), then the structure language, then the first non-empty entry. A plain string
+    `label` does not override.
+
+    Wire contract: `WC-2026-11-22-properties-label-override-chain`.
+
+#### Fixed
+
+- **"A tool's `affected_tipos` honours its declared wildcard (`test*` = every element of that TLD) and regular-expression entries, and a tool restricted to a mode (`properties.mode`) only shows in that mode."**
+
+    A tool registration may restrict where it is offered with `affected_tipos`: an exact tipo, a
+    `<tld>*` wildcard covering every element of a TLD, or a `/pattern/flags` regular expression. The
+    wildcard kept its `*` when compared, so it matched no element and a tool restricted by one
+    appeared nowhere. A malformed entry, or a regular expression with a flag other than `i`, `m`, `s`
+    or `u`, is reported once and matches nothing; the tool stays restricted to its valid entries. A
+    tool whose `properties.mode` names a mode now appears on the section toolbar only in that mode, as
+    it already did on component toolbars.
+
+- **"A tool's availability check receives the real section and mode of the element it is offered on; inside Time Machine (dd15) only the export tool is offered."**
+
+    A tool's server-side `isAvailable` hook was given the element's own tipo as its section and an
+    empty mode, so a hook keyed on a section answered "no" for every field of that section and a
+    hook keyed on a mode never fired. It now receives the section the element lives in and the mode
+    it is drawn in (the indexation grid's columns run in `indexation_list`). Elements shown inside
+    the Time Machine section offer the export tool only.
+
+    Wire contract: `WC-2026-11-22-tool-availability-context`.
+
+??? note "Wire contract — 105 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -2496,9 +2566,13 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-21-resolve-data-injected-value-bound`
     - `WC-2026-11-21-root-password-write-refused`
     - `WC-2026-11-21-text-area-edit-fallback-is-text`
+    - `WC-2026-11-22-indexation-fragment-served`
     - `WC-2026-11-22-media-icons-tc`
+    - `WC-2026-11-22-properties-label-override-chain`
     - `WC-2026-11-22-regenerate-facet`
     - `WC-2026-11-22-section-containment-law`
+    - `WC-2026-11-22-state-of-component-msg-refused`
+    - `WC-2026-11-22-tool-availability-context`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

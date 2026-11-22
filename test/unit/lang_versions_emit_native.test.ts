@@ -149,7 +149,15 @@ afterAll(async () => {
 describe('requirement_translatable tools (tool_lang) on transliterable components', () => {
 	const toolsOf = async (tipo: string, model: string, translatable: boolean) =>
 		(
-			await getElementTools({ model, tipo, isComponent: true, translatable, toolConfigKeys: [] })
+			await getElementTools({
+				model,
+				tipo,
+				sectionTipo: SECTION,
+				mode: 'edit',
+				isComponent: true,
+				translatable,
+				toolConfigKeys: [],
+			})
 		).tools.map((tool) => tool.name);
 
 	test('tool_lang: translatable yes, with_lang_versions yes, iri yes, plain non-translatable NO', async () => {

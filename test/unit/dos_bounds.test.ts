@@ -73,3 +73,55 @@ describe('DOS-01 — text_area EDIT fallback is bounded before deleteMarks / str
 		expect(shaped?.value).toBe('Hola mundo');
 	});
 });
+
+describe('DOS-01 — indexation grid untagged fragment is bounded before deleteMarks', () => {
+	// T2-D03-b-b deletes marks BEFORE the 220-char cut; its mark regexes carry
+	// a lazy `(-data:.*?:data)?` body, quadratic on unterminated openers
+	// (B5 review M1, measured: 320 KB of `[index-a-1-data:` ≈ 3 s per grid row).
+	// The source is capped like every served preview (LIST_SOURCE_CAP).
+	test('1 MB of unterminated mark openers in an untagged row completes fast', async () => {
+		const { servedFragmentText } = await import('../../src/core/section/indexation_grid.ts');
+		const { createSvgTagPathMemo } = await import(
+			'../../src/core/components/component_text_area/tag_html.ts'
+		);
+		const unit = '[index-a-1-data:[person-a-1-x-data:[lang-a-1-x-data:';
+		const evil = `${unit.repeat(Math.ceil(1_000_000 / unit.length))} tail`;
+		const t0 = performance.now();
+		const fragment = await servedFragmentText(null, evil, createSvgTagPathMemo());
+		expect(performance.now() - t0).toBeLessThan(1000);
+		expect(typeof fragment).toBe('string');
+	});
+
+	test('N rows quoting one transcription compute its preview once (per-build memo)', async () => {
+		const { servedFragmentText } = await import('../../src/core/section/indexation_grid.ts');
+		const { createSvgTagPathMemo } = await import(
+			'../../src/core/components/component_text_area/tag_html.ts'
+		);
+		// At the cap, one adversarial preview still costs ~9 ms; 300 rows ≈ 2.6 s
+		// uncached. With the grid build's memo they cost one computation.
+		const evil = '[index-a-1-data:'.repeat(20_000);
+		const svgMemo = createSvgTagPathMemo();
+		const previews = new Map<string, Promise<string>>();
+		const first = await servedFragmentText(null, evil, svgMemo, previews);
+		const t0 = performance.now();
+		for (let row = 0; row < 300; row++) {
+			expect(await servedFragmentText(null, evil, svgMemo, previews)).toBe(first);
+		}
+		expect(performance.now() - t0).toBeLessThan(1000);
+		expect(previews.size).toBe(1);
+	});
+
+	test('a legit untagged transcript still loses its marks before the cut', async () => {
+		const { servedFragmentText } = await import('../../src/core/section/indexation_grid.ts');
+		const { createSvgTagPathMemo } = await import(
+			'../../src/core/components/component_text_area/tag_html.ts'
+		);
+		const fragment = await servedFragmentText(
+			null,
+			'<p>[TC_00:00:01.000_TC]Hola [index-a-1]mundo[/index-a-1]</p>',
+			createSvgTagPathMemo(),
+		);
+		expect(fragment).toContain('Hola mundo');
+		expect(fragment).not.toMatch(/\[(TC_|\/?index-)/);
+	});
+});

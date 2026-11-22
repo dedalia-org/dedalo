@@ -32,10 +32,11 @@
  *   specific record) — that is the get_element_context tool branch (Phase 6).
  */
 
-import { isConsultationOnlySection } from '../concepts/section.ts';
+import { isConsultationOnlySection, TIME_MACHINE_SECTION_TIPO } from '../concepts/section.ts';
 import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
+import { translationLangOf } from '../resolve/lang_alias.ts';
 import { resolveLangItems } from '../resolve/lang_fallback.ts';
 import { currentApplicationLang } from '../resolve/request_lang.ts';
 import { composeContains, locatorJsonVariants } from '../search/containment.ts';
@@ -49,6 +50,7 @@ import {
 	TOOLS_REGISTER_SECTION_TIPO,
 } from './ontology_map.ts';
 import { getToolUrl } from './paths.ts';
+import { compileTipoMatcher, type TipoMatcher } from './tipo_match.ts';
 import type { ElementToolsResult, ElementToolsTarget, ToolSimpleContext } from './types.ts';
 
 export type { ElementToolsResult, ElementToolsTarget, ToolSimpleContext } from './types.ts';
@@ -374,36 +376,12 @@ interface RegisteredTool {
 	showInComponent: boolean;
 	/** Resolved model names the tool affects (dd1330 → dd1342 names). */
 	affectedModels: string[];
-	/** Tipos/patterns the tool restricts to (dd1350 misc value), or []. */
-	affectedTipos: string[];
+	/**
+	 * Tipos/patterns the tool restricts to (dd1350 misc value), COMPILED once per
+	 * registry load (tipo_match.ts — PHP tipo_in_array); `isEmpty` = no restriction.
+	 */
+	affectedTipos: TipoMatcher;
 	requirementTranslatable: boolean;
-}
-
-/**
- * tipo membership test (PHP tipo_in_array): a value matches when it is a
- * wildcard sharing the tipo's TLD (`numisdata*`), a `/…/` regex the tipo
- * matches, or an exact string. Empty list → no restriction (caller checks).
- */
-function tipoInArray(tipo: string, values: string[]): boolean {
-	const tld = (candidate: string): string => candidate.replace(/[0-9].*$/, '');
-	for (const value of values) {
-		if (typeof value !== 'string') continue;
-		if (value.includes('*')) {
-			if (tld(tipo) === tld(value)) return true;
-		}
-		if (value.includes('/')) {
-			// PHP-style `/pattern/flags` delimited regex → JS RegExp.
-			const match = value.match(/^\/(.*)\/([a-z]*)$/);
-			if (match) {
-				try {
-					if (new RegExp(match[1] as string, match[2]).test(tipo)) return true;
-				} catch {
-					// malformed pattern — ignore, mirrors PHP's failed preg_match
-				}
-			}
-		}
-	}
-	return values.includes(tipo);
 }
 
 /**
@@ -414,7 +392,14 @@ function tipoInArray(tipo: string, values: string[]): boolean {
  */
 export async function toolIsAvailable(
 	name: string,
-	context: { calledClass: string; tipo: string; isComponent: boolean; hasToolConfig: boolean },
+	context: {
+		calledClass: string;
+		tipo: string;
+		sectionTipo: string;
+		mode: string;
+		isComponent: boolean;
+		hasToolConfig: boolean;
+	},
 ): Promise<boolean | null> {
 	if (AVAILABILITY_LEDGERED_TOOLS.has(name)) return null;
 
@@ -426,12 +411,14 @@ export async function toolIsAvailable(
 	if (await toolModuleFailedToLoad(name)) return false;
 	const loaded = await getLoadedTool(name);
 	if (loaded?.module.isAvailable !== undefined) {
+		// The element's REAL section and mode (PHP get_tools $tool_context,
+		// T2-O11-4) — never the element tipo standing in for its section.
 		return loaded.module.isAvailable({
 			callerModel: context.calledClass,
 			tipo: context.tipo,
-			sectionTipo: context.tipo,
+			sectionTipo: context.sectionTipo,
 			isComponent: context.isComponent,
-			mode: '',
+			mode: context.mode,
 			hasToolConfig: context.hasToolConfig,
 		});
 	}
@@ -533,9 +520,13 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
 			const modelName = modelNames.get(String(locator.section_id));
 			if (modelName !== undefined) affectedModels.push(modelName);
 		}
-		// affected_tipos: misc value array (tipos/patterns), or [].
+		// affected_tipos: misc value array (tipos/patterns), or [] — compiled ONCE
+		// here (a malformed pattern is reported now, naming the tool, not per tipo).
 		const affectedTiposRaw = (row.misc?.[TIPO.AFFECTED_TIPOS]?.[0] as { value?: unknown })?.value;
-		const affectedTipos = Array.isArray(affectedTiposRaw) ? affectedTiposRaw.map(String) : [];
+		const affectedTipos = compileTipoMatcher(
+			Array.isArray(affectedTiposRaw) ? affectedTiposRaw : [],
+			name,
+		);
 
 		registered.push({
 			name,
@@ -569,24 +560,24 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
  * tool_config — then a non-empty affected_tipos must also name the tipo.
  */
 function toolApplies(
-	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: TipoMatcher },
 	target: ElementToolsTarget,
 	inPropertyTools: ReadonlySet<string>,
 ): boolean {
 	if (!toolDeclared(tool, target, inPropertyTools)) return false;
 	// affected_tipos[0] restriction: when set, the tipo must match.
-	return tool.affectedTipos.length === 0 || tipoInArray(target.tipo, tool.affectedTipos);
+	return tool.affectedTipos.isEmpty || tool.affectedTipos.matches(target.tipo);
 }
 
 /** The element is named by the tool's declaration, or names the tool in its tool_config. */
 function toolDeclared(
-	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: TipoMatcher },
 	target: ElementToolsTarget,
 	inPropertyTools: ReadonlySet<string>,
 ): boolean {
 	if (inPropertyTools.has(tool.name) || tool.affectedModels.includes(target.model)) return true;
 	if (target.isComponent && tool.affectedModels.includes('all_components')) return true;
-	return tipoInArray(target.tipo, tool.affectedTipos);
+	return tool.affectedTipos.matches(target.tipo);
 }
 
 /**
@@ -604,6 +595,24 @@ async function isEffectivelyTranslatable(target: ElementToolsTarget): Promise<bo
 	if (target.translatable) return true;
 	const { hasLangVersions } = await import('../ontology/resolver.ts');
 	return hasLangVersions(target.tipo, target.model);
+}
+
+/**
+ * The element-side rules, in PHP get_tools order: the declaration match + the
+ * affected_tipos restriction (toolApplies); the dd15 rule (element-centric
+ * policy kept in core — an element living in the Time Machine section offers
+ * tool_export only); requirement_translatable (a tool requiring translatability
+ * only on an effectively translatable element).
+ */
+function toolFitsElement(
+	tool: RegisteredTool,
+	target: ElementToolsTarget,
+	inPropertyTools: ReadonlySet<string>,
+	effectiveTranslatable: boolean,
+): boolean {
+	if (!toolApplies(tool, target, inPropertyTools)) return false;
+	if (target.sectionTipo === TIME_MACHINE_SECTION_TIPO && tool.name !== 'tool_export') return false;
+	return !tool.requirementTranslatable || effectiveTranslatable;
 }
 
 export async function getElementTools(target: ElementToolsTarget): Promise<ElementToolsResult> {
@@ -624,6 +633,8 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	const context = {
 		calledClass: target.model,
 		tipo: target.tipo,
+		sectionTipo: target.sectionTipo,
+		mode: target.mode,
 		isComponent: target.isComponent,
 	};
 	const effectiveTranslatable = await isEffectivelyTranslatable(target);
@@ -634,10 +645,7 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		// The user_tools membership gate, BEFORE the applies/availability work.
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
 		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
-		if (!toolApplies(tool, target, inPropertyTools)) continue;
-		// requirement_translatable: a tool requiring translatability is shown only
-		// when the element is (effectively) translatable (PHP requirement === translatable).
-		if (tool.requirementTranslatable && !effectiveTranslatable) continue;
+		if (!toolFitsElement(tool, target, inPropertyTools, effectiveTranslatable)) continue;
 
 		const available = await toolIsAvailable(tool.name, {
 			...context,
@@ -699,17 +707,16 @@ export async function buildToolElementContext(
 	const baseUrl = getToolUrl(name);
 	const properties = row.misc?.[TIPO.PROPERTIES]?.[0]?.value ?? null;
 	// Labels (dd1372) are stored for every lang but PHP exposes only the
-	// application-lang entries in the tool context. SINGLE-LANG CONTRACT: the
-	// client's get_tool_label (client/dedalo/core/tools_common/js/tool_common.js) treats a name match
-	// as already-correct-language BECAUSE of this filter, and relies on its own
-	// `|| 'literal'` fallback when the lang has no entry (the array is then empty).
-	// Widening this to several langs is a wire change: it needs a WIRE_CONTRACT
-	// entry, a re-cut of the frozen tool_element_context fixture, and the client
-	// resolver taught to choose. Gated by test/unit/tool_context_labels_lang.test.ts.
+	// application-lang entries in the tool context (toolLabelsInLang). SINGLE-LANG
+	// CONTRACT: the client's get_tool_label (client/dedalo/core/tools_common/js/tool_common.js)
+	// treats a name match as already-correct-language BECAUSE of this filter, and
+	// relies on its own `|| 'literal'` fallback when the lang has no entry (the
+	// array is then empty). Widening this to several langs is a wire change: it
+	// needs a WIRE_CONTRACT entry, a re-cut of the frozen tool_element_context
+	// fixture, and the client resolver taught to choose. Gated by
+	// test/unit/tool_context_labels_lang.test.ts.
 	const allLabels = (row.misc?.[TIPO.LABELS]?.[0] as { value?: unknown })?.value;
-	const labels = Array.isArray(allLabels)
-		? allLabels.filter((item) => (item as { lang?: string }).lang === appLang)
-		: null;
+	const labels = Array.isArray(allLabels) ? toolLabelsInLang(allLabels, appLang) : null;
 	const developer = row.string?.[TIPO.DEVELOPER]?.[0]?.value ?? null;
 	const description = resolveLangItems(row.string?.[TIPO.DESCRIPTION], appLang);
 
@@ -739,6 +746,26 @@ export async function buildToolElementContext(
 	const clientConfig = await toolClientConfig(name);
 	if (Object.keys(clientConfig).length > 0) context.config = clientConfig;
 	return context;
+}
+
+/**
+ * The dd1372 label entries served for `appLang`: its own entries, then — per key
+ * it lacks — the entries of its declared linguistic ALIAS (lang_alias
+ * translationLangOf: a Valencian interface reads the Catalan labels, PHP
+ * lang::get_label_lang, T2-O11-3). The alias is the SAME language under another
+ * name, so the single-lang contract above holds; a key in neither stays absent
+ * (PHP's further first-stored fallback stays retired —
+ * WC-2026-08-02-tool-string-lang-fallback).
+ */
+function toolLabelsInLang(all: readonly unknown[], appLang: string): unknown[] {
+	const langOf = (item: unknown): unknown => (item as { lang?: unknown } | null)?.lang;
+	const nameOf = (item: unknown): unknown => (item as { name?: unknown } | null)?.name;
+	const own = all.filter((item) => langOf(item) === appLang);
+	const alias = translationLangOf(appLang);
+	if (alias === null) return own;
+	const covered = new Set(own.map(nameOf));
+	const fromAlias = all.filter((item) => langOf(item) === alias && !covered.has(nameOf(item)));
+	return [...own, ...fromAlias];
 }
 
 /** A tool's client config; a tool declaring configFrom (module.ts) serves that tool's config instead. */
@@ -784,19 +811,24 @@ function withoutBrowserEngines(raw: Record<string, unknown>): Record<string, unk
 /** Backwards-compatible section-tools helper (model 'section', non-component). */
 export async function getSectionTools(
 	sectionTipo: string,
+	mode: string,
 	sectionToolConfigKeys: string[] = [],
 ): Promise<ElementToolsResult> {
 	// Consultation-only sections (Activity dd542, Time Machine dd15, TODO-042) are
 	// strictly read-only system logs (WC-010): their toolbar would act on records
 	// the user can never modify, so they carry NO section tools. This is a
-	// SECTION-level rule only — components INSIDE such a section keep their own
-	// element tools (e.g. tool_time_machine on a historical value). Keyed on the
+	// SECTION-level rule only — components INSIDE such a section keep their
+	// element tools, minus the dd15 rule in getElementTools (an element whose
+	// section IS dd15 offers tool_export only, PHP get_tools). Keyed on the
 	// single-source `isConsultationOnlySection` predicate, so a future read-only
 	// section is tool-less by adding one entry. WC-2026-10-06-consultation-only-no-section-tools.
 	if (isConsultationOnlySection(sectionTipo)) return { tools: [], ledgered: [] };
 	return getElementTools({
 		model: 'section',
 		tipo: sectionTipo,
+		// A section lives in itself (PHP section::get_section_tipo === tipo).
+		sectionTipo,
+		mode,
 		isComponent: false,
 		translatable: false,
 		toolConfigKeys: sectionToolConfigKeys,
