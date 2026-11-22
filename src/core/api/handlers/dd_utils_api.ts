@@ -750,12 +750,18 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		if (adoptedLang !== null) {
 			const { setSessionLangs } = await import('../../security/session_store.ts');
 			// DEDALO_DATA_LANG_SYNC: setSessionLangs is two independent UPDATEs and
-			// applies no coupling of its own, so the sync rule is re-applied here.
-			// Without it adoption could mint a session state change_lang itself can
-			// never produce (application_lang moved, data_lang left at the default).
+			// applies no coupling of its own, so the sync rule is re-applied here —
+			// THE SAME rule change_lang applies (syncChangedLangs), never a copy of it:
+			// an adopted interface language drives the data language only when it is
+			// a declared data language (re-review MED-1). A bare copy minted a session
+			// data language no read reaches from any interface-only cookie.
+			const { applicationLang, dataLang } = syncChangedLangs(
+				{ applicationLang: adoptedLang, dataLang: undefined },
+				config.menu.dataLangSync === true,
+			);
 			setSessionLangs(outcome.sessionToken as string, {
-				applicationLang: adoptedLang,
-				...(config.menu.dataLangSync === true ? { dataLang: adoptedLang } : {}),
+				...(applicationLang !== undefined ? { applicationLang } : {}),
+				...(dataLang !== undefined ? { dataLang } : {}),
 			});
 		}
 		// The account's own image (dd522). The panel shows it in the files-loader

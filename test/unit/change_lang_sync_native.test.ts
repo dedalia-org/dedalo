@@ -54,11 +54,60 @@ else {
 		}
 	};
 
+	/**
+	 * One LOGIN carrying the pre-auth language cookie `preauthLang`; answers the
+	 * minted session (destroyed after). The suite's root credential is BUILT here.
+	 */
+	const loginWithCookie = async (preauthLang: string) => {
+		const { ensureSuiteLoginPassword, SUITE_LOGIN_PASSWORD } = await import(
+			'../../src/core/test_data/suite_login.ts'
+		);
+		await ensureSuiteLoginPassword('root', SUITE_LOGIN_PASSWORD);
+		const result = await dispatchRqo(
+			{
+				dd_api: 'dd_utils_api',
+				action: 'login',
+				options: { username: 'root', auth: SUITE_LOGIN_PASSWORD },
+			} as Rqo,
+			{
+				requestId: 'test',
+				clientIp: '127.0.0.1',
+				session: null,
+				sessionToken: null,
+				preauthLang,
+				csrfCandidate: null,
+			},
+		);
+		const fresh = result.setSessionToken as string;
+		try {
+			return { ok: result.body.ok, stored: getSession(fresh) };
+		} finally {
+			destroySession(fresh);
+		}
+	};
+
 	describe('change_lang under DATA_LANG_SYNC (MED-3)', () => {
 		test('floor: sync is ON in this child, and the probe is a valid, undeclared code', () => {
 			expect(config.menu.dataLangSync).toBe(true);
 			expect(isValidLang(UI_ONLY_LANG)).toBe(true);
 			expect(installedDataLangs()).not.toContain(UI_ONLY_LANG);
+			// …and an INTERFACE language of this child (pinned DEDALO_APPLICATION_LANGS):
+			// the case the sync rule exists for — offered on the menu, not catalogued in.
+			expect(Object.hasOwn(config.lang.applicationLangs, UI_ONLY_LANG)).toBe(true);
+		});
+
+		test('re-review MED-1(a): LOGIN adopting an interface-only cookie leaves the data lang alone', async () => {
+			const { ok, stored } = await loginWithCookie(UI_ONLY_LANG);
+			expect(ok).toBe(true);
+			expect(stored?.applicationLang).toBe(UI_ONLY_LANG);
+			expect(stored?.dataLang).toBeNull();
+		});
+
+		test('LOGIN adopting a cookie that IS a data language drives the data lang (control)', async () => {
+			const { ok, stored } = await loginWithCookie('lg-cat');
+			expect(ok).toBe(true);
+			expect(stored?.applicationLang).toBe('lg-cat');
+			expect(stored?.dataLang).toBe('lg-cat');
 		});
 
 		test('an interface language that is a DATA language drives the data language', async () => {

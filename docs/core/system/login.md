@@ -360,7 +360,7 @@ wins. The cookie is caller-controlled input, so it is read back through one
 door — `allowlistedPreauthLang()` in `src/core/resolve/request_lang.ts` — and
 only if it names a language of this install's `DEDALO_APPLICATION_LANGS` map, so
 it never reaches a lang-keyed JSONB path unvalidated. `login()` adopts it onto
-the fresh session through that same door (re-applying `DEDALO_DATA_LANG_SYNC`),
+the fresh session through that same door (re-applying `DEDALO_DATA_LANG_SYNC` by the same rule as `change_lang`: the data language follows only when the cookie's language is also a data language),
 so the app opens in the language the form was switched to.
 
 Because the anonymous branch runs before the CSRF gate — the login POST's own

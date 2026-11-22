@@ -142,6 +142,35 @@ describe('change_lang action', () => {
 		expect(getSession(token)?.dataLang).toBe('lg-eng');
 	});
 
+	test('re-review MED-1(b): a STORED undeclared session data lang is served as the menu data lang', async () => {
+		const { setSessionLangs } = await import('../../src/core/security/session_store.ts');
+		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');
+		const { config } = await import('../../src/config/config.ts');
+		// FLOOR: the probe is undeclared, and the menu data lang is a declared one.
+		expect(installedDataLangs()).not.toContain(UNDECLARED_DATA_LANG);
+		expect(installedDataLangs()).toContain(config.menu.dataLang);
+		// BUILD the situation a legacy session (or any door that bypassed the
+		// change_lang rule) leaves behind: the session row ALREADY holds it.
+		setSessionLangs(token, { dataLang: UNDECLARED_DATA_LANG });
+		expect(getSession(token)?.dataLang).toBe(UNDECLARED_DATA_LANG);
+		const env = await dispatchRqo(
+			{ dd_api: 'dd_core_api', action: 'get_environment' } as Rqo,
+			contextFor(token),
+		);
+		const pageGlobals = (env.body.data as { page_globals?: Record<string, unknown> })?.page_globals;
+		expect(pageGlobals?.dedalo_data_lang).toBe(config.menu.dataLang);
+		// CONTROL: a declared stored data lang is served as stored.
+		setSessionLangs(token, { dataLang: 'lg-eng' });
+		const served = await dispatchRqo(
+			{ dd_api: 'dd_core_api', action: 'get_environment' } as Rqo,
+			contextFor(token),
+		);
+		expect(
+			(served.body.data as { page_globals?: Record<string, unknown> })?.page_globals
+				?.dedalo_data_lang,
+		).toBe('lg-eng');
+	});
+
 	test('a session with no override falls back to the install default', async () => {
 		// No change_lang call — the environment must carry the configured default,
 		// proving the override is opt-in and never bleeds from another request.

@@ -37,6 +37,16 @@
   read resolves must be refused where it is stored, not discovered later by each consumer.
 - **Gate reconciliation:** no parity fixture covers `change_lang` with an undeclared data language
   or with sync on (the frozen store never exercised them); no fixture change, no re-harvest.
-- **Not changed (owner question):** a session that ALREADY stores an undeclared data language
-  (stored before this change) is not repaired on read — `seedRequestLangs` serves it as stored;
-  its next `cluster` run is refused until the user picks a data language again.
+- **Changed since (re-review MED-1, 2026-11-22) — was "Not changed (owner question)":** a session
+  that ALREADY stores an undeclared data language (stored before this change, or by any door that
+  drifts from it) IS now neutralised on read: `seedRequestLangs` (`src/core/resolve/request_lang.ts`,
+  the ONE request-lang seed) serves a stored session data language only when it is a declared data
+  language (`INSTALLED_DATA_LANGS`, built by `declaredDataLangs` — the single source); otherwise the
+  request runs on the menu data language (`config.menu.dataLang`, itself resolved inside the declared
+  set). The stored column is left as is (not rewritten). And `login`'s adoption of the pre-auth
+  `dedalo_lang` cookie under `DATA_LANG_SYNC` goes through the SAME `syncChangedLangs` rule — before,
+  it copied any allowlisted interface language into the session data language. Gates:
+  `test/unit/change_lang.test.ts` (stored undeclared → `page_globals.dedalo_data_lang` = menu data
+  lang; declared control served as stored), `test/unit/change_lang_sync_native.test.ts` (login with
+  an interface-only cookie → data lang untouched; data-language cookie → drives it; the child pins
+  `DEDALO_APPLICATION_LANGS` with an interface-only `lg-zzzq`).

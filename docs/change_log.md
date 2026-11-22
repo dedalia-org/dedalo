@@ -615,7 +615,10 @@ Merged since the last release; these ship with the next one.
     data languages is refused and nothing is stored. When the installation couples the
     two languages (`DEDALO_DATA_LANG_SYNC`), changing the interface language changes the
     data language only if that language is also a data language; otherwise the data
-    language stays as it was. The identification tool's grouping run applies the same
+    language stays as it was — the same rule applies when logging in adopts the language
+    chosen on the login panel. A session that already holds a data language the
+    installation does not have works in the installation's default data language instead.
+    The identification tool's grouping run applies the same
     rule to the language it is given or, when none is given, to the session's. See
     [Internationalization](./development/internationalization.md).
 

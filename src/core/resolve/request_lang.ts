@@ -20,7 +20,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { config } from '../../config/config.ts';
+import { config, INSTALLED_DATA_LANGS } from '../../config/config.ts';
 
 /** The two languages every request resolves against. */
 export interface RequestLangs {
@@ -84,8 +84,21 @@ export function seedRequestLangs(input: {
 			input.session?.applicationLang ??
 			allowlistedPreauthLang(input.preauthLang) ??
 			config.menu.applicationLang,
-		dataLang: input.session?.dataLang ?? config.menu.dataLang,
+		dataLang: declaredSessionDataLang(input.session?.dataLang) ?? config.menu.dataLang,
 	};
+}
+
+/**
+ * A session's stored data language, or null unless it is a DECLARED data
+ * language (`INSTALLED_DATA_LANGS`, built by src/config/data_langs.ts
+ * `declaredDataLangs` — the single source). The ONE clamp on the read side
+ * (re-review MED-1): `change_lang` and login adoption refuse/skip an undeclared
+ * code, but a session row stored before that rule — or by any door that ever
+ * drifts from it — would otherwise make every request read and write a slice no
+ * read resolves. Such a session runs on the menu data language instead.
+ */
+function declaredSessionDataLang(stored: string | null | undefined): string | null {
+	return typeof stored === 'string' && INSTALLED_DATA_LANGS.has(stored) ? stored : null;
 }
 
 /**
