@@ -19,6 +19,7 @@
  */
 
 import { serializedSizeExceeds } from '../../concepts/scalar_bounds.ts';
+import { TM_EXCLUDED_SECTIONS } from '../../concepts/section.ts';
 import { canonicalizeStoredSectionId } from '../../concepts/section_id.ts';
 import { insertMatrixRowSequenceId } from '../../db/matrix_write.ts';
 import { virtualDateNow } from '../../section/record/create_record.ts';
@@ -81,6 +82,14 @@ const ACTIVITY_OWN_TIPOS: ReadonlySet<string> = new Set([
 	'dd550', // PROJECTS
 	'dd551', // DATA
 ]);
+
+/**
+ * Sections whose actions append NO activity row: exactly the sections that keep
+ * no Time Machine history (concepts/section.ts TM_EXCLUDED_SECTIONS — the same
+ * constant, never a copy). PHP log_message_defer skipped the same three
+ * (dd655 / dd15 / dd1521). Keyed on the action's SECTION (activitySectionOf).
+ */
+const ACTIVITY_EXCLUDED_SECTIONS: ReadonlySet<string> = TM_EXCLUDED_SECTIONS;
 
 /**
  * PHP's WHO fallback when nothing is authenticated (log_message_defer:
@@ -171,15 +180,30 @@ function shortenEntries(value: Record<string, unknown>, depth: number): Record<s
 	return out;
 }
 
+/**
+ * THE ACTION'S SECTION — one derivation for every emitter: the payload's
+ * `data.section_tipo` when it names one (a SAVE's WHERE is the COMPONENT tipo,
+ * so its section rides in the payload), else the WHERE tipo itself (NEW,
+ * DELETE, LOAD, RECOVER: the WHERE is the section).
+ */
+export function activitySectionOf(entry: Pick<ActivityEntry, 'tipo' | 'data'>): string {
+	const declared = entry.data.section_tipo;
+	return typeof declared === 'string' && declared !== '' ? declared : entry.tipo;
+}
+
 /** Append one activity row. Never throws (audit must not break the action). */
 export async function logActivity(entry: ActivityEntry, now: Date = new Date()): Promise<void> {
 	try {
 		const code = WHAT_CODES[entry.what];
 		if (code === undefined) return; // unmapped actions are skipped, not guessed
-		// PHP log_message_defer's two skips, ported here (not at the call sites) so
+		// PHP log_message_defer's three skips, ported here (not at the call sites) so
 		// that every current and future emitter inherits them:
 		if (entry.tipo.length === 0) return; // no WHERE → the row would be meaningless
 		if (ACTIVITY_OWN_TIPOS.has(entry.tipo)) return; // audit-of-the-audit loop
+		// The third PHP skip (T2 O16-01): an action on a section that keeps no
+		// history — the same three TM_EXCLUDED_SECTIONS (dd655 preset, dd15 TM,
+		// dd1521 aggregate), ONE constant for both logs.
+		if (ACTIVITY_EXCLUDED_SECTIONS.has(activitySectionOf(entry))) return;
 		const relation = {
 			dd543: [
 				{

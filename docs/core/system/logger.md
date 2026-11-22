@@ -27,15 +27,17 @@ An activity record is an **ordinary matrix record**, not a parallel storage path
   action is skipped, never guessed with a wrong code.
 - **Self-log guard** — refuse to audit an action performed on the activity
   section itself (see [the self-log guard](#the-self-log-guard)).
+- **History-free sections** — refuse to audit an action on a section that keeps
+  no Time Machine history (see [the self-log guard](#the-self-log-guard)).
 - **Never break the action** — the write is wrapped in `try`/`catch` and swallows
   its own errors to `console.error`. An audit write must never fail the user's
   save.
 
 !!! warning "A silent skip is a real outcome"
-    `logActivity` never throws **and** returns without writing for three
-    reasons: an unmapped `what`, an empty tipo, or a self-log. If you add an
-    emitter and no row appears, check those three before suspecting the
-    database — nothing is logged when a write is skipped.
+    `logActivity` never throws **and** returns without writing for four
+    reasons: an unmapped `what`, an empty tipo, a self-log, or a history-free
+    section. If you add an emitter and no row appears, check those four before
+    suspecting the database — nothing is logged when a write is skipped.
 
 ## The audit model
 
@@ -127,6 +129,15 @@ section) or its own components `dd543`, `dd544`, `dd545`, `dd546`, `dd547`,
 `dd550`, `dd551`. It also refuses an empty tipo, which would produce a row
 naming nothing.
 
+It also refuses an action on one of the sections that keep **no Time Machine
+history** — `dd655` (the search preset being edited, rewritten on every filter
+change), `dd15` (the Time Machine itself) and `dd1521` (the daily activity
+statistics, rebuilt from this log). It is the same set the Time Machine skips
+(`TM_EXCLUDED_SECTIONS` in `src/core/concepts/section.ts`), read from one
+constant. The section is the payload's `data.section_tipo` when it names one,
+else the WHERE tipo (`activitySectionOf`): a SAVE's WHERE is the component, so
+every SAVE emitter passes the section it saved into in `data.section_tipo`.
+
 The guard lives in `logActivity`, not at the call sites, so every emitter —
 including any added later — inherits it.
 
@@ -136,7 +147,8 @@ including any added later — inherits it.
 
 | symbol | purpose |
 | --- | --- |
-| `logActivity(entry, now?)` | Append one `matrix_activity` row. Returns early — no write — when `entry.what` has no mapped `dd42` code, when the tipo is empty, or when the tipo is the activity section's own. **Never throws.** |
+| `logActivity(entry, now?)` | Append one `matrix_activity` row. Returns early — no write — when `entry.what` has no mapped `dd42` code, when the tipo is empty, when the tipo is the activity section's own, or when the action's section keeps no history. **Never throws.** |
+| `activitySectionOf(entry)` | The action's section: `data.section_tipo` when set, else the WHERE tipo. What the history-free skip reads. |
 | `ActivityEntry` | The input shape: `{ what, tipo, userId, host, data }`. |
 | `hostFromClientIp(clientIp)` | Resolve the `dd544` host value: loopback becomes `localhost`, a missing address becomes `unknown`. Use it rather than re-deriving the rule. |
 | `ANONYMOUS_USER_ID` | The WHO used when no one is authenticated (`-666`). |

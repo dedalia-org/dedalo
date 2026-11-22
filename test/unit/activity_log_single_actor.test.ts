@@ -27,8 +27,11 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { logActivity } from '../../src/core/api/handlers/activity_log.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 
-/** A tipo that is neither empty nor one of the audit-of-the-audit skips. */
-const PROBE_TIPO = 'dd655';
+/**
+ * A tipo that is neither empty, nor one of the audit-of-the-audit skips, nor a
+ * TM-excluded section (dd655 was the probe until O16-01 made it a skip).
+ */
+const PROBE_TIPO = 'test3';
 const PROBE_USER = 987654321; // no real user — makes the written row findable
 
 interface ActivityRow {
