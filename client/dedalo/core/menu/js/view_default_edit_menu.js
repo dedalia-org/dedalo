@@ -33,6 +33,8 @@
 * Main exports:
 *   view_default_edit_menu          — constructor (stub; used as namespace)
 *   view_default_edit_menu.render   — async factory; returns the wrapper element
+*   data_lang_options               — the data-language selector's options (page_globals.dedalo_data_langs)
+*   change_lang                     — store a language choice; reload only when stored
 *
 * Module-level state (not exported):
 *   sync_standalone_position        — helper: aligns assistant panel to menu height
@@ -49,7 +51,7 @@
 	import * as menu_mobile from './render_menu_mobile.js'
 	import {data_manager} from '../../common/js/data_manager.js'
 	import {toggle_theme} from '../../page/js/theme.js'
-	import {response_data} from '../../common/js/api_error.js'
+	import {request_failed, response_data} from '../../common/js/api_error.js'
 
 /**
 * SYNC_STANDALONE_POSITION
@@ -472,12 +474,7 @@ const get_content_data_edit = function(self) {
 	// application (UI) language selector that precedes it.
 		const show_data_lang_selector = page_globals.dedalo_data_lang_selector ?? false
 		if (show_data_lang_selector) {
-			const lang_datalist_data = lang_datalist.map(item =>{
-				return {
-					label	: (get_label.data || 'data') + ': ' + item.label,
-					value	: item.value
-				}
-			})
+			const lang_datalist_data = data_lang_options(page_globals, get_label.data || 'data')
 			const dedalo_data_langs_selector = ui.build_select_lang({
 				name	: 'dedalo_data_lang',
 				langs	: lang_datalist_data,
@@ -895,14 +892,46 @@ export const render_debug_info_bar = (self) => {
 
 
 /**
+* DATA_LANG_OPTIONS
+* The DATA-language selector's options: the server's `dedalo_data_langs` — the
+* exact set `change_lang` accepts (the installation's data languages, never the
+* `lg-nolan` storage slot; WC-2026-11-22-change-lang-declared-data-lang) —
+* labelled with the 'data: ' prefix that tells it apart from the interface
+* selector beside it.
+*
+* NOT the interface languages (`dedalo_application_langs`): that is a different
+* set on any install whose two lists differ, so the selector offered languages
+* the server refused and hid ones it accepts.
+*
+* @param {Object} globals - page_globals
+* @param {string} prefix - label prefix (get_label.data)
+* @returns {Array<{label:string, value:string}>}
+*/
+export const data_lang_options = function(globals, prefix) {
+	const langs = Array.isArray(globals?.dedalo_data_langs) ? globals.dedalo_data_langs : []
+	return langs.map(item => {
+		return {
+			label	: prefix + ': ' + item.label,
+			value	: item.value
+		}
+	})
+}//end data_lang_options
+
+
+
+/**
 * CHANGE_LANG
-* Persist the user's language selection to the server then reload the page.
+* Persist the user's language selection to the server, then reload the page —
+* ONLY when the server stored it.
 *
 * Delegates to self.change_lang() (a menu prototype method that POSTs
-* the new lang value to the Dédalo API) and triggers a full page reload
-* once the server has confirmed the change. The reload uses false (use
-* cached HTML) which is correct because language changes invalidate server-side
-* data, not the static page shell.
+* the new lang value to the Dédalo API). On success the page reloads (false:
+* cached HTML is right — a language change invalidates server-side data, not
+* the static page shell). On a REFUSAL (`ok:false`, e.g. a language the
+* installation does not offer) it does NOT reload: the failure was already
+* published and rendered by the error policy, and a reload would wipe that
+* message before anyone could read it — the user saw the page snap back with no
+* reason. The loading state is cleared instead.
 *
 * Sets the `#main` element's CSS class to 'loading' while the API call
 * is in flight to provide visual feedback.
@@ -912,14 +941,17 @@ export const render_debug_info_bar = (self) => {
 *     'dedalo_application_lang' (UI strings) or 'dedalo_data_lang' (record data)
 *   @param {string} options.lang_value - BCP-47-style language code, e.g. 'lg-spa'
 *   @param {Object} options.self       - Menu instance with a change_lang() method
-* @returns {Promise<boolean>} Always resolves to true (reload fires before return)
+*   @param {Function} [options.reload] - the reload (default window.location.reload(false));
+*     a seam for the client suite, which must not reload its own frame
+* @returns {Promise<boolean>} true when the change was stored (and the reload fired), false when refused
 */
-const change_lang = async function(options) {
+export const change_lang = async function(options) {
 
 	// options
 		const lang_type		= options.lang_type
 		const lang_value	= options.lang_value
 		const self			= options.self
+		const reload		= options.reload || (() => window.location.reload(false))
 
 	// set page style as loading
 		const main = document.getElementById('main')
@@ -928,13 +960,21 @@ const change_lang = async function(options) {
 		}
 
 	// api call
-		await self.change_lang({
+		const api_response = await self.change_lang({
 			lang_type,
 			lang_value
 		})
 
+	// refused: keep the page (and the rendered error) — no reload
+		if (request_failed(api_response)) {
+			if (main) {
+				main.classList.remove('loading')
+			}
+			return false
+		}
+
 	// reload window after the change
-		window.location.reload(false);
+		reload()
 
 
 	return true

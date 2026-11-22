@@ -222,6 +222,43 @@ describe('change_lang action', () => {
 		).toBe('lg-eng');
 	});
 
+	test('re-review item 2: page_globals.dedalo_data_langs IS the choosable set — every entry change_lang accepts, nothing else', async () => {
+		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');
+		const { isChoosableDataLang } = await import('../../src/core/resolve/request_lang.ts');
+		const env = await dispatchRqo(
+			{ dd_api: 'dd_core_api', action: 'get_environment' } as Rqo,
+			contextFor(token),
+		);
+		const pageGlobals = (env.body.data as { page_globals?: Record<string, unknown> })?.page_globals;
+		const served = pageGlobals?.dedalo_data_langs as
+			| { label: unknown; value: unknown }[]
+			| undefined;
+		expect(Array.isArray(served)).toBe(true);
+		const values = (served ?? []).map((entry) => entry.value);
+		// EXACTLY the declared set minus lg-nolan (owner ruling 2), each once.
+		const expected = installedDataLangs().filter((lang) => isChoosableDataLang(lang));
+		expect([...values].sort()).toEqual([...expected].sort());
+		expect(new Set(values).size).toBe(values.length);
+		expect(values).not.toContain('lg-nolan');
+		for (const entry of served ?? []) {
+			expect(typeof entry.label, String(entry.value)).toBe('string');
+			expect(entry.label, String(entry.value)).not.toBe('');
+		}
+		// OUTCOME: every offered entry is one the door ACCEPTS (the selector cannot
+		// offer a language the server then refuses).
+		for (const value of values) {
+			const result = await dispatchRqo(
+				{
+					dd_api: 'dd_utils_api',
+					action: 'change_lang',
+					options: { dedalo_data_lang: value },
+				} as Rqo,
+				contextFor(token),
+			);
+			expect(result.body.ok, String(value)).toBe(true);
+		}
+	});
+
 	test('a session with no override falls back to the install default', async () => {
 		// No change_lang call — the environment must carry the configured default,
 		// proving the override is opt-in and never bleeds from another request.

@@ -14,7 +14,7 @@
  * and kept honest by the differential gate.
  */
 
-import { config } from '../../config/config.ts';
+import { config, INSTALLED_DATA_LANGS } from '../../config/config.ts';
 import { readBool, readString } from '../../config/readers.ts';
 import { clientCssVersion } from '../api/dedalo_files.ts';
 import { sql } from '../db/postgres.ts';
@@ -27,7 +27,7 @@ import { getAdditionalToolsUrlMap } from '../tools/paths.ts';
 import { DEDALO_BUILD, DEDALO_ENGINE_VERSION, RELEASE_IDENTITY } from '../update/build_stamp.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
 import { getAlpha2FromCode, getLangNameFromCode } from './lang_names.ts';
-import { currentApplicationLang, currentDataLang } from './request_lang.ts';
+import { currentApplicationLang, currentDataLang, isChoosableDataLang } from './request_lang.ts';
 import { getServerState } from './server_state.ts';
 
 /**
@@ -242,6 +242,9 @@ export async function buildPageGlobals(
 		dedalo_data_nolan: readString('DATA_NOLAN'),
 		dedalo_application_langs: APPLICATION_LANGS,
 		dedalo_projects_default_langs: projectsDefaultLangs,
+		// TS-ONLY (WC-2026-11-22-change-lang-declared-data-lang): the data-language
+		// selector's options = the set change_lang accepts.
+		dedalo_data_langs: await resolveChoosableDataLangs(projectsDefaultLangs),
 		dedalo_image_quality_default: config.media.image.defaultQuality,
 		dedalo_av_quality_default: config.media.av.defaultQuality,
 		dedalo_quality_thumb: config.media.thumb.quality,
@@ -502,6 +505,41 @@ async function getProjectsDefaultLangs(): Promise<ProjectLangEntry[]> {
 	if (cached !== undefined) return cached;
 	const entries = await resolveProjectsDefaultLangs(dataLang);
 	projectsLangsCache.set(dataLang, entries);
+	return entries;
+}
+
+/**
+ * `dedalo_data_langs` (TS-ONLY page_globals key, re-review item 2 +
+ * WC-2026-11-22-change-lang-declared-data-lang): the languages the menu's
+ * DATA-language selector offers, `{label, value}` — EXACTLY the set `change_lang`
+ * accepts (isChoosableDataLang: the declared data languages minus `lg-nolan`),
+ * so the selector can never offer a language the server then refuses, nor hide
+ * one it accepts. Before, the client built that selector from the INTERFACE
+ * languages — a different set on any install whose two lists differ.
+ *
+ * Order and labels: the configured project languages first, in config order and
+ * with the labels `dedalo_projects_default_langs` already resolved; then any
+ * other choosable declared language (DEDALO_DATA_LANG_DEFAULT when it is not a
+ * project language, members of a declared equivalence class), labelled the same
+ * way (lg1 term in this request's data lang, else the bare code). Derived per
+ * request from cached inputs — no module state of its own.
+ */
+async function resolveChoosableDataLangs(
+	projectsDefaultLangs: readonly ProjectLangEntry[],
+): Promise<{ label: string; value: string }[]> {
+	const entries: { label: string; value: string }[] = [];
+	const seen = new Set<string>();
+	for (const entry of projectsDefaultLangs) {
+		if (seen.has(entry.value) || !isChoosableDataLang(entry.value)) continue;
+		seen.add(entry.value);
+		entries.push({ label: entry.label, value: entry.value });
+	}
+	for (const langCode of INSTALLED_DATA_LANGS) {
+		if (seen.has(langCode) || !isChoosableDataLang(langCode)) continue;
+		seen.add(langCode);
+		const name = await getLangNameFromCode(langCode, currentDataLang());
+		entries.push({ label: name ?? langCode.replace('lg-', ''), value: langCode });
+	}
 	return entries;
 }
 

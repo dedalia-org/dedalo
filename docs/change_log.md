@@ -622,7 +622,9 @@ Merged since the last release; these ship with the next one.
     An interface language the installation does not offer is refused too, and so is the
     "no language" slot (`lg-nolan`): it holds untranslatable values, but it is not a
     language to work in. Logging in also repairs a stored data language that is not one
-    the installation offers.
+    the installation offers. The menu's data-language selector now lists the installation's
+    data languages (it listed the interface languages), and a refused change no longer
+    reloads the page, so the error message stays on screen.
     The identification tool's grouping run applies the same
     rule to the language it is given or, when none is given, to the session's. See
     [Internationalization](./development/internationalization.md).

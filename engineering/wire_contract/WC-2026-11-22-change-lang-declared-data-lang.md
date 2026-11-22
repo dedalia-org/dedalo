@@ -86,3 +86,25 @@ Gates: `change_lang.test.ts` (lg-nolan refused, stored lg-nolan served as the me
 `repairSessionDataLang` rewrites undeclared and lg-nolan, leaves choosable/none alone);
 `change_lang_sync_native.test.ts` (an interface language `lg-nolan` — pinned in the child's
 `DEDALO_APPLICATION_LANGS` — is never copied into the data language).
+
+## Addendum 2026-11-22 — re-review item 2: the data-language selector offers the choosable set
+
+- **New TS-ONLY `page_globals` key `dedalo_data_langs`** (`src/core/resolve/environment.ts`
+  `resolveChoosableDataLangs`): `[{label, value}]`, EXACTLY the languages `change_lang` accepts as
+  a data language (`isChoosableDataLang`: the declared data languages minus `lg-nolan`) — the
+  configured project languages first (config order, the labels `dedalo_projects_default_langs`
+  resolves), then any other choosable declared language (`DEDALO_DATA_LANG_DEFAULT` outside the
+  project list, equivalence-class members). PHP has no twin; `environment_differential` asserts the
+  key TS-only and strips it (the WC-031 handling). `dedalo_projects_default_langs` is unchanged (it
+  is the project list — a subset of the declared set, which also feeds the tools' language columns).
+- **Client** (`client/dedalo/core/menu/js/view_default_edit_menu.js`): the data-language selector
+  is built from `page_globals.dedalo_data_langs` (`data_lang_options`) — before, from
+  `dedalo_application_langs`, a different set (on the suite: 8 interface vs 12 data languages, so
+  it hid data languages the server accepts and could offer ones it refuses). `change_lang` does NOT
+  reload on `ok:false`: the refusal is published as `api_error` and rendered by the error policy, a
+  reload wiped it; the `loading` state is cleared. A stored change still reloads.
+
+Gates: `test/unit/change_lang.test.ts` (the served set equals the choosable set, and every entry is
+accepted by the door); client suite `test_menu_change_lang` (selector = `dedalo_data_langs`, no
+`lg-nolan`, differs from the interface langs on the suite; refused change: no reload, refusal
+published, loading cleared; stored change reloads).

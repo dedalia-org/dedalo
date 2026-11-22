@@ -262,7 +262,7 @@ const dataItem = {
 | file / export | purpose |
 | --- | --- |
 | `render_menu.edit` / `render_section_label` | View dispatcher; builds the empty section-label slot. |
-| `view_default_edit_menu.render` | The full top bar: quit, Dédalo icon, desktop tree, mobile icon, username, language selectors, theme toggle, AI-assistant button, section-label + inspector toggle, and (for developers) the `debug_info_bar`. A `ResizeObserver` switches between the desktop tree and the mobile icon on overflow. |
+| `view_default_edit_menu.render` | The full top bar: quit, Dédalo icon, desktop tree, mobile icon, username, language selectors (interface: `page_globals.dedalo_application_langs`; data: `page_globals.dedalo_data_langs` — exactly the languages `change_lang` accepts; a refused change does not reload, so its error stays visible), theme toggle, AI-assistant button, section-label + inspector toggle, and (for developers) the `debug_info_bar`. A `ResizeObserver` switches between the desktop tree and the mobile icon on overflow. |
 | `render_menu_tree.render_tree` | Build the desktop dropdown tree from `tree_datalist`, grouping items by `parent` (`items_by_parent` Map) and rendering levels **lazily** on hover/click. Wires global click / mousedown / Escape handlers to open/close drop menus. |
 | `render_menu_mobile.render_menu` | Build the collapsible mobile menu (recursive `render_menu_node`). |
 

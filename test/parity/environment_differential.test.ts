@@ -222,6 +222,13 @@ describe.if(hasPhpCredentials())('environment payload differential (Phase 7 gate
 		expect('ui_preferences' in phpGlobals).toBe(false);
 		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above
 		delete tsGlobals.ui_preferences;
+		// engineering/wire_contract/WC-2026-11-22-change-lang-declared-data-lang: TS-ONLY key
+		// (the data-language selector's options = the set change_lang accepts). Same
+		// explicit-then-strip handling as WC-031.
+		expect('dedalo_data_langs' in tsGlobals).toBe(true);
+		expect('dedalo_data_langs' in phpGlobals).toBe(false);
+		// biome-ignore lint/performance/noDelete: same as the WC-031 strip above
+		delete tsGlobals.dedalo_data_langs;
 		// engineering/wire_contract/ WC-2026-11-09-instance-identity: two TS-ONLY keys (the
 		// installation colour + label). Same explicit-then-strip handling as WC-031.
 		for (const key of ['dedalo_instance_color', 'dedalo_entity_label']) {
