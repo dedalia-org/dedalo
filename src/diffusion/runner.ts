@@ -88,7 +88,7 @@ import {
 	withFencedBatch,
 } from './jobs/target_fence.ts';
 import type { ResolvedBatch } from './resolve/resolver.ts';
-import type { WriterCloseContext } from './writers/types.ts';
+import type { WriterCloseContext, WriterRunSummary } from './writers/types.ts';
 
 /** Parse `--<name> <value>` (also tolerates `--<name>=<value>`). */
 function parseArgument(argv: string[], name: string): string | null {
@@ -105,6 +105,52 @@ const CANCELLED_MSG = 'Process cancelled by user';
  * tool_diffusion's report_model.js MSG (its no-state fallback classifier reads
  * both as 'running'); keep the two in step.
  */
+/**
+ * A file run's consolidated artifacts → the client result fields the final SSE
+ * chunk renders (consolidated_files / diffusion_data, old engine
+ * index.ts:529-563; projected by jobs/sse.ts progressDataFromJob). Writers
+ * append them as prefixed zero-count table entries (writers/rdf.ts
+ * CONSOLIDATED_* docs); every other entry stays a table.
+ *
+ * The URL is ADMIN-FACING (the tool's Download button), so it rides the media
+ * address the client receives everywhere else — `config.media.webBase`, not the
+ * hardcoded same-origin `/dedalo/<mediaDir>`: on a split-origin install that
+ * opened the application's address and failed (WC-042 addendum 2026-11-22,
+ * owner Q10). Published data is untouched — this is the job report only.
+ * EXPORTED for test/unit/diffusion_report_url_split_origin.test.ts.
+ */
+export async function consolidatedFileResults(
+	summaryTables: WriterRunSummary['tables'],
+	format: string,
+): Promise<{ tables: WriterRunSummary['tables']; fileResultFields: Record<string, unknown> }> {
+	const { config } = await import('../config/config.ts');
+	const mediaUrl = config.media.webBase;
+	const consolidated: { merged_url?: string; zip_url?: string } = {};
+	const tables: WriterRunSummary['tables'] = [];
+	for (const entry of summaryTables) {
+		if (entry.table_name.startsWith('consolidated_merged:')) {
+			consolidated.merged_url = mediaUrl + entry.table_name.slice('consolidated_merged:'.length);
+		} else if (entry.table_name.startsWith('consolidated_zip:')) {
+			consolidated.zip_url = mediaUrl + entry.table_name.slice('consolidated_zip:'.length);
+		} else {
+			tables.push(entry);
+		}
+	}
+	if (consolidated.merged_url === undefined && consolidated.zip_url === undefined) {
+		return { tables, fileResultFields: {} };
+	}
+	return {
+		tables,
+		fileResultFields: {
+			consolidated_files: consolidated,
+			diffusion_data: [consolidated.merged_url, consolidated.zip_url]
+				.filter((url): url is string => url !== undefined)
+				.map((url) => ({ file_url: url })),
+			diffusion_class: `diffusion_${format}`,
+		},
+	};
+}
+
 export const PROCESSING_PREFIX = 'Processing records ';
 export const LINKED_PREFIX = 'Publishing linked records: ';
 
@@ -519,33 +565,10 @@ async function runPublicationJob(job: DiffusionJobRow, lease: JobLease): Promise
 			// lift them into the client result fields the final SSE chunk renders
 			// (consolidated_files / diffusion_data, old engine index.ts:529-563;
 			// projected by jobs/sse.ts progressDataFromJob finish-parity).
-			let tables = summary.tables;
-			let fileResultFields: Record<string, unknown> = {};
-			if (plan.target.kind === 'files') {
-				const { config } = await import('../config/config.ts');
-				const mediaUrl = `/dedalo/${config.mediaDir}`;
-				const consolidated: { merged_url?: string; zip_url?: string } = {};
-				tables = [];
-				for (const entry of summary.tables) {
-					if (entry.table_name.startsWith('consolidated_merged:')) {
-						consolidated.merged_url =
-							mediaUrl + entry.table_name.slice('consolidated_merged:'.length);
-					} else if (entry.table_name.startsWith('consolidated_zip:')) {
-						consolidated.zip_url = mediaUrl + entry.table_name.slice('consolidated_zip:'.length);
-					} else {
-						tables.push(entry);
-					}
-				}
-				if (consolidated.merged_url !== undefined || consolidated.zip_url !== undefined) {
-					fileResultFields = {
-						consolidated_files: consolidated,
-						diffusion_data: [consolidated.merged_url, consolidated.zip_url]
-							.filter((url): url is string => url !== undefined)
-							.map((url) => ({ file_url: url })),
-						diffusion_class: `diffusion_${plan.format}`,
-					};
-				}
-			}
+			const { tables, fileResultFields } =
+				plan.target.kind === 'files'
+					? await consolidatedFileResults(summary.tables, plan.format)
+					: { tables: summary.tables, fileResultFields: {} };
 
 			// The ledger ends with the run (fenced: before the terminal transition).
 			await clearRunLedger(lease);

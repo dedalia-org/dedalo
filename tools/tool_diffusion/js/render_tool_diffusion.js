@@ -10,7 +10,7 @@
 	import {render_stream} from '../../../core/common/js/render_common.js'
 	import {data_manager} from '../../../core/common/js/data_manager.js'
 	import {when_in_viewport} from '../../../core/common/js/events.js'
-	import {build_report_model, tsv_tables, tsv_errors} from './report_model.js'
+	import {build_report_model, tsv_tables, tsv_errors, report_download_url} from './report_model.js'
 	// ONE error model for the stream: a frame that ENDED the run is read by
 	// normalize_stream_error and routed by the shared dispatcher — the report
 	// panel below keeps rendering the per-record error list, which is a RESULT,
@@ -1607,7 +1607,10 @@ const render_run_report = function(options) {
 				})
 				button.addEventListener('click', function(e) {
 					e.stopPropagation()
-					open_window({url : window.location.origin + entry.url})
+					// the artifact URL rides the MEDIA address: absolute on a
+					// split-origin install, root-relative otherwise
+					const url = report_download_url(entry.url, window.location.origin)
+					if (url !== null) open_window({url : url})
 				})
 			})
 		}

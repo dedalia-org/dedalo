@@ -189,3 +189,32 @@ the locator's full media path (one resolver, `media/tag_locator.ts`); `svgTagRel
 `svgUrlFromTagLocator` and `appServedSvgUrlFromTagLocator` named above are deleted. The audience
 split recorded here (served → `webBase`, published → `/dedalo/<mediaDir>`) is unchanged; it is
 now `renderTagsWithResolvedSvg(…, 'served' | 'published', …)`.
+
+## Addendum 2026-11-22 — admin-facing links ride `webBase` (the diffusion job report Download)
+
+**Owner ruling Q10 (2026-11-19, T2 D03-d):** links shown to the administrator use the media
+address; published data is unchanged. Both ends land in one commit.
+
+- **Server** (`src/diffusion/runner.ts` `consolidatedFileResults`): a file publication's
+  consolidated artifact URLs in the job report — `consolidated_files.{merged_url,zip_url}` and
+  `diffusion_data[].file_url` — are built on `config.media.webBase` (was the hardcoded
+  `/dedalo/<mediaDir>`). They are not published data: they live only in the job record the
+  tool renders, consumed immediately by the administrator's browser — the served audience of
+  the 2026-09-01 addendum. Emitters on `webBase`, also: the diffusion job report's artifact
+  URLs.
+- **Client** (`tools/tool_diffusion/js/report_model.js` `report_download_url`, used by
+  `render_tool_diffusion.js`): the Download button prefixed `window.location.origin` to every
+  URL — on a split-origin install that opened the APPLICATION's address (and an absolute URL
+  would have been doubled). It now opens an absolute (`http(s)://`) or protocol-relative URL
+  as given, resolves a root-relative one on the page origin, and refuses anything else (no
+  `javascript:` or bare path is ever opened).
+- **Unchanged:** the published files themselves and every URL inside them (the "Deliberately
+  NOT on it" row and the publication audience of the 2026-09-01 addendum).
+
+With the key unset or `''`, `webBase` is `/dedalo/<mediaDir>`, so the report is byte-identical
+to before in the default config. **Re-harvest: NO.**
+
+Gate: `test/unit/diffusion_report_url_split_origin.test.ts` — a child process under an absolute
+base builds the report fields (rooted on it; red on the hardcoded base), a default-config child
+keeps the relative shape, and the client helper keeps an absolute URL, prefixes only a relative
+one, refuses other schemes.
