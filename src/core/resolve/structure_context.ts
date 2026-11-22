@@ -1282,6 +1282,7 @@ export async function buildStructureContext(options: {
 	if (core.model === 'section') {
 		await stampSectionContext(entry, {
 			tipo: options.tipo,
+			mode: options.mode,
 			permissions,
 			properties: core.properties,
 			principal: options.principal,
@@ -1358,6 +1359,8 @@ export async function buildStructureContext(options: {
 		const elementTools = await getElementTools({
 			model: core.model,
 			tipo: options.tipo,
+			sectionTipo: options.sectionTipo,
+			mode: options.mode,
 			isComponent: isComponentModel,
 			translatable: isComponentModel ? core.translatable : false,
 			toolConfigKeys,

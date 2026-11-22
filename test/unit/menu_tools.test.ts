@@ -90,6 +90,8 @@ describe('menu context tools', () => {
 		const expected = await getElementTools({
 			model: 'menu',
 			tipo: MENU_TIPO,
+			sectionTipo: MENU_TIPO,
+			mode: 'list',
 			isComponent: false,
 			translatable: false,
 			toolConfigKeys: [],

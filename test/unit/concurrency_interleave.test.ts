@@ -260,6 +260,8 @@ describe('request isolation — tools registry cache (S1-13)', () => {
 	const target = {
 		model: 'component_input_text',
 		tipo: 'test6836',
+		sectionTipo: 'test3',
+		mode: 'edit',
 		isComponent: true,
 		translatable: true,
 		toolConfigKeys: [],

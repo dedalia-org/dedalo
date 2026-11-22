@@ -24,6 +24,8 @@ import {
 /** Inputs the section stamp needs from the calling structure-context build. */
 export interface SectionStampParams {
 	tipo: string;
+	/** The context's mode — the section toolbar's is_available and mode filter read it. */
+	mode: string;
 	permissions: number;
 	/** The element's ontology properties (already deep-cloned by the caller). */
 	properties: unknown;
@@ -100,7 +102,11 @@ export async function stampSectionContext(
 		const { getSectionTools } = await import('../tools/registry.ts');
 		const toolConfigBag =
 			(params.properties as { tool_config?: Record<string, unknown> } | null)?.tool_config ?? {};
-		const sectionTools = await getSectionTools(params.tipo, Object.keys(toolConfigBag));
+		const sectionTools = await getSectionTools(
+			params.tipo,
+			params.mode,
+			Object.keys(toolConfigBag),
+		);
 		entry.tools = await stampElementToolConfigs(
 			entry,
 			sectionTools.tools,

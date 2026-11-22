@@ -643,6 +643,9 @@ async function elementToolContext(
 		const elementTools = await getElementTools({
 			model,
 			tipo: elementTipo,
+			sectionTipo: elementSectionTipo,
+			// PHP builds the grid's column components in 'indexation_list'.
+			mode: 'indexation_list',
 			isComponent: model.startsWith('component_'),
 			translatable: await getTranslatableByTipo(elementTipo),
 			toolConfigKeys: Object.keys(toolConfigBag),

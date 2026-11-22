@@ -37,12 +37,15 @@ import type { Principal } from '../../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../../src/core/security/request_context.ts';
 import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { invalidateAllToolCaches } from '../../src/core/tools/cache.ts';
+import { getLoadedTool } from '../../src/core/tools/loader.ts';
+import type { ToolAvailabilityContext } from '../../src/core/tools/module.ts';
 import {
 	PROFILE_SECTION_TIPO,
 	TIPO,
 	TOOLS_REGISTER_SECTION_TIPO,
 } from '../../src/core/tools/ontology_map.ts';
 import {
+	type ElementToolsTarget,
 	getElementTools,
 	getProfileGrantedToolIds,
 	getSectionTools,
@@ -82,6 +85,8 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 		const expected = await getElementTools({
 			model: 'component_image',
 			tipo: USER_IMAGE_TIPO,
+			sectionTipo: USERS_SECTION,
+			mode: 'edit',
 			isComponent: true,
 			translatable: false,
 			toolConfigKeys: [],
@@ -103,6 +108,8 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 				await getElementTools({
 					model: 'component_image',
 					tipo: USER_IMAGE_TIPO,
+					sectionTipo: USERS_SECTION,
+					mode: 'edit',
 					isComponent: true,
 					translatable: false,
 					toolConfigKeys,
@@ -177,6 +184,8 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 		const unfiltered = await getElementTools({
 			model: 'component_image',
 			tipo: USER_IMAGE_TIPO,
+			sectionTipo: USERS_SECTION,
+			mode: 'edit',
 			isComponent: true,
 			translatable: false,
 			toolConfigKeys: [],
@@ -250,6 +259,8 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 		const expected = await getElementTools({
 			model: 'area_ontology',
 			tipo: areaTipo,
+			sectionTipo: areaTipo,
+			mode: 'list',
 			isComponent: false,
 			translatable: false,
 			toolConfigKeys: [],
@@ -333,12 +344,82 @@ describe('tools from the ontology — the registry filter over scratch tools (T2
 	});
 
 	const sectionToolNames = async (sectionTipo: string): Promise<string[]> =>
-		(await getSectionTools(sectionTipo)).tools.map((tool) => tool.name);
+		(await getSectionTools(sectionTipo, 'list')).tools.map((tool) => tool.name);
 
 	test('O11-2: a `<tld>*` affected_tipos wildcard offers the tool on every tipo of that TLD — and no other', async () => {
 		// PHP tipo_in_array reads BOTH sides through get_tld_from_tipo; the old
 		// reader kept the `*` on the value side, so no wildcard ever matched.
 		expect(await sectionToolNames('test3')).toContain(WILDCARD_TOOL.name);
 		expect(await sectionToolNames(USERS_SECTION)).not.toContain(WILDCARD_TOOL.name);
+	});
+
+	/** A component of the test3 playground (test52 = component_input_text). */
+	const componentTarget = (sectionTipo: string, mode: string): ElementToolsTarget => ({
+		model: 'component_input_text',
+		tipo: 'test52',
+		sectionTipo,
+		mode,
+		isComponent: true,
+		translatable: true,
+		toolConfigKeys: [],
+	});
+
+	test('O11-4: an element living in the Time Machine (dd15) offers tool_export only (PHP get_tools dd15 rule)', async () => {
+		const names = async (sectionTipo: string) =>
+			(await getElementTools(componentTarget(sectionTipo, 'tm'))).tools.map((tool) => tool.name);
+		// control: the same component in its own section gets the scratch tool + others
+		const inOwnSection = await names('test3');
+		expect(inOwnSection).toContain(WILDCARD_TOOL.name);
+		expect(inOwnSection.some((name) => name !== 'tool_export')).toBe(true);
+		// …and nothing but tool_export inside dd15
+		const inTimeMachine = await names('dd15');
+		expect(inTimeMachine).not.toContain(WILDCARD_TOOL.name);
+		expect(inTimeMachine.filter((name) => name !== 'tool_export')).toEqual([]);
+	});
+
+	test('O11-4: is_available receives the element’s REAL section and mode, from every call site', async () => {
+		// The old filter fabricated the context: sectionTipo = the element tipo,
+		// mode ''. Observed on a real hook (tool_time_machine's), restored after.
+		const loaded = await getLoadedTool('tool_time_machine');
+		const hook = loaded?.module.isAvailable;
+		expect(hook).toBeDefined();
+		if (loaded === undefined || hook === undefined)
+			throw new Error('tool_time_machine has no hook');
+		const seen: ToolAvailabilityContext[] = [];
+		loaded.module.isAvailable = (context) => {
+			seen.push(context);
+			return hook(context);
+		};
+		try {
+			// 1. the registry filter itself
+			await getElementTools(componentTarget('test3', 'edit'));
+			// 2. the structure-context call site (component toolbar)
+			await buildStructureContext({
+				configFrom: { source: 'own', reason: 'unit-test' },
+				tipo: 'test52',
+				sectionTipo: 'test3',
+				mode: 'search',
+				lang: 'lg-nolan',
+				permissions: 2,
+			});
+		} finally {
+			loaded.module.isAvailable = hook;
+		}
+		const observed = seen.map(({ tipo, sectionTipo, mode }) => ({ tipo, sectionTipo, mode }));
+		expect(observed).toContainEqual({ tipo: 'test52', sectionTipo: 'test3', mode: 'edit' });
+		expect(observed).toContainEqual({ tipo: 'test52', sectionTipo: 'test3', mode: 'search' });
+		for (const context of seen) expect(context.sectionTipo).not.toBe(context.tipo);
+	});
+
+	test('O11-4: sectionTipo and mode are REQUIRED on ElementToolsTarget (compile-time — tsc is the gate)', () => {
+		// @ts-expect-error — a target without its section and mode must not compile
+		const missing: ElementToolsTarget = {
+			model: 'section',
+			tipo: 'test3',
+			isComponent: false,
+			translatable: false,
+			toolConfigKeys: [],
+		};
+		expect(missing.tipo).toBe('test3');
 	});
 });

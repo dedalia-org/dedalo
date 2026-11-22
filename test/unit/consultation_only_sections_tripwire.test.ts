@@ -77,7 +77,7 @@ describe('consultation-only sections are read-only for every door', () => {
 		// the DB. Keyed on the same single source as the permission cap.
 		// WC-2026-10-06-consultation-only-no-section-tools.
 		for (const sectionTipo of CONSULTATION_ONLY_SECTIONS) {
-			const { tools, ledgered } = await getSectionTools(sectionTipo);
+			const { tools, ledgered } = await getSectionTools(sectionTipo, 'list');
 			expect(tools).toEqual([]);
 			expect(ledgered).toEqual([]);
 		}
@@ -86,7 +86,7 @@ describe('consultation-only sections are read-only for every door', () => {
 	test('the no-toolbar rule is scoped to consultation-only sections', async () => {
 		// Control: an ordinary section still resolves its section toolbar — a
 		// blanket [] would pass the test above while breaking every other section.
-		const normal = await getSectionTools('dd128'); // Users — a normal section
+		const normal = await getSectionTools('dd128', 'list'); // Users — a normal section
 		expect(normal.tools.length).toBeGreaterThan(0);
 	});
 

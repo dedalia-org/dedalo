@@ -32,7 +32,7 @@
  *   specific record) — that is the get_element_context tool branch (Phase 6).
  */
 
-import { isConsultationOnlySection } from '../concepts/section.ts';
+import { isConsultationOnlySection, TIME_MACHINE_SECTION_TIPO } from '../concepts/section.ts';
 import { sectionIdAddressSqlValue } from '../concepts/section_id.ts';
 import { sql } from '../db/postgres.ts';
 import { createDataCache } from '../ontology/cache_factory.ts';
@@ -391,7 +391,14 @@ interface RegisteredTool {
  */
 export async function toolIsAvailable(
 	name: string,
-	context: { calledClass: string; tipo: string; isComponent: boolean; hasToolConfig: boolean },
+	context: {
+		calledClass: string;
+		tipo: string;
+		sectionTipo: string;
+		mode: string;
+		isComponent: boolean;
+		hasToolConfig: boolean;
+	},
 ): Promise<boolean | null> {
 	if (AVAILABILITY_LEDGERED_TOOLS.has(name)) return null;
 
@@ -403,12 +410,14 @@ export async function toolIsAvailable(
 	if (await toolModuleFailedToLoad(name)) return false;
 	const loaded = await getLoadedTool(name);
 	if (loaded?.module.isAvailable !== undefined) {
+		// The element's REAL section and mode (PHP get_tools $tool_context,
+		// T2-O11-4) — never the element tipo standing in for its section.
 		return loaded.module.isAvailable({
 			callerModel: context.calledClass,
 			tipo: context.tipo,
-			sectionTipo: context.tipo,
+			sectionTipo: context.sectionTipo,
 			isComponent: context.isComponent,
-			mode: '',
+			mode: context.mode,
 			hasToolConfig: context.hasToolConfig,
 		});
 	}
@@ -605,6 +614,8 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 	const context = {
 		calledClass: target.model,
 		tipo: target.tipo,
+		sectionTipo: target.sectionTipo,
+		mode: target.mode,
 		isComponent: target.isComponent,
 	};
 	const effectiveTranslatable = await isEffectivelyTranslatable(target);
@@ -616,6 +627,9 @@ export async function getElementTools(target: ElementToolsTarget): Promise<Eleme
 		if (actorTools !== null && !actorTools.has(tool.name)) continue;
 		if (!toolOfferedByCapabilities(tool.name, capabilities)) continue;
 		if (!toolApplies(tool, target, inPropertyTools)) continue;
+		// The dd15 rule (PHP get_tools, element-centric policy kept in core): an
+		// element living in the Time Machine section offers tool_export only.
+		if (target.sectionTipo === TIME_MACHINE_SECTION_TIPO && tool.name !== 'tool_export') continue;
 		// requirement_translatable: a tool requiring translatability is shown only
 		// when the element is (effectively) translatable (PHP requirement === translatable).
 		if (tool.requirementTranslatable && !effectiveTranslatable) continue;
@@ -765,6 +779,7 @@ function withoutBrowserEngines(raw: Record<string, unknown>): Record<string, unk
 /** Backwards-compatible section-tools helper (model 'section', non-component). */
 export async function getSectionTools(
 	sectionTipo: string,
+	mode: string,
 	sectionToolConfigKeys: string[] = [],
 ): Promise<ElementToolsResult> {
 	// Consultation-only sections (Activity dd542, Time Machine dd15, TODO-042) are
@@ -778,6 +793,9 @@ export async function getSectionTools(
 	return getElementTools({
 		model: 'section',
 		tipo: sectionTipo,
+		// A section lives in itself (PHP section::get_section_tipo === tipo).
+		sectionTipo,
+		mode,
 		isComponent: false,
 		translatable: false,
 		toolConfigKeys: sectionToolConfigKeys,
