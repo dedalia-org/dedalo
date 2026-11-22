@@ -4,7 +4,9 @@
  *
  * THE INVARIANT: no production file but the door (and the module that defines
  * the function) imports `processUploadedFile` — statically, dynamically, or
- * through a namespace import.
+ * through a namespace import that names it — and no production file re-exports
+ * the defining module wholesale (`export * from` / `export * as x from`), whatever
+ * binding the barrel's importers then use.
  *
  * WHY (A1-01): an av ingest CLAIMS its component's build slot and holds it until
  * the transcode adopts it. A caller that persists, throws, and never reaches the
@@ -17,9 +19,12 @@
  * they exercise the core function itself and settle the claim explicitly
  * (`releaseBuildClaim`), which is the contract the door exists to hide.
  *
- * Honest limit: a source scan. It sees the import and the binding name, not a
- * function value smuggled through another module's re-export under a new name —
- * a re-export of the binding from a production file is itself an offender here.
+ * Honest limit: a source scan of specifier + binding name. What it does NOT see:
+ * a namespace import of the module that reaches the function WITHOUT spelling
+ * its name (`ns[computedKey]`), and a value handed on through a renamed named
+ * re-export that never spells `processUploadedFile` in the re-exporting file
+ * (`export { processUploadedFile as x }` DOES spell it, so it is caught). An
+ * export-star is caught whatever is bound.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -53,13 +58,21 @@ function stripComments(source: string): string {
 	return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1');
 }
 
+/** The defining module as a specifier: any path ending in process_uploaded_file(.ts). */
+const MODULE_SPECIFIER = String.raw`['"\`][^'"\`]*\bprocess_uploaded_file(?:\.ts)?['"\`]`;
+/** `export * from '…'` / `export * as x from '…'` of the defining module. */
+const EXPORT_STAR = new RegExp(String.raw`\bexport\s*\*\s*(?:as\s+[\w$]+\s+)?from\s*` + MODULE_SPECIFIER);
+
 /**
- * Does this source take `processUploadedFile` from the defining module? It must
- * name the module (static `from`, dynamic `import(…)`) AND the binding.
+ * Does this source take `processUploadedFile` from the defining module? Either
+ * it names the module (static `from`, dynamic `import(…)`) AND the binding, or
+ * it RE-EXPORTS the whole module (`export * [as x] from`) — a barrel never
+ * names the binding, yet hands it to every importer of the barrel.
  */
 function usesIngestCore(source: string): boolean {
 	const code = stripComments(source);
-	const namesModule = /['"`][^'"`]*\bprocess_uploaded_file(\.ts)?['"`]/.test(code);
+	if (EXPORT_STAR.test(code)) return true;
+	const namesModule = new RegExp(MODULE_SPECIFIER).test(code);
 	return namesModule && /\bprocessUploadedFile\b/.test(code);
 }
 
@@ -87,7 +100,7 @@ describe('ingest door tripwire', () => {
 		}
 	});
 
-	test('POSITIVE CONTROL: static, dynamic and namespace imports are seen; comments and look-alikes are not', () => {
+	test('POSITIVE CONTROL: static, dynamic, namespace imports and export-star barrels are seen; comments and look-alikes are not', () => {
 		expect(
 			usesIngestCore(
 				"import { processUploadedFile } from '../../src/core/media/ingest/process_uploaded_file.ts';",
@@ -103,6 +116,13 @@ describe('ingest door tripwire', () => {
 				"import * as ingest from '../media/ingest/process_uploaded_file.ts';\nawait ingest.processUploadedFile(x);",
 			),
 		).toBe(true);
+		// A BARREL never names the binding, yet hands it on: any export-star of the
+		// module is an offender, with or without a namespace name.
+		expect(usesIngestCore("export * from '../media/ingest/process_uploaded_file.ts';")).toBe(true);
+		expect(usesIngestCore("export * as ingestCore from './ingest/process_uploaded_file';")).toBe(
+			true,
+		);
+		expect(usesIngestCore('export*from"./process_uploaded_file.ts"')).toBe(true);
 		// A comment is not a use; a same-named local function without the module is not either.
 		expect(
 			usesIngestCore(
