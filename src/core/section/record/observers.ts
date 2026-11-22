@@ -608,6 +608,7 @@ export async function propagateToObservers(
 						server,
 						sectionTipo,
 						sectionId,
+						{ saved: targets, removed: removedTargets },
 						userId,
 						now,
 						guard,
@@ -1509,12 +1510,14 @@ async function recomputeInfoObserver(
 	server: NonNullable<ObserveEntry['server']>,
 	savedSectionTipo: string,
 	savedSectionId: number,
+	observable: { saved: readonly StoredLocator[]; removed: readonly StoredLocator[] },
 	userId: number,
 	now: Date,
 	cascade: CascadeGuard,
 ): Promise<unknown[]> {
-	// targets
-	const targets: { sectionTipo: string; sectionId: number }[] = [];
+	// base targets: the filter step (an SQO search over the host, else the saved
+	// record); server.config then decides through the ONE resolver table below.
+	const baseTargets: { sectionTipo: string; sectionId: number }[] = [];
 	const filter = server.filter;
 	if (isSqoFilter(filter)) {
 		// PHP: every clause's q := the saved record's locator, with
@@ -1573,12 +1576,32 @@ async function recomputeInfoObserver(
 			section_id: number;
 		} & Record<string, unknown>)[];
 		for (const row of rows) {
-			targets.push({ sectionTipo: row.section_tipo, sectionId: Number(row.section_id) });
+			baseTargets.push({ sectionTipo: row.section_tipo, sectionId: Number(row.section_id) });
 		}
 	} else {
 		// filter:false — the observer lives on the SAME record that changed
-		targets.push({ sectionTipo: savedSectionTipo, sectionId: savedSectionId });
+		baseTargets.push({ sectionTipo: savedSectionTipo, sectionId: savedSectionId });
 	}
+	// T2-WID-1: server.config chooses the targets, as for every other observer
+	// (PHP update_observer_data's one config switch) — the SAME table the
+	// set_dato_external branch classifies by (external_laws/resolvers.ts).
+	const { configuredInfoTargets } = await import('./external_laws/resolvers.ts');
+	const targets = (
+		await configuredInfoTargets({
+			observerTipo,
+			server,
+			saved: { section_tipo: savedSectionTipo, section_id: savedSectionId },
+			base: baseTargets.map((target) => ({
+				section_tipo: target.sectionTipo,
+				section_id: target.sectionId,
+			})),
+			observableSaved: observable.saved,
+			observableRemoved: observable.removed,
+		})
+	).map((target) => ({
+		sectionTipo: String(target.section_tipo),
+		sectionId: Number(target.section_id),
+	}));
 
 	const { computeInfoWidgets } = await import(
 		'../../components/component_info/widgets/registry.ts'

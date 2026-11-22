@@ -1955,6 +1955,18 @@ Merged since the last release; these ship with the next one.
     **Action needed:** none, unless a table node carries a non-boolean `is_publishable` — correct
     it in the ontology.
 
+- **"An information field observing another field now recomputes on the records its `server.config` names."**
+
+    An information field (`component_info`, and its state and calculation variants) that observes
+    another field with a `server.config` — `use_observable_dato` (the records the saved field
+    points at) or `use_inverse_relations` (the records pointing at the saved one) — recomputed on
+    the record that had just been saved instead, and its history entry was written there. It now
+    recomputes on the records the configuration names, as every other observer does; with
+    `use_observable_dato`, the records the saved field stopped pointing at are recomputed too.
+    Observers configured only with `filter` behave as before.
+
+    **Action needed:** none.
+
 - **"Update cache brings old stored formats up to date: legacy time codes in text areas and JSON stored as text."**
 
     Running **Update cache** over a text area now rewrites time codes kept in the old form

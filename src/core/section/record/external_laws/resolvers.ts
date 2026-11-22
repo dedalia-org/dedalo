@@ -165,8 +165,13 @@ function refusedPerform(fn: unknown): ServerShapeRefusal {
 	};
 }
 
-/** PHP's closed config switch, in its case order. */
-function resolverOfConfig(
+/**
+ * PHP's closed config switch, in its case order — THE one target-resolver
+ * table: the set_dato_external classification below and the component_info
+ * branch (observers.ts recomputeInfoObserver, via configuredInfoTargets) both
+ * read it.
+ */
+export function observerTargetResolverOf(
 	configBlock: ObserveServerBlock['config'] | undefined,
 ): ObserverTargetResolver {
 	const useObservable = configBlock?.use_observable_dato === true;
@@ -196,7 +201,7 @@ export function classifyObserverServerShape(server: ObserveServerBlock): ServerS
 	const fn = server.perform?.function;
 	const perform = performOf(fn);
 	if (perform === null) return refusedPerform(fn);
-	const resolver = resolverOfConfig(server.config ?? undefined);
+	const resolver = observerTargetResolverOf(server.config ?? undefined);
 	return filterRefusal(resolver, server.filter) ?? { resolver, perform };
 }
 
@@ -341,6 +346,53 @@ export async function inverseHostTargets(
 		targets.push({ section_tipo: hit.section_tipo, section_id: hit.section_id });
 	}
 	return targets;
+}
+
+/**
+ * THE INFO OBSERVER'S TARGETS (T2-WID-1). PHP update_observer_data runs the
+ * same config switch for EVERY observer after its filter step: `base` is that
+ * step's result (the SQO-filter search over the host, or the saved record for
+ * `filter:false` / no filter), then the table above decides — self ⇒ `base`;
+ * self_and_observable ⇒ `base` + the saved value's locators; observable ⇒ the
+ * saved value's locators ALONE (it replaces the filter result, PHP case b);
+ * inverse ⇒ the records referencing the saved one, host-filtered (an info
+ * widget computed on a record that does not declare it is meaningless —
+ * the host predicate every other resolver obeys). The observable half carries
+ * the REMOVED locators too, as the set_dato_external resolver does: a target
+ * the saved record stopped pointing at shows a stale widget until recomputed.
+ * Deduplicated in first-seen order (each target writes one TM row).
+ */
+export async function configuredInfoTargets(input: {
+	readonly observerTipo: string;
+	readonly server: ObserveServerBlock;
+	readonly saved: RecordAddress;
+	readonly base: readonly ObservableTarget[];
+	readonly observableSaved: readonly ObservableTarget[];
+	readonly observableRemoved: readonly ObservableTarget[];
+}): Promise<ObservableTarget[]> {
+	const resolver = observerTargetResolverOf(input.server.config ?? undefined);
+	let targets: ObservableTarget[];
+	switch (resolver) {
+		case 'self':
+			targets = [...input.base];
+			break;
+		case 'self_and_observable':
+			targets = [...input.base, ...input.observableSaved, ...input.observableRemoved];
+			break;
+		case 'observable':
+			targets = [...input.observableSaved, ...input.observableRemoved];
+			break;
+		case 'inverse':
+			targets = await inverseHostTargets(input.observerTipo, input.saved, undefined);
+			break;
+	}
+	const seen = new Set<string>();
+	return targets.filter((target) => {
+		const key = `${target.section_tipo}|${target.section_id}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 }
 
 /**
