@@ -1807,7 +1807,10 @@ async function stateMessageText(
 	if (typeof msg !== 'string' || !Object.hasOwn(labels, msg)) return null;
 	let text = labels[msg] as string;
 	if (typeof targetComponent === 'string' && targetComponent !== '') {
-		text = text.replace('%s', await termByTipo(targetComponent, lang));
+		const term = await termByTipo(targetComponent, lang);
+		// function replacer: the term is inserted literally (`$&`, `$'` … in an
+		// ontology term are not replacement patterns).
+		text = text.replace('%s', () => term);
 	}
 	return text.includes('%s') ? null : text;
 }

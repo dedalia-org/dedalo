@@ -20,6 +20,7 @@
  *    zzsoc2 component_input_text  state_of_component {alternative → zzsoc3,
  *           deprecated (unknown key), orphan (%s, no target), plain (no msg)}
  *    zzsoc3 component_input_text  term "Preferred title" / "Título preferido"
+ *    zzsoc4 component_input_text  term with `$&`/`$'`/`$1` (literal insertion)
  */
 
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
@@ -40,6 +41,9 @@ import { assertTestDatabase } from '../../src/core/test_data/test_database_marke
 const SECTION = 'zzsoc1';
 const CARRIER = 'zzsoc2';
 const TARGET = 'zzsoc3';
+/** A target whose term carries String.replace patterns — they must stay literal. */
+const DOLLAR_TARGET = 'zzsoc4';
+const DOLLAR_TERM = "Cost $& and $' and $1 tail";
 const LABEL_KEY = 'component_alternative';
 
 const STATE = {
@@ -47,6 +51,7 @@ const STATE = {
 	deprecated: { msg: 'zz_not_a_label_key', target_component: TARGET },
 	orphan: { msg: LABEL_KEY },
 	plain: { icon: 'plain' },
+	dollar: { msg: LABEL_KEY, target_component: DOLLAR_TARGET },
 };
 
 const S = situation({
@@ -74,6 +79,13 @@ const S = situation({
 			model: 'component_input_text',
 			order_number: 2,
 			term: { 'lg-eng': 'Preferred title', 'lg-spa': 'Título preferido' },
+		},
+		{
+			tipo: DOLLAR_TARGET,
+			parent: SECTION,
+			model: 'component_input_text',
+			order_number: 3,
+			term: { 'lg-eng': DOLLAR_TERM },
 		},
 	],
 });
@@ -142,6 +154,16 @@ describe('state_of_component.msg is resolved, never shipped as a key (T2-SC-1)',
 		const msg = String(state.alternative?.msg);
 		expect(msg).toContain(await termByTipo(TARGET, 'lg-cat'));
 		expect(msg).not.toMatch(/%\s?s/);
+	});
+
+	test("the target term is inserted LITERALLY — `$&`, `$'`, `$1` are not replacement patterns", async () => {
+		const state = await stateIn('lg-eng');
+		const template = (await getLabels('lg-eng'))[LABEL_KEY] as string;
+		const at = template.indexOf('%s');
+		expect(at).toBeGreaterThanOrEqual(0);
+		expect(state.dollar?.msg).toBe(
+			`${template.slice(0, at)}${DOLLAR_TERM}${template.slice(at + 2)}`,
+		);
 	});
 
 	test('an unknown key, or a %s with no target, is REFUSED — dropped and logged, the entry kept', async () => {
