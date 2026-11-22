@@ -1552,23 +1552,6 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 					'Main-lang fallback for a hierarchy1 term READ. This is S2-11’s original site, filed UNVERIFIED by the 2026-07 foundation audit; a read serving the install default is a wrong LABEL, never a wrong stored byte.',
 			},
 		],
-		[
-			'tools/tool_import_dedalo_csv/server/index.ts',
-			{
-				count: 4,
-				reason:
-					'Four termByTipo() REPORT LABELS. The fifth read — this door’s write language, audit DATA-01’s primary site — was removed by P0-7; it now reads currentDataLang().',
-			},
-		],
-		// ── OPEN: the same defect class, outside P0-7's edit scope ───────────
-		[
-			'tools/tool_posterframe/server/index.ts',
-			{
-				count: 1,
-				reason:
-					'One termByTipo() report LABEL only. The MediaIdentity lang — the language segment of a translatable media component’s file path — was the DATA-01 third site and is closed: it reads currentDataLang() now.',
-			},
-		],
 	]);
 
 	/**
@@ -1582,9 +1565,10 @@ describe('config.menu lang reads outside src/config/ (P0-7 census)', () => {
 	 * (T2-OX7-1a): tool_propagate_component_data's report label reads the
 	 * request's currentApplicationLang(). 21 → 18 (T2 B10): create_record's
 	 * label, the login context lang and the LLM map's link-target lang read the
-	 * request scope.
+	 * request scope. 18 → 13 (T2 B10 OX7-1b): the tool_import_dedalo_csv (4)
+	 * and tool_posterframe (1) report labels read currentApplicationLang().
 	 */
-	const CENSUS_TOTAL = 18;
+	const CENSUS_TOTAL = 13;
 
 	const LANG_READ = /config\.menu\.(?:dataLang|applicationLang)\b/;
 

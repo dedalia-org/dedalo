@@ -14,7 +14,6 @@
  * posterframe core; this module wires the DB portal-create + ontology walk.
  */
 
-import { config } from '../../../src/config/config.ts';
 import { mediaTypeOf } from '../../../src/core/concepts/media.ts';
 import { DedaloError, ok } from '../../../src/core/errors/index.ts';
 import { resolveMediaPathOptions } from '../../../src/core/media/ontology_path.ts';
@@ -26,7 +25,7 @@ import { getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
 import { editScopeComponents } from '../../../src/core/ontology/virtual_scope.ts';
 import { getElementTargetSectionTipos } from '../../../src/core/relations/request_config/build.ts';
 import { toolAddNewElementAccess } from '../../../src/core/relations/save.ts';
-import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { findInverseReferences } from '../../../src/core/search/search_related.ts';
 import { saveComponentData } from '../../../src/core/section/record/save_component.ts';
 import {
@@ -287,7 +286,7 @@ async function identifyingPortalOfSection(sectionTipo: string): Promise<Identify
 			return {
 				componentPortal: node.tipo,
 				componentImage: identifyingImage,
-				label: await termByTipo(sectionTipo, config.menu.applicationLang),
+				label: await termByTipo(sectionTipo, currentApplicationLang()),
 			};
 		}
 	}

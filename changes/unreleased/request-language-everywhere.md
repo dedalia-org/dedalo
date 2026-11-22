@@ -7,6 +7,9 @@ date: 2026-11-22
 Several places still answered in the installation's configured language (or in a
 fixed language) instead of the one the user had chosen in the menu:
 
+- the CSV import tool (column mapper, file preview, import progress) and the
+  posterframe tool named sections and fields in the installation's interface
+  language; they now use the user's;
 - a new record was stamped with the section name in the installation's
   interface language; it now takes the creating user's interface language;
 - the login page declared the installation's interface language even when the

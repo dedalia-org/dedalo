@@ -32,7 +32,7 @@ import { assertTestMediaRoot } from '../../../src/core/media/test_media_root.ts'
 import { resolveDataTipo } from '../../../src/core/ontology/alias.ts';
 import { termByTipo } from '../../../src/core/ontology/labels.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
-import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
+import { currentApplicationLang, currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { sectionInfoComponents } from '../../../src/core/resolve/section_elements_context.ts';
 import { createSectionRecord } from '../../../src/core/section/record/create_record.ts';
 import { saveComponentData } from '../../../src/core/section/record/save_component.ts';
@@ -310,13 +310,13 @@ async function getSectionComponentsList(ctx: ToolActionContext): Promise<ToolRes
 	const tipos = members.filter((_, index) => !derived[index]);
 	const components = await Promise.all(
 		tipos.map(async (t) => ({
-			label: await termByTipo(t.tipo, config.menu.applicationLang),
+			label: await termByTipo(t.tipo, currentApplicationLang()),
 			value: t.tipo,
 			model: t.model,
 			import_append: await wireAppendPolicy(t.tipo, t.model),
 		})),
 	);
-	const label = await termByTipo(sectionTipo, config.menu.applicationLang);
+	const label = await termByTipo(sectionTipo, currentApplicationLang());
 	return ok({ components, label }, { requestId: toolRequestId(ctx) });
 }
 
@@ -332,7 +332,7 @@ async function resolveColumnMap(
 	const base = header.includes('_') ? header.slice(0, header.indexOf('_')) : header;
 	const model = await getModelByTipo(base);
 	if (model === null) return null;
-	const label = await termByTipo(base, config.menu.applicationLang);
+	const label = await termByTipo(base, currentApplicationLang());
 	return { tipo: header, label, model };
 }
 
@@ -745,7 +745,7 @@ async function resolveColumnLabels(
 	for (const column of columns) {
 		if (column === null || column.model === 'component_section_id') continue;
 		if (labels.has(column.tipo)) continue;
-		labels.set(column.tipo, await termByTipo(column.tipo, config.menu.applicationLang));
+		labels.set(column.tipo, await termByTipo(column.tipo, currentApplicationLang()));
 	}
 	return labels;
 }

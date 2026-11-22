@@ -15,6 +15,8 @@ import { resolve } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { sql } from '../../src/core/db/postgres.ts';
 import { ddDateToSeconds } from '../../src/core/media/file_date.ts';
+import { termByTipo } from '../../src/core/ontology/labels.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -895,5 +897,135 @@ describe('section-info columns (dd196 children) are offered and validate', () =>
 		// Refused as DERIVED — not as "not a component of section" (it is still a
 		// validate_import MEMBER; only the offer drops it).
 		expect(joined).not.toContain('not a component of section');
+	});
+});
+
+/**
+ * T2-OX7-1b — the mapper's labels speak the REQUEST application lang (PHP
+ * DEDALO_APPLICATION_LANG is per-request), not the install default: two
+ * request langs → two labels. test3 and test22 (its component_number "Order"
+ * / "Orden") are named differently per language — the floor below proves it,
+ * or the two readings would coincide and the case prove nothing. The progress
+ * case imports ONE row (empty test22 cell) at an explicit scratch id, removed
+ * in afterAll with its TM + dd800 rows.
+ */
+describe('T2-OX7-1b: labels follow the request application lang', () => {
+	const SCRATCH_USER = 987679;
+	const root = config.media.rootPath ?? '';
+	const userDir = resolve(root, 'import/files', String(SCRATCH_USER));
+	const NAMED = 'test22';
+	const LANES = ['lg-eng', 'lg-spa'] as const;
+	const SCRATCH_ID = 900102;
+	const bulkProcessIds: number[] = [];
+
+	beforeAll(() => {
+		mkdirSync(userDir, { recursive: true });
+		writeFileSync(resolve(userDir, 'labels.csv'), `section_id;${NAMED}\n${SCRATCH_ID};\n`);
+	});
+	afterAll(async () => {
+		rmSync(userDir, { recursive: true, force: true });
+		await sql.unsafe(`DELETE FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`, [
+			SECTION,
+			SCRATCH_ID,
+		]);
+		await sql.unsafe(
+			`DELETE FROM matrix_time_machine WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, SCRATCH_ID],
+		);
+		for (const id of bulkProcessIds) {
+			await sql.unsafe(
+				`DELETE FROM matrix_notes WHERE section_tipo = 'dd800' AND section_id = $1`,
+				[id],
+			);
+			await sql.unsafe(
+				`DELETE FROM matrix_time_machine WHERE section_tipo = 'dd800' AND section_id = $1`,
+				[id],
+			);
+		}
+		const residue = (await sql.unsafe(
+			`SELECT count(*)::int AS n FROM matrix_test WHERE section_tipo = $1 AND section_id = $2`,
+			[SECTION, SCRATCH_ID],
+		)) as { n: number }[];
+		expect(residue[0]?.n).toBe(0);
+	});
+
+	async function call(lang: string, name: string, options: Record<string, unknown>) {
+		const loaded = await getLoadedTool('tool_import_dedalo_csv');
+		const handler = mustGet(loaded!.module.apiActions[name], name).handler;
+		const principal = await resolvePrincipal(-1);
+		return runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+			handler({ principal, userId: SCRATCH_USER, background: false, options }),
+		);
+	}
+
+	test('floor: the section and the column are named differently per lang', async () => {
+		expect(await termByTipo(SECTION, 'lg-eng')).not.toBe(await termByTipo(SECTION, 'lg-spa'));
+		expect(await termByTipo(NAMED, 'lg-eng')).not.toBe(await termByTipo(NAMED, 'lg-spa'));
+	});
+
+	test('get_section_components_list: section + component labels in the request lang', async () => {
+		const differing = new Set<string>();
+		for (const lang of LANES) {
+			const res = await call(lang, 'get_section_components_list', { section_tipo: SECTION });
+			const payload = res.data as { components: { value: string; label: string }[]; label: string };
+			expect(payload.label, lang).toBe(await termByTipo(SECTION, lang));
+			for (const item of payload.components) {
+				expect(item.label, `${lang} ${item.value}`).toBe(await termByTipo(item.value, lang));
+				if ((await termByTipo(item.value, 'lg-eng')) !== (await termByTipo(item.value, 'lg-spa'))) {
+					differing.add(item.value);
+				}
+			}
+		}
+		// FLOOR: at least one listed component is named differently per lang.
+		expect(differing.size).toBeGreaterThan(0);
+	});
+
+	test('get_csv_files: the column map labels in the request lang', async () => {
+		for (const lang of LANES) {
+			const res = await call(lang, 'get_csv_files', {});
+			const { files } = res.data as {
+				files: { name: string; ar_columns_map: ({ tipo: string; label: string } | null)[] }[];
+			};
+			const file = files.find((item) => item.name === 'labels.csv');
+			const column = file?.ar_columns_map.find((item) => item?.tipo === NAMED);
+			expect(column?.label, lang).toBe(await termByTipo(NAMED, lang));
+		}
+	});
+	test('import_files: the progress frame names the column in the request lang', async () => {
+		for (const lang of LANES) {
+			const frames: ImportProgressFrame[] = [];
+			const loaded = await getLoadedTool('tool_import_dedalo_csv');
+			const handler = mustGet(loaded!.module.apiActions.import_files, 'import_files').handler;
+			const principal = await resolvePrincipal(-1);
+			const res = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+				handler({
+					principal,
+					userId: SCRATCH_USER,
+					background: true,
+					publishProgress: (data: object) => frames.push(data as ImportProgressFrame),
+					options: {
+						files: [
+							{
+								file: 'labels.csv',
+								section_tipo: SECTION,
+								ar_columns_map: [
+									{ tipo: 'section_id', model: 'section_id' },
+									{ tipo: NAMED, model: 'component_number', checked: true, map_to: NAMED },
+								],
+							},
+						],
+					},
+				}),
+			);
+			const report = (res.data as { files: ImportFileReport[] }).files[0] as ImportFileReport;
+			if (typeof report.bulk_process_id === 'number') bulkProcessIds.push(report.bulk_process_id);
+			expect(report.ok, lang).toBe(true);
+			const labelled = frames.filter((frame) => frame.component_label != null);
+			// FLOOR: the first importing tick names the column (it is never throttled).
+			expect(labelled.length, lang).toBeGreaterThan(0);
+			for (const frame of labelled) {
+				expect(frame.component_label, lang).toBe(await termByTipo(NAMED, lang));
+			}
+		}
 	});
 });

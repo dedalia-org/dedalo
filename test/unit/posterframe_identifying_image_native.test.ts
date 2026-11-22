@@ -42,6 +42,7 @@ import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
 import { termByTipo } from '../../src/core/ontology/labels.ts';
 import * as virtualScope from '../../src/core/ontology/virtual_scope.ts';
+import { runWithRequestLangs } from '../../src/core/resolve/request_lang.ts';
 import { type Principal, resolvePrincipal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -103,7 +104,8 @@ const s = situation({
 			tipo: 'zzpf1',
 			parent: 'test1',
 			model: 'section',
-			term: term('Real'),
+			// Named per language: the T2-OX7-1b case reads the label in two langs.
+			term: { 'lg-spa': 'Real', 'lg-eng': 'Real section' },
 			relations: [{ tipo: 'test24' }],
 		},
 		{
@@ -336,6 +338,17 @@ describe.if(DB_READY)('tool_posterframe identifying image — virtual edit scope
 			component_image: 'zzpf9',
 			label: await termByTipo('zzpf1', config.menu.applicationLang),
 		});
+	});
+
+	test('T2-OX7-1b: the descriptor label speaks the REQUEST application lang', async () => {
+		// FLOOR: zzpf1 is named differently per lang, or both readings coincide.
+		expect(await termByTipo('zzpf1', 'lg-eng')).not.toBe(await termByTipo('zzpf1', 'lg-spa'));
+		for (const lang of ['lg-eng', 'lg-spa']) {
+			const descriptor = await runWithRequestLangs({ applicationLang: lang, dataLang: lang }, () =>
+				descriptorOf('zzpf1'),
+			);
+			expect(descriptor?.label, lang).toBe(await termByTipo('zzpf1', lang));
+		}
 	});
 
 	test('a VIRTUAL hit inherits the real portal; the descriptor keeps the virtual tipo + label', async () => {
