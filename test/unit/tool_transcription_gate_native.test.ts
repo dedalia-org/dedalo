@@ -37,11 +37,13 @@
  * NOT_YET_PROBED; this pin is the per-tool half, not a second census.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { subtitlesPath } from '../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../src/core/media/tool_support.ts';
+import * as save_component from '../../src/core/section/record/save_component.ts';
 import { getPermissions, type Principal } from '../../src/core/security/permissions.ts';
 import {
 	dropSituation,
@@ -684,9 +686,9 @@ describe.if(DB_READY)('TOOLS-3 — tool_transcription record doors through the w
 			expect({
 				revoked,
 				saved,
-				outcome: outcome === 'served',
+				outcome,
 				stored: await storedTranscript(),
-			}).toEqual({ revoked: true, saved: 0, outcome: false, stored: '' });
+			}).toEqual({ revoked: true, saved: 0, outcome: 'tool.action_failed', stored: '' });
 		} finally {
 			await setUserProfile(ids.control.userId, own);
 		}
@@ -706,12 +708,38 @@ describe.if(DB_READY)('TOOLS-3 — tool_transcription record doors through the w
 			expect({
 				revoked,
 				saved,
-				outcome: outcome === 'served',
+				outcome,
 				stored: await storedTranscript(),
-			}).toEqual({ revoked: true, saved: 0, outcome: false, stored: '' });
+			}).toEqual({ revoked: true, saved: 0, outcome: 'tool.action_failed', stored: '' });
 		} finally {
 			await setActiveAccount(ids.control.userId, true);
 		}
+	});
+
+	// A save FAILURE is not a door refusal (review L3): only perm.* / request.invalid*
+	// become the job's quiet terminal sentence; a typed engine error from the save
+	// itself (here a db.lock_timeout from saveComponentData) escapes the poll with
+	// its own code, as it did before the save asked the door. The door GRANTS here
+	// (the live control), the target is empty, and the save is stubbed to throw.
+	test('the background save: a typed SAVE failure (db.lock_timeout) ESCAPES the poll with its code — only a door refusal is swallowed', async () => {
+		expect(await storedTranscript()).toBe('');
+		const REAL_SAVE_COMPONENT = { ...save_component };
+		mock.module('../../src/core/section/record/save_component.ts', () => ({
+			...REAL_SAVE_COMPONENT,
+			saveComponentData: async () => {
+				throw new DedaloError('db.lock_timeout');
+			},
+		}));
+		try {
+			const { saved, outcome } = await runPoll(ids.control, async () =>
+				answerTranscript('zzauthz failing save'),
+			);
+			expect({ saved, outcome }).toEqual({ saved: 0, outcome: 'db.lock_timeout' });
+		} finally {
+			mock.module('../../src/core/section/record/save_component.ts', () => REAL_SAVE_COMPONENT);
+			mock.restore();
+		}
+		expect(await storedTranscript()).toBe('');
 	});
 
 	test('the background save SERVED twin: the live, granted control (nothing revoked) → the transcript IS stored', async () => {

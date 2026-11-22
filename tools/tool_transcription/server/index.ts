@@ -597,6 +597,18 @@ export interface BackgroundPollSeams {
 const BACKGROUND_SAVE_DOOR = 'tool_transcription.background_save';
 
 /**
+ * Whether a background-save throw is a WRITE-DOOR REFUSAL — a permission
+ * (`perm.*`, the dead account included) or the target's address grammar
+ * (`request.invalid*`) — rather than a failure of the save itself.
+ */
+function isBackgroundSaveRefusal(error: unknown): error is DedaloError {
+	return (
+		error instanceof DedaloError &&
+		(error.code.startsWith('perm.') || error.code.startsWith('request.invalid'))
+	);
+}
+
+/**
  * The detached completion poll (PHP babel_transcriber::
  * check_background_transcriber_status). Runs under the background executor;
  * reads its whole world from the options captured at enqueue time.
@@ -660,7 +672,10 @@ export async function backgroundTranscriberPoll(
 						door: BACKGROUND_SAVE_DOOR,
 					});
 				} catch (error) {
-					if (!(error instanceof DedaloError)) throw error;
+					// ONLY a door refusal (perm.* / the id grammar's request.invalid*) is the
+					// job's terminal sentence; a save FAILURE (db.*, record.*) escapes the
+					// poll with its own code, as it did before the save asked the door.
+					if (!isBackgroundSaveRefusal(error)) throw error;
 					console.error(
 						`[tool_transcription] the background save was refused (${error.code}): ${error.message}`,
 					);
