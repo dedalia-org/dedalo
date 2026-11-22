@@ -36,7 +36,10 @@
  *   G1 caller map — a nested ddo map injects test211 under test80; G1b multi-item
  *      literals keep one atom per item (number joins ', ', input_text ' | ');
  *   G2 ddo-level fields_separator + own rc.show records_separator; G2b the D3
- *      empty slot;
+ *      empty slot; G2c/G2d the precedence DISCRIMINATED (T2-EXP-1): one
+ *      component declaring the SAME keys on show AND properties, reached through
+ *      a caller ddo declaring them too → ddo; reached as the column (no ddo) →
+ *      show, never properties;
  *   G3 per model, non-empty value AND `unresolved` free of the model;
  *   G4 grid_value: filter / filter_master / relation_index / derived leaves emit atoms;
  *   G5 value == join(grid_value atoms), every case above;
@@ -146,6 +149,9 @@ const BIDI_LABEL = 'zzxv6'; // its show child
 const BARE = 'zzxv7'; // config-less portal whose `relations` name ONLY a section (test3)
 const IRI_SEP = 'zzxv8'; // D7: component_iri, properties.fields_separator ' — '
 const IRI_PLAIN = 'zzxv9'; // D7: component_iri, nothing declared (default ', ')
+// G2c/G2d (T2-EXP-1): the SAME separator keys on every rung
+const PREC_INNER = 'zzxv60'; // portal → test3, show AND properties both declare
+const PREC_OUTER = 'zzxv61'; // portal → HOST, caller ddo on PREC_INNER declares too
 // media attribution: a dd467 related whose targets show a label AND an image
 const RELM = 'zzxv17';
 const RELM_IMAGE = 'zzxv18';
@@ -336,6 +342,35 @@ const S = situation({
 			properties: { fields_separator: ' — ' },
 		},
 		{ tipo: IRI_PLAIN, parent: HOST, model: 'component_iri', term: term('zz t09 iri plain') },
+		{
+			tipo: PREC_INNER,
+			parent: HOST,
+			model: 'component_portal',
+			term: term('zz t09 precedence inner'),
+			properties: {
+				...explicitConfig(
+					PLAYGROUND,
+					[selfDdo(NUMBER), selfDdo(TEXT)],
+					// own rc.show rung
+					{ fields_separator: ' ~S~ ', records_separator: ' #S# ' },
+				),
+				// properties rung: the SAME keys — must lose to show
+				fields_separator: ' ~P~ ',
+				records_separator: ' #P# ',
+			},
+		},
+		{
+			tipo: PREC_OUTER,
+			parent: HOST,
+			model: 'component_portal',
+			term: term('zz t09 precedence outer'),
+			properties: explicitConfig(HOST, [
+				// caller-ddo rung: the SAME key — must beat show and properties
+				selfDdo(PREC_INNER, { fields_separator: ' ~D~ ' }),
+				{ tipo: NUMBER, parent: PREC_INNER, section_tipo: PLAYGROUND },
+				{ tipo: TEXT, parent: PREC_INNER, section_tipo: PLAYGROUND },
+			]),
+		},
 		{
 			tipo: RELM,
 			parent: HOST,
@@ -557,6 +592,8 @@ const HID = {
 	c1: 34,
 	c2: 35,
 	np: 36, // NO_PARENT → test3 b1
+	precInner: 40, // PREC_INNER → [b1, b2]
+	precOuter: 41, // PREC_OUTER → [precInner]
 } as const;
 
 const t3 = (
@@ -748,6 +785,16 @@ const HOST_ROWS: Record<number, ReturnType<typeof t3>> = {
 	[HID.c1]: t3({ [BIDI_LABEL]: text('c one') }, { [CYCLE]: [locator(CYCLE, HOST, HID.c2)] }),
 	[HID.c2]: t3({ [BIDI_LABEL]: text('c two') }, { [CYCLE]: [locator(CYCLE, HOST, HID.c1)] }),
 	[HID.np]: t3({}, { [NO_PARENT]: [locator(NO_PARENT, PLAYGROUND, ID.b1)] }),
+	[HID.precInner]: t3(
+		{},
+		{
+			[PREC_INNER]: [
+				locator(PREC_INNER, PLAYGROUND, ID.b1, 1),
+				locator(PREC_INNER, PLAYGROUND, ID.b2, 2),
+			],
+		},
+	),
+	[HID.precOuter]: t3({}, { [PREC_OUTER]: [locator(PREC_OUTER, HOST, HID.precInner)] }),
 };
 
 async function sweepTest3(): Promise<void> {
@@ -972,6 +1019,27 @@ const CASES: {
 		model: 'component_portal',
 		expected: 'x |  | y',
 	},
+	// G2c (T2-EXP-1) — PREC_OUTER → precInner → PREC_INNER → [b1, b2]: the
+	// deeper indexed level joins with PREC_INNER's FIELDS separator, which
+	// ddo (' ~D~ '), show (' ~S~ ') and properties (' ~P~ ') ALL declare → ddo
+	{
+		name: 'G2c ddo beats show and properties',
+		section: HOST,
+		id: HID.precOuter,
+		column: PREC_OUTER,
+		model: 'component_portal',
+		expected: '7 ~D~ bee ~D~ 8 ~D~ wasp',
+	},
+	// G2d (T2-EXP-1) — PREC_INNER as the column (no caller ddo): records ' #S# '
+	// and fields ' ~S~ ' from show, though properties declares both keys too
+	{
+		name: 'G2d show beats properties',
+		section: HOST,
+		id: HID.precInner,
+		column: PREC_INNER,
+		model: 'component_portal',
+		expected: '7 ~S~ bee #S# 8 ~S~ wasp',
+	},
 	// G3 — per model
 	{
 		name: 'filter → dd156',
@@ -1082,6 +1150,8 @@ describe.if(DB_READY)('T0-9 export value: caller map + per-model families', () =
 			'G1b multi-item literals',
 			'G2 separators',
 			'G2b empty slot kept',
+			'G2c ddo beats show and properties',
+			'G2d show beats properties',
 		]) {
 			test(name, async () => {
 				const c = caseOf(name);
