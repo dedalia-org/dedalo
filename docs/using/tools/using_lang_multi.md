@@ -29,7 +29,7 @@ The tool is attached to individual **text fields** and shows as a button inline 
 4. Pick a **translation engine** from the selector at the top.
 5. To translate every other language at once, press **Automatic translation** at the top. To translate just one language, use the translate button on that single column.
 6. When a column already has content, you are asked whether to **overwrite** it or **skip** columns that are not empty. Choose one; holding **Alt** while pressing *Automatic translation* overwrites everything without asking.
-7. Watch the columns fill (a progress banner reports how many completed), then review and correct each translation in place. A language the translation service does not support is left unchanged and reported as failed.
+7. Watch the columns fill (a progress banner reports how many completed), then review and correct each translation in place. A language the translation service does not support is left unchanged and reported as failed. With the Local AI translator, a language saved with marks the translator had to place or reorder is named in the summary under **Translation saved — check the marks**, with a line saying what to check; that summary stays on screen until you close it.
 
 ## Options
 
@@ -37,7 +37,7 @@ The tool is attached to individual **text fields** and shows as a button inline 
 | --- | --- |
 | Source column | The last edited column; its value is the text every other language is translated from. |
 | Engine selector | Chooses the translation engine — a **server** engine (Babel, Google) or a **browser** engine that runs in your browser. Shared with the single-field translator's configuration. |
-| Configuration (gear) | For a browser engine, toggles a "more compatible, slower" device option (CPU instead of GPU). |
+| Configuration (gear) | For a browser engine: the **Model** to translate with, and a "more compatible, slower" device option (CPU instead of GPU). |
 | Automatic translation (top) | Translates the source into every other language in one run. |
 | Per-column translate | The translate button in a column's own button bar: translates the source into that one language only. |
 | Overwrite / Skip non-empty | When targets already have content: overwrite them all, or only fill the empty ones. |

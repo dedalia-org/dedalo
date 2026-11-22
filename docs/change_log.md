@@ -725,9 +725,9 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-08-02-tool-string-lang-fallback`.
 
-- **The Local AI translator no longer loses or reverses marks silently**
+- **The Local AI translator no longer loses, reverses or invents marks silently**
 
-    Before, when the in-browser translation model dropped an index mark, a time code or another mark, the mark simply vanished from the translated text. When it reversed an opening and closing mark, they were saved reversed. Both runs reported *Translation completed*. Now the translator asks the model again for a dropped mark, then places the mark itself if it has to, and puts reversed pairs back in order. It saves the result with **Translation saved — check the marks** and says what it moved. A mark it still cannot place, or one the source does not have, stops the run: nothing is saved, the target keeps its previous text and the panel shows **Translation needs review before saving**. This applies to the single-field and the multi-language translators. See [Translate a field](./using/tools/using_lang.md).
+    Before, when the in-browser translation model dropped an index mark, a time code or another mark, the mark simply vanished from the translated text. When it reversed an opening and closing mark, they were saved reversed. Both runs reported *Translation completed*. Now marks, links, superscripts and other formatting are kept out of the model's reach and put back unchanged, and long texts are translated a few sentences at a time. A mark the model dropped is placed by the translator itself, and reversed pairs are put back in order; the result is saved with **Translation saved — check the marks** and a line saying what was moved. A mark that is still missing, appears twice or is not in the source, a part of the text the model failed on, or a model that repeated itself instead of translating stops the run: nothing is saved, the target keeps its previous text and the panel shows **Translation needs review before saving**. Text written by the model is always stored as text, never as markup. Stopping a run while its last part is being translated no longer saves it. The multi-language translator names every language saved with warnings in its summary. See [Translate a field](./using/tools/using_lang.md).
 
 - **Searching through a field without its own configuration uses the same columns as its list.**
 
@@ -2092,6 +2092,10 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-12-db-bounds-on-by-default`.
 
 #### Added
+
+- **The Local AI translator offers a choice of pinned models**
+
+    The in-browser translator now has a *Model* selector: Qwen 3 4B (the default), TranslateGemma 4B, MADLAD-400 3B, and one small OPUS model per language pair. Each is pinned by its hub revision and file digests, with its licence on record, and is served only from your installation's model store: seed the ones you want with `bun run scripts/fetch_ai_models.ts <model id>` (`--list` shows the catalogue). NLLB-200 is listed but not offered, because its licence allows non-commercial use only; enable it in the tool configuration record only after confirming that your use is non-commercial. The large models need WebGPU and refuse to start without it. These models have not been run by the test suite: check one by hand before offering it to cataloguers, as described in the [tool_lang developer reference](./development/tools/reference/tool_lang.md#the-browser-model-catalogue).
 
 - **The ontology check names alias components that point at a component they cannot stand in for.**
 
