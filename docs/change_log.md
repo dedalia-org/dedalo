@@ -619,7 +619,10 @@ Merged since the last release; these ship with the next one.
     it; otherwise the other language stays as it was — the same rule applies when logging in adopts the language
     chosen on the login panel. A session that already holds a data language the
     installation does not have works in the installation's default data language instead.
-    An interface language the installation does not offer is refused too.
+    An interface language the installation does not offer is refused too, and so is the
+    "no language" slot (`lg-nolan`): it holds untranslatable values, but it is not a
+    language to work in. Logging in also repairs a stored data language that is not one
+    the installation offers.
     The identification tool's grouping run applies the same
     rule to the language it is given or, when none is given, to the session's. See
     [Internationalization](./development/internationalization.md).

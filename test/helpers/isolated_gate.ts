@@ -84,11 +84,13 @@ export const ISOLATED_GATE_ENV: Readonly<Record<string, Readonly<Record<string, 
 	// change_lang's data-language sync is boot config: pinned ON so the rule
 	// "the data lang follows the interface lang only when it is a data lang" runs.
 	// DEDALO_APPLICATION_LANGS adds lg-zzzq: an INTERFACE language the install does
-	// not catalogue data in (the suite's own map has none), the case the rule is for.
+	// not catalogue data in (the suite's own map has none), the case the rule is for;
+	// and lg-nolan, DECLARED as data but never a choosable one (owner ruling 2) —
+	// the probe that the sync copy asks the CHOICE rule, not mere membership.
 	'test/unit/change_lang_sync_native.test.ts': {
 		DATA_LANG_SYNC: 'true',
 		DEDALO_APPLICATION_LANGS:
-			'{"lg-spa":"Castellano","lg-cat":"Català","lg-eng":"English","lg-zzzq":"Zzzq (interface only)"}',
+			'{"lg-spa":"Castellano","lg-cat":"Català","lg-eng":"English","lg-zzzq":"Zzzq (interface only)","lg-nolan":"No language (probe)"}',
 	},
 };
 

@@ -56,3 +56,33 @@
   lang; declared control served as stored), `test/unit/change_lang_sync_native.test.ts` (login with
   an interface-only cookie → data lang untouched; data-language cookie → drives it; the child pins
   `DEDALO_APPLICATION_LANGS` with an interface-only `lg-zzzq`).
+
+## Addendum 2026-11-22 — owner rulings 1, 2, 4
+
+- **v6 sync + declared-set law (ruling 4).** `DEDALO_DATA_LANG_SYNC` (default `false`,
+  `src/config/catalog/langs.ts`; off → the two languages are independent) keeps v6's DIRECTION
+  exactly (v6 `dd_utils_api::change_lang`): an interface language sent drives the data language
+  (a data language sent beside it is overruled, as in v6); else a data language sent drives the
+  interface language. The declared-set law gates each COPY, never the side's own change: app → data
+  only when the interface language is a choosable data language; data → app only when the data
+  language is one of `DEDALO_APPLICATION_LANGS`. A skipped copy leaves that side as requested
+  (unchanged when none was). `syncChangedLangs` (`dd_utils_api.ts`) is the one rule; `change_lang`
+  and login's cookie adoption both use it.
+- **`lg-nolan` is not a choosable session data language (ruling 2).** ONE predicate,
+  `isChoosableDataLang` (`src/core/resolve/request_lang.ts`): declared AND not `lg-nolan`.
+  `change_lang` refuses `dedalo_data_lang = lg-nolan` with the same code (`request.invalid_options`,
+  public message `dedalo_data_lang 'lg-nolan' is not a language to work in`), the sync copy never
+  copies it, and the seed clamp / login repair treat it as undeclared. `lg-nolan` stays a declared
+  data language everywhere it is the non-translatable storage slot (`INSTALLED_DATA_LANGS`, the
+  write chokepoint, tool_identify `cluster`'s named lang) — only the session CHOICE excludes it. The
+  client's data-language selector never offers it (it lists the served choosable set).
+- **Login repair (ruling 1).** `login` runs `repairSessionDataLang` on the session it minted, after
+  the cookie adoption: a stored data language that is not choosable is REWRITTEN to the menu data
+  language and logged (`console.warn`, `[login] …repaired to…`). A fresh session starts with NULL
+  languages and adoption is held to the same rule, so the call is a by-construction backstop; a
+  session left open from before the rule is covered per request by the seed clamp.
+
+Gates: `change_lang.test.ts` (lg-nolan refused, stored lg-nolan served as the menu data lang,
+`repairSessionDataLang` rewrites undeclared and lg-nolan, leaves choosable/none alone);
+`change_lang_sync_native.test.ts` (an interface language `lg-nolan` — pinned in the child's
+`DEDALO_APPLICATION_LANGS` — is never copied into the data language).

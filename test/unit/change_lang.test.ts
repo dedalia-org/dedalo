@@ -128,6 +128,37 @@ describe('change_lang action', () => {
 		expect(result.setPreauthLangCookie).toBeUndefined();
 	});
 
+	test('owner ruling 2: lg-nolan is a storage slot, not a CHOOSABLE data language — refused, nothing stored', async () => {
+		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');
+		// FLOOR: lg-nolan IS a declared data language (the non-translatable slot every
+		// write path keeps using) — only the session CHOICE rule can refuse it.
+		expect(installedDataLangs()).toContain('lg-nolan');
+		const result = await dispatchRqo(
+			{
+				dd_api: 'dd_utils_api',
+				action: 'change_lang',
+				options: { dedalo_data_lang: 'lg-nolan' },
+			} as Rqo,
+			contextFor(token),
+		);
+		expect(result.body.ok).toBe(false);
+		expect((result.body.error as { code: string }).code).toBe('request.invalid_options');
+		expect(getSession(token)?.dataLang).toBeNull();
+		expect(getSession(token)?.applicationLang).toBeNull();
+	});
+
+	test('owner ruling 2: a STORED lg-nolan session data lang is served as the menu data lang', async () => {
+		const { setSessionLangs } = await import('../../src/core/security/session_store.ts');
+		const { config } = await import('../../src/config/config.ts');
+		setSessionLangs(token, { dataLang: 'lg-nolan' });
+		const env = await dispatchRqo(
+			{ dd_api: 'dd_core_api', action: 'get_environment' } as Rqo,
+			contextFor(token),
+		);
+		const pageGlobals = (env.body.data as { page_globals?: Record<string, unknown> })?.page_globals;
+		expect(pageGlobals?.dedalo_data_lang).toBe(config.menu.dataLang);
+	});
+
 	test('MED-3: refuses a data language this installation does not declare — session unchanged', async () => {
 		const { isValidLang } = await import('../../src/core/concepts/ontology.ts');
 		const { installedDataLangs } = await import('../../src/core/section/record/save_component.ts');
@@ -397,6 +428,34 @@ describe('the login panel language survives the login', () => {
 			expect(getSession(fresh)?.applicationLang).toBe('lg-cat');
 		} finally {
 			destroySession(fresh);
+		}
+	});
+
+	test('owner ruling 1: LOGIN REPAIRS a session data lang that is not choosable → the menu data lang', async () => {
+		const { repairSessionDataLang } = await import('../../src/core/api/handlers/dd_utils_api.ts');
+		const { setSessionLangs } = await import('../../src/core/security/session_store.ts');
+		const { config } = await import('../../src/config/config.ts');
+		for (const stored of [UNDECLARED_DATA_LANG, 'lg-nolan']) {
+			const session = createSession(-1, 'root', true);
+			try {
+				setSessionLangs(session, { dataLang: stored });
+				expect(repairSessionDataLang(session), stored).toBe(stored);
+				// REWRITTEN on the row (not only clamped per request).
+				expect(getSession(session)?.dataLang, stored).toBe(config.menu.dataLang);
+			} finally {
+				destroySession(session);
+			}
+		}
+		// CONTROL: a choosable stored lang, and no stored lang, are left alone.
+		const session = createSession(-1, 'root', true);
+		try {
+			expect(repairSessionDataLang(session)).toBeNull();
+			expect(getSession(session)?.dataLang).toBeNull();
+			setSessionLangs(session, { dataLang: 'lg-eng' });
+			expect(repairSessionDataLang(session)).toBeNull();
+			expect(getSession(session)?.dataLang).toBe('lg-eng');
+		} finally {
+			destroySession(session);
 		}
 	});
 

@@ -133,6 +133,17 @@ else {
 			expect(stored?.dataLang).toBeNull();
 		});
 
+		test('owner ruling 2: sync NEVER copies lg-nolan into the data language (declared, not choosable)', async () => {
+			// FLOOR: lg-nolan is an interface language of this child AND a declared
+			// data language — only the CHOICE rule keeps it out of the session.
+			expect(Object.hasOwn(config.lang.applicationLangs, 'lg-nolan')).toBe(true);
+			expect(installedDataLangs()).toContain('lg-nolan');
+			const { ok, stored } = await changeLang({ dedalo_application_lang: 'lg-nolan' });
+			expect(ok).toBe(true);
+			expect(stored?.applicationLang).toBe('lg-nolan');
+			expect(stored?.dataLang).toBeNull();
+		});
+
 		test('re-review LOW-5: a data language drives the interface one ONLY when it is an interface language', async () => {
 			// FLOOR: lg-nep is a declared data language, and NOT an interface language
 			// of this child (pinned DEDALO_APPLICATION_LANGS).

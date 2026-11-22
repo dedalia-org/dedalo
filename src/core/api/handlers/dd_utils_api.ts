@@ -8,13 +8,15 @@ import { readString } from '../../../config/readers.ts';
 import { isValidTipo } from '../../concepts/ontology.ts';
 import { DedaloError, isDedaloError, ok } from '../../errors/index.ts';
 import { publicOrigin, publicOriginIsLocal } from '../../resolve/public_origin.ts';
-import { isApplicationLang } from '../../resolve/request_lang.ts';
 import {
-	assertInstalledDataLang,
-	isInstalledDataLang,
-} from '../../section/record/save_component.ts';
+	isApplicationLang,
+	isChoosableDataLang,
+	seedRequestLangs,
+} from '../../resolve/request_lang.ts';
+import { assertInstalledDataLang } from '../../section/record/save_component.ts';
 import { login } from '../../security/auth.ts';
 import { getPermissions } from '../../security/permissions.ts';
+import { getSession, setSessionLangs } from '../../security/session_store.ts';
 import { isLoopbackHost } from '../../security/ssrf_guard.ts';
 import { DEDALO_DATA_VERSION, parseVersionString } from '../../update/version.ts';
 import { type ActionHandler, requirePrincipal } from '../handler_context.ts';
@@ -200,18 +202,22 @@ async function joinedThumbnailUrl(
 }
 
 /**
- * DEDALO_DATA_LANG_SYNC (PHP change_lang): when the install couples the two
- * languages, a change to either drives the other — each ONLY into a language the
- * other side serves, symmetric by construction:
- *   - the DATA language follows the interface language only when that language
- *     is a declared data language (review MED-3): an install may offer an
- *     interface in a language it does not catalogue in;
- *   - the INTERFACE language follows the data language only when that language
- *     is one of DEDALO_APPLICATION_LANGS (re-review LOW-5): an install may
- *     catalogue in a language it has no interface for.
- * Otherwise the other side is left as requested (unchanged when none was). Both
- * requested languages are already members of their own set (checked before
- * this, by change_lang; login adopts an allowlisted interface language only).
+ * DEDALO_DATA_LANG_SYNC — "v6 sync + declared-set law" (owner ruling
+ * 2026-11-22). Off (the default, src/config/catalog/langs.ts): the two
+ * languages are independent and the request passes through. On: v6's DIRECTION
+ * exactly (v6 dd_utils_api::change_lang) — an interface language sent drives
+ * the data language (a data language sent beside it is overruled, as in v6);
+ * else a data language sent drives the interface language. The declared-set
+ * law then gates each COPY, never the side's own change:
+ *   - app → data only when the interface language is a CHOOSABLE data language
+ *     (isChoosableDataLang: declared, not lg-nolan — review MED-3, ruling 2);
+ *     an install may offer an interface in a language it does not catalogue in;
+ *   - data → app only when the data language is one of DEDALO_APPLICATION_LANGS
+ *     (re-review LOW-5); an install may catalogue in a language it has no
+ *     interface for.
+ * A skipped copy leaves that side as requested (unchanged when none was). Both
+ * requested languages are already valid for their own side (change_lang checks
+ * them first; login adopts an allowlisted interface language only).
  * Gate: test/unit/change_lang_sync_native.test.ts.
  */
 function syncChangedLangs(
@@ -228,8 +234,34 @@ function syncChangedLangs(
 	}
 	return {
 		applicationLang,
-		dataLang: isInstalledDataLang(applicationLang) ? applicationLang : dataLang,
+		dataLang: isChoosableDataLang(applicationLang) ? applicationLang : dataLang,
 	};
+}
+
+/**
+ * LOGIN REPAIR (owner ruling 2026-11-22): a session row whose stored data
+ * language is not CHOOSABLE (isChoosableDataLang — undeclared, or lg-nolan) is
+ * REWRITTEN to the menu data language — what a fresh login is served
+ * (seedRequestLangs with no session) — and the repair is logged. Answers the
+ * replaced code, or null when nothing needed repairing.
+ *
+ * Login runs it on the session it just minted, after the pre-auth cookie was
+ * adopted. A fresh session starts with NULL languages and adoption is held to
+ * the same rule (syncChangedLangs), so today this is the backstop that makes
+ * the invariant hold BY CONSTRUCTION at login whatever a future adoption door
+ * does; a session left open from before the rule is covered per request by the
+ * seed clamp (request_lang.ts declaredSessionDataLang). Gate:
+ * test/unit/change_lang.test.ts.
+ */
+export function repairSessionDataLang(rawToken: string): string | null {
+	const stored = getSession(rawToken)?.dataLang ?? null;
+	if (stored === null || isChoosableDataLang(stored)) return null;
+	const menuDataLang = seedRequestLangs({ session: null, preauthLang: null }).dataLang;
+	setSessionLangs(rawToken, { dataLang: menuDataLang });
+	console.warn(
+		`[login] session data language '${stored}' is not a choosable data language of this installation — repaired to '${menuDataLang}'`,
+	);
+	return stored;
 }
 
 export const utilsApiActions: Record<string, ActionHandler> = {
@@ -593,8 +625,18 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		// stored, it becomes every later request's read/write language, and a code
 		// outside the declared set is a slice no read resolves. Refused before
 		// anything is stored — the ONE membership rule (save_component.ts).
+		// …and a CHOOSABLE one (owner ruling 2): lg-nolan is declared — the
+		// non-translatable storage slot — but never a language to work in, so the
+		// same refusal holds it (isChoosableDataLang, the one choice rule).
 		if (requestedDataLang !== undefined) {
 			assertInstalledDataLang(requestedDataLang, 'dedalo_data_lang');
+			if (!isChoosableDataLang(requestedDataLang)) {
+				throw new DedaloError('request.invalid_options', {
+					message: `dedalo_data_lang '${requestedDataLang}' is the no-language storage slot, not a choosable data language`,
+					publicMessage: `dedalo_data_lang '${requestedDataLang}' is not a language to work in`,
+					coordinates: { lang: requestedDataLang },
+				});
+			}
 		}
 		// …and an INTERFACE language must be one this install serves (re-review
 		// LOW-5) — the same membership the cookie door applies (isApplicationLang):
@@ -621,7 +663,6 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 			body: ok(true, { requestId: context.requestId }),
 		};
 		if (context.session !== null && context.sessionToken) {
-			const { setSessionLangs } = await import('../../security/session_store.ts');
 			setSessionLangs(context.sessionToken, { applicationLang, dataLang });
 		} else if (applicationLang === undefined) {
 			// Anonymous, data language only: there is nowhere to put it. The cookie
@@ -761,7 +802,6 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		// every subsequent non-exempt action requires it (PHP appends the
 		// token to all responses; the session here is created mid-handler,
 		// so the dispatch-level append cannot see it).
-		const { getSession } = await import('../../security/session_store.ts');
 		const freshSession = getSession(outcome.sessionToken as string);
 		// Carry the language chosen on the LOGIN PANEL into the new session, so the
 		// app opens in the language the form was just switched to instead of the
@@ -770,7 +810,6 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 		const { allowlistedPreauthLang } = await import('../../resolve/request_lang.ts');
 		const adoptedLang = allowlistedPreauthLang(context.preauthLang);
 		if (adoptedLang !== null) {
-			const { setSessionLangs } = await import('../../security/session_store.ts');
 			// DEDALO_DATA_LANG_SYNC: setSessionLangs is two independent UPDATEs and
 			// applies no coupling of its own, so the sync rule is re-applied here —
 			// THE SAME rule change_lang applies (syncChangedLangs), never a copy of it:
@@ -786,6 +825,7 @@ export const utilsApiActions: Record<string, ActionHandler> = {
 				...(dataLang !== undefined ? { dataLang } : {}),
 			});
 		}
+		repairSessionDataLang(outcome.sessionToken as string);
 		// The account's own image (dd522). The panel shows it in the files-loader
 		// circle while the asset cache warms; null keeps the bundled icon.
 		const { resolveUserImageUrl } = await import('../../security/user_identity.ts');

@@ -21,6 +21,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { config, INSTALLED_DATA_LANGS } from '../../config/config.ts';
+import { NO_LANG } from '../../config/data_langs.ts';
 
 /** The two languages every request resolves against. */
 export interface RequestLangs {
@@ -100,16 +101,32 @@ export function seedRequestLangs(input: {
 }
 
 /**
- * A session's stored data language, or null unless it is a DECLARED data
- * language (`INSTALLED_DATA_LANGS`, built by src/config/data_langs.ts
- * `declaredDataLangs` — the single source). The ONE clamp on the read side
- * (re-review MED-1): `change_lang` and login adoption refuse/skip an undeclared
- * code, but a session row stored before that rule — or by any door that ever
- * drifts from it — would otherwise make every request read and write a slice no
- * read resolves. Such a session runs on the menu data language instead.
+ * May a user CHOOSE `lang` as the session data language — the language every
+ * later request reads and writes in? THE one rule for that choice:
+ *   - it must be a DECLARED data language (`INSTALLED_DATA_LANGS`, built by
+ *     src/config/data_langs.ts `declaredDataLangs` — the single source;
+ *     review MED-3): a code outside the set is a slice no read resolves;
+ *   - and it must not be `lg-nolan` (owner ruling 2026-11-22): `lg-nolan` IS
+ *     declared — it is the non-translatable storage slot, valid wherever a
+ *     write stores untranslated data — but it is not a language anyone works
+ *     in, so it is never a session's choice.
+ * Asked by `change_lang` (refusal), the DATA_LANG_SYNC copy (skip), login's
+ * repair and the seed clamp below (fallback to the menu data language).
+ */
+export function isChoosableDataLang(lang: string): boolean {
+	return lang !== NO_LANG && INSTALLED_DATA_LANGS.has(lang);
+}
+
+/**
+ * A session's stored data language, or null unless it is CHOOSABLE
+ * (`isChoosableDataLang`). The ONE clamp on the read side (re-review MED-1):
+ * `change_lang` and login adoption refuse/skip such a code, but a session row
+ * stored before that rule — or by any door that ever drifts from it — would
+ * otherwise make every request read and write a slice no read resolves (or the
+ * no-language slot). Such a session runs on the menu data language instead.
  */
 function declaredSessionDataLang(stored: string | null | undefined): string | null {
-	return typeof stored === 'string' && INSTALLED_DATA_LANGS.has(stored) ? stored : null;
+	return typeof stored === 'string' && isChoosableDataLang(stored) ? stored : null;
 }
 
 /**
