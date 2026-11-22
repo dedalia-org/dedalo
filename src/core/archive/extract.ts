@@ -43,7 +43,7 @@ import { listSectionMediaFiles } from '../media/file_ops.ts';
 import { requireMediaRoot } from '../media/path.ts';
 import {
 	getMatrixTableFromTipo,
-	getRecursiveChildrenTipos,
+	getSectionDefinitionTipos,
 	getSectionRealTipo,
 } from '../ontology/resolver.ts';
 import { DEDALO_DATA_VERSION, formatVersion } from '../update/version.ts';
@@ -110,9 +110,14 @@ async function resolveSectionTables(sectionTipos: readonly string[]): Promise<Ma
 	return tables;
 }
 
-/** The rows of one root and its recursive children, added to `subtree` (first read wins). */
+/**
+ * The rows of one root and its DEFINITIONS walk, added to `subtree` (first read
+ * wins). Not the section walk: a value stored under a box-parked key still rides
+ * in the record columns (delete_data leaves it — section containment law), so
+ * its definition must travel too or the artifact is not self-describing.
+ */
 async function collectSubtree(root: string, subtree: Map<string, DdOntologyRow>): Promise<void> {
-	for (const nodeTipo of [root, ...(await getRecursiveChildrenTipos(root))]) {
+	for (const nodeTipo of [root, ...(await getSectionDefinitionTipos(root))]) {
 		if (subtree.has(nodeTipo)) continue;
 		const row = await readDdOntologyRow(nodeTipo);
 		if (row !== null) subtree.set(nodeTipo, row);

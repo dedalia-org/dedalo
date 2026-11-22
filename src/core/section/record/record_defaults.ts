@@ -272,8 +272,8 @@ registerOntologyCacheClearer(clearRecordDefaultsCache);
  * a virtual section owning ANY component child would have dropped the real
  * section's ENTIRE declared default set without a word.
  *
- * Containment: getOrderedSubtree does not cross into nested sections/areas,
- * whose components belong to their own records. An excluded tipo is skipped AND
+ * Containment: THE SECTION CONTAINMENT LAW (ontology/resolver.ts) —
+ * getOrderedSubtree's section walk. An excluded tipo is skipped AND
  * its subtree pruned (dropping a grouper drops its children — PHP's rule).
  */
 async function sectionComponents(

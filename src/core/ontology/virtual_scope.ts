@@ -75,8 +75,8 @@ export function pruneExcludedSubtrees<T extends { tipo: string; parent: string |
 
 /**
  * The VIRTUAL EDIT SCOPE's component nodes — what the edit form of
- * `sectionTipo` shows: the REAL section's subtree (DFS pre-order,
- * getOrderedSubtree containment — nested sections/areas are not crossed) MINUS
+ * `sectionTipo` shows: the REAL section's subtree (DFS pre-order, THE SECTION
+ * CONTAINMENT LAW in ontology/resolver.ts — getOrderedSubtree's section walk) MINUS
  * the virtual's FIRST exclude_elements subtrees. A virtual's own children are
  * never part of it. Full nodes, properties included.
  */

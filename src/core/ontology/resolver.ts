@@ -499,6 +499,18 @@ export function getColumnNameByModel(model: string): string | null {
 }
 
 /**
+ * THE DEFINITIONS WALK of a section: every descendant tipo a record of it may
+ * name as a stored key — the law-free subtree (box-elements / semantic-node /
+ * area subtrees INCLUDED), a nested section returned but not entered. NOT a
+ * section walk (see THE SECTION CONTAINMENT LAW): for the doors that must
+ * define or detect keys, never to list "the section's components". Depth-first
+ * sibling order. Not cached.
+ */
+export async function getSectionDefinitionTipos(sectionTipo: string): Promise<string[]> {
+	return (await leanOrderedNodes(sectionTipo, 'definitions')).map((node) => node.tipo);
+}
+
+/**
  * All descendant component tipos of a section, walking the ontology subtree by
  * `parent` under THE SECTION CONTAINMENT LAW (no box-elements / semantic-node /
  * area subtree, nested sections not entered), in depth-first sibling order (the ONE walk,
@@ -668,6 +680,11 @@ export async function getOrderedSubtree(
 //
 // The STRUCTURAL walk (`crossSections: true`: the diffusion tree, the ontology
 // schema export) is not a section walk and applies neither rule.
+// The DEFINITIONS walk (getSectionDefinitionTipos) is not a section walk either:
+// rule 2 only — every node a record of the section may name as a stored key
+// (box-parked values stay stored: delete_data leaves them), for the doors that
+// must DEFINE keys rather than walk the section (the archive's ontology.json,
+// the security-singleton probe below).
 // Gate: test/unit/section_containment_native.test.ts.
 // ---------------------------------------------------------------------------
 
@@ -699,7 +716,17 @@ function insideSectionContainmentSql(alias: string): string {
 }
 
 /** Which subtree a walk reads (see THE SECTION CONTAINMENT LAW). */
-type SubtreeScope = 'section' | 'section_crossing_nested' | 'structural';
+type SubtreeScope = 'section' | 'section_crossing_nested' | 'structural' | 'definitions';
+
+/** Per scope: does rule 1 (the law) apply; is a nested section entered (rule 2 off)? */
+const SUBTREE_SCOPE_RULES: Readonly<
+	Record<SubtreeScope, { readonly law: boolean; readonly entersNestedSections: boolean }>
+> = {
+	section: { law: true, entersNestedSections: false },
+	section_crossing_nested: { law: true, entersNestedSections: true },
+	structural: { law: false, entersNestedSections: true },
+	definitions: { law: false, entersNestedSections: false },
+};
 
 /** Every column of an OntologySubtreeNode row. */
 const SUBTREE_FULL_COLUMNS = [
@@ -727,11 +754,11 @@ async function readSubtreeRows<Row>(
 	columns: readonly string[],
 	scope: SubtreeScope,
 ): Promise<Row[]> {
-	const structural = scope === 'structural';
-	const anchorGuard = structural ? '' : `AND ${insideSectionContainmentSql('dd_ontology')}`;
+	const rule = SUBTREE_SCOPE_RULES[scope];
+	const anchorGuard = rule.law ? `AND ${insideSectionContainmentSql('dd_ontology')}` : '';
 	const descentGuards = [
-		...(structural ? [] : [insideSectionContainmentSql('child')]),
-		...(scope === 'section' ? [`subtree.model IS DISTINCT FROM 'section'`] : []),
+		...(rule.law ? [insideSectionContainmentSql('child')] : []),
+		...(rule.entersNestedSections ? [] : [`subtree.model IS DISTINCT FROM 'section'`]),
 	];
 	const descentGuard = descentGuards.length === 0 ? '' : `WHERE ${descentGuards.join(' AND ')}`;
 	return (await sql.unsafe(
@@ -791,12 +818,17 @@ interface LeanSubtreeNode {
  * tipos and models (getRecursiveChildrenTipos, findFirstDescendantTipoByModel).
  */
 async function leanOrderedSubtree(rootTipo: string): Promise<LeanSubtreeNode[]> {
+	return leanOrderedNodes(rootTipo, 'section');
+}
+
+/** leanOrderedSubtree over any scope. */
+async function leanOrderedNodes(rootTipo: string, scope: SubtreeScope): Promise<LeanSubtreeNode[]> {
 	const rows = await readSubtreeRows<{
 		tipo: string;
 		parent: string | null;
 		model: string | null;
 		order_number: number | string | null;
-	}>(rootTipo, SUBTREE_LEAN_COLUMNS, 'section');
+	}>(rootTipo, SUBTREE_LEAN_COLUMNS, scope);
 	return orderDepthFirst(
 		rows.map((row) => ({
 			tipo: row.tipo,
@@ -974,6 +1006,10 @@ export async function listNodesWithProperties(): Promise<NodeWithProperties[]> {
  * component_filter MUST use the fallback: a virtual section's records are
  * gated by the real section's filter (see getComponentFilterTipo).
  *
+ * A SECURITY singleton (component_filter, component_publication) the law hides
+ * is never answered null: refuseParkedSecuritySingleton throws
+ * `ontology.invalid_node` instead (fail closed).
+ *
  * Cached per (root, model, fallback); registered with the invalidation hub.
  */
 const descendantByModelCache = createOntologyCache<string, string | null>();
@@ -988,19 +1024,75 @@ export async function findFirstDescendantTipoByModel(
 	const cached = descendantByModelCache.get(cacheKey);
 	if (cached !== undefined) return cached;
 
-	const walk = async (root: string): Promise<string | null> =>
-		(await leanOrderedSubtree(root)).find((node) => node.model === model)?.tipo ?? null;
+	const found = await firstOfModel(rootTipo, model, virtualFallback);
+	cacheWrite(descendantByModelCache, cacheKey, found);
+	return found;
+}
 
-	let found = await walk(rootTipo);
+/** The first `model` node of `root`'s section walk (depth-first sibling order), or null. */
+async function firstOfModelUnder(root: string, model: string): Promise<string | null> {
+	return (await leanOrderedSubtree(root)).find((node) => node.model === model)?.tipo ?? null;
+}
+
+/** findFirstDescendantTipoByModel's uncached answer (see there). */
+async function firstOfModel(
+	rootTipo: string,
+	model: string,
+	virtualFallback: boolean,
+): Promise<string | null> {
+	const roots = [rootTipo];
+	let found = await firstOfModelUnder(rootTipo, model);
 	if (found === null && virtualFallback) {
 		// Virtual section: its relations point at the REAL section — walk that.
 		const realTipo = await getSectionRealTipo(rootTipo);
 		if (realTipo !== rootTipo) {
-			found = await walk(realTipo);
+			roots.push(realTipo);
+			found = await firstOfModelUnder(realTipo, model);
 		}
 	}
-	cacheWrite(descendantByModelCache, cacheKey, found);
+	if (found === null && SECURITY_SINGLETON_MODELS.has(model)) {
+		await refuseParkedSecuritySingleton(model, roots);
+	}
 	return found;
+}
+
+/**
+ * The singleton components whose ABSENCE widens access: no `component_filter`
+ * = no projects ACL (every user sees every record — the 2026-07-19 rsc170
+ * fail-open); no `component_publication` = every record publishable.
+ */
+const SECURITY_SINGLETON_MODELS: ReadonlySet<string> = new Set([
+	'component_filter',
+	'component_publication',
+]);
+
+/**
+ * FAIL CLOSED on a security singleton the containment law hides. The section
+ * walk found no `model` under `roots`; when the DEFINITIONS walk does find one
+ * (it sits under a box-elements / semantic-node / area node), answering null
+ * would silently open the records (see SECURITY_SINGLETON_MODELS) — refused
+ * instead, naming the node, until the ontology is corrected. v6 answered null
+ * here; honouring the parked node instead is an open owner choice (T2-SL-3a
+ * fixer, MEDIUM 1). Nothing is cached: the refusal repeats until the fix.
+ */
+async function refuseParkedSecuritySingleton(
+	model: string,
+	roots: readonly string[],
+): Promise<void> {
+	for (const root of roots) {
+		const parked = (await leanOrderedNodes(root, 'definitions')).find(
+			(node) => node.model === model,
+		);
+		if (parked === undefined) continue;
+		throw new DedaloError('ontology.invalid_node', {
+			message: `section '${root}': its ${model} '${parked.tipo}' sits outside the section (under a box elements / semantic node / area node — the section containment law); refusing to answer "none", which would ${model === 'component_filter' ? 'disable the projects filter' : 'make every record publishable'}. Move the node out of the container in the ontology.`,
+			coordinates: {
+				tipo: root,
+				component: parked.tipo,
+				reason: 'security_singleton_outside_section',
+			},
+		});
+	}
 }
 
 /**

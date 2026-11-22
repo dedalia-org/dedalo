@@ -25,9 +25,9 @@
  *
  * WHICH COMPONENTS. The component_external nodes of the section's own subtree
  * and of its REAL section's (a virtual section borrows its real section's
- * children — the ownership rule of component_external/value.ts), without
- * crossing into a nested section or area (getOrderedSubtree's containment
- * rule). A component whose fields_map is malformed contributes nothing here: its
+ * children — the ownership rule of component_external/value.ts), under THE
+ * SECTION CONTAINMENT LAW (ontology/resolver.ts; getOrderedSubtree's section
+ * walk). A component whose fields_map is malformed contributes nothing here: its
  * OWN derivation reports it `misconfigured`, and one cataloguing error must not
  * take the whole section's record fetch down with it. NOR does a field the
  * ADAPTER refuses (`acceptsRemoteField` — Zenon splices names into the URL and

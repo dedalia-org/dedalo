@@ -17,8 +17,12 @@
  * Asserted on OUTCOMES, per walker: the pruned tipos are absent, the kept ones
  * present (a walker that returned nothing would not pass). The walkers that
  * inherit the law through the shared walk are driven too where they have a
- * public door: the archive extraction (ontology.json subtree) and the write
- * door's fixed-slot main (named main valid iff the every-main walk lists it).
+ * public door: the write door's fixed-slot main (named main valid iff the
+ * every-main walk lists it). Two doors are deliberately NOT section walks and
+ * are pinned as such: the archive's ontology.json (the DEFINITIONS walk — a
+ * box-parked value stays stored, so its definition travels) and the
+ * security-singleton probe (a component_filter / component_publication the law
+ * hides is REFUSED, never answered null: null opens the records).
  * The pair honesty check (tipoBelongsToSection) is pinned as deliberately NOT
  * the law: v6 let a root read and write a box-parked component.
  *
@@ -34,9 +38,11 @@ import { ONTOLOGY_FILE } from '../../src/core/archive/manifest.ts';
 import { isDedaloError } from '../../src/core/errors/index.ts';
 import {
 	findFirstDescendantTipoByModel,
+	getComponentFilterTipo,
 	getContainingSectionTipo,
 	getOrderedSubtree,
 	getRecursiveChildrenTipos,
+	getSectionDefinitionTipos,
 	isOutsideSectionContainment,
 	tipoBelongsToSection,
 	tipoInSectionContainment,
@@ -82,6 +88,16 @@ const NESTED = 'zzsctn50';
 const NESTED_TEXT = 'zzsctn51';
 const NESTED_BOX = 'zzsctn52';
 const NESTED_BOX_TEXT = 'zzsctn53';
+/** A section whose security singletons are parked under a box (fail-closed probe). */
+const PARKED_SECTION = 'zzsctn60';
+const PARKED_BOX = 'zzsctn61';
+const PARKED_FILTER = 'zzsctn62';
+const PARKED_PUBLICATION = 'zzsctn63';
+/** A VIRTUAL section of PARKED_SECTION: the probe follows the real section too. */
+const PARKED_VIRTUAL = 'zzsctn64';
+/** A section whose component_filter sits inside it: answered as before. */
+const FILTERED_SECTION = 'zzsctn70';
+const KEPT_FILTER = 'zzsctn71';
 
 /** Everything the law removes from a walk of SECTION, whatever the walker. */
 const OUTSIDE = [
@@ -131,6 +147,23 @@ const S = situation({
 		{ tipo: NESTED_TEXT, parent: NESTED, model: 'component_input_text', order_number: 1 },
 		{ tipo: NESTED_BOX, parent: NESTED, model: 'box elements', order_number: 2 },
 		{ tipo: NESTED_BOX_TEXT, parent: NESTED_BOX, model: 'component_input_text', order_number: 1 },
+		{ tipo: PARKED_SECTION, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{ tipo: PARKED_BOX, parent: PARKED_SECTION, model: 'box elements', order_number: 1 },
+		{ tipo: PARKED_FILTER, parent: PARKED_BOX, model: 'component_filter', order_number: 1 },
+		{
+			tipo: PARKED_PUBLICATION,
+			parent: PARKED_BOX,
+			model: 'component_publication',
+			order_number: 2,
+		},
+		{
+			tipo: PARKED_VIRTUAL,
+			parent: 'test1',
+			model: 'section',
+			relations: [{ tipo: PARKED_SECTION }],
+		},
+		{ tipo: FILTERED_SECTION, parent: 'test1', model: 'section', relations: [{ tipo: 'test24' }] },
+		{ tipo: KEPT_FILTER, parent: FILTERED_SECTION, model: 'component_filter', order_number: 1 },
 	],
 });
 
@@ -142,6 +175,14 @@ beforeAll(async () => {
 afterAll(async () => {
 	expect(await dropSituation(S)).toBe(0);
 });
+
+/**
+ * The DEFINITIONS walk of SECTION: everything under it, law-free, except the
+ * inside of the nested section (returned, not entered).
+ */
+const DEFINITIONS = [GROUP, KEPT_TEXT, KEPT_IRI, NESTED, ...OUTSIDE]
+	.filter((tipo) => tipo !== NESTED_BOX && tipo !== NESTED_BOX_TEXT)
+	.sort();
 
 /** Assert none of OUTSIDE is in `tipos`, and that the walk did find `mustHold`. */
 function expectContained(tipos: readonly string[], mustHold: readonly string[]): void {
@@ -240,7 +281,46 @@ describe('the section containment law (T2-SL-3a)', () => {
 		);
 	});
 
-	test('archive extraction: the ontology.json subtree is the section walk', async () => {
+	test('the DEFINITIONS walk is not a section walk: law-free, nested section not entered', async () => {
+		expect([...(await getSectionDefinitionTipos(SECTION))].sort()).toEqual(DEFINITIONS);
+	});
+
+	test('a SECURITY singleton the law hides is refused, never answered null (fail closed)', async () => {
+		const codeOf = async (run: () => Promise<unknown>): Promise<string | null> => {
+			try {
+				await run();
+			} catch (error) {
+				if (!isDedaloError(error)) throw error;
+				expect(error.message).toContain(PARKED_SECTION);
+				return error.code;
+			}
+			return null;
+		};
+		// component_filter: null would disable the projects ACL — own section and through a virtual.
+		expect(await codeOf(() => getComponentFilterTipo(PARKED_SECTION))).toBe(
+			'ontology.invalid_node',
+		);
+		expect(await codeOf(() => getComponentFilterTipo(PARKED_VIRTUAL))).toBe(
+			'ontology.invalid_node',
+		);
+		// component_publication: null would make every record publishable (diffusion's strict mode too).
+		for (const virtualFallback of [true, false]) {
+			expect(
+				await codeOf(() =>
+					findFirstDescendantTipoByModel(PARKED_SECTION, 'component_publication', {
+						virtualFallback,
+					}),
+				),
+			).toBe('ontology.invalid_node');
+		}
+		// Controls: a filter inside the section is answered; no filter anywhere is still null;
+		// a non-security model parked under a box is still plain null (BOX_DATE).
+		expect(await getComponentFilterTipo(FILTERED_SECTION)).toBe(KEPT_FILTER);
+		expect(await getComponentFilterTipo(SECTION)).toBeNull();
+		expect(await findFirstDescendantTipoByModel(SECTION, 'component_date')).toBeNull();
+	});
+
+	test('archive extraction: the ontology.json subtree is the DEFINITIONS walk (self-describing)', async () => {
 		const scratch = scratchDir('section_containment_archive');
 		rmSync(scratch, { recursive: true, force: true });
 		try {
@@ -250,9 +330,10 @@ describe('the section containment law (T2-SL-3a)', () => {
 			const ontology = JSON.parse(readFileSync(join(outDir, ONTOLOGY_FILE), 'utf8')) as {
 				subtree: { tipo: string }[];
 			};
-			expectContained(
-				ontology.subtree.map((row) => row.tipo),
-				[SECTION, GROUP, KEPT_TEXT, KEPT_IRI],
+			// Box-parked values stay stored (delete_data leaves them), so their
+			// definitions must travel: every stored key defined in the artifact.
+			expect(ontology.subtree.map((row) => row.tipo).sort()).toEqual(
+				[SECTION, ...DEFINITIONS].sort(),
 			);
 		} finally {
 			rmSync(scratch, { recursive: true, force: true });
