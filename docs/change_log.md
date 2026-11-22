@@ -621,6 +621,18 @@ Merged since the last release; these ship with the next one.
     user may open or edit them. Their edit and list buttons are now closed for everyone else on
     every field that targets them, whatever the request asks for.
 
+- **A link that opens a single field now shows it in the right language.**
+
+    Opening one field of a record directly (a link with `tipo=<field>`) showed and saved it in the
+    working data language even when the field is not translatable, so a number or a code was filed
+    under a language. The field now follows its own rule: a translatable field opens in the language
+    the link asks for (`lang=…`), or the working data language; a non-translatable field has no
+    language; a field with transliterations opens in the asked language or its base. A link whose
+    `lang` is not a language code is refused instead of guessed. Pages that open a whole section or
+    area are unchanged. Details: [the start action](./core/system/api.md).
+
+    Wire contract: `WC-2026-11-22-start-component-lang`.
+
 - **"The tooltip of a component's state icon (an alternative or deprecated field) shows readable text in your language, naming the field it points to — no longer a label key."**
 
     A field marked in the ontology as an alternative to, or replaced by, another field shows a

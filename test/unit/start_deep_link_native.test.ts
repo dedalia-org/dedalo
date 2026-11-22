@@ -26,6 +26,12 @@ import { cleanScratchRecord } from '../helpers/test_data.ts';
 
 const SECTION = 'test3';
 const COMPONENT = 'test52'; // input_text — the standing generic component
+/** test3's translatable input_text. */
+const TRANSLATABLE = 'test52';
+/** A component_number: not translatable. */
+const NON_TRANSLATABLE = 'test22';
+/** An input_text with lang versions (transliterable, lg-nolan base). */
+const TRANSLITERABLE = 'test166';
 
 let recordId = 0;
 
@@ -92,6 +98,73 @@ describe.if(DB_READY)('start: a section deep link with a record id is EDIT', () 
 		const [entry] = await startPage({ tipo: SECTION, mode: 'list' }, context);
 		expect(entry?.mode).toBe('list');
 		expect(entry?.section_id ?? null).toBeNull();
+	});
+
+	// ---- T2-O15-4: the COMPONENT page element's lang (WC-2026-11-22-start-component-lang) ----
+	const componentLang = async (tipo: string, lang?: string) => {
+		const [entry] = await startPage(
+			{
+				tipo,
+				section_tipo: SECTION,
+				section_id: String(recordId),
+				mode: 'edit',
+				...(lang === undefined ? {} : { lang }),
+			},
+			context,
+		);
+		expect(entry?.tipo).toBe(tipo);
+		return entry?.lang;
+	};
+	/** The request data lang, as start stamps it on a SECTION page. */
+	const dataLang = async () => (await startPage({ tipo: SECTION, mode: 'list' }, context))[0]?.lang;
+
+	test('a TRANSLATABLE component page runs in the URL lang, else the data lang', async () => {
+		const ambient = await dataLang();
+		expect(typeof ambient).toBe('string');
+		expect(await componentLang(TRANSLATABLE)).toBe(ambient);
+		const other = ambient === 'lg-eng' ? 'lg-spa' : 'lg-eng';
+		expect(await componentLang(TRANSLATABLE, other)).toBe(other);
+	});
+
+	test('a NON-translatable component page is lg-nolan, whatever the URL asks', async () => {
+		expect(await componentLang(NON_TRANSLATABLE)).toBe('lg-nolan');
+		expect(await componentLang(NON_TRANSLATABLE, 'lg-eng')).toBe('lg-nolan');
+	});
+
+	test('a TRANSLITERABLE component page keeps the URL lang, else its lg-nolan base', async () => {
+		expect(await componentLang(TRANSLITERABLE)).toBe('lg-nolan');
+		expect(await componentLang(TRANSLITERABLE, 'lg-eng')).toBe('lg-eng');
+	});
+
+	test('a SECTION page keeps the data lang verbatim — the URL lang is a component affair', async () => {
+		const ambient = await dataLang();
+		const [entry] = await startPage({ tipo: SECTION, mode: 'list', lang: 'lg-xyz' }, context);
+		expect(entry?.lang).toBe(ambient);
+	});
+
+	test('a malformed URL lang on a component page is refused, never guessed', async () => {
+		for (const bad of ['english', 'all', 'lg-ENG;drop']) {
+			const outcome = await dispatchRqo(
+				{
+					action: 'start',
+					dd_api: 'dd_core_api',
+					prevent_lock: true,
+					options: {
+						search_obj: {
+							tipo: TRANSLATABLE,
+							section_tipo: SECTION,
+							id: String(recordId),
+							lang: bad,
+						},
+						menu: false,
+					},
+				} as Rqo,
+				context,
+			);
+			expect((outcome.body.error as { code?: string } | undefined)?.code).toBe(
+				'request.invalid_source',
+			);
+		}
 	});
 
 	test('the force is scoped to sections: a component deep link keeps its mode', async () => {

@@ -10,6 +10,7 @@
  */
 
 import { config } from '../../../config/config.ts';
+import { isDiffusionLangCode } from '../../../config/lang_code.ts';
 import { dispatchAreaRead, refuseAreaWrite } from '../../area/read.ts';
 import { AREA_MAINTENANCE_TIPO, isAreaModel } from '../../concepts/area.ts';
 import { isTemporalSource, type Rqo, type RqoSource } from '../../concepts/rqo.ts';
@@ -1813,11 +1814,12 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				extend: { environment: await buildEnv(context.session, principal) },
 			});
 		}
-		// PHP start instantiates page elements with DEDALO_DATA_LANG and no
-		// nolan forcing (differentially verified: section + menu contexts
-		// carry lg-spa). The client's instances INHERIT this lang and thread
-		// it into every component read/save — nolan here made the whole edit
-		// form save as lg-nolan.
+		// PHP start instantiates SECTION / AREA / menu page elements with
+		// DEDALO_DATA_LANG and no nolan forcing (differentially verified: section
+		// + menu contexts carry lg-spa). The client's instances INHERIT this lang
+		// and thread it into every component read/save — nolan here made the
+		// whole edit form save as lg-nolan. A COMPONENT page is the exception
+		// (pageElementLangs, T2-O15-4).
 		//
 		// The three payload builds are independent reads — run them
 		// concurrently (the request-context/lang ALS stores flow into every
@@ -1830,8 +1832,7 @@ export const coreApiActions: Record<string, ActionHandler> = {
 				tipo: pageTipo,
 				sectionTipo: pageSectionTipo,
 				mode: sectionRecordDeepLink || pageMode === 'edit' ? 'edit' : 'list',
-				lang: currentDataLang(),
-				langOverride: currentDataLang(),
+				...pageElementLangs(pageModel, pick(locator?.lang, searchObj.lang)),
 				permissions: pagePermissions,
 				addRequestConfig: false, // PHP start builds context without it
 				view: pageView, // ?view=viewer → the client mounts the dedicated view
@@ -2498,4 +2499,31 @@ async function landingPageOpens(principal: Principal, tipo: string): Promise<boo
 async function pageDoorOpen(principal: Principal, pageTipo: string): Promise<boolean> {
 	if (pageTipo !== AREA_MAINTENANCE_TIPO) return true;
 	return canAccessMaintenanceArea(principal);
+}
+
+/**
+ * The page element's lang (T2-O15-4, WC-2026-11-22-start-component-lang). A
+ * SECTION / AREA page is stamped with the request data lang verbatim (PHP
+ * instantiated them with DEDALO_DATA_LANG, no nolan forcing — the client
+ * threads that lang into every child read/save). A COMPONENT page is an element
+ * like any other: the URL's `lang` (validated) is what the caller asked for —
+ * a translatable component runs in it (else the data lang), a non-translatable
+ * one in lg-nolan, a transliterable one in the asked lang or its lg-nolan base
+ * (structure_context entryLang → resolver elementLang). A malformed URL lang is
+ * refused, never guessed.
+ */
+function pageElementLangs(
+	pageModel: string | null,
+	urlLang: string | null,
+): { lang: string; langOverride?: string; requestedLang?: string | null } {
+	if (!(pageModel ?? '').startsWith('component_')) {
+		return { lang: currentDataLang(), langOverride: currentDataLang() };
+	}
+	if (urlLang !== null && !isDiffusionLangCode(urlLang)) {
+		throw new DedaloError('request.invalid_source', {
+			message: 'start: search_obj.lang is not a language code',
+			coordinates: { lang: urlLang },
+		});
+	}
+	return { lang: urlLang ?? currentDataLang(), requestedLang: urlLang };
 }
