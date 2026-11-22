@@ -135,3 +135,17 @@
   delete, delete-data and section undelete can now answer 409
   `media.build_running`. Gate: `test/unit/av_record_media_hold_native.test.ts`
   (9).
+- **Addendum 2026-11-22 (review L6, the panel):** the media activity row's
+  `record` gains `lang` (`string | null` — the job target's lang, null for an
+  untranslatable component; additive, media rows only: `activityRowFromMediaJob`).
+  `tool_media_versions` matches it against the panel's own lang (the data lang
+  when the component is translatable, else null — the server's media-context
+  rule), so a per-lang av build greys only that lang's gears, as the server keys
+  the hold. The panel greys the other tiers the moment THIS browser's av build
+  is accepted (not on the next `get_record_jobs`) and releases them when that
+  build fails. The gears are `role="button"` + `tabindex="0"` with Enter/Space
+  activation; a greyed gear stays focusable and names its reason through
+  `aria-describedby` (visually-hidden text) besides its title. Gates:
+  `test/unit/activity_aggregate_native.test.ts` (lang projection), client suite
+  `test_tool_media_versions` (+3).
+

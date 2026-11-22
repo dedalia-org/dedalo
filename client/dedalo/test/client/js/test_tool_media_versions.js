@@ -51,18 +51,18 @@ const live_job = function(over) {
 	}, over || {})
 }
 
-const stub_panel = function(jobs) {
+const stub_panel = function(jobs, element_over) {
 	const calls = {build: 0, followers: []}
 	const self = {
-		main_element	: {
+		main_element	: Object.assign({
 			tipo	: COMPONENT_TIPO,
 			model	: 'component_av',
 			context	: {features: {default_quality: '404'}}
-		},
+		}, element_over || {}),
 		record_jobs		: jobs,
 		get_tool_label	: (name) => name==='component_busy' ? 'LABEL component_busy' : null,
 		job_followers	: {follow: (job_id, handlers) => { calls.followers.push({job_id, handlers}) }},
-		build_version	: async () => { calls.build++; return {result: true} },
+		build_version	: async () => { calls.build++; return {ok: true, job_id: 'a101_own', data: {}} },
 		refresh			: () => {},
 		node			: document.createElement('div')
 	}
@@ -205,6 +205,95 @@ describe('TOOL_MEDIA_VERSIONS: a busy av component greys every tier (A1-01)', fu
 	it('release_component_busy_gears is a no-op without a node', function() {
 		assert.doesNotThrow(() => release_component_busy_gears({node: null}), 'expected no throw on a panel without a node')
 		assert.doesNotThrow(() => release_component_busy_gears({}), 'expected no throw on a panel never rendered')
+	})
+})
+
+
+describe('TOOL_MEDIA_VERSIONS: the busy state is immediate, per lang and accessible (A1-01 review L6)', function() {
+
+	const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+	/** Render the given tiers into the panel's node; quality → cell. */
+	const render_grid = function(self, qualities) {
+		const cells = {}
+		for (const quality of qualities) {
+			cells[quality] = render_build_version(quality, self)
+			self.node.appendChild(cells[quality])
+		}
+		return cells
+	}
+
+	const reason_of = function(gear) {
+		const id = gear.getAttribute('aria-describedby')
+		return id ? gear.parentNode.querySelector('#' + id) : null
+	}
+
+	it('THIS browser\'s accepted av build greys the other tiers at once; its failure gives them back', async function() {
+		const {self, calls} = stub_panel([])
+		const cells = render_grid(self, ['404', '1080', '720'])
+		gear_of(cells['404']).click()
+		await tick()
+		assert.equal(calls.build, 1, 'expected the build asked once')
+		for (const quality of ['1080', '720']) {
+			const gear = gear_of(cells[quality])
+			assert.ok(gear.classList.contains('component_busy'), `expected ${quality} greyed at once`)
+			assert.equal(gear.getAttribute('aria-disabled'), 'true', `expected ${quality} aria-disabled`)
+			const reason = reason_of(gear)
+			assert.ok(reason, `expected ${quality} to name its reason through aria-describedby`)
+			assert.ok(reason.textContent.startsWith('LABEL component_busy'), `expected the tool label, got: ${reason.textContent}`)
+			assert.ok(reason.textContent.includes('(404)'), 'expected the building tier named')
+		}
+
+		const follower = calls.followers.find(entry => entry.job_id==='a101_own')
+		assert.ok(follower, 'expected the started build followed')
+		await follower.handlers.on_done({errors: ['a101: encode failed']})
+		for (const quality of ['1080', '720']) {
+			const gear = gear_of(cells[quality])
+			assert.equal(gear.classList.contains('component_busy'), false, `expected ${quality} released`)
+			assert.equal(gear.hasAttribute('aria-describedby'), false, `expected ${quality} describedby removed`)
+			assert.equal(cells[quality].querySelector('.component_busy_reason'), null, `expected ${quality} reason node removed`)
+		}
+	})
+
+	it('a per-lang job greys only its own lang\'s panel (the server keys the hold by lang)', function() {
+		const translatable = (lang) => ({lang, context: {features: {default_quality: '404'}, translatable: true}})
+		const spa_job = live_job({record: {section_tipo: 'test3', section_id: 1, component_tipo: COMPONENT_TIPO, lang: 'lg-spa'}})
+
+		const eng = stub_panel([spa_job], translatable('lg-eng')).self
+		assert.equal(live_component_job(eng), null, 'expected the lg-eng panel free')
+		assert.equal(gear_of(render_build_version('1080', eng)).classList.contains('component_busy'), false, 'expected lg-eng offered')
+		assert.ok(gear_of(render_build_version('404', eng)), 'expected lg-eng\'s building tier offered, not shown as building')
+
+		const spa = stub_panel([spa_job], translatable('lg-spa')).self
+		assert.ok(live_component_job(spa), 'expected the lg-spa panel busy')
+		assert.ok(gear_of(render_build_version('1080', spa)).classList.contains('component_busy'), 'expected lg-spa greyed')
+
+		// An untranslatable panel (lg-nolan) matches the untranslatable job (lang null) only.
+		const nolan = stub_panel([live_job({record: {section_tipo: 'test3', section_id: 1, component_tipo: COMPONENT_TIPO, lang: null}})], {lang: 'lg-nolan'}).self
+		assert.ok(live_component_job(nolan), 'expected the untranslatable panel busy')
+		assert.equal(live_component_job(stub_panel([spa_job], {lang: 'lg-nolan'}).self), null, 'expected a per-lang job not to hold the untranslatable panel')
+	})
+
+	it('the gears are keyboard buttons: Enter / Space build a free tier, a greyed one asks nothing', async function() {
+		const free = stub_panel([])
+		const gear = gear_of(render_build_version('1080', free.self))
+		assert.equal(gear.getAttribute('role'), 'button', 'expected role=button')
+		assert.equal(gear.getAttribute('tabindex'), '0', 'expected focusable')
+		gear.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await tick()
+		assert.equal(free.calls.build, 1, 'expected Enter to build')
+		const other = gear_of(render_build_version('720', free.self))
+		other.dispatchEvent(new KeyboardEvent('keydown', {key: ' ', bubbles: true}))
+		await tick()
+		assert.equal(free.calls.build, 2, 'expected Space to build')
+
+		const busy = stub_panel([live_job()])
+		const greyed = gear_of(render_build_version('1080', busy.self))
+		assert.equal(greyed.getAttribute('tabindex'), '0', 'expected a greyed gear still focusable (its reason is readable)')
+		assert.ok(reason_of(greyed)?.textContent.startsWith('LABEL component_busy'), 'expected the reason through aria-describedby')
+		greyed.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}))
+		await tick()
+		assert.equal(busy.calls.build, 0, 'expected no build from a greyed gear')
 	})
 })
 

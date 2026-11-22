@@ -35,4 +35,8 @@ audio/video fields is being built or uploaded, they are refused with the same me
 is deleted, emptied or restored. Try again when the job has finished.
 
 Media versions now shows this before you click: while one quality of an audio/video field is being
-built, the rebuild buttons of its other qualities are greyed out, and hovering one says why.
+built, the rebuild buttons of its other qualities are greyed out, and hovering one says why. They
+grey out as soon as you start a build yourself, and come back if that build fails. For a field kept
+per language, only the buttons of the language being built are greyed. The buttons can also be
+reached and pressed from the keyboard (Enter or Space), and a screen reader announces why a greyed
+one is unavailable.

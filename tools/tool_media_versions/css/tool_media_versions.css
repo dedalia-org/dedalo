@@ -24,6 +24,18 @@
   opacity: 0.3;
   cursor: not-allowed;
 }
+.wrapper_tool.tool_media_versions .component_busy_reason {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.wrapper_tool.tool_media_versions .button.gear:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
 .wrapper_tool.tool_media_versions .job_progress {
   display: flex;
   flex-direction: column;

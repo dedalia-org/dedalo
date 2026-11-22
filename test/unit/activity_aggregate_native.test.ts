@@ -298,6 +298,25 @@ describe('media job projection', () => {
 		expect(row.scope).toBe('component');
 	});
 
+	test('a media row names the job target lang (null when untranslatable, never undefined)', () => {
+		// A1-01 review L6: the server keys an av component's hold by lang, so the
+		// panel greys only its own lang's gears — it needs the lang to compare.
+		const target = {
+			section_tipo: 'test94',
+			section_id: 7,
+			component_tipo: 'test95',
+			quality: '1080',
+			label: '1080',
+			scope: 'component' as const,
+		};
+		const perLang = activityRowFromMediaJob(mediaRecord({ target: { ...target, lang: 'lg-spa' } }));
+		expect(perLang.record?.lang).toBe('lg-spa');
+		const untranslatable = activityRowFromMediaJob(
+			mediaRecord({ target: { ...target, lang: null } }),
+		);
+		expect(untranslatable.record?.lang).toBeNull();
+	});
+
 	test('an unscoped job reports scope null, never undefined', () => {
 		// Uniform wire shape: the client compares `job.scope === 'component'`.
 		const row = activityRowFromMediaJob(mediaRecord());

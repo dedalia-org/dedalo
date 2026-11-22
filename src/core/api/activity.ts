@@ -62,6 +62,13 @@ export interface ActivityRow {
 		 */
 		section_id: number | null;
 		component_tipo?: string;
+		/**
+		 * The job target's LANG — null for an untranslatable component (media rows
+		 * only; additive). The server keys an av component's hold by lang
+		 * (section|id|component|lang), so the panel of another lang is free: the
+		 * client compares it with its own lang (tool_media_versions).
+		 */
+		lang?: string | null;
 	} | null;
 	status: ActivityStatus;
 	/**
@@ -147,6 +154,7 @@ function targetFieldsOf(
 			section_tipo: target.section_tipo,
 			section_id: target.section_id,
 			component_tipo: target.component_tipo,
+			lang: target.lang ?? null,
 		},
 		also_qualities: target.also_qualities ?? [],
 		scope: target.scope ?? null,
