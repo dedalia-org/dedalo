@@ -508,6 +508,16 @@ async function getProjectsDefaultLangs(): Promise<ProjectLangEntry[]> {
 	return entries;
 }
 
+/** A predicate admitting each CHOOSABLE data-lang code once (the first time it is seen). */
+function firstChoosableAdmitter(): (langCode: string) => boolean {
+	const seen = new Set<string>();
+	return (langCode) => {
+		if (seen.has(langCode) || !isChoosableDataLang(langCode)) return false;
+		seen.add(langCode);
+		return true;
+	};
+}
+
 /**
  * `dedalo_data_langs` (TS-ONLY page_globals key, re-review item 2 +
  * WC-2026-11-22-change-lang-declared-data-lang): the languages the menu's
@@ -528,15 +538,12 @@ async function resolveChoosableDataLangs(
 	projectsDefaultLangs: readonly ProjectLangEntry[],
 ): Promise<{ label: string; value: string }[]> {
 	const entries: { label: string; value: string }[] = [];
-	const seen = new Set<string>();
+	const admit = firstChoosableAdmitter();
 	for (const entry of projectsDefaultLangs) {
-		if (seen.has(entry.value) || !isChoosableDataLang(entry.value)) continue;
-		seen.add(entry.value);
-		entries.push({ label: entry.label, value: entry.value });
+		if (admit(entry.value)) entries.push({ label: entry.label, value: entry.value });
 	}
 	for (const langCode of INSTALLED_DATA_LANGS) {
-		if (seen.has(langCode) || !isChoosableDataLang(langCode)) continue;
-		seen.add(langCode);
+		if (!admit(langCode)) continue;
 		const name = await getLangNameFromCode(langCode, currentDataLang());
 		entries.push({ label: name ?? langCode.replace('lg-', ''), value: langCode });
 	}
