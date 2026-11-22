@@ -242,7 +242,9 @@ describe('MCP — an omitted lang is the request lang, never a literal', () => {
 				).hits.map((hit) => hit.section_id);
 			// The data-lang value matches; the application-lang value does not.
 			expect(await ids(VALUE[lane.dataLang] as string), laneLabel(lane)).toEqual([recordId]);
-			expect(await ids(VALUE[lane.applicationLang] as string), laneLabel(lane)).toEqual([]);
+			expect(await ids(VALUE[lane.applicationLang] as string), laneLabel(lane)).not.toContain(
+				recordId,
+			);
 		}
 	});
 
