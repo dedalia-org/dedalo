@@ -464,6 +464,15 @@ function getLocatorFn(): ExtraStepFn {
 							locator.from_component_tipo = link.fromComponentTipo;
 						if (extras.type != null) locator.type = extras.type;
 					}
+					// A dataframe frame's pairing travels with it (T2-DIF-3): the join
+					// key to the main item, on the consumer side. Absent on every
+					// other locator, so their shape is unchanged.
+					if (link.idKey != null) {
+						locator.id_key = link.idKey;
+						if (link.mainComponentTipo != null) {
+							locator.main_component_tipo = link.mainComponentTipo;
+						}
+					}
 					return locator;
 				});
 			result.push({ kind: 'json', value: locators, lang: null, meta: atom.meta });

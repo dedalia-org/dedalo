@@ -48,6 +48,14 @@ export interface ResolvedLink {
 	sectionTopId?: string | number;
 	sectionTopTipo?: string;
 	fromComponentTopTipo?: string;
+	/**
+	 * DATAFRAME PAIRING (T2-DIF-3): a frame locator's `id_key` (the stable id
+	 * of the main item it extends) and its `main_component_tipo`. Present only
+	 * on frames read from a component_dataframe slot; the locator projection
+	 * (get_locator) republishes them as `id_key` / `main_component_tipo`.
+	 */
+	idKey?: number | string;
+	mainComponentTipo?: string;
 }
 
 /**

@@ -44,6 +44,7 @@ import { resolveIriTitles } from '../../core/components/component_iri/resolve_ti
 import { getFlatValueFamily, isDerivedModel } from '../../core/components/registry.ts';
 import { canonicalizeStoredSectionId, isSectionId } from '../../core/concepts/section_id.ts';
 import type { Sqo } from '../../core/concepts/sqo.ts';
+import { isDataframeEntry } from '../../core/concepts/subdatum.ts';
 import type { MatrixRecord } from '../../core/db/matrix.ts';
 import { sql } from '../../core/db/postgres.ts';
 import { DedaloError } from '../../core/errors/index.ts';
@@ -1452,6 +1453,11 @@ export function leafMergeColumns(chain: ResolveStep[]): MergeColumnRef[] {
 		const parents = new Set<string>();
 		for (const step of chain) {
 			if (step.kind !== 'system' && step.parent !== undefined) parents.add(step.parent);
+			// A main-scoped dataframe hop is compiled at its main's level, but its
+			// ddo NAMES the main as parent — PHP's textual leaf rule counts that.
+			if (step.kind === 'relation-hop' && step.mainComponentTipo !== undefined) {
+				parents.add(step.mainComponentTipo);
+			}
 		}
 		const leaves: MergeColumnRef[] = [];
 		for (const step of chain) {
@@ -2054,6 +2060,32 @@ async function walkChainLevel(
 	return atoms;
 }
 
+/**
+ * The ddo `empty_value` placeholder (T2-DIF-2; frozen-v7 chain_processor
+ * :370-405): a clone of the parent locator whose section_id is the declared
+ * value, `from_component_tipo` = the hop. Grouped with the locator it stands in
+ * for (meta = that locator's identity), so per-item alignment survives.
+ */
+function emptyValuePlaceholder(
+	hop: Extract<ResolveStep, { kind: 'relation-hop' }>,
+	sectionTipo: string,
+	sectionId: number | string,
+): MetaValueIR {
+	return {
+		kind: 'chain',
+		links: [
+			{
+				sectionTipo,
+				sectionId: hop.emptyValue as string,
+				fromComponentTipo: hop.tipo,
+				model: hop.model,
+			},
+		],
+		lang: null,
+		meta: { sourceId: hop.ddoId, tipo: hop.tipo, sectionId, sectionTipo },
+	};
+}
+
 /** One relation hop on one record (PHP process_relation_component). */
 async function resolveHop(
 	ctx: RunContext,
@@ -2117,6 +2149,18 @@ async function resolveHop(
 				} as unknown as StoredLocator,
 			];
 		}
+	}
+
+	// A main-scoped dataframe hop (T2-DIF-3, frozen-v7 component_dataframe::
+	// get_diffusion_data): only the frames of its main component. A non-frame
+	// entry in the slot is never a frame of anything.
+	if (hop.mainComponentTipo !== undefined) {
+		const mainTipo = hop.mainComponentTipo;
+		rawLocators = rawLocators.filter(
+			(locator) =>
+				isDataframeEntry(locator) &&
+				(locator as { main_component_tipo?: unknown }).main_component_tipo === mainTipo,
+		);
 	}
 
 	// ddo data_slice — array_slice over the hop's LOCATORS before any resolve.
@@ -2269,6 +2313,12 @@ async function resolveHop(
 		}
 
 		if (recursed) {
+			if (childAtoms.length === 0 && hop.emptyValue !== undefined) {
+				// ddo empty_value (T2-DIF-2): this parent locator's children resolved
+				// nothing — ONE placeholder keeps the per-item alignment.
+				atoms.push(emptyValuePlaceholder(hop, sectionTipo, sectionId));
+				continue;
+			}
 			if (isFirstDdo && childAtoms.length > 0) {
 				// Stamp the parent locator's identity onto identity-less terminal
 				// atoms (:322-341) — merge/pipe grouping runs per FIRST-hop record.
@@ -2283,8 +2333,14 @@ async function resolveHop(
 		}
 
 		// No child resolved: a whitelist-scoped hop drops foreign locators
-		// (:364-383 — relation_list / end-ddo section filters).
-		if (whitelist.size > 0 && !whitelist.has(sectionTipo)) continue;
+		// (:364-383 — relation_list / end-ddo section filters) — or, with a ddo
+		// empty_value, emits its placeholder in their place (T2-DIF-2).
+		if (whitelist.size > 0 && !whitelist.has(sectionTipo)) {
+			if (hop.emptyValue !== undefined) {
+				atoms.push(emptyValuePlaceholder(hop, sectionTipo, sectionId));
+			}
+			continue;
+		}
 
 		// Fallback: the locator itself is the value (:385-423).
 		const link: ResolvedLink = {
@@ -2308,6 +2364,17 @@ async function resolveHop(
 		}
 		if (typeof locator.from_component_top_tipo === 'string') {
 			link.fromComponentTopTipo = locator.from_component_top_tipo;
+		}
+		// A dataframe frame carries its PAIRING (T2-DIF-3): the id_key joins it
+		// to the main item it extends, on the consumer side.
+		if (isDataframeEntry(locator)) {
+			const frame = locator as { id_key?: unknown; main_component_tipo?: unknown };
+			if (typeof frame.id_key === 'number' || typeof frame.id_key === 'string') {
+				link.idKey = frame.id_key;
+			}
+			if (typeof frame.main_component_tipo === 'string') {
+				link.mainComponentTipo = frame.main_component_tipo;
+			}
 		}
 		if (prepared.hopEmitsSectionLabels) {
 			// map_locator_to_section_label: section-node terms, one atom per lang.
