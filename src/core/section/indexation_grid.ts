@@ -319,9 +319,12 @@ async function langData(
 	const effectiveLang = translatable ? ctx.dataLang : 'lg-nolan';
 	const data = sliceByLang(items, effectiveLang);
 	if (data.length > 0) return { data, fallback: [] };
-	// PHP get_component_data_fallback: main lang → nolan → all langs
+	// v6 get_component_data_fallback: main lang → nolan → all langs. The main
+	// lang is DEDALO_DATA_LANG_DEFAULT (v6 `$main_lang = DEDALO_DATA_LANG_DEFAULT`,
+	// the first candidate of the engine's one read chain) — never the menu's
+	// DATA_LANG, a per-session selection (request-language law, T2 B10).
 	const tried = new Set([effectiveLang]);
-	const candidates = [config.menu.dataLang, 'lg-nolan', ...config.menu.projectsDefaultLangs];
+	const candidates = [config.lang.dataLangDefault, 'lg-nolan', ...config.menu.projectsDefaultLangs];
 	for (const candidate of candidates) {
 		if (tried.has(candidate)) continue;
 		tried.add(candidate);

@@ -1285,7 +1285,9 @@ async function runHandlerScoped(
 					applicationLang:
 						context.session?.applicationLang ??
 						allowlistedPreauthLang(context.preauthLang) ??
+						// lang-law-exempt(dispatch.seed.application): THE request-lang SEED — the install default is the last rung of session > pre-auth cookie > default
 						config.menu.applicationLang,
+					// lang-law-exempt(dispatch.seed.data): THE request-lang SEED — a session without a data lang starts at the install DATA_LANG, resolved against the declared data langs in src/config/
 					dataLang: context.session?.dataLang ?? config.menu.dataLang,
 				},
 				() => handler(rqo, context),

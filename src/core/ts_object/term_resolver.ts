@@ -228,7 +228,8 @@ registerOntologyCacheClearer(() => mainLangCache.clear());
  * language used when the requested lang has no value. Resolves the hierarchy1
  * record for the TLD, reads its hierarchy8 lang locator, and converts it to a
  * `lg-xxx` code via the lang record's hierarchy41 ISO-code component. The
- * hard-coded tails (es1→lg-spa, hierarchy1→default, else lg-eng) match PHP.
+ * hard-coded tails (es1→lg-spa, hierarchy1→DATA_LANG_DEFAULT, else lg-eng) match
+ * v6.
  */
 async function getMainLang(sectionTipo: string): Promise<string> {
 	if (sectionTipo === 'lg1') return 'lg-eng';
@@ -257,7 +258,11 @@ async function getMainLang(sectionTipo: string): Promise<string> {
 	}
 	if (mainLang === null || mainLang === '') {
 		if (sectionTipo === 'es1') mainLang = 'lg-spa';
-		else if (sectionTipo === 'hierarchy1') mainLang = config.menu.dataLang;
+		// hierarchy1 → DEDALO_DATA_LANG_DEFAULT (v6 get_main_lang): the install's
+		// main DATA lang — the first candidate of the one read chain — never the
+		// menu's DATA_LANG, a per-session selection (request-language law, T2 B10).
+		// Cached per section tipo, so it must not be a request-scoped value.
+		else if (sectionTipo === 'hierarchy1') mainLang = config.lang.dataLangDefault;
 		else mainLang = 'lg-eng';
 	}
 	mainLangCache.set(sectionTipo, mainLang);

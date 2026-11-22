@@ -15,7 +15,8 @@
  * is read here already, and the set has a SECOND consumer that cannot import the
  * chokepoint: `config.menu.dataLang` itself (see `resolveCurrentDataLang`). One
  * home, two doors — "link, never duplicate". It also keeps `src/core/` free of
- * the `config.menu` lang reads the P0-7 census ratchets down.
+ * the `config.menu` lang reads request_lang_law_tripwire forbids (T2 B10; it
+ * superseded the P0-7 census).
  *
  * A LEAF: it imports only the code grammar. `src/config/` may not import
  * `src/core/`, so `lg-nolan` is spelled here rather than imported from

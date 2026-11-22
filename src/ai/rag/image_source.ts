@@ -388,6 +388,7 @@ export async function buildImageContextSummary(input: {
 		},
 		() =>
 			runWithRequestLangs(
+				// lang-law-exempt(rag.image.scope): the image indexer OPENS a system-principal scope; the index is install-wide, the data lang comes from the caller
 				{ applicationLang: config.menu.applicationLang, dataLang: input.dataLang },
 				async () => {
 					const matrixTable = (await getMatrixTableFromTipo(input.sectionTipo)) ?? 'matrix';

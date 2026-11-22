@@ -481,6 +481,7 @@ const TRIPWIRES = [
 	'test/unit/client_no_dynamic_code_tripwire.test.ts',
 	// T2 SC-4 — "the first X of model M" is read in sibling order (2026-11-22).
 	'test/unit/ordered_child_lookup_tripwire.test.ts',
+	'test/unit/request_lang_law_tripwire.test.ts',
 ];
 
 // ---------------------------------------------------------------------------

@@ -215,6 +215,7 @@ async function resolveGroupDoc(
 			clientIp: '',
 		},
 		() =>
+			// lang-law-exempt(rag.embed.scope): the RAG indexer OPENS a system-principal scope; the index is install-wide, the data lang is passed per document
 			runWithRequestLangs({ applicationLang: config.menu.applicationLang, dataLang: lang }, () =>
 				resolveGroupDocInner(group, embedMap, topLevel, record, input, lang, deps),
 			),

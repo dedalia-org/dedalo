@@ -636,6 +636,13 @@ Merged since the last release; these ship with the next one.
       descriptions now default to the interface language, and record reads and
       searches to the data language.
 
+    When a value is missing in the chosen language, the thesaurus term and the
+    indexation grid now fall back to the installation's main data language
+    (`DEDALO_DATA_LANG_DEFAULT`), as the rest of the application does, instead of the
+    menu's starting language.
+
+    Wire contract: `WC-2026-10-20-element-context-default-lang`.
+
 - **Sorting a list by a translatable field follows your data language.**
 
     A list sorted by a translatable field (a title, a name) used the installation's

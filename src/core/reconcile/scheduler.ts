@@ -117,6 +117,7 @@ function inSchedulerScope<T>(name: string, work: () => Promise<T>): Promise<T> {
 		{ session: null, requestId: `reconcile:${name}`, clientIp: '' },
 		() =>
 			runWithRequestLangs(
+				// lang-law-exempt(reconcile.scheduler.scope): a timer OPENS its own scope (no session, no request) — install-wide hygiene runs in the install languages
 				{ applicationLang: config.menu.applicationLang, dataLang: config.lang.dataLangDefault },
 				work,
 			),

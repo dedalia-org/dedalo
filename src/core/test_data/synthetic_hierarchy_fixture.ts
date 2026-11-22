@@ -177,6 +177,7 @@ async function seedTermRows(
 	total: number,
 	generate: (sectionId: number) => GeneratedTerm,
 ): Promise<void> {
+	// lang-law-exempt(synthetic_hierarchy.seed_lang): a TEST-DATA generator seeds its rows in the install default on purpose and reports the lang it used
 	const dataLang = config.menu.dataLang;
 	await withTransaction(async () => {
 		// Above-root only: id 1 is the engine-minted root the registry's
@@ -262,6 +263,7 @@ export async function ensureSyntheticHierarchies(): Promise<SyntheticHierarchySu
 			[SYNTHETIC_HIERARCHY_A_TLD]: aTotal,
 			[SYNTHETIC_HIERARCHY_B_TLD]: SYNTHETIC_B_ROW_COUNT,
 		},
+		// lang-law-exempt(synthetic_hierarchy.reported_lang): the lang the generator seeded in, reported so the reading gate expects that slice
 		dataLang: config.menu.dataLang,
 	};
 }

@@ -414,3 +414,13 @@ dispatcher or pool that calls the worker from a foreign scope no longer changes
 the write language. Gated by `test/unit/media_jobs_reconcile.test.ts` ("a job
 runs under its OWN pinned identity, whatever scope calls its worker" — red with
 the pin removed). Wire-visible: none.
+
+## Addendum, 2026-11-22 — the census became a law (T2 B10)
+
+The P0-7 per-file `config.menu` census in `module_state_tripwire` named above
+(both "Gated by" lines) is RETIRED into `test/unit/request_lang_law_tripwire.test.ts`:
+no `config.menu` lang read outside `src/config/` and the request-lang module, and
+no language-literal default, zero allowlist — the remaining install-language reads
+(the dispatch seed, the scheduler and RAG scopes, a test-data generator, the
+installer) are named exemptions next to the code. The DATA-01 positive pins (each
+door reads `currentDataLang()`) stay in `module_state_tripwire`. Wire-visible: none.

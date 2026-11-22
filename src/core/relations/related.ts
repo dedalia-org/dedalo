@@ -267,7 +267,9 @@ export async function getReferencesRecursive(
 	locator: { section_tipo: string; section_id: number | string; from_component_tipo: string },
 	typeRel: string = RELATED_MULTIDIRECTIONAL,
 	recursion = false,
-	lang = 'lg-spa',
+	// Only a dedup-key dimension; every caller passes its own lang. The default is
+	// the no-language key, never a language literal (request-language law, T2 B10).
+	lang = 'lg-nolan',
 	// A SET, not a list (audit PERF-04): this is membership-only state, and the
 	// `.includes` scan it replaces made the walk quadratic in the CPU on the
 	// request thread while every query stayed linear.

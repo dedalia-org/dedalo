@@ -609,6 +609,10 @@ HERMETIC_TRIPWIRES=(
 	#     corpus plus planted statements (verified with DB_HOST=127.0.0.1 DB_PORT=59999:
 	#     9 pass / 0 fail).
 	test/unit/ordered_child_lookup_tripwire.test.ts
+	# --- 2026-11-22 (T2 B10, request-language law). DB-free: a source scan of src/ and
+	#     tools/ plus planted strings (verified with DB_HOST=127.0.0.1 DB_PORT=59999:
+	#     8 pass / 0 fail).
+	test/unit/request_lang_law_tripwire.test.ts
 )
 
 # THE SERIAL LANE — tripwires that cannot share the machine with another test file, run

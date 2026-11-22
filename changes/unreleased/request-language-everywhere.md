@@ -1,4 +1,5 @@
 ---
+wc: WC-2026-10-20-element-context-default-lang
 title: Labels and defaults follow the language you chose, not the installation's.
 type: fixed
 audience: user
@@ -22,3 +23,8 @@ fixed language) instead of the one the user had chosen in the menu:
 - for the assistant tools (MCP), an omitted language was English: section
   descriptions now default to the interface language, and record reads and
   searches to the data language.
+
+When a value is missing in the chosen language, the thesaurus term and the
+indexation grid now fall back to the installation's main data language
+(`DEDALO_DATA_LANG_DEFAULT`), as the rest of the application does, instead of the
+menu's starting language.

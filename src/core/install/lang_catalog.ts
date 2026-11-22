@@ -153,6 +153,7 @@ export function deriveLangConfig(input: LangConfigInput): DerivedLangConfig {
 	const applicationLangs: Record<string, string> = {};
 	for (const code of valid) applicationLangs[code] = INSTALL_LANG_CATALOG[code] as string;
 
+	// lang-law-exempt(installer.first_lang): the INSTALLER derives the configuration itself (no request, no config yet); the literal is the catalog's first entry, a type-level fallback only
 	const first = valid[0] ?? INSTALL_LANG_CODES[0] ?? 'lg-eng';
 	const pickDefault = (
 		candidate: string | undefined,
