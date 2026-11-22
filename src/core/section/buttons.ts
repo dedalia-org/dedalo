@@ -80,6 +80,15 @@ async function readButtonRows(parent: string): Promise<{ tipo: string; model: st
  * query returns nothing for a virtual section whose only children are
  * section_list/exclude_elements (e.g. dd1244 → dd623 would lose button_new +
  * button_delete), which is why the buttons never rendered.
+ *
+ * (!) The exclusion is TS's, not a PHP port. PHP computed the same exclude list
+ * but passed it to get_ar_children_tipo_by_model_name_in_section with
+ * resolve_virtual=false, and that function applies `ar_tipo_exclude_elements`
+ * ONLY when resolve_virtual is true — so PHP listed an excluded button anyway.
+ * TS filters, matching the create gate (security::get_section_new_permissions
+ * read button_new with resolve_virtual=true, exclusion applied; here
+ * write_door.ts authorizeRecordCreate reads these same rows). The divergence is
+ * latent: the one shipped excluded button the audit found (rsc136) is disabled.
  */
 export async function sectionButtonRows(
 	sectionTipo: string,
@@ -99,8 +108,9 @@ export async function sectionButtonRows(
 	if (realTipo === null) {
 		rows = ownRows;
 	} else {
-		// Excluded tipos: the FIRST exclude_elements child's relation nodes (PHP [0]).
-		// Absent exclude_elements → nothing filtered (PHP logs a warning, continues).
+		// Excluded tipos: the FIRST exclude_elements child's relation nodes (the
+		// list PHP computed from [0] but never applied — see the header).
+		// Absent exclude_elements → nothing filtered.
 		const exRows = (await sql`
 			SELECT relations FROM dd_ontology
 			WHERE parent = ${sectionTipo} AND model = 'exclude_elements'
