@@ -26,7 +26,11 @@
  *   3. NOT REFUSED, NOTHING REPAIRED: the run would save, and saves it clean.
  *
  * It also pins the refusals an identity model cannot reach (F3: crossed nesting) and the
- * model-wrapper strip (F6), on the same chain.
+ * model-wrapper strip (F6), on the same chain — and runs DEVIANT models (H1/H2/M2: dropped
+ * backslashes, empty or tokens-only answers, written HTML, stray backticks and asterisks,
+ * swapped/dropped/repeated tokens, reversed words) over the adversarial cases and a seeded
+ * fuzz leg: every run is refused, or saves the model's text in the source's structure with
+ * no literal deleted or invented and no markup as text (deviationProblems).
  *
  * DOM: Bun has no DOMParser — the pipeline's is test/helpers/parse5_dom.ts (parse5, the
  * declared devDependency: a spec tree builder and serialiser). The real-browser twin is the
@@ -43,8 +47,10 @@ import { resolveClientModuleOverride } from '../helpers/client_module_overrides.
 import { isIsolatedGateChild, mirrorIsolatedGate } from '../helpers/isolated_gate.ts';
 import {
 	browserSerialize,
+	elementNames,
 	installParse5DomParser,
 	mapWordTextNodes,
+	visibleText,
 } from '../helpers/parse5_dom.ts';
 
 if (!isIsolatedGateChild(import.meta.path)) mirrorIsolatedGate(import.meta.path);
@@ -113,26 +119,33 @@ else {
 
 	/**
 	 * W: a newline run inside a text node with words is one space (see the header) — the
-	 * text the model receives. Not inside an element restored whole (<pre>, <textarea>,
-	 * <script>…: markdown_utils.js RAW_ATOM_TAGS), whose text never travels.
+	 * text the model receives. Not inside an element restored whole (markdown_utils.js
+	 * RAW_ATOM_TAGS: <pre>, <xmp>, <textarea>, <script>…), whose text never travels, nor where
+	 * the line breaks are visible: under an element whose inline style's LAST white-space /
+	 * white-space-collapse declaration keeps them (the nearest such element decides).
 	 */
-	const RESTORED_WHOLE = new Set([
-		'script',
-		'style',
-		'template',
-		'iframe',
-		'object',
-		'embed',
-		'svg',
-		'math',
-		'video',
-		'audio',
-		'canvas',
-		'noscript',
-		'textarea',
-		'select',
+	const KEEPS_BREAKS = new Set([
 		'pre',
+		'pre-wrap',
+		'pre-line',
+		'break-spaces',
+		'preserve',
+		'preserve-breaks',
 	]);
+	const textRule = (tag: string, attribute: (name: string) => string | null) => {
+		if (M.RAW_ATOM_TAGS.has(tag)) return 'subtree' as const;
+		const declarations = (attribute('style') ?? '')
+			.split(';')
+			.map((declaration) => declaration.split(':'))
+			.filter(([property]) => /^\s*white-space(-collapse)?\s*$/i.test(property ?? ''));
+		const last = declarations.at(-1);
+		if (!last) return undefined;
+		const value = (last[1] ?? '')
+			.replace(/!important/i, '')
+			.trim()
+			.toLowerCase();
+		return KEEPS_BREAKS.has(value) ? ('keep' as const) : ('transform' as const);
+	};
 	/**
 	 * A whitespace-only text node is a WORD space when an inline element or text sits on both
 	 * sides and its parent allows text (the HTML content models of lists, tables and
@@ -158,7 +171,7 @@ else {
 		mapWordTextNodes(
 			html,
 			(text) => text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '),
-			RESTORED_WHOLE,
+			textRule,
 			isWordSpace,
 		);
 
@@ -174,12 +187,24 @@ else {
 		/** Block-level tokens (document-wide) that reached a model input. */
 		structuralSent: string[];
 		md: string;
+		/** Blocks the worker failed (a failed block refuses the run). */
+		// biome-ignore lint/suspicious/noExplicitAny: worker payload
+		failed: any[];
+		/** The model's LAST answer per block index (a retried block answers more than once). */
+		outputs: Map<number, string>;
+		// biome-ignore lint/suspicious/noExplicitAny: the prepared run is untyped browser JS
+		prepared: any;
+		accumulated: string;
 	}
 
-	/** THE pipeline with `model` as the translator (default: identity). */
+	/**
+	 * THE pipeline with `model` as the translator (default: identity). The model gets the
+	 * text and the index of the block it belongs to — read from the worker's own label
+	 * ('Block i/n…'), so two blocks with the same text are still told apart.
+	 */
 	async function pipeline(
 		html: string,
-		model: (text: string) => string = (text) => text,
+		model: (text: string, block: number) => string = (text) => text,
 	): Promise<Run> {
 		const prepared = B.prepare_translation(html);
 		if (prepared.refused) {
@@ -190,37 +215,56 @@ else {
 				sent: [],
 				structuralSent: [],
 				md: '',
+				failed: [],
+				outputs: new Map(),
+				prepared,
+				accumulated: '',
 			};
 		}
 		const sent: string[] = [];
 		const structuralSent: string[] = [];
-		const byText = new Map<string, Record<string, string>>();
-		for (const block of prepared.blocks) byText.set(block.text, block.restore_map);
+		const outputs = new Map<number, string>();
 		const run = await R.run_blocks({
 			blocks: prepared.blocks,
-			translate: async (text: string) => {
+			translate: async (text: string, _overrides: unknown, label: string) => {
+				const index = Number(/^Block (\d+)\//.exec(label)?.[1]) - 1;
+				const block = prepared.blocks[index];
+				if (!block || block.text !== text)
+					throw new Error(`no block ${label} sent ${JSON.stringify(text)}`);
 				sent.push(text);
 				for (const local of text.match(/\[\[\[\d+\]\]\]/g) ?? []) {
-					const global = byText.get(text)?.[local] ?? local;
+					const global = block.restore_map?.[local] ?? local;
 					if (prepared.block_tokens.has(global)) structuralSent.push(global);
 				}
-				return model(text);
+				const output = model(text, index);
+				outputs.set(index, output);
+				return output;
 			},
 			post: () => {},
 		});
-		expect(run.failed_blocks ?? []).toEqual([]);
 		const { restored_text, report } = B.finish_translation(
 			prepared,
 			run.accumulated_text,
 			run.repair_stats,
 		);
-		return { out: restored_text, report, sent, structuralSent, md: prepared.md };
+		return {
+			out: restored_text,
+			report,
+			sent,
+			structuralSent,
+			md: prepared.md,
+			failed: run.failed_blocks ?? [],
+			outputs,
+			prepared,
+			accumulated: run.accumulated_text,
+		};
 	}
 
 	/** The three identity assertions, with the case named in every message. */
 	async function expectIdentity(name: string, html: string, expected = expectedOf(html)) {
 		const run = await pipeline(html);
 		expect(run.refusedBefore, `${name}: refused before the run`).toBeUndefined();
+		expect(run.failed, `${name}: a block failed`).toEqual([]);
 		expect(
 			browserSerialize(run.out),
 			`${name}: output differs from the source\n  md: ${JSON.stringify(run.md)}`,
@@ -393,6 +437,27 @@ else {
 		['emphasis at a word edge', '<p><strong>Roma </strong>antigua y <em> nueva</em>.</p>'],
 		['break at the edge of emphasis', '<p><strong>uno<br></strong>dos</p>'],
 		['adjacent emphasis', '<p><strong>a</strong><strong>b</strong> <em>c</em><em>d</em></p>'],
+		['unknown element inside a paragraph (M1)', '<p>Texto <foo>x</foo> fin</p>'],
+		['unknown element at the top (M1)', 'Texto <foo>x</foo> fin'],
+		['xmp, listing (L1)', '<xmp>a\nb  *c*</xmp><listing>a\nb</listing><p>fin</p>'],
+		['plaintext swallows the rest (L1)', '<p>a</p><plaintext>x\ny <b>z</b>'],
+		[
+			'inline white-space keeps its line breaks (L1)',
+			'<p>Verso uno<span style="white-space: pre-wrap">\nverso dos\n  verso tres</span> fin\nde línea</p>',
+		],
+		[
+			'pre-line block, a normal span inside resets it (L1)',
+			'<div style="color:red; white-space:pre-line">uno\ndos <span style="white-space: normal">tres\ncuatro</span>\ncinco</div>',
+		],
+		[
+			'white-space-collapse longhand (L1)',
+			'<p style="white-space-collapse: preserve-breaks">a\nb</p>',
+		],
+		[
+			'the last white-space declaration wins (L1)',
+			'<p style="white-space: pre; white-space: normal">a\nb</p>',
+		],
+		['an !important pre-wrap (L1)', '<p style="WHITE-SPACE: Pre-Wrap !important">a\n b</p>'],
 		[
 			'word spaces of two and with a newline',
 			'<p><strong>a</strong>  <em>b</em> y <b>c</b>\n<i>d</i> e <span>f</span>\n  <sub>g</sub></p>',
@@ -468,6 +533,16 @@ else {
 			'Fin.',
 			'¿Dónde?',
 			'—dijo',
+			// bare metacharacters and Markdown-looking text (the reviewer's gen2 vocabulary)
+			'*',
+			'**',
+			'__',
+			'_x_',
+			'`',
+			'x\ty',
+			'#',
+			'|',
+			'1.',
 		];
 		const INLINE = [
 			'strong',
@@ -484,6 +559,10 @@ else {
 			'abbr',
 			'tt',
 			'a',
+			// unknown, custom and namespaced names (inline: M1)
+			'foo',
+			'x-card',
+			'o:p',
 		];
 		const LAYOUT = ['', '', '\n', '\n  ', ' '];
 
@@ -506,8 +585,19 @@ else {
 				]);
 			}
 			const tag = pick(INLINE);
+			const attrRoll = random();
 			const attrs =
-				tag === 'a' ? ' href="#x"' : tag === 'span' && random() < 0.5 ? ' class="k"' : '';
+				tag === 'a'
+					? ' href="#x"'
+					: attrRoll < 0.15
+						? ' class="k"'
+						: attrRoll < 0.22
+							? pick([
+									' style="white-space: pre-wrap"',
+									' style="white-space:pre-line"',
+									' style="white-space: normal"',
+								])
+							: '';
 			return `<${tag}${attrs}>${content(depth + 1)}</${tag}>`;
 		};
 		// inline siblings are separated by nothing, or by a word space as an editor writes one
@@ -548,7 +638,8 @@ else {
 				const level = 1 + Math.floor(random() * 4);
 				return `<h${level}>${content(0)}</h${level}>`;
 			}
-			if (roll < 0.86) return '<hr>';
+			if (roll < 0.84) return '<hr>';
+			if (roll < 0.86) return pick(['<xmp>a\n  *b*</xmp>', '<listing>uno\ndos</listing>']);
 			if (roll < 0.9) return '<!-- bloque -->';
 			return depth === 0 ? LOOSE : `<p>${content(0)}</p>`;
 		};
@@ -597,6 +688,7 @@ else {
 					run.structuralSent.length === 0
 						? null
 						: `structural tokens sent: ${run.structuralSent.join(' ')}`,
+					run.failed.length === 0 ? null : `failed: ${JSON.stringify(run.failed)}`,
 					run.report.refused ? `refused: ${JSON.stringify(run.report)}` : null,
 					run.report.uncertain_count === 0 ? null : 'repaired',
 				].filter(Boolean);
@@ -640,6 +732,423 @@ else {
 			);
 			expect(B.tags_crossed('<p><strong>a [[[1]]]b</strong>[[[2]]]</p>', descriptors)).toBe(1);
 			expect(B.tags_crossed('<p>[[[1]]]<em>a[[[2]]]</em></p>', descriptors)).toBe(1);
+		});
+	});
+
+	/**
+	 * THE DEVIANT-MODEL LEG (A1-02 re-review 4). A real model does not answer with its input:
+	 * it drops backslashes, returns nothing, writes HTML, breaks lines, adds or loses
+	 * backticks and asterisks, swaps, drops, repeats and moves tokens, reorders words. Every
+	 * such run must end in ONE of two ways:
+	 *
+	 *   - REFUSED (a failed block, or the report refuses): nothing is saved; or
+	 *   - SAVED, and then what the record shows is the MODEL'S text in the SOURCE'S
+	 *     structure, nothing else (deviationProblems):
+	 *       a. its letters are the model's letters, in the model's order (whitespace and the
+	 *          Markdown metacharacters * _ ` \ aside) — nothing deleted, nothing invented;
+	 *       b. of each metacharacter * _ `, it shows no more than the model wrote, and no
+	 *          fewer than the record's own literals the model kept (a literal is never
+	 *          deleted, a delimiter is never shown as one) — per block, min(the answer's
+	 *          count, the segment's escaped literals);
+	 *       c. no markup as visible text beyond what the source's text had;
+	 *       d. its elements are the source's: every element other than emphasis and code
+	 *          exactly as many times; emphasis and code never more often than the source
+	 *          (plus one per emphasis run balancing cut across two blocks: a model that moves
+	 *          the balancing delimiters gets that run back as two).
+	 *
+	 * The model's text is its answer per block (the LAST one: a loop is retried) less the
+	 * tokens and the <p>…</p> wrapper the contract strips (strip_added_paragraph — pinned by
+	 * its own leg below).
+	 */
+	const TOKEN_RE = /\[\[\[\d+\]\]\]/g;
+	const TAG_SHAPE = /<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?\/?>/g;
+	const META = ['*', '_', '`'] as const;
+	const MD_INLINE = new Set(['strong', 'b', 'em', 'i', 'u', 'code']);
+	// metacharacters first: a delimiter the model wrote INSIDE a token ('[[[*3]]]') is
+	// conformed away, and the token is a token again
+	const lettersOf = (text: string) => text.replace(/[\s*_`\\]/g, '').replace(TOKEN_RE, '');
+	const countOf = (text: string, char: string) => text.split(char).length - 1;
+	const escapedCount = (text: string, char: string) => {
+		let count = 0;
+		for (let i = 0; i < text.length; i++) {
+			if (text[i] === '\\') {
+				if (text[i + 1] === char) count++;
+				i++;
+			}
+		}
+		return count;
+	};
+	const tally = (names: string[]) => {
+		const counts = new Map<string, number>();
+		for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+		return counts;
+	};
+
+	function deviationProblems(source: string, run: Run): string[] {
+		const problems: string[] = [];
+		const answers = [...run.outputs.keys()]
+			.sort((a, b) => a - b)
+			.map((index) => ({
+				sent: run.prepared.blocks[index].text as string,
+				text: R.strip_added_paragraph(
+					run.prepared.blocks[index].text,
+					run.outputs.get(index) ?? '',
+				) as string,
+			}));
+		const modelText = answers.map((answer) => answer.text).join(' ');
+		const savedText = visibleText(run.prepared.to_html(run.accumulated));
+
+		// a. the model's letters, nothing else
+		if (lettersOf(savedText) !== lettersOf(modelText)) {
+			problems.push(
+				`letters differ from the model's\n     saved ${JSON.stringify(savedText)}\n     model ${JSON.stringify(modelText)}`,
+			);
+		}
+		// b. metacharacters: no more than the model wrote, no fewer than the literals it kept
+		for (const char of META) {
+			const saved = countOf(savedText, char);
+			const model = countOf(modelText, char);
+			// per block: the literals of its segment the model's answer can still hold
+			const kept = answers.reduce(
+				(sum, answer) =>
+					sum + Math.min(countOf(answer.text, char), escapedCount(answer.sent, char)),
+				0,
+			);
+			if (saved > model || saved < kept) {
+				problems.push(`'${char}': saved ${saved}, model wrote ${model}, literals it kept ${kept}`);
+			}
+		}
+		// c. no markup as visible text
+		const visibleMarkup = (savedText.match(TAG_SHAPE) ?? []).length;
+		const sourceMarkup = (visibleText(source).match(TAG_SHAPE) ?? []).length;
+		if (visibleMarkup > sourceMarkup)
+			problems.push(`visible markup: ${savedText.match(TAG_SHAPE)?.join(' ')}`);
+		// d. the source's elements
+		const saved = tally(elementNames(run.out));
+		const original = tally(elementNames(source));
+		// an emphasis run cut between two blocks may come back as two runs when the model moved
+		// the balancing delimiters (run_blocks then cannot rejoin them): one more per such cut
+		const split = new Map<string, number>();
+		for (const block of run.prepared.blocks) {
+			for (const delimiter of (block.closed as string | undefined)?.match(/\*\*|__|\*/g) ?? []) {
+				const tag =
+					delimiter === '__'
+						? 'u'
+						: delimiter === '**'
+							? run.prepared.emphasis_tags.bold
+							: run.prepared.emphasis_tags.italic;
+				split.set(tag, (split.get(tag) ?? 0) + 1);
+			}
+		}
+		for (const name of new Set([...saved.keys(), ...original.keys()])) {
+			const got = saved.get(name) ?? 0;
+			const had = original.get(name) ?? 0;
+			if (MD_INLINE.has(name) ? got > had + (split.get(name) ?? 0) : got !== had) {
+				problems.push(`<${name}>: saved ${got}, source ${had}`);
+			}
+		}
+		return problems;
+	}
+
+	/** Deviant models: (text, random) => answer. */
+	const DEVIANTS: Record<string, (text: string, random: () => number) => string> = {
+		identity: (text) => text,
+		stripBackslashes: (text) => text.replace(/\\/g, ''),
+		empty: () => '',
+		whitespaceOnly: () => '  \n ',
+		tokensOnly: (text) => (text.match(TOKEN_RE) ?? []).join(''),
+		addBreak: (text) => text.replace(' ', '<br>'),
+		addBold: (text) => text.replace(/(\S+)/, '<b>$1</b>'),
+		wrapTwice: (text) => `<p><p>${text}</p></p>`,
+		wrap: (text) => `<p>${text}</p>`,
+		newlines: (text, random) =>
+			text.replace(/ /g, () => (random() < 0.2 ? (random() < 0.5 ? '\n' : '\n\n') : ' ')),
+		addBackticks: (text) => text.replace(/(\S+)/, '`$1`'),
+		dropBackticks: (text) => text.replace(/\\?`/g, ''),
+		addStars: (text, random) =>
+			text
+				.split(' ')
+				.map((word) =>
+					random() < 0.2 ? `${['**', '*', '__'][Math.floor(random() * 3)]}${word}` : word,
+				)
+				.join(' '),
+		dropStars: (text) => text.replace(/\*\*/, ''),
+		swapTokens: (text, random) => {
+			const tokens = text.match(TOKEN_RE) ?? [];
+			if (tokens.length < 2) return text;
+			const a = tokens[Math.floor(random() * tokens.length)] as string;
+			const b = tokens[Math.floor(random() * tokens.length)] as string;
+			return text.replace(a, '\u0001').replace(b, a).replace('\u0001', b);
+		},
+		dropToken: (text, random) => {
+			const tokens = text.match(TOKEN_RE) ?? [];
+			return tokens.length
+				? text.replace(tokens[Math.floor(random() * tokens.length)] as string, '')
+				: text;
+		},
+		dupToken: (text, random) => {
+			const tokens = text.match(TOKEN_RE) ?? [];
+			return tokens.length ? `${text} ${tokens[Math.floor(random() * tokens.length)]}` : text;
+		},
+		moveToken: (text, random) => {
+			const tokens = text.match(TOKEN_RE) ?? [];
+			if (!tokens.length) return text;
+			const token = tokens[Math.floor(random() * tokens.length)] as string;
+			const rest = text.replace(token, '');
+			const at = Math.floor(random() * (rest.length + 1));
+			return rest.slice(0, at) + token + rest.slice(at);
+		},
+		reverseWords: (text) => text.split(' ').reverse().join(' '),
+		moveDelimiter: (text, random) => {
+			const at = text.search(/\*\*|\*|__/);
+			if (at < 0) return text;
+			const delimiter = (/^(\*\*|\*|__)/.exec(text.slice(at)) as RegExpExecArray)[0];
+			const rest = text.slice(0, at) + text.slice(at + delimiter.length);
+			const to = Math.floor(random() * (rest.length + 1));
+			return rest.slice(0, to) + delimiter + rest.slice(to);
+		},
+	};
+
+	/** Run `html` through the pipeline with a deviant answering each block with probability `rate`. */
+	async function deviantRun(html: string, deviant: string, seed: number, rate = 0.5) {
+		let state = seed >>> 0;
+		const random = () => {
+			state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+			return state / 4294967296;
+		};
+		const deviate = DEVIANTS[deviant] as (text: string, random: () => number) => string;
+		return pipeline(html, (text) => (random() < rate ? deviate(text, random) : text));
+	}
+
+	const outcomeProblems = (html: string, run: Run) =>
+		run.refusedBefore || run.failed.length > 0 || run.report.refused
+			? []
+			: deviationProblems(html, run);
+
+	describe('deviant models: refused, or the model’s text in the source’s structure (H1, H2, M2)', () => {
+		const H = '<p>Moneda de <a href="#x">plata</a> y <span class="k">oro</span> fina.</p>';
+		/**
+		 * The reviewer's adversarial cases: [name, source, model, expected outcome, and — where
+		 * the oracle cannot see a misplaced literal — the exact saved value].
+		 */
+		const CASES: [string, string, (text: string) => string, 'refused' | 'saved', string?][] = [
+			[
+				'swap pair halves',
+				H,
+				(t) => t.replace('[[[1]]]plata[[[2]]]', '[[[2]]]plata[[[1]]]'),
+				'saved',
+			],
+			[
+				'swap two pairs',
+				H,
+				(t) =>
+					t.replace(
+						'[[[1]]]plata[[[2]]] y [[[3]]]oro[[[4]]]',
+						'[[[3]]]oro[[[4]]] y [[[1]]]plata[[[2]]]',
+					),
+				'saved',
+			],
+			['drop all tokens', H, (t) => t.replace(TOKEN_RE, ''), 'saved'],
+			['duplicate a token', H, (t) => t.replace('[[[1]]]', '[[[1]]][[[1]]]'), 'refused'],
+			['invent a token', H, (t) => `${t} [[[9]]]`, 'saved'],
+			['add bold', '<p>Moneda de plata fina.</p>', () => 'Moneda de **plata** fina.', 'saved'],
+			['add code', '<p>Moneda de plata fina.</p>', () => 'Moneda de `plata` fina.', 'saved'],
+			[
+				'add html <br> (M2)',
+				'<p>Moneda de plata fina.</p>',
+				() => 'Moneda de<br>plata fina.',
+				'refused',
+			],
+			[
+				'add html <b> (M2)',
+				'<p>Moneda de plata fina.</p>',
+				() => 'Moneda de <b>plata</b> fina.',
+				'refused',
+			],
+			['p wrapper twice (M2)', '<p>Moneda.</p>', (t) => `<p><p>${t}</p></p>`, 'refused'],
+			[
+				'literal <p> source, model wraps again (M2)',
+				'<p>&lt;p&gt;texto&lt;/p&gt;</p>',
+				(t) => `<p>${t}</p>`,
+				'refused',
+			],
+			[
+				'literal <p> source, model keeps it',
+				'<p>&lt;p&gt;texto&lt;/p&gt; y más</p>',
+				(t) => t,
+				'saved',
+			],
+			['p wrapper', '<p>Moneda de plata fina.</p>', (t) => `<P>\n${t}\n</P>`, 'saved'],
+			[
+				'add heading syntax',
+				'<p>Moneda de plata fina.</p>',
+				() => '# Moneda de plata fina.',
+				'saved',
+			],
+			[
+				'add newlines in an item',
+				'<ul><li>Moneda de plata fina.</li></ul>',
+				() => 'Moneda de\n\nplata\nfina.',
+				'saved',
+			],
+			[
+				'escaped * dropped (H1)',
+				'<p>Peso 2*3*4 g.</p>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<p>Peso 2*3*4 g.</p>',
+			],
+			[
+				'escaped ` dropped (H1)',
+				'<ul><li>l`Hospitalet y d`Urgell</li></ul>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<ul><li>l`Hospitalet y d`Urgell</li></ul>',
+			],
+			[
+				'escaped _ dropped (H1)',
+				'<p>a__b__c</p>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<p>a__b__c</p>',
+			],
+			[
+				'escapes dropped, heritage (H1)',
+				'<p>Peso: 3,2 g * (ejemplar *b*) — cat. n.º 12_a, ceca l`Hospitalet.</p>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<p>Peso: 3,2 g * (ejemplar *b*) — cat. n.º 12_a, ceca l`Hospitalet.</p>',
+			],
+			[
+				'escapes dropped next to real emphasis (H1)',
+				'<p><em>Moneda</em> de 2*3 g y <strong>oro</strong>.</p>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<p><em>Moneda</em> de 2*3 g y <strong>oro</strong>.</p>',
+			],
+			[
+				'a code span and a dropped literal backtick (H1)',
+				'<p><code>x</code> de l`Hospitalet</p>',
+				(t) => t.replace(/\\/g, ''),
+				'saved',
+				'<p><code>x</code> de l`Hospitalet</p>',
+			],
+			[
+				'a backslash the answer ends with stays a literal (H1)',
+				'<p><em>uno dos</em></p>',
+				() => '*uno dos\\',
+				'saved',
+				'<p><em>uno dos\\</em></p>',
+			],
+			[
+				'a record whose text is only ** is not empty (H2)',
+				'<p>**</p><p>Fin.</p>',
+				(t) => (t.includes('Fin') ? t : ''),
+				'refused',
+			],
+			[
+				'model drops one bold delimiter',
+				'<p>Uno <strong>dos</strong> tres</p>',
+				(t) => t.replace('**dos**', '**dos'),
+				'saved',
+			],
+			[
+				'model triple star',
+				'<p>Uno <strong>dos</strong> <em>tres</em></p>',
+				() => '***dos tres***',
+				'saved',
+			],
+			[
+				'emphasis crossing emphasis',
+				'<p><strong>a</strong> b <em>c</em></p>',
+				() => '**a *b** c*',
+				'refused',
+			],
+			['empty answer (H2)', H, () => '', 'refused'],
+			['whitespace answer (H2)', H, () => '   ', 'refused'],
+			['tokens-only answer (H2)', H, (t) => (t.match(TOKEN_RE) ?? []).join(''), 'refused'],
+			[
+				'a few characters for a long passage (H2)',
+				'<p>Moneda de plata acuñada en la ceca de Roma hacia el año 200 a.C.</p>',
+				() => 'x.',
+				'refused',
+			],
+			[
+				'one item blank (H2)',
+				'<ul><li>Anverso con cabeza laureada.</li><li>Reverso con jinete.</li></ul>',
+				(t) => (t.startsWith('Reverso') ? '' : t),
+				'refused',
+			],
+			['a short translation is not a loss', '<p>Sí, señor.</p>', () => 'Yes.', 'saved'],
+			[
+				'repetition loop',
+				'<p>Moneda de plata fina acuñada en Roma.</p>',
+				() => 'la moneda la moneda la moneda la moneda la moneda la moneda',
+				'refused',
+			],
+			['reversed words', H, (t) => t.split(' ').reverse().join(' '), 'saved'],
+		];
+		for (const [name, html, model, expected, saved] of CASES) {
+			test(name, async () => {
+				const run = await pipeline(html, model);
+				const refused = run.failed.length > 0 || run.report.refused;
+				expect(
+					refused ? 'refused' : 'saved',
+					`${name}: ${JSON.stringify(run.out)} ${JSON.stringify(run.failed)}`,
+				).toBe(expected);
+				expect(outcomeProblems(html, run), name).toEqual([]);
+				if (saved !== undefined)
+					expect(browserSerialize(run.out), name).toBe(browserSerialize(saved));
+			});
+		}
+
+		test('the elements whose line breaks are content are restored whole (L1)', () => {
+			for (const tag of ['pre', 'xmp', 'listing', 'plaintext', 'textarea']) {
+				expect(M.RAW_ATOM_TAGS.has(tag), tag).toBe(true);
+			}
+		});
+
+		test('the oracle is not vacuous: each of its four checks rejects a doctored save', async () => {
+			const run = await pipeline('<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>');
+			const doctor = (accumulated: string, out = run.out) =>
+				deviationProblems('<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>', {
+					...run,
+					accumulated,
+					out,
+				});
+			expect(doctor(run.accumulated)).toEqual([]);
+			expect(doctor(run.accumulated.replace('Peso', 'Pesa')).join()).toContain('letters');
+			expect(doctor(run.accumulated.replace('2\\*3', '23')).join()).toContain("'*'");
+			expect(doctor(`${run.accumulated} <b>`).join()).toContain('visible markup');
+			expect(doctor(run.accumulated, `${run.out}<code>z</code>`).join()).toContain('<code>');
+		});
+
+		test(`seeded fuzz: ${FUZZ_SEEDS} generated documents × a deviant model`, async () => {
+			const names = Object.keys(DEVIANTS);
+			const failures: string[] = [];
+			const outcomes = { refused: 0, saved: 0 };
+			for (let seed = 1; seed <= FUZZ_SEEDS; seed++) {
+				const html = makeGenerator(seed).document();
+				const deviant = names[seed % names.length] as string;
+				const run = await deviantRun(html, deviant, seed);
+				if (run.refusedBefore) continue;
+				if (run.failed.length > 0 || run.report.refused) outcomes.refused++;
+				else outcomes.saved++;
+				const problems = outcomeProblems(html, run);
+				if (problems.length > 0 && failures.length < 5) {
+					const answers = run.sent.map(
+						(sent, k) =>
+							`${JSON.stringify(sent)} → ${JSON.stringify([...run.outputs.values()][k])}`,
+					);
+					failures.push(
+						`seed ${seed} (${deviant}): ${problems.join('\n  ')}\n  source ${JSON.stringify(html)}\n  answers:\n    ${answers.join('\n    ')}`,
+					);
+				}
+			}
+			expect(failures, failures.join('\n\n')).toEqual([]);
+			// both outcomes are exercised
+			expect(outcomes.refused).toBeGreaterThan(FUZZ_SEEDS * 0.1);
+			expect(outcomes.saved).toBeGreaterThan(FUZZ_SEEDS * 0.3);
 		});
 	});
 
@@ -690,34 +1199,187 @@ else {
 		});
 	});
 
-	describe('the inline set is the HTML phrasing-content set (F5)', () => {
-		test('every phrasing-content and legacy inline tag is inline; block containers are not', async () => {
-			for (const tag of [...M.PHRASING_CONTENT_TAGS, ...M.LEGACY_INLINE_TAGS]) {
-				expect(M.is_inline_tag(tag), tag).toBe(true);
+	describe('block-level is an explicit list; every other element is inline (F5, M1)', () => {
+		/** WHATWG HTML §15.3: the elements the UA stylesheet displays as block / list-item / table parts. */
+		const UA_BLOCK = [
+			'address',
+			'article',
+			'aside',
+			'blockquote',
+			'body',
+			'caption',
+			'center',
+			'col',
+			'colgroup',
+			'dd',
+			'details',
+			'dialog',
+			'dir',
+			'div',
+			'dl',
+			'dt',
+			'fieldset',
+			'figcaption',
+			'figure',
+			'footer',
+			'form',
+			'frame',
+			'frameset',
+			'h1',
+			'h2',
+			'h3',
+			'h4',
+			'h5',
+			'h6',
+			'header',
+			'hgroup',
+			'hr',
+			'html',
+			'legend',
+			'li',
+			'listing',
+			'main',
+			'menu',
+			'nav',
+			'ol',
+			'optgroup',
+			'option',
+			'p',
+			'plaintext',
+			'pre',
+			'search',
+			'section',
+			'summary',
+			'table',
+			'tbody',
+			'td',
+			'tfoot',
+			'th',
+			'thead',
+			'tr',
+			'ul',
+			'xmp',
+		];
+		/** Phrasing content (§3.2.5.2.5), the obsolete inline elements (§16), custom and unknown names. */
+		const INLINE = [
+			'a',
+			'abbr',
+			'area',
+			'audio',
+			'b',
+			'bdi',
+			'bdo',
+			'br',
+			'button',
+			'canvas',
+			'cite',
+			'code',
+			'data',
+			'datalist',
+			'del',
+			'dfn',
+			'em',
+			'embed',
+			'i',
+			'iframe',
+			'img',
+			'input',
+			'ins',
+			'kbd',
+			'label',
+			'link',
+			'map',
+			'mark',
+			'math',
+			'meta',
+			'meter',
+			'noscript',
+			'object',
+			'output',
+			'picture',
+			'progress',
+			'q',
+			'ruby',
+			's',
+			'samp',
+			'script',
+			'select',
+			'slot',
+			'small',
+			'span',
+			'strong',
+			'sub',
+			'sup',
+			'svg',
+			'template',
+			'textarea',
+			'time',
+			'u',
+			'var',
+			'video',
+			'wbr',
+			'rb',
+			'rp',
+			'rt',
+			'rtc',
+			'acronym',
+			'big',
+			'blink',
+			'font',
+			'marquee',
+			'nobr',
+			'strike',
+			'tt',
+			'foo',
+			'x-card',
+			'o:p',
+			'selectedcontent',
+		];
+		/** Of INLINE, the ones that wrap text (no void, no raw atom, nothing the parser rewrites). */
+		const WRAPS_TEXT = [
+			'abbr',
+			'bdi',
+			'cite',
+			'data',
+			'del',
+			'dfn',
+			'ins',
+			'kbd',
+			'mark',
+			'q',
+			's',
+			'samp',
+			'small',
+			'sub',
+			'sup',
+			'time',
+			'var',
+			'acronym',
+			'big',
+			'blink',
+			'font',
+			'nobr',
+			'strike',
+			'tt',
+			'foo',
+			'x-card',
+			'o:p',
+			'label',
+			'button',
+		];
+
+		test('BLOCK_TAGS is the UA-stylesheet block set, exactly', () => {
+			expect([...M.BLOCK_TAGS].sort()).toEqual([...UA_BLOCK].sort());
+			for (const tag of UA_BLOCK) expect(M.is_block_tag(tag), tag).toBe(true);
+		});
+
+		test('phrasing, obsolete, custom and UNKNOWN elements are inline, and never split a paragraph', async () => {
+			for (const tag of INLINE) expect(M.is_block_tag(tag), tag).toBe(false);
+			for (const tag of WRAPS_TEXT) {
+				await expectIdentity(`inline <${tag}>`, `<p>uno <${tag}>dos</${tag}> tres</p>`);
 			}
-			for (const tag of [
-				'p',
-				'div',
-				'ul',
-				'ol',
-				'li',
-				'table',
-				'tr',
-				'td',
-				'h2',
-				'blockquote',
-				'pre',
-				'hr',
-				'dl',
-			]) {
-				expect(M.is_block_tag(tag), tag).toBe(true);
-			}
-			// the standard's list, complete: a dropped entry is red
-			expect(M.PHRASING_CONTENT_TAGS.size).toBe(56);
-			// every legacy tag renders inside a paragraph without splitting it
-			for (const tag of M.LEGACY_INLINE_TAGS) {
-				await expectIdentity(`legacy <${tag}>`, `<p>uno <${tag}>dos</${tag}> tres</p>`);
-			}
+			const unknown = await expectIdentity('unknown element', '<p>Texto <foo>x</foo> fin</p>');
+			expect(unknown.sent).toEqual(['Texto [[[1]]]x[[[2]]] fin']);
 		});
 	});
 }

@@ -76,10 +76,12 @@
  *   smaller_model_advice — the 'try a smaller model' sentence, from the OFFERED catalogue
  *   needs_webgpu_message, too_large_message — the two refusals that carry that advice
  *   collapse_model_breaks — the model's line breaks in a segment that had none → one space
+ *   added_markup       — tag-shaped text a model wrote that its segment did not carry
+ *   lost_text, MIN_TEXT_RATIO — an answer that lost the segment's text
  */
 
 // imports
-import { conform_emphasis, restore_wrapping_emphasis } from './markdown_utils.js';
+import { conform_emphasis, restore_literal_escapes, restore_wrapping_emphasis } from './markdown_utils.js';
 import {
 	extract_placeholders,
 	normalize_placeholders,
@@ -377,10 +379,20 @@ export const to_global_tokens = (text, restore_map) => {
  * (A1-02 re-review, collapse_model_breaks): '\n\n' is a paragraph and '\n' a <br> to
  * markdown_to_html, so inside a shielded block ('<li>uno\n\ndos</li>') it built malformed
  * HTML — a <p> across the </li>, a <br> between two </td><td>.
+ *
+ * The backslashes a model dropped from the text's literal '*', '_' and '`' are put back
+ * BEFORE conform_emphasis (restore_literal_escapes — A1-02 re-review H1), so conforming
+ * deletes only delimiters, never a literal character.
+ *
+ * Markup the model WROTE (tag-shaped text the segment did not carry: '<br>', '<b>…</b>', a
+ * second '<p>') is collected in `markup` — after the wrapper strip — and process_block
+ * refuses the block (H1/M2): saved, it would be visible '&lt;br&gt;' text; stripped, the
+ * saved text would differ from what the model wrote. Either way the record changes in a way
+ * nobody asked for.
  * @param {*} raw - Model output.
  * @param {string} source - The block text sent to the model.
  * @param {Set<string>} known - The block's own tokens.
- * @returns {{text:string, invented:string[]}}
+ * @returns {{text:string, invented:string[], markup:string[]}}
  */
 const clean_output = (raw, source, known) => {
 	const invented = [];
@@ -392,13 +404,89 @@ const clean_output = (raw, source, known) => {
 		return '';
 	});
 
+	const unwrapped = strip_added_paragraph(source, normalised);
+	const markup = added_markup(source, unwrapped);
+
 	const text = restore_wrapping_emphasis(
 		source,
-		conform_emphasis(source, collapse_model_breaks(source, strip_added_paragraph(source, normalised))),
+		conform_emphasis(source, restore_literal_escapes(source, collapse_model_breaks(source, unwrapped))),
 	);
 
-	return { text, invented };
+	return { text, invented, markup };
 }; //end clean_output
+
+/**
+ * A tag-shaped string: '<br>', '</b>', '<p class="x">', '<o:p/>'.
+ * @type {RegExp}
+ */
+const TAG_SHAPE_RE = /<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?\/?>/g;
+
+/**
+ * ADDED_MARKUP
+ * The tag-shaped strings of a model's answer that the segment it translated did not carry
+ * (a segment may carry them as TEXT: a record that reads '&lt;p&gt;' sends '<p>'); each
+ * source occurrence allows one in the answer (case-insensitive).
+ * @param {string} source - The block text sent to the model.
+ * @param {string} output - The model's answer.
+ * @returns {string[]}
+ */
+export const added_markup = (source, output) => {
+	const allowed = new Map();
+	for (const tag of String(source).match(TAG_SHAPE_RE) ?? []) {
+		const key = tag.toLowerCase();
+		allowed.set(key, (allowed.get(key) || 0) + 1);
+	}
+	const added = [];
+	for (const tag of String(output).match(TAG_SHAPE_RE) ?? []) {
+		const key = tag.toLowerCase();
+		if ((allowed.get(key) || 0) > 0) {
+			allowed.set(key, allowed.get(key) - 1);
+		} else {
+			added.push(tag);
+		}
+	}
+	return added;
+}; //end added_markup
+
+/**
+ * The share of a segment's text below which an answer is not a translation of it but a loss
+ * (A1-02 re-review H2): an empty answer, or one of tokens only, would wipe the target's
+ * text for that passage — possibly a human translation — and save. Generous on purpose:
+ * translation into a script as dense as Chinese still keeps about a quarter of the
+ * characters of a Latin-script source.
+ * @type {number}
+ */
+export const MIN_TEXT_RATIO = 0.1;
+
+/**
+ * TEXT_LENGTH
+ * The characters of a segment that are text: no token, no whitespace, no escaping
+ * backslash. A metacharacter counts — a record whose text is '**' has text.
+ * @param {string} text
+ * @returns {number}
+ */
+const text_length = (text) =>
+	String(text || '')
+		.replace(placeholder_re(), '')
+		.replace(/\\(.)/g, '$1')
+		.replace(/\s/g, '').length;
+
+/**
+ * LOST_TEXT
+ * Has the model's answer lost the text of a segment that had some — nothing left once tokens
+ * and whitespace are removed, or less than MIN_TEXT_RATIO of the source's?
+ * @param {string} source - The block text sent to the model.
+ * @param {string} output - The cleaned answer.
+ * @returns {boolean}
+ */
+export const lost_text = (source, output) => {
+	const source_length = text_length(source);
+	if (source_length === 0) {
+		return false;
+	}
+	const output_length = text_length(output);
+	return output_length === 0 || output_length < source_length * MIN_TEXT_RATIO;
+}; //end lost_text
 
 /**
  * STRIP_ADDED_PARAGRAPH
@@ -452,7 +540,9 @@ export const collapse_model_breaks = (source, output) => {
  *   1. Translate the segment — nothing but the segment goes to the model. A block that is
  *      nothing but tokens and whitespace is returned as it is, without a model call.
  *   2. If the output looped, retry with each REPETITION_ESCALATIONS step in turn; a block
- *      still looping THROWS (a loop must never be written to the record).
+ *      still looping THROWS (a loop must never be written to the record). So does an answer
+ *      that wrote markup (added_markup) or lost the text (lost_text): a thrown block is a
+ *      failed block, and the main thread refuses the run.
  *   3. Whatever markers the model dropped are placed by repair_placeholders() and reported.
  *   4. A marker the model wrote more than once is removed — every copy — and reported: the
  *      main thread refuses the run.
@@ -503,6 +593,14 @@ export const process_block = async (translate, block, options = {}) => {
 		if (detect_repetition(output.text, block.text)) {
 			throw new Error(`${label}: the model looped and could not be recovered (repetition degeneration)`);
 		}
+	}
+
+	// 2b. an answer that is not a translation of the text: never written to the record
+	if (output.markup.length > 0) {
+		throw new Error(`${label}: the model wrote markup the text did not have (${output.markup.join(' ')})`);
+	}
+	if (lost_text(block.text, output.text)) {
+		throw new Error(`${label}: the model returned no text for a passage that has some`);
 	}
 
 	// 3. place whatever the model would not, and say so. Duplicated tokens are present,

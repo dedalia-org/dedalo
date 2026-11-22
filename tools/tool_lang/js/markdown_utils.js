@@ -44,15 +44,18 @@
  * edge whitespace, a block inside it (a <strong> wrapping a <p>), nested or adjacent
  * emphasis, emphasis inside <code>, a <br> or another <code> inside <code>. <b>/<i> stay
  * <b>/<i>: emphasis_tags_of picks the family name the record uses most, markdown_to_html
- * writes that name back, and the other name is shielded. The inline/block split is the HTML
- * phrasing-content set (PHRASING_CONTENT_TAGS) plus the obsolete phrasing tags old records
- * carry (LEGACY_INLINE_TAGS); an unknown plain tag name is a block.
+ * writes that name back, and the other name is shielded. Block-level elements are an
+ * explicit list, the HTML user-agent stylesheet's (BLOCK_TAGS); every other element —
+ * phrasing, obsolete (strike, big, tt…), custom or unknown — is inline.
  *
  * WHITESPACE IS KEPT EXACTLY. Whitespace-only text with an inline element or text on both
  * sides is a WORD space and travels as text does ('<strong>Roma</strong> <em>antigua</em>'
  * never welds); every other whitespace-only text — indentation, the newline between two
  * blocks, a space at the edge of a run — is an atom restored byte for byte. Inside text a
- * newline run is one space (a model returns prose, not line layout): that, and the
+ * newline run is one space (a model returns prose, not line layout) — except where the line
+ * breaks are VISIBLE: under an inline style whose white-space keeps them (pre, pre-wrap,
+ * pre-line, break-spaces; keeps_line_breaks), each break is an atom restored exactly, and
+ * <pre>/<xmp>/<listing>/<plaintext> are restored whole. That, and the
  * serialiser's normal form, is the whole difference an identity model leaves
  * (test/unit/tool_lang_identity_roundtrip.test.ts — N∘W). NBSP is a character, decoded from
  * &nbsp; before conversion: the model sees it, nothing adds or drops one. Loose top-level
@@ -67,6 +70,11 @@
  * writing its own; the per-block local token numbering and edge hoisting (55c816b41c) made
  * the extra tokens affordable.
  *
+ * A MODEL THAT DROPS THE ESCAPES never costs the record a character (A1-02 re-review H1):
+ * restore_literal_escapes puts back, per segment, the backslashes of the literal '*', '_'
+ * and '`' the source escaped, before conform_emphasis deletes the delimiters the source did
+ * not have — '2*3*4 g' stays '2*3*4 g', "l`Hospitalet" never becomes code.
+ *
  * Ported from v6 (d3991c3a66, 55c816b41c, 92da452aa1, 40bf5eaacf): <br> as a single '\n',
  * the model-added <p> wrapper strip, the join-before-inline emphasis rule, the edge-emphasis
  * rules 3b and the orphan-delimiter drop (rule 8), conform_emphasis,
@@ -77,6 +85,7 @@
  * Exports:
  *   html_to_markdown            — DOM walk: HTML string → Markdown string (tags shielded)
  *   markdown_to_html            — Markdown string → HTML string (model text escaped)
+ *   restore_literal_escapes     — re-escape the literal * _ ` a model unescaped
  *   conform_emphasis            — delete emphasis delimiters the model invented
  *   restore_wrapping_emphasis   — re-wrap a wholly-emphasised segment the model unwrapped
  *   split_markdown_by_paragraph — split Markdown on \n\n+ boundaries → string[]
@@ -87,10 +96,11 @@
 
 /**
  * Elements whose whole outerHTML is ONE atom token: their content is not prose to
- * translate (a script, an embedded object) or is not reachable as text at all.
+ * translate (a script, an embedded object), is not reachable as text at all, or keeps its
+ * line breaks as content (pre and its obsolete forms xmp, listing, plaintext).
  * @type {Set<string>}
  */
-const RAW_ATOM_TAGS = new Set([
+export const RAW_ATOM_TAGS = new Set([
 	'script',
 	'style',
 	'template',
@@ -107,7 +117,44 @@ const RAW_ATOM_TAGS = new Set([
 	'select',
 	// code is not prose, and its line breaks are content: one atom, restored as it was
 	'pre',
+	'xmp',
+	'listing',
+	'plaintext',
 ]);
+
+/**
+ * The CSS white-space values that keep line breaks (white-space: pre | pre-wrap | pre-line |
+ * break-spaces, or the longhand white-space-collapse: preserve | preserve-breaks |
+ * break-spaces) — a newline there is visible, so it is not the model's to turn into a space.
+ * @type {Set<string>}
+ */
+const PRESERVED_BREAK_VALUES = new Set(['pre', 'pre-wrap', 'pre-line', 'break-spaces', 'preserve', 'preserve-breaks']);
+
+/**
+ * DECLARED_WHITE_SPACE
+ * The white-space value an inline style declares (the LAST white-space or
+ * white-space-collapse declaration, as CSS reads it), lower-cased, or null.
+ * @param {string|null} style - a style attribute
+ * @returns {string|null}
+ */
+const declared_white_space = (style) => {
+	let value = null;
+	for (const declaration of String(style || '').split(';')) {
+		const colon = declaration.indexOf(':');
+		if (colon === -1) {
+			continue;
+		}
+		const property = declaration.slice(0, colon).trim().toLowerCase();
+		if (property === 'white-space' || property === 'white-space-collapse') {
+			value = declaration
+				.slice(colon + 1)
+				.replace(/!important/i, '')
+				.trim()
+				.toLowerCase();
+		}
+	}
+	return value;
+};
 
 /**
  * HTML void elements: no content and no end tag, so one atom token.
@@ -129,122 +176,86 @@ const VOID_TAGS = new Set([
 ]);
 
 /**
- * The void elements that are BLOCK-level: shielded as an atom set apart as its own block (a
- * rule inside a <p> is not valid HTML). Every other void element (img, wbr …) is inline.
+ * BLOCK-LEVEL ELEMENTS: the elements the HTML standard's user-agent stylesheet (WHATWG HTML
+ * §15.3 Rendering — flow content, sections and headings, lists, tables, form fieldsets,
+ * details) displays as block, list-item or a table part. Shielded, each is its own block:
+ * its tokens are mandatory segment cuts and are hoisted out of the model's input.
+ *
+ * EVERY OTHER element is INLINE — phrasing content, the obsolete presentational elements
+ * (strike, big, tt, font…), custom elements, a word processor's 'o:p', and any unknown
+ * name: the HTML parser makes an unknown name an HTMLUnknownElement, which every browser
+ * renders inline. Inline is the default because a wrong guess that way only costs the model
+ * an inline token pair, while a wrong guess the other way splits a paragraph in two
+ * ('<p>Texto <foo>x</foo> fin</p>' — A1-02 re-review). The list is explicit for that reason.
  * @type {Set<string>}
  */
-const BLOCK_VOID_TAGS = new Set(['hr']);
-
-/**
- * PHRASING CONTENT (WHATWG HTML §3.2.5.2.5): every element the standard allows inside a
- * paragraph — the INLINE elements. Shielded, their start and end tags are a pair of tokens
- * inside the running text; shielded as a block, they would split the paragraph and drop the
- * word spaces around them. The list is the standard's, complete (A1-02 re-review: strike,
- * big, tt… were missing, so a paragraph split at each of them); `area`, `link`, `meta` are
- * phrasing in context and listed. Autonomous custom elements (a '-' in the name) are
- * phrasing too: see is_inline_tag.
- * @type {Set<string>}
- */
-export const PHRASING_CONTENT_TAGS = new Set([
-	'a',
-	'abbr',
-	'area',
-	'audio',
-	'b',
-	'bdi',
-	'bdo',
-	'br',
-	'button',
-	'canvas',
-	'cite',
-	'code',
-	'data',
-	'datalist',
-	'del',
-	'dfn',
-	'em',
-	'embed',
-	'i',
-	'iframe',
-	'img',
-	'input',
-	'ins',
-	'kbd',
-	'label',
-	'link',
-	'map',
-	'mark',
-	'math',
-	'meta',
-	'meter',
-	'noscript',
-	'object',
-	'output',
-	'picture',
-	'progress',
-	'q',
-	'ruby',
-	's',
-	'samp',
-	'script',
-	'select',
-	'slot',
-	'small',
-	'span',
-	'strong',
-	'sub',
-	'sup',
-	'svg',
-	'template',
-	'textarea',
-	'time',
-	'u',
-	'var',
-	'video',
-	'wbr',
+export const BLOCK_TAGS = new Set([
+	'address',
+	'article',
+	'aside',
+	'blockquote',
+	'body',
+	'caption',
+	'center',
+	'col',
+	'colgroup',
+	'dd',
+	'details',
+	'dialog',
+	'dir',
+	'div',
+	'dl',
+	'dt',
+	'fieldset',
+	'figcaption',
+	'figure',
+	'footer',
+	'form',
+	'frame',
+	'frameset',
+	'h1',
+	'h2',
+	'h3',
+	'h4',
+	'h5',
+	'h6',
+	'header',
+	'hgroup',
+	'hr',
+	'html',
+	'legend',
+	'li',
+	'listing',
+	'main',
+	'menu',
+	'nav',
+	'ol',
+	'optgroup',
+	'option',
+	'p',
+	'plaintext',
+	'pre',
+	'search',
+	'section',
+	'summary',
+	'table',
+	'tbody',
+	'td',
+	'tfoot',
+	'th',
+	'thead',
+	'tr',
+	'ul',
+	'xmp',
 ]);
-
-/**
- * Inline elements that are not phrasing content of today's standard but are rendered inline
- * (WHATWG HTML §15 Rendering): the ruby internals, and the obsolete presentational elements
- * (§16) a heritage record written by an older editor still carries.
- * @type {Set<string>}
- */
-export const LEGACY_INLINE_TAGS = new Set([
-	'rb',
-	'rp',
-	'rt',
-	'rtc',
-	'acronym',
-	'big',
-	'blink',
-	'font',
-	'marquee',
-	'nobr',
-	'strike',
-	'tt',
-]);
-
-/**
- * IS_INLINE_TAG
- * Phrasing content, a legacy inline element, an autonomous custom element ('-' in the name,
- * phrasing per the standard) or a namespaced name ('o:p' — what a word processor pastes; the
- * HTML parser makes it an unknown element, which every browser renders inline). A plain
- * unknown name is not phrasing content and stays block-level.
- * @param {string} tag - lower-case tag name
- * @returns {boolean}
- */
-export const is_inline_tag = (tag) =>
-	PHRASING_CONTENT_TAGS.has(tag) || LEGACY_INLINE_TAGS.has(tag) || tag.includes('-') || tag.includes(':');
 
 /**
  * IS_BLOCK_TAG
- * Is a shielded element block-level? Everything that is not inline (is_inline_tag) and not
- * an inline void element; <hr> is a block.
+ * Is an element block-level (BLOCK_TAGS)? Anything else is inline.
  * @param {string} tag - lower-case tag name
  * @returns {boolean}
  */
-export const is_block_tag = (tag) => BLOCK_VOID_TAGS.has(tag) || (!VOID_TAGS.has(tag) && !is_inline_tag(tag));
+export const is_block_tag = (tag) => BLOCK_TAGS.has(tag);
 
 /**
  * The elements html_to_markdown writes as Markdown inline syntax even inside a shielded
@@ -465,6 +476,24 @@ const has_block_descendant = (node) =>
 		(child) => child.nodeType === 1 && (is_block_element(child) || has_block_descendant(child)),
 	);
 
+/**
+ * KEEPS_LINE_BREAKS
+ * Does a text node sit where its line breaks are visible — under an element whose inline
+ * style declares a white-space value that keeps them (PRESERVED_BREAK_VALUES)? The NEAREST
+ * element that declares white-space decides ('white-space: normal' inside resets it).
+ * @param {Node} node - a text node
+ * @returns {boolean}
+ */
+const keeps_line_breaks = (node) => {
+	for (let element = node.parentElement; element; element = element.parentElement) {
+		const value = declared_white_space(element.getAttribute?.('style'));
+		if (value !== null) {
+			return PRESERVED_BREAK_VALUES.has(value);
+		}
+	}
+	return false;
+};
+
 
 /**
  * Private-use characters standing in, inside process_inline, for a backslash-escaped
@@ -570,7 +599,8 @@ const escape_html = (text) =>
  * Text nodes: Markdown metacharacters (\ * _ `) are backslash-escaped so literal characters
  * survive; [ and ] are not (v6: escaping them made the model reproduce the backslashes). A
  * raw newline inside a text node is whitespace in HTML, so it travels as a space — left as
- * '\n' it would come back as a <br>.
+ * '\n' it would come back as a <br> — unless an inline white-space style makes it visible
+ * (keeps_line_breaks): then it is an inline atom, restored exactly.
  *
  * @param {string} html - HTML with Dédalo marks already replaced by [[[n]]] tokens.
  * @param {Object} [options]
@@ -745,10 +775,18 @@ export function html_to_markdown(html, options = {}) {
 				// a word space is text: it travels under the rule of all text (a newline run is one
 				// space); any other whitespace (layout between blocks, the edge of a run of text)
 				// is kept exactly, out of the model's reach
-				if (is_word_space(node)) {
+				if (is_word_space(node) && !(keeps_line_breaks(node) && /[\r\n]/.test(text))) {
 					return text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ');
 				}
 				return atom(text, in_block_context(node));
+			}
+			if (keeps_line_breaks(node)) {
+				// a visible line break is the record's layout, not the model's text: each one
+				// (with the spaces around it) is an inline atom, restored exactly
+				return text
+					.split(/([ \t]*[\r\n]+[ \t]*)/)
+					.map((part, index) => (index % 2 === 1 ? atom(part, false) : escape_md(part)))
+					.join('');
 			}
 			return escape_md(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
 		}
@@ -829,8 +867,8 @@ export function html_to_markdown(html, options = {}) {
 			}
 
 			default:
-				// no Markdown equivalent: shielded (block-level unless it is inline — see
-				// is_inline_tag — so a block's content cannot weld onto a paragraph)
+				// no Markdown equivalent: shielded, as a block if it is one (BLOCK_TAGS — so a
+				// block's content cannot weld onto a paragraph), else as an inline pair
 				return shield_element(node, is_block_tag(tag));
 		}
 	};
@@ -1140,6 +1178,129 @@ export function conform_emphasis(source_text, output_text) {
 
 	return out;
 } //end conform_emphasis
+
+/**
+ * The metacharacters escape_md escapes in the TEXT, and a model may drop the backslash of.
+ * (The backslash itself is not among them: a model that drops a literal '\\' deleted it.)
+ * @type {string[]}
+ */
+const LITERAL_METACHARACTERS = ['*', '_', '`'];
+
+/**
+ * METACHARACTER_SCAN
+ * Count a text's backslash-escaped metacharacters and locate its unescaped ones; a backslash
+ * escapes whatever follows it (as delimiter_positions and process_inline read it).
+ * @param {string} text
+ * @returns {{escaped:Object<string,number>, unescaped:Object<string,number[]>}}
+ */
+const metacharacter_scan = (text) => {
+	const escaped = { '*': 0, _: 0, '`': 0 };
+	const unescaped = { '*': [], _: [], '`': [] };
+	for (let i = 0; i < text.length; i++) {
+		const char = text[i];
+		if (char === '\\') {
+			const next = text[i + 1];
+			if (next !== undefined && Object.hasOwn(escaped, next)) {
+				escaped[next]++;
+			}
+			i++;
+			continue;
+		}
+		if (Object.hasOwn(unescaped, char)) {
+			unescaped[char].push(i);
+		}
+	}
+	return { escaped, unescaped };
+};
+
+/**
+ * CANNOT_BE_DELIMITER
+ * Can the run of `char` around `index` neither open nor close emphasis or code — between two
+ * letters or digits ('2*3', 'a__b', "l`Hospitalet"), or between two spaces / text edges (a
+ * lone ' * ')? Such a character is a literal whatever the model meant.
+ * @param {string} text
+ * @param {number} index
+ * @returns {boolean}
+ */
+const cannot_be_delimiter = (text, index) => {
+	const char = text[index];
+	let start = index;
+	while (start > 0 && text[start - 1] === char) {
+		start--;
+	}
+	let end = index;
+	while (end < text.length - 1 && text[end + 1] === char) {
+		end++;
+	}
+	const before = text[start - 1];
+	const after = text[end + 1];
+	const word = (c) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
+	const space = (c) => c === undefined || /\s/.test(c);
+	return (word(before) && word(after)) || (space(before) && space(after));
+};
+
+/**
+ * RESTORE_LITERAL_ESCAPES
+ * Put back the backslashes a model dropped from the record's literal metacharacters
+ * (A1-02 re-review H1). The source segment escapes every literal '*', '_' and '`' of the
+ * text (escape_md); a model that answers without the backslashes turns them into emphasis
+ * delimiters — '2*3*4 g' saved as '234 g' (conform_emphasis deleted them as invented
+ * emphasis), "l`Hospitalet y d`Urgell" saved with an invented <code>.
+ *
+ * For each metacharacter the source carried k escaped and the answer fewer: up to the
+ * missing number of the answer's UNESCAPED ones are escaped again — those that cannot be a
+ * delimiter first (cannot_be_delimiter), then in order of appearance. A backtick is a
+ * literal outright when the source has no code span (fewer than two unescaped backticks):
+ * then every unescaped backtick of the answer is escaped, and an answer cannot gain a code
+ * span the source never had; when it has code spans, the answer's backticks beyond the
+ * source's are escaped too. conform_emphasis then deletes only delimiters beyond the source's
+ * own: a literal is never deleted, a delimiter never invented.
+ *
+ * A backslash the answer ENDS with (an odd run) is a literal too, and is escaped: left bare,
+ * it would escape whatever the pipeline puts after it — the restored wrapping delimiter, a
+ * hoisted token, the next block — and turn that into text.
+ * @param {string} source_text - The segment as sent to the model.
+ * @param {string} output_text - The model's answer.
+ * @returns {string}
+ */
+export function restore_literal_escapes(source_text, output_text) {
+	if (!output_text) {
+		return output_text;
+	}
+	const source = metacharacter_scan(String(source_text || ''));
+	const output = metacharacter_scan(output_text);
+
+	const to_escape = new Set();
+	for (const char of LITERAL_METACHARACTERS) {
+		const candidates = output.unescaped[char];
+		let count = Math.max(0, source.escaped[char] - output.escaped[char]);
+		if (char === '`') {
+			count = source.unescaped[char].length < 2
+				? candidates.length
+				: Math.max(count, candidates.length - source.unescaped[char].length);
+		}
+		count = Math.min(count, candidates.length);
+		if (count === 0) {
+			continue;
+		}
+		const ordered = [
+			...candidates.filter((index) => cannot_be_delimiter(output_text, index)),
+			...candidates.filter((index) => !cannot_be_delimiter(output_text, index)),
+		];
+		for (const index of ordered.slice(0, count)) {
+			to_escape.add(index);
+		}
+	}
+	let out = '';
+	for (let i = 0; i < output_text.length; i++) {
+		out += to_escape.has(i) ? `\\${output_text[i]}` : output_text[i];
+	}
+	const trailing = /\\+$/.exec(out);
+	if (trailing && trailing[0].length % 2 === 1) {
+		out += '\\';
+	}
+	return out;
+} //end restore_literal_escapes
 
 /**
  * WHOLLY_WRAPPED_DELIMITER

@@ -5,7 +5,7 @@
  * html_to_markdown, marks_in_text_nodes):
  *
  *   parseFromString(html).body, createTreeWalker(root, SHOW_TEXT).nextNode()
- *   node.nodeType / tagName / attributes / childNodes / textContent / outerHTML /
+ *   node.nodeType / tagName / attributes / getAttribute / childNodes / textContent / outerHTML /
  *   cloneNode(false).outerHTML / parentElement / previousSibling / nextSibling
  *
  * Both halves are the HTML standard's: parse5 is a spec tree builder and its serialiser is
@@ -88,6 +88,10 @@ function wrap(node: P5Node | undefined | null): Record<string, unknown> | null {
 			nodeType: { value: 1 },
 			tagName: { value: element.tagName.toUpperCase() },
 			attributes: { get: () => element.attrs },
+			getAttribute: {
+				value: (name: string) =>
+					element.attrs.find((attribute) => attribute.name === name)?.value ?? null,
+			},
 			textContent: { get: () => textOf(element) },
 			outerHTML: { get: () => serializeOuter(element) },
 			cloneNode: {
@@ -174,31 +178,49 @@ function neighbourName(siblings: P5Node[], index: number, step: 1 | -1): string 
 }
 
 /**
- * Apply `transform` to every text node of the parsed HTML that has no ancestor named in
- * `skipInside` and either carries a character other than ASCII whitespace (U+00A0 counts as
- * a character) or is whitespace-only and `isWordSpace(previous, next, parent)` says it is a
- * word space (the arguments: its nearest non-comment, non-whitespace neighbours' names —
- * a tag, '#text', or null — and its parent's tag) and no ancestor element is WORDLESS (its
- * text all whitespace, U+00A0 included: such an element travels whole); serialise the result
- * as `browserSerialize` does.
+ * What `mapWordTextNodes` does under an element: 'subtree' leaves everything inside alone;
+ * 'keep' leaves its text alone unless a descendant says 'transform'; undefined inherits.
+ */
+export type TextRule = 'subtree' | 'keep' | 'transform' | undefined;
+
+/**
+ * Apply `transform` to every text node of the parsed HTML that is not under a 'subtree'
+ * element nor (nearest decides) a 'keep' one — `rule(tagName, attribute)` says which — and
+ * either carries a character other than ASCII whitespace (U+00A0 counts as a character) or
+ * is whitespace-only and `isWordSpace(previous, next, parent)` says it is a word space (the
+ * arguments: its nearest non-comment, non-whitespace neighbours' names — a tag, '#text', or
+ * null — and its parent's tag) and no ancestor element is WORDLESS (its text all whitespace,
+ * U+00A0 included: such an element travels whole); serialise the result as
+ * `browserSerialize` does.
  */
 export function mapWordTextNodes(
 	html: string,
 	transform: (text: string) => string,
-	skipInside: ReadonlySet<string> = new Set(),
+	rule: (tagName: string, attribute: (name: string) => string | null) => TextRule = () => undefined,
 	isWordSpace: (previous: string | null, next: string | null, parent: string) => boolean = () =>
 		false,
 ): string {
 	const body = bodyOf(html);
-	const visit = (node: P5Node, insideWordless: boolean) => {
-		if ('tagName' in node && skipInside.has(node.tagName)) return;
+	const visit = (node: P5Node, insideWordless: boolean, keeping: boolean) => {
+		let keep = keeping;
+		if ('tagName' in node && node !== body) {
+			const element = node as P5Element;
+			const decided = rule(
+				element.tagName,
+				(name) => element.attrs.find((attribute) => attribute.name === name)?.value ?? null,
+			);
+			if (decided === 'subtree') return;
+			if (decided === 'keep') keep = true;
+			if (decided === 'transform') keep = false;
+		}
 		const wordless = insideWordless || (node !== body && !/\S/.test(textOf(node)));
 		const children = childrenOf(node);
 		children.forEach((child, index) => {
 			if (child.nodeName !== '#text') {
-				visit(child, wordless);
+				visit(child, wordless, keep);
 				return;
 			}
+			if (keep) return;
 			const text = child as DefaultTreeAdapterTypes.TextNode;
 			const words = /[^ \t\n\r\f]/.test(text.value);
 			const parent = 'tagName' in node ? node.tagName : '';
@@ -215,6 +237,24 @@ export function mapWordTextNodes(
 			}
 		});
 	};
-	visit(body, false);
+	visit(body, false, false);
 	return serialize(body);
+}
+
+/** The visible text of an HTML fragment as a browser reads it (`body.textContent`). */
+export function visibleText(html: string): string {
+	return textOf(bodyOf(html));
+}
+
+/** Every element's tag name in document order (the parsed tree, not the string). */
+export function elementNames(html: string): string[] {
+	const names: string[] = [];
+	const visit = (node: P5Node) => {
+		for (const child of childrenOf(node)) {
+			if ('tagName' in child) names.push(child.tagName);
+			visit(child);
+		}
+	};
+	visit(bodyOf(html));
+	return names;
 }

@@ -408,7 +408,7 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.include(run.status_text, '1 linked marks were reversed by the translation and reordered');
 	});
 
-	it('model text is ESCAPED: a translated <script> / <img onerror> is stored as text, never as markup', async () => {
+	it('markup the MODEL writes is never saved — not as markup, not as text: the run is refused (M2)', async () => {
 		window.Worker = make_fake_worker({
 			translate: async () =>
 				'La [[[1]]]ballena<script>x()</script>[[[2]]] nada. <img onerror=y>',
@@ -416,12 +416,38 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 
 		const run = await run_translation();
 
+		assert.deepEqual(refusal_problems(run, 'the model wrote markup the text did not have'), []);
+	});
+
+	it('tag-shaped TEXT of the record itself is kept, escaped, never markup', async () => {
+		const source = '<p>La etiqueta &lt;script&gt; y &lt;img onerror=y&gt; del catálogo.</p>';
+		window.Worker = make_fake_worker({ translate: async (text) => text.replace('del catálogo', 'of the catalogue') });
+
+		const run = await run_translation({ source });
+
 		assert.isNull(run.rejected, run.status_text);
-		const value = saved_value(run.saves);
-		assert.notInclude(value, '<script');
-		assert.notInclude(value, '<img');
-		assert.include(value, '&lt;script&gt;x()&lt;/script&gt;');
-		assert.include(value, '&lt;img onerror=y&gt;');
+		assert.equal(saved_value(run.saves), '<p>La etiqueta &lt;script&gt; y &lt;img onerror=y&gt; of the catalogue.</p>');
+	});
+
+	it('an empty or tokens-only answer for a passage with text is refused, never saved over the target (H2)', async () => {
+		for (const answer of ['', '   ', '[[[1]]][[[2]]]']) {
+			window.Worker = make_fake_worker({ translate: async () => answer });
+			dispose_browser_worker();
+
+			const run = await run_translation();
+
+			assert.deepEqual(refusal_problems(run, 'the model returned no text for a passage that has some'), [], JSON.stringify(answer));
+		}
+	});
+
+	it('a model that drops the backslashes of literal * _ ` saves the literals, never emphasis or code (H1)', async () => {
+		const source = '<p>Peso 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell.</p>';
+		window.Worker = make_fake_worker({ translate: async (text) => text.replace(/\\/g, '').replace('Peso', 'Weight') });
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, run.status_text);
+		assert.equal(saved_value(run.saves), '<p>Weight 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell.</p>');
 	});
 
 	// --- block structure comes from the SOURCE, never from the model's text (A1-02 re-review) ---
@@ -522,6 +548,9 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 			'<p>pua \uE000 \uE007\uE008ib</p>',
 			'<table>\n<tr><td> </td><td><strong>a</strong> <em>b</em></td></tr>\n</table>',
 			'<p><strong>a</strong>  <em>b</em> y <span class="k">c</span>   <sub>d</sub></p>',
+			'<p>Texto <foo>x</foo> fin</p>',
+			'<xmp>a\nb  *c*</xmp><p>fin</p>',
+			'<p>Verso uno<span style="white-space: pre-wrap">\nverso dos\n  verso tres</span> fin</p>',
 		]) {
 			window.Worker = make_fake_worker(IDENTITY);
 			dispose_browser_worker();
