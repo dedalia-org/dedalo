@@ -615,6 +615,56 @@
             "lang": "lg-por",
             "name": "view",
             "value": "Visualizar"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "component_busy",
+            "value": "A version of this file is being built. Wait until it finishes"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "component_busy",
+            "value": "Se está generando una versión de este fichero. Espere a que termine"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "component_busy",
+            "value": "S'està generant una versió d'aquest fitxer. Espereu que acabi"
+          },
+          {
+            "lang": "lg-por",
+            "name": "component_busy",
+            "value": "Está a ser gerada uma versão deste ficheiro. Aguarde que termine"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "component_busy",
+            "value": "Fitxategi honen bertsio bat sortzen ari da. Itxaron amaitu arte"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "component_busy",
+            "value": "Une version de ce fichier est en cours de génération. Attendez qu'elle se termine"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "component_busy",
+            "value": "È in corso la generazione di una versione di questo file. Attendere che termini"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "component_busy",
+            "value": "Δημιουργείται μια έκδοση αυτού του αρχείου. Περιμένετε να ολοκληρωθεί"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "component_busy",
+            "value": "Eine Version dieser Datei wird gerade erstellt. Warten Sie, bis sie fertig ist"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "component_busy",
+            "value": "यो फाइलको एउटा संस्करण बनाइँदैछ। यो सकिएसम्म पर्खनुहोस्"
           }
         ]
       }

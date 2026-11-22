@@ -27,3 +27,6 @@ deleting a quality or a version, *Regenerate*, rebuilding the thumbnail — and 
 deleting the poster frame wait their turn the same way: while a build or an upload of the field is
 running they are refused with the same message, and none of them can start a build behind its back.
 The Update cache *Regenerate* pass reports such a field as busy and carries on with the rest.
+
+Media versions now shows this before you click: while one quality of an audio/video field is being
+built, the rebuild buttons of its other qualities are greyed out, and hovering one says why.

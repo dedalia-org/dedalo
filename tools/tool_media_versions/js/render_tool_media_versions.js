@@ -1447,6 +1447,63 @@ const live_job_for_quality = function(self, quality) {
 
 
 /**
+* LIVE_COMPONENT_JOB
+* The running job that holds this panel's WHOLE component, or null.
+*
+* One av build per COMPONENT (A1-01, as v6's single build lock): while a
+* component-scoped job (`scope: 'component'` — the ingest transcode, a build of
+* any tier) is live, the server refuses a build of EVERY tier of the component
+* with media.build_running. live_job_for_quality answers for the building tier;
+* this answers for the others, so their gears can be greyed instead of offered.
+*
+* @param {Object} self
+* @returns {Object|null} the activity row, or null when the component is free
+*/
+export const live_component_job = function(self) {
+
+	const jobs = self.record_jobs
+	if (!Array.isArray(jobs)) {
+		return null
+	}
+	return jobs.find(job =>
+		job
+		&& job.record
+		&& job.record.component_tipo===self.main_element.tipo
+		&& job.scope==='component'
+		&& (job.status==='running' || job.status==='queued')
+	) || null
+}//end live_component_job
+
+
+
+/**
+* RELEASE_COMPONENT_BUSY_GEARS
+* Give the greyed gears back when the job that held the component ENDED WITHOUT
+* a re-render — the failed-build path keeps its cell readable with the reason,
+* so the panel is not re-rendered and the other tiers must be released here.
+* (The success path re-renders against a fresh get_record_jobs instead.)
+*
+* @param {Object} self
+* @returns {void}
+*/
+export const release_component_busy_gears = function(self) {
+
+	const root = self.node
+	if (!root || typeof root.querySelectorAll!=='function') {
+		return
+	}
+	for (const gear of root.querySelectorAll('.button.gear.component_busy')) {
+		gear.classList.remove('component_busy')
+		gear.removeAttribute('aria-disabled')
+		if (gear.dataset.idle_title) {
+			gear.title = gear.dataset.idle_title
+		}
+	}
+}//end release_component_busy_gears
+
+
+
+/**
 * RENDER_JOB_PROGRESS
 * The busy readout for one tier: a label, a bar, and the elapsed time.
 *
@@ -1540,7 +1597,7 @@ const render_job_progress = function(job, parent) {
 // transition and ends on the terminal one. The cap existed because a poller that
 // never hears anything cannot tell "still encoding" from "the server died"; a
 // stream that closes without a terminal frame answers that directly.
-const render_build_version = function(quality, self) {
+export const render_build_version = function(quality, self) {
 
 	// file_info_node
 		const file_info_node = ui.create_dom_element({
@@ -1595,6 +1652,8 @@ const render_build_version = function(quality, self) {
 						})
 						// Server error text carries paths and tool output; textContent.
 						err_node.textContent = (get_label.error || 'Error') + ': ' + errors.join('; ')
+						// The component is free again: un-grey the other tiers' gears.
+						release_component_busy_gears(self)
 						return
 					}
 					self.refresh({
@@ -1611,17 +1670,39 @@ const render_build_version = function(quality, self) {
 	// server to build a version — see the doc-block and create_3d_posterframe.
 		const is_3d_posterframe = self.main_element.model==='component_3d' && quality===THUMB_QUALITY
 
+	// THE COMPONENT IS BUSY (A1-01, owner ruling 3). Another tier of this
+	// component is being built (or the ingest transcode runs): the server refuses
+	// THIS tier's build too (media.build_running — one av build per component).
+	// The gear stays visible — the tier IS buildable, just not now — but greyed,
+	// inert and titled with the reason, instead of offering a click that is
+	// guaranteed to be refused. A failed holder releases it
+	// (release_component_busy_gears); a finished one re-renders the grid.
+		const component_job	= live_component_job(self)
+		const idle_title	= is_3d_posterframe
+			? (self.get_tool_label('create_posterframe') || 'Create posterframe from the 3D scene')
+			: (get_label.build || 'Build') + ` ${quality} ` + (get_label.version || 'version')
+
 	// button_build_version
 		const button_build_version = ui.create_dom_element({
 			element_type	: 'span',
-			class_name		: 'button gear',
-			title			: is_3d_posterframe
-				? (self.get_tool_label('create_posterframe') || 'Create posterframe from the 3D scene')
-				: (get_label.build || 'Build') + ` ${quality} ` + (get_label.version || 'version'),
+			class_name		: 'button gear' + (component_job ? ' component_busy' : ''),
+			title			: component_job
+				? (self.get_tool_label('component_busy') || 'A version of this file is being built. Wait until it finishes')
+					+ ` (${component_job.label})`
+				: idle_title,
 			parent			: file_info_node
 		})
+		button_build_version.dataset.idle_title = idle_title
+		if (component_job) {
+			button_build_version.setAttribute('aria-disabled', 'true')
+		}
 		const fn_click = async function (e) {
 			e.stopPropagation()
+
+			// greyed: the component is busy — nothing to ask the server
+			if (button_build_version.classList.contains('component_busy')) {
+				return
+			}
 
 			self.node.classList.add('loading')
 

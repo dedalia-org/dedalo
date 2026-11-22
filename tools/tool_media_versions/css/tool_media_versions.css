@@ -20,6 +20,10 @@
   margin-top: 0.25rem;
   word-break: break-word;
 }
+.wrapper_tool.tool_media_versions .button.gear.component_busy {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
 .wrapper_tool.tool_media_versions .job_progress {
   display: flex;
   flex-direction: column;

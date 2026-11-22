@@ -62,7 +62,10 @@ button is not offered while its work is running. For audio and video, one build
 runs per field at a time: while any quality of the field is being built — or a
 new file is being uploaded into it — a build of another quality is refused with
 *"A version build is already running for this file. Wait until it finishes and
-try again"*. If a build fails, or the
+try again"*. The panel shows this before you click: while a quality of an audio
+or video field is being built, the rebuild buttons of all its other qualities are
+greyed out, and hovering one says why. They come back when the build ends.
+If a build fails, or the
 server is restarted while it runs, the column says so with the reason and
 offers the rebuild again — it does not go back to looking empty.
 

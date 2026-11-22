@@ -517,7 +517,7 @@ Answer "what is running for **this** record?" — the question that made an uplo
 
 ### Returns
 
-`{ ok: true, request_id, data: true, jobs: [ … ] }` — `jobs` is the top-level key the activity tray reads by name.
+`{ ok: true, request_id, data: true, jobs: [ … ] }` — `jobs` is the top-level key the activity tray reads by name. Each media row carries `label` (the tier), `also_qualities` (the companion tiers the same job writes) and `scope` — `'component'` when the job holds its whole av component (one build per component: the server then refuses a build of any tier of it with `media.build_running`), else `null`. The media-versions panel greys every tier's build gear of a component with such a live job.
 
 ### Usage
 

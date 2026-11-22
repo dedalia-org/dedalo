@@ -38,6 +38,14 @@
 		word-break: break-word;
 	}
 
+	// A GEAR THE COMPONENT'S BUSY STATE DISABLES (A1-01): another tier of the
+	// same av component is being built, so the server would refuse this one.
+	// Greyed and inert; its title says why (render_build_version).
+	.button.gear.component_busy {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
 	// THE BUSY TIER. One readout for both paths — a build this browser started
 	// AND one it discovered already running (render_job_progress) — because a
 	// transcode must look the same whoever launched it. Local + inline for the

@@ -631,6 +631,9 @@ Merged since the last release; these ship with the next one.
     running they are refused with the same message, and none of them can start a build behind its back.
     The Update cache *Regenerate* pass reports such a field as busy and carries on with the rest.
 
+    Media versions now shows this before you click: while one quality of an audio/video field is being
+    built, the rebuild buttons of its other qualities are greyed out, and hovering one says why.
+
     Wire contract: `WC-2026-11-22-av-upload-build-running`.
 
 - **"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark."**

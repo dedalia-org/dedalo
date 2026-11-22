@@ -76,6 +76,14 @@ export interface ActivityRow {
 	 */
 	also_qualities?: string[];
 	/**
+	 * `'component'` when the job holds its WHOLE component (JobTarget.scope —
+	 * the av build family, A1-01), else null. One av build per component: while
+	 * such a job is live the server refuses a build of EVERY tier of that
+	 * component (media.build_running), so the media-versions panel greys every
+	 * tier's gear, not just the building one — the panel agreeing with the guard.
+	 */
+	scope?: 'component' | null;
+	/**
 	 * WHO started it — set only on the record-scoped listing, and only when the
 	 * job is NOT the reader's own. An operator whose build button is disabled
 	 * needs to know it is someone else's transcode holding the tier; without a
@@ -147,6 +155,7 @@ export function activityRowFromMediaJob(record: JobRecord): ActivityRow {
 						component_tipo: target.component_tipo,
 					},
 		also_qualities: target?.also_qualities ?? [],
+		scope: target?.scope ?? null,
 		errors: record.errors,
 		status: MEDIA_STATUS[record.status],
 		progress: record.progress,

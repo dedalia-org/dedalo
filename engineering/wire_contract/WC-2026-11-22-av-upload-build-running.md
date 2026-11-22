@@ -82,3 +82,16 @@
   Non-av models are unchanged. Wire change: those actions can now answer 409
   `media.build_running` where they used to run concurrently with a build. Gate:
   `test/unit/av_component_operations_native.test.ts`.
+- **Addendum 2026-11-22 (owner ruling 3, the panel):** the record-scoped job
+  listing tells the client the scope. `dd_utils_api::get_record_jobs` (and
+  `get_activity`, the same projection `activityRowFromMediaJob`) rows gain
+  `scope: 'component' | null` — additive; `null` on every unscoped row, never
+  absent. `tool_media_versions` greys (class `component_busy`, `aria-disabled`,
+  inert, title = tool label `component_busy` + the building tier) the build
+  gear of EVERY tier of an av component with a live component-scoped job, not
+  just the building tier; a failed holder releases them, a finished one
+  re-renders. Non-job holders (the upload claim before its transcode, the
+  ruling-4 synchronous operations, another instance's lock) are not listed:
+  the 409 refusal covers them. No frozen fixture carries a get_record_jobs
+  answer; no re-harvest. Gates: `test/unit/activity_aggregate_native.test.ts`
+  (scope projection), client suite `test_tool_media_versions` (6 tests).
