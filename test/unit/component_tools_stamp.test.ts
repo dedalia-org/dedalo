@@ -28,16 +28,24 @@
  * and never shipped them for a component in list mode.
  */
 
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { encodeForJsonb } from '../../src/core/db/json_codec.ts';
+import { sql } from '../../src/core/db/postgres.ts';
 import { buildStructureContext } from '../../src/core/resolve/structure_context.ts';
 import { fireSaveEvent } from '../../src/core/section_record/save_event.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
 import { runWithRequestContext } from '../../src/core/security/request_context.ts';
+import { assertTestDatabase } from '../../src/core/test_data/test_database_marker.ts';
 import { invalidateAllToolCaches } from '../../src/core/tools/cache.ts';
-import { PROFILE_SECTION_TIPO } from '../../src/core/tools/ontology_map.ts';
+import {
+	PROFILE_SECTION_TIPO,
+	TIPO,
+	TOOLS_REGISTER_SECTION_TIPO,
+} from '../../src/core/tools/ontology_map.ts';
 import {
 	getElementTools,
 	getProfileGrantedToolIds,
+	getSectionTools,
 	getUserTools,
 } from '../../src/core/tools/registry.ts';
 
@@ -249,5 +257,88 @@ describe('component toolbar stamp is gated on MODE, not on permissions', () => {
 		if (expected.tools.length === 0) return; // no area tool bound in this corpus
 		const names = expected.tools.map((tool) => tool.name);
 		expect(await toolNamesOf(areaTipo, areaTipo, 'list', 2)).toEqual(names);
+	});
+});
+
+/**
+ * TOOLS FROM THE ONTOLOGY (T2 batch B5) — the registry filter over tools this
+ * file REGISTERS itself: scratch dd1324 rows at explicit ids it owns (reserved
+ * `tool_zz_*` names, no server module → no is_available hook), active, swept
+ * before and after with the tool caches invalidated, so no ambient tool decides
+ * an outcome.
+ */
+interface ScratchTool {
+	sectionId: number;
+	name: string;
+	affectedTipos?: unknown[];
+	properties?: Record<string, unknown>;
+}
+
+const WILDCARD_TOOL: ScratchTool = {
+	sectionId: 999_711,
+	name: 'tool_zz_tld_wildcard',
+	affectedTipos: ['test*'],
+};
+const SCRATCH_TOOLS: ScratchTool[] = [WILDCARD_TOOL];
+
+async function sweepScratchTools(): Promise<number> {
+	let residue = 0;
+	for (const tool of SCRATCH_TOOLS) {
+		await sql`
+			DELETE FROM matrix_tools
+			WHERE section_tipo = ${TOOLS_REGISTER_SECTION_TIPO} AND section_id = ${tool.sectionId}
+		`;
+		const [row] = (await sql`
+			SELECT count(*)::int AS n FROM matrix_tools
+			WHERE section_tipo = ${TOOLS_REGISTER_SECTION_TIPO} AND section_id = ${tool.sectionId}
+		`) as { n: number }[];
+		residue += row?.n ?? 0;
+	}
+	invalidateAllToolCaches();
+	return residue;
+}
+
+async function registerScratchTool(tool: ScratchTool): Promise<void> {
+	const misc: Record<string, unknown> = {};
+	if (tool.affectedTipos !== undefined) {
+		misc[TIPO.AFFECTED_TIPOS] = [{ id: 1, value: tool.affectedTipos }];
+	}
+	if (tool.properties !== undefined) misc[TIPO.PROPERTIES] = [{ id: 1, value: tool.properties }];
+	await sql.unsafe(
+		`INSERT INTO matrix_tools (section_tipo, section_id, string, misc, relation)
+		 VALUES ($1, $2, $3::text::jsonb, $4::text::jsonb, $5::text::jsonb)`,
+		[
+			TOOLS_REGISTER_SECTION_TIPO,
+			tool.sectionId,
+			encodeForJsonb({ [TIPO.NAME]: [{ id: 1, value: tool.name }] }),
+			encodeForJsonb(misc),
+			encodeForJsonb({
+				[TIPO.ACTIVE]: [
+					{ type: 'dd151', section_id: 1, section_tipo: 'dd64', from_component_tipo: TIPO.ACTIVE },
+				],
+			}),
+		],
+	);
+}
+
+describe('tools from the ontology — the registry filter over scratch tools (T2 B5)', () => {
+	beforeAll(async () => {
+		await assertTestDatabase('component_tools_stamp scratch tools');
+		await sweepScratchTools();
+		for (const tool of SCRATCH_TOOLS) await registerScratchTool(tool);
+		invalidateAllToolCaches();
+	});
+	afterAll(async () => {
+		expect(await sweepScratchTools()).toBe(0);
+	});
+
+	const sectionToolNames = async (sectionTipo: string): Promise<string[]> =>
+		(await getSectionTools(sectionTipo)).tools.map((tool) => tool.name);
+
+	test('O11-2: a `<tld>*` affected_tipos wildcard offers the tool on every tipo of that TLD — and no other', async () => {
+		// PHP tipo_in_array reads BOTH sides through get_tld_from_tipo; the old
+		// reader kept the `*` on the value side, so no wildcard ever matched.
+		expect(await sectionToolNames('test3')).toContain(WILDCARD_TOOL.name);
+		expect(await sectionToolNames(USERS_SECTION)).not.toContain(WILDCARD_TOOL.name);
 	});
 });

@@ -49,6 +49,7 @@ import {
 	TOOLS_REGISTER_SECTION_TIPO,
 } from './ontology_map.ts';
 import { getToolUrl } from './paths.ts';
+import { compileTipoMatcher, type TipoMatcher } from './tipo_match.ts';
 import type { ElementToolsResult, ElementToolsTarget, ToolSimpleContext } from './types.ts';
 
 export type { ElementToolsResult, ElementToolsTarget, ToolSimpleContext } from './types.ts';
@@ -374,36 +375,12 @@ interface RegisteredTool {
 	showInComponent: boolean;
 	/** Resolved model names the tool affects (dd1330 → dd1342 names). */
 	affectedModels: string[];
-	/** Tipos/patterns the tool restricts to (dd1350 misc value), or []. */
-	affectedTipos: string[];
+	/**
+	 * Tipos/patterns the tool restricts to (dd1350 misc value), COMPILED once per
+	 * registry load (tipo_match.ts — PHP tipo_in_array); `isEmpty` = no restriction.
+	 */
+	affectedTipos: TipoMatcher;
 	requirementTranslatable: boolean;
-}
-
-/**
- * tipo membership test (PHP tipo_in_array): a value matches when it is a
- * wildcard sharing the tipo's TLD (`numisdata*`), a `/…/` regex the tipo
- * matches, or an exact string. Empty list → no restriction (caller checks).
- */
-function tipoInArray(tipo: string, values: string[]): boolean {
-	const tld = (candidate: string): string => candidate.replace(/[0-9].*$/, '');
-	for (const value of values) {
-		if (typeof value !== 'string') continue;
-		if (value.includes('*')) {
-			if (tld(tipo) === tld(value)) return true;
-		}
-		if (value.includes('/')) {
-			// PHP-style `/pattern/flags` delimited regex → JS RegExp.
-			const match = value.match(/^\/(.*)\/([a-z]*)$/);
-			if (match) {
-				try {
-					if (new RegExp(match[1] as string, match[2]).test(tipo)) return true;
-				} catch {
-					// malformed pattern — ignore, mirrors PHP's failed preg_match
-				}
-			}
-		}
-	}
-	return values.includes(tipo);
 }
 
 /**
@@ -533,9 +510,13 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
 			const modelName = modelNames.get(String(locator.section_id));
 			if (modelName !== undefined) affectedModels.push(modelName);
 		}
-		// affected_tipos: misc value array (tipos/patterns), or [].
+		// affected_tipos: misc value array (tipos/patterns), or [] — compiled ONCE
+		// here (a malformed pattern is reported now, naming the tool, not per tipo).
 		const affectedTiposRaw = (row.misc?.[TIPO.AFFECTED_TIPOS]?.[0] as { value?: unknown })?.value;
-		const affectedTipos = Array.isArray(affectedTiposRaw) ? affectedTiposRaw.map(String) : [];
+		const affectedTipos = compileTipoMatcher(
+			Array.isArray(affectedTiposRaw) ? affectedTiposRaw : [],
+			name,
+		);
 
 		registered.push({
 			name,
@@ -569,24 +550,24 @@ async function getRegisteredTools(): Promise<RegisteredTool[]> {
  * tool_config — then a non-empty affected_tipos must also name the tipo.
  */
 function toolApplies(
-	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: TipoMatcher },
 	target: ElementToolsTarget,
 	inPropertyTools: ReadonlySet<string>,
 ): boolean {
 	if (!toolDeclared(tool, target, inPropertyTools)) return false;
 	// affected_tipos[0] restriction: when set, the tipo must match.
-	return tool.affectedTipos.length === 0 || tipoInArray(target.tipo, tool.affectedTipos);
+	return tool.affectedTipos.isEmpty || tool.affectedTipos.matches(target.tipo);
 }
 
 /** The element is named by the tool's declaration, or names the tool in its tool_config. */
 function toolDeclared(
-	tool: { name: string; affectedModels: readonly string[]; affectedTipos: string[] },
+	tool: { name: string; affectedModels: readonly string[]; affectedTipos: TipoMatcher },
 	target: ElementToolsTarget,
 	inPropertyTools: ReadonlySet<string>,
 ): boolean {
 	if (inPropertyTools.has(tool.name) || tool.affectedModels.includes(target.model)) return true;
 	if (target.isComponent && tool.affectedModels.includes('all_components')) return true;
-	return tipoInArray(target.tipo, tool.affectedTipos);
+	return tool.affectedTipos.matches(target.tipo);
 }
 
 /**
