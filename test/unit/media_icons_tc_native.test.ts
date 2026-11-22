@@ -15,7 +15,9 @@
  *     companion: the measurement is STORED in the declared target_duration,
  *     under the run's bulk id;
  *  5. an unreadable file: no tc value on read, and the regenerate writes nothing
- *     (an error line, never `00:00:00.000`).
+ *     (an error line, never `00:00:00.000`);
+ *  6. the read-only measurement is probed once per file stamp (path + mtime +
+ *     size): a repeat read spawns no ffprobe, a replaced file is re-measured.
  *
  * SITUATION: a `zzmit` scratch ontology on the suite's matrix_test (an AV section
  * whose component_av declares target_duration, an interview section whose portal
@@ -23,13 +25,14 @@
  * suite media root at the engine's own grammar location — all swept after.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { media_icons } from '../../src/core/components/component_info/widgets/oh/media_icons.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql } from '../../src/core/db/postgres.ts';
+import * as ffmpeg from '../../src/core/media/engine/ffmpeg.ts';
 import { runBinary } from '../../src/core/media/engine/spawn.ts';
 import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
@@ -158,8 +161,8 @@ async function tapeFile(tapeId: number): Promise<string> {
 	return location.absolutePath;
 }
 
-/** A real 2-second mp4 at the tape's default-quality location. */
-async function stageVideo(tapeId: number): Promise<void> {
+/** A real `seconds`-long mp4 (2 s by default) at the tape's default-quality location. */
+async function stageVideo(tapeId: number, seconds = 2): Promise<void> {
 	const path = await tapeFile(tapeId);
 	await runBinary(
 		[
@@ -168,9 +171,9 @@ async function stageVideo(tapeId: number): Promise<void> {
 			'-f',
 			'lavfi',
 			'-i',
-			'testsrc=duration=2:size=160x120:rate=10',
+			`testsrc=duration=${seconds}:size=160x120:rate=10`,
 			'-t',
-			'2',
+			String(seconds),
 			'-c:v',
 			'libx264',
 			'-pix_fmt',
@@ -310,6 +313,38 @@ describe('media_icons tc: empty when unknown, measured read-only, stored by the 
 			expect(await storedDuration(tape)).toBeNull();
 		},
 		60_000,
+	);
+
+	test.if(HAVE_FFMPEG)(
+		'the read-only measurement is probed ONCE per file stamp: a repeat read spawns no ffprobe, a replaced file is re-measured (needs ffmpeg)',
+		async () => {
+			const tape = await newTape();
+			await stageVideo(tape);
+			const interview = await interviewOf(tape);
+			const REAL_FFMPEG = { ...ffmpeg };
+			let probes = 0;
+			mock.module('../../src/core/media/engine/ffmpeg.ts', () => ({
+				...REAL_FFMPEG,
+				probeFormat: async (source: string) => {
+					probes++;
+					return await REAL_FFMPEG.probeFormat(source);
+				},
+			}));
+			try {
+				expect((await tcCell(interview)).value).toBe('00:00:02.000');
+				expect((await tcCell(interview)).value).toBe('00:00:02.000');
+				expect(probes).toBe(1);
+				// the bytes change (new size + mtime) → a new stamp, never a stale answer
+				await stageVideo(tape, 3);
+				expect((await tcCell(interview)).value).toBe('00:00:03.000');
+				expect(probes).toBe(2);
+			} finally {
+				mock.module('../../src/core/media/engine/ffmpeg.ts', () => REAL_FFMPEG);
+				mock.restore();
+			}
+			expect(await storedDuration(tape)).toBeNull();
+		},
+		90_000,
 	);
 
 	test.if(HAVE_FFMPEG)(

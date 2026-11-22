@@ -41,7 +41,7 @@
  * record knows about. The messages are surfaced by the calling tool.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mediaTypeOf } from '../../concepts/media.ts';
 import { isDedaloError } from '../../errors/dedalo_error.ts';
 import { getModelByTipo, getNode, getTranslatableByTipo } from '../../ontology/resolver.ts';
@@ -264,6 +264,21 @@ export async function locateDefaultQualityFile(target: StoredMediaTarget): Promi
 }
 
 /**
+ * READ-PATH PROBE MEMO (T2-B4 review L1). The media-icons widget measures a
+ * tape with no stored duration on EVERY read (a read never writes), so a list
+ * of N interviews × k tapes spawned N·k ffprobes per page, forever, until a
+ * regenerate stored the values. A measurement is a fact about the FILE'S BYTES:
+ * keyed by absolute path + mtime + size, a replaced file is a new key (never a
+ * stale answer), and request identity cannot land in it (the widget's own read
+ * posture decides who sees the cell; this only spares the re-probe). The
+ * in-flight promise is shared, so concurrent reads of one file probe once.
+ * Lifecycle: bounded to MEASURED_DURATION_MEMO_MAX entries (oldest evicted),
+ * inconclusive probes dropped, process restart otherwise.
+ */
+const MEASURED_DURATION_MEMO_MAX = 1024;
+const measuredDurationByFile = new Map<string, Promise<string | null>>();
+
+/**
  * The MEASURED duration of a stored media record as a Dédalo time code, or null
  * when it is unknown (no file on this server, or none readable). READ-ONLY — the
  * media-icons widget's fallback when no duration is stored (T2-WID-3): a read
@@ -274,8 +289,37 @@ export async function measureStoredMediaDuration(
 ): Promise<string | null> {
 	const file = await locateDefaultQualityFile(target);
 	if (file === null) return null;
-	const measured = await measureDuration(file);
-	return typeof measured === 'string' ? null : secondsToTc(measured);
+	const stamp = fileStampOf(file);
+	if (stamp === null) return null; // gone between the locate and the stat
+	const known = measuredDurationByFile.get(stamp);
+	if (known !== undefined) return await known;
+	const pending = measureDuration(file).then((measured) =>
+		typeof measured === 'string' ? null : secondsToTc(measured),
+	);
+	rememberMeasurement(stamp, pending);
+	const result = await pending;
+	// An inconclusive probe (a timeout under load, an unreadable file) is not a
+	// fact about the bytes: it is not remembered, the next read probes again.
+	if (result === null) measuredDurationByFile.delete(stamp);
+	return result;
+}
+
+/** A file's memo key — absolute path + mtime + size — or null when it cannot be stat'ed. */
+function fileStampOf(file: string): string | null {
+	try {
+		const stats = statSync(file);
+		return `${file}\0${stats.mtimeMs}\0${stats.size}`;
+	} catch {
+		return null;
+	}
+}
+
+/** Remember a (pending) measurement, evicting the oldest past the bound. */
+function rememberMeasurement(stamp: string, pending: Promise<string | null>): void {
+	measuredDurationByFile.set(stamp, pending);
+	if (measuredDurationByFile.size <= MEASURED_DURATION_MEMO_MAX) return;
+	const oldest = measuredDurationByFile.keys().next().value;
+	if (oldest !== undefined) measuredDurationByFile.delete(oldest);
 }
 
 /**

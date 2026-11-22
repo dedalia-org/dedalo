@@ -620,6 +620,13 @@ const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
 	// fake binary's libfdk-aac answer break every later real encode. Inconclusive
 	// probes are dropped, so lifecycle = process restart for conclusive answers only.
 	'core/media/engine/ffmpeg.ts:audioCodecByBinary',
+	// Measured AV duration per FILE STAMP (media/ingest/companion_writes.ts:
+	// measureStoredMediaDuration, the media-icons widget's read-only fallback).
+	// Key = absolute path + mtime + size, value = the time code the bytes report:
+	// a fact about a file, never a record, user or language — a replaced file is a
+	// new key. Lifecycle: bounded (oldest evicted past 1024), inconclusive probes
+	// dropped, process restart otherwise.
+	'core/media/ingest/companion_writes.ts:measuredDurationByFile',
 	// Tool filesystem-root resolution: cleared by resetPathsCache via
 	// invalidateAllToolCaches on TS-side tool writes; COEX restart rule for
 	// PHP-side writes (tools/cache.ts header).

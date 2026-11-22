@@ -11,7 +11,8 @@
  * tc (T2-WID-3, FYI-5 / C52 — WC-2026-11-22-media-icons-tc): the duration
  * STORED in the AV component's declared `target_duration` (PHP hardcoded
  * 'rsc54', kept as the fallback for a component declaring none). When none is
- * stored, the AV file of the path's last hop is MEASURED, read-only — PHP
+ * stored, the AV file of the path's last hop is MEASURED, read-only (once per
+ * file stamp — companion_writes' probe memo, review L1) — PHP
  * probed too, but WROTE the result back during the read, and wrote
  * '00:00:00.000' for a missing file. Here a read never writes and never
  * fabricates: no file (or none readable) = the cell carries no value, which
