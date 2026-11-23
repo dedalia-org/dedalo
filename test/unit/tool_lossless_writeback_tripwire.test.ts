@@ -434,7 +434,7 @@ else {
 					'export const marks_in_text_nodes = (html, extract) => extract(String(html)).map((item) => item.mark);\n' +
 					// block_runner.js's own (browser_translation.js imports its BLOCK_ERROR_CODES)
 					'export const conform_emphasis = (source, output) => output;\n' +
-					"export const conform_delimiters = (source, output) => ({ text: output, deleted: [], excess: [] });\n" +
+					'export const conform_delimiters = (source, output) => ({ text: output, deleted: [], excess: [] });\n' +
 					'export const restore_wrapping_emphasis = (source, output) => output;\n' +
 					'export const sentence_count = () => 0;\n',
 				loader: 'js',

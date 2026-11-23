@@ -1383,19 +1383,7 @@
 	},
 	"expansions": {
 		"Xenova/opus-mt-{src}-{tgt}": {
-			"langs": [
-				"en",
-				"es",
-				"fr",
-				"it",
-				"pt",
-				"ca",
-				"de",
-				"ne",
-				"ar",
-				"el",
-				"eu"
-			],
+			"langs": ["en", "es", "fr", "it", "pt", "ca", "de", "ne", "ar", "el", "eu"],
 			"computed_at": "2026-11-22",
 			"reason": "tool_lang in-browser translator catalogue (owner 2026-11-22, v6 40bf5eaacf/23010156ad): opus-mt is one model per pair; the candidate languages are the ISO 639-1 codes the v6 translator emits (its NLLB_LANGS keys)",
 			"probed": 110,
