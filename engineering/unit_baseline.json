@@ -6769,6 +6769,11 @@
 			"skipped": 0,
 			"assertions": 60
 		},
+		"test/unit/tool_lang_placeholder_repair.test.ts": {
+			"tests": 95,
+			"skipped": 0,
+			"assertions": 340
+		},
 		"test/unit/tool_lossless_writeback_tethers_native.test.ts": {
 			"tests": 4,
 			"skipped": 0,
