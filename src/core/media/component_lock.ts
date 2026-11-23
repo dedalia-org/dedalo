@@ -119,17 +119,18 @@
  * only by an `rmdir` — the whole holder's, or the orphan sweep's once it has
  * sat unchanged for the bound (sweepIdleShares: the lock dir stays bounded) —
  * which the server refuses while a registration stands; a registration that
- * meets that removal (ENOENT) makes the dir again and links once more. Every deciding answer is EEXIST /
- * ENOTEMPTY / ENOTDIR / ENOENT from link, rmdir and mkdir, which NFS executes
- * at the server whatever the mount options (a create or a removal cannot be
- * answered from a client cache: a stale cached dir handle answers ESTALE,
- * which makes the dir again or refuses). A crashed whole holder's tombstone
- * carries its lock's identity (a hard link): judged by the usual staleness
- * rules (pid / heartbeat at its lock's own path), sighted under its own name.
- * What still reads through the cache is the STALENESS judgement (identity +
- * heartbeat content and attributes), and that is why the mount is VERIFIED: on Linux an
- * NFS processes dir must be `lookupcache=none`, `actimeo=0` (or `noac`) and not
- * `nocto`, or the boot and every lock call refuse (processes_mount.ts). The
+ * meets that removal (ENOENT) makes the dir again and links once more. Every
+ * deciding answer is EEXIST / ENOTEMPTY / ENOTDIR / ENOENT from link, rmdir and
+ * mkdir, which NFS executes at the server whatever the mount options (a
+ * create or a removal cannot be answered from a client cache: a stale cached
+ * dir handle answers ESTALE, which makes the dir again or refuses). A crashed
+ * whole holder's tombstone carries its lock's identity (a hard link): judged
+ * by the usual staleness rules (pid / heartbeat at its lock's own path),
+ * sighted under its own name. What still reads through the cache is the
+ * STALENESS judgement (identity + heartbeat content and attributes), and that
+ * is why the mount is VERIFIED: on Linux an NFS processes dir must be
+ * `lookupcache=none`, `actimeo=0` (or `noac`) and not `nocto`, or the boot
+ * and every lock call refuse (processes_mount.ts). The
  * advisory pre-flight (componentLockBusy — `isOccupied`) still reads; the
  * answer that holds is always the claim's.
  *
@@ -836,9 +837,12 @@ function removeIfIdle(share: string, context: ComponentLockContext): void {
 	if (signature === null) return;
 	const key = `share:${share}`;
 	if (unchangedForMs(context, key, signature) <= context.staleAfterMs) return;
-	if (rmdirShare(share) !== 'removed') return;
+	const outcome = rmdirShare(share);
+	if (outcome === 'not-empty' || outcome === 'tombstone') return;
 	context.observations.delete(key);
-	console.error(`[media lock] swept idle share dir ${share} (empty, unchanged for the bound)`);
+	if (outcome === 'removed') {
+		console.error(`[media lock] swept idle share dir ${share} (empty, unchanged for the bound)`);
+	}
 }
 
 /** Drop the reader's sightings under `keyPrefix` that are no longer present (a bounded map). */
@@ -1049,10 +1053,10 @@ function leaveShare(share: ComponentShare): void {
 }
 
 /** What an rmdir of the share name met at the server. */
-type RmdirOutcome = 'removed' | 'not-empty' | 'tombstone';
+type RmdirOutcome = 'removed' | 'absent' | 'not-empty' | 'tombstone';
 
 /**
- * rmdir the share name — the server's answer: removed (or absent: nothing to
+ * rmdir the share name — the server's answer: removed, absent (nothing to
  * remove), not empty (registrations), or not a dir (a tombstone stands there).
  */
 function rmdirShare(dir: string): RmdirOutcome {
@@ -1061,7 +1065,7 @@ function rmdirShare(dir: string): RmdirOutcome {
 		return 'removed';
 	} catch (error) {
 		const code = errnoOf(error);
-		if (code === 'ENOENT') return 'removed';
+		if (code === 'ENOENT') return 'absent';
 		if (code === 'ENOTEMPTY' || code === 'EEXIST') return 'not-empty';
 		if (code === 'ENOTDIR') return 'tombstone';
 		throw error;
@@ -1126,7 +1130,7 @@ function shareVacancy(
 	context: ComponentLockContext,
 ): 'vacant' | 'busy' | 'again' {
 	const outcome = rmdirShare(dir);
-	if (outcome === 'removed') return 'vacant';
+	if (outcome === 'removed' || outcome === 'absent') return 'vacant';
 	const cleared =
 		outcome === 'not-empty'
 			? dropDeadRegistrations(dir, context)

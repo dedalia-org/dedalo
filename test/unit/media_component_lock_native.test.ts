@@ -1358,6 +1358,27 @@ describe('share dirs are BOUNDED: an idle empty one is swept (final review)', ()
 		expect(existsSync(shareDirOf(87))).toBe(false);
 	});
 
+	test("a dir that vanished before the sweep's rmdir (ENOENT) is not reported swept", () => {
+		const tick = clock();
+		const m = manager('inst-sweep', { lockClock: tick.now });
+		mkdirSync(shareDirOf(88));
+		sweepVia(m, 97);
+		tick.advance(BOUND + 1);
+		const realRmdir = fs.rmdirSync;
+		const rmdir = spyOn(fs, 'rmdirSync').mockImplementation(((path: fs.PathLike) => {
+			if (String(path) === shareDirOf(88) && existsSync(path)) realRmdir(path); // removed elsewhere first
+			return realRmdir(path);
+		}) as typeof fs.rmdirSync);
+		let lines = '';
+		try {
+			lines = sweptLines(() => sweepVia(m, 97));
+		} finally {
+			rmdir.mockRestore();
+		}
+		expect(existsSync(shareDirOf(88))).toBe(false);
+		expect(lines).not.toContain(`swept idle share dir ${shareDirOf(88)}`);
+	});
+
 	test('a share dir holding a live REGISTRATION is kept past the bound — the registration intact', () => {
 		const tick = clock();
 		const a = manager('inst-holder');

@@ -1621,10 +1621,14 @@ tombstone back (only its own), and a crashed holder's tombstone is judged like
 its lock. Whichever reaches the server first wins; two languages never refuse
 each other. A language leaving only removes its own registration — never the
 share directory, so no leave can race another language's registration; an
-empty share directory is removed by the next whole hold, or by the orphan sweep
-of any lock taken once it has sat empty and unchanged for 120 s (an `rmdir`,
-which only ever removes an empty directory) — so the lock directory does not
-grow over the life of the installation.
+empty share directory is removed by the next whole hold, or by the orphan
+sweep. The sweep runs on every lock acquire and every whole hold's close of a
+share, and removes a share directory only when THAT instance has itself
+sighted it unchanged (inode and mtime) for the lock stale bound — 120 s, the
+same bound as a frozen heartbeat (`COMPONENT_LOCK_STALE_AFTER_MS` in
+`src/core/media/jobs.ts`; no operator setting changes it). Its `rmdir` only
+ever removes an empty directory, so the lock directory does not grow over the
+life of the installation.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and
