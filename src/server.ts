@@ -2372,12 +2372,12 @@ export async function startServer() {
 	// door refuses on its own too; this makes the misconfiguration a boot error
 	// instead of a refused upload. In a SMOKE boot (the updater's pre-swap boot
 	// of a new release, R2) the same verdict is read on the LIVE processes dir
-	// the updater names — read only, nothing created — so a release whose real
+	// (the one the updater names, else an explicit absolute one — jobs.ts
+	// smokeProcessesDir) — read only, nothing created — so a release whose real
 	// boot would exit here is refused before the swap, not after it.
 	{
-		const verify = smokeBoot
-			? (await import('./core/media/processes_mount.ts')).verifySmokeProcessesDirMount
-			: (await import('./core/media/jobs.ts')).verifyProcessesDirMount;
+		const jobs = await import('./core/media/jobs.ts');
+		const verify = smokeBoot ? jobs.verifySmokeBootProcessesDirMount : jobs.verifyProcessesDirMount;
 		try {
 			verify();
 		} catch (error) {

@@ -29,7 +29,9 @@ import {
 	configuredProcessesDir,
 	type JobTarget,
 	MediaJobManager,
+	smokeProcessesDir,
 	verifyProcessesDirMount,
+	verifySmokeBootProcessesDirMount,
 } from '../../src/core/media/jobs.ts';
 import {
 	assertProcessesMountCoherent,
@@ -41,7 +43,6 @@ import {
 	nfsCoherenceProblems,
 	parseMountInfo,
 	readMountTable,
-	verifySmokeProcessesDirMount,
 } from '../../src/core/media/processes_mount.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { markProcessesDir } from '../helpers/media_scratch_root.ts';
@@ -311,52 +312,81 @@ describe('the door and the boot refuse an incoherent mount, typed', () => {
 	);
 });
 
-describe('the SMOKE boot reads the same verdict on the LIVE dir, read only (R2)', () => {
-	const KEY = 'DEDALO_SMOKE_PROCESSES_DIR';
+describe('the SMOKE boot reads the same verdict on the LIVE dir, read only (R2, final review F2)', () => {
+	const SMOKE_KEY = 'DEDALO_SMOKE_PROCESSES_DIR';
+	const PROCESSES_KEY = 'DEDALO_MEDIA_PROCESSES_DIR';
 	const nfsOverRoot = {
 		platform: 'linux',
 		mountinfo: () => [ROOT_EXT4, nfsLine(realpathSync(ROOT), NFS_DEFAULTS)].join('\n'),
 		deviceOf: () => '0:52',
 	};
-	const withKey = (value: string | undefined, fn: () => void): void => {
-		const previous = process.env[KEY];
-		if (value === undefined) Reflect.deleteProperty(process.env, KEY);
-		else process.env[KEY] = value;
+	/** Run `fn` with the two keys set as given (undefined = unset), restored after. */
+	const withEnv = (
+		values: { smoke?: string | undefined; processes?: string | undefined },
+		fn: () => void,
+	): void => {
+		const previous = { smoke: process.env[SMOKE_KEY], processes: process.env[PROCESSES_KEY] };
+		const set = (key: string, value: string | undefined) => {
+			if (value === undefined) Reflect.deleteProperty(process.env, key);
+			else process.env[key] = value;
+		};
+		set(SMOKE_KEY, values.smoke);
+		set(PROCESSES_KEY, values.processes);
 		try {
 			fn();
 		} finally {
-			if (previous === undefined) Reflect.deleteProperty(process.env, KEY);
-			else process.env[KEY] = previous;
+			set(SMOKE_KEY, previous.smoke);
+			set(PROCESSES_KEY, previous.processes);
+		}
+	};
+	const quietWarn = <T>(fn: () => T): { result: T; warned: string } => {
+		const warn = spyOn(console, 'warn').mockImplementation(() => {});
+		try {
+			return { result: fn(), warned: warn.mock.calls.flat().join(' ') };
+		} finally {
+			warn.mockRestore();
 		}
 	};
 
 	test('the live dir the updater names, on a default NFS mount: refused typed, nothing created', () => {
 		const live = join(ROOT, 'live_processes');
-		withKey(live, () => {
-			const refusal = refusalOfSync(() => verifySmokeProcessesDirMount(nfsOverRoot));
+		withEnv({ smoke: live, processes: undefined }, () => {
+			const refusal = refusalOfSync(() => verifySmokeBootProcessesDirMount(nfsOverRoot));
 			expect(refusal.code).toBe('media.not_configured');
 			expect(refusal.message).toContain(live);
 		});
 		expect(existsSync(live)).toBe(false);
 	});
 
-	test('on a coherent mount it passes; an updater that names no dir is SAID, nothing judged', () => {
-		withKey(join(ROOT, 'live_processes'), () => {
+	test('on a coherent mount it passes', () => {
+		withEnv({ smoke: join(ROOT, 'live_processes') }, () => {
 			expect(() =>
-				verifySmokeProcessesDirMount({
+				verifySmokeBootProcessesDirMount({
 					...nfsOverRoot,
 					mountinfo: () => [ROOT_EXT4, nfsLine(realpathSync(ROOT), NFS_COHERENT)].join('\n'),
 				}),
 			).not.toThrow();
 		});
-		const warn = spyOn(console, 'warn').mockImplementation(() => {});
-		try {
-			withKey(undefined, () => {
-				expect(() => verifySmokeProcessesDirMount(nfsOverRoot)).not.toThrow();
+	});
+
+	test('an OLDER updater (no key): an explicit absolute DEDALO_MEDIA_PROCESSES_DIR still reaches the child — judged (F2)', () => {
+		const live = join(ROOT, 'explicit_live');
+		withEnv({ smoke: undefined, processes: live }, () => {
+			expect(smokeProcessesDir()).toBe(live);
+			expect(refusalOfSync(() => verifySmokeBootProcessesDirMount(nfsOverRoot)).code).toBe(
+				'media.not_configured',
+			);
+		});
+		expect(existsSync(live)).toBe(false);
+	});
+
+	test('an older updater on a DEFAULT (or relative) processes dir: not derivable — SAID, nothing judged', () => {
+		for (const processes of [undefined, 'relative/processes']) {
+			withEnv({ smoke: undefined, processes }, () => {
+				expect(smokeProcessesDir()).toBeUndefined();
+				const { warned } = quietWarn(() => verifySmokeBootProcessesDirMount(nfsOverRoot));
+				expect(warned).toContain('NOT verified');
 			});
-			expect(warn.mock.calls.flat().join(' ')).toContain('NOT verified');
-		} finally {
-			warn.mockRestore();
 		}
 	});
 

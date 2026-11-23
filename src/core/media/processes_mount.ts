@@ -39,7 +39,6 @@
 
 import { closeSync, openSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { readEnv } from '../../config/env.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { readBoundedSync } from '../files/bounded_read.ts';
 
@@ -278,20 +277,12 @@ export function assertProcessesMountCoherent(dir: string, probe: MountProbe = {}
 
 /**
  * THE SMOKE BOOT'S CHECK (the updater's pre-swap boot of a new release): the
- * mount of the LIVE processes dir the updater names (`DEDALO_SMOKE_PROCESSES_DIR`
- * — the child's own private dir is a throwaway under the staging dir), judged
- * READ ONLY: nothing is created, the nearest existing ancestor is resolved. A
- * mount the new release would refuse at its real boot refuses here, so the
- * update is refused before the swap. An updater that names no dir (one older
- * than this check) is said loudly; nothing is judged.
+ * mount of the LIVE processes dir (resolved by jobs.ts smokeProcessesDir — the
+ * child's own private dir is a throwaway under the staging dir), judged READ
+ * ONLY: nothing is created, the nearest existing ancestor is resolved. A mount
+ * the new release would refuse at its real boot refuses here, so the update is
+ * refused before the swap.
  */
-export function verifySmokeProcessesDirMount(probe: MountProbe = {}): void {
-	const dir = readEnv('DEDALO_SMOKE_PROCESSES_DIR');
-	if (dir === undefined || dir === '') {
-		console.warn(
-			'[smoke boot] the updater named no DEDALO_SMOKE_PROCESSES_DIR — the processes dir mount is NOT verified before the swap (the real boot still verifies it)',
-		);
-		return;
-	}
+export function verifySmokeProcessesDirMount(dir: string, probe: MountProbe = {}): void {
 	assertProcessesMountCoherent(dir, probe);
 }

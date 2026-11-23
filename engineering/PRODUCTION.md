@@ -1549,6 +1549,15 @@ refused within a minute. A code update checks it BEFORE the swap: the new
 release's pre-swap boot reads the same verdict on the running installation's
 processes dir (read only, nothing created) and the update is refused, nothing
 swapped — rather than swapping in a release that would then refuse to start.
+That pre-swap check needs the running updater to name the live processes dir;
+an updater older than this release does not, and its new-release boot check can
+then judge only an explicit absolute `DEDALO_MEDIA_PROCESSES_DIR` (a default
+processes dir, under the private dir, cannot be derived from the throwaway one
+the check runs with — it says so in the log and judges nothing). **Upgrade note:**
+an installation whose processes dir is on NFS must be remounted
+`lookupcache=none,actimeo=0` (fstab above, then `mount -o remount` or a
+reboot) BEFORE it updates to this version, or the updated server refuses to
+start.
 Other platforms are not verified (macOS is a development platform); the
 requirement stands.
 

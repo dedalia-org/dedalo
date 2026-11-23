@@ -108,7 +108,7 @@ const live = process.env.DEDALO_SMOKE_PROCESSES_DIR;
 let existing = live;
 for (;;) { try { existing = realpathSync(existing); break; } catch { existing = dirname(existing); } }
 try {
-	verifySmokeProcessesDirMount({
+	verifySmokeProcessesDirMount(live, {
 		platform: 'linux',
 		deviceOf: () => '0:52',
 		mountinfo: () => ['29 1 259:2 / / rw - ext4 /dev/sda1 rw', '120 29 0:52 / ' + existing + ' rw - nfs4 fs:/export rw,vers=4.2,hard'].join('\\n'),
@@ -250,7 +250,7 @@ describe('smoke boot read-only-by-structure tripwire', () => {
 		const src = await Bun.file(new URL('../../src/server.ts', import.meta.url)).text();
 		const block = src.slice(src.indexOf("THE PROCESSES DIR'S MOUNT"));
 		const verdict = block.slice(0, block.indexOf('process.exit(1)'));
-		expect(verdict).toContain('verifySmokeProcessesDirMount');
+		expect(verdict).toContain('verifySmokeBootProcessesDirMount');
 		expect(verdict).toContain('verifyProcessesDirMount');
 		expect(verdict).not.toMatch(/!smokeBoot\b/);
 	});

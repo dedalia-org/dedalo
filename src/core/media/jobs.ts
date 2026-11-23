@@ -55,7 +55,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { config } from '../../config/config.ts';
 import { privateDir, readEnv } from '../../config/env.ts';
 import { readString } from '../../config/readers.ts';
@@ -95,6 +95,7 @@ import {
 	assertProcessesMountCoherent,
 	MOUNT_REVERIFY_MS,
 	type MountProbe,
+	verifySmokeProcessesDirMount,
 } from './processes_mount.ts';
 import {
 	resolveProcessesDir,
@@ -654,6 +655,39 @@ function captureJobRunScope(jobId: string): JobRunScope {
  */
 export function configuredProcessesDir(): string {
 	return resolveProcessesDir(readEnv('DEDALO_MEDIA_PROCESSES_DIR'), join(privateDir, 'processes'));
+}
+
+/**
+ * The LIVE processes dir as the updater's pre-swap SMOKE boot can know it (its
+ * own DEDALO_PRIVATE_DIR is a throwaway under the staging dir): the one the
+ * updater names (`DEDALO_SMOKE_PROCESSES_DIR`); else — an updater older than
+ * that key — an explicit ABSOLUTE `DEDALO_MEDIA_PROCESSES_DIR`, which rides the
+ * child env unchanged (envSnapshot carries the live ../private/.env); else
+ * undefined: the default lives under the live private dir, which the child
+ * cannot resolve.
+ */
+export function smokeProcessesDir(): string | undefined {
+	const named = readEnv('DEDALO_SMOKE_PROCESSES_DIR');
+	if (named !== undefined && named !== '') return named;
+	const explicit = readEnv('DEDALO_MEDIA_PROCESSES_DIR');
+	return explicit !== undefined && isAbsolute(explicit) ? explicit : undefined;
+}
+
+/**
+ * SMOKE BOOT: the read-only mount verdict on the live processes dir
+ * (processes_mount.ts). A dir that cannot be known (an older updater, a default
+ * or relative processes dir) is said loudly; nothing is judged — the real boot
+ * still judges it.
+ */
+export function verifySmokeBootProcessesDirMount(probe: MountProbe = {}): void {
+	const dir = smokeProcessesDir();
+	if (dir === undefined) {
+		console.warn(
+			'[smoke boot] the live processes dir is not known (the updater named no DEDALO_SMOKE_PROCESSES_DIR and DEDALO_MEDIA_PROCESSES_DIR is not an absolute path) — its mount is NOT verified before the swap (the real boot still verifies it)',
+		);
+		return;
+	}
+	verifySmokeProcessesDirMount(dir, probe);
 }
 
 /**

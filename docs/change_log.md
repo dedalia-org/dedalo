@@ -626,7 +626,10 @@ Merged since the last release; these ship with the next one.
     locks live; on a network share, mount it so that a server that stops answering cannot freeze the
     instances, and without caching (NFS: `lookupcache=none,actimeo=0`, never `nocto`) — on Linux a
     server whose processes directory is on NFS mounted otherwise refuses to start and says which
-    option is missing, and a code update onto such a server is refused before anything is replaced. A lock an instance cannot read (wrong permissions, a failing share) counts as busy and is
+    option is missing, and a code update onto such a server is refused before anything is replaced.
+    **Before updating to this version**, remount an NFS processes directory with
+    `lookupcache=none,actimeo=0`: the version you update from may not run that check before the
+    update, and the updated server would then refuse to start. A lock an instance cannot read (wrong permissions, a failing share) counts as busy and is
     never taken over — the log names the file and the error, so every instance must run as a user that
     can read and write that directory. See [the configuration reference](./administration/configuration/config.md).
 

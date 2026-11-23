@@ -328,3 +328,18 @@
   hook — each leaves no whole lock, no tombstone, and a later whole claim on the
   same manager passes); the lang tests now assert the dir stays, empty, after the
   last leave, and that a lang leaving never touches another's registration.
+- **Addendum 2026-11-23 (final review F2, updating INTO this release):** the
+  updater that installs this release is an older one and names no
+  `DEDALO_SMOKE_PROCESSES_DIR`. The smoke child now derives the live dir itself
+  where its neutralised env still can (`jobs.ts smokeProcessesDir`): the named
+  key, else an explicit ABSOLUTE `DEDALO_MEDIA_PROCESSES_DIR` (it rides the child
+  env unchanged — envSnapshot carries the live `.env`); a default or relative
+  one cannot be derived (the private dir is the throwaway) → said loudly,
+  nothing judged. The verdict door moved behind the job-registry resolver
+  (`verifySmokeBootProcessesDirMount` in jobs.ts; `processes_mount.ts`
+  `verifySmokeProcessesDirMount(dir, probe)` takes the dir). Upgrade note in
+  PRODUCTION §8.1 and the changelog: remount an NFS processes dir
+  `lookupcache=none,actimeo=0` BEFORE updating to this version. Gates:
+  `media_processes_mount_native` 18→20 (an older updater with an explicit
+  absolute dir is judged; default / relative → said, nothing judged; the named
+  key wins).
