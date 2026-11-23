@@ -2376,8 +2376,10 @@ export async function startServer() {
 	// smokeProcessesDir) — read only, nothing created — so a release whose real
 	// boot would exit here is refused before the swap, not after it.
 	{
-		const jobs = await import('./core/media/jobs.ts');
-		const verify = smokeBoot ? jobs.verifySmokeBootProcessesDirMount : jobs.verifyProcessesDirMount;
+		const { verifyProcessesDirMount, verifySmokeBootProcessesDirMount } = await import(
+			'./core/media/jobs.ts'
+		);
+		const verify = smokeBoot ? verifySmokeBootProcessesDirMount : verifyProcessesDirMount;
 		try {
 			verify();
 		} catch (error) {
