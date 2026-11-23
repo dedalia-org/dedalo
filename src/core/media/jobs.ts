@@ -1487,34 +1487,44 @@ export class MediaJobManager {
 			for (const claim of claims) claim.release();
 			return null;
 		};
-		for (const componentTipo of componentTipos) {
-			const claim = this.claimHeld({
-				section_tipo: sectionTipo,
-				section_id: sectionId,
-				component_tipo: componentTipo,
-				lang: null,
-				quality: tier,
-				label: tier,
-				scope: 'component_all',
-			});
-			if (claim === null) return giveBack();
-			claims.push(claim);
+		// A THROW anywhere below (an acquire error, the mount re-verified and
+		// refused, an rmdir/link/readdir failure closing a share) gives back
+		// everything already taken — memory keys, whole locks, tombstones — then
+		// propagates: nothing stays held until a restart (final review F1).
+		try {
+			for (const componentTipo of componentTipos) {
+				const claim = this.claimHeld({
+					section_tipo: sectionTipo,
+					section_id: sectionId,
+					component_tipo: componentTipo,
+					lang: null,
+					quality: tier,
+					label: tier,
+					scope: 'component_all',
+				});
+				if (claim === null) return giveBack();
+				claims.push(claim);
+			}
+			const context = this.lockContext();
+			for (const claim of claims) {
+				if (!this.closeShareOf(claim, context)) return giveBack();
+			}
+			return claims;
+		} catch (error) {
+			giveBack();
+			throw error;
 		}
-		const context = this.lockContext();
-		for (const claim of claims) {
-			if (!this.closeShareOf(claim, context)) return giveBack();
-		}
-		return claims;
 	}
 
 	/**
 	 * Close the share of a whole claim's component: its held handle is replaced
 	 * by the one carrying the tombstone (released with it). False when a lang is
-	 * held; an unlocked claim (no file lock) closes nothing.
+	 * held — and when the claim holds no file lock at all (a whole claim always
+	 * takes one; without it nothing excludes the langs, so it is refused).
 	 */
 	private closeShareOf(claim: JobTargetClaim, context: ComponentLockContext): boolean {
 		const handle = this.fileLocks.get(claim.id);
-		if (handle === undefined) return true;
+		if (handle === undefined) return false;
 		const closed = closeComponentShare(handle, componentKeyBase(claim.target), context);
 		if (closed === null) return false;
 		this.fileLocks.set(claim.id, closed);

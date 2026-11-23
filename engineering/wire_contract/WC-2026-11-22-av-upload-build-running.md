@@ -312,3 +312,19 @@
   live dir refuses the update, nothing swapped; server.ts's mount block is never
   behind a `!smokeBoot` guard) and the neutralised-env case now requires the
   named live dir.
+- **Addendum 2026-11-23 (final review F1 + F3 + info):** F1 — a whole-component
+  claim that THROWS part-way (an acquire error, the mount re-verified and
+  refused at the share-closing `lockContext`, an rmdir/link/readdir failure
+  closing a share) gives back every claim already taken — memory keys, whole
+  locks, tombstones — then propagates; a throw after a tombstone is placed but
+  before its handle is returned takes that tombstone back (CAS). F3 — a
+  per-lang LEAVE unlinks only its registration, never the share dir (it raced
+  another lang's registration); an empty share dir is harmless, removed by the
+  next whole holder's `rmdir`. Info — a whole claim that holds no file lock is
+  refused (`closeShareOf` false), never taken as closed. No wire change. Gates:
+  `media_component_lock_native` 60→64 (a throw injected at each point — a later
+  component's acquire, the mount refused at the closing `lockContext`, a later
+  share's rmdir EIO with the earlier tombstone standing, the post-placement
+  hook — each leaves no whole lock, no tombstone, and a later whole claim on the
+  same manager passes); the lang tests now assert the dir stays, empty, after the
+  last leave, and that a lang leaving never touches another's registration.

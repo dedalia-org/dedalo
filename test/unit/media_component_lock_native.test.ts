@@ -72,6 +72,7 @@ import {
 import { moveToDeleted } from '../../src/core/media/file_ops.ts';
 import { assertJobHold } from '../../src/core/media/job_scope.ts';
 import { type JobTarget, MediaJobManager } from '../../src/core/media/jobs.ts';
+import { MOUNT_REVERIFY_MS } from '../../src/core/media/processes_mount.ts';
 import { mustGet } from '../helpers/assert.ts';
 import { markMediaRoot, markProcessesDir } from '../helpers/media_scratch_root.ts';
 import { refusalOf, refusalOfSync } from '../helpers/refusal.ts';
@@ -974,6 +975,11 @@ const shareEntries = (sectionId: number): string[] =>
 	existsSync(shareDirOf(sectionId)) && statSync(shareDirOf(sectionId)).isDirectory()
 		? readdirSync(shareDirOf(sectionId))
 		: [];
+/** After the last lang left: the share dir STAYS, empty — a leave never removes it (final review F3). */
+const leftEmpty = (sectionId: number): boolean =>
+	existsSync(shareDirOf(sectionId)) &&
+	statSync(shareDirOf(sectionId)).isDirectory() &&
+	readdirSync(shareDirOf(sectionId)).length === 0;
 /** Does a whole holder's TOMBSTONE (a file at the share dir's name) stand for record `sectionId`? */
 const tombstoneOf = (sectionId: number): boolean =>
 	existsSync(shareDirOf(sectionId)) && statSync(shareDirOf(sectionId)).isFile();
@@ -1033,7 +1039,7 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		const held = mustGet(lang, 'A proceeds: its registration was answered by the server');
 		expect(shareEntries(70)).toHaveLength(1); // A's registration stands while it holds
 		held.release();
-		expect(existsSync(shareDirOf(70))).toBe(false); // released: registration and dir gone
+		expect(leftEmpty(70)).toBe(true); // released: its registration gone, the dir kept (F3)
 	});
 
 	test('crossed, whole first: the per-lang claim that crosses after the tombstone is refused — never both', () => {
@@ -1080,7 +1086,7 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		);
 		expect(shareEntries(80)).toHaveLength(1);
 		held.release();
-		expect(existsSync(shareDirOf(80))).toBe(false);
+		expect(leftEmpty(80)).toBe(true);
 	});
 
 	test('a STALE client view (cached negative dentry / listing) never lets the whole claim past a held lang', () => {
@@ -1111,7 +1117,7 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		expect(a.claimWholeComponents('test3', 74, ['test94'], 'record_media')).toBeNull();
 		fra.release();
 		eng.release();
-		expect(existsSync(shareDirOf(74))).toBe(false);
+		expect(leftEmpty(74)).toBe(true);
 	});
 
 	test('langs racing each other — mid-registration, mid-leave — never refuse each other (no wait, no probe)', () => {
@@ -1135,11 +1141,13 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 				'eng claimed while fra was registering',
 			);
 			expect(shareEntries(81)).toHaveLength(2);
-			fra.release();
+			fra.release(); // leaving never removes the dir: eng's registration is
+			expect(shareEntries(81)).toHaveLength(1); // untouched, nothing to race
 			engHeld.release();
-			expect(existsSync(shareDirOf(81))).toBe(false);
-			// Mid-leave: the dir another lang's LEAVE removes between our mkdir and
-			// our link (rmdir of a dir it found empty) is made again — not a refusal.
+			expect(leftEmpty(81)).toBe(true);
+			// The dir a WHOLE holder removes (its vacant rmdir) between our mkdir
+			// and our link is made again — not a refusal.
+			rmSync(shareDirOf(81), { recursive: true });
 			const realMkdir = fs.mkdirSync;
 			let removedOnce = false;
 			const mkdir = spyOn(fs, 'mkdirSync').mockImplementation(((
@@ -1165,7 +1173,7 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		} finally {
 			sleep.mockRestore();
 		}
-		expect(existsSync(shareDirOf(81))).toBe(false);
+		expect(leftEmpty(81)).toBe(true);
 	});
 
 	test('a DEAD registration (its holder died without leaving) is dropped by the whole claim; a live one is not', () => {
@@ -1209,6 +1217,8 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		);
 		expect(shareEntries(76)).toHaveLength(1); // the name is a dir again, with A's entry
 		lang.release();
+		expect(leftEmpty(76)).toBe(true);
+		fs.rmdirSync(shareDirOf(76)); // as a whole holder's vacant rmdir would
 		rmSync(wholePath(76)); // the dead holder's own lock (judged by its own rules on the lock path)
 		// The whole side meets a dead tombstone too (rmdir: ENOTDIR) — reclaimed, then closed.
 		plantTombstone(76, { host: HOST_ID, pid: deadPid(), instance: 'gone', token: 'dead-whole' });
@@ -1318,6 +1328,100 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 		expect(tombstoneOf(77)).toBe(true); // the other holder's tombstone stands
 		expect(existsSync(wholePath(77))).toBe(false); // B's own lock went all the same
 		rmSync(shareDirOf(77));
+	});
+});
+
+describe('a throw mid-claim gives back everything already taken (final review F1)', () => {
+	const COMPONENTS = ['test94', 'test95'];
+	/** Nothing of record `sectionId` is held: no whole lock, no tombstone — and a new whole claim passes. */
+	function expectAllGivenBack(m: MediaJobManager, sectionId: number): void {
+		for (const component of COMPONENTS) {
+			expect(existsSync(wholePath(sectionId, component))).toBe(false);
+			expect(existsSync(shareDirOf(sectionId, component))).toBe(false);
+		}
+		const again = mustGet(
+			m.claimWholeComponents('test3', sectionId, COMPONENTS, 'record_media'),
+			'a later whole claim (same manager: memory keys given back too)',
+		);
+		for (const claim of again) claim.release();
+	}
+	const eio = (): never => {
+		throw Object.assign(new Error('EIO: injected'), { code: 'EIO' });
+	};
+
+	test('an ACQUIRE error of a later component releases the earlier whole lock', () => {
+		const m = manager('inst-f1-acquire');
+		const realLink = fs.linkSync;
+		const link = spyOn(fs, 'linkSync').mockImplementation(((from: fs.PathLike, to: fs.PathLike) =>
+			String(to) === wholePath(83, 'test95') ? eio() : realLink(from, to)) as typeof fs.linkSync);
+		try {
+			expect(() => m.claimWholeComponents('test3', 83, COMPONENTS, 'record_media')).toThrow();
+		} finally {
+			link.mockRestore();
+		}
+		expectAllGivenBack(m, 83);
+	});
+
+	test('the MOUNT refused when the share is closed (re-verify lapsed) releases every whole lock', () => {
+		let reads = 0;
+		let now = 0;
+		const nfs = `120 29 0:52 / ${fs.realpathSync(PROCESSES)} rw - nfs4 fs:/export rw,vers=4.2,hard`;
+		const m = new MediaJobManager({
+			budgets: { media: 2, maintenance: 2 },
+			instanceId: 'inst-f1-mount',
+			lockHeartbeatMs: 0,
+			lockStaleAfterMs: BOUND,
+			clock: () => (now += MOUNT_REVERIFY_MS), // every lock call re-reads the table
+			lockMountProbe: {
+				platform: 'linux',
+				deviceOf: () => '0:52',
+				mountinfo: () => {
+					reads += 1;
+					return reads === 3 ? nfs : ''; // the 3rd read: the share-closing lockContext
+				},
+			},
+		});
+		expect(refusalOfSync(() => m.claimWholeComponents('test3', 84, COMPONENTS, 'x')).code).toBe(
+			'media.not_configured',
+		);
+		expect(reads).toBe(3);
+		expectAllGivenBack(m, 84);
+	});
+
+	test('an rmdir failure closing a later share releases the earlier one — its TOMBSTONE taken back', () => {
+		const m = manager('inst-f1-rmdir');
+		const realRmdir = fs.rmdirSync;
+		let earlierTombstoneStood = false;
+		const rmdir = spyOn(fs, 'rmdirSync').mockImplementation(((path: fs.PathLike) => {
+			if (String(path) !== shareDirOf(85, 'test95')) return realRmdir(path);
+			earlierTombstoneStood = statSync(shareDirOf(85, 'test94')).isFile();
+			return eio();
+		}) as typeof fs.rmdirSync);
+		try {
+			expect(() => m.claimWholeComponents('test3', 85, COMPONENTS, 'record_media')).toThrow();
+		} finally {
+			rmdir.mockRestore();
+		}
+		expect(earlierTombstoneStood).toBe(true); // test94's share was closed when test95's failed
+		expectAllGivenBack(m, 85);
+	});
+
+	test('a throw AFTER a tombstone is placed (before its handle is returned) takes that tombstone back', () => {
+		let thrown = false;
+		const m = manager('inst-f1-hook', {
+			lockShareHooks: {
+				afterPublish: (side, key) => {
+					if (side === 'whole' && key.endsWith('test95') && !thrown) {
+						thrown = true;
+						throw new Error('injected after the tombstone');
+					}
+				},
+			},
+		});
+		expect(() => m.claimWholeComponents('test3', 86, COMPONENTS, 'record_media')).toThrow(
+			'injected after the tombstone',
+		);
+		expectAllGivenBack(m, 86);
 	});
 });
 
@@ -1450,8 +1554,14 @@ describe('the holder', () => {
 		mustGet(b.claimTarget(target(25)), 'B after shutdown').release();
 	});
 
-	test('no residue: every lock, heartbeat and mutex this file took is gone', () => {
+	test('no residue: every lock, heartbeat, mutex and tombstone this file took is gone (empty share dirs stay, by design — F3)', () => {
 		const left = existsSync(LOCKS) ? readdirSync(LOCKS) : [];
-		expect(left).toEqual([]);
+		const residue = left.filter((name) => {
+			const path = join(LOCKS, name);
+			const emptyShare =
+				name.endsWith('.langs') && statSync(path).isDirectory() && readdirSync(path).length === 0;
+			return !emptyShare;
+		});
+		expect(residue).toEqual([]);
 	});
 });

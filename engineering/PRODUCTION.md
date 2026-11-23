@@ -1610,8 +1610,9 @@ language that registers while the tombstone stands is answered "not a
 directory" by the server and refuses; the whole hold's release takes its
 tombstone back (only its own), and a crashed holder's tombstone is judged like
 its lock. Whichever reaches the server first wins; two languages never refuse
-each other. A share directory left empty is removed by the last language that
-leaves it.
+each other. A language leaving only removes its own registration — never the
+share directory, so no leave can race another language's registration; an
+empty share directory is harmless and is removed by the next whole hold.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and

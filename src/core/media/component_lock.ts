@@ -113,8 +113,11 @@
  * makes every later registration answer ENOTDIR (or ENOENT → mkdir EEXIST,
  * which repeats and then refuses). Whichever reached the server first wins,
  * the later one is refused — no probe, no wait, nothing to withdraw — and two
- * langs never refuse each other (registrations do not conflict; a dir another
- * lang removed on leaving is made again). Every deciding answer is EEXIST /
+ * langs never refuse each other: registrations do not conflict, and a lang
+ * leaving only unlinks its own registration — it never removes the dir, so no
+ * lang's leave can race another's registration. Only the whole holder removes
+ * the (empty) dir; a registration that meets that removal (ENOENT) makes the
+ * dir again and links once more. Every deciding answer is EEXIST /
  * ENOTEMPTY / ENOTDIR / ENOENT from link, rmdir and mkdir, which NFS executes
  * at the server whatever the mount options (a create or a removal cannot be
  * answered from a client cache: a stale cached dir handle answers ESTALE,
@@ -987,15 +990,16 @@ function clearDeadTombstone(
 }
 
 /**
- * Leave the share: drop our registration, and the dir when it is now empty.
- * NEVER throws — it runs first in a release, and a release must still give the
- * lock back; a registration left behind (logged) is judged dead by the usual
- * rules once its holder's token is gone.
+ * Leave the share: drop our registration — never the dir. An empty share dir
+ * is harmless (the whole holder's own `rmdir` removes it), and a lang that
+ * removed it would race the next lang's registration (final review F3). NEVER
+ * throws — it runs first in a release, and a release must still give the lock
+ * back; a registration left behind (logged) is judged dead by the usual rules
+ * once its holder's token is gone.
  */
 function leaveShare(share: ComponentShare): void {
 	try {
 		unlinkQuiet(share.entry);
-		rmdirShare(share.dir);
 	} catch (error) {
 		console.error(`[media lock] leaving ${share.entry} failed: ${errorText(error)}`);
 	}
@@ -1042,13 +1046,34 @@ export function closeComponentShare(
 			const vacancy = shareVacancy(dir, handle.token, context);
 			if (vacancy === 'busy') return null;
 			if (vacancy === 'vacant' && placeTombstone(handle.path, dir, componentKey, context)) {
-				context.shareHooks?.afterPublish?.('whole', componentKey);
-				sweepOrphans(dir, context);
-				return { ...handle, tombstone: dir };
+				return closedBy(handle, dir, componentKey, context);
 			}
 		}
 		return null;
 	});
+}
+
+/**
+ * The whole holder's handle with its placed tombstone. Anything that throws
+ * after the placement takes the tombstone back (CAS) before propagating — the
+ * caller never received the handle that would remove it.
+ */
+function closedBy(
+	handle: ComponentLockHandle,
+	tombstone: string,
+	componentKey: string,
+	context: ComponentLockContext,
+): ComponentLockHandle {
+	const closed = { ...handle, tombstone };
+	let done = false;
+	try {
+		context.shareHooks?.afterPublish?.('whole', componentKey);
+		sweepOrphans(tombstone, context);
+		done = true;
+	} finally {
+		if (!done) removeTombstone(closed, tombstone);
+	}
+	return closed;
 }
 
 /** Is the share empty AT THE SERVER? 'vacant', 'busy', or 'again' (dead entries / a dead tombstone dropped). */
