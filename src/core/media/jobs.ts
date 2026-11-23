@@ -81,14 +81,17 @@ import {
 	acquireComponentLock,
 	type ComponentLockContext,
 	type ComponentLockHandle,
+	type ComponentShareHooks,
 	componentLockBusy,
 	componentLockIsOurs,
-	componentLockKeysWithPrefix,
+	componentShareVacant,
+	joinComponentShare,
 	refreshComponentLock,
 	relabelComponentLock,
 	releaseComponentLock,
 } from './component_lock.ts';
 import { runWithJobHold, runWithJobSignal } from './job_scope.ts';
+import { assertProcessesMountCoherent, type MountProbe } from './processes_mount.ts';
 import {
 	resolveProcessesDir,
 	TEST_PROCESSES_MARKER,
@@ -432,6 +435,25 @@ function allLangsLockKey(target: JobTarget): string {
 /** Does this target take a cross-process component lock? */
 function takesFileLock(target: JobTarget): boolean {
 	return target.scope === 'component' || target.scope === 'component_all';
+}
+
+/**
+ * A per-lang holder's join of its component's share (component_lock.ts): the
+ * handle with its share, or null — and then its own lock is given back. A
+ * failure is typed and propagates, the lock given back all the same.
+ */
+function joinShareOrRelease(
+	handle: ComponentLockHandle,
+	target: JobTarget,
+	context: ComponentLockContext,
+): ComponentLockHandle | null {
+	let joined: ComponentLockHandle | null = null;
+	try {
+		joined = joinComponentShare(handle, componentKeyBase(target), allLangsLockKey(target), context);
+	} finally {
+		if (joined === null) releaseComponentLock(handle);
+	}
+	return joined;
 }
 
 /** Heartbeat of a held component lock, and the age past which another instance reclaims it. */
@@ -830,6 +852,15 @@ function isStaleLiveRecord(record: JobRecord, pfileMtimeMs: number): boolean {
 }
 
 /**
+ * BOOT: verify the processes dir's mount before anything uses it
+ * (processes_mount.ts — throws a typed `media.not_configured`; server.ts
+ * refuses to start on it).
+ */
+export function verifyProcessesDirMount(probe: MountProbe = {}): void {
+	assertProcessesMountCoherent(processesDir(), probe);
+}
+
+/**
  * Boot sweep (audit S2-15 mandatory reconcile + S3-46 residue GC): flip stale
  * live pfiles to 'interrupted' (console.error each — a crashed transcode must
  * never be silent) and prune terminal pfiles past retention. Idempotent; safe
@@ -908,6 +939,10 @@ export interface MediaJobManagerOptions {
 	lockStaleAfterMs?: number;
 	/** The lock READER's clock for staleness sightings (monotonic by default; gates inject one). */
 	lockClock?: () => number;
+	/** The share protocol's publish→look seam (gates only: the crossed interleavings). */
+	lockShareHooks?: ComponentShareHooks;
+	/** Where the lock door reads the processes dir's mount (the real host by default; gates inject). */
+	lockMountProbe?: MountProbe;
 }
 
 /** What a submit site must declare. `lane` is REQUIRED — see `submit`. */
@@ -1002,6 +1037,10 @@ export class MediaJobManager {
 	/** Jobs whose WORKER has not settled yet (a deadline makes the record terminal first). */
 	private readonly activeWorkers = new Set<string>();
 	private readonly lockClock: (() => number) | undefined;
+	private readonly lockShareHooks: ComponentShareHooks | undefined;
+	private readonly lockMountProbe: MountProbe | undefined;
+	/** The processes dir whose mount this manager verified (re-verified when the dir changes). */
+	private verifiedMountDir: string | null = null;
 	private readonly instance: string;
 	private readonly lockHeartbeatMs: number;
 	private readonly lockStaleAfterMs: number;
@@ -1016,6 +1055,8 @@ export class MediaJobManager {
 		this.lockHeartbeatMs = options.lockHeartbeatMs ?? COMPONENT_LOCK_HEARTBEAT_MS;
 		this.lockStaleAfterMs = options.lockStaleAfterMs ?? COMPONENT_LOCK_STALE_AFTER_MS;
 		this.lockClock = options.lockClock;
+		this.lockShareHooks = options.lockShareHooks;
+		this.lockMountProbe = options.lockMountProbe;
 	}
 
 	/** Allocate a deterministic job id (no Date/Math.random — resume-safe). */
@@ -1158,14 +1199,24 @@ export class MediaJobManager {
 		this.unindexLive(record);
 	}
 
-	/** Where and as whom this manager takes component locks (the SHARED processes dir). */
+	/**
+	 * Where and as whom this manager takes component locks (the SHARED processes
+	 * dir). The dir's MOUNT is verified first (processes_mount.ts): an NFS mount
+	 * that caches lookups or attributes refuses every lock call, typed.
+	 */
 	private lockContext(): ComponentLockContext {
+		const dir = processesDir();
+		if (this.verifiedMountDir !== dir) {
+			assertProcessesMountCoherent(dir, this.lockMountProbe);
+			this.verifiedMountDir = dir;
+		}
 		return {
-			dir: join(processesDir(), 'component_locks'),
+			dir: join(dir, 'component_locks'),
 			instance: this.instance,
 			staleAfterMs: this.lockStaleAfterMs,
 			observations: this.lockObservations,
 			...(this.lockClock === undefined ? {} : { now: this.lockClock }),
+			...(this.lockShareHooks === undefined ? {} : { shareHooks: this.lockShareHooks }),
 		};
 	}
 
@@ -1174,23 +1225,24 @@ export class MediaJobManager {
 	 * in-memory check passed. False when another instance holds the component.
 	 * An unscoped target takes no lock (true).
 	 *
-	 * A per-lang holder then checks the component's ALL-LANGS lock (a record
-	 * delete/restore on another instance): busy → its own lock is given back and
-	 * it refuses. The whole-component side does the mirror check after
-	 * publishing its own lock (claimWholeComponents) — each side publishes BEFORE
-	 * it looks, so of two racing holders at least one sees the other (both may
-	 * refuse; never both proceed).
+	 * A per-lang holder then JOINS its component's share (component_lock.ts
+	 * SHARED COMPONENTS): registers, then probes the whole-component lock by
+	 * `link()` — the server's EEXIST is the answer, never a cached lookup. Held
+	 * whole → its own lock is given back and it refuses. The whole-component
+	 * side does the mirror look (claimWholeComponents → componentShareVacant,
+	 * `rmdir` of the share dir). Each side publishes BEFORE it looks, so of two
+	 * racing holders at least one sees the other (both may refuse; never both
+	 * proceed).
 	 */
 	private takeFileLock(holderId: string, target: JobTarget): boolean {
 		if (!takesFileLock(target)) return true;
 		const context = this.lockContext();
 		const handle = acquireComponentLock(componentLockKey(target), holderId, context);
 		if (handle === null) return false;
-		if (target.scope === 'component' && componentLockBusy(allLangsLockKey(target), context)) {
-			releaseComponentLock(handle);
-			return false;
-		}
-		this.fileLocks.set(holderId, handle);
+		const held =
+			target.scope === 'component' ? joinShareOrRelease(handle, target, context) : handle;
+		if (held === null) return false;
+		this.fileLocks.set(holderId, held);
 		this.armHeartbeat();
 		return true;
 	}
@@ -1392,9 +1444,10 @@ export class MediaJobManager {
 	 * CLAIM WHOLE av components — every lang — of one record (A1-01 review F4):
 	 * the hold a record delete, a data wipe or a Time Machine restore takes over
 	 * the components whose files it moves. One synchronous step: each
-	 * component's all-langs claim (memory, then its all-langs lock file), then
-	 * ONE listing of the record's lock files, after every all-langs lock is
-	 * published, refusing when any lang of any of them is held by another
+	 * component's all-langs claim (memory, then its all-langs lock file), then,
+	 * after every all-langs lock is published, each component's share asked AT
+	 * THE SERVER (componentShareVacant: `rmdir` of its share dir — never a
+	 * listing), refusing when any lang of any of them is held by another
 	 * instance. Null when anything is held; every claim already taken is given
 	 * back. The caller releases the claims (AvRecordHold).
 	 */
@@ -1422,29 +1475,11 @@ export class MediaJobManager {
 			if (claim === null) return giveBack();
 			claims.push(claim);
 		}
-		if (this.anyLangLockBusy(sectionTipo, sectionId, componentTipos)) return giveBack();
-		return claims;
-	}
-
-	/**
-	 * Is any per-lang lock of these components of one record held (by another
-	 * instance — this one's holders were refused in memory)? ONE directory
-	 * listing for the record; the all-langs locks themselves are skipped.
-	 */
-	private anyLangLockBusy(
-		sectionTipo: string,
-		sectionId: number,
-		componentTipos: readonly string[],
-	): boolean {
 		const context = this.lockContext();
-		const wanted = new Set(componentTipos);
-		const prefix = recordKeyPrefix(sectionTipo, sectionId);
-		for (const key of componentLockKeysWithPrefix(context.dir, prefix)) {
-			const [componentTipo = '', lang] = key.slice(prefix.length).split('|');
-			if (lang === ALL_LANGS_LOCK_LANG || !wanted.has(componentTipo)) continue;
-			if (componentLockBusy(key, context)) return true;
+		for (const claim of claims) {
+			if (!componentShareVacant(componentKeyBase(claim.target), context)) return giveBack();
 		}
-		return false;
+		return claims;
 	}
 
 	/** End a held claim (idempotent: an adopted or released claim is a no-op). */

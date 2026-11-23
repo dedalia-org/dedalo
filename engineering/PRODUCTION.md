@@ -1520,9 +1520,29 @@ LOCK FILE in the media processes dir (`DEDALO_MEDIA_PROCESSES_DIR`, default
 `../private/processes`, subdirectory `component_locks/`; `src/core/media/component_lock.ts`).
 So every instance that serves the same media tree MUST point
 `DEDALO_MEDIA_PROCESSES_DIR` at ONE shared directory, on a filesystem with an
-atomic exclusive create and rename (any local filesystem; NFSv3+ for a network
-share). Instances with separate processes dirs see each other's builds as free —
-the guard degrades to per-instance, silently.
+atomic exclusive create, link, rename and rmdir (any local filesystem; NFSv3+
+for a network share — mounted as below). Instances with separate processes dirs
+see each other's builds as free — the guard degrades to per-instance, silently.
+
+**An NFS processes dir must not cache.** Mount it
+`lookupcache=none,actimeo=0` (or `lookupcache=none,noac`), and never `nocto`:
+
+```
+fs.example:/export/dedalo_processes  /var/lib/dedalo/processes  nfs4  rw,soft,timeo=50,retrans=2,lookupcache=none,actimeo=0  0 0
+```
+
+Who holds a component is decided by the server's own answer to a create or a
+removal, which no client cache can fake; but judging whether a holder is DEAD
+reads its lock and heartbeat, and a client that caches lookups or attributes
+can serve a stale heartbeat (or none) for up to a minute and take a live
+holder's lock. On Linux the instance VERIFIES the mount (`/proc/self/mountinfo`,
+the mount holding the dir's real path): an `nfs`/`nfs4` mount without
+`lookupcache=none`, without `noac` or all four attribute-cache times at 0
+(`actimeo=0` shows as `acregmin=0,acregmax=0,acdirmin=0,acdirmax=0`), or with
+`nocto` makes the boot refuse (`FATAL: the media processes dir … is on nfs4 at
+…, mounted without the coherence the component locks need: …`), and every lock
+call refuses with `media.not_configured` naming the same. Other platforms are
+not verified (macOS is a development platform); the requirement stands.
 
 Each hold is two files: the immutable `<key>.lock` (host + boot/pid-namespace
 id, pid, instance, token, start — published with an atomic `link()`) and the
@@ -1571,7 +1591,15 @@ A record delete, a data wipe or a Time Machine undelete holds each av
 component of the record WHOLE — every language — through one more lock per
 component, `<section>|<id>|<component>|*`: taken, it refuses while any
 language's lock of that component is live, and every per-language build or
-upload refuses while it is held.
+upload refuses while it is held. Builds of different languages of one component
+run side by side: each also REGISTERS in the component's share directory
+(`component_locks/<section>~7c<id>~7c<component>.langs/`, a hard link of its
+lock), then tries to `link()` its lock onto the whole-component name — EEXIST
+means a whole hold stands there and it refuses. The whole hold, once its lock is
+published, removes the share directory: it can only remove an EMPTY one, so a
+registered language refuses it (dead registrations are dropped by the same
+rules as dead locks). A share directory left empty is removed by the last
+language that leaves it.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and

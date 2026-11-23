@@ -1,0 +1,214 @@
+/**
+ * THE PROCESSES DIR'S MOUNT IS VERIFIED (A1-01 third review N1b) —
+ * src/core/media/processes_mount.ts.
+ *
+ * The component locks decide exclusion by the server's answer to a mutation;
+ * their STALENESS judgement still reads through the client cache. So on Linux
+ * an NFS processes dir must be mounted lookupcache=none + actimeo=0/noac, and
+ * not nocto — or the lock door (and the boot) refuse, typed. Gated here:
+ *  - mountinfo parsing on real-format lines (escaped mount points, per-mount +
+ *    superblock options), the mount that holds a path (longest whole-segment
+ *    prefix, the last of stacked equals);
+ *  - the verdict: every missing option named, a local filesystem never judged;
+ *  - the door: a manager on an incoherent mount refuses every component claim
+ *    with `media.not_configured` and writes no lock; on a coherent one it
+ *    claims, and verifies once per dir; the boot entry throws the same; off
+ *    Linux nothing is verified.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { existsSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+	type JobTarget,
+	MediaJobManager,
+	verifyProcessesDirMount,
+} from '../../src/core/media/jobs.ts';
+import {
+	assertProcessesMountCoherent,
+	type MountEntry,
+	mountOf,
+	nfsCoherenceProblems,
+	parseMountInfo,
+	readMountTable,
+} from '../../src/core/media/processes_mount.ts';
+import { mustGet } from '../helpers/assert.ts';
+import { markProcessesDir } from '../helpers/media_scratch_root.ts';
+import { refusalOfSync } from '../helpers/refusal.ts';
+import { scratchDir } from '../helpers/scratch_dir.ts';
+
+const ROOT = scratchDir('media_processes_mount');
+const PROCESSES = join(ROOT, 'processes');
+const LOCKS = join(PROCESSES, 'component_locks');
+const previousProcessesDir = process.env.DEDALO_MEDIA_PROCESSES_DIR;
+
+const ROOT_EXT4 = '29 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw,errors=remount-ro';
+/** An nfs4 mount as `mount -t nfs4 fs:/export /srv/media` leaves it: every cache on. */
+const NFS_DEFAULTS =
+	'rw,vers=4.2,rsize=1048576,wsize=1048576,namlen=255,hard,proto=tcp,timeo=600,retrans=2,sec=sys,clientaddr=10.0.0.5,local_lock=none,addr=10.0.0.9';
+/** The same share mounted as §8.1 asks: lookupcache=none + actimeo=0 (shown as the four times). */
+const NFS_COHERENT =
+	'rw,vers=4.2,rsize=1048576,wsize=1048576,namlen=255,acregmin=0,acregmax=0,acdirmin=0,acdirmax=0,soft,proto=tcp,timeo=50,retrans=2,sec=sys,clientaddr=10.0.0.5,lookupcache=none,local_lock=none,addr=10.0.0.9';
+const nfsLine = (mountPoint: string, superOptions: string, fsType = 'nfs4', id = 120): string =>
+	`${id} 29 0:52 / ${mountPoint} rw,relatime shared:60 - ${fsType} fs.example:/export ${superOptions}`;
+const entry = (fsType: string, options: string): MountEntry => ({
+	mountPoint: '/srv/media',
+	fsType,
+	options: options.split(','),
+});
+
+const target = (sectionId: number): JobTarget => ({
+	section_tipo: 'test3',
+	section_id: sectionId,
+	component_tipo: 'test94',
+	lang: null,
+	quality: '404',
+	scope: 'component',
+});
+
+/** A mountinfo where the processes dir's real path sits on one mount of `superOptions`. */
+const mountinfoOver = (superOptions: string): string =>
+	[ROOT_EXT4, nfsLine(realpathSync(PROCESSES), superOptions)].join('\n');
+
+beforeAll(() => {
+	rmSync(ROOT, { recursive: true, force: true });
+	process.env.DEDALO_MEDIA_PROCESSES_DIR = markProcessesDir(PROCESSES);
+});
+
+afterAll(() => {
+	if (previousProcessesDir === undefined)
+		Reflect.deleteProperty(process.env, 'DEDALO_MEDIA_PROCESSES_DIR');
+	else process.env.DEDALO_MEDIA_PROCESSES_DIR = previousProcessesDir;
+	rmSync(ROOT, { recursive: true, force: true });
+});
+
+describe('mountinfo: which mount holds the processes dir', () => {
+	test('a real-format line: mount point unescaped, per-mount AND superblock options', () => {
+		const [root, share] = parseMountInfo(
+			`${ROOT_EXT4}\n${nfsLine('/srv/dedalo\\040media', 'rw,lookupcache=none')}\n`,
+		);
+		expect(root?.fsType).toBe('ext4');
+		expect(share).toEqual({
+			mountPoint: '/srv/dedalo media',
+			fsType: 'nfs4',
+			options: ['rw', 'relatime', 'rw', 'lookupcache=none'], // optional fields (shared:60) are not options
+		});
+	});
+
+	test('the longest whole-segment prefix wins; a sibling sharing a prefix does not; the last of stacked equals wins', () => {
+		const mounts = parseMountInfo(
+			[
+				ROOT_EXT4,
+				nfsLine('/srv/med', NFS_DEFAULTS, 'nfs4', 121),
+				nfsLine('/srv/media', NFS_DEFAULTS, 'nfs4', 122),
+				nfsLine('/srv/media', NFS_COHERENT, 'nfs4', 123),
+			].join('\n'),
+		);
+		expect(mountOf('/srv/media/processes', mounts)?.options).toContain('lookupcache=none');
+		expect(mountOf('/srv/media', mounts)?.options).toContain('lookupcache=none');
+		expect(mountOf('/srv/medium/processes', mounts)?.fsType).toBe('ext4');
+		expect(mountOf('/var/lib/dedalo', mounts)?.fsType).toBe('ext4');
+	});
+});
+
+describe('the verdict', () => {
+	test('a default NFS mount: lookups and attributes cached — both named', () => {
+		expect(nfsCoherenceProblems(entry('nfs', NFS_DEFAULTS))).toHaveLength(2); // NFSv3 too
+		const problems = nfsCoherenceProblems(entry('nfs4', NFS_DEFAULTS));
+		expect(problems).toHaveLength(2);
+		expect(problems.join(' ')).toContain('lookupcache=none');
+		expect(problems.join(' ')).toContain('actimeo=0');
+	});
+
+	test('lookupcache=none + actimeo=0 (the four times at 0) or noac: coherent, on nfs and nfs4', () => {
+		expect(nfsCoherenceProblems(entry('nfs4', NFS_COHERENT))).toEqual([]);
+		expect(nfsCoherenceProblems(entry('nfs', NFS_COHERENT))).toEqual([]);
+		expect(nfsCoherenceProblems(entry('nfs4', 'rw,noac,lookupcache=none'))).toEqual([]);
+	});
+
+	test('one attribute time left cached is still cached', () => {
+		const partial = 'rw,lookupcache=none,acregmin=0,acregmax=0,acdirmin=0,acdirmax=60';
+		expect(nfsCoherenceProblems(entry('nfs4', partial))).toEqual([
+			'attributes are cached (set actimeo=0 or noac)',
+		]);
+	});
+
+	test('lookupcache=pos is not none; nocto is refused even with every cache off', () => {
+		expect(nfsCoherenceProblems(entry('nfs4', 'rw,noac,lookupcache=pos'))).toHaveLength(1);
+		expect(nfsCoherenceProblems(entry('nfs4', `${NFS_COHERENT},nocto`))).toEqual([
+			'nocto is set (close-to-open consistency is required)',
+		]);
+	});
+
+	test('a filesystem that is not NFS is never judged', () => {
+		expect(nfsCoherenceProblems(entry('ext4', 'rw'))).toEqual([]);
+		expect(nfsCoherenceProblems(entry('xfs', 'rw,noatime'))).toEqual([]);
+	});
+});
+
+describe('the door and the boot refuse an incoherent mount, typed', () => {
+	test('the lock door: every component claim refuses with media.not_configured and writes no lock', () => {
+		const m = new MediaJobManager({
+			instanceId: 'mount-bad',
+			lockHeartbeatMs: 0,
+			lockMountProbe: { platform: 'linux', mountinfo: () => mountinfoOver(NFS_DEFAULTS) },
+		});
+		const refusal = refusalOfSync(() => m.claimTarget(target(1)));
+		expect(refusal.code).toBe('media.not_configured');
+		expect(refusal.message).toContain('lookupcache=none');
+		expect(existsSync(LOCKS) ? readdirSync(LOCKS) : []).toEqual([]);
+		// Not verified once and forgotten: the next call (a whole claim) refuses too.
+		expect(refusalOfSync(() => m.claimWholeComponents('test3', 2, ['test94'], 'x')).code).toBe(
+			'media.not_configured',
+		);
+		expect(existsSync(LOCKS) ? readdirSync(LOCKS) : []).toEqual([]);
+	});
+
+	test('on a coherent mount the door claims — and reads the mount ONCE per dir', () => {
+		let reads = 0;
+		const m = new MediaJobManager({
+			instanceId: 'mount-good',
+			lockHeartbeatMs: 0,
+			lockMountProbe: {
+				platform: 'linux',
+				mountinfo: () => {
+					reads += 1;
+					return mountinfoOver(NFS_COHERENT);
+				},
+			},
+		});
+		mustGet(m.claimTarget(target(3)), 'first').release();
+		mustGet(m.claimTarget(target(4)), 'second').release();
+		expect(reads).toBe(1);
+	});
+
+	test('the boot entry throws the same typed refusal; off Linux nothing is verified', () => {
+		const bad = { mountinfo: () => mountinfoOver(NFS_DEFAULTS) };
+		expect(refusalOfSync(() => verifyProcessesDirMount({ platform: 'linux', ...bad })).code).toBe(
+			'media.not_configured',
+		);
+		expect(() => verifyProcessesDirMount({ platform: 'darwin', ...bad })).not.toThrow();
+		expect(() =>
+			assertProcessesMountCoherent(PROCESSES, { platform: 'linux', mountinfo: () => ROOT_EXT4 }),
+		).not.toThrow();
+	});
+
+	test('the mount table is read with a CEILING: past it, or unopenable, the mount is refused typed — never trusted', () => {
+		const table = join(ROOT, 'mountinfo');
+		writeFileSync(table, `${ROOT_EXT4}\n`);
+		expect(readMountTable(table, 4096)).toBe(`${ROOT_EXT4}\n`);
+		const over = refusalOfSync(() => readMountTable(table, 16));
+		expect(over.code).toBe('media.not_configured');
+		expect(over.message).toContain('larger than 16 bytes');
+		expect(refusalOfSync(() => readMountTable(join(ROOT, 'absent'))).code).toBe(
+			'media.not_configured',
+		);
+	});
+
+	test.skipIf(!existsSync('/proc/self/mountinfo'))(
+		'on a host with /proc the REAL table is read and judged (this host: Linux)',
+		() => {
+			expect(parseMountInfo(readMountTable()).length).toBeGreaterThan(0);
+		},
+	);
+});

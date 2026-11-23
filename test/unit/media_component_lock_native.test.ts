@@ -56,10 +56,12 @@ import { persistTranscodedOrReport } from '../../src/core/media/av_versions.ts';
 import {
 	acquireComponentLock,
 	type ComponentLockContext,
+	type ComponentShareHooks,
 	componentLockBusy,
 	componentLockFileName,
 	componentLockHolder,
 	componentLockIsOurs,
+	componentShareDir,
 	HOST_ID,
 	heartbeatPath,
 	refreshComponentLock,
@@ -113,7 +115,12 @@ function clock(start = 1_000_000) {
 
 const manager = (
 	instanceId: string,
-	extra: { lockStaleAfterMs?: number; lockClock?: () => number; deadlineMs?: number } = {},
+	extra: {
+		lockStaleAfterMs?: number;
+		lockClock?: () => number;
+		deadlineMs?: number;
+		lockShareHooks?: ComponentShareHooks;
+	} = {},
 ) =>
 	new MediaJobManager({
 		budgets: { media: 2, maintenance: 2 },
@@ -121,6 +128,7 @@ const manager = (
 		lockHeartbeatMs: 0,
 		lockStaleAfterMs: extra.lockStaleAfterMs ?? BOUND,
 		...(extra.lockClock === undefined ? {} : { lockClock: extra.lockClock }),
+		...(extra.lockShareHooks === undefined ? {} : { lockShareHooks: extra.lockShareHooks }),
 		...(extra.deadlineMs === undefined ? {} : { deadlinesMs: { media: extra.deadlineMs } }),
 	});
 
@@ -752,24 +760,26 @@ describe('host identity', () => {
 		}
 	});
 
-	test('the boot part does not depend on PATH: a launchd PATH (/usr/bin:/bin, no /usr/sbin) gives the same identity (N2)', () => {
-		if (process.platform !== 'darwin') return; // the sysctl path is the darwin leg
-		const probe = Bun.spawnSync(
-			[
-				process.execPath,
-				'-e',
-				"const m = await import('./src/core/media/component_lock.ts'); console.log(m.HOST_ID)",
-			],
-			{
-				cwd: join(import.meta.dir, '..', '..'),
-				env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '' },
-				stdout: 'pipe',
-				stderr: 'pipe',
-			},
-		);
-		expect(probe.stdout.toString().trim()).toBe(HOST_ID);
-		expect(probe.stderr.toString()).not.toContain('did not answer');
-	});
+	test.skipIf(process.platform !== 'darwin')(
+		'the boot part does not depend on PATH: a launchd PATH (/usr/bin:/bin, no /usr/sbin) gives the same identity (N2 — darwin only: the sysctl leg)',
+		() => {
+			const probe = Bun.spawnSync(
+				[
+					process.execPath,
+					'-e',
+					"const m = await import('./src/core/media/component_lock.ts'); console.log(m.HOST_ID)",
+				],
+				{
+					cwd: join(import.meta.dir, '..', '..'),
+					env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '' },
+					stdout: 'pipe',
+					stderr: 'pipe',
+				},
+			);
+			expect(probe.stdout.toString().trim()).toBe(HOST_ID);
+			expect(probe.stderr.toString()).not.toContain('did not answer');
+		},
+	);
 });
 
 /** A per-lang component target of record `sectionId`. */
@@ -952,6 +962,243 @@ describe('whole-component claims: every lang (F4)', () => {
 	});
 });
 
+/** The component key (section|id|component) and the whole-component lock path of record `sectionId`. */
+const componentKey = (sectionId: number, component = 'test94'): string =>
+	['test3', sectionId, component].join('|');
+const wholePath = (sectionId: number, component = 'test94'): string =>
+	join(LOCKS, componentLockFileName(`${componentKey(sectionId, component)}|*`));
+const shareDirOf = (sectionId: number, component = 'test94'): string =>
+	componentShareDir(LOCKS, componentKey(sectionId, component));
+const shareEntries = (sectionId: number): string[] =>
+	existsSync(shareDirOf(sectionId)) ? readdirSync(shareDirOf(sectionId)) : [];
+
+/**
+ * Run `fn` with the reader's view of the locks dir STALE the way an NFS client
+ * cache can be (`lookupcache=all`: a cached negative dentry, a cached listing):
+ * every existence check under it answers "absent", every listing "empty".
+ * Mutating calls (link, rmdir, mkdir, rename) still reach the filesystem — the
+ * server. A look that decides by lookup or listing is fooled; one that decides
+ * by the server's answer to a mutation is not.
+ */
+function withStaleClientView<T>(fn: () => T): T {
+	const realExists = fs.existsSync;
+	const realList = fs.readdirSync;
+	const exists = spyOn(fs, 'existsSync').mockImplementation((path) =>
+		String(path).startsWith(LOCKS) ? false : realExists(path),
+	);
+	const list = spyOn(fs, 'readdirSync').mockImplementation(((path: fs.PathLike, options?: never) =>
+		String(path).startsWith(LOCKS) ? [] : realList(path, options)) as typeof fs.readdirSync);
+	try {
+		return fn();
+	} finally {
+		exists.mockRestore();
+		list.mockRestore();
+	}
+}
+
+describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cached one (N1)', () => {
+	test('crossed, per-lang first: the whole claim that crosses in between its publish and its look is refused — never both', () => {
+		const b = manager('inst-b');
+		let whole: ReturnType<MediaJobManager['claimWholeComponents']> | 'not crossed' = 'not crossed';
+		const a = manager('inst-a', {
+			lockShareHooks: {
+				afterPublish: (side) => {
+					if (side === 'lang' && whole === 'not crossed') {
+						whole = b.claimWholeComponents('test3', 70, ['test94'], 'record_media');
+					}
+				},
+			},
+		});
+		const lang = a.claimTarget(langTarget(70, 'lg-fra'));
+		expect(whole).toBeNull(); // B published, looked, met A's registration
+		expect(existsSync(wholePath(70))).toBe(false); // and gave its lock back
+		const held = mustGet(lang, 'A proceeds: the whole lock was gone when it probed');
+		expect(existsSync(wholePath(70))).toBe(false); // A's probe withdrawn
+		expect(shareEntries(70)).toHaveLength(1); // A's registration stands while it holds
+		held.release();
+		expect(existsSync(shareDirOf(70))).toBe(false); // released: registration and dir gone
+	});
+
+	test('crossed, whole first: the per-lang claim that crosses in between its publish and its look is refused — never both', () => {
+		const a = manager('inst-a');
+		let lang: ReturnType<MediaJobManager['claimTarget']> | 'not crossed' = 'not crossed';
+		let entriesAfterRefusal: string[] = ['not crossed'];
+		const b = manager('inst-b', {
+			lockShareHooks: {
+				afterPublish: (side) => {
+					if (side === 'whole' && lang === 'not crossed') {
+						lang = a.claimTarget(langTarget(71, 'lg-fra'));
+						entriesAfterRefusal = shareEntries(71);
+					}
+				},
+			},
+		});
+		const whole = b.claimWholeComponents('test3', 71, ['test94'], 'record_media');
+		expect(lang).toBeNull(); // A published + registered, probed: EEXIST
+		expect(entriesAfterRefusal).toEqual([]); // and withdrew its registration
+		const claims = mustGet(whole, 'B proceeds: the share was empty when it looked');
+		for (const claim of claims) claim.release();
+	});
+
+	test('a STALE client view (cached negative dentry / listing) never lets the whole claim past a held lang', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		const lang = mustGet(a.claimTarget(langTarget(72, 'lg-fra')), 'A lang');
+		expect(
+			withStaleClientView(() => b.claimWholeComponents('test3', 72, ['test94'], 'record_media')),
+		).toBeNull();
+		lang.release();
+	});
+
+	test('a STALE client view never lets a lang past a held whole claim', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		const claims = mustGet(b.claimWholeComponents('test3', 73, ['test94'], 'record_media'), 'B');
+		expect(withStaleClientView(() => a.claimTarget(langTarget(73, 'lg-fra')))).toBeNull();
+		expect(shareEntries(73)).toEqual([]);
+		for (const claim of claims) claim.release();
+	});
+
+	test('different langs of one component share it: held on two instances at once', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		const fra = mustGet(a.claimTarget(langTarget(74, 'lg-fra')), 'fra');
+		const eng = mustGet(b.claimTarget(langTarget(74, 'lg-eng')), 'eng');
+		expect(shareEntries(74)).toHaveLength(2);
+		expect(a.claimWholeComponents('test3', 74, ['test94'], 'record_media')).toBeNull();
+		fra.release();
+		eng.release();
+		expect(existsSync(shareDirOf(74))).toBe(false);
+	});
+
+	test('a DEAD registration (its holder died without leaving) is dropped by the whole claim; a live one is not', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		mkdirSync(shareDirOf(75), { recursive: true });
+		// A dead holder on this machine: its registration is a link of its lock.
+		const dead = join(ROOT, 'dead_lock');
+		writeFileSync(
+			dead,
+			JSON.stringify({
+				key: `${componentKey(75)}|lg-deu`,
+				host: HOST_ID,
+				pid: deadPid(),
+				instance: 'gone',
+				token: 'dead-token',
+				started_at: 0,
+			}),
+		);
+		fs.linkSync(dead, join(shareDirOf(75), 'dead.lock.dead-token'));
+		rmSync(dead);
+		const claims = mustGet(
+			quietErrors(() => b.claimWholeComponents('test3', 75, ['test94'], 'record_media')),
+			'B past the dead registration',
+		);
+		expect(existsSync(shareDirOf(75))).toBe(false);
+		for (const claim of claims) claim.release();
+		// A LIVE holder's registration is never dropped.
+		const lang = mustGet(a.claimTarget(langTarget(75, 'lg-fra')), 'A lang');
+		expect(b.claimWholeComponents('test3', 75, ['test94'], 'record_media')).toBeNull();
+		lang.release();
+	});
+
+	test('a DEAD whole-component lock does not block a lang: reclaimed, then the probe passes', () => {
+		const a = manager('inst-a');
+		writeFileSync(
+			wholePath(76),
+			JSON.stringify({
+				key: `${componentKey(76)}|*`,
+				host: HOST_ID,
+				pid: deadPid(),
+				instance: 'gone',
+				token: 'dead-whole',
+				started_at: 0,
+			}),
+		);
+		const lang = mustGet(
+			quietErrors(() => a.claimTarget(langTarget(76, 'lg-fra'))),
+			'A past the dead whole lock',
+		);
+		expect(existsSync(wholePath(76))).toBe(false);
+		lang.release();
+	});
+
+	test("a registration's sightings are its OWN: judging that lang's current lock never restarts its count", () => {
+		const tick = clock();
+		const b = manager('inst-b', { lockClock: tick.now });
+		const key = `${componentKey(78)}|lg-fra`;
+		const langLock = join(LOCKS, componentLockFileName(key));
+		// The lang is held NOW by a live far holder (token T2) …
+		writeFileSync(langLock, JSON.stringify({ key, ...FAR, token: 'T2', started_at: 0 }));
+		writeFileSync(heartbeatPath(langLock, 'T2'), JSON.stringify({ beat: 0, holder: 'x' }));
+		// … and an OLD registration of that lang (token T1, its heartbeat long gone) was left behind.
+		mkdirSync(shareDirOf(78), { recursive: true });
+		writeFileSync(
+			join(shareDirOf(78), 'old.lock.T1'),
+			JSON.stringify({ key, ...FAR, token: 'T1', started_at: 0 }),
+		);
+		expect(b.claimWholeComponents('test3', 78, ['test94'], 'record_media')).toBeNull(); // first sighting
+		tick.advance(BOUND / 2 + 1);
+		expect(b.claimTarget(langTarget(78, 'lg-fra'))).toBeNull(); // judges the LOCK (T2, live)
+		tick.advance(BOUND / 2 + 1);
+		const claims = mustGet(
+			quietErrors(() => b.claimWholeComponents('test3', 78, ['test94'], 'record_media')),
+			'the old registration, unchanged for the bound, is dropped',
+		);
+		for (const claim of claims) claim.release();
+		rmSync(langLock);
+		rmSync(heartbeatPath(langLock, 'T2'));
+	});
+
+	test('a release whose share cannot be left still gives the LOCK back (logged)', () => {
+		const a = manager('inst-a');
+		const b = manager('inst-b');
+		const lang = mustGet(a.claimTarget(langTarget(79, 'lg-fra')), 'A lang');
+		chmodSync(shareDirOf(79), 0o500); // the registration cannot be unlinked
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			lang.release();
+			expect(errors.mock.calls.flat().join(' ')).toContain('leaving');
+		} finally {
+			errors.mockRestore();
+			chmodSync(shareDirOf(79), 0o750);
+		}
+		expect(existsSync(join(LOCKS, componentLockFileName(`${componentKey(79)}|lg-fra`)))).toBe(
+			false,
+		); // the lock itself went
+		const again = mustGet(b.claimTarget(langTarget(79, 'lg-fra')), 'the lang is free');
+		again.release();
+		// The registration left behind is dead (its token is gone): the whole claim drops it.
+		const claims = mustGet(
+			quietErrors(() => b.claimWholeComponents('test3', 79, ['test94'], 'record_media')),
+			'whole after the leftover is judged dead',
+		);
+		for (const claim of claims) claim.release();
+	});
+
+	test("another lang's in-flight PROBE at the whole name is waited out, not taken for a whole claim", () => {
+		const a = manager('inst-a');
+		// A live far per-lang holder's probe: a link of ITS lock (another key) at the whole name.
+		writeFileSync(
+			wholePath(77),
+			JSON.stringify({ key: `${componentKey(77)}|lg-eng`, ...FAR, token: 'probe', started_at: 0 }),
+		);
+		writeFileSync(heartbeatPath(wholePath(77), 'probe'), JSON.stringify({ beat: 0, holder: 'x' }));
+		// It is withdrawn while A waits (the wait is the only point A yields).
+		const wait = spyOn(Bun, 'sleepSync').mockImplementation(() => {
+			rmSync(wholePath(77), { force: true });
+		});
+		try {
+			const lang = mustGet(a.claimTarget(langTarget(77, 'lg-fra')), 'A after the probe left');
+			expect(wait).toHaveBeenCalledTimes(1);
+			lang.release();
+		} finally {
+			wait.mockRestore();
+			rmSync(heartbeatPath(wholePath(77), 'probe'), { force: true });
+		}
+	});
+});
+
 describe('the holder', () => {
 	test('a manual tick beats the heartbeat (no wall-clock wait)', () => {
 		const a = manager('inst-a');
@@ -983,6 +1230,7 @@ describe('the holder', () => {
 		expect(lockOwner(21).token).toBe('thief'); // the new owner's lock untouched
 		expect(beatOf(21, 'thief')).toBe(0);
 		expect(existsSync(heartbeatPath(lockPath(21), token))).toBe(false); // our beat abandoned
+		expect(shareEntries(21)).toEqual([]); // and our share registration withdrawn
 		unplant(21, 'thief');
 	});
 
@@ -1026,20 +1274,20 @@ describe('the holder', () => {
 		const media = markMediaRoot(join(ROOT, 'media'));
 		const dir = join(media, 'av', '404');
 		mkdirSync(dir, { recursive: true });
-		const file = join(dir, 'test94_test3_25.mp4');
+		const file = join(dir, 'test94_test3_26.mp4');
 		writeFileSync(file, 'the tier');
 		const a = manager('inst-a');
 		let moved: unknown = 'not reached';
-		const job = liveJob(a, target(25), undefined, async () => {
+		const job = liveJob(a, target(26), undefined, async () => {
 			moved = moveToDeleted(file, { mediaRoot: media });
 		});
-		rmSync(lockPath(25));
-		plant(25, { ...FAR, token: 'thief' }, 0);
+		rmSync(lockPath(26));
+		plant(26, { ...FAR, token: 'thief' }, 0);
 		job.finish();
 		expect(await quietErrors(() => settled(a, job.id))).toBe('error');
 		expect(moved).toBe('not reached');
-		expect(readdirSync(dir)).toEqual(['test94_test3_25.mp4']); // not even deleted/ made
-		unplant(25, 'thief');
+		expect(readdirSync(dir)).toEqual(['test94_test3_26.mp4']); // not even deleted/ made
+		unplant(26, 'thief');
 		// The same door outside a held job moves (the check is the hold's, not the door's).
 		expect(moveToDeleted(file, { mediaRoot: media })).not.toBeNull();
 		expect(existsSync(file)).toBe(false);

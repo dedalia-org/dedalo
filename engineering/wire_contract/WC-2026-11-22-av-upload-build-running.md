@@ -239,3 +239,30 @@
   `media_component_lock_native` (+2: launchd-PATH identity; a stolen hold moves
   nothing to deleted/), `media_encode_integrity_native` (+1: a conform whose
   hold is lost after the relocation renames nothing).
+- **Addendum 2026-11-23 (third review N1, the any-lang ↔ all-langs look):** both
+  looks are now the SERVER's answer to a mutation, never a lookup or a listing
+  (an NFS client with `lookupcache=all` could trust a cached negative dentry /
+  listing on both sides and let a delete and a build proceed together). A
+  per-lang holder, after publishing its lock, REGISTERS (hard link of its lock
+  in `component_locks/<s|id|c>.langs/`, named lock + token) and PROBES the
+  whole-component name with `link(own lock, s|id|c|*)` — EEXIST refuses (a dead
+  whole lock is reclaimed first; another lang's in-flight probe is waited out
+  2 ms × 3); linked, the probe is withdrawn by CAS. The whole holder, after
+  publishing, `rmdir`s the share dir — removed/absent = vacant; ENOTEMPTY →
+  registrations judged (pid / heartbeat rules, sighted under their own name),
+  dead ones dropped, asked again; a live one refuses. `componentLockKeysWithPrefix`
+  and the record listing are gone. Staleness still reads through the client
+  cache, so the MOUNT is verified (`src/core/media/processes_mount.ts`): on Linux
+  an `nfs`/`nfs4` processes dir without `lookupcache=none`, without `noac` or all
+  four `ac*=0`, or with `nocto` refuses the boot (FATAL) and every lock call
+  (`media.not_configured`). Wire: a new refusal code on the lock door
+  (`media.not_configured`, operator disclosure) — only on such a mount. Gates:
+  `media_component_lock_native` (+10: crossed lang-first / whole-first via the
+  `lockShareHooks.afterPublish` seam; a STALE client view — every lookup absent,
+  every listing empty — refused both ways; langs share; dead vs live
+  registration; dead whole lock reclaimed by a lang; probe collision waited out;
+  a registration's own sightings; a release whose share cannot be left still
+  gives the lock back; and the lost-hold gate now asserts its registration
+  withdrawn), `media_processes_mount_native` (new, 12 — the mount table is read
+  through `readBoundedSync` with a 4 MiB ceiling; past it or unopenable, the
+  mount is refused typed, never trusted).
