@@ -386,7 +386,7 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 	});
 
 	it('a shielded tag (span / sup) round-trips as the same tag; the model never sees markup', async () => {
-		const source = '<p>The <span style="color:red" data-x="1">white</span> whale<sup>2</sup> swims.</p>';
+		const source = '<p>The <span style="letter-spacing:1px" data-x="1">white</span> whale<sup>2</sup> swims.</p>';
 		const sent = [];
 		window.Worker = make_fake_worker({
 			translate: async (text) => {
@@ -404,13 +404,13 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.isNull(run.rejected);
 		assert.equal(
 			saved_value(run.saves),
-			'<p>La <span style="color:red" data-x="1">blanca</span> ballena<sup>2</sup> nada.</p>',
+			'<p>La <span style="letter-spacing:1px" data-x="1">blanca</span> ballena<sup>2</sup> nada.</p>',
 		);
 		assert.notMatch(sent.join(' '), /<|>|style/, 'no markup reaches the model');
 	});
 
 	it('a shielded tag pair the model REVERSED is put back in order and reported', async () => {
-		const source = '<p>The <span style="color:red">white</span> whale swims.</p>';
+		const source = '<p>The <span style="letter-spacing:1px">white</span> whale swims.</p>';
 		window.Worker = make_fake_worker({
 			translate: async () => 'La ballena [[[2]]]blanca[[[1]]] nada.',
 		});
@@ -418,7 +418,7 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		const run = await run_translation({ source });
 
 		assert.isNull(run.rejected);
-		assert.equal(saved_value(run.saves), '<p>La ballena <span style="color:red">blanca</span> nada.</p>');
+		assert.equal(saved_value(run.saves), '<p>La ballena <span style="letter-spacing:1px">blanca</span> nada.</p>');
 		assert.include(run.status_text, '1 linked marks were reversed by the translation and reordered');
 	});
 
@@ -1104,7 +1104,7 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 			],
 		});
 
-		const run = await run_translation({ source: '<p>The <span style="color:red">whale</span> swims.</p>' });
+		const run = await run_translation({ source: '<p>The <span style="letter-spacing:1px">whale</span> swims.</p>' });
 
 		assert.deepEqual(refusal_problems(run, 'Translation needs review before saving', '1 invalid markers were removed'), []);
 	});

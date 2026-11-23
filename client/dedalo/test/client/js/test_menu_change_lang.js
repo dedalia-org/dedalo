@@ -3,144 +3,162 @@
 /*eslint no-undef: "error"*/
 
 /**
-* MENU LANGUAGE SELECTORS — the data-language options and the refusal path
-* (T2 rulings re-review item 2; WC-2026-11-22-change-lang-declared-data-lang).
-*
-* 1. The DATA-language selector offers EXACTLY the server's `dedalo_data_langs`
-*    (the set change_lang accepts: the installation's data languages, never the
-*    lg-nolan storage slot). Before, it was built from the INTERFACE languages —
-*    on the suite installation a different set (8 interface vs 12 data
-*    languages), so it hid data languages the server accepts.
-* 2. change_lang does NOT reload the page when the server REFUSES (ok:false):
-*    the refusal is published as 'api_error' (the error policy renders it) and a
-*    reload would wipe it before anyone read it. A stored change still reloads.
-* 3. A REFUSED change publishes NO 'change_lang' event (sections drop their
-*    caches on it — nothing is stale after a refusal) and sets the selector
-*    back to the session's value; a stored change publishes it once (T2 chain
-*    review).
-*
-* Against the SUITE server (real page_globals, real change_lang). Nothing is
-* stored: the refused value is refused, the accepted one is the session's
-* current data language (a no-op write).
-*/
+ * MENU LANGUAGE SELECTORS — the data-language options and the refusal path
+ * (T2 rulings re-review item 2; WC-2026-11-22-change-lang-declared-data-lang).
+ *
+ * 1. The DATA-language selector offers EXACTLY the server's `dedalo_data_langs`
+ *    (the set change_lang accepts: the installation's data languages, never the
+ *    lg-nolan storage slot). Before, it was built from the INTERFACE languages —
+ *    on the suite installation a different set (8 interface vs 12 data
+ *    languages), so it hid data languages the server accepts.
+ * 2. change_lang does NOT reload the page when the server REFUSES (ok:false):
+ *    the refusal is published as 'api_error' (the error policy renders it) and a
+ *    reload would wipe it before anyone read it. A stored change still reloads.
+ * 3. A REFUSED change publishes NO 'change_lang' event (sections drop their
+ *    caches on it — nothing is stale after a refusal) and sets the selector
+ *    back to the session's value; a stored change publishes it once (T2 chain
+ *    review).
+ *
+ * Against the SUITE server (real page_globals, real change_lang). Nothing is
+ * stored: the refused value is refused, the accepted one is the session's
+ * current data language (a no-op write).
+ */
 
-import {event_manager} from '../../../core/common/js/event_manager.js'
-import {menu} from '../../../core/menu/js/menu.js'
-import {change_lang, data_lang_options} from '../../../core/menu/js/view_default_edit_menu.js'
+import { event_manager } from '../../../core/common/js/event_manager.js';
+import { menu } from '../../../core/menu/js/menu.js';
+import { change_lang, data_lang_options } from '../../../core/menu/js/view_default_edit_menu.js';
 
+describe('menu language selectors (re-review item 2)', function () {
+	this.timeout(20000);
 
-
-describe('menu language selectors (re-review item 2)', function() {
-
-	this.timeout(20000)
-
-	it('the data-language selector offers exactly page_globals.dedalo_data_langs', function() {
-		const served = page_globals.dedalo_data_langs
-		assert.isArray(served, 'the server serves dedalo_data_langs')
-		assert.isAbove(served.length, 0)
-		const options = data_lang_options(page_globals, 'data')
-		assert.deepEqual(options.map(item => item.value), served.map(item => item.value))
-		assert.deepEqual(options.map(item => item.label), served.map(item => 'data: ' + item.label))
-		assert.notInclude(options.map(item => item.value), 'lg-nolan', 'the storage slot is never offered')
+	it('the data-language selector offers exactly page_globals.dedalo_data_langs', function () {
+		const served = page_globals.dedalo_data_langs;
+		assert.isArray(served, 'the server serves dedalo_data_langs');
+		assert.isAbove(served.length, 0);
+		const options = data_lang_options(page_globals, 'data');
+		assert.deepEqual(
+			options.map((item) => item.value),
+			served.map((item) => item.value),
+		);
+		assert.deepEqual(
+			options.map((item) => item.label),
+			served.map((item) => 'data: ' + item.label),
+		);
+		assert.notInclude(
+			options.map((item) => item.value),
+			'lg-nolan',
+			'the storage slot is never offered',
+		);
 		// FLOOR: on the suite installation the two sets DIFFER — so building the data
 		// selector from the interface languages is observably wrong here.
-		const application = (page_globals.dedalo_application_langs || []).map(item => item.value)
-		const data_only = served.map(item => item.value).filter(value => !application.includes(value))
-		assert.isAbove(data_only.length, 0, 'a data language that is not an interface language')
-	})
+		const application = (page_globals.dedalo_application_langs || []).map((item) => item.value);
+		const data_only = served
+			.map((item) => item.value)
+			.filter((value) => !application.includes(value));
+		assert.isAbove(data_only.length, 0, 'a data language that is not an interface language');
+	});
 
-	it('a REFUSED change does not reload; the refusal is published', async function() {
-		const published = []
-		const token = event_manager.subscribe('api_error', (api_error) => published.push(api_error))
-		let reloads = 0
+	it('a REFUSED change does not reload; the refusal is published', async function () {
+		const published = [];
+		const token = event_manager.subscribe('api_error', (api_error) => published.push(api_error));
+		let reloads = 0;
 		try {
 			const stored = await change_lang({
-				lang_type	: 'dedalo_data_lang',
-				lang_value	: 'lg-zzzq', // grammar-valid, not a data language of the installation
-				self		: {change_lang: menu.prototype.change_lang},
-				reload		: () => { reloads++ }
-			})
-			assert.strictEqual(stored, false)
+				lang_type: 'dedalo_data_lang',
+				lang_value: 'lg-zzzq', // grammar-valid, not a data language of the installation
+				self: { change_lang: menu.prototype.change_lang },
+				reload: () => {
+					reloads++;
+				},
+			});
+			assert.strictEqual(stored, false);
 		} finally {
-			event_manager.unsubscribe(token)
+			event_manager.unsubscribe(token);
 		}
-		assert.strictEqual(reloads, 0, 'no reload on ok:false')
-		assert.include(published.map(api_error => api_error.code), 'request.invalid_options')
-		const main = document.getElementById('main')
+		assert.strictEqual(reloads, 0, 'no reload on ok:false');
+		assert.include(
+			published.map((api_error) => api_error.code),
+			'request.invalid_options',
+		);
+		const main = document.getElementById('main');
 		if (main) {
-			assert.isFalse(main.classList.contains('loading'), 'loading state cleared')
+			assert.isFalse(main.classList.contains('loading'), 'loading state cleared');
 		}
-	})
+	});
 
 	// one refused change_lang call, observed by both tests below
-	const refuse_with_selector = async function() {
-		const session_lang = page_globals.dedalo_data_lang
-		const select = document.createElement('select')
+	const refuse_with_selector = async function () {
+		const session_lang = page_globals.dedalo_data_lang;
+		const select = document.createElement('select');
 		for (const value of [session_lang, 'lg-zzzq']) {
-			const option = document.createElement('option')
-			option.value = value
-			select.appendChild(option)
+			const option = document.createElement('option');
+			option.value = value;
+			select.appendChild(option);
 		}
-		select.value = 'lg-zzzq' // what the user picked
-		const changes = []
-		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang))
-		let stored
+		select.value = 'lg-zzzq'; // what the user picked
+		const changes = [];
+		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang));
+		let stored;
 		try {
 			stored = await change_lang({
-				lang_type	: 'dedalo_data_lang',
-				lang_value	: 'lg-zzzq',
-				self		: {change_lang: menu.prototype.change_lang},
-				select		: select,
-				reload		: () => {}
-			})
+				lang_type: 'dedalo_data_lang',
+				lang_value: 'lg-zzzq',
+				self: { change_lang: menu.prototype.change_lang },
+				select: select,
+				reload: () => {},
+			});
 		} finally {
-			event_manager.unsubscribe(token)
+			event_manager.unsubscribe(token);
 		}
-		return {stored, changes, select, session_lang}
-	}
+		return { stored, changes, select, session_lang };
+	};
 
-	it('a REFUSED change publishes no change_lang (no cache is dropped)', async function() {
-		const {stored, changes} = await refuse_with_selector()
-		assert.strictEqual(stored, false)
-		assert.deepEqual(changes, [], 'no cache-drop event for a refused change')
-	})
+	it('a REFUSED change publishes no change_lang (no cache is dropped)', async function () {
+		const { stored, changes } = await refuse_with_selector();
+		assert.strictEqual(stored, false);
+		assert.deepEqual(changes, [], 'no cache-drop event for a refused change');
+	});
 
-	it('a REFUSED change resets the selector to the session value', async function() {
-		const {stored, select, session_lang} = await refuse_with_selector()
-		assert.strictEqual(stored, false)
-		assert.strictEqual(select.value, session_lang, 'the selector shows the language the session holds')
-	})
+	it('a REFUSED change resets the selector to the session value', async function () {
+		const { stored, select, session_lang } = await refuse_with_selector();
+		assert.strictEqual(stored, false);
+		assert.strictEqual(
+			select.value,
+			session_lang,
+			'the selector shows the language the session holds',
+		);
+	});
 
-	it('a STORED change publishes change_lang once (control)', async function() {
-		const changes = []
-		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang))
+	it('a STORED change publishes change_lang once (control)', async function () {
+		const changes = [];
+		const token = event_manager.subscribe('change_lang', (lang) => changes.push(lang));
 		try {
 			const stored = await change_lang({
-				lang_type	: 'dedalo_data_lang',
-				lang_value	: page_globals.dedalo_data_lang, // the session's own: a no-op write
-				self		: {change_lang: menu.prototype.change_lang},
-				reload		: () => {}
-			})
-			assert.strictEqual(stored, true)
+				lang_type: 'dedalo_data_lang',
+				lang_value: page_globals.dedalo_data_lang, // the session's own: a no-op write
+				self: { change_lang: menu.prototype.change_lang },
+				reload: () => {},
+			});
+			assert.strictEqual(stored, true);
 		} finally {
-			event_manager.unsubscribe(token)
+			event_manager.unsubscribe(token);
 		}
-		assert.deepEqual(changes, [page_globals.dedalo_data_lang])
-	})
+		assert.deepEqual(changes, [page_globals.dedalo_data_lang]);
+	});
 
-	it('a STORED change reloads (control)', async function() {
-		let reloads = 0
+	it('a STORED change reloads (control)', async function () {
+		let reloads = 0;
 		const stored = await change_lang({
-			lang_type	: 'dedalo_data_lang',
-			lang_value	: page_globals.dedalo_data_lang, // the session's own: a no-op write
-			self		: {change_lang: menu.prototype.change_lang},
-			reload		: () => { reloads++ }
-		})
-		assert.strictEqual(stored, true)
-		assert.strictEqual(reloads, 1)
-	})
-})
-
-
+			lang_type: 'dedalo_data_lang',
+			lang_value: page_globals.dedalo_data_lang, // the session's own: a no-op write
+			self: { change_lang: menu.prototype.change_lang },
+			reload: () => {
+				reloads++;
+			},
+		});
+		assert.strictEqual(stored, true);
+		assert.strictEqual(reloads, 1);
+	});
+});
 
 // @license-end

@@ -18,12 +18,12 @@
  * This is the locked client template (layer 1: module-load + construct + wiring).
  */
 
-import {tool_media_versions} from '../../../tools/tool_media_versions/js/tool_media_versions.js'
 import {
-	render_build_version,
 	live_component_job,
-	release_component_busy_gears
+	release_component_busy_gears,
+	render_build_version
 } from '../../../tools/tool_media_versions/js/render_tool_media_versions.js'
+import {tool_media_versions} from '../../../tools/tool_media_versions/js/tool_media_versions.js'
 
 
 
