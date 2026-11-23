@@ -13,7 +13,8 @@
 	import {common, create_source} from '../../../core/common/js/common.js'
 	import {tool_common, load_component} from '../../../core/tools_common/js/tool_common.js'
 	import {render_tool_lang_multi, is_component_empty} from './render_tool_lang_multi.js'
-	import {translate_component_browser, dispose_browser_worker} from '../../tool_lang/js/browser_translation.js'
+	import {translate_component_browser, dispose_browser_worker, mark_report_lines} from '../../tool_lang/js/browser_translation.js'
+	import {selected_browser_options} from '../../tool_lang/js/translator_engine_select.js'
 
 
 
@@ -26,7 +27,8 @@
 * Supports two translation modes that can be selected per-session:
 *
 *   - Browser engine (client-side AI): uses the shared browser_translation worker
-*     (TranslateGemma 4B model via HuggingFace Transformers + ONNX).  The model is
+*     (the model chosen among those the installation offers — Qwen3 by default — via
+*     HuggingFace Transformers + ONNX).  The model is
 *     loaded once and kept alive in the worker until destroy() is called.  When
 *     translating to multiple targets, requests are serialised (single GPU/worker).
 *   - Server engine (babel / google): sends rqo requests to dd_tools_api via
@@ -63,7 +65,7 @@
 *   refresh → common.prototype.refresh
 *   edit    → render_tool_lang_multi.prototype.edit
 *
-* Exports: tool_lang_multi (constructor)
+* Exports: tool_lang_multi (constructor), translation_summary (the run's account; pure)
 */
 export const tool_lang_multi = function () {
 
@@ -501,6 +503,9 @@ tool_lang_multi.prototype.resolve_source_lang = function(exclude=null) {
 *     engine          : {Object|null}  — matched engine config entry,
 *     is_browser      : {boolean}      — true when engine.type === 'browser',
 *     device          : {string}       — 'wasm' | 'webgpu'
+*     browser_options : {Object}       — { device, engine, model, alternatives, dtype } for the browser
+*                                         driver (translator_engine_select.js
+*                                         selected_browser_options)
 *   }
 */
 tool_lang_multi.prototype.resolve_engine = function(translator_engine) {
@@ -511,11 +516,10 @@ tool_lang_multi.prototype.resolve_engine = function(translator_engine) {
 	const translator_name	= self.translator_engine_select ? self.translator_engine_select.value : null
 	const engine			= engines.find(el => el.name===translator_name)
 	const is_browser		= !!(engine && engine.type==='browser')
-	const device			= (self.translator_device_checkbox && self.translator_device_checkbox.checked)
-		? 'wasm'
-		: 'webgpu'
+	const browser_options	= selected_browser_options(self)
+	const device			= browser_options.device
 
-	return { translator_name, engine, is_browser, device }
+	return { translator_name, engine, is_browser, device, browser_options }
 }//end resolve_engine
 
 
@@ -544,6 +548,10 @@ tool_lang_multi.prototype.resolve_engine = function(translator_engine) {
 * @param {string}      options.source_lang      - Source language code (e.g. 'lg-eng').
 * @param {string}      options.target_lang      - Target language code (e.g. 'lg-spa').
 * @param {string}      options.device           - Compute device: 'wasm' (CPU) | 'webgpu' (GPU).
+* @param {string|null} [options.dtype]          - Quantisation override (one of the chosen model's pinned dtypes).
+* @param {string|null} [options.engine]         - Selected model name.
+* @param {Object|null} [options.model]          - Selected model definition from the tool config.
+* @param {Array}       [options.alternatives]   - The offered models a 'try a smaller model' refusal may name.
 * @param {HTMLElement} [options.container]      - The target_component_container; if present, its
 *                                                 .streaming_overlay and .streaming_overlay_content
 *                                                 properties are forwarded to the worker driver.
@@ -564,11 +572,15 @@ tool_lang_multi.prototype.run_browser_translation = async function(options) {
 		source_lang					: options.source_lang,
 		target_lang					: options.target_lang,
 		device						: options.device,
+		dtype						: options.dtype || null,
+		engine						: options.engine || null,
+		model						: options.model || null,
+		alternatives				: options.alternatives || [],
 		status_container			: self.status_container,
 		streaming_overlay			: container ? container.streaming_overlay : null,
 		streaming_overlay_content	: container ? container.streaming_overlay_content : null,
 		json_langs					: self.json_langs,
-		get_label					: (key) => self.get_tool_label(key)
+		get_label					: (key, ...args) => self.get_tool_label(key, ...args)
 	})
 }//end run_browser_translation
 
@@ -611,7 +623,7 @@ tool_lang_multi.prototype.translate_target = async function(options) {
 		const translator_engine	= options.translator_engine || (self.context?.config?.translator_engine?.value ?? [])
 
 	// resolve selected engine
-		const { translator_name, is_browser, device } = self.resolve_engine(translator_engine)
+		const { translator_name, is_browser, browser_options } = self.resolve_engine(translator_engine)
 
 	// browser engine (client-side AI)
 		if (is_browser) {
@@ -623,11 +635,11 @@ tool_lang_multi.prototype.translate_target = async function(options) {
 			}
 
 			return self.run_browser_translation({
+				...browser_options,
 				source_component	: source_component,
 				target_component	: target_component,
 				source_lang			: source_lang,
 				target_lang			: target_lang,
-				device				: device,
 				container			: container
 			})
 		}
@@ -728,7 +740,7 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 		const targets = self.langs.filter(item => item.value!==source_lang)
 
 	// resolve engine type once
-		const { translator_name, is_browser, device } = self.resolve_engine(translator_engine)
+		const { translator_name, is_browser, browser_options } = self.resolve_engine(translator_engine)
 
 	// status. Reveal the (initially hidden) progress area for the run.
 		if (self.status_container) {
@@ -755,20 +767,25 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 			self.set_slot_busy(container, true)
 
 			let ok = true
+			// the driver's report when the value was saved with positions WE chose: the
+			// per-lang status lines it painted are overwritten by the next lang's run, so
+			// the summary below carries them (A1-02 review)
+			let warnings = null
 			try {
 				if (is_browser) {
 					// done only when the driver says the value is stored: it resolves
-					// {result:false} on a cancelled run (nothing saved) and rejects on
-					// a refused run or a save that did not land
+					// {result:false} on a cancelled run or a soft worker error (nothing
+					// saved) and rejects on a refused run or a save that did not land
 					const response = await self.run_browser_translation({
+						...browser_options,
 						source_component	: source_component,
 						target_component	: target_component,
 						source_lang			: source_lang,
 						target_lang			: lang.value,
-						device				: device,
 						container			: container
 					})
 					ok = response?.result===true
+					warnings = ok ? (response.warnings || null) : null
 				}else{
 					// a refusal (e.g. translation.empty_result: the engine does not
 					// support this lang) resolves, it does not throw: count it here
@@ -782,7 +799,7 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 
 			self.set_slot_busy(container, false)
 
-			return { lang: lang.value, label: lang.label, ok: ok }
+			return { lang: lang.value, label: lang.label, ok: ok, warnings: warnings }
 		}//end translate_one
 
 	// schedule. The browser engine reuses a single GPU/worker, so it must run
@@ -812,18 +829,16 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 
 	// summary message. The 'ok' banner auto-dismisses (~10s, handled by
 	// ui.show_message); re-hide the now-empty status area shortly after so it
-	// does not leave a lingering blank row.
-		const ok_count			= results.filter(r => r.ok).length
-		const failed_labels		= results.filter(r => !r.ok).map(r => r.label)
-		const completed_label	= self.get_tool_label('translation_completed') || 'Translation completed'
+	// does not leave a lingering blank row. A summary naming failures or warnings
+	// stays until the user dismisses it (translation_summary).
 		if (self.status_container) {
-			// failures are named (each failed slot also carries its own error banner)
-			const summary = failed_labels.length > 0
-				? `${completed_label} (${ok_count}/${results.length}) — ✕ ${failed_labels.join(', ')}`
-				: `${completed_label} (${ok_count}/${results.length})`
-			ui.show_message(self.status_container, summary, failed_labels.length > 0 ? 'warning' : 'ok', 'component_message', true)
-			// a summary naming failures stays until the user dismisses it
-			if (failed_labels.length===0) {
+			const summary = translation_summary(results, (key, ...args) => self.get_tool_label(key, ...args))
+			ui.show_message(self.status_container, summary.text, summary.needs_attention ? 'warning' : 'ok', 'component_message', true)
+			// what to check, per language
+			for (const line of summary.details) {
+				ui.show_message(self.status_container, line, 'warning', 'component_message', false)
+			}
+			if (summary.needs_attention===false) {
 				self.status_hide_timeout = setTimeout(() => {
 					self.status_container.classList.add('hide')
 				}, 10500)
@@ -832,6 +847,48 @@ tool_lang_multi.prototype.automatic_translation_all = async function(options={})
 
 	return results
 }//end automatic_translation_all
+
+
+
+/**
+* TRANSLATION_SUMMARY
+* The operator-facing account of a multi-language run: one summary line, plus one detail
+* line per language saved WITH WARNINGS (marks we placed or reordered — the operator must
+* check them; browser_translation.js mark_report_lines).
+*
+* Failed languages are named (each failed slot also carries its own error banner);
+* warned languages are named too, and either keeps the summary on screen
+* (needs_attention) instead of letting it auto-hide like a clean run's.
+* @param {Array<{label:string, ok:boolean, warnings:Object|null}>} results - one per target
+* @param {Function} get_label - (key, ...args) => string|null; the tool label resolver
+* @returns {{text:string, details:string[], needs_attention:boolean}}
+*/
+export const translation_summary = function(results, get_label) {
+
+	const ok_count			= results.filter(r => r.ok).length
+	const failed_labels		= results.filter(r => !r.ok).map(r => r.label)
+	const warned			= results.filter(r => r.ok && r.warnings)
+	const completed_label	= get_label('translation_completed') || 'Translation completed'
+
+	let text = `${completed_label} (${ok_count}/${results.length})`
+	if (failed_labels.length > 0) {
+		text += ` — ✕ ${failed_labels.join(', ')}`
+	}
+	if (warned.length > 0) {
+		const warn_label = get_label('translation_saved_with_warnings') || 'Translation saved — check the marks'
+		text += ` — ⚠ ${warn_label}: ${warned.map(r => r.label).join(', ')}`
+	}
+
+	const details = warned.map(
+		(result) => `${result.label}: ${mark_report_lines(result.warnings, get_label).join(' · ')}`
+	)
+
+	return {
+		text,
+		details,
+		needs_attention : failed_labels.length > 0 || warned.length > 0
+	}
+}//end translation_summary
 
 
 

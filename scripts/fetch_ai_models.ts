@@ -1,8 +1,9 @@
 /**
  * SEED THE LOCAL AI MODEL STORE.
  *
- * Downloads the in-browser models (speech recognition, translation) into the
- * install's own store, so the browser never talks to a public model hub. This is
+ * Downloads the in-browser models (speech recognition and speaker detection for
+ * tool_transcription; the translators of tool_lang's local AI engine, one
+ * opus-mt model per language pair) into the install's own store, so the browser never talks to a public model hub. This is
  * an OPERATOR action, run once per model on a machine that has internet — an
  * air-gapped archive seeds its store by copying the directory in with rsync
  * instead, which is exactly why the store is a plain folder of plain files.
@@ -10,28 +11,40 @@
  * Usage:
  *   bun run scripts/fetch_ai_models.ts --list
  *   bun run scripts/fetch_ai_models.ts onnx-community/whisper-large-v3-turbo
- *   bun run scripts/fetch_ai_models.ts --all
+ *   bun run scripts/fetch_ai_models.ts --all [--dry-run]
  *   bun run scripts/fetch_ai_models.ts <model> --store /data/dedalo/ai_models
+ *
+ * `--all` fetches every OFFERED and PINNED model (an unpinned one is named and skipped). A
+ * model the catalogue lists but does not offer (`offered_by_default: false` — NLLB,
+ * CC-BY-NC, owner ruling Q1 2026-11-22) is skipped and
+ * named with its reason; it is fetched only when named explicitly, after the operator has
+ * confirmed its licence allows the use. `--list` marks it "[not offered: <reason>]".
+ * `--dry-run` prints what would be fetched (and skipped) and downloads nothing; it refuses an
+ * id a real run would refuse (not in a catalogue, not pinned). An unknown option is refused
+ * (exit 2): a misspelt '--dryrun' must never fall through to a download.
  *
  * The store location comes from DEDALO_AI_MODEL_STORE (default
  * <private>/ai_models) unless --store overrides it. Existing files are kept:
  * re-running is a cheap way to complete an interrupted download.
  *
- * A large speech model is ~1.5 GB. Nothing here runs at install time or at
+ * A large speech model is ~1.5 GB; a decoder-only translator (Qwen3 4B,
+ * TranslateGemma 4B) ~3 GB; an opus-mt pair ~115 MB. Nothing here runs at install time or at
  * request time; an install with an empty store simply has no local models, which
  * the tool reports plainly rather than silently reaching for the internet.
  */
 
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-	DIARIZATION_COMMON_FILES,
-	downloadModel,
-	OPTIONAL_FILES,
-} from '../src/core/ai/model_fetch.ts';
+import { downloadModel } from '../src/core/ai/model_fetch.ts';
 import { pinnedRevision } from '../src/core/ai/model_pins.ts';
 import { modelStoreRoot } from '../src/core/ai/model_store.ts';
-import { filesFor, readRegisterCatalog } from './lib/ai_model_register.ts';
+import {
+	allFetchTargets,
+	commonFilesFor,
+	filesFor,
+	notOfferedMark,
+	readRegisterCatalog,
+} from './lib/ai_model_register.ts';
 
 /**
  * THE catalog — read from the tool's own `register.json` through
@@ -46,7 +59,12 @@ function usage(): void {
 
   bun run scripts/fetch_ai_models.ts --list
   bun run scripts/fetch_ai_models.ts <model-id> [--store <dir>]
-  bun run scripts/fetch_ai_models.ts --all [--store <dir>]
+  bun run scripts/fetch_ai_models.ts --all [--dry-run] [--store <dir>]
+
+--all fetches every OFFERED, pinned model; a model the catalogue does not offer
+(--list marks it "[not offered: <reason>]") is fetched only when named.
+--dry-run prints what would be fetched and fetches nothing (it refuses what a
+real run would refuse). An unknown option is refused.
 
 Every model is fetched at the immutable hub revision pinned in
 src/core/ai/model_pins.json and verified by sha256 before it counts as
@@ -60,7 +78,7 @@ function listCatalog(): void {
 	console.log(`store: ${store}${existsSync(store) ? '' : '  (does not exist yet)'}\n`);
 	for (const model of readCatalog()) {
 		// Present means USABLE: every file the catalog's dtype asks for is there.
-		const optional = model.kind === 'diarization' ? [] : OPTIONAL_FILES;
+		const { optional } = commonFilesFor(model.kind ?? 'asr');
 		const present = filesFor(model).every(
 			(file) =>
 				optional.includes(file) ||
@@ -68,25 +86,39 @@ function listCatalog(): void {
 		);
 		const pinned = pinnedRevision(model.id) !== null ? '' : '  [NO PIN — cannot be fetched]';
 		console.log(
-			`  ${present ? '✓' : ' '} ${model.id}${pinned}\n      ${model.label} — ${model.note}`,
+			`  ${present ? '✓' : ' '} ${model.id}${pinned}${notOfferedMark(model)}\n      [${model.tool ?? 'tool_transcription'}] ${model.label}${model.note !== '' ? ` — ${model.note}` : ''}`,
 		);
 	}
 	console.log('\n✓ = ready to use (all files the catalog asks for are present)');
 }
 
-async function fetchModel(modelId: string, store: string): Promise<void> {
-	console.log(`\n${modelId} → ${join(store, modelId)}`);
-
-	const catalog = readCatalog();
-	const model = catalog.find((entry) => entry.id === modelId);
+/**
+ * The catalogue entry a fetch would download, or a throw naming why it cannot be fetched:
+ * not in a catalogue, or not pinned. A real run and `--dry-run` both ask it, so a dry run
+ * refuses exactly what a real run would.
+ */
+function fetchTarget(modelId: string): ReturnType<typeof readCatalog>[number] {
+	const model = readCatalog().find((entry) => entry.id === modelId);
 	if (model === undefined) {
 		// A model outside the catalog has no pin, and a download the engine cannot
 		// verify is one it does not make — downloadModel would refuse it anyway;
 		// saying so here names the remedy.
 		throw new Error(
-			`${modelId} is not in the transcriber catalog and has no pin — add it to tools/tool_transcription/register.json and pin it with scripts/pin_ai_models.ts`,
+			`${modelId} is in no in-browser model catalog and has no pin — add it to tools/tool_transcription/register.json or tools/tool_lang/register.json and pin it with scripts/pin_ai_models.ts`,
 		);
 	}
+	if (pinnedRevision(model.id) === null) {
+		throw new Error(
+			`${modelId} has no pin in src/core/ai/model_pins.json — pin it first: bun run scripts/pin_ai_models.ts --model ${modelId} --reason "<why>"`,
+		);
+	}
+	return model;
+}
+
+async function fetchModel(modelId: string, store: string): Promise<void> {
+	console.log(`\n${modelId} → ${join(store, modelId)}`);
+
+	const model = fetchTarget(modelId);
 
 	// The SAME downloader the admin UI action uses (src/core/ai/model_fetch.ts) —
 	// two download paths would drift on the file list or the quantisation.
@@ -94,10 +126,8 @@ async function fetchModel(modelId: string, store: string): Promise<void> {
 		store,
 		quiet: false,
 		onFile: (file) => console.log(`  ↓ ${file}`),
+		// The kind decides the file set (commonFilesFor is the downloader's default).
 		kind: model.kind ?? 'asr',
-		...(model.kind === 'diarization'
-			? { commonFiles: DIARIZATION_COMMON_FILES, optionalFiles: [] as string[] }
-			: {}),
 	});
 	for (const file of report.skipped) console.log(`  - ${file} (not published for this model)`);
 	if (!report.ok) {
@@ -111,10 +141,24 @@ if (args.length === 0 || args.includes('--help')) {
 	process.exit(0);
 }
 
+// An unknown flag is refused, never ignored: '--dryrun' read as nothing would DOWNLOAD.
+const KNOWN_FLAGS = new Set(['--list', '--all', '--dry-run', '--store', '--help']);
+const unknownFlags = args.filter((arg) => arg.startsWith('-') && !KNOWN_FLAGS.has(arg));
+if (unknownFlags.length > 0) {
+	console.error(`unknown option ${unknownFlags.join(', ')} — nothing was fetched`);
+	usage();
+	process.exit(2);
+}
+
 const storeFlag = args.indexOf('--store');
-const store = storeFlag !== -1 ? (args[storeFlag + 1] ?? modelStoreRoot()) : modelStoreRoot();
+const storeValue = storeFlag !== -1 ? args[storeFlag + 1] : undefined;
+if (storeFlag !== -1 && (storeValue === undefined || storeValue.startsWith('-'))) {
+	console.error('--store needs a directory — nothing was fetched');
+	process.exit(2);
+}
+const store = storeValue ?? modelStoreRoot();
 const requested = args.filter((arg, index) => {
-	if (arg.startsWith('--')) return false;
+	if (arg.startsWith('-')) return false;
 	if (storeFlag !== -1 && index === storeFlag + 1) return false;
 	return true;
 });
@@ -124,10 +168,32 @@ if (args.includes('--list')) {
 	process.exit(0);
 }
 
-const models = args.includes('--all') ? readCatalog().map((model) => model.id) : requested;
+let models = requested;
+if (args.includes('--all')) {
+	const { ids, skipped } = allFetchTargets(readCatalog());
+	for (const { id, reason } of skipped) {
+		console.log(`skipped (not offered — fetch it by name only after checking): ${id} — ${reason}`);
+	}
+	// a catalogue model with no pin cannot be fetched at all: named, not attempted (a named
+	// one is still refused by fetchTarget)
+	const pinned = ids.filter((id) => pinnedRevision(id) !== null);
+	for (const id of ids.filter((id) => !pinned.includes(id))) {
+		console.log(
+			`skipped (no pin — cannot be fetched; pin it with scripts/pin_ai_models.ts): ${id}`,
+		);
+	}
+	models = [...pinned, ...requested.filter((id) => !pinned.includes(id))];
+}
 if (models.length === 0) {
 	usage();
 	process.exit(1);
+}
+
+if (args.includes('--dry-run')) {
+	// the same catalogue + pin lookup as a real run: an id a run would refuse is refused here
+	for (const modelId of models) fetchTarget(modelId);
+	for (const modelId of models) console.log(`would fetch: ${modelId}`);
+	process.exit(0);
 }
 
 for (const modelId of models) {

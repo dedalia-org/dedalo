@@ -145,7 +145,7 @@
       {
         "id": 1,
         "lang": "lg-nolan",
-        "value": "2.0.2"
+        "value": "2.1.0"
       }
     ],
     "dd1328": [
@@ -659,6 +659,2306 @@
             "lang": "lg-nep",
             "name": "translation_completed",
             "value": "अनुवाद सम्पन्न भयो"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_review_needed",
+            "value": "La traducció necessita revisió abans de desar"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_review_needed",
+            "value": "Die Übersetzung muss vor dem Speichern geprüft werden"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_review_needed",
+            "value": "Η μετάφραση χρειάζεται έλεγχο πριν την αποθήκευση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_review_needed",
+            "value": "Translation needs review before saving"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_review_needed",
+            "value": "Itzulpena berrikusi behar da gorde aurretik"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_review_needed",
+            "value": "La traduction doit être vérifiée avant l’enregistrement"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_review_needed",
+            "value": "La traduzione richiede una revisione prima del salvataggio"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_review_needed",
+            "value": "सुरक्षित गर्नु अघि अनुवाद समीक्षा गर्नुपर्छ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_review_needed",
+            "value": "A tradução precisa de revisão antes de guardar"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_review_needed",
+            "value": "La traducción necesita revisión antes de guardar"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_saved_with_warnings",
+            "value": "Traducció desada — reviseu les marques"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_saved_with_warnings",
+            "value": "Übersetzung gespeichert — Markierungen prüfen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_saved_with_warnings",
+            "value": "Η μετάφραση αποθηκεύτηκε — ελέγξτε τις σημάνσεις"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_saved_with_warnings",
+            "value": "Translation saved — check the marks"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_saved_with_warnings",
+            "value": "Itzulpena gorde da — egiaztatu markak"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_saved_with_warnings",
+            "value": "Traduction enregistrée — vérifiez les marques"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_saved_with_warnings",
+            "value": "Traduzione salvata — controllare i marcatori"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_saved_with_warnings",
+            "value": "अनुवाद सुरक्षित गरियो — चिन्हहरू जाँच्नुहोस्"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_saved_with_warnings",
+            "value": "Tradução guardada — verifique as marcas"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_saved_with_warnings",
+            "value": "Traducción guardada — revise las marcas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_unplaced",
+            "value": "No s’han pogut col·locar %s marques"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_unplaced",
+            "value": "%s Markierungen konnten nicht platziert werden"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_unplaced",
+            "value": "%s σημάνσεις δεν μπόρεσαν να τοποθετηθούν"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_unplaced",
+            "value": "%s marks could not be placed"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_unplaced",
+            "value": "%s marka ezin izan dira kokatu"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_unplaced",
+            "value": "%s marques n’ont pas pu être placées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_unplaced",
+            "value": "Non è stato possibile collocare %s marcatori"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_unplaced",
+            "value": "%s चिन्हहरू राख्न सकिएन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_unplaced",
+            "value": "Não foi possível colocar %s marcas"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_unplaced",
+            "value": "No se han podido colocar %s marcas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_invented",
+            "value": "Han aparegut a la traducció %s marques que no són al text original"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_invented",
+            "value": "In der Übersetzung sind %s Markierungen aufgetaucht, die im Ausgangstext nicht vorkommen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_invented",
+            "value": "Εμφανίστηκαν στη μετάφραση %s σημάνσεις που δεν υπάρχουν στο αρχικό κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_invented",
+            "value": "%s marks that are not in the source text appeared in the translation"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_invented",
+            "value": "Jatorrizko testuan ez dauden %s marka agertu dira itzulpenean"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_invented",
+            "value": "%s marques absentes du texte source sont apparues dans la traduction"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_invented",
+            "value": "Nella traduzione sono comparsi %s marcatori assenti nel testo di origine"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_invented",
+            "value": "स्रोत पाठमा नभएका %s चिन्ह अनुवादमा देखा परे"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_invented",
+            "value": "Apareceram na tradução %s marcas que não existem no texto de origem"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_invented",
+            "value": "Han aparecido en la traducción %s marcas que no están en el texto original"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_repositioned",
+            "value": "%s de %s marques s’han reposicionat automàticament"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_repositioned",
+            "value": "%s von %s Markierungen wurden automatisch neu positioniert"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_repositioned",
+            "value": "%s από %s σημάνσεις επανατοποθετήθηκαν αυτόματα"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_repositioned",
+            "value": "%s of %s marks were repositioned automatically"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_repositioned",
+            "value": "%s/%s marka automatikoki birkokatu dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_repositioned",
+            "value": "%s marques sur %s ont été repositionnées automatiquement"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_repositioned",
+            "value": "%s di %s marcatori sono stati riposizionati automaticamente"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_repositioned",
+            "value": "{1} मध्ये {0} चिन्ह स्वतः पुनःस्थापित गरिए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_repositioned",
+            "value": "%s de %s marcas foram reposicionadas automaticamente"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_repositioned",
+            "value": "%s de %s marcas se han reposicionado automáticamente"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_reordered",
+            "value": "%s marques enllaçades s’han invertit en la traducció i s’han reordenat"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_reordered",
+            "value": "%s verknüpfte Markierungen wurden von der Übersetzung vertauscht und neu geordnet"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_reordered",
+            "value": "%s συνδεδεμένες σημάνσεις αντιστράφηκαν από τη μετάφραση και αναδιατάχθηκαν"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_reordered",
+            "value": "%s linked marks were reversed by the translation and reordered"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_reordered",
+            "value": "Lotutako %s marka itzulpenak alderantzikatu ditu eta berrantolatu dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_reordered",
+            "value": "%s marques liées ont été inversées par la traduction et réordonnées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_reordered",
+            "value": "%s marcatori collegati sono stati invertiti dalla traduzione e riordinati"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_reordered",
+            "value": "%s जोडिएका चिन्ह अनुवादले उल्टाएका थिए र पुनः क्रमबद्ध गरिए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_reordered",
+            "value": "%s marcas ligadas foram invertidas pela tradução e reordenadas"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_reordered",
+            "value": "%s marcas enlazadas se invirtieron en la traducción y se reordenaron"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_removed_invalid",
+            "value": "S’han eliminat %s marcadors no vàlids"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_removed_invalid",
+            "value": "%s ungültige Markierungen wurden entfernt"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_removed_invalid",
+            "value": "%s μη έγκυρες σημάνσεις αφαιρέθηκαν"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_removed_invalid",
+            "value": "%s invalid markers were removed"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_removed_invalid",
+            "value": "%s marka baliogabe kendu dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_removed_invalid",
+            "value": "%s marqueurs non valides ont été supprimés"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_removed_invalid",
+            "value": "Sono stati rimossi %s marcatori non validi"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_removed_invalid",
+            "value": "%s अमान्य चिन्ह हटाइए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_removed_invalid",
+            "value": "Foram removidos %s marcadores inválidos"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_removed_invalid",
+            "value": "Se han eliminado %s marcadores no válidos"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "procesing",
+            "value": "Processant"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "procesing",
+            "value": "Verarbeitung"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "procesing",
+            "value": "Επεξεργασία"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "procesing",
+            "value": "Processing"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "procesing",
+            "value": "Prozesatzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "procesing",
+            "value": "Traitement"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "procesing",
+            "value": "Elaborazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "procesing",
+            "value": "प्रक्रिया गर्दै"
+          },
+          {
+            "lang": "lg-por",
+            "name": "procesing",
+            "value": "Processando"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "procesing",
+            "value": "Procesando"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "remaining",
+            "value": "restant"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "remaining",
+            "value": "verbleibend"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "remaining",
+            "value": "υπόλοιπο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "remaining",
+            "value": "remaining"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "remaining",
+            "value": "geratzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "remaining",
+            "value": "restant"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "remaining",
+            "value": "restante"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "remaining",
+            "value": "बाँकी"
+          },
+          {
+            "lang": "lg-por",
+            "name": "remaining",
+            "value": "restante"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "remaining",
+            "value": "restante"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "initializing",
+            "value": "Inicialitzant"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "initializing",
+            "value": "Initialisiere"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "initializing",
+            "value": "Αρχικοποίηση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "initializing",
+            "value": "Initializing"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "initializing",
+            "value": "Hasten"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "initializing",
+            "value": "Initialisation"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "initializing",
+            "value": "Inizializzazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "initializing",
+            "value": "सुरु गर्दै"
+          },
+          {
+            "lang": "lg-por",
+            "name": "initializing",
+            "value": "Inicializando"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "initializing",
+            "value": "Inicializando"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "setting_up",
+            "value": "Configurant"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "setting_up",
+            "value": "Einrichtung"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "setting_up",
+            "value": "Ρύθμιση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "setting_up",
+            "value": "Setting up"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "setting_up",
+            "value": "Konfiguratzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "setting_up",
+            "value": "Configuration"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "setting_up",
+            "value": "Impostazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "setting_up",
+            "value": "सेट अप गर्दै"
+          },
+          {
+            "lang": "lg-por",
+            "name": "setting_up",
+            "value": "Configurando"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "setting_up",
+            "value": "Configurando"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_error",
+            "value": "Error de bloc"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_error",
+            "value": "Blockfehler"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_error",
+            "value": "Σφάλμα μπλοκ"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_error",
+            "value": "Block error"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_error",
+            "value": "Bloke-errorea"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_error",
+            "value": "Erreur de bloc"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_error",
+            "value": "Errore di blocco"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_error",
+            "value": "ब्लक त्रुटि"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_error",
+            "value": "Erro de bloco"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_error",
+            "value": "Error de bloque"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_added_markup",
+            "value": "El model ha escrit marcatge que el text no tenia"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_markup",
+            "value": "Das Modell hat Auszeichnungen geschrieben, die der Text nicht hatte"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_markup",
+            "value": "Το μοντέλο έγραψε σήμανση που δεν είχε το κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_added_markup",
+            "value": "The model wrote markup the text did not have"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_markup",
+            "value": "Ereduak testuak ez zuen markaketa idatzi du"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_markup",
+            "value": "Le modèle a écrit un balisage que le texte n’avait pas"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_markup",
+            "value": "Il modello ha scritto un markup che il testo non aveva"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_markup",
+            "value": "मोडेलले पाठमा नभएको मार्कअप लेख्यो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_markup",
+            "value": "O modelo escreveu marcação que o texto não tinha"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_markup",
+            "value": "El modelo escribió marcado que el texto no tenía"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_added_mark",
+            "value": "El model ha escrit una marca de Dédalo que el text no tenia"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_mark",
+            "value": "Das Modell hat eine Dédalo-Marke geschrieben, die der Text nicht hatte"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_mark",
+            "value": "Το μοντέλο έγραψε ένα σημάδι Dédalo που δεν είχε το κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_added_mark",
+            "value": "The model wrote a Dédalo mark the text did not have"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_mark",
+            "value": "Ereduak testuak ez zuen Dédalo marka bat idatzi du"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_mark",
+            "value": "Le modèle a écrit une marque Dédalo que le texte n’avait pas"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_mark",
+            "value": "Il modello ha scritto un marcatore Dédalo che il testo non aveva"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_mark",
+            "value": "मोडेलले पाठमा नभएको Dédalo चिन्ह लेख्यो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_mark",
+            "value": "O modelo escreveu uma marca do Dédalo que o texto não tinha"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_mark",
+            "value": "El modelo escribió una marca de Dédalo que el texto no tenía"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_added_emphasis",
+            "value": "El model ha escrit més negreta, cursiva o codi que el text: quin és l’original seria una suposició"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_emphasis",
+            "value": "Das Modell hat mehr Fett, Kursiv oder Code geschrieben, als der Text hat: welches das Original ist, wäre geraten"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_emphasis",
+            "value": "Το μοντέλο έγραψε περισσότερα έντονα, πλάγια ή κώδικα από όσα έχει το κείμενο: ποιο είναι το αρχικό θα ήταν εικασία"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_added_emphasis",
+            "value": "The model wrote more bold, italic or code than the text has: which one is the original would be a guess"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_emphasis",
+            "value": "Ereduak testuak baino lodi, etzan edo kode gehiago idatzi du: zein den jatorrizkoa asmatzea litzateke"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_emphasis",
+            "value": "Le modèle a écrit plus de gras, d’italique ou de code que le texte n’en a : deviner l’original serait hasardeux"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_emphasis",
+            "value": "Il modello ha scritto più grassetto, corsivo o codice di quanto ne abbia il testo: quale sia l’originale sarebbe un’ipotesi"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_emphasis",
+            "value": "मोडेलले पाठमा भएभन्दा बढी बोल्ड, इटालिक वा कोड लेख्यो: कुन मूल हो भन्ने अनुमान मात्र हुनेछ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_emphasis",
+            "value": "O modelo escreveu mais negrito, itálico ou código do que o texto tem: qual é o original seria um palpite"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_emphasis",
+            "value": "El modelo escribió más negrita, cursiva o código que el texto: cuál es el original sería una suposición"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_lost_text",
+            "value": "El model no ha retornat text per a un passatge que en té"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_lost_text",
+            "value": "Das Modell gab für eine Passage mit Text keinen Text zurück"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_lost_text",
+            "value": "Το μοντέλο δεν επέστρεψε κείμενο για ένα απόσπασμα που έχει"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_lost_text",
+            "value": "The model returned no text for a passage that has some"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_lost_text",
+            "value": "Ereduak ez du testurik itzuli testua duen pasarte baterako"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_lost_text",
+            "value": "Le modèle n’a renvoyé aucun texte pour un passage qui en contient"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_lost_text",
+            "value": "Il modello non ha restituito testo per un passaggio che ne ha"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_lost_text",
+            "value": "पाठ भएको खण्डका लागि मोडेलले कुनै पाठ फर्काएन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_lost_text",
+            "value": "O modelo não devolveu texto para uma passagem que o tem"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_lost_text",
+            "value": "El modelo no devolvió texto para un pasaje que sí lo tiene"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_repetition",
+            "value": "El model s’ha repetit i no s’ha pogut recuperar"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_repetition",
+            "value": "Das Modell hat sich wiederholt und konnte nicht wiederhergestellt werden"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_repetition",
+            "value": "Το μοντέλο επαναλήφθηκε και δεν ήταν δυνατή η ανάκτηση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_repetition",
+            "value": "The model repeated itself and could not be recovered"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_repetition",
+            "value": "Eredua errepikatu egin da eta ezin izan da berreskuratu"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_repetition",
+            "value": "Le modèle s’est répété et n’a pas pu être récupéré"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_repetition",
+            "value": "Il modello si è ripetuto e non è stato possibile recuperarlo"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_repetition",
+            "value": "मोडेलले आफूलाई दोहोर्‍यायो र पुनःप्राप्त गर्न सकिएन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_repetition",
+            "value": "O modelo repetiu-se e não foi possível recuperá-lo"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_repetition",
+            "value": "El modelo se repitió y no se pudo recuperar"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_truncated",
+            "value": "El model s’ha aturat al seu límit de longitud: la traducció està tallada"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_truncated",
+            "value": "Das Modell hat an seiner Längengrenze angehalten: die Übersetzung ist abgeschnitten"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_truncated",
+            "value": "Το μοντέλο σταμάτησε στο όριο μήκους του: η μετάφραση είναι κομμένη"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_truncated",
+            "value": "The model stopped at its length limit: the translation is cut short"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_truncated",
+            "value": "Eredua bere luzera-mugan gelditu da: itzulpena moztuta dago"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_truncated",
+            "value": "Le modèle s’est arrêté à sa limite de longueur : la traduction est tronquée"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_truncated",
+            "value": "Il modello si è fermato al suo limite di lunghezza: la traduzione è troncata"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_truncated",
+            "value": "मोडेल आफ्नो लम्बाइ सीमामा रोकियो: अनुवाद अधुरो छ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_truncated",
+            "value": "O modelo parou no seu limite de comprimento: a tradução está cortada"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_truncated",
+            "value": "El modelo se detuvo en su límite de longitud: la traducción está cortada"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "sentences_short",
+            "value": "%s passatges han tornat amb menys frases que l’original: la traducció pot estar tallada"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "sentences_short",
+            "value": "%s Passagen kamen mit weniger Sätzen als die Quelle zurück: die Übersetzung ist möglicherweise abgeschnitten"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "sentences_short",
+            "value": "%s αποσπάσματα επέστρεψαν με λιγότερες προτάσεις από το πρωτότυπο: η μετάφραση ίσως είναι κομμένη"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "sentences_short",
+            "value": "%s passages came back with fewer sentences than the source: the translation may be cut short"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "sentences_short",
+            "value": "%s pasartek jatorrizkoak baino esaldi gutxiagorekin itzuli dira: itzulpena moztuta egon daiteke"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "sentences_short",
+            "value": "%s passages sont revenus avec moins de phrases que la source : la traduction est peut-être tronquée"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "sentences_short",
+            "value": "%s passaggi sono tornati con meno frasi dell’originale: la traduzione potrebbe essere troncata"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "sentences_short",
+            "value": "%s खण्डहरू स्रोतभन्दा कम वाक्यसहित फर्किए: अनुवाद अधुरो हुन सक्छ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "sentences_short",
+            "value": "%s passagens voltaram com menos frases do que o original: a tradução pode estar cortada"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "sentences_short",
+            "value": "%s pasajes volvieron con menos frases que el original: la traducción puede estar cortada"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "emphasis_moved",
+            "value": "%s passatges tenen negreta, cursiva o codi en altres paraules que l’original: reviseu el format"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "emphasis_moved",
+            "value": "%s Abschnitte haben Fett, Kursiv oder Code auf anderen Wörtern als die Quelle: Formatierung prüfen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "emphasis_moved",
+            "value": "%s αποσπάσματα έχουν έντονα, πλάγια ή κώδικα σε άλλες λέξεις από το πρωτότυπο: ελέγξτε τη μορφοποίηση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "emphasis_moved",
+            "value": "%s passages have bold, italic or code on other words than the source: check the formatting"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "emphasis_moved",
+            "value": "%s pasartek lodia, etzana edo kodea jatorrizkoaren beste hitz batzuetan dute: egiaztatu formatua"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "emphasis_moved",
+            "value": "%s passages ont du gras, de l’italique ou du code sur d’autres mots que la source : vérifiez la mise en forme"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "emphasis_moved",
+            "value": "%s passaggi hanno grassetto, corsivo o codice su parole diverse dall’originale: controllare la formattazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "emphasis_moved",
+            "value": "%s खण्डहरूमा बोल्ड, इटालिक वा कोड मूलभन्दा फरक शब्दहरूमा छ: ढाँचा जाँच गर्नुहोस्"
+          },
+          {
+            "lang": "lg-por",
+            "name": "emphasis_moved",
+            "value": "%s passagens têm negrito, itálico ou código noutras palavras que o original: verifique a formatação"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "emphasis_moved",
+            "value": "%s pasajes tienen negrita, cursiva o código en otras palabras que el original: revise el formato"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_cancelled",
+            "value": "Traducció cancel·lada"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_cancelled",
+            "value": "Übersetzung abgebrochen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_cancelled",
+            "value": "Η μετάφραση ακυρώθηκε"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_cancelled",
+            "value": "Translation cancelled"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_cancelled",
+            "value": "Itzulpena bertan behera utzi da"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_cancelled",
+            "value": "Traduction annulée"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_cancelled",
+            "value": "Traduzione annullata"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_cancelled",
+            "value": "अनुवाद रद्द गरियो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_cancelled",
+            "value": "Tradução cancelada"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_cancelled",
+            "value": "Traducción cancelada"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "nothing_saved",
+            "value": "No s’ha desat res. El text existent a la llengua de destinació no ha canviat."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "nothing_saved",
+            "value": "Es wurde nichts gespeichert. Der vorhandene Text in der Zielsprache ist unverändert."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "nothing_saved",
+            "value": "Δεν αποθηκεύτηκε τίποτα. Το υπάρχον κείμενο στη γλώσσα-στόχο δεν άλλαξε."
+          },
+          {
+            "lang": "lg-eng",
+            "name": "nothing_saved",
+            "value": "Nothing was saved. The existing text in the target language is unchanged."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "nothing_saved",
+            "value": "Ez da ezer gorde. Helburu-hizkuntzako testua ez da aldatu."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "nothing_saved",
+            "value": "Rien n’a été enregistré. Le texte existant dans la langue cible est inchangé."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "nothing_saved",
+            "value": "Non è stato salvato nulla. Il testo esistente nella lingua di destinazione è invariato."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "nothing_saved",
+            "value": "केही पनि सुरक्षित गरिएन। लक्ष्य भाषामा रहेको पाठ परिवर्तन भएको छैन।"
+          },
+          {
+            "lang": "lg-por",
+            "name": "nothing_saved",
+            "value": "Nada foi guardado. O texto existente na língua de destino não foi alterado."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "nothing_saved",
+            "value": "No se ha guardado nada. El texto existente en el idioma de destino no ha cambiado."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_retry",
+            "value": "Torneu a executar la traducció per reintentar-ho."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_retry",
+            "value": "Führen Sie die Übersetzung erneut aus, um es noch einmal zu versuchen."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_retry",
+            "value": "Εκτελέστε ξανά τη μετάφραση για να δοκιμάσετε πάλι."
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_retry",
+            "value": "Run the translation again to retry."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_retry",
+            "value": "Exekutatu berriro itzulpena berriz saiatzeko."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_retry",
+            "value": "Relancez la traduction pour réessayer."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_retry",
+            "value": "Esegui di nuovo la traduzione per riprovare."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_retry",
+            "value": "फेरि प्रयास गर्न अनुवाद पुनः चलाउनुहोस्।"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_retry",
+            "value": "Execute a tradução novamente para tentar de novo."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_retry",
+            "value": "Vuelva a ejecutar la traducción para reintentarlo."
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_incomplete",
+            "value": "Traducció rebutjada: el model ha fallat en una part del text"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_incomplete",
+            "value": "Übersetzung abgelehnt: Das Modell ist bei einem Teil des Textes gescheitert"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_incomplete",
+            "value": "Η μετάφραση απορρίφθηκε: το μοντέλο απέτυχε σε μέρος του κειμένου"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_incomplete",
+            "value": "Translation refused: the model failed on part of the text"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_incomplete",
+            "value": "Itzulpena baztertu da: ereduak huts egin du testuaren zati batean"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_incomplete",
+            "value": "Traduction refusée : le modèle a échoué sur une partie du texte"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_incomplete",
+            "value": "Traduzione rifiutata: il modello ha fallito su una parte del testo"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_incomplete",
+            "value": "अनुवाद अस्वीकृत: मोडेल पाठको केही भागमा असफल भयो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_incomplete",
+            "value": "Tradução recusada: o modelo falhou numa parte do texto"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_incomplete",
+            "value": "Traducción rechazada: el modelo ha fallado en parte del texto"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_save_failed",
+            "value": "Traducció no desada: el desament ha fallat"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_save_failed",
+            "value": "Übersetzung nicht gespeichert: Das Speichern ist fehlgeschlagen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_save_failed",
+            "value": "Η μετάφραση δεν αποθηκεύτηκε: η αποθήκευση απέτυχε"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_save_failed",
+            "value": "Translation not saved: the save failed"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_save_failed",
+            "value": "Itzulpena ez da gorde: gordetzeak huts egin du"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_save_failed",
+            "value": "Traduction non enregistrée : l’enregistrement a échoué"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_save_failed",
+            "value": "Traduzione non salvata: il salvataggio non è riuscito"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_save_failed",
+            "value": "अनुवाद सुरक्षित भएन: सुरक्षित गर्न असफल भयो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_save_failed",
+            "value": "Tradução não guardada: a gravação falhou"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_save_failed",
+            "value": "Traducción no guardada: el guardado ha fallado"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_empty_result",
+            "value": "Traducció rebutjada: el model no ha retornat cap text"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_empty_result",
+            "value": "Übersetzung abgelehnt: Das Modell hat keinen Text zurückgegeben"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_empty_result",
+            "value": "Η μετάφραση απορρίφθηκε: το μοντέλο δεν επέστρεψε κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_empty_result",
+            "value": "Translation refused: the model returned no text"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_empty_result",
+            "value": "Itzulpena baztertu da: ereduak ez du testurik itzuli"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_empty_result",
+            "value": "Traduction refusée : le modèle n’a renvoyé aucun texte"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_empty_result",
+            "value": "Traduzione rifiutata: il modello non ha restituito alcun testo"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_empty_result",
+            "value": "अनुवाद अस्वीकृत: मोडेलले कुनै पाठ फर्काएन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_empty_result",
+            "value": "Tradução recusada: o modelo não devolveu nenhum texto"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_empty_result",
+            "value": "Traducción rechazada: el modelo no ha devuelto ningún texto"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_token_collision",
+            "value": "Traducció rebutjada: el text conté seqüències del tipus [[[n]]] que es confondrien amb els marcadors de la traducció"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_token_collision",
+            "value": "Übersetzung abgelehnt: Der Text enthält [[[n]]]-artige Zeichenfolgen, die mit den Übersetzungsmarkierungen verwechselt würden"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_token_collision",
+            "value": "Η μετάφραση απορρίφθηκε: το κείμενο περιέχει ακολουθίες τύπου [[[n]]] που θα συγχέονταν με τους δείκτες της μετάφρασης"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_token_collision",
+            "value": "Translation refused: the text contains [[[n]]]-like sequences that the translation markers would be confused with"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_token_collision",
+            "value": "Itzulpena baztertu da: testuak [[[n]]] motako sekuentziak ditu, itzulpenaren markatzaileekin nahas litezkeenak"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_token_collision",
+            "value": "Traduction refusée : le texte contient des séquences du type [[[n]]] qui seraient confondues avec les marqueurs de la traduction"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_token_collision",
+            "value": "Traduzione rifiutata: il testo contiene sequenze del tipo [[[n]]] che verrebbero confuse con i marcatori della traduzione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_token_collision",
+            "value": "अनुवाद अस्वीकृत: पाठमा [[[n]]] जस्ता अनुक्रमहरू छन् जुन अनुवादका चिन्हकहरूसँग झुक्किन सक्छन्"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_token_collision",
+            "value": "Tradução recusada: o texto contém sequências do tipo [[[n]]] que seriam confundidas com os marcadores da tradução"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_token_collision",
+            "value": "Traducción rechazada: el texto contiene secuencias del tipo [[[n]]] que se confundirían con los marcadores de la traducción"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetes de l’estructura del text (paràgrafs, elements de llista, cel·les de taula) han tornat desordenades"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "tags_out_of_order",
+            "value": "%s Tags der Textstruktur (Absätze, Listeneinträge, Tabellenzellen) kamen in falscher Reihenfolge zurück"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "tags_out_of_order",
+            "value": "%s ετικέτες της δομής του κειμένου (παράγραφοι, στοιχεία λίστας, κελιά πίνακα) επέστρεψαν με λάθος σειρά"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "tags_out_of_order",
+            "value": "%s tags of the text's structure (paragraphs, list items, table cells) came back out of order"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "tags_out_of_order",
+            "value": "Testuaren egiturako %s etiketa (paragrafoak, zerrendako elementuak, taulako gelaxkak) ordenatu gabe itzuli dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "tags_out_of_order",
+            "value": "%s balises de la structure du texte (paragraphes, éléments de liste, cellules de tableau) sont revenues dans le désordre"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "tags_out_of_order",
+            "value": "%s tag della struttura del testo (paragrafi, voci di elenco, celle di tabella) sono tornati in ordine sbagliato"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "tags_out_of_order",
+            "value": "पाठको संरचनाका %s ट्यागहरू (अनुच्छेद, सूचीका वस्तु, तालिकाका कोठा) गलत क्रममा फर्किए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetas da estrutura do texto (parágrafos, itens de lista, células de tabela) voltaram fora de ordem"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "tags_out_of_order",
+            "value": "%s etiquetas de la estructura del texto (párrafos, elementos de lista, celdas de tabla) volvieron desordenadas"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "tags_crossed",
+            "value": "%s etiquetes han tornat mal niades (es tanquen dins d’una altra etiqueta)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "tags_crossed",
+            "value": "%s Tags kamen falsch verschachtelt zurück (sie schließen innerhalb eines anderen Tags)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "tags_crossed",
+            "value": "%s ετικέτες επέστρεψαν λάθος εμφωλευμένες (κλείνουν μέσα σε άλλη ετικέτα)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "tags_crossed",
+            "value": "%s tags came back wrongly nested (closing inside another tag)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "tags_crossed",
+            "value": "%s etiketa gaizki habiaratuta itzuli dira (beste etiketa baten barruan ixten dira)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "tags_crossed",
+            "value": "%s balises sont revenues mal imbriquées (elles se ferment à l’intérieur d’une autre balise)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "tags_crossed",
+            "value": "%s tag sono tornati annidati in modo errato (si chiudono dentro un altro tag)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "tags_crossed",
+            "value": "%s ट्यागहरू गलत तरिकाले नेस्ट भएर फर्किए (अर्को ट्यागभित्र बन्द हुन्छन्)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "tags_crossed",
+            "value": "%s etiquetas voltaram mal aninhadas (fecham dentro de outra etiqueta)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "tags_crossed",
+            "value": "%s etiquetas volvieron mal anidadas (se cierran dentro de otra etiqueta)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_no_model",
+            "value": "Traducció no iniciada: aquesta instal·lació no ofereix cap model de traducció al navegador"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_no_model",
+            "value": "Übersetzung nicht gestartet: Diese Installation bietet kein Übersetzungsmodell für den Browser an"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_no_model",
+            "value": "Η μετάφραση δεν ξεκίνησε: αυτή η εγκατάσταση δεν προσφέρει κανένα μοντέλο μετάφρασης στο πρόγραμμα περιήγησης"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_no_model",
+            "value": "Translation not started: this installation offers no browser translation model"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_no_model",
+            "value": "Itzulpena ez da hasi: instalazio honek ez du nabigatzailerako itzulpen-eredurik eskaintzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_no_model",
+            "value": "Traduction non lancée : cette installation ne propose aucun modèle de traduction dans le navigateur"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_no_model",
+            "value": "Traduzione non avviata: questa installazione non offre alcun modello di traduzione nel browser"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_no_model",
+            "value": "अनुवाद सुरु भएन: यो स्थापनाले ब्राउजरका लागि कुनै अनुवाद मोडेल प्रदान गर्दैन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_no_model",
+            "value": "Tradução não iniciada: esta instalação não oferece nenhum modelo de tradução no navegador"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_no_model",
+            "value": "Traducción no iniciada: esta instalación no ofrece ningún modelo de traducción en el navegador"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_lang_unmapped",
+            "value": "Traducció no iniciada: la llengua %s no té cap codi de llengua que un model de traducció entengui"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_lang_unmapped",
+            "value": "Übersetzung nicht gestartet: Die Sprache %s hat keinen Sprachcode, den ein Übersetzungsmodell versteht"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_lang_unmapped",
+            "value": "Η μετάφραση δεν ξεκίνησε: η γλώσσα %s δεν έχει κωδικό γλώσσας που να καταλαβαίνει ένα μοντέλο μετάφρασης"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_lang_unmapped",
+            "value": "Translation not started: the language %s has no locale code a translation model understands"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_lang_unmapped",
+            "value": "Itzulpena ez da hasi: %s hizkuntzak ez du itzulpen-eredu batek ulertzen duen hizkuntza-koderik"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_lang_unmapped",
+            "value": "Traduction non lancée : la langue %s n’a aucun code de langue qu’un modèle de traduction comprenne"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_lang_unmapped",
+            "value": "Traduzione non avviata: la lingua %s non ha alcun codice di lingua comprensibile per un modello di traduzione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_lang_unmapped",
+            "value": "अनुवाद सुरु भएन: भाषा %s को कुनै पनि अनुवाद मोडेलले बुझ्ने भाषा कोड छैन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_lang_unmapped",
+            "value": "Tradução não iniciada: a língua %s não tem nenhum código de língua que um modelo de tradução entenda"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_lang_unmapped",
+            "value": "Traducción no iniciada: la lengua %s no tiene ningún código de lengua que un modelo de traducción entienda"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "marks_outside_text",
+            "value": "%s marques han quedat dins del marcatge en lloc del text"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "marks_outside_text",
+            "value": "%s Markierungen sind im Markup statt im Text gelandet"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "marks_outside_text",
+            "value": "%s σημάδια κατέληξαν μέσα στη σήμανση αντί για το κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "marks_outside_text",
+            "value": "%s marks ended up inside the markup instead of the text"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "marks_outside_text",
+            "value": "%s marka testuaren ordez markaketaren barruan geratu dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "marks_outside_text",
+            "value": "%s marques se sont retrouvées dans le balisage au lieu du texte"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "marks_outside_text",
+            "value": "%s marcatori sono finiti nel markup invece che nel testo"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "marks_outside_text",
+            "value": "%s चिन्हहरू पाठको सट्टा मार्कअपभित्र परे"
+          },
+          {
+            "lang": "lg-por",
+            "name": "marks_outside_text",
+            "value": "%s marcas ficaram dentro da marcação em vez do texto"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "marks_outside_text",
+            "value": "%s marcas han quedado dentro del marcado en lugar del texto"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "gpu_unavailable",
+            "value": "GPU no disponible, es canvia a CPU"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "gpu_unavailable",
+            "value": "GPU nicht verfügbar, Wechsel zur CPU"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "gpu_unavailable",
+            "value": "Η GPU δεν είναι διαθέσιμη, μετάβαση σε CPU"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "gpu_unavailable",
+            "value": "GPU unavailable, switching to CPU"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "gpu_unavailable",
+            "value": "GPUa ez dago erabilgarri, CPUra aldatzen"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "gpu_unavailable",
+            "value": "GPU indisponible, passage au CPU"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "gpu_unavailable",
+            "value": "GPU non disponibile, passaggio alla CPU"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "gpu_unavailable",
+            "value": "GPU उपलब्ध छैन, CPU मा बदलिँदै"
+          },
+          {
+            "lang": "lg-por",
+            "name": "gpu_unavailable",
+            "value": "GPU indisponível, a mudar para CPU"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "gpu_unavailable",
+            "value": "GPU no disponible, se cambia a CPU"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "configuration",
+            "value": "Configuració"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "configuration",
+            "value": "Konfiguration"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "configuration",
+            "value": "Ρυθμίσεις"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "configuration",
+            "value": "Configuration"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "configuration",
+            "value": "Konfigurazioa"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "configuration",
+            "value": "Configuration"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "configuration",
+            "value": "Configurazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "configuration",
+            "value": "कन्फिगरेसन"
+          },
+          {
+            "lang": "lg-por",
+            "name": "configuration",
+            "value": "Configuração"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "configuration",
+            "value": "Configuración"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — model d’instruccions, totes les llengües, ~2,5 GB (llicència Apache)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — Instruct-Modell, alle Sprachen, ~2,5 GB (Apache-Lizenz)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — μοντέλο οδηγιών, όλες οι γλώσσες, ~2,5 GB (άδεια Apache)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — instruction model, all languages, ~2.5 GB (Apache licence)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — instrukzio-eredua, hizkuntza guztiak, ~2,5 GB (Apache lizentzia)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — modèle instruct, toutes les langues, ~2,5 Go (licence Apache)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — modello instruct, tutte le lingue, ~2,5 GB (licenza Apache)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — निर्देश मोडेल, सबै भाषा, ~2.5 GB (Apache इजाजतपत्र)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — modelo de instruções, todos os idiomas, ~2,5 GB (licença Apache)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "engine_qwen",
+            "value": "Qwen3 4B — modelo de instrucciones, todos los idiomas, ~2,5 GB (licencia Apache)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — totes les llengües, ~2,5 GB"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — alle Sprachen, ~2,5 GB"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — όλες οι γλώσσες, ~2,5 GB"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — all languages, ~2.5 GB"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — hizkuntza guztiak, ~2,5 GB"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — toutes les langues, ~2,5 Go"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — tutte le lingue, ~2,5 GB"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — सबै भाषा, ~2.5 GB"
+          },
+          {
+            "lang": "lg-por",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — todos os idiomas, ~2,5 GB"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "engine_translategemma",
+            "value": "TranslateGemma 4B — todos los idiomas, ~2,5 GB"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — totes les llengües, ~700 MB (llicència no comercial)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — alle Sprachen, ~700 MB (nicht-kommerzielle Lizenz)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — όλες οι γλώσσες, ~700 MB (μη εμπορική άδεια)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — all languages, ~700 MB (non-commercial licence)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — hizkuntza guztiak, ~700 MB (lizentzia ez-komertziala)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — toutes les langues, ~700 Mo (licence non commerciale)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — tutte le lingue, ~700 MB (licenza non commerciale)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — सबै भाषा, ~700 MB (गैर-व्यावसायिक इजाजतपत्र)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — todos os idiomas, ~700 MB (licença não comercial)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "engine_nllb",
+            "value": "NLLB-200 600M — todos los idiomas, ~700 MB (licencia no comercial)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — totes les llengües, ~3 GB (llicència Apache)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — alle Sprachen, ~3 GB (Apache-Lizenz)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — όλες οι γλώσσες, ~3 GB (άδεια Apache)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — all languages, ~3 GB (Apache licence)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — hizkuntza guztiak, ~3 GB (Apache lizentzia)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — toutes les langues, ~3 Go (licence Apache)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — tutte le lingue, ~3 GB (licenza Apache)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — सबै भाषा, ~3 GB (Apache इजाजतपत्र)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — todos os idiomas, ~3 GB (licença Apache)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "engine_madlad",
+            "value": "MADLAD-400 3B — todos los idiomas, ~3 GB (licencia Apache)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, ràpid, parells de llengües limitats"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, schnell, begrenzte Sprachpaare"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, γρήγορο, περιορισμένα ζεύγη γλωσσών"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, fast, limited language pairs"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, azkarra, hizkuntza-bikote mugatuak"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 Mo, rapide, paires de langues limitées"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, veloce, coppie di lingue limitate"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, छिटो, सीमित भाषा जोडी"
+          },
+          {
+            "lang": "lg-por",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, rápido, pares de idiomas limitados"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "engine_opus",
+            "value": "Opus-MT — ~75 MB, rápido, pares de idiomas limitados"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_model",
+            "value": "Model"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_model",
+            "value": "Modell"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_model",
+            "value": "Μοντέλο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_model",
+            "value": "Model"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_model",
+            "value": "Eredua"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_model",
+            "value": "Modèle"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_model",
+            "value": "Modello"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_model",
+            "value": "मोडेल"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_model",
+            "value": "Modelo"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_model",
+            "value": "Modelo"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "model_quality",
+            "value": "Qualitat del model"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "model_quality",
+            "value": "Modellqualität"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "model_quality",
+            "value": "Ποιότητα μοντέλου"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "model_quality",
+            "value": "Model quality"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "model_quality",
+            "value": "Ereduaren kalitatea"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "model_quality",
+            "value": "Qualité du modèle"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "model_quality",
+            "value": "Qualità del modello"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "model_quality",
+            "value": "मोडेल गुणस्तर"
+          },
+          {
+            "lang": "lg-por",
+            "name": "model_quality",
+            "value": "Qualidade do modelo"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "model_quality",
+            "value": "Calidad del modelo"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "model_quality_q4",
+            "value": "Estàndard (més ràpid, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "model_quality_q4",
+            "value": "Standard (schneller, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "model_quality_q4",
+            "value": "Τυπική (ταχύτερη, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "model_quality_q4",
+            "value": "Standard (faster, ~2.5 GB)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "model_quality_q4",
+            "value": "Estandarra (azkarragoa, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "model_quality_q4",
+            "value": "Standard (plus rapide, ~2,5 Go)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "model_quality_q4",
+            "value": "Standard (più veloce, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "model_quality_q4",
+            "value": "सामान्य (छिटो, ~2.5 GB)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "model_quality_q4",
+            "value": "Padrão (mais rápido, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "model_quality_q4",
+            "value": "Estándar (más rápido, ~2,5 GB)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "model_quality_q8",
+            "value": "Alta (millor, ~4,5 GB, pot no cabre)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "model_quality_q8",
+            "value": "Hoch (besser, ~4,5 GB, passt evtl. nicht)"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "model_quality_q8",
+            "value": "Υψηλή (καλύτερη, ~4,5 GB, ίσως δεν χωρέσει)"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "model_quality_q8",
+            "value": "High (better, ~4.5 GB, may not fit)"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "model_quality_q8",
+            "value": "Altua (hobea, ~4,5 GB, agian ez da sartuko)"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "model_quality_q8",
+            "value": "Élevée (meilleure, ~4,5 Go, peut ne pas tenir)"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "model_quality_q8",
+            "value": "Alta (migliore, ~4,5 GB, potrebbe non entrare)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "model_quality_q8",
+            "value": "उच्च (राम्रो, ~4.5 GB, नअटाउन सक्छ)"
+          },
+          {
+            "lang": "lg-por",
+            "name": "model_quality_q8",
+            "value": "Alta (melhor, ~4,5 GB, pode não caber)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "model_quality_q8",
+            "value": "Alta (mejor, ~4,5 GB, puede no caber)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "requires_webgpu_hint",
+            "value": "Aquest model només funciona amb GPU"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "requires_webgpu_hint",
+            "value": "Dieses Modell läuft nur auf der GPU"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "requires_webgpu_hint",
+            "value": "Αυτό το μοντέλο τρέχει μόνο σε GPU"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "requires_webgpu_hint",
+            "value": "This model runs on the GPU only"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "requires_webgpu_hint",
+            "value": "Eredu hau GPUan soilik dabil"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "requires_webgpu_hint",
+            "value": "Ce modèle fonctionne uniquement sur GPU"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "requires_webgpu_hint",
+            "value": "Questo modello funziona solo su GPU"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "requires_webgpu_hint",
+            "value": "यो मोडेल GPU मा मात्र चल्छ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "requires_webgpu_hint",
+            "value": "Este modelo só funciona com GPU"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "requires_webgpu_hint",
+            "value": "Este modelo solo funciona con GPU"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "emphasis_lost",
+            "value": "S’han perdut %s estils de text (negreta, cursiva)"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "emphasis_lost",
+            "value": "%s Textauszeichnungen (fett, kursiv) gingen verloren"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "emphasis_lost",
+            "value": "%s στυλ κειμένου (έντονα, πλάγια) χάθηκαν"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "emphasis_lost",
+            "value": "%s text styles (bold, italic) were lost"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "emphasis_lost",
+            "value": "%s testu-estilo (lodia, etzana) galdu dira"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "emphasis_lost",
+            "value": "%s styles de texte (gras, italique) ont été perdus"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "emphasis_lost",
+            "value": "Sono stati persi %s stili di testo (grassetto, corsivo)"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "emphasis_lost",
+            "value": "%s पाठ शैली (बोल्ड, इटालिक) हराए"
+          },
+          {
+            "lang": "lg-por",
+            "name": "emphasis_lost",
+            "value": "Perderam-se %s estilos de texto (negrito, itálico)"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "emphasis_lost",
+            "value": "Se han perdido %s estilos de texto (negrita, cursiva)"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "translation_degenerate",
+            "value": "El model s’ha repetit en lloc de traduir."
+          },
+          {
+            "lang": "lg-deu",
+            "name": "translation_degenerate",
+            "value": "Das Modell hat sich wiederholt, statt zu übersetzen."
+          },
+          {
+            "lang": "lg-ell",
+            "name": "translation_degenerate",
+            "value": "Το μοντέλο επαναλήφθηκε αντί να μεταφράσει."
+          },
+          {
+            "lang": "lg-eng",
+            "name": "translation_degenerate",
+            "value": "The model repeated itself instead of translating."
+          },
+          {
+            "lang": "lg-eus",
+            "name": "translation_degenerate",
+            "value": "Ereduak itzuli beharrean errepikatu egin du."
+          },
+          {
+            "lang": "lg-fra",
+            "name": "translation_degenerate",
+            "value": "Le modèle s’est répété au lieu de traduire."
+          },
+          {
+            "lang": "lg-ita",
+            "name": "translation_degenerate",
+            "value": "Il modello si è ripetuto invece di tradurre."
+          },
+          {
+            "lang": "lg-nep",
+            "name": "translation_degenerate",
+            "value": "मोडेलले अनुवाद गर्नुको सट्टा दोहोर्‍यायो।"
+          },
+          {
+            "lang": "lg-por",
+            "name": "translation_degenerate",
+            "value": "O modelo repetiu-se em vez de traduzir."
+          },
+          {
+            "lang": "lg-spa",
+            "name": "translation_degenerate",
+            "value": "El modelo se ha repetido en lugar de traducir."
           }
         ]
       }

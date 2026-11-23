@@ -520,16 +520,10 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 	},
 	// ── client-side driver results (no server body involved) ──────────────────
 	{
-		file: 'tools/tool_lang/js/render_tool_lang.js',
-		pattern: literal('response?.result'),
-		reason:
-			"the CLIENT-SIDE browser-translation driver's own resolve value {result, msg} (tools/tool_lang/js/browser_translation.js translate_component_browser — result:true = stored, false = cancelled), never an API body",
-	},
-	{
 		file: 'tools/tool_lang_multi/js/tool_lang_multi.js',
 		pattern: literal('response?.result'),
 		reason:
-			'the same client-side browser-translation driver resolve value as render_tool_lang.js (via run_browser_translation), never an API body',
+			"the CLIENT-SIDE browser-translation driver's own resolve value {result, msg} (tools/tool_lang/js/browser_translation.js translate_component_browser via run_browser_translation — result:true = stored, false = cancelled), never an API body",
 	},
 ];
 

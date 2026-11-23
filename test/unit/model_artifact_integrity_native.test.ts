@@ -32,9 +32,24 @@
  *   (h) the geoip database gets a rest-integrity sidecar at download, and a
  *       mismatch at boot is quarantined and reported absent;
  *   (i) the pin PROCEDURE itself (scripts/pin_ai_models.ts) derives the digests
- *       from the hub's tree API and cross-checks sizes.
+ *       from the hub's tree API and cross-checks sizes, and reads the licence
+ *       record from the card;
+ *   (j) the TRANSLATION catalogue (tools/tool_lang/register.json,
+ *       browser_transformer.models — 2026-11-22) is first-class: every
+ *       translator is pinned, the one-model-per-pair template carries a
+ *       reproducible expansion record whose ids ARE the catalogue, a
+ *       decoder-only translator's external-data chunks are pinned with its
+ *       weights, and EVERY pin carries a valid licence record (a pin without
+ *       one is red);
+ *   (k) the engine's per-kind file set (modelFilesForConfig) EQUALS what the
+ *       VENDORED transformers.js runtime names for the same config + dtype,
+ *       for every translator shape — external-data chunks included;
+ *   (l) the store serves and evidences external-data chunks past the first
+ *       (`…onnx_data_1`): servable, and a missing chunk is `incomplete`.
  *
- * HERMETIC: mkdtemp store, Bun.serve on port 0, no database.
+ * HERMETIC: mkdtemp store, Bun.serve on port 0, no database — (j) reads the
+ * repo's committed pin file, (k) runs the vendored runtime offline (the config
+ * is passed in, nothing is fetched).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -54,11 +69,16 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
+	allFetchTargets,
 	commonFilesFor,
+	expandTemplate,
 	filesFor,
+	notOfferedMark,
 	readRegisterCatalog,
+	readTranslationCatalog,
+	readTranslationTemplates,
 } from '../../scripts/lib/ai_model_register.ts';
-import { checkTable, pinModel } from '../../scripts/pin_ai_models.ts';
+import { checkTable, pinModel, runtimeModelFiles } from '../../scripts/pin_ai_models.ts';
 import { downloadModel, HUB_BASE } from '../../src/core/ai/model_fetch.ts';
 import { QUARANTINE_DIR, SHA256_HEX, verifiedDigest } from '../../src/core/ai/model_integrity.ts';
 import {
@@ -67,6 +87,7 @@ import {
 	recordFileComplete,
 } from '../../src/core/ai/model_manifest.ts';
 import {
+	licenceProblems,
 	type PinTable,
 	pinnedRevision,
 	REVISION_HEX,
@@ -75,6 +96,9 @@ import {
 import {
 	AI_MODEL_URL_PREFIX,
 	knownDigestFor,
+	type ModelKind,
+	modelFilesForConfig,
+	modelState,
 	resolveModelPath,
 	serveModelRequest,
 } from '../../src/core/ai/model_store.ts';
@@ -151,7 +175,7 @@ beforeAll(() => {
 			const path = new URL(request.url).pathname;
 			hubSeen.push(path);
 			if (path === `/api/models/${MODEL}/revision/main`) {
-				return Response.json({ sha: REVISION });
+				return Response.json({ sha: REVISION, cardData: { license: 'mit' } });
 			}
 			if (path === `/api/models/${MODEL}/tree/${REVISION}`) {
 				return Response.json(
@@ -719,7 +743,8 @@ describe('(g) the repo pin file covers the catalog', () => {
 	const table = readPinTable();
 
 	test('the catalog census has a floor', () => {
-		expect(catalog.length).toBeGreaterThanOrEqual(8);
+		// 8 transcription + 4 translators + 19 opus-mt pairs (2026-11-22).
+		expect(catalog.length).toBeGreaterThanOrEqual(31);
 	});
 
 	test('every catalog model is pinned, or reasoned as unpinned (shrink-only)', () => {
@@ -758,7 +783,7 @@ describe('(g) the repo pin file covers the catalog', () => {
 				expect(pin.files[file], `${id}: ${file} has no pin`).toBeDefined();
 			}
 		}
-		expect(files).toBeGreaterThanOrEqual(40);
+		expect(files).toBeGreaterThanOrEqual(180);
 	});
 
 	test('positive control: the census sees a missing pin', () => {
@@ -820,6 +845,16 @@ describe('(i) the pin procedure derives digests from the hub tree and cross-chec
 		expect(pin).not.toBeNull();
 		expect(pin?.revision).toBe(REVISION);
 		expect(pin?.files).toEqual(truePins().models[MODEL]!.files);
+		// The licence is the card's own, cited at the PUBLIC hub page whatever
+		// hub answered (the record is evidence for a human).
+		expect(pin?.licence).toEqual({
+			name: 'mit',
+			url: `${HUB_BASE}/${MODEL}`,
+			declared_by: 'card',
+			card: { license: 'mit', url: `${HUB_BASE}/${MODEL}` },
+			upstream: null,
+		});
+		expect(licenceProblems(MODEL, pin!)).toEqual([]);
 	});
 
 	test('a tree size that disagrees with the hashed bytes is refused', async () => {
@@ -835,5 +870,281 @@ describe('(i) the pin procedure derives digests from the hub tree and cross-chec
 
 	test('production fetches from the pinned https hub', () => {
 		expect(HUB_BASE).toBe('https://huggingface.co');
+	});
+});
+
+describe('(j) the translation catalogue is first-class: pinned, expanded, licensed', () => {
+	const table = readPinTable();
+	const translators = readTranslationCatalog();
+	const templates = readTranslationTemplates();
+	const TRANSLATEGEMMA = 'onnx-community/translategemma-text-4b-it-ONNX';
+
+	test('the translation catalogue has a floor and every entry is pinned', () => {
+		// qwen, translategemma, nllb, madlad + the 19 opus-mt pairs the hub serves.
+		expect(translators.length).toBeGreaterThanOrEqual(23);
+		for (const model of translators) {
+			expect(table.models[model.id], `${model.id}: not pinned`).toBeDefined();
+			expect(model.kind === 'decoder_only' || model.kind === 'seq2seq').toBe(true);
+		}
+		// C54's recorded condition (registry.ts): the translategemma revision is pinned.
+		expect(pinnedRevision(TRANSLATEGEMMA)).toMatch(REVISION_HEX);
+	});
+
+	test('every templated id carries a reproducible expansion whose ids ARE the catalogue', () => {
+		expect(templates.map((model) => model.id)).toContain('Xenova/opus-mt-{src}-{tgt}');
+		for (const template of templates) {
+			const expansion = table.expansions?.[template.id];
+			expect(expansion, `${template.id}: no expansion record`).toBeDefined();
+			const { langs, probed, present } = expansion!;
+			expect(langs.length).toBeGreaterThanOrEqual(2);
+			expect(new Set(langs).size).toBe(langs.length);
+			expect(probed).toBe(langs.length * (langs.length - 1));
+			const candidates = new Set(
+				langs.flatMap((src) =>
+					langs.filter((tgt) => tgt !== src).map((tgt) => expandTemplate(template.id, src, tgt)),
+				),
+			);
+			for (const id of present) expect(candidates.has(id), `${id}: not a probed pair`).toBe(true);
+			expect(expansion!.reason.trim().length).toBeGreaterThan(20);
+			expect(expansion!.computed_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			const expanded = translators.filter((model) => model.template === template.id);
+			expect(expanded.map((model) => model.id).sort()).toEqual([...present].sort());
+		}
+	});
+
+	test('a decoder-only translator pins its external-data chunks with its weights', () => {
+		const gemma = translators.find((model) => model.id === TRANSLATEGEMMA)!;
+		const wanted = filesFor(gemma, table);
+		expect(wanted).toContain('onnx/model_q4.onnx');
+		expect(wanted).toContain('onnx/model_q4.onnx_data');
+		expect(wanted).toContain('onnx/model_q4.onnx_data_1');
+		// No orphan chunk anywhere: every pinned `…onnx_data*` rides a pinned weight.
+		for (const [id, pin] of Object.entries(table.models)) {
+			for (const file of Object.keys(pin.files)) {
+				const weight = /^(.*\.onnx)_data(?:_\d+)?$/.exec(file)?.[1];
+				if (weight !== undefined) {
+					expect(pin.files[weight], `${id}: ${file} has no pinned weight`).toBeDefined();
+				}
+			}
+		}
+	});
+
+	test('EVERY pin carries a valid licence record', () => {
+		for (const [id, pin] of Object.entries(table.models)) {
+			expect(licenceProblems(id, pin), id).toEqual([]);
+		}
+	});
+
+	test('positive controls: a pin without a licence, or with a forged one, is red in the census', () => {
+		const catalog = readRegisterCatalog();
+		const stripped = structuredClone(table) as PinTable;
+		stripped.models[TRANSLATEGEMMA]!.licence = undefined;
+		expect(checkTable(stripped, catalog)).toContain(`${TRANSLATEGEMMA}: no licence record`);
+		const forged = structuredClone(table) as PinTable;
+		forged.models[TRANSLATEGEMMA]!.licence!.name = 'apache-2.0';
+		expect(checkTable(forged, catalog)).toContain(
+			`${TRANSLATEGEMMA}: declared by the upstream, but it says gemma`,
+		);
+		const unexpanded = structuredClone(table) as PinTable;
+		unexpanded.expansions = {};
+		expect(checkTable(unexpanded, catalog)).toContain(
+			'Xenova/opus-mt-{src}-{tgt}: a templated catalog id with no recorded expansion (run --expand)',
+		);
+	});
+});
+
+describe('(j2) a model the catalogue does NOT offer is never seeded by --all (A1-02 re-review)', () => {
+	const NLLB = 'Xenova/nllb-200-distilled-600M';
+	const REPO_ROOT = join(import.meta.dir, '..', '..');
+
+	/** Run the seeder CLI with a scratch store (never downloads: --dry-run / --list / refusals only). */
+	const spawnSeeder = (...args: string[]) => {
+		const child = Bun.spawnSync(['bun', 'scripts/fetch_ai_models.ts', ...args], {
+			cwd: REPO_ROOT,
+			env: process.env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		return { exitCode: child.exitCode, out: child.stdout.toString() + child.stderr.toString() };
+	};
+	const runSeeder = (...args: string[]): string => {
+		const { exitCode, out } = spawnSeeder(...args);
+		expect(exitCode, out).toBe(0);
+		return out;
+	};
+
+	test('the catalogue reader carries offered_by_default and its reason', () => {
+		const translators = readTranslationCatalog();
+		const nllb = translators.find((model) => model.id === NLLB)!;
+		expect(nllb.offered_by_default).toBe(false);
+		expect(nllb.not_offered_reason).toContain('CC-BY-NC');
+		for (const model of translators.filter((entry) => entry.id !== NLLB)) {
+			expect(model.offered_by_default, model.id).toBe(true);
+		}
+	});
+
+	test('allFetchTargets: every offered model, the not-offered one skipped with its reason', () => {
+		const catalog = readRegisterCatalog();
+		const { ids, skipped } = allFetchTargets(catalog);
+		expect(ids).not.toContain(NLLB);
+		expect(skipped.map((entry) => entry.id)).toEqual([NLLB]);
+		expect(skipped[0]!.reason).toContain('CC-BY-NC');
+		expect(ids.length).toBe(catalog.length - 1);
+		expect(notOfferedMark(catalog.find((model) => model.id === NLLB)!)).toMatch(
+			/^ {2}\[not offered: CC-BY-NC/,
+		);
+	});
+
+	test('the CLI refuses an unknown option and a --store without a directory — nothing fetched', () => {
+		const scratch = mkdtempSync(join(tmpdir(), 'dd_seed_cli_'));
+		try {
+			for (const args of [
+				['--dryrun', NLLB, '--store', scratch],
+				['--all', '-n', '--store', scratch],
+				[NLLB, '--store'],
+			]) {
+				const { exitCode, out } = spawnSeeder(...args);
+				expect(exitCode, args.join(' ')).toBe(2);
+				expect(out).toContain('nothing was fetched');
+				expect(out).not.toContain('would fetch');
+			}
+			expect(readdirSync(scratch)).toEqual([]);
+		} finally {
+			rmSync(scratch, { recursive: true, force: true });
+		}
+	});
+
+	test('--dry-run refuses what a real run refuses: an id in no catalogue', () => {
+		const { exitCode, out } = spawnSeeder('--dry-run', 'nobody/not-a-model');
+		expect(exitCode).not.toBe(0);
+		expect(out).toContain('nobody/not-a-model is in no in-browser model catalog');
+		expect(out).not.toContain('would fetch');
+	});
+
+	test('the CLI: --all leaves it out and says so; naming it fetches it; --list marks it', () => {
+		const all = runSeeder('--all', '--dry-run');
+		expect(all).not.toContain(`would fetch: ${NLLB}`);
+		expect(all).toContain(
+			`skipped (not offered — fetch it by name only after checking): ${NLLB} — CC-BY-NC`,
+		);
+		expect(all).toContain('would fetch: onnx-community/Qwen3-4B-Instruct-2507-ONNX');
+		expect(runSeeder(NLLB, '--dry-run')).toContain(`would fetch: ${NLLB}`);
+		const listed = runSeeder('--list').split('\n');
+		expect(listed.find((line) => line.includes(NLLB))).toContain('[not offered: CC-BY-NC');
+		expect(listed.find((line) => line.includes('Qwen3-4B'))).not.toContain('not offered');
+	});
+});
+
+describe("(k) the engine file set equals the vendored runtime's, for every translator shape", () => {
+	/** Minimal configs of the five catalogue architectures (no fetch: passed in). */
+	const CASES: { name: string; kind: ModelKind; dtype: string; config: Record<string, unknown> }[] =
+		[
+			{
+				name: 'Qwen3 decoder-only, chunks keyed by full name',
+				kind: 'decoder_only',
+				dtype: 'q4f16',
+				config: {
+					architectures: ['Qwen3ForCausalLM'],
+					model_type: 'qwen3',
+					'transformers.js_config': {
+						use_external_data_format: { 'model.onnx': 8, 'model_q4f16.onnx': 2 },
+					},
+				},
+			},
+			{
+				name: 'Gemma3 decoder-only, one chunk count for every file',
+				kind: 'decoder_only',
+				dtype: 'q4',
+				config: {
+					architectures: ['Gemma3ForCausalLM'],
+					model_type: 'gemma3_text',
+					'transformers.js_config': { use_external_data_format: 3 },
+				},
+			},
+			{
+				name: 'Gemma3 decoder-only, chunks keyed by part',
+				kind: 'decoder_only',
+				dtype: 'q4',
+				config: {
+					architectures: ['Gemma3ForCausalLM'],
+					model_type: 'gemma3_text',
+					'transformers.js_config': { use_external_data_format: { model: 1 } },
+				},
+			},
+			{
+				name: 'M2M100 (NLLB) seq2seq',
+				kind: 'seq2seq',
+				dtype: 'q8',
+				config: { architectures: ['M2M100ForConditionalGeneration'], model_type: 'm2m_100' },
+			},
+			{
+				name: 'T5 (MADLAD) seq2seq',
+				kind: 'seq2seq',
+				dtype: 'q8',
+				config: { architectures: ['T5ForConditionalGeneration'], model_type: 't5' },
+			},
+			{
+				name: 'Marian (opus-mt) seq2seq',
+				kind: 'seq2seq',
+				dtype: 'q8',
+				config: { architectures: ['MarianMTModel'], model_type: 'marian' },
+			},
+		];
+
+	const engineSet = (kind: ModelKind, dtype: string, config: unknown): string[] =>
+		[...modelFilesForConfig(dtype, kind, config), 'generation_config.json'].sort();
+
+	for (const testCase of CASES) {
+		test(testCase.name, async () => {
+			const runtime = [
+				...new Set(await runtimeModelFiles('fixture/x', testCase.config, testCase.dtype)),
+			].sort();
+			expect(engineSet(testCase.kind, testCase.dtype, testCase.config)).toEqual(runtime);
+			expect(runtime.some((file) => file.startsWith('onnx/'))).toBe(true);
+		});
+	}
+
+	test('positive control: the WRONG kind for an architecture disagrees with the runtime', async () => {
+		const qwen = CASES[0]!;
+		const runtime = [
+			...new Set(await runtimeModelFiles('fixture/x', qwen.config, qwen.dtype)),
+		].sort();
+		expect(engineSet('seq2seq', qwen.dtype, qwen.config)).not.toEqual(runtime);
+		// …and dropping the chunks (the pre-2026-11-22 file set) disagrees too.
+		expect(engineSet('decoder_only', qwen.dtype, {})).not.toEqual(runtime);
+	});
+});
+
+describe('(l) external-data chunks past the first are served and evidenced', () => {
+	const GEMMA = 'onnx-community/translategemma-text-4b-it-ONNX';
+	const ONNX_HEAD = '\u0008FIXTURE';
+
+	test('`…onnx_data_1` is servable; a name that only resembles a chunk is not', async () => {
+		const dir = join(store, 'fixture-org', 'decoder-FIXTURE', 'onnx');
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, 'model_q4.onnx_data_1'), 'CHUNK-BYTES');
+		writeFileSync(join(dir, 'model_q4.onnx_data_1x'), 'NOT-A-CHUNK');
+		const request = (name: string) =>
+			serveModelRequest(
+				`${AI_MODEL_URL_PREFIX}fixture-org/decoder-FIXTURE/onnx/${name}`,
+				new Request(`http://localhost${AI_MODEL_URL_PREFIX}x`),
+				true,
+			);
+		expect((await request('model_q4.onnx_data_1'))?.status).toBe(200);
+		expect((await request('model_q4.onnx_data_1x'))?.status).toBe(404);
+	});
+
+	test('a decoder-only translator missing its second chunk is `incomplete`, not ready', () => {
+		const root = join(store, GEMMA);
+		mkdirSync(join(root, 'onnx'), { recursive: true });
+		writeFileSync(join(root, 'config.json'), '{"model_type":"gemma3_text"}');
+		writeFileSync(join(root, 'onnx', 'model_q4.onnx'), ONNX_HEAD);
+		writeFileSync(join(root, 'onnx', 'model_q4.onnx_data'), 'CHUNK-0');
+		const partial = modelState(GEMMA, 'q4', 'decoder_only');
+		expect(partial.files.map((entry) => entry.file)).toContain('onnx/model_q4.onnx_data_1');
+		expect(partial.state).toBe('incomplete');
+		writeFileSync(join(root, 'onnx', 'model_q4.onnx_data_1'), 'CHUNK-1');
+		// Every file present, none recorded in a manifest: `unverified`, never `ready`.
+		expect(modelState(GEMMA, 'q4', 'decoder_only').state).toBe('unverified');
 	});
 });

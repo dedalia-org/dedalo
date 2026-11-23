@@ -203,6 +203,7 @@ export const tool_suites_green = [
 	'test_tool_import_rdf',
 	'test_tool_import_zotero',
 	'test_tool_lang',
+	'test_tool_lang_browser_translation', // A1-02: a Dédalo mark the model lost / inverted is repaired + reported (saved with warnings); a duplicated, unplaceable, invented or out-of-text one, a lost block, a loop, token-shaped source text REFUSE the run (nothing saved); model text is escaped; tags are shielded; a cancel never saves; tool_lang_multi names warned langs. Real orchestrator + tr.js + markdown_utils + block_runner; the model is a stand-in.
 	'test_tool_lang_multi',
 	'test_tool_media_versions',
 	'test_tool_numisdata_acquisition',    // the auction acquisition client driven for real (real constructor + renderer, real transport, scripted server at window.fetch — acquisition_harness.js): preview_url/commit_lots wire bodies, and a FAILED background job (coded `error` on the terminal FRAME, ERRORS_SPEC §5.3) renders that error — it used to print "Done." and crash in on_success(undefined); auth.* → relogin; a stopped job is not "Done."; error bodies label-first; scraped text stays text.

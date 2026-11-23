@@ -4,29 +4,36 @@
 /**
  * Browser Translation Worker (Web Worker)
  *
- * Runs TranslateGemma (4B-it) locally in the browser via HuggingFace Transformers
- * and ONNX runtime. Receives HTML blocks from the main thread, translates each
- * block sequentially, and streams results back as they complete.
+ * Runs a translation model locally in the browser via HuggingFace Transformers and the ONNX
+ * runtime. Receives Markdown blocks from the main thread, translates each block
+ * sequentially, and streams results back as they complete.
+ *
+ * Which model is DATA: the main thread sends the selected definition from the tool config
+ * (register.json → browser_transformer.models; the catalogue and its fields are described in
+ * ../../js/browser_models.js). Only how a KIND of model is fed is code — SHAPE_HANDLERS below.
+ * (v6 40bf5eaacf + 23010156ad.)
  *
  * Communication protocol (postMessage):
  *   Main → Worker:
- *     { options: { blocks[], sourceLangCode, targetLangCode, device } }  – start translation
- *     { cancel: true }                                                  – abort in-progress translation
+ *     { options: { blocks[], sourceLangCode, targetLangCode, device, dtype?, engine?, model, alternatives? } }
+ *     { cancel: true }                     – abort in-progress translation
  *   Worker → Main:
- *     { status: 'init',           data: { progress, status, device, file } }           – model loading
- *     { status: 'on_chunk',       data: { accumulated_text, remaining } }              – progress stream
- *     { status: 'on_block_error', data: { message, block, total, accumulated_text, remaining } } – non-fatal block error
- *     { status: 'end',            data: { accumulated_text } }                        – done
- *     { status: 'error',          data: { message, name?, stack? } }                  – fatal error
- *     { status: 'cancelled',      data: { accumulated_text, remaining } }              – cancelled
+ *     { status: 'init',           data: { progress, status, device, file, engine } }        – model loading
+ *     { status: 'on_chunk',       data: { accumulated_text, remaining, repair_stats, failed_blocks } }
+ *     { status: 'on_block_error', data: { message, code, detail, block, total, accumulated_text, remaining } }
+ *     { status: 'end',            data: { accumulated_text, remaining, repair_stats, failed_blocks } }
+ *     { status: 'cancelled',      data: { accumulated_text, remaining, repair_stats, failed_blocks } }
+ *     { status: 'error',          data: { message, code?, name?, stack? } }
+ *   An 'error' with a `code` (no_model | unsupported_lang | unsupported_pair | needs_webgpu |
+ *   model_too_large) is a SOFT error: the user's choice cannot run here, the worker is still
+ *   fine (v6). There is no model fallback: no `model` definition → no_model (A1-02 re-review;
+ *   block_runner.js run_precondition).
  *
- * HTML preservation:
- *   Source HTML is converted to markdown before being sent to the model.
- *   The prompt instructs the model to keep all markdown syntax and raw
- *   HTML tags (unsupported tags like <table>) intact.
- *   The system instruction is embedded inside the single user message
- *   (not as a separate system role) because TranslateGemma requires the
- *   conversation to start with a user turn.
+ * The block loop, the repetition escalation, the repair of the tokens the model lost and the
+ * re-attachment of the hoisted ones live in ../../js/block_runner.js (testable without the
+ * model); this file owns only the model: choosing, loading and calling it.
+ *
+ * THE MODEL CANNOT BE INSTRUCTED. See translate_text.
  */
 
 // The ONE in-browser AI runtime this install serves: the digest-pinned
@@ -36,11 +43,9 @@
 // copy under ./lib/, byte-identical to the 4.2.0 dist but outside every
 // integrity mechanism; before RC-01 it imported straight from a CDN.)
 import { pipeline, env } from '/dedalo/lib/transformers/dist/transformers.js';
-
-/**
- * ONNX-optimised 4B instruction-tuned translation model.
- * Uses q4 quantisation for memory-efficient local inference.
- */
+// The block loop + marker repair + the pre-load refusals (testable without the model):
+// ../../js/block_runner.js.
+import { needs_webgpu_message, run_blocks, run_precondition, stopped_at_token_limit, too_large_message } from '../../js/block_runner.js';
 
 // RC-01 (2026-07-28 audit): PIN the onnxruntime-web runtime to THIS install.
 // Without wasmPaths, transformers.js loads its WASM glue (.mjs + .wasm) from
@@ -58,37 +63,251 @@ env.allowRemoteModels	= true;	// "remote" here means our OWN origin (below)
 // Model weights from THIS INSTALL'S MODEL STORE only (/dedalo/ai_models/ —
 // src/core/ai/model_store.ts: session-gated, digest-checked against
 // model_pins.json, seeded by the operator with scripts/fetch_ai_models.ts or
-// rsync). The same door browser_whisper and remove_background use. Until
-// P2-5-residue (2026-09-04) this worker pointed at a `./models/` directory of
-// the tools tree, where 20 MB of the TranslateGemma tokenizer sat COMMITTED
-// (third-party bytes under Google's terms, outside every manifest axis) and
-// the multi-GB weights could not be obtained at all — the translator was a
-// half-materialised feature. Model files never live in the code tree.
+// rsync). The same door browser_whisper and remove_background use. Every model of
+// the catalogue is pinned there (the opus pairs that exist on the hub included), so
+// a model that is not in the store answers 404 — reported as 'unsupported_pair' ("not
+// installed").
+// Model files never live in the code tree.
 env.remoteHost			= new URL('/dedalo/ai_models/', self.location.origin).href;
 env.remotePathTemplate	= '{model}/';
 env.useBrowserCache		= true;	// a second translation must not re-download
-/** The hub id, which is also the model's directory under the store. */
-const MODEL_ID			= 'onnx-community/translategemma-text-4b-it-ONNX';
 
 /**
- * Maximum tokens the model may generate per call.
- * Blocks are pre-chunked to ~1000 chars on the main thread,
- * so 1024 tokens is typically sufficient for a single block.
+ * NLLB / FLORES-200 language codes, keyed by the ISO 639-1 code dedalo_to_locale emits.
+ * Covers every language Dédalo ships labels for. (v6)
+ * @type {Object<string,string>}
  */
-const MAX_NEW_TOKENS	= 2048;
+const NLLB_LANGS = {
+	en : 'eng_Latn',
+	es : 'spa_Latn',
+	fr : 'fra_Latn',
+	it : 'ita_Latn',
+	pt : 'por_Latn',
+	ca : 'cat_Latn',
+	de : 'deu_Latn',
+	ne : 'npi_Deva',
+	ar : 'arb_Arab',
+	el : 'ell_Grek',
+	eu : 'eus_Latn'
+};
 
 /**
- * Per-block timeout in milliseconds.
- * If a single block translation exceeds this duration it is treated as a failure.
+ * English language names for the instruct model's system prompt — 'Spanish → Basque' is far
+ * clearer to a general LLM than 'es → eu'. Falls back to the raw code. (v6)
+ * @type {Object<string,string>}
  */
-const BLOCK_TIMEOUT_MS	= 120_000;
+const LANG_NAMES = {
+	en : 'English', es : 'Spanish', fr : 'French', it : 'Italian', pt : 'Portuguese',
+	ca : 'Catalan', de : 'German', ne : 'Nepali', ar : 'Arabic', el : 'Greek', eu : 'Basque'
+};
 
 /**
- * Cached pipeline instance — reused across multiple translation requests
- * without re-downloading or re-compiling the model.
+ * MADLAD target-language codes (it encodes only the TARGET, as a <2xx> prefix; the source is
+ * auto-detected). Every value was verified present in the model's vocabulary. (v6)
+ * @type {Object<string,string>}
+ */
+const MADLAD_TARGETS = {
+	en : '<2en>', es : '<2es>', fr : '<2fr>', it : '<2it>', pt : '<2pt>', ca : '<2ca>',
+	de : '<2de>', ne : '<2ne>', ar : '<2ar>', el : '<2el>', eu : '<2eu>'
+};
+
+/**
+ * ISO 639-1 codes Dédalo can emit (the keys of NLLB_LANGS).
+ * @type {Set<string>}
+ */
+const KNOWN_LANGS = new Set(Object.keys(NLLB_LANGS));
+
+/**
+ * QWEN_SYSTEM_PROMPT
+ * The instruction turn for a general instruct model (Qwen3), which — unlike TranslateGemma —
+ * has a real `system` role it obeys; the segment goes in the user turn untouched. The marker
+ * rule is stated IN WORDS with no worked example: an example token is exactly what got copied
+ * into the output and mapped back to a real Dédalo mark. (v6)
+ * @param {string} src - source ISO code
+ * @param {string} tgt - target ISO code
+ * @returns {string}
+ */
+const qwen_system_prompt = function(src, tgt) {
+
+	const source = LANG_NAMES[src] || src;
+	const target = LANG_NAMES[tgt] || tgt;
+
+	return [
+		`You are a professional translator. Translate the user's text from ${source} to ${target}.`,
+		'Output only the translation — no preamble, no notes, no explanation, no quotation marks.',
+		'Preserve the meaning, tone and register; this is transcribed speech and archival text, not to be summarised.',
+		'Some text contains placeholders written as triple square brackets around a number, for example three open brackets, a number, three close brackets. Keep every placeholder exactly as written and in place: never translate, renumber, add or remove one.',
+		'Keep Markdown emphasis (*, **, __) exactly as in the source; do not add any that is not there.'
+	].join('\n');
+};
+
+/**
+ * SHAPE_HANDLERS
+ * How each KIND of model is fed its input and read back. (v6 40bf5eaacf)
+ *
+ *   chat           — a general instruct model (Qwen): rules in a SYSTEM turn, the segment in
+ *                    the USER turn.
+ *   chat_gemma     — TranslateGemma: content {source_lang_code, target_lang_code, text}; the
+ *                    text IS the source, never a prompt.
+ *   seq2seq_lang   — NLLB: raw text with src_lang/tgt_lang (FLORES codes).
+ *   seq2seq_prefix — MADLAD: a <2xx> target token prepended to the text.
+ *   seq2seq_pair   — Marian/opus-mt: the model IS the language pair, no lang arguments.
+ *
+ * Adding a model that fits an existing shape is a register.json edit alone.
+ * Signature: (translator, text, src, tgt, generation) => Promise<string>
+ */
+const SHAPE_HANDLERS = {
+
+	chat : async function(translator, text, src, tgt, generation) {
+		const messages = [
+			{ role : 'system', content : qwen_system_prompt(src, tgt) },
+			{ role : 'user',   content : text }
+		];
+		const output = await translator(messages, generation);
+		const generated_text = output[0].generated_text;
+		return generated_text[generated_text.length - 1].content;
+	},
+
+	chat_gemma : async function(translator, text, src, tgt, generation) {
+		// the text field is the SOURCE TEXT, not a prompt — see translate_text
+		const messages = [{
+			role    : 'user',
+			content : [{ type : 'text', source_lang_code : src, target_lang_code : tgt, text : text }]
+		}];
+		const output = await translator(messages, generation);
+		const generated_text = output[0].generated_text;
+		return generated_text[generated_text.length - 1].content;
+	},
+
+	seq2seq_lang : async function(translator, text, src, tgt, generation) {
+		const output = await translator(text, { ...generation, src_lang : NLLB_LANGS[src], tgt_lang : NLLB_LANGS[tgt] });
+		return output[0].translation_text;
+	},
+
+	seq2seq_prefix : async function(translator, text, src, tgt, generation) {
+		const output = await translator(`${MADLAD_TARGETS[tgt]} ${text}`, generation);
+		return output[0].generated_text;
+	},
+
+	seq2seq_pair : async function(translator, text, src, tgt, generation) {
+		// the model IS the pair — no lang arguments
+		const output = await translator(text, generation);
+		return output[0].translation_text;
+	}
+};
+
+/**
+ * SUPPORTS_LANGS
+ * Does a model cover this pair, judged from its `langs` value alone? (v6)
+ *   'all'   — every language Dédalo emits;
+ *   'pairs' — any distinct pair of known languages is PLAUSIBLE; whether the model exists is
+ *             settled by the load (a 404 → 'unsupported_pair');
+ *   Array   — an explicit ISO allow-list.
+ * @param {'all'|'pairs'|string[]} langs
+ * @param {string} src
+ * @param {string} tgt
+ * @returns {boolean}
+ */
+const supports_langs = function(langs, src, tgt) {
+
+	if (langs==='all') {
+		return KNOWN_LANGS.has(src) && KNOWN_LANGS.has(tgt);
+	}
+	if (langs==='pairs') {
+		return src!==tgt && KNOWN_LANGS.has(src) && KNOWN_LANGS.has(tgt);
+	}
+	if (Array.isArray(langs)) {
+		return langs.includes(src) && langs.includes(tgt);
+	}
+	return false;
+};
+
+/**
+ * RESOLVE_MODEL_ID
+ * Fill {src}/{tgt} in a model id (opus is one model per pair).
+ * @param {string} template
+ * @param {string} src
+ * @param {string} tgt
+ * @returns {string}
+ */
+const resolve_model_id = function(template, src, tgt) {
+	return String(template).replace('{src}', src).replace('{tgt}', tgt);
+};
+
+/**
+ * IS_MODEL_NOT_FOUND
+ * Did the load fail because the model is not there (vs a network drop, an out-of-memory)?
+ * transformers.js has no typed error for it, so the message is matched. (v6)
+ * @param {Error} error
+ * @returns {boolean}
+ */
+const is_model_not_found = function(error) {
+
+	const message = String(error?.message || error).toLowerCase();
+
+	return message.includes('could not locate')
+		|| message.includes('not found')
+		|| message.includes('404')
+		|| message.includes('unauthorized')
+		|| message.includes('failed to fetch');
+};
+
+/**
+ * IS_ALLOCATION_FAILURE
+ * Did the load fail because the model does not fit in memory (MADLAD-400 3B has one decoder
+ * buffer larger than most GPUs allow)? (v6)
+ * @param {Error} error
+ * @returns {boolean}
+ */
+const is_allocation_failure = function(error) {
+
+	const message = String(error?.message || error).toLowerCase();
+
+	return message.includes('failed to allocate')
+		|| message.includes("can't create a session")
+		|| message.includes('cannot create a session')
+		|| message.includes('out of memory')
+		|| message.includes('buffer of size')
+		|| message.includes('oom');
+};
+
+/**
+ * Hard ceiling on generated tokens — a backstop; the real budget comes from the source
+ * length (max_new_tokens_for). The model stops at its end token well before it. (v6)
+ */
+const MAX_NEW_TOKENS = 2048;
+
+/**
+ * Output token budget = source CHARACTERS × this, plus a margin. Characters, not source
+ * tokens: a compact Latin source under-counts what a Devanagari or Arabic target needs, and
+ * budgeting from tokens truncated those translations mid-sentence. (v6)
+ */
+const OUTPUT_TOKENS_PER_SOURCE_CHAR	= 4.0;
+const NEW_TOKENS_MARGIN				= 64;
+
+/**
+ * Per-block timeout in milliseconds; a block exceeding it is a failure.
+ */
+const BLOCK_TIMEOUT_MS = 120_000;
+
+/**
+ * Sampling settings when an escalation asks for sampling without giving them (v6).
+ */
+const RETRY_TEMPERATURE	= 0.3;
+const RETRY_TOP_P		= 0.9;
+
+/**
+ * Cached pipeline instance — reused across translation requests.
  * @type {Function|null}
  */
 let cached_translator = null;
+
+/**
+ * engine:model_id:device:dtype of the cached pipeline. Any change throws the cache away —
+ * silently reusing the previous model would make the selector look like it does nothing. (v6)
+ * @type {string|null}
+ */
+let cached_signature = null;
 
 /**
  * Flag set by the main thread to cancel an in-progress translation.
@@ -98,369 +317,6 @@ let cancelled = false;
 
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Extract all [[n]] placeholders from a string.
- * @param {string} text
- * @returns {string[]} Array of placeholder strings found
- */
-function extract_placeholders(text) {
-	const re = /\[\[\d+\]\]/g;
-	const matches = [];
-	let m;
-	while ((m = re.exec(text)) !== null) {
-		matches.push(m[0]);
-	}
-	return matches;
-}
-
-/**
- * Detect missing placeholders in the translated output.
- *
- * Compares placeholders in the input text against those in the output
- * and returns the list of missing ones, without performing any restoration.
- *
- * @param {string} input_text    - Original text sent to the model (with placeholders)
- * @param {string} output_text   - Model's translated text (may have lost placeholders)
- * @returns {{ missing: string[], has_missing: boolean }}
- *   - missing: array of placeholder strings absent from the output
- *   - has_missing: true if any placeholder is missing
- */
-function detect_missing_placeholders(input_text, output_text) {
-	const input_ph  = extract_placeholders(input_text);
-	const output_ph = extract_placeholders(output_text);
-
-	if (input_ph.length === 0) return { missing: [], has_missing: false };
-
-	const output_set = new Set(output_ph);
-	const missing    = input_ph.filter(p => !output_set.has(p));
-
-	return { missing, has_missing: missing.length > 0 };
-}
-
-/**
- * Restore missing placeholders in the translated output using
- * heuristic offset-based positioning.
- *
- * This is the fallback when the LLM retry also fails to preserve
- * all placeholders. It applies two strategies:
- *
- *   Strategy 1 — Anchor + relative-gap positioning (preferred):
- *     For each missing placeholder, find the nearest present neighbor
- *     in the input (preceding or following). Measure the text gap
- *     between them in the input, then position the missing one at the
- *     same relative distance from the anchor in the output:
- *       - Gap = 0 (adjacent, e.g. [[34]][[25]]) → insert right next to anchor
- *       - Gap > 0 (separated by text) → scale gap by output/input ratio,
- *         snap to word boundary, and insert there
- *
- *   Strategy 2 — Absolute offset positioning (fallback):
- *     When no anchor exists, use the missing placeholder's character
- *     offset from the text start, proportionally scaled.
- *
- *   Placeholders are inserted in reverse offset order so earlier
- *   insertions don't shift the positions of later ones.
- *
- * @param {string}   input_text  - Original text sent to the model (with placeholders)
- * @param {string}   output_text - Model's translated text (may have lost placeholders)
- * @param {string[]} missing    - Array of missing placeholder strings to restore
- * @returns {string}             - Output text with placeholders restored (or unchanged)
- */
-function restore_missing_placeholders(input_text, output_text, missing) {
-
-	if (!missing || missing.length === 0) return output_text;
-
-	console.warn(
-		`[browser_transformer] Placeholders missing from translation: ${missing.join(', ')}. ` +
-		`Applying heuristic restoration.`
-	);
-
-	const input_ph = extract_placeholders(input_text);
-	const output_ph = extract_placeholders(output_text);
-	const output_set = new Set(output_ph);
-
-	// Build ordered list of all input placeholders with their offsets
-	// so we can find neighbors and calculate relative gaps
-	const input_ordered = [];
-	for (const ph of input_ph) {
-		const idx = input_text.indexOf(ph);
-		if (idx !== -1) {
-			input_ordered.push({ placeholder: ph, input_offset: idx });
-		}
-	}
-	input_ordered.sort((a, b) => a.input_offset - b.input_offset);
-
-	// Build list of missing placeholders with their input offsets
-	const to_insert = [];
-	for (const ph of missing) {
-		const idx = input_text.indexOf(ph);
-		if (idx === -1) continue;
-		to_insert.push({ placeholder: ph, input_offset: idx });
-	}
-
-	// Sort by offset descending so we insert from right to left
-	// and don't shift earlier positions
-	to_insert.sort((a, b) => b.input_offset - a.input_offset);
-
-	const input_len = input_text.length;
-	let result = output_text;
-
-	for (const { placeholder, input_offset } of to_insert) {
-
-		// ── Strategy 1: Anchor + relative-gap positioning ──────────────
-		const insert_pos = find_anchor_gap_position(
-			placeholder, input_offset, input_ordered,
-			input_text, input_len, output_set, result
-		);
-
-		if (insert_pos !== -1) {
-			result = result.slice(0, insert_pos) + placeholder + result.slice(insert_pos);
-			continue;
-		}
-
-		// ── Strategy 2: Absolute offset positioning (fallback) ────────
-		const output_len = result.length;
-		const length_diff_ratio = Math.abs(output_len - input_len) / input_len;
-
-		const target_offset = length_diff_ratio < 0.3
-			? input_offset
-			: Math.round((input_offset / input_len) * output_len);
-
-		let snap = find_nearest_boundary(result, target_offset, 10);
-		snap = avoid_placeholder_overlap(result, snap);
-
-		result = result.slice(0, snap) + placeholder + result.slice(snap);
-	}
-
-	return result;
-}
-
-/**
- * Find the insertion position for a missing placeholder using its
- * nearest present neighbor as an anchor, plus the relative text gap
- * between them in the input.
- *
- * Instead of always placing the missing placeholder adjacent to its
- * anchor, this function measures how much text separates them in the
- * input and applies that gap proportionally in the output:
- *
- *   - Gap = 0  → placeholders were adjacent → insert right after/before anchor
- *   - Gap > 0  → there was text between them → insert at proportional distance
- *
- * This handles both clustered placeholders (e.g. [[34]][[25]]) and
- * spaced-out ones (e.g. [[25]] next text[[35]]) accurately.
- *
- * @param {string} placeholder     - The missing placeholder (e.g. '[[35]]')
- * @param {number} input_offset    - Character offset of the missing placeholder in the input
- * @param {Array}  input_ordered   - All input placeholders sorted by offset: [{ placeholder, input_offset }]
- * @param {string} input_text      - Full input text
- * @param {number} input_len       - Length of input text
- * @param {Set}    output_set      - Set of placeholders present in the output
- * @param {string} result          - Current output text
- * @returns {number}               - Insertion offset, or -1 if no anchor found
- *
- * @example
- *   // Adjacent placeholders (gap = 0)
- *   // Input:  "text[[34]][[25]]more"
- *   // Output: "text[[34]]more"  ([[25]] missing)
- *   // Anchor: [[34]], gap from [[34]] end to [[25]] start = 0
- *   // → insert right after [[34]] → "text[[34]][[25]]more"
- *
- * @example
- *   // Separated placeholders (gap > 0)
- *   // Input:  "my text[[34]][[25]] next text[[35]] other"
- *   // Output: "mi texto[[25]] siguiente texto otros"  ([[34]] and [[35]] missing)
- *   // For [[34]]: anchor [[25]], gap from [[25]] start back to [[34]] start = 6
- *   //   → insert 6 chars before [[25]] in output → "mi texto[[34]][[25]]..."
- *   // For [[35]]: anchor [[25]], gap from [[25]] end to [[35]] start = 12
- *   //   → insert 12 scaled chars after [[25]] in output → "...[[25]] siguiente[[35]] texto..."
- */
-function find_anchor_gap_position(placeholder, input_offset, input_ordered,
-                                   input_text, input_len, output_set, result) {
-	const my_idx = input_ordered.findIndex(p => p.placeholder === placeholder);
-	if (my_idx === -1) return -1;
-
-	// Search backwards for the nearest preceding anchor present in output
-	let prev_anchor = null;
-	let prev_anchor_offset = -1;
-	for (let i = my_idx - 1; i >= 0; i--) {
-		if (output_set.has(input_ordered[i].placeholder)) {
-			prev_anchor = input_ordered[i].placeholder;
-			prev_anchor_offset = input_ordered[i].input_offset;
-			break;
-		}
-	}
-
-	// Search forwards for the nearest following anchor present in output
-	let next_anchor = null;
-	let next_anchor_offset = -1;
-	for (let i = my_idx + 1; i < input_ordered.length; i++) {
-		if (output_set.has(input_ordered[i].placeholder)) {
-			next_anchor = input_ordered[i].placeholder;
-			next_anchor_offset = input_ordered[i].input_offset;
-			break;
-		}
-	}
-
-	const output_len = result.length;
-
-	// Try preceding anchor: measure gap from its END to the missing placeholder's START
-	if (prev_anchor) {
-		const prev_end_in_input = prev_anchor_offset + prev_anchor.length;
-		const gap_in_input = input_offset - prev_end_in_input; // chars of text between them
-
-		const prev_pos_in_output = result.indexOf(prev_anchor);
-		if (prev_pos_in_output !== -1) {
-			const anchor_output_end = prev_pos_in_output + prev_anchor.length;
-
-			if (gap_in_input <= 1) {
-				// Adjacent or overlapping → insert right after the anchor
-				return anchor_output_end;
-			}
-
-			// Scale the gap proportionally (input → output text ratio)
-			const scale = output_len / input_len;
-			const gap_in_output = Math.round(gap_in_input * scale);
-			let target = anchor_output_end + gap_in_output;
-
-			// Clamp and snap to word boundary
-			target = Math.min(target, output_len);
-			target = find_nearest_boundary(result, target, 10);
-			target = avoid_placeholder_overlap(result, target);
-
-			// If we have a following anchor too, make sure we don't overshoot it
-			if (next_anchor) {
-				const next_pos_in_output = result.indexOf(next_anchor);
-				if (next_pos_in_output !== -1 && target > next_pos_in_output) {
-					target = next_pos_in_output;
-				}
-			}
-
-			return target;
-		}
-	}
-
-	// Try following anchor: measure gap from missing placeholder's END to its START
-	if (next_anchor) {
-		const my_end_in_input = input_offset + placeholder.length;
-		const gap_in_input = next_anchor_offset - my_end_in_input;
-
-		const next_pos_in_output = result.indexOf(next_anchor);
-		if (next_pos_in_output !== -1) {
-
-			if (gap_in_input <= 1) {
-				// Adjacent → insert right before the anchor
-				return next_pos_in_output;
-			}
-
-			// Scale the gap proportionally
-			const scale = output_len / input_len;
-			const gap_in_output = Math.round(gap_in_input * scale);
-			let target = next_pos_in_output - gap_in_output;
-
-			// Clamp and snap
-			target = Math.max(target, 0);
-			target = find_nearest_boundary(result, target, 10);
-			target = avoid_placeholder_overlap(result, target);
-
-			return target;
-		}
-	}
-
-	// No anchors found
-	return -1;
-}
-
-/**
- * Avoid inserting a placeholder inside an existing [[…]] placeholder.
- *
- * If the given offset falls between a `[[` and its matching `]]` of an
- * existing placeholder, move the insertion point to just after the `]]`.
- *
- * @param {string} text   - The text to check
- * @param {number} offset - Proposed insertion offset
- * @returns {number}      - Adjusted offset (or original if no overlap)
- *
- * @example
- *   // offset 12 falls inside [[786]]
- *   // text: "some text [[786]] more"
- *   //              0123456789012345678
- *   // offset 12 is at '7' inside [[786]]
- *   // → returns 16 (just after ']]')
- */
-function avoid_placeholder_overlap(text, offset) {
-	const len = text.length;
-	if (offset < 0 || offset > len) return offset;
-
-	// Scan backwards from offset to find the nearest unopened '[['
-	let open_pos = -1;
-	let depth = 0;
-	for (let i = offset - 1; i >= 1; i--) {
-		if (text[i - 1] === ']' && text[i] === ']') depth++;
-		if (text[i - 1] === '[' && text[i] === '[') {
-			if (depth > 0) {
-				depth--;
-				i--; // skip the second '[' so we don't re-match it
-			} else {
-				open_pos = i - 1;
-				break;
-			}
-		}
-	}
-
-	// If we found an unmatched '[[' before offset, check if it starts a [[…]] pattern
-	if (open_pos !== -1) {
-		const rest = text.slice(open_pos);
-		const match = rest.match(/^\[\[\d+\]\]/);
-		if (match) {
-			// offset is inside this placeholder — move to just after its closing ']]'
-			return open_pos + match[0].length;
-		}
-	}
-
-	return offset;
-}
-
-/**
- * Find the nearest word-boundary character (space, '<', or '>') to a
- * target offset, searching outward within a maximum radius.
- *
- * This avoids inserting a placeholder in the middle of a word or
- * inside an HTML tag name.
- *
- * @param {string} text          - The text to search within
- * @param {number} target        - Desired character offset
- * @param {number} max_radius    - Maximum distance to search (default 10)
- * @returns {number}             - Snapped offset (clamped to text length)
- */
-function find_nearest_boundary(text, target, max_radius = 10) {
-	const len = text.length;
-	const clamped = Math.min(Math.max(target, 0), len);
-
-	// If already at a boundary, use it
-	if (clamped === 0 || clamped === len) return clamped;
-	const ch = text[clamped];
-	if (ch === ' ' || ch === '<' || ch === '>' || ch === '\n' || ch === '[') return clamped;
-
-	// Search outward: ±1, ±2, … up to max_radius
-	for (let d = 1; d <= max_radius; d++) {
-		// Check left first (prefer inserting before a word rather than after)
-		const left = clamped - d;
-		if (left >= 0) {
-			const lc = text[left];
-			if (lc === ' ' || lc === '<' || lc === '>' || lc === '\n' || lc === '[') return left + 1;
-		}
-		// Then check right
-		const right = clamped + d;
-		if (right < len) {
-			const rc = text[right];
-			if (rc === ' ' || rc === '<' || rc === '>' || rc === '\n' || rc === '[') return right;
-		}
-	}
-
-	// No boundary found within radius — use raw offset
-	return clamped;
-}
 
 /**
  * Wrap a promise with a timeout.
@@ -475,6 +331,50 @@ function with_timeout(promise, ms, label) {
 		timerId = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
 	});
 	return Promise.race([promise, timer]).finally(() => clearTimeout(timerId));
+}
+
+/**
+ * MAX_NEW_TOKENS_FOR
+ * How many tokens this segment may generate (see OUTPUT_TOKENS_PER_SOURCE_CHAR). Segments are
+ * small, so the budget is small, so a loop cannot run away. (v6)
+ * @param {string} text
+ * @returns {number}
+ */
+function max_new_tokens_for(text) {
+	return Math.min(Math.ceil(text.length * OUTPUT_TOKENS_PER_SOURCE_CHAR) + NEW_TOKENS_MARGIN, MAX_NEW_TOKENS);
+}
+
+/**
+ * SOFT_ERROR
+ * Post a soft error: the user's choice cannot run here; the worker stays usable. (v6)
+ * @param {string} code
+ * @param {string} message
+ * @returns {void}
+ */
+function soft_error(code, message) {
+	self.postMessage({ status : 'error', data : { message, code } });
+}
+
+/**
+ * LOAD_PIPELINE
+ * @param {Object} model
+ * @param {string} model_id
+ * @param {string} device
+ * @param {string} dtype
+ * @returns {Promise<Function>}
+ */
+function load_pipeline(model, model_id, device, dtype) {
+	return pipeline(model.task, model_id, {
+		device : device,
+		dtype  : dtype,
+		progress_callback: ({ progress, status, file }) => {
+			// Relay download/compile progress to the UI thread
+			self.postMessage({
+				status : 'init',
+				data   : { progress, status, device, file, engine : model.name }
+			});
+		}
+	});
 }
 
 
@@ -497,10 +397,59 @@ self.onmessage = async (e) => {
 		});
 		return;
 	}
+	if (typeof options.blocks[0]?.text !== 'string') {
+		self.postMessage({
+			status : 'error',
+			data   : { message: 'options.blocks must be objects: { text, placeholders, restore_map }' }
+		});
+		return;
+	}
 
-	const source_lang_code = options.sourceLangCode || 'en';
-	const target_lang_code = options.targetLangCode || 'es';
+	// no model definition, no language code: refused before anything loads (no fallback —
+	// a guessed model or an 'en' → 'es' guess would save the wrong text)
+	const precondition = run_precondition(options);
+	if (precondition) {
+		soft_error(precondition.code, precondition.message);
+		return;
+	}
+
+	const source_lang_code = options.sourceLangCode;
+	const target_lang_code = options.targetLangCode;
 	const device           = options.device || 'webgpu';
+
+	// The model DEFINITION comes from the tool config via the main thread: the one the
+	// operator chose among the models the installation OFFERS.
+	const model       = options.model;
+	const engine_name = model.name;
+
+	const handler = SHAPE_HANDLERS[model.shape];
+	if (!handler) {
+		self.postMessage({
+			status : 'error',
+			data   : { message: `Model '${engine_name}' has an unknown shape '${model.shape}'. Known: ${Object.keys(SHAPE_HANDLERS).join(', ')}` }
+		});
+		return;
+	}
+
+	// refuse a pair the model KNOWS it cannot do, before touching the network
+	if (!supports_langs(model.langs, source_lang_code, target_lang_code)) {
+		soft_error('unsupported_pair', `The '${engine_name}' model does not support ${source_lang_code} → ${target_lang_code}.`);
+		return;
+	}
+
+	// a multi-gigabyte model cannot run on the WASM (CPU) backend: wasm32 caps the address
+	// space at 4 GB and a 4B model plus its KV cache overruns it. Refuse before loading. (v6)
+	if (model.requires_webgpu) {
+		const webgpu_available = (typeof navigator!=='undefined') && !!navigator.gpu;
+		if (device!=='webgpu' || !webgpu_available) {
+			// the advice names the OFFERED catalogue (options.alternatives), never a fixed list
+			soft_error('needs_webgpu', needs_webgpu_message(engine_name, webgpu_available, options.alternatives));
+			return;
+		}
+	}
+
+	const dtype    = options.dtype || model.dtype;
+	const model_id = resolve_model_id(model.model_id, source_lang_code, target_lang_code);
 
 	// Reset cancel flag for this run
 	cancelled = false;
@@ -508,195 +457,68 @@ self.onmessage = async (e) => {
 	try {
 
 		// ── 1. Load / reuse the model pipeline ───────────────────────────
-		// The pipeline is cached after the first call; subsequent calls reuse it.
-		// Quantised to q4 to fit within browser memory limits (~2 GB for GPU).
+		const signature = `${engine_name}:${model_id}:${device}:${dtype}`;
+		if (cached_translator && cached_signature!==signature) {
+			cached_translator = null;
+			cached_signature  = null;
+		}
+
 		if (!cached_translator) {
 			try {
-				cached_translator = await pipeline('text-generation', MODEL_ID, {
-					device : device,
-					dtype  : 'q4',
-					progress_callback: ({ progress, status, file }) => {
-						// Relay download/compile progress to the UI thread
-						self.postMessage({
-							status : 'init',
-							data   : { progress, status, device, file }
-						});
-					}
-				});
-			} catch (init_error) {
-				// If WebGPU fails (OOM, buffer mapping error, etc.), auto-fallback to WASM/CPU
-				const is_gpu_error = device === 'webgpu' && (
+				cached_translator = await load_pipeline(model, model_id, device, dtype);
+				cached_signature  = signature;
+			} catch (load_error) {
+
+				// a model that is not in this install's store: this engine has no model for
+				// the pair (the common case for opus). Soft, and the worker stays usable. (v6)
+				if (is_model_not_found(load_error)) {
+					soft_error('unsupported_pair', `The '${engine_name}' model for ${source_lang_code} → ${target_lang_code} is not installed in this installation's model store.`);
+					return;
+				}
+
+				// a model that does not fit in memory is a limit of the machine, not a crash (v6)
+				if (is_allocation_failure(load_error)) {
+					soft_error('model_too_large', too_large_message(engine_name, options.alternatives));
+					return;
+				}
+
+				// A small model (no requires_webgpu) whose WebGPU initialisation failed is
+				// retried on WASM/CPU, and the UI is told ('fallback_to_wasm' →
+				// gpu_unavailable). Kept from the TS worker; v6 made it a fatal error. A
+				// WebGPU-only model never gets here with anything but a fatal error: it cannot
+				// run on WASM at all (see requires_webgpu above).
+				const is_gpu_error = device==='webgpu' && !model.requires_webgpu && (
 					/init|webgpu|gpu|buffer|mapping|allocation|out of memory/i.test(
-						init_error?.message || init_error?.name || ''
+						load_error?.message || load_error?.name || ''
 					)
 				);
-				if (is_gpu_error) {
-					self.postMessage({
-						status : 'init',
-						data   : {
-							progress : 0,
-							status   : 'fallback_to_wasm',
-							device   : 'wasm',
-							file     : null
-						}
-					});
-					cached_translator = await pipeline('text-generation', MODEL_ID, {
-						device : 'wasm',
-						dtype  : 'q4',
-						progress_callback: ({ progress, status, file }) => {
-							self.postMessage({
-								status : 'init',
-								data   : { progress, status, device: 'wasm', file }
-							});
-						}
-					});
-				} else {
-					throw init_error;
+				if (!is_gpu_error) {
+					throw load_error;
 				}
+				self.postMessage({
+					status : 'init',
+					data   : { progress : 0, status : 'fallback_to_wasm', device : 'wasm', file : null, engine : engine_name }
+				});
+				cached_translator = await load_pipeline(model, model_id, 'wasm', dtype);
+				cached_signature  = `${engine_name}:${model_id}:wasm:${dtype}`;
 			}
 		}
 
-		const blocks        = options.blocks;
-		const total_blocks  = blocks.length;
-		const result        = {
-			accumulated_text : '',
-			remaining        : total_blocks
-		};
-
-		// ── 2. Translate each block sequentially ─────────────────────────
-		// Blocks are processed one-by-one (not batched) to stream partial
-		// results as soon as each block finishes. This gives the user a
-		// progressive UX instead of a single long wait.
-		for (let i = 0; i < total_blocks; i++) {
-
-			// Check cancel flag between blocks
-			if (cancelled) {
-				self.postMessage({
-					status : 'cancelled',
-					data   : result
-				});
-				return;
-			}
-
-			try {
-
-				const translated = await with_timeout(
-					translate_text(
-						cached_translator,
-						blocks[i],
-						source_lang_code,
-						target_lang_code
-					),
-					BLOCK_TIMEOUT_MS,
-					`Block ${i + 1}/${total_blocks}`
-				);
-
-				// Post-validation: detect missing placeholders and retry up to 3 times
-				let   final_text = translated;
-				const detection  = detect_missing_placeholders(blocks[i], translated);
-
-				if (detection.has_missing) {
-
-					const MAX_RETRIES = 3;
-
-					// Accumulate every failed attempt so each retry sees the full
-					// mistake history and avoids repeating the same errors
-					const failed_attempts = [{ text: translated, missing: detection.missing }];
-
-					console.warn(
-						`[browser_transformer] Block ${i + 1}: placeholders missing (${detection.missing.join(', ')}). ` +
-						`Retrying up to ${MAX_RETRIES} times with corrective prompt.`
-					);
-
-					for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-
-						if (cancelled) break;
-
-						try {
-							const retry_translated = await with_timeout(
-								translate_text(
-									cached_translator,
-									blocks[i],
-									source_lang_code,
-									target_lang_code,
-									{ failed_attempts }
-								),
-								BLOCK_TIMEOUT_MS,
-								`Block ${i + 1}/${total_blocks} (retry ${attempt}/${MAX_RETRIES})`
-							);
-
-							const retry_detection = detect_missing_placeholders(blocks[i], retry_translated);
-
-							if (!retry_detection.has_missing) {
-								// Retry succeeded — all placeholders present
-								console.log(`[browser_transformer] Block ${i + 1}: retry ${attempt} succeeded, all placeholders preserved.`);
-								final_text = retry_translated;
-								break;
-							}
-
-							// Still missing — record this attempt and try again
-							failed_attempts.push({ text: retry_translated, missing: retry_detection.missing });
-
-							if (attempt < MAX_RETRIES) {
-								console.warn(
-									`[browser_transformer] Block ${i + 1}: retry ${attempt} still missing placeholders (${retry_detection.missing.join(', ')}). ` +
-									`Retrying again.`
-								);
-							} else {
-								// All retries exhausted — fall back to heuristic restoration
-								console.warn(
-									`[browser_transformer] Block ${i + 1}: all ${MAX_RETRIES} retries exhausted, still missing placeholders (${retry_detection.missing.join(', ')}). ` +
-									`Falling back to heuristic restoration.`
-								);
-								final_text = restore_missing_placeholders(blocks[i], retry_translated, retry_detection.missing);
-							}
-
-						} catch (retry_err) {
-							// Retry itself failed (timeout/error) — fall back to heuristic on last attempt
-							const last = failed_attempts[failed_attempts.length - 1];
-							console.warn(
-								`[browser_transformer] Block ${i + 1}: retry ${attempt} failed (${retry_err?.message || retry_err}). ` +
-								`Falling back to heuristic restoration.`
-							);
-							final_text = restore_missing_placeholders(blocks[i], last.text, last.missing);
-							break;
-						}
-					}
-				}
-
-				result.accumulated_text += (result.accumulated_text ? '\n\n' : '') + final_text;
-				result.remaining = total_blocks - (i + 1);
-
-				// ── 3. Stream partial result to the main thread ────────
-				// The UI layer uses `remaining` to show progress like "3 of 8 blocks done"
-				self.postMessage({
-					status : 'on_chunk',
-					data   : result
-				});
-
-			} catch (err) {
-
-				// Non-fatal per-block error — report and continue with remaining blocks
-				console.warn(`[browser_transformer] Block ${i + 1} failed: ${err?.message || err}`);
-
-				self.postMessage({
-					status : 'on_block_error',
-					data   : {
-						message          : err?.message || String(err),
-						block            : i + 1,
-						total            : total_blocks,
-						accumulated_text : result.accumulated_text,
-						remaining        : total_blocks - (i + 1)
-					}
-				});
-
-				// Skip this block — accumulated_text stays unchanged
-				result.remaining = total_blocks - (i + 1);
-			}
-		}
-
-		// ── 4. Signal completion ────────────────────────────────────────
-		self.postMessage({ status: 'end', data: result });
+		// ── 2. Translate the blocks ──────────────────────────────────────
+		// The loop, the repetition escalation, the repair of the markers the model lost and
+		// every progress message live in block_runner.js; this worker only supplies the
+		// model call, under the per-block timeout.
+		await run_blocks({
+			blocks       : options.blocks,
+			mark_patterns: options.mark_patterns,
+			post         : (message) => self.postMessage(message),
+			is_cancelled : () => cancelled,
+			translate    : (text, overrides, label) => with_timeout(
+				translate_text(handler, cached_translator, text, source_lang_code, target_lang_code, overrides),
+				BLOCK_TIMEOUT_MS,
+				label
+			)
+		});
 
 	} catch (error) {
 
@@ -714,145 +536,97 @@ self.onmessage = async (e) => {
 
 
 /**
- * Translate a single text block using the loaded model pipeline.
+ * Translate a single segment with the loaded model.
  *
- * @param {Function} translator       - The loaded HuggingFace text-generation pipeline
- * @param {string}   text             - Markdown block to translate (may contain **, *, #, raw HTML)
- * @param {string}   sourceLangCode   - Source language locale code (e.g. 'en')
- * @param {string}   targetLangCode   - Target language locale code (e.g. 'es')
- * @param {Object|null} retryContext  - When non-null, sends a corrective retry prompt
- *   built from the full history of failed attempts:
- *   { failed_attempts: Array<{ text: string, missing: string[] }> }
- * @returns {string}                  - Model response with translated text
+ * ─────────────────────────────────────────────────────────────────────────────
+ * DO NOT PUT INSTRUCTIONS IN `text`. TranslateGemma WILL TRANSLATE THEM.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * Implementation notes:
+ * TranslateGemma is a translation model, not a chat model: its chat template builds the
+ * instruction from source_lang_code/target_lang_code, and the `text` field is the SOURCE TEXT
+ * — the model card: "The text field is not meant for free-form prompts with instructions."
+ * (v6 92da452aa1.) This worker used to send a whole prompt there — rules, the markers to keep,
+ * worked examples with [[[n]]] tokens, and on a retry the history of failed attempts — and a
+ * model translates all of it: in v6 a transcript opened with two paragraphs of the
+ * instructions rendered in Nepali, and the example tokens were mapped back into REAL Dédalo
+ * index marks that had never been in the source.
  *
- *   System instruction:
- *     TranslateGemma's chat template does not accept a separate 'system' role —
- *     the conversation must start with 'user'. Therefore the preservation
- *     instruction is prepended to the user text content with a blank-line
- *     separator so the model treats it as a task description.
+ * So: the segment, and nothing but the segment. The Qwen shape carries its rules in a system
+ * turn the model treats as instructions, never in the text.
  *
- *   Markdown preservation:
- *     The prompt tells the model to keep all markdown syntax and raw HTML tags intact.
- *     See also: tool_lang.js → html_to_markdown / markdown_to_html for the round-trip.
+ * The generation is COUNTED (token_counter, a streamer — transformers.js hands it the prompt
+ * once, then each generated token): an answer whose generation stopped at max_new_tokens
+ * rather than at the model's end token is cut short, and block_runner.js refuses the block
+ * ('truncated' — A1-02 re-review 5, L3).
  *
- *   Deterministic output:
- *     `do_sample: false` disables temperature sampling, making the model
- *     behave greedily — the same input always produces the same output.
- *     This avoids random tag mutations across runs.
+ * @param {Function} handler        - The SHAPE_HANDLERS function for this model
+ * @param {Function} translator     - The loaded pipeline
+ * @param {string}   text           - The segment, carrying local [[[n]]] markers
+ * @param {string}   sourceLangCode - e.g. 'es'
+ * @param {string}   targetLangCode - e.g. 'ne'
+ * @param {Object}   overrides      - { repetition_penalty, do_sample?, temperature?, top_p? }
+ * @returns {Promise<{text:string, stopped_at_limit:boolean}>}
  */
-async function translate_text(translator, text, sourceLangCode, targetLangCode, retryContext=null) {
+async function translate_text(handler, translator, text, sourceLangCode, targetLangCode, overrides={}) {
 
-	let prompt;
+	const counter = token_counter();
 
-	if (retryContext) {
-		// ── Retry prompt: include the full history of failed attempts ──
-		const { failed_attempts } = retryContext;
-		const latest_missing = failed_attempts[failed_attempts.length - 1].missing;
+	// generation settings are shared across shapes; only the input differs (the handler)
+	const generation = {
+		max_new_tokens     : max_new_tokens_for(text),
+		do_sample          : overrides.do_sample===true,
+		repetition_penalty : overrides.repetition_penalty,
+		streamer           : counter
+	};
 
-		const history_lines = [];
-		failed_attempts.forEach((att, idx) => {
-			history_lines.push(`Attempt ${idx + 1} (incorrect) — missing: ${att.missing.join(', ')}`);
-			history_lines.push(att.text);
-			history_lines.push(``);
-		});
-
-		prompt = [
-			`Translate from ${sourceLangCode} to ${targetLangCode}.`,
-			`CORRECTION REQUEST: Your previous translation(s) were incorrect.`,
-			`The following placeholders are STILL MISSING from your output: ${latest_missing.join(', ')}`,
-			`You MUST include every single one of them EXACTLY as shown.`,
-			``,
-			`Your previous (incorrect) translation attempts:`,
-			...history_lines,
-			`RULES:`,
-			`1. The text is in MARKDOWN format. Keep all markdown syntax (**, *, #, __, etc.) unchanged.`,
-			`2. Keep ALL placeholders like [[18]], [[1]], [[5]], [[424]], etc. EXACTLY as-is — never modify, translate, or remove them.`,
-			`3. The missing placeholders ${latest_missing.join(', ')} MUST appear in your output.`,
-			`4. Preserve any raw HTML tags (e.g. <img>, <span>) exactly as they appear.`,
-			`5. Do not add or remove blank lines.`,
-			`6. Verify every placeholder [[…]] from the input appears IDENTICALLY in your output.`,
-			``,
-			`Text to translate:`,
-			text
-		].join('\n');
-	} else {
-		// ── First-attempt prompt ──────────────────────────────────────────
-		prompt = [
-			`Translate from ${sourceLangCode} to ${targetLangCode}.`,
-			`RULES:`,
-			`1. The text is in MARKDOWN format. Keep all markdown syntax (**, *, #, __, etc.) unchanged.`,
-			`2. Keep all placeholders like [[18]], [[1]], [[5]], [[424]], etc. EXACTLY as-is — never modify, translate, or remove them.`,
-			`3. Preserve any raw HTML tags (e.g. <img>, <span>) exactly as they appear.`,
-			`4. Do not add or remove blank lines.`,
-			`5. Ensure the translated text was done with the target language: ${targetLangCode}`,
-			`6. Verify every placeholder [[…]] from the input appears IDENTICALLY in your output.`,
-			``,
-			`Examples:`,
-			`Input:  "**Hola[[5]]** ¿como estás[[2]][[3]]?"`,
-			`Correct output: "**Hello[[5]]** how are you[[2]][[3]]?"`,
-			`Wrong output: "Hello[[9]] how are you[[2]]?"`,
-			``,
-			`Input:  "[[1]][[2]]Gracias por tu[[3]] \"tiempo[[18]]\"[[4]].[[68]][[108]]"`,
-			`Correct output: "[[1]][[2]]Thank for your[[3]] \"time[[18]]\"[[4]].[[68]][[108]]"`,
-			`Wrong output: "[[1]]Thank for your[[2]][[3]] \"time[[18 ]]\".[ [68]]"`,
-			``,
-			`Input: "Hello[[1]], welcome!"`,
-			`Correct output: "Hola[[1]], ¡bienvenido!"`,
-			`Wrong output: "Hola, ¡bienvenido!"`,
-			``,
-			`Input: "[[1]]Hello, [[2]]welcome! new [[8]]eeerew[[35]]"`,
-			`Correct output: "[[1]]Hola, [[2]]¡bienvenido! nuevo [[8]]eeerew[[35]]"`,
-			`Wrong output: "Hola, [[2]]¡bienvenido! nuevo texto"`,
-			``,
-			`Input: "[[36]] Hola [[37]] [[105]]¿como estás? [[52]]"`,
-			`Correct output: "[[36]] नमस्ते [[37]] [[105]]तिमीलाई कस्तो छ? [[52]]"`,
-			`Wrong output: "[[36] नमस्ते [37]] [[105तिमीलाई कस्तो छ? 52]]"`,
-			``,
-			`Text to translate:`,
-			text
-		].join('\n');
+	// temperature/top_p only mean something when sampling
+	if (generation.do_sample) {
+		generation.temperature = overrides.temperature ?? RETRY_TEMPERATURE;
+		generation.top_p       = overrides.top_p ?? RETRY_TOP_P;
 	}
 
-	// const prompt = [
-	// 	`Translate the following text into **[${targetLangCode}]**.`,
-	// 	'**CRITICAL CONSTRAINTS:**',
-	// 	'1. The text contains placeholders in the format `[[1]]`, `[[88]]`, etc. These are non-translatable constants.',
-	// 	'2. **DO NOT** translate, modify, or remove the placeholders.',
-	// 	'3. **DO NOT** change the numbers inside the placeholders.',
-	// 	'5. **Output ONLY** the translated text without any explanations or introductory remarks.',
-	// 	'6. Keep all HTML tags unchanged.',
+	const answer = await handler(translator, text, sourceLangCode, targetLangCode, generation);
 
-	// 	`**Text to translate:**`,
-	// 	`${text}`
-	// ].join('\n');
+	return {
+		text             : answer,
+		stopped_at_limit : stopped_at_token_limit(counter, generation.max_new_tokens, end_token_ids(translator))
+	};
+}
 
-	const messages = [
-		{
-			role    : 'user',
-			content : [
-				{
-					type             : 'text',
-					source_lang_code : sourceLangCode,
-					target_lang_code : targetLangCode,
-					text             : prompt
-				}
-			]
-		}
-	];
+/**
+ * TOKEN_COUNTER
+ * A transformers.js streamer that only counts: generate() calls put() once with the prompt,
+ * then once per generated token, then end().
+ * @returns {{steps:number, last_token:(number|null), put:Function, end:Function}}
+ */
+function token_counter() {
+	let prompt_seen = false;
+	return {
+		steps      : 0,
+		last_token : null,
+		put(ids) {
+			if (!prompt_seen) {
+				prompt_seen = true;
+				return;
+			}
+			this.steps++;
+			const id = ids?.[0]?.[0];
+			this.last_token = id===undefined ? null : Number(id);
+		},
+		end() {}
+	};
+}
 
-	const output = await translator(messages, {
-		max_new_tokens : MAX_NEW_TOKENS,
-		do_sample      : false
-	});
-
-	// The model returns the full conversation so far;
-	// grab the assistant's last (newly generated) message.
-	const generated_text = output[0].generated_text;
-	const last_message   = generated_text[generated_text.length - 1];
-
-	return last_message.content;
+/**
+ * END_TOKEN_IDS
+ * The model's end-of-sequence token ids (its generation config; a number or a list), as
+ * numbers. Unknown → [] (a generation that used its whole budget then counts as cut).
+ * @param {Function} translator - The loaded pipeline
+ * @returns {number[]}
+ */
+function end_token_ids(translator) {
+	const ids = translator?.model?.generation_config?.eos_token_id ?? translator?.tokenizer?.eos_token_id;
+	return (Array.isArray(ids) ? ids : [ids]).filter((id) => id!==undefined && id!==null).map(Number);
 }
 
 

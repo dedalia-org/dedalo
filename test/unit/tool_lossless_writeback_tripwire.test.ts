@@ -124,7 +124,7 @@
  *     `lossless`;
  *   - the translation leg drives the REAL `translate_component_browser` through the REAL
  *     worker protocol, but `markdown_utils.js` needs a DOM (`DOMParser`) that Bun has
- *     not, so its three functions are replaced by identity in this run. The leg is about
+ *     not, so its four main-thread functions are replaced by stand-ins in this run. The leg is about
  *     the save/refusal decision on `end`, not about markdown conversion;
  *   - the verdicts other than `confirmed`, `refuses` and the proved `lossless` ones are
  *     READ, not executed. The derivation is what makes forgetting an action impossible;
@@ -427,9 +427,16 @@ else {
 			);
 			build.onLoad({ filter: /.*/, namespace: 'tool-lang-md-stub' }, () => ({
 				contents:
+					"export const emphasis_tags_of = () => ({ bold: 'strong', italic: 'em' });\n" +
 					'export const html_to_markdown = (html) => String(html);\n' +
 					'export const markdown_to_html = (markdown) => String(markdown);\n' +
-					'export const group_markdown_into_chunks = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean);\n',
+					"export const segment_markdown = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean).map((text) => ({ text, sep: '' }));\n" +
+					'export const marks_in_text_nodes = (html, extract) => extract(String(html)).map((item) => item.mark);\n' +
+					// block_runner.js's own (browser_translation.js imports its BLOCK_ERROR_CODES)
+					'export const conform_emphasis = (source, output) => output;\n' +
+					'export const conform_delimiters = (source, output) => ({ text: output, deleted: [], excess: [] });\n' +
+					'export const restore_wrapping_emphasis = (source, output) => output;\n' +
+					'export const sentence_count = () => 0;\n',
 				loader: 'js',
 			}));
 		},
@@ -544,6 +551,13 @@ else {
 					target_component: target,
 					source_lang: 'lg-eng',
 					target_lang: 'lg-spa',
+					// both languages mapped and a model offered: without either the run is refused
+					// softly before the worker starts (A1-02 re-review) — this leg is about the end
+					json_langs: [
+						{ dd_lang: 'lg-eng', locale: 'en-US' },
+						{ dd_lang: 'lg-spa', locale: 'es-ES' },
+					],
+					model: { name: 'opus', shape: 'seq2seq_pair', langs: 'pairs' },
 					// the .d.ts types this as an HTMLElement; the fake carries exactly the
 					// properties the tool writes to and nothing else.
 					status_container: status as unknown as HTMLElement,
@@ -1776,6 +1790,11 @@ else {
 			sites: 1,
 			reason:
 				'the CI tier loads the suite MariaDB helper (test/helpers/suite_mariadb.ts, outside the matrix corpus) by a joined absolute path; it provisions MariaDB, never a matrix row.',
+		},
+		'scripts/pin_ai_models.ts': {
+			sites: 1,
+			reason:
+				'the pin script asks the VENDORED browser runtime (vendor/transformers/dist/transformers.js, by its joined absolute path) which files a model pin covers (ModelRegistry.get_model_files, offline); a third-party browser bundle, no matrix writer.',
 		},
 		'scripts/tool_viewport_check.ts': {
 			sites: 7,

@@ -44,6 +44,40 @@ export interface FilePin {
 	size: number;
 }
 
+/**
+ * WHAT TERMS THE PINNED BYTES COME UNDER — recorded next to the digests (owner
+ * 2026-11-22), because an install downloads them on this repo's word.
+ *
+ * Read from the hub's model API (`cardData.license`, `license_link`,
+ * `base_model`) by `scripts/pin_ai_models.ts`, never typed by hand:
+ *   - `card` — what the PINNED repository's own model card declares (`license`
+ *     null when it declares none: most ONNX conversions carry no card at all);
+ *   - `upstream` — the base model the conversion was made from, with ITS card's
+ *     licence. `named_by: 'card'` when the conversion's card names its base;
+ *     `'repo_name'` when the card is silent and the base is the one the
+ *     repository name reproduces (the pin script's UPSTREAM_WHEN_CARD_SILENT,
+ *     each with its evidence). Null when the pinned repository IS the original;
+ *   - `name` / `url` — the licence that GOVERNS these bytes and the page it was
+ *     read from: the card's own declaration, else the upstream's (a quantised
+ *     conversion is a derivative of its base and carries its base's terms).
+ *     `declared_by` says which.
+ * `licenceProblems` is the validator; the gate refuses a pin without a record.
+ * Whether a licence suits Dédalo is a HUMAN judgement recorded in the catalogue
+ * (`register.json`), not here — this is the evidence it is made on.
+ */
+export interface ModelLicence {
+	name: string;
+	url: string;
+	declared_by: 'card' | 'upstream';
+	card: { license: string | null; url: string };
+	upstream: {
+		model: string;
+		license: string | null;
+		url: string;
+		named_by: 'card' | 'repo_name';
+	} | null;
+}
+
 /** The pin of one model: the immutable revision and every pinned file. */
 export interface ModelPin {
 	/** The hub's commit sha the files were pinned at (40 hex). */
@@ -52,13 +86,40 @@ export interface ModelPin {
 	pinned_at: string;
 	/** Why this pin exists or changed — a sentence, never empty. */
 	reason: string;
+	/** The terms the bytes come under (required — `licenceProblems`). */
+	licence?: ModelLicence;
 	files: Record<string, FilePin>;
+}
+
+/**
+ * HOW A TEMPLATED CATALOG ENTRY WAS EXPANDED — the reproducible record of a
+ * one-model-per-pair catalogue (`Xenova/opus-mt-{src}-{tgt}`). The pin script
+ * probes every ordered pair of `langs` against the hub's revision API and
+ * records the ids that EXIST; a pair the hub does not serve (404/401) is simply
+ * not part of the catalogue. Re-running `--expand` with the same `langs`
+ * recomputes it.
+ */
+export interface TemplateExpansion {
+	/** The candidate languages (ISO 639-1), every ordered pair of which was probed. */
+	langs: string[];
+	computed_at: string;
+	reason: string;
+	/** How many ids were probed (langs × (langs − 1)). */
+	probed: number;
+	/** The ids the hub serves — the catalogue's concrete models for this template. */
+	present: string[];
 }
 
 export interface PinTable {
 	models: Record<string, ModelPin>;
 	/** Catalog models that COULD NOT be pinned, each with the reason. Shrink-only. */
 	unpinned: Record<string, { reason: string }>;
+	/**
+	 * Templated catalog entries → how they were expanded (see TemplateExpansion).
+	 * Always present on a PARSED table; optional so a gate's fixture table need
+	 * not spell an empty one.
+	 */
+	expansions?: Record<string, TemplateExpansion>;
 }
 
 /** The pin file's location — beside this module, inside the repo. */
@@ -77,6 +138,10 @@ export function parsePinTable(text: string): PinTable {
 	return {
 		models: asObject(parsed.models ?? {}, 'model pins `models`') as PinTable['models'],
 		unpinned: asObject(parsed.unpinned ?? {}, 'model pins `unpinned`') as PinTable['unpinned'],
+		expansions: asObject(
+			parsed.expansions ?? {},
+			'model pins `expansions`',
+		) as PinTable['expansions'],
 	};
 }
 
@@ -162,6 +227,92 @@ function pinForFoldedPath(relPath: string, table: PinTable): PinMatch | null {
 		}
 	}
 	return null;
+}
+
+/** A hub page — the only kind of URL a licence record may cite. */
+const HTTPS_URL = /^https:\/\/[^\s]+$/;
+
+/** A non-blank string. */
+const nonEmpty = (value: unknown): boolean => typeof value === 'string' && value.trim() !== '';
+
+/** The governing licence's own fields: a name, and the https page it was read from. */
+function licenceHeaderProblems(modelId: string, licence: ModelLicence): string[] {
+	const problems: string[] = [];
+	if (!nonEmpty(licence.name)) problems.push(`${modelId}: licence.name is empty`);
+	if (!nonEmpty(licence.url) || !HTTPS_URL.test(licence.url)) {
+		problems.push(`${modelId}: licence.url is not an https URL`);
+	}
+	return problems;
+}
+
+/** declared_by 'upstream': the card is silent, and the recorded upstream says the name. */
+function upstreamDeclarationProblems(modelId: string, licence: ModelLicence): string[] {
+	const problems: string[] = [];
+	if (licence.card.license !== null) {
+		problems.push(`${modelId}: the card declares ${licence.card.license}; it governs`);
+	}
+	if (licence.upstream === null || licence.upstream === undefined) {
+		problems.push(`${modelId}: declared by an upstream that is not recorded`);
+	} else if (licence.upstream.license !== licence.name) {
+		problems.push(`${modelId}: declared by the upstream, but it says ${licence.upstream.license}`);
+	}
+	return problems;
+}
+
+/** Whoever `declared_by` names must actually declare `name`. */
+function declarationProblems(modelId: string, licence: ModelLicence): string[] {
+	if (licence.declared_by === 'card') {
+		return licence.card.license === licence.name
+			? []
+			: [`${modelId}: declared by the card, but the card says ${licence.card.license}`];
+	}
+	if (licence.declared_by === 'upstream') return upstreamDeclarationProblems(modelId, licence);
+	return [`${modelId}: licence.declared_by is neither 'card' nor 'upstream'`];
+}
+
+type UpstreamRecord = NonNullable<ModelLicence['upstream']>;
+
+/** A recorded upstream names its model, its https card, and how it was identified. */
+const UPSTREAM_RULES: ReadonlyArray<[(upstream: UpstreamRecord) => boolean, string]> = [
+	[(upstream) => nonEmpty(upstream.model), 'licence.upstream.model is empty'],
+	[(upstream) => HTTPS_URL.test(upstream.url ?? ''), 'licence.upstream.url is not an https URL'],
+	[
+		(upstream) => upstream.named_by === 'card' || upstream.named_by === 'repo_name',
+		"licence.upstream.named_by is neither 'card' nor 'repo_name'",
+	],
+];
+
+/** What is wrong with a recorded upstream (none recorded: nothing). */
+function upstreamRecordProblems(modelId: string, upstream: ModelLicence['upstream']): string[] {
+	if (upstream === null || upstream === undefined) return [];
+	return UPSTREAM_RULES.filter(([holds]) => !holds(upstream)).map(
+		([, problem]) => `${modelId}: ${problem}`,
+	);
+}
+
+/** The pinned repository's card URL must be on record before anything is read from it. */
+const hasCardUrl = (licence: ModelLicence): boolean =>
+	licence.card !== undefined && licence.card !== null && HTTPS_URL.test(licence.card.url ?? '');
+
+/**
+ * What is wrong with one pin's licence record (empty = a valid record). A pin
+ * WITHOUT one is a problem: every pinned model's terms are on record, or the
+ * gate is red.
+ */
+export function licenceProblems(modelId: string, pin: ModelPin): string[] {
+	const licence = pin.licence;
+	if (licence === undefined || licence === null || typeof licence !== 'object') {
+		return [`${modelId}: no licence record`];
+	}
+	const problems = licenceHeaderProblems(modelId, licence);
+	if (!hasCardUrl(licence)) {
+		return [...problems, `${modelId}: licence.card is missing its card URL`];
+	}
+	return [
+		...problems,
+		...declarationProblems(modelId, licence),
+		...upstreamRecordProblems(modelId, licence.upstream),
+	];
 }
 
 /** A 64-hex digest and a non-negative integer size — anything else is not a pin. */
