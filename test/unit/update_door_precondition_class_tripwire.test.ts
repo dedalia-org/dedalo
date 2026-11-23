@@ -39,6 +39,7 @@ import {
 	holdUpdateRunLock,
 } from '../../src/core/update/door_class.ts';
 import { createRunJournal, writeRunJournal } from '../../src/core/update/run/journal.ts';
+
 // A non-superuser global admin who PASSES the maintenance rule (T2-O15-2), so the
 // door's own superuser rule is what refuses. DB-FREE (this is a hermetic tripwire):
 // the rule's answer for THIS principal is seamed below — the rule itself (dd88 at

@@ -2301,7 +2301,7 @@ describe('CI workflow tripwire', () => {
 			}
 		};
 		for (const { rel, src } of allWorkflows) {
-			if (rel.startsWith(join('.github', 'workflows') + '/')) scan(rel, src, 2, githubInImage);
+			if (rel.startsWith(`${join('.github', 'workflows')}/`)) scan(rel, src, 2, githubInImage);
 		}
 		scan('.gitlab-ci.yml', read('.gitlab-ci.yml'), 0, gitlabInImage);
 		// Anti-vacuity: GitHub's hermetic/db/instance + GitLab's hermetic.
