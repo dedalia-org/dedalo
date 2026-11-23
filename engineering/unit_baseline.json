@@ -349,6 +349,21 @@
 			"skipped": 0,
 			"assertions": 227
 		},
+		"test/unit/av_component_operations_native.test.ts": {
+			"tests": 13,
+			"skipped": 0,
+			"assertions": 38
+		},
+		"test/unit/av_record_media_hold_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 65
+		},
+		"test/unit/av_upload_build_guard_native.test.ts": {
+			"tests": 24,
+			"skipped": 0,
+			"assertions": 86
+		},
 		"test/unit/backup_freshness_deep_native.test.ts": {
 			"tests": 30,
 			"skipped": 0,
@@ -498,6 +513,11 @@
 			"tests": 15,
 			"skipped": 0,
 			"assertions": 33
+		},
+		"test/unit/change_lang_sync_native.test.ts": {
+			"tests": 9,
+			"skipped": 0,
+			"assertions": 44
 		},
 		"test/unit/change_log_render.test.ts": {
 			"tests": 35,
@@ -1214,6 +1234,11 @@
 			"skipped": 0,
 			"assertions": 21
 		},
+		"test/unit/data_lang_sync_key.test.ts": {
+			"tests": 5,
+			"skipped": 0,
+			"assertions": 14
+		},
 		"test/unit/data_version_tripwire.test.ts": {
 			"tests": 11,
 			"skipped": 1,
@@ -1553,6 +1578,11 @@
 			"tests": 15,
 			"skipped": 0,
 			"assertions": 45
+		},
+		"test/unit/diffusion_excluded_elements_native.test.ts": {
+			"tests": 22,
+			"skipped": 0,
+			"assertions": 166
 		},
 		"test/unit/diffusion_export_unified.test.ts": {
 			"tests": 21,
@@ -2649,6 +2679,11 @@
 			"skipped": 0,
 			"assertions": 9
 		},
+		"test/unit/ingest_door_tripwire.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 15
+		},
 		"test/unit/ingest_encoding_tripwire.test.ts": {
 			"tests": 27,
 			"skipped": 0,
@@ -3109,6 +3144,11 @@
 			"skipped": 0,
 			"assertions": 125
 		},
+		"test/unit/lang_keys_renamed.test.ts": {
+			"tests": 14,
+			"skipped": 0,
+			"assertions": 39
+		},
 		"test/unit/lang_region.test.ts": {
 			"tests": 16,
 			"skipped": 0,
@@ -3404,6 +3444,11 @@
 			"skipped": 0,
 			"assertions": 277
 		},
+		"test/unit/mcp_stdio_request_lang_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 10
+		},
 		"test/unit/mcp_tools.test.ts": {
 			"tests": 5,
 			"skipped": 0,
@@ -3453,6 +3498,11 @@
 			"tests": 2,
 			"skipped": 0,
 			"assertions": 11
+		},
+		"test/unit/media_component_lock_native.test.ts": {
+			"tests": 69,
+			"skipped": 1,
+			"assertions": 232
 		},
 		"test/unit/media_contract.test.ts": {
 			"tests": 13,
@@ -3649,6 +3699,11 @@
 			"skipped": 0,
 			"assertions": 17
 		},
+		"test/unit/media_processes_mount_native.test.ts": {
+			"tests": 21,
+			"skipped": 0,
+			"assertions": 62
+		},
 		"test/unit/media_processing.test.ts": {
 			"tests": 24,
 			"skipped": 0,
@@ -3783,6 +3838,11 @@
 			"tests": 26,
 			"skipped": 0,
 			"assertions": 80
+		},
+		"test/unit/menu_data_lang_working.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 12
 		},
 		"test/unit/menu_nonadmin.test.ts": {
 			"tests": 8,
@@ -5309,6 +5369,11 @@
 			"skipped": 0,
 			"assertions": 43
 		},
+		"test/unit/request_lang_static_default_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 12
+		},
 		"test/unit/restore_door_native.test.ts": {
 			"tests": 15,
 			"skipped": 0,
@@ -6724,6 +6789,11 @@
 			"skipped": 0,
 			"assertions": 54
 		},
+		"test/unit/tool_identify_cluster_lang.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 64
+		},
 		"test/unit/tool_import_csv_section_tipo_client.test.ts": {
 			"tests": 17,
 			"skipped": 0,
@@ -6768,6 +6838,11 @@
 			"tests": 21,
 			"skipped": 0,
 			"assertions": 60
+		},
+		"test/unit/tool_lang_identity_roundtrip.test.ts": {
+			"tests": 233,
+			"skipped": 0,
+			"assertions": 1504
 		},
 		"test/unit/tool_lang_placeholder_repair.test.ts": {
 			"tests": 95,
