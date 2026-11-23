@@ -56,6 +56,8 @@
  *                  F3: a deleted character of the answer is never silent)
  *   sentences_short — block numbers whose answer ends fewer sentences than the segment
  *                  (sentences_short): saved, with a warning
+ *   emphasis_moved — block numbers whose kept emphasis/code sits on other words than the
+ *                  segment's (conform_delimiters `moved`): saved, with a warning
  * failed_blocks = [{ block, total, message, code, detail }] — code a BLOCK_ERROR_CODES key
  * (null for an error that is not a BlockError), worded by the main thread.
  * The main thread reports them, and refuses a run with an unrepairable or duplicated token.
@@ -418,7 +420,8 @@ export const to_global_tokens = (text, restore_map) => {
  * A1-02 re-review 5, H1′), so every delimiter in the answer is the source's emphasis or code,
  * or invented: conform_delimiters keeps the model's reading pairs up to the segment's and
  * deletes the rest (`deleted`, reported as residual); more reading pairs than the segment's
- * (`excess`) make the choice a guess, and process_block refuses it. A quadruple-bracket
+ * (`excess`) make the choice a guess, and process_block refuses it; a kept span on other words
+ * than its source span (`moved`) is saved with a warning (emphasis_moved). A quadruple-bracket
  * shape the segment carries ('[[[[1]]]]': a token inside the text's own brackets) is kept as
  * it is by normalize_placeholders.
  *
@@ -436,7 +439,7 @@ export const to_global_tokens = (text, restore_map) => {
  * @param {string} source - The block text sent to the model.
  * @param {Set<string>} known - The block's own tokens.
  * @param {(text:string) => string[]} find_marks - Dédalo marks in a text (mark_finder).
- * @returns {{text:string, invented:string[], markup:string[], marks:string[], deleted:string[], excess:string[]}}
+ * @returns {{text:string, invented:string[], markup:string[], marks:string[], deleted:string[], excess:string[], moved:string[]}}
  */
 const clean_output = (raw, source, known, find_marks) => {
 	const invented = [];
@@ -457,7 +460,15 @@ const clean_output = (raw, source, known, find_marks) => {
 	const conformed = conform_delimiters(source, collapse_model_breaks(source, unwrapped));
 	const text = restore_wrapping_emphasis(source, conformed.text);
 
-	return { text, invented, markup, marks, deleted: conformed.deleted, excess: conformed.excess };
+	return {
+		text,
+		invented,
+		markup,
+		marks,
+		deleted: conformed.deleted,
+		excess: conformed.excess,
+		moved: conformed.moved,
+	};
 }; //end clean_output
 
 /**
@@ -664,6 +675,8 @@ const answer_of = (result) =>
  *      main thread refuses the run.
  *   5. An answer that ends fewer sentences than its segment (sentences_short) is kept and
  *      REPORTED: the main thread saves the run with a warning naming the passage.
+ *   6. So is an answer whose kept emphasis/code sits on other words than the segment's
+ *      (emphasis_moved, A1-02 final review F1).
  *
  * @param {Function} translate - (text, overrides, label) => Promise<string | {text,
  *   stopped_at_limit}>; overrides = { repetition_penalty, do_sample?, temperature?, top_p? }
@@ -671,7 +684,7 @@ const answer_of = (result) =>
  * @param {Object} [options]
  * @param {string} [options.label='Block'] - Human label for messages, e.g. 'Block 2/5'
  * @param {Function} [options.is_cancelled] - () => boolean; stops the escalation early
- * @returns {Promise<{text:string, repaired:string[], unrepairable:string[], duplicated:string[], residual:string[], sentences_short:boolean}>}
+ * @returns {Promise<{text:string, repaired:string[], unrepairable:string[], duplicated:string[], residual:string[], sentences_short:boolean, emphasis_moved:boolean}>}
  *   text in LOCAL tokens, WITHOUT the hoisted prefix/suffix (run_blocks attaches them).
  */
 export const process_block = async (translate, block, options = {}) => {
@@ -684,7 +697,15 @@ export const process_block = async (translate, block, options = {}) => {
 
 	// 1. nothing to translate: no model call (an empty prompt only invites invention)
 	if (block.text.replace(placeholder_re(), '').replace(/[*_`]/g, '').trim() === '') {
-		return { text: block.text, repaired: [], unrepairable: [], duplicated: [], residual: [], sentences_short: false };
+		return {
+			text: block.text,
+			repaired: [],
+			unrepairable: [],
+			duplicated: [],
+			residual: [],
+			sentences_short: false,
+			emphasis_moved: false,
+		};
 	}
 
 	const attempt = async (overrides, attempt_label) => {
@@ -761,6 +782,8 @@ export const process_block = async (translate, block, options = {}) => {
 		residual: [...output.invented, ...output.deleted],
 		// 5. cut short? kept, and reported
 		sentences_short: sentences_short(block.text, output.text),
+		// 6. emphasis or code on other words than the source's: kept, and reported
+		emphasis_moved: output.moved.length > 0,
 	};
 }; //end process_block
 
@@ -813,6 +836,8 @@ export const run_blocks = async (options) => {
 		residual: [],
 		// block numbers (1-based) whose answer ends fewer sentences than the segment
 		sentences_short: [],
+		// block numbers (1-based) whose emphasis/code sits on other words than the segment's
+		emphasis_moved: [],
 	};
 	const failed_blocks = [];
 
@@ -880,6 +905,9 @@ export const run_blocks = async (options) => {
 			repair_stats.residual.push(...outcome.residual);
 			if (outcome.sentences_short) {
 				repair_stats.sentences_short.push(i + 1);
+			}
+			if (outcome.emphasis_moved) {
+				repair_stats.emphasis_moved.push(i + 1);
 			}
 
 			result.accumulated_text = join_parts();

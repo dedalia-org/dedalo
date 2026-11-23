@@ -211,6 +211,7 @@ describe('process_block — one model call, repair what it dropped, refuse what 
 			duplicated: [],
 			residual: [],
 			sentences_short: false,
+			emphasis_moved: false,
 		});
 	});
 
@@ -485,6 +486,7 @@ describe('L4: a failed block carries a CODE and a detail, never words (A1-02 re-
 			for (const name of [
 				...Object.keys(BLOCK_ERROR_CODES).map((code) => `block_${code}`),
 				'sentences_short',
+				'emphasis_moved',
 			]) {
 				const have = new Set(
 					labels
@@ -568,6 +570,7 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 			duplicated: [],
 			residual: [],
 			sentences_short: [],
+			emphasis_moved: [],
 		});
 	});
 
@@ -883,17 +886,20 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 			text: 'Silver *coin* (see note)',
 			deleted: ['*'],
 			excess: [],
+			moved: [],
 		});
 		// a single '_' and an invented backtick are never the source's — deleted, reported
 		expect(conform_delimiters('__a__ y `b`', '__a_b__ y `b` `c')).toEqual({
 			text: '__ab__ y `b` c',
 			deleted: ['_', '`'],
 			excess: [],
+			moved: [],
 		});
 		expect(conform_delimiters('Nombre [[[1]]]', 'file_name [[[1]]]')).toEqual({
 			text: 'filename [[[1]]]',
 			deleted: ['_'],
 			excess: [],
+			moved: [],
 		});
 		// a source without delimiters: no pair at all
 		expect(conform_emphasis('Valoración: [[[1]]]', 'Rating: *** (good) `x`')).toBe(
@@ -905,6 +911,7 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 			text: 'Rome and Ostia',
 			deleted: ['*', '*'],
 			excess: [],
+			moved: [],
 		});
 		expect(conform_emphasis('Uno **dos** tres', 'One ** two ** three')).toBe('One  two  three');
 		// more reading pairs than the source has: which is the source's is a guess — named
@@ -918,6 +925,62 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 			'**[[[1]]]`x y`[[[2]]]** z',
 		);
 		expect(conform_emphasis('*`a b` c*', '*`a* b` c*')).toBe('*`a b` c*');
+	});
+
+	test('conform_delimiters names a kept span the model put on other words (moved) — no positional alignment (F1, final review)', () => {
+		const moved = (source: string, output: string) => conform_delimiters(source, output).moved;
+		// a. an edge inside a word where the source's sat at a boundary
+		expect(moved('Texto [*sic*] aquí', 'Texto [si*c]* aquí')).toEqual(['*']);
+		expect(moved('Texto [*sic*] aquí', 'Text [*sic*] here')).toEqual([]);
+		// …edges alone (same share, no shared item crossing): opening, then closing, mid-word
+		expect(moved('Ver *Roma* hoy', 'Ver R*oma* hoy')).toEqual(['*']);
+		expect(moved('Ver *Roma* hoy', 'Ver *Rom*a hoy')).toEqual(['*']);
+		// …a token is seen through: 'l`Hospitalet' is one word
+		expect(moved('de l[[[1]]] *Hospitalet* ya', 'de l[[[1]]]*Hospitalet* ya')).toEqual(['*']);
+		expect(moved('de l[[[1]]] *Hospitalet* ya', 'of l[[[1]]] *Hospitalet* now')).toEqual([]);
+		// b. the share of the segment's words, outside ½–2 × the source's
+		expect(moved('Una *moneda* de plata fina', '*Una moneda de plata* fina')).toEqual(['*']);
+		expect(moved('Una *moneda de plata* fina', 'A *silver* coin')).toEqual([]);
+		// c. an item both texts carry crossing the span's edge: a number, a name, a mark, a bracket
+		expect(moved('**Sí** 200 monedas', 'Sí **200** monedas')).toEqual(['**']);
+		expect(moved('Fin __[[[1]]]moneda__ ya', 'Fin [[[1]]]__moneda__ ya')).toEqual(['__']);
+		expect(moved('`[sic]`', '[`sic]`')).toEqual(['`']);
+		expect(moved('__…__ >', '… __>__')).toEqual(['__']);
+		// a translation: other words, the same place — clean; a no-space script is no word edge
+		expect(moved('Moneda de **plata** fina', 'Fine **silver** coin')).toEqual([]);
+		expect(moved('Moneda de **plata** fina', '上質な**銀**貨')).toEqual([]);
+		expect(moved('la ceca de *Roma*', 'the mint of *Rome*')).toEqual([]);
+		// each kept span against ITS source span, in reading order
+		expect(moved('*a* y *b c d*', '*p* and *q r s*')).toEqual([]);
+		expect(moved('*a* y *b c d*', '*p q r* and *s*')).toEqual(['*']);
+	});
+
+	test('process_block flags emphasis_moved; run_blocks names the block', async () => {
+		const block = { text: '**Sí** 200 monedas', placeholders: [], restore_map: {} };
+		const out = await process_block(async () => 'Sí **200** monedas', block);
+		expect(out.text).toBe('Sí **200** monedas');
+		expect(out.emphasis_moved).toBe(true);
+		expect(out.residual).toEqual([]);
+		const messages: Message[] = [];
+		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
+			blocks: [
+				{
+					text: 'Uno **dos**',
+					placeholders: [],
+					restore_map: {},
+					prefix: '',
+					suffix: '',
+					sep: '\n\n',
+				},
+				{ ...block, prefix: '', suffix: '', sep: '' },
+			],
+			translate: async (text: string) =>
+				text === block.text ? 'Sí **200** monedas' : 'One **two**',
+			post: (message: Message) => messages.push(structuredClone(message)),
+		});
+		const end = messages.at(-1)?.data as { repair_stats: { emphasis_moved: number[] } };
+		expect(end.repair_stats.emphasis_moved).toEqual([2]);
 	});
 
 	test('conform_emphasis drops emphasis the model invented; restore_wrapping_emphasis restores a dropped wrapper', () => {

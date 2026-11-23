@@ -1612,6 +1612,56 @@
           },
           {
             "lang": "lg-cat",
+            "name": "emphasis_moved",
+            "value": "%s passatges tenen negreta, cursiva o codi en altres paraules que l’original: reviseu el format"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "emphasis_moved",
+            "value": "%s Abschnitte haben Fett, Kursiv oder Code auf anderen Wörtern als die Quelle: Formatierung prüfen"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "emphasis_moved",
+            "value": "%s αποσπάσματα έχουν έντονα, πλάγια ή κώδικα σε άλλες λέξεις από το πρωτότυπο: ελέγξτε τη μορφοποίηση"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "emphasis_moved",
+            "value": "%s passages have bold, italic or code on other words than the source: check the formatting"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "emphasis_moved",
+            "value": "%s pasartek lodia, etzana edo kodea jatorrizkoaren beste hitz batzuetan dute: egiaztatu formatua"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "emphasis_moved",
+            "value": "%s passages ont du gras, de l’italique ou du code sur d’autres mots que la source : vérifiez la mise en forme"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "emphasis_moved",
+            "value": "%s passaggi hanno grassetto, corsivo o codice su parole diverse dall’originale: controllare la formattazione"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "emphasis_moved",
+            "value": "%s खण्डहरूमा बोल्ड, इटालिक वा कोड मूलभन्दा फरक शब्दहरूमा छ: ढाँचा जाँच गर्नुहोस्"
+          },
+          {
+            "lang": "lg-por",
+            "name": "emphasis_moved",
+            "value": "%s passagens têm negrito, itálico ou código noutras palavras que o original: verifique a formatação"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "emphasis_moved",
+            "value": "%s pasajes tienen negrita, cursiva o código en otras palabras que el original: revise el formato"
+          },
+          {
+            "lang": "lg-cat",
             "name": "translation_cancelled",
             "value": "Traducció cancel·lada"
           },

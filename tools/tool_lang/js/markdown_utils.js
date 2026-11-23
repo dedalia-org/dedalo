@@ -1287,6 +1287,153 @@ const delimiter_pairs = (text, skip = () => false) => {
 }; //end delimiter_pairs
 
 /**
+ * Scripts written without spaces between words (Chinese, Japanese, Thai, Lao, Khmer,
+ * Myanmar): each character counts as one word and is never "inside a word", or emphasis in a
+ * Japanese translation would always read as moved.
+ * @type {RegExp}
+ */
+const NO_SPACE_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * The words of a text, as emphasis_moved counts them: runs of letters, digits and combining
+ * marks (Devanagari's vowel signs are marks), or one no-space-script character; a [[[n]]]
+ * token is not a word.
+ * @type {RegExp}
+ */
+const WORD_RE =
+	/(?:(?![\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}])[\p{L}\p{N}\p{M}])+|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/gu;
+
+/** @param {string|undefined} char @returns {boolean} a character a word continues through */
+const is_word_char = (char) =>
+	char !== undefined && /[\p{L}\p{N}\p{M}]/u.test(char) && !NO_SPACE_SCRIPT_RE.test(char);
+
+/** @param {string} text @returns {string[]} its words (WORD_RE), lower case, tokens aside */
+const words_of = (text) =>
+	(String(text).replace(/\[\[\[\d+\]\]\]/g, ' ').match(WORD_RE) || []).map((word) => word.toLowerCase());
+
+/**
+ * The ITEMS of a text, for the words-changing-sides check: its [[[n]]] tokens (a mark, or the
+ * text's own '*', '_', '`', '\\': identical in every language), its words (WORD_RE) and its
+ * runs of punctuation ('«', '…', '[') — the delimiters aside, lower case.
+ * @param {string} text
+ * @returns {string[]}
+ */
+const items_of = (text) => (String(text).match(ITEM_RE) || []).map((item) => item.toLowerCase());
+
+/** items_of's pattern: a token, a word (WORD_RE), or a run of punctuation that is no token. */
+const ITEM_RE = new RegExp(
+	`\\[\\[\\[\\d+\\]\\]\\]|${WORD_RE.source}|(?:(?!\\[\\[\\[\\d+\\]\\]\\])[^\\s*_\`\\p{L}\\p{N}\\p{M}])+`,
+	'gu',
+);
+
+/** @param {string[]} words @returns {Map<string, number>} */
+const word_tally = (words) => {
+	const tally = new Map();
+	for (const word of words) {
+		tally.set(word, (tally.get(word) || 0) + 1);
+	}
+	return tally;
+};
+
+/**
+ * The character an edge touches on its outer side, a [[[n]]] token seen through: a token is
+ * a mark (no width in the text) or one of the text's own '*', '_', '`', '\' — inside the
+ * word it sits in ('l`Hospitalet').
+ * @param {string} text
+ * @param {number} index - first character outside the edge
+ * @param {-1|1} step - -1 before an opener, 1 after a closer
+ * @returns {string|undefined}
+ */
+const outer_char = (text, index, step) => {
+	let at = index;
+	for (;;) {
+		const match =
+			step < 0
+				? /\[\[\[\d+\]\]\]$/.exec(text.slice(0, at + 1))
+				: /^\[\[\[\d+\]\]\]/.exec(text.slice(at));
+		if (!match) {
+			return text[at];
+		}
+		at += step < 0 ? -match[0].length : match[0].length;
+	}
+};
+
+/**
+ * SPAN_MOVED
+ * Did the model put a kept emphasis/code span on other words than its source span?
+ * (A1-02 final review, F1 — settles owner Q1: a proportionate warning, never a refusal.)
+ * No positional alignment (a translation reorders words). Three checks:
+ *   a. edges — a source edge at a word boundary whose output edge falls inside a word
+ *      ('[sic]' emphasised as '[si**c]**');
+ *   b. coverage — the share of the segment's words the span covers, outside ½–2 × the
+ *      source span's share (one word of five emphasised, then four of five);
+ *   c. items changing sides — an item BOTH texts carry (a mark, a name, a number, a
+ *      bracket: what a translation keeps as it is — items_of) that the span now covers more
+ *      often, and the rest of the segment less often, than in the source — or the reverse.
+ *      '**¡Sí!** 200' as '¡Sí! **200**' passes a and b (one word for one); c sees '200' cross
+ *      into the span and '¡Sí!' out of it; '`[sic]`' as '[`sic]`' moves '[' out. An item
+ *      the translation changed is never compared.
+ * @param {string} source_text
+ * @param {{delim:string, open:number, close:number}} source_pair
+ * @param {string} output_text
+ * @param {{delim:string, open:number, close:number}} output_pair
+ * @returns {boolean}
+ */
+const span_moved = (source_text, source_pair, output_text, output_pair) => {
+	const length = source_pair.delim.length;
+	// a. edges
+	const source_before = outer_char(source_text, source_pair.open - 1, -1);
+	const source_after = outer_char(source_text, source_pair.close + length, 1);
+	if (!is_word_char(source_before) && is_word_char(outer_char(output_text, output_pair.open - 1, -1))) {
+		return true;
+	}
+	if (!is_word_char(source_after) && is_word_char(outer_char(output_text, output_pair.close + length, 1))) {
+		return true;
+	}
+
+	// b. coverage
+	const source_inside = words_of(source_text.slice(source_pair.open + length, source_pair.close));
+	const output_inside = words_of(output_text.slice(output_pair.open + length, output_pair.close));
+	const source_total = words_of(source_text).length;
+	const output_total = words_of(output_text).length;
+	if (source_total > 0 && output_total > 0) {
+		const source_share = source_inside.length / source_total;
+		const output_share = output_inside.length / output_total;
+		if (output_share < source_share / 2 || output_share > source_share * 2) {
+			return true;
+		}
+	}
+
+	// c. items changing sides
+	const source_in = word_tally(items_of(source_text.slice(source_pair.open + length, source_pair.close)));
+	const output_in = word_tally(items_of(output_text.slice(output_pair.open + length, output_pair.close)));
+	const source_all = word_tally(items_of(source_text));
+	const output_all = word_tally(items_of(output_text));
+	for (const word of new Set([...source_in.keys(), ...output_in.keys()])) {
+		const in_before = source_in.get(word) || 0;
+		const in_after = output_in.get(word) || 0;
+		const out_before = (source_all.get(word) || 0) - in_before;
+		const out_after = (output_all.get(word) || 0) - in_after;
+		if ((in_after > in_before && out_after < out_before) || (in_after < in_before && out_after > out_before)) {
+			return true;
+		}
+	}
+	return false;
+}; //end span_moved
+
+/**
+ * READING_PAIRS
+ * Every reading pair of a text, code first (a '*' or '_' inside a code span is code's text).
+ * @param {string} text
+ * @returns {Array<{delim:string, open:number, close:number}>}
+ */
+const reading_pairs = (text) => {
+	const code = delimiter_pairs(text).filter((pair) => pair.delim === '`');
+	const in_code = (index) => code.some((pair) => index > pair.open && index < pair.close);
+	return [...code, ...delimiter_pairs(text, in_code).filter((pair) => pair.delim !== '`')];
+}; //end reading_pairs
+
+/**
  * CONFORM_DELIMITERS
  * Forbid the model from inventing emphasis or code the source never had, and from moving
  * it by our guess. (v6 92da452aa1; A1-02 re-reviews 5 and 6)
@@ -1305,14 +1452,21 @@ const delimiter_pairs = (text, skip = () => false) => {
  * (process_block: added_emphasis). A kind the source has none of is simply deleted. The
  * text is never touched, only the markers.
  *
+ * Each kept span is aligned with ITS source span — the k-th kept pair of a kind, in reading
+ * order, with the source's k-th of that kind — and one the model put on other words
+ * (span_moved) names its kind in `moved`: saved, with a warning (process_block:
+ * emphasis_moved). A kept span is the model's, never a position we chose; moved, the
+ * reader is told.
+ *
  * @param {string} source_text - The segment as sent to the model.
  * @param {string} output_text - The model's translation of it.
- * @returns {{text:string, deleted:string[], excess:string[]}} the conformed answer, the
- *   delimiters deleted (in order), the kinds with more reading pairs than the source.
+ * @returns {{text:string, deleted:string[], excess:string[], moved:string[]}} the conformed
+ *   answer, the delimiters deleted (in order), the kinds with more reading pairs than the
+ *   source, the kinds with a kept span on other words than its source span.
  */
 export function conform_delimiters(source_text, output_text) {
 	if (!output_text) {
-		return { text: output_text, deleted: [], excess: [] };
+		return { text: output_text, deleted: [], excess: [], moved: [] };
 	}
 
 	const allowed = {};
@@ -1322,6 +1476,7 @@ export function conform_delimiters(source_text, output_text) {
 
 	const keep = new Set();
 	const excess = [];
+	const kept = [];
 	const positions = delimiter_positions(output_text);
 	/** One kind: its reading pairs, up to the source's pairs; more is a guess, named. */
 	const keep_kind = (delim, skip) => {
@@ -1334,6 +1489,7 @@ export function conform_delimiters(source_text, output_text) {
 		}
 		const spans = [];
 		for (const pair of pairs.slice(0, room)) {
+			kept.push(pair);
 			keep.add(pair.open);
 			keep.add(pair.close);
 			spans.push([pair.open, pair.close]);
@@ -1350,6 +1506,18 @@ export function conform_delimiters(source_text, output_text) {
 		}
 	}
 
+	// each kept span against its source span: the k-th of its kind, in reading order
+	const moved = [];
+	const by_open = (a, b) => a.open - b.open;
+	const source_pairs = reading_pairs(source_text).sort(by_open);
+	for (const delim of MD_DELIMITERS) {
+		const own = kept.filter((pair) => pair.delim === delim).sort(by_open);
+		const theirs = source_pairs.filter((pair) => pair.delim === delim);
+		if (own.some((pair, k) => theirs[k] && span_moved(source_text, theirs[k], output_text, pair))) {
+			moved.push(delim);
+		}
+	}
+
 	const discard = new Map();
 	const deleted = [];
 	for (const item of positions) {
@@ -1360,7 +1528,7 @@ export function conform_delimiters(source_text, output_text) {
 	}
 
 	if (discard.size === 0) {
-		return { text: output_text, deleted, excess };
+		return { text: output_text, deleted, excess, moved };
 	}
 
 	let out = '';
@@ -1374,7 +1542,7 @@ export function conform_delimiters(source_text, output_text) {
 		i++;
 	}
 
-	return { text: out, deleted, excess };
+	return { text: out, deleted, excess, moved };
 } //end conform_delimiters
 
 /**

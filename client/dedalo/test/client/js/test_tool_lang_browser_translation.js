@@ -351,6 +351,19 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.equal(run.resolved.msg, 'OK. Translation saved with warnings');
 	});
 
+	it('bold the model MOVED onto other words is saved with a warning, never clean (emphasis_moved)', async () => {
+		const source = '<p>Las <strong>Sí</strong> 200 monedas de plata.</p>';
+		window.Worker = make_fake_worker({ translate: async (text) => text.replace('**Sí** 200', 'Sí **200**') });
+
+		const run = await run_translation({ source });
+
+		assert.isNull(run.rejected, 'a moved span is the model\'s: a warning, not a refusal');
+		assert.equal(saved_value(run.saves), '<p>Las Sí <strong>200</strong> monedas de plata.</p>');
+		assert.deepEqual(run.resolved.warnings.emphasis_moved, [1]);
+		assert.equal(run.resolved.msg, 'OK. Translation saved with warnings');
+		assert.include(run.status_text, '1 passages have bold, italic or code on other words than the source');
+	});
+
 	it('NESTED and MULTIPLE inverted pairs are each put back in order and counted', async () => {
 		const a = index_pair(1);
 		const b = index_pair(2);
