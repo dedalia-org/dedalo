@@ -99,7 +99,7 @@
 		"@turf/turf": "7.4.0",
 		"cheerio": "1.2.0",
 		"codex-tooltip": "1.1.0",
-		"d3": "7.9.0",
+		"d3": "7.9.2",
 		"easyqrcodejs": "4.6.2",
 		"leaflet": "1.9.4",
 		"mmdb-lib": "3.0.3",
