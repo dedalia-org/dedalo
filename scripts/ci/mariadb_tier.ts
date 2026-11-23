@@ -235,6 +235,13 @@ export const ROW_CONTRACT: ReadonlyMap<string, RowContract> = new Map<string, Ro
 			none: 'The maintenance-area read builds the diffusion_server_control widget, whose server info reads each declared target database (status, tables) — read only, measured 0/0/0',
 		},
 	],
+	// Acquirer since 2026-11-23: buildDiffusionInfo opens a pool per declared target.
+	[
+		'test/unit/diffusion_excluded_elements_native.test.ts',
+		{
+			none: 'buildDiffusionInfo reads each declared target database for the publication panel; every publication leg here is REFUSED before a writer runs (the excluded-element door) — read only',
+		},
+	],
 	[
 		'test/unit/maintenance_access_agreement_native.test.ts',
 		{
