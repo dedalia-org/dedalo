@@ -115,9 +115,11 @@
  * the later one is refused — no probe, no wait, nothing to withdraw — and two
  * langs never refuse each other: registrations do not conflict, and a lang
  * leaving only unlinks its own registration — it never removes the dir, so no
- * lang's leave can race another's registration. Only the whole holder removes
- * the (empty) dir; a registration that meets that removal (ENOENT) makes the
- * dir again and links once more. Every deciding answer is EEXIST /
+ * lang's leave can race another's registration. The (empty) dir is removed
+ * only by an `rmdir` — the whole holder's, or the orphan sweep's once it has
+ * sat unchanged for the bound (sweepIdleShares: the lock dir stays bounded) —
+ * which the server refuses while a registration stands; a registration that
+ * meets that removal (ENOENT) makes the dir again and links once more. Every deciding answer is EEXIST /
  * ENOTEMPTY / ENOTDIR / ENOENT from link, rmdir and mkdir, which NFS executes
  * at the server whatever the mount options (a create or a removal cannot be
  * answered from a client cache: a stale cached dir handle answers ESTALE,
@@ -778,25 +780,65 @@ function reclaimIfStale(
  * SEEN unchanged for the bound (a crashed holder's heartbeat, temp, staged,
  * peek or aside file, a mutex whose lock is gone). The new holder's own files
  * are never at risk: their names carry a fresh token, so this is their first
- * sighting. Never throws — a sweep that fails is logged, the hold stands.
+ * sighting. The same listing also BOUNDS the share dirs (sweepIdleShares). Never
+ * throws — a sweep that fails is logged, the hold stands.
  */
 function sweepOrphans(path: string, context: ComponentLockContext): void {
-	const prefix = `${path}.`;
-	let siblings: string[];
 	try {
-		siblings = readdirSync(context.dir)
-			.map((name) => join(context.dir, name))
-			.filter((sibling) => sibling.startsWith(prefix));
-		for (const sibling of siblings) sweepIfUnchanged(sibling, context);
+		const names = readdirSync(context.dir);
+		sweepSiblings(names, `${path}.`, context);
+		sweepIdleShares(names, context);
 	} catch (error) {
 		console.error(`[media lock] sweeping orphans of ${path} failed: ${errorText(error)}`);
-		return;
 	}
+}
+
+/** The `<lock>.*` siblings of one lock, each swept once SEEN unchanged for the bound. */
+function sweepSiblings(
+	names: readonly string[],
+	prefix: string,
+	context: ComponentLockContext,
+): void {
+	const siblings = names
+		.map((name) => join(context.dir, name))
+		.filter((sibling) => sibling.startsWith(prefix));
+	for (const sibling of siblings) sweepIfUnchanged(sibling, context);
 	forgetUnseen(
 		context,
 		`orphan:${prefix}`,
 		new Set(siblings.map((sibling) => `orphan:${sibling}`)),
 	);
+}
+
+/**
+ * BOUND THE SHARE DIRS (final review): a lang's leave never removes its share
+ * dir, so without this every component ever built per-lang would leave one
+ * behind and the lock dir would grow for the life of the install. A share dir
+ * this reader has SEEN unchanged (inode/mtime — every registration or leave
+ * changes it) for the bound is `rmdir`ed: the server removes it only when it
+ * is EMPTY (ENOTEMPTY: a registration stands — kept) and only when it is a dir
+ * (ENOTDIR: a whole holder's tombstone — never touched here). A lang that
+ * races the removal loses nothing: its registration link either lands first
+ * (the rmdir then answers ENOTEMPTY) or meets ENOENT and makes the dir again
+ * (registerInShare).
+ */
+function sweepIdleShares(names: readonly string[], context: ComponentLockContext): void {
+	const shares = names
+		.filter((name) => name.endsWith(SHARE_SUFFIX))
+		.map((name) => join(context.dir, name));
+	for (const share of shares) removeIfIdle(share, context);
+	forgetUnseen(context, 'share:', new Set(shares.map((share) => `share:${share}`)));
+}
+
+/** rmdir one share dir once SEEN unchanged for the bound; the server keeps a non-empty one. */
+function removeIfIdle(share: string, context: ComponentLockContext): void {
+	const signature = fileSignature(share);
+	if (signature === null) return;
+	const key = `share:${share}`;
+	if (unchangedForMs(context, key, signature) <= context.staleAfterMs) return;
+	if (rmdirShare(share) !== 'removed') return;
+	context.observations.delete(key);
+	console.error(`[media lock] swept idle share dir ${share} (empty, unchanged for the bound)`);
 }
 
 /** Drop the reader's sightings under `keyPrefix` that are no longer present (a bounded map). */
@@ -991,8 +1033,9 @@ function clearDeadTombstone(
 
 /**
  * Leave the share: drop our registration — never the dir. An empty share dir
- * is harmless (the whole holder's own `rmdir` removes it), and a lang that
- * removed it would race the next lang's registration (final review F3). NEVER
+ * is removed by the whole holder's `rmdir` or, once idle for the bound, by the
+ * orphan sweep (sweepIdleShares); a lang that removed it on leaving would race
+ * the next lang's registration (final review F3). NEVER
  * throws — it runs first in a release, and a release must still give the lock
  * back; a registration left behind (logged) is judged dead by the usual rules
  * once its holder's token is gone.

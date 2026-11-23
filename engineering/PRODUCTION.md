@@ -1621,7 +1621,10 @@ tombstone back (only its own), and a crashed holder's tombstone is judged like
 its lock. Whichever reaches the server first wins; two languages never refuse
 each other. A language leaving only removes its own registration — never the
 share directory, so no leave can race another language's registration; an
-empty share directory is harmless and is removed by the next whole hold.
+empty share directory is removed by the next whole hold, or by the orphan sweep
+of any lock taken once it has sat empty and unchanged for 120 s (an `rmdir`,
+which only ever removes an empty directory) — so the lock directory does not
+grow over the life of the installation.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and

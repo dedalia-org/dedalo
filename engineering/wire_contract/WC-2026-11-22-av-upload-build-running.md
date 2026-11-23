@@ -343,3 +343,16 @@
   `media_processes_mount_native` 18→20 (an older updater with an explicit
   absolute dir is judged; default / relative → said, nothing judged; the named
   key wins).
+- **Addendum 2026-11-23 (final review, share dirs bounded):** since a lang's
+  leave keeps its share dir, the per-acquire orphan sweep (same single listing
+  of the lock dir) now also `rmdir`s every `*.langs` dir this reader has seen
+  unchanged (inode/mtime) for the stale bound (`sweepIdleShares`): the server
+  removes it only when empty (ENOTEMPTY — a registration stands — keeps it) and
+  only when a dir (ENOTDIR — a tombstone — never touched). A racing lang loses
+  nothing: its registration lands first (rmdir ENOTEMPTY) or meets ENOENT and
+  makes the dir again. The lock dir stays bounded for the life of an install.
+  No wire change. Gates: `media_component_lock_native` 64→68 (an empty idle dir
+  removed past the bound, not before; one holding a live registration kept,
+  the registration effective; a lang whose own acquire sweeps its idle dir
+  registers in a new one; a registration landing between the sweep's look and
+  its rmdir is kept); the residue test is unchanged and green.

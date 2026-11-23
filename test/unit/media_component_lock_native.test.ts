@@ -1331,6 +1331,92 @@ describe('the any-lang ↔ all-langs look is the SERVER’s answer, never a cach
 	});
 });
 
+describe('share dirs are BOUNDED: an idle empty one is swept (final review)', () => {
+	/** Any lock acquire runs the sweep: a lang claim on another record, released at once. */
+	const sweepVia = (m: MediaJobManager, sectionId: number): void =>
+		mustGet(m.claimTarget(langTarget(sectionId, 'lg-cat')), 'a sweeping acquire').release();
+	const sweptLines = (fn: () => void): string => {
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			fn();
+			return errors.mock.calls.flat().join(' ');
+		} finally {
+			errors.mockRestore();
+		}
+	};
+
+	test('an EMPTY share dir seen unchanged for the bound is removed — not before', () => {
+		const tick = clock();
+		const m = manager('inst-sweep', { lockClock: tick.now });
+		mkdirSync(shareDirOf(87));
+		sweepVia(m, 93); // first sighting
+		tick.advance(BOUND);
+		sweepVia(m, 93);
+		expect(existsSync(shareDirOf(87))).toBe(true); // not past the bound yet
+		tick.advance(1);
+		expect(sweptLines(() => sweepVia(m, 93))).toContain('swept idle share dir');
+		expect(existsSync(shareDirOf(87))).toBe(false);
+	});
+
+	test('a share dir holding a live REGISTRATION is kept past the bound — the registration intact', () => {
+		const tick = clock();
+		const a = manager('inst-holder');
+		const m = manager('inst-sweep', { lockClock: tick.now });
+		const lang = mustGet(a.claimTarget(langTarget(89, 'lg-fra')), 'A lang');
+		sweepVia(m, 94);
+		tick.advance(BOUND + 1);
+		sweepVia(m, 94);
+		expect(shareEntries(89)).toHaveLength(1); // the server refused the rmdir (ENOTEMPTY)
+		expect(m.claimWholeComponents('test3', 89, ['test94'], 'record_media')).toBeNull();
+		lang.release();
+	});
+
+	test('a lang whose OWN acquire sweeps its idle share dir still registers (ENOENT → mkdir → link)', () => {
+		const tick = clock();
+		const m = manager('inst-sweep', { lockClock: tick.now });
+		mkdirSync(shareDirOf(91));
+		const before = statSync(shareDirOf(91)).ino;
+		sweepVia(m, 95);
+		tick.advance(BOUND + 1);
+		let lang = null as ReturnType<MediaJobManager['claimTarget']>;
+		expect(
+			sweptLines(() => {
+				lang = m.claimTarget(langTarget(91, 'lg-fra'));
+			}),
+		).toContain(`swept idle share dir ${shareDirOf(91)}`);
+		const held = mustGet(lang, 'registered in the dir made again');
+		expect(statSync(shareDirOf(91)).ino).not.toBe(before); // a NEW dir …
+		expect(shareEntries(91)).toHaveLength(1); // … holding the registration
+		held.release();
+	});
+
+	test("a registration that lands between the sweep's look and its rmdir is never lost (ENOTEMPTY)", () => {
+		const tick = clock();
+		const m = manager('inst-sweep', { lockClock: tick.now });
+		const other = manager('inst-racer');
+		mkdirSync(shareDirOf(92));
+		sweepVia(m, 96);
+		tick.advance(BOUND + 1);
+		const realRmdir = fs.rmdirSync;
+		let racer = 'not raced' as ReturnType<MediaJobManager['claimTarget']> | 'not raced';
+		const rmdir = spyOn(fs, 'rmdirSync').mockImplementation(((path: fs.PathLike) => {
+			if (String(path) === shareDirOf(92) && racer === 'not raced') {
+				racer = other.claimTarget(langTarget(92, 'lg-fra')); // registers in the old dir
+			}
+			return realRmdir(path);
+		}) as typeof fs.rmdirSync);
+		try {
+			sweepVia(m, 96);
+		} finally {
+			rmdir.mockRestore();
+		}
+		const held = mustGet(racer === 'not raced' ? null : racer, 'the racer proceeded');
+		expect(shareEntries(92)).toHaveLength(1); // its registration stands in the kept dir
+		expect(m.claimWholeComponents('test3', 92, ['test94'], 'record_media')).toBeNull();
+		held.release();
+	});
+});
+
 describe('a throw mid-claim gives back everything already taken (final review F1)', () => {
 	const COMPONENTS = ['test94', 'test95'];
 	/** Nothing of record `sectionId` is held: no whole lock, no tombstone — and a new whole claim passes. */
