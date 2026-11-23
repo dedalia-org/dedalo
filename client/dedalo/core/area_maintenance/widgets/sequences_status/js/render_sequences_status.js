@@ -110,55 +110,88 @@ render_sequences_status.prototype.list = async function(options) {
 
 /**
 * GET_CONTENT_DATA_EDIT
-* Builds the widget's content DOM node from the server-supplied diagnostic
-* report returned by db_tasks::check_sequences().
-*
-* The rendering is intentionally minimal: the server already produces an
-* HTML-formatted report string (self.value.msg) that contains per-table
-* status lines, bold WARNING notices, and the setval() SQL commands needed
-* to fix any remaining drift. Server text may NEVER reach an HTML sink, so the
-* report is rendered as TEXT inside a <pre> — see the TODO(server) below: the
-* server must emit structured rows instead of a pre-formatted HTML blob.
-*
-* self.value shape expected:
-* {
-*   result : boolean  — overall health flag (not rendered directly here)
-*   msg    : string   — HTML diagnostic report; rendered as TEXT (see TODO(server))
-*   values : Array    — per-table structured data (not rendered here; present
-*                       for callers that may inspect it programmatically)
-* }
-*
-* @param {Object} self - The sequences_status instance. Must expose self.value
-*   as set by widget_common.build() before render is called.
-* @returns {HTMLElement} content_data - Container div holding the diagnostic
-*   report node, ready to be appended to the widget wrapper.
+* Builds the audit table from the STRUCTURED rows (self.value.values) of the
+* server's check_sequences(). value.msg (the PHP-parity HTML report) is NOT
+* rendered: server text may never reach an HTML sink, and as plain text it reads
+* as raw markup. Row state is derived here with the server's own verdict rules
+* (src/core/area_maintenance/widgets/sequences_status.ts sequenceVerdict).
+* @param {Object} self - sequences_status instance (self.value set before render)
+* @returns {HTMLElement} content_data
 */
 const get_content_data_edit = async function(self) {
 
 	// short vars
-		const value			= self.value || {}
-		const data_check	= value.data_check || {}
-		const list			= value.msg
+		const value		= self.value || {}
+		const rows		= Array.isArray(value.values) ? value.values : []
 
 	// content_data
 		const content_data = ui.create_dom_element({
 			element_type : 'div',
-			class_name	 : 'content_data'
+			class_name	 : 'content_data dd_section'
 		})
 
-	// report
-	// TODO(server): `value.msg` is an HTML diagnostic report composed server-side
-	// (bold WARNING notices, <hr> separators, setval() SQL fragments). Server text
-	// may never reach an HTML sink, so it is rendered as TEXT here — the markup is
-	// visible as tags. The server should emit STRUCTURED rows (one object per
-	// table: {table, sequence, current, max, drift, fix_sql}) and let this renderer
-	// build the DOM; then the report reads correctly again without an HTML sink.
+	// verdict. result=false: a start_value != 1 or a failed auto-repair setval
 		ui.create_dom_element({
-			element_type	: 'pre',
-			class_name		: 'sequences_report',
-			text_content	: String(list ?? ''),
+			element_type	: 'div',
+			class_name		: 'dd_note' + (value.result===false ? ' state_danger' : ''),
+			text_content	: (value.result===false
+				? 'Some sequences need attention (see status column). '
+				: '') + rows.length + ' sequences checked. Lagging sequences are advanced automatically on load.',
 			parent			: content_data
 		})
+
+	// table
+		const table = ui.create_dom_element({
+			element_type	: 'div',
+			class_name		: 'dd_table',
+			parent			: content_data
+		})
+		const add_row = (cells, is_header) => {
+			const tr = ui.create_dom_element({
+				element_type	: 'div',
+				class_name		: 'dd_tr',
+				parent			: table
+			})
+			for (const [text, cls, node] of cells) {
+				const cell = ui.create_dom_element({
+					element_type	: 'div',
+					class_name		: (is_header ? 'dd_th' : 'dd_td') + (cls ? ' ' + cls : ''),
+					text_content	: text,
+					parent			: tr
+				})
+				if (node) cell.appendChild(node)
+			}
+		}
+		add_row([['Table'], ['Start', 'num'], ['Seq last value', 'num'], ['Last id', 'num'], ['Status', 'act']], true)
+
+		for (const row of rows) {
+			const start_value	= String(row.start_value)
+			const last_value	= String(row.last_value)
+			const last_id		= String(row.last_id)
+
+			// same rules as server sequenceVerdict (numeric compare for the repair)
+			const [label, pill, title] = start_value!=='1'
+				? ['start ≠ 1', 'pill_danger', `ALTER SEQUENCE ${row.table_name}_id_seq START WITH 1;`]
+				: Number(last_id) > Number(last_value)
+					? ['repaired', 'pill_warning', `Sequence was behind last id; advanced with setval('public.${row.table_name}_id_seq', ${last_id}, true)`]
+					: last_value!==last_id
+						? ['ahead', 'pill_neutral', 'Sequence ahead of last id (deleted rows) — normal']
+						: ['ok', 'pill_ok', '']
+
+			const badge = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'dd_badge ' + pill,
+				text_content	: label,
+				title			: title
+			})
+			add_row([
+				[row.table_name, 'mono'],
+				[start_value, 'num' + (start_value!=='1' ? ' state_alert' : '')],
+				[last_value, 'num'],
+				[last_id, 'num'],
+				['', 'act', badge]
+			], false)
+		}
 
 
 	return content_data

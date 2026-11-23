@@ -2,28 +2,24 @@
 * sequences_status
 *
 * Included from area_maintenance.less file.
-* The PHP side composes the report as HTML (server-styled). We wrap it in the
-* shared console block and turn its <hr> separators into kit hairlines so it reads
-* as one coherent diagnostic panel.
+* Audit report is a shared .dd_table (kit); only the column template is local.
 */
 .wrapper_widget.sequences_status {
 
-	.content_data > div {
-		.dd_console();
+	// table · start · seq last value · last id · status
+	// (FIVE tracks — must equal the renderer's cell count, .dd_tr is display:contents)
+	.dd_table {
+		grid-template-columns: minmax(10rem, 1fr) 4.5rem 8rem 8rem 7.5rem;
 		max-height: 32rem;
 		overflow: auto;
-		white-space: normal;
-		line-height: 1.7;
+	}
 
-		hr {
-			border: 0;
-			border-top: 1px solid var(--border_default);
-			margin: 0.35rem 0;
-		}
+	.dd_td.mono {
+		font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+		font-size: 0.8rem;
+	}
 
-		b {
-			font-weight: 600;
-			color: var(--fg_default);
-		}
+	.dd_badge {
+		font-size: 0.7rem;
 	}
 }//end sequences_status

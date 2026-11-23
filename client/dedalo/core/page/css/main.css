@@ -20445,34 +20445,19 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 * sequences_status
 *
 * Included from area_maintenance.less file.
-* The PHP side composes the report as HTML (server-styled). We wrap it in the
-* shared console block and turn its <hr> separators into kit hairlines so it reads
-* as one coherent diagnostic panel.
+* Audit report is a shared .dd_table (kit); only the column template is local.
 */
-.wrapper_widget.sequences_status .content_data > div {
-  padding: 0.7rem 0.85rem;
-  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: var(--fg_default);
-  white-space: pre-wrap;
-  word-break: break-word;
-  background-color: var(--bg_surface_alt);
-  border: 1px solid var(--border_default);
-  border-radius: 6px;
+.wrapper_widget.sequences_status .dd_table {
+  grid-template-columns: minmax(10rem, 1fr) 4.5rem 8rem 8rem 7.5rem;
   max-height: 32rem;
   overflow: auto;
-  white-space: normal;
-  line-height: 1.7;
 }
-.wrapper_widget.sequences_status .content_data > div hr {
-  border: 0;
-  border-top: 1px solid var(--border_default);
-  margin: 0.35rem 0;
+.wrapper_widget.sequences_status .dd_td.mono {
+  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-size: 0.8rem;
 }
-.wrapper_widget.sequences_status .content_data > div b {
-  font-weight: 600;
-  color: var(--fg_default);
+.wrapper_widget.sequences_status .dd_badge {
+  font-size: 0.7rem;
 }
 /**
 * update_data_version
