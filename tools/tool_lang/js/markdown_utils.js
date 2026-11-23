@@ -1312,19 +1312,60 @@ const words_of = (text) =>
 	(String(text).replace(/\[\[\[\d+\]\]\]/g, ' ').match(WORD_RE) || []).map((word) => word.toLowerCase());
 
 /**
- * The ITEMS of a text, for the words-changing-sides check: its [[[n]]] tokens (a mark, or the
- * text's own '*', '_', '`', '\\': identical in every language), its words (WORD_RE) and its
- * runs of punctuation ('«', '…', '[') — the delimiters aside, lower case.
- * @param {string} text
- * @returns {string[]}
+ * The ITEMS of a text, for the items-changing-sides check (span_items): its [[[n]]] tokens (a
+ * mark, or the text's own '*', '_', '`', '\\': identical in every language), its words
+ * (WORD_RE) and its runs of punctuation ('«', '…', '[') — the delimiters aside.
  */
-const items_of = (text) => (String(text).match(ITEM_RE) || []).map((item) => item.toLowerCase());
-
-/** items_of's pattern: a token, a word (WORD_RE), or a run of punctuation that is no token. */
 const ITEM_RE = new RegExp(
 	`\\[\\[\\[\\d+\\]\\]\\]|${WORD_RE.source}|(?:(?!\\[\\[\\[\\d+\\]\\]\\])[^\\s*_\`\\p{L}\\p{N}\\p{M}])+`,
 	'gu',
 );
+
+/**
+ * Punctuation a catalogue sets on either side of an emphasis edge as house style: a bold
+ * field label's colon ('**Anverso:**' / '**Obverse**:'), a comma after an italic word, the
+ * full stops and question marks of the Latin, Greek, Arabic, Devanagari and CJK scripts.
+ * A run made of these alone, TOUCHING an edge, is not compared (final review, W1).
+ * @type {RegExp}
+ */
+const EDGE_PUNCTUATION_RE = /^[.,:;!?…¡¿·\u037E\u0387\u060C\u061B\u061F\u06D4\u0964\u0965\u3001\u3002\uFF0C\uFF1A\uFF1B\uFF01\uFF1F]+$/u;
+
+/**
+ * The items of a text for check c, inside the span and in all of it, less the edge
+ * punctuation (EDGE_PUNCTUATION_RE) touching one of the span's four edges — inside after the
+ * opener, inside before the closer, outside before the opener, outside after the closer.
+ * Code keeps all of it: punctuation inside code is code.
+ * @param {string} text
+ * @param {{delim:string, open:number, close:number}} pair
+ * @returns {{inside:string[], all:string[]}}
+ */
+const span_items = (text, pair) => {
+	const length = pair.delim.length;
+	const items = [...String(text).matchAll(ITEM_RE)].map((match) => ({
+		item: match[0].toLowerCase(),
+		start: match.index,
+		end: match.index + match[0].length,
+	}));
+	const inside = items.filter((item) => item.start >= pair.open + length && item.end <= pair.close);
+	const edge = new Set();
+	if (pair.delim !== '`') {
+		const touching = [
+			inside.find((item) => item.start === pair.open + length),
+			inside.find((item) => item.end === pair.close),
+			items.find((item) => item.end === pair.open),
+			items.find((item) => item.start === pair.close + length),
+		];
+		for (const item of touching) {
+			if (item && EDGE_PUNCTUATION_RE.test(item.item)) {
+				edge.add(item);
+			}
+		}
+	}
+	return {
+		inside: inside.filter((item) => !edge.has(item)).map((item) => item.item),
+		all: items.filter((item) => !edge.has(item)).map((item) => item.item),
+	};
+}; //end span_items
 
 /** @param {string[]} words @returns {Map<string, number>} */
 const word_tally = (words) => {
@@ -1368,11 +1409,12 @@ const outer_char = (text, index, step) => {
  *   b. coverage — the share of the segment's words the span covers, outside ½–2 × the
  *      source span's share (one word of five emphasised, then four of five);
  *   c. items changing sides — an item BOTH texts carry (a mark, a name, a number, a
- *      bracket: what a translation keeps as it is — items_of) that the span now covers more
+ *      bracket: what a translation keeps as it is — span_items) that the span now covers more
  *      often, and the rest of the segment less often, than in the source — or the reverse.
  *      '**¡Sí!** 200' as '¡Sí! **200**' passes a and b (one word for one); c sees '200' cross
  *      into the span and '¡Sí!' out of it; '`[sic]`' as '[`sic]`' moves '[' out. An item
- *      the translation changed is never compared.
+ *      the translation changed is never compared, nor a colon, comma or stop touching an
+ *      edge ('**Anverso:**' as '**Obverse**:' is catalogue house style — span_items).
  * @param {string} source_text
  * @param {{delim:string, open:number, close:number}} source_pair
  * @param {string} output_text
@@ -1404,11 +1446,13 @@ const span_moved = (source_text, source_pair, output_text, output_pair) => {
 		}
 	}
 
-	// c. items changing sides
-	const source_in = word_tally(items_of(source_text.slice(source_pair.open + length, source_pair.close)));
-	const output_in = word_tally(items_of(output_text.slice(output_pair.open + length, output_pair.close)));
-	const source_all = word_tally(items_of(source_text));
-	const output_all = word_tally(items_of(output_text));
+	// c. items changing sides (edge punctuation aside: span_items)
+	const source_items = span_items(source_text, source_pair);
+	const output_items = span_items(output_text, output_pair);
+	const source_in = word_tally(source_items.inside);
+	const output_in = word_tally(output_items.inside);
+	const source_all = word_tally(source_items.all);
+	const output_all = word_tally(output_items.all);
 	for (const word of new Set([...source_in.keys(), ...output_in.keys()])) {
 		const in_before = source_in.get(word) || 0;
 		const in_after = output_in.get(word) || 0;
@@ -1762,10 +1806,32 @@ const UNSPACED_TERMINATORS_RE = /[\u3002\uFF01\uFF1F\uFF61]+(?=\S)/g;
 const TRAILING_CLOSERS_RE = /[\s"'\u2019\u201D\u00BB\u300D\u300F)\]]+$/u;
 
 /**
+ * ABBREVIATION_END
+ * Is the '.' ending at `end` the period of an abbreviation rather than a sentence end? Only a
+ * lone '.' (an ellipsis or '!' is no abbreviation), after a token with dotted internals
+ * ('a.C.', 'd.C.', 'IMP.CAES.') or of at most three letters ('ca.', 's.', 'etc.', 'Fig.' is
+ * four and counts). Opening punctuation before the token is not part of it ('(ca.'). A
+ * sentence that really ends on a short word ('Es mío.') is not counted either: the count is a
+ * truncation signal, and sentences_short asks for two missing ends (final review, W2).
+ * @param {string} text
+ * @param {number} end - the offset just past the terminator run
+ * @returns {boolean}
+ */
+const abbreviation_end = (text, end) => {
+	const run = text.slice(0, end).match(/[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]+$/u);
+	if (!run || run[0] !== '.') {
+		return false;
+	}
+	const token = (text.slice(0, end - 1).match(/(\S+)$/u)?.[1] ?? '').replace(/^[([{«“‘"'¿¡]+/u, '');
+	return /\p{L}\.\p{L}/u.test(token) || /^\p{L}{1,3}$/u.test(token);
+}; //end abbreviation_end
+
+/**
  * SENTENCE_COUNT
  * How many sentences of a text END — the cuts segment_markdown would make (abbreviations,
- * initials, decimals and a following lower-case word are not ends), the unspaced CJK ends,
- * and the text's own last terminator. A text that stops mid-sentence counts one fewer than
+ * initials, decimals and a following lower-case word are not ends), less the periods of an
+ * abbreviation (abbreviation_end: '27 a.C.–14 d.C.' ends nothing), the unspaced CJK ends,
+ * and the text's own last terminator unless it is an abbreviation's. A text that stops mid-sentence counts one fewer than
  * the same text whole: block_runner.js compares an answer's count with its segment's (the
  * truncation signal — A1-02 re-review 5, L3). Tokens and Markdown delimiters are not text.
  * @param {string} text
@@ -1780,9 +1846,14 @@ export const sentence_count = (text) => {
 		return 0;
 	}
 	const ranges = segment_protected_ranges(plain);
-	let count = sentence_cuts(plain, ranges, COUNTED_TERMINATORS_RE).length;
+	let count = sentence_cuts(plain, ranges, COUNTED_TERMINATORS_RE).filter(
+		(cut) => !abbreviation_end(plain, cut),
+	).length;
 	count += [...plain.matchAll(UNSPACED_TERMINATORS_RE)].length;
-	if (/[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]$/.test(body)) {
+	if (
+		/[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]$/.test(body) &&
+		!abbreviation_end(body, body.length)
+	) {
 		count++;
 	}
 	return count;

@@ -1002,6 +1002,52 @@ else {
 		items.push(...(rest.match(/[^\s*_`\p{L}\p{N}\p{M}]+/gu) ?? []));
 		return items;
 	};
+	/**
+	 * House-style punctuation at an emphasis edge ('**Anverso:**' / '**Obverse**:', '*plata,*'
+	 * / '*silver*,'): a run of colons, commas, stops and question marks alone, touching one of
+	 * a span's four edges, is not an item that changed sides (final review, W1) — unless the
+	 * span is code (punctuation inside code is code).
+	 */
+	const CLAUSE_ONLY =
+		/^[.,:;!?…¡¿·\u037E\u0387\u060C\u061B\u061F\u06D4\u0964\u0965\u3001\u3002\uFF0C\uFF1A\uFF1B\uFF01\uFF1F]+$/u;
+	const PUNCT_CHAR = /[^\s*_`\p{L}\p{N}\p{M}]/u;
+	const punctuationRun = (text: string, at: number, step: -1 | 1) => {
+		let end = at;
+		if (step > 0) {
+			while (
+				end < text.length &&
+				PUNCT_CHAR.test(text[end] as string) &&
+				!/^\[\[\[\d+\]\]\]/.test(text.slice(end))
+			)
+				end++;
+			return text.slice(at, end);
+		}
+		while (
+			end > 0 &&
+			PUNCT_CHAR.test(text[end - 1] as string) &&
+			!/\[\[\[\d+\]\]\]$/.test(text.slice(0, end))
+		)
+			end--;
+		return text.slice(end, at);
+	};
+	const edgeRuns = (text: string, pair: Pair) => {
+		if (pair.kind === '`') return { inside: [], outside: [] };
+		const keep = (run: string) => (run !== '' && CLAUSE_ONLY.test(run) ? [run] : []);
+		return {
+			inside: [
+				...keep(punctuationRun(text, pair.openEnd, 1)),
+				...keep(punctuationRun(text, pair.close, -1)),
+			],
+			outside: [
+				...keep(punctuationRun(text, pair.open, -1)),
+				...keep(punctuationRun(text, pair.closeEnd, 1)),
+			],
+		};
+	};
+	const less = (counts: Map<string, number>, items: string[]) => {
+		for (const item of items) counts.set(item, (counts.get(item) ?? 0) - 1);
+		return counts;
+	};
 	/** the character beside an edge, through any token */
 	const besideEdge = (text: string, index: number, step: -1 | 1) => {
 		let at = index;
@@ -1029,10 +1075,12 @@ else {
 		const after = shareOf(wrote, got);
 		if (before !== null && after !== null && (after < before / 2 || after > before * 2))
 			return `covers ${after.toFixed(2)} of its words, the source ${before.toFixed(2)}`;
-		const inBefore = tally(itemsIn(sent.slice(had.openEnd, had.close)));
-		const inAfter = tally(itemsIn(wrote.slice(got.openEnd, got.close)));
-		const allBefore = tally(itemsIn(sent));
-		const allAfter = tally(itemsIn(wrote));
+		const edgeBefore = edgeRuns(sent, had);
+		const edgeAfter = edgeRuns(wrote, got);
+		const inBefore = less(tally(itemsIn(sent.slice(had.openEnd, had.close))), edgeBefore.inside);
+		const inAfter = less(tally(itemsIn(wrote.slice(got.openEnd, got.close))), edgeAfter.inside);
+		const allBefore = less(tally(itemsIn(sent)), [...edgeBefore.inside, ...edgeBefore.outside]);
+		const allAfter = less(tally(itemsIn(wrote)), [...edgeAfter.inside, ...edgeAfter.outside]);
 		for (const item of new Set([...inBefore.keys(), ...inAfter.keys()])) {
 			const a = inBefore.get(item) ?? 0;
 			const b = inAfter.get(item) ?? 0;
@@ -1663,18 +1711,233 @@ else {
 			});
 		}
 
-		test('a translation cut mid-sentence never saves clean; a short CJK one does (L3)', async () => {
+		test('a translation cut two sentences short never saves clean; a short CJK one does (L3, W2)', async () => {
 			const cut = await pipeline(
-				'<p>La moneda fue acuñada en Roma. Tiene ley baja.</p>',
+				'<p>La moneda fue acuñada en Roma. Tiene ley baja. Está muy gastada.</p>',
 				() => 'The coin was minted in Rome. It has',
 			);
 			expect(cut.failed).toEqual([]);
 			expect(cut.report.sentences_short).toEqual([1]);
 			expect(cut.report.uncertain_count).toBeGreaterThan(0);
+			// one end fewer is a merge, an abbreviation's period, a script without stops: clean
+			const era = await pipeline(
+				'<p>Reinado de Augusto (27 a.C.–14 d.C.)</p>',
+				() => 'Reign of Augustus (27 BC–AD 14)',
+			);
+			expect(era.report.sentences_short).toEqual([]);
+			expect(era.report.uncertain_count).toBe(0);
 			const cjk = await pipeline('<p>Lugar de procedencia desconocido</p>', () => '不明');
 			expect(cjk.report.sentences_short).toEqual([]);
 			expect(cjk.report.uncertain_count).toBe(0);
 			expect(cjk.report.refused).toBe(false);
+		});
+
+		/**
+		 * FAITHFUL es→en heritage translations (final review, W1/W2): catalogue lines a careful
+		 * translator would write, emphasis kept on the same words — a bold field label whose
+		 * colon moves outside, an italic word whose comma does, abbreviated eras, marks, lists.
+		 * None is refused and none warns: a warning on a faithful translation stops meaning
+		 * anything. The CHANGED controls (emphasis on another word, two sentences dropped) warn.
+		 * The model is the replacements, each of which must be used.
+		 */
+		test('faithful translations save clean; only the genuinely changed controls warn (W1, W2)', async () => {
+			const FAITHFUL: [string, string, [string, string][], boolean?][] = [
+				[
+					'bold field label, colon inside',
+					'<p><strong>Anverso:</strong> cabeza laureada a derecha.</p>',
+					[
+						['**Anverso:**', '**Obverse**:'],
+						['cabeza laureada a derecha.', 'laureate head right.'],
+					],
+				],
+				[
+					'bold field label, colon outside',
+					'<p><strong>Reverso</strong>: jinete con lanza.</p>',
+					[['**Reverso**: jinete con lanza.', '**Reverse**: horseman with spear.']],
+				],
+				[
+					'italic with comma inside',
+					'<p>Moneda de <em>plata,</em> acuñada en Roma.</p>',
+					[['Moneda de *plata,* acuñada en Roma.', 'Coin of *silver*, minted in Rome.']],
+				],
+				[
+					'note label',
+					'<p><em>Nota:</em> pieza restaurada en 1998.</p>',
+					[['*Nota:* pieza restaurada en 1998.', '*Note*: piece restored in 1998.']],
+				],
+				[
+					'abbreviated era',
+					'<p>Reinado de Augusto (27 a.C.–14 d.C.)</p>',
+					[['Reinado de Augusto (27 a.C.–14 d.C.)', 'Reign of Augustus (27 BC–AD 14)']],
+				],
+				[
+					'abbreviation then sentence',
+					'<p>Acuñada hacia el 200 a.C. en la ceca de Roma.</p>',
+					[
+						[
+							'Acuñada hacia el 200 a.C. en la ceca de Roma.',
+							'Minted around 200 BC at the Rome mint.',
+						],
+					],
+				],
+				[
+					'scientific name in italics',
+					'<p>Concha de <em>Glycymeris glycymeris</em> perforada.</p>',
+					[
+						[
+							'Concha de *Glycymeris glycymeris* perforada.',
+							'Perforated *Glycymeris glycymeris* shell.',
+						],
+					],
+				],
+				[
+					'legend in italics with dots',
+					'<p>Leyenda: <em>IMP. CAES. AVG.</em></p>',
+					[['Leyenda: *IMP. CAES. AVG.*', 'Legend: *IMP. CAES. AVG.*']],
+				],
+				[
+					'two sentences, bold term',
+					'<p>La pieza es de <strong>bronce</strong>. Presenta pátina verde.</p>',
+					[
+						[
+							'La pieza es de **bronce**. Presenta pátina verde.',
+							'The piece is **bronze**. It has a green patina.',
+						],
+					],
+				],
+				[
+					'measurements',
+					'<p><strong>Peso:</strong> 3,2 g. <strong>Módulo:</strong> 18 mm.</p>',
+					[['**Peso:** 3,2 g. **Módulo:** 18 mm.', '**Weight**: 3.2 g. **Diameter**: 18 mm.']],
+				],
+				[
+					'title in italics, quoted',
+					'<p>Publicado en <em>«Numismática Antigua»</em>, 1985.</p>',
+					[
+						[
+							'Publicado en *«Numismática Antigua»*, 1985.',
+							'Published in *“Numismática Antigua”*, 1985.',
+						],
+					],
+				],
+				[
+					'underlined inscription',
+					'<p>Inscripción <u>SPQR</u> en el exergo.</p>',
+					[['Inscripción __SPQR__ en el exergo.', 'Inscription __SPQR__ in the exergue.']],
+				],
+				[
+					'nested bold italic',
+					'<p><strong>Estado: <em>muy bueno</em></strong></p>',
+					[['Estado: *muy bueno*', 'Condition: *very good*']],
+				],
+				[
+					'list of fields',
+					'<ul><li><strong>Material:</strong> oro</li><li><strong>Técnica:</strong> acuñación</li></ul>',
+					[
+						['**Material:** oro', '**Material**: gold'],
+						['**Técnica:** acuñación', '**Technique**: striking'],
+					],
+				],
+				[
+					'index mark around emphasis',
+					'<p>Hallada en [index-n-1-t1-data::data]<em>Ampurias</em>[/index-n-1-t1-data::data], Gerona.</p>',
+					[
+						['Hallada en ', 'Found at '],
+						[', Gerona.', ', Girona.'],
+					],
+				],
+				[
+					'tc mark and bold speaker',
+					'<p>[TC_00:00:05.000_TC]<strong>Entrevistado:</strong> Sí, la encontramos allí.</p>',
+					[
+						['**Entrevistado:**', '**Interviewee**:'],
+						['Sí, la encontramos allí.', 'Yes, we found it there.'],
+					],
+				],
+				[
+					'three sentences',
+					'<p>Fíbula de bronce. Tiene resorte bilateral. Falta la aguja.</p>',
+					[
+						[
+							'Fíbula de bronce. Tiene resorte bilateral. Falta la aguja.',
+							'Bronze fibula. It has a bilateral spring. The pin is missing.',
+						],
+					],
+				],
+				[
+					'ca. and s. abbreviations',
+					'<p>Cerámica ática, ca. s. V a.C., <em>figuras rojas</em>.</p>',
+					[
+						[
+							'Cerámica ática, ca. s. V a.C., *figuras rojas*.',
+							'Attic pottery, c. 5th c. BC, *red-figure*.',
+						],
+					],
+				],
+				[
+					'bold date range',
+					'<p>Periodo: <strong>siglos III–I a.C.</strong></p>',
+					[['Periodo: **siglos III–I a.C.**', 'Period: **3rd–1st centuries BC**']],
+				],
+				[
+					'exclamation in quote',
+					'<p>El donante escribió: <em>¡Para el museo!</em></p>',
+					[['El donante escribió: *¡Para el museo!*', 'The donor wrote: *For the museum!*']],
+				],
+				[
+					'parenthetical italic',
+					'<p>Denario (<em>RRC</em> 44/5) de plata.</p>',
+					[['Denario (*RRC* 44/5) de plata.', 'Silver denarius (*RRC* 44/5).']],
+				],
+				[
+					'heading with bold',
+					'<h3>Ficha de <strong>catalogación</strong></h3>',
+					[['Ficha de **catalogación**', '**Cataloguing** record']],
+				],
+				// genuinely changed: the control cases
+				[
+					'CHANGED: emphasis on another word',
+					'<p>Moneda de <strong>plata</strong> de Roma.</p>',
+					[['Moneda de **plata** de Roma.', 'Silver coin of **Roma**.']],
+					true,
+				],
+				[
+					'CHANGED: two sentences dropped',
+					'<p>Fíbula de bronce. Tiene resorte. Falta la aguja.</p>',
+					[['Fíbula de bronce. Tiene resorte. Falta la aguja.', 'Bronze fibula']],
+					true,
+				],
+			];
+			const problems: string[] = [];
+			for (const [name, html, pairs, changed] of FAITHFUL) {
+				const used = new Set<string>();
+				const run = await pipeline(html, (text) => {
+					let out = text;
+					for (const [from, to] of pairs) {
+						if (out.includes(from)) {
+							out = out.replace(from, to);
+							used.add(from);
+						}
+					}
+					return out;
+				});
+				const unused = pairs.filter(([from]) => !used.has(from)).map(([from]) => from);
+				if (unused.length > 0)
+					problems.push(
+						`${name}: never sent ${JSON.stringify(unused)} (${JSON.stringify(run.sent)})`,
+					);
+				if (run.failed.length > 0 || run.report.refused) problems.push(`${name}: refused`);
+				else if (changed && run.report.uncertain_count === 0)
+					problems.push(`${name}: changed, yet clean`);
+				else if (!changed && run.report.uncertain_count > 0)
+					problems.push(
+						`${name}: warned ${JSON.stringify({ moved: run.report.emphasis_moved, short: run.report.sentences_short, out: run.out })}`,
+					);
+				if (!changed)
+					problems.push(...outcomeProblems(html, run).map((problem) => `${name}: ${problem}`));
+			}
+			expect(problems).toEqual([]);
+			expect(FAITHFUL.filter((item) => !item[3]).length).toBe(22);
 		});
 
 		test('a character the model wrote that conform deletes is never silent: the save carries a warning (F3)', async () => {

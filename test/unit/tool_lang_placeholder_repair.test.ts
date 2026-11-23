@@ -315,20 +315,45 @@ describe('L3: lost text is the empty floor only; a cut answer is caught by its s
 		expect(sentence_count('不明')).toBe(0);
 		// CJK terminators need no space; the Greek question mark and the danda count
 		expect(sentence_count('硬币在罗马铸造。成色很低。')).toBe(2);
-		expect(sentence_count('Πού; Εδώ.')).toBe(2);
+		expect(sentence_count('Πού; Εδώ είναι.')).toBe(2);
 		expect(sentence_count('सिक्का रोम में बना। इसकी शुद्धता कम है।')).toBe(2);
 		// tokens and delimiters are not text; closing quotes after the end are allowed
-		expect(sentence_count('**Fin.**[[[1]]] «Otra.»')).toBe(2);
+		expect(sentence_count('**Final.**[[[1]]] «Otra.»')).toBe(2);
+		// an abbreviation's period ends nothing (W2): dotted internals, or three letters at most
+		expect(sentence_count('Reinado de Augusto (27 a.C.–14 d.C.)')).toBe(0);
+		expect(sentence_count('Reign of Augustus (27 BC–AD 14)')).toBe(0);
+		expect(sentence_count('Periodo: siglos III–I a.C.')).toBe(0);
+		expect(sentence_count('Cerámica ática, ca. s. V a.C., figuras rojas.')).toBe(1);
+		expect(sentence_count('Ver p. 4. Otra cosa.')).toBe(2);
+		// the stated cost: a sentence ending on a word of three letters is not counted
+		expect(sentence_count('Es mío.')).toBe(0);
+		expect(sentence_count('Fíbula de bronce. Tiene resorte. Falta la aguja.')).toBe(3);
+		// an ellipsis or a '!' after a short word is no abbreviation
+		expect(sentence_count('¡Sí! ¡No!')).toBe(2);
 	});
 
-	test('sentences_short: a translation that stopped mid-way is caught, a CJK one is not', () => {
+	test('sentences_short: two missing ends are caught; one is a merge, an abbreviation, a script (W2)', () => {
+		expect(
+			sentences_short(
+				'La moneda fue acuñada en Roma. Tiene ley baja. Está gastada.',
+				'The coin was minted in Rome. It has',
+			),
+		).toBe(true);
+		expect(
+			sentences_short('Fíbula de bronce. Tiene resorte. Falta la aguja.', 'Bronze fibula'),
+		).toBe(true);
+		// one end fewer is not enough
 		expect(
 			sentences_short(
 				'La moneda fue acuñada en Roma. Tiene ley baja.',
 				'The coin was minted in Rome. It has',
 			),
-		).toBe(true);
-		expect(sentences_short('La moneda fue acuñada en Roma.', 'The coin was minted in')).toBe(true);
+		).toBe(false);
+		expect(sentences_short('La moneda fue acuñada en Roma.', 'The coin was minted in')).toBe(false);
+		expect(
+			sentences_short('Reinado de Augusto (27 a.C.–14 d.C.)', 'Reign of Augustus (27 BC–AD 14)'),
+		).toBe(false);
+		expect(sentences_short('Uno. Dos. Tres. Cuatro.', '一二三四')).toBe(true);
 		expect(
 			sentences_short(
 				'La moneda fue acuñada en Roma. Tiene ley baja.',
@@ -371,13 +396,17 @@ describe('L3: lost text is the empty floor only; a cut answer is caught by its s
 	});
 
 	test('process_block: an answer with fewer sentences is kept, and flagged sentences_short', async () => {
-		const out = await process_block(async () => 'The coin was minted in Rome. It has', short_block);
+		const three = {
+			...short_block,
+			text: 'La moneda fue acuñada en Roma. Tiene ley baja. Está gastada.',
+		};
+		const out = await process_block(async () => 'The coin was minted in Rome. It has', three);
 		expect(out.text).toBe('The coin was minted in Rome. It has');
 		expect(out.sentences_short).toBe(true);
 		const messages: Message[] = [];
 		await run_blocks({
 			mark_patterns: MARK_PATTERNS,
-			blocks: [{ ...short_block, prefix: '', suffix: '', sep: '' }],
+			blocks: [{ ...three, prefix: '', suffix: '', sep: '' }],
 			translate: async () => 'The coin was minted in Rome. It has',
 			post: (message: Message) => messages.push(structuredClone(message)),
 		});
@@ -946,6 +975,14 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		expect(moved('Fin __[[[1]]]moneda__ ya', 'Fin [[[1]]]__moneda__ ya')).toEqual(['__']);
 		expect(moved('`[sic]`', '[`sic]`')).toEqual(['`']);
 		expect(moved('__…__ >', '… __>__')).toEqual(['__']);
+		// …but a colon, comma or stop touching an edge is house style, not a move (W1)
+		expect(moved('**Anverso:** cabeza laureada', '**Obverse**: laureate head')).toEqual([]);
+		expect(moved('Moneda de *plata,* acuñada', 'Coin of *silver*, minted')).toEqual([]);
+		expect(moved('**Reverso**: jinete', '**Reverse:** horseman')).toEqual([]);
+		// a bracket or a '<' is not; code keeps its punctuation; words still cross
+		expect(moved('__<p>__ fin', '<__p>__ fin')).toEqual(['__']);
+		expect(moved('`a:` fin', '`a`: fin')).toEqual(['`']);
+		expect(moved('**Sí:** 200 monedas', 'Sí: **200** monedas')).toEqual(['**']);
 		// a translation: other words, the same place — clean; a no-space script is no word edge
 		expect(moved('Moneda de **plata** fina', 'Fine **silver** coin')).toEqual([]);
 		expect(moved('Moneda de **plata** fina', '上質な**銀**貨')).toEqual([]);

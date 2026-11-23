@@ -533,16 +533,19 @@ export const lost_text = (source, output) => text_length(source) > 0 && text_len
 
 /**
  * SENTENCES_SHORT
- * Does an answer END fewer sentences than the segment it translates (markdown_utils.js
- * sentence_count)? A translation keeps its sentences, or merges two; an answer that stops
- * mid-way ends fewer — the signal of a truncated generation that has no other symptom
- * (A1-02 re-review 5, L3). An UNCERTAINTY, never a refusal: two sentences legitimately
- * merged look the same, so the run saves with a warning naming the passage.
+ * Does an answer END at least TWO fewer sentences than the segment it translates
+ * (markdown_utils.js sentence_count)? A translation keeps its sentences, or merges two; an
+ * answer that stops mid-way ends fewer — the signal of a truncated generation that has no
+ * other symptom (A1-02 re-review 5, L3). An UNCERTAINTY, never a refusal. One missing end is
+ * not enough (final review, W2): a faithful translation merges two sentences, drops an
+ * abbreviation's period ('27 a.C.' → '27 BC'), or is written in a script without sentence
+ * punctuation. "Below half of three or more" is the same rule: from 3 sentences, below half
+ * is at least two short. A generation cut at its token limit is refused anyway (truncated).
  * @param {string} source - The block text sent to the model.
  * @param {string} output - The cleaned answer.
  * @returns {boolean}
  */
-export const sentences_short = (source, output) => sentence_count(output) < sentence_count(source); //end sentences_short
+export const sentences_short = (source, output) => sentence_count(source) - sentence_count(output) >= 2; //end sentences_short
 
 /**
  * STOPPED_AT_TOKEN_LIMIT
