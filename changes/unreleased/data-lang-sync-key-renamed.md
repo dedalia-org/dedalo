@@ -8,5 +8,6 @@ The setting that keeps the interface language and the data language together was
 `DATA_LANG_SYNC` in early v7 installations, unlike its siblings (`DEDALO_DATA_LANG_SELECTOR`,
 `DEDALO_DATA_LANG_DEFAULT`). It is now `DEDALO_DATA_LANG_SYNC`, the v6 name, so a v6
 configuration carries over unchanged. The old spelling no longer configures anything: if it
-is still in `../private/.env`, the server refuses to start and names the line to rename.
+is still in `../private/.env`, the update (or the next start) appends the new name with the same
+value and keeps the old line.
 See [Defining data language sync](./administration/configuration/config.md#defining-data-language-sync).

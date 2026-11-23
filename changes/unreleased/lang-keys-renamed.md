@@ -9,6 +9,7 @@ Early v7 installations spelled four language settings without the `DEDALO_` pref
 `DEDALO_DATA_NOLAN` (was `DATA_NOLAN`) and `DEDALO_PROJECTS_DEFAULT_LANGS` (was
 `PROJECTS_DEFAULT_LANGS`) — the v6 names, so a v6 configuration carries over unchanged. The
 installer has written `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG` and `DATA_LANG` into
-`../private/.env` since 7.0.0-beta.6: rename those lines before updating. An old spelling no
-longer configures anything — if it is still there, the server refuses to start and names the line
-to rename. See [Defining application language](./administration/configuration/config.md#defining-application-language).
+`../private/.env` since 7.0.0-beta.6: nothing to do — the update (or the next start) appends
+each new name with the same value and keeps the old line, which no longer configures anything.
+An old spelling set in the process environment (a systemd unit, a container) is not renamed: the
+server refuses to start and names every such key. See [Defining application language](./administration/configuration/config.md#defining-application-language).

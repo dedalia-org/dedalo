@@ -214,6 +214,8 @@ function pipelineSeams(overrides: Partial<CodeUpdateSeams> = {}): CodeUpdateSeam
 		restart: () => {},
 		supervised: true,
 		installDeps: async () => {},
+		// never the LIVE ../private/.env (the default) — its own gate is env_retired_rename_native
+		renameRetiredEnvKeys: async () => null,
 		smokeBoot: async () => {},
 		channel: 'tree_swap',
 		databaseBackupDir: SCRATCH_DB_BACKUP_DIR,
@@ -964,6 +966,78 @@ describe('full swap chain against a synthetic release (mocked gate, temp tree)',
 			unmockUpdateEnv();
 		}
 	}, 60000);
+
+	test.skipIf(!ZIP_AT_DEFINITION)(
+		'the retired-key rename runs BEFORE the smoke boot, its sentence on the preflight track; a refusal swaps nothing',
+		async () => {
+			const base = join(ROOT, 'retired_rename');
+			const zipPath = await buildReleaseZip(base);
+			const sha = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
+			const server = Bun.serve({ port: 0, fetch: () => new Response(readFileSync(zipPath)) });
+			const origin = `http://localhost:${server.port}`;
+			const targetRoot = join(base, 'live');
+			buildLiveTree(targetRoot);
+			const request = {
+				file: { version: '7.0.1', url: `${origin}/7.0.1.zip`, sha256: sha },
+				waive_backup: true,
+			};
+			try {
+				mockUpdateEnv(origin);
+				const order: string[] = [];
+				const frames: UpdatePhaseFrame[] = [];
+				const out = await updateCode(
+					request,
+					SUPERUSER,
+					pipelineSeams({
+						targetRoot,
+						backupRoot: join(base, 'b1'),
+						renameRetiredEnvKeys: async (codeRoot) => {
+							order.push(`rename:${existsSync(codeRoot)}`);
+							return 'Renamed retired config keys: DATA_LANG → DEDALO_DATA_LANG';
+						},
+						smokeBoot: async () => {
+							order.push('smoke');
+						},
+						onPhase: (frame) => frames.push(frame),
+					}),
+				);
+				expect(out.ok).toBe(true);
+				expect(order).toEqual(['rename:true', 'smoke']);
+				const noted = frames.find((frame) =>
+					frame.message?.includes('DATA_LANG → DEDALO_DATA_LANG'),
+				);
+				expect(noted?.phase).toBe('preflight');
+
+				const target2 = join(base, 'live2');
+				buildLiveTree(target2);
+				const before2 = treeDigest(target2);
+				let smoked = false;
+				const refusal = await refusalOf(
+					updateCode(
+						request,
+						SUPERUSER,
+						pipelineSeams({
+							targetRoot: target2,
+							backupRoot: join(base, 'b2'),
+							renameRetiredEnvKeys: async () => {
+								throw new Error('cannot rename');
+							},
+							smokeBoot: async () => {
+								smoked = true;
+							},
+						}),
+					),
+				);
+				expect(refusal.code).toBe('update.failed');
+				expect(smoked).toBe(false);
+				expect(treeDigest(target2)).toBe(before2);
+			} finally {
+				server.stop(true);
+				unmockUpdateEnv();
+			}
+		},
+		60000,
+	);
 
 	test('a release pinning a DIFFERENT Bun is refused before any deps install', async () => {
 		if (!zipAvailable) return;

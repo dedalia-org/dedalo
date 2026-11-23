@@ -25,9 +25,10 @@ export const DEFAULTS_KEYS = {
 		typeLabel: 'array',
 		doc: `!!! info "Renamed in v7 — was \`DEDALO_PREFIX_TIPOS\`"
     The old name did not describe the value: this is the set of ontology
-    **top-level domains** active in the installation. The old spelling is retired —
-    if it is still in your \`.env\` the server refuses to boot and names the line to
-    change.
+    **top-level domains** active in the installation. The old spelling is retired — if it is still in your \`.env\`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 This parameter defines the ontology TLDs to be used in the Dédalo installation.
 

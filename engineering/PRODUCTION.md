@@ -1821,12 +1821,32 @@ verified against the manifest sidecar → zip entries pre-validated (no
 absolute/`..`/symlink entries) → extracted into a QUARANTINE dir, never over
 the live tree → **dependencies installed in quarantine** (`bun install
 --frozen-lockfile --production` against the release's own lockfile) →
-**pre-flight smoke boot** of the quarantined tree (a throwaway process must
+**retired config keys renamed** in the live `../private/.env` → **pre-flight smoke boot** of the quarantined tree (a throwaway process must
 evaluate the server entrypoint cleanly; a release that cannot even load is
 refused with the live tree untouched) → the SENTINEL is written
 `status:"pending"` (naming the backup dir the swap INTENDS to create) → the
 live tree is renamed into the backup dir (same-device asserted, so both
 renames are atomic) → the new tree moves in → planned restart (exit 75).
+
+**RETIRED CONFIG KEYS ARE RENAMED, NOT REFUSED (2026-11-23).** A key renamed in
+`RETIRED_ENV_KEYS` (`src/config/env.ts`) used to refuse the boot naming ONE line,
+so every install whose installer had written `APPLICATION_LANG`/`DATA_LANG`/
+`PROJECTS_DEFAULT_LANGS` failed its next update at the smoke boot, once per key.
+One door now renames (`src/config/env_retired_rename.ts`): for each retired key
+set in the `.env` FILE whose replacement is set nowhere, it APPENDS
+`<replacement>=<raw value>` — the old line is never edited (append-only law; it
+also keeps a restore to an older tree working). Three callers: the updater runs
+the QUARANTINE tree's entry (`scripts/ops/rename_retired_env_keys.ts` — the
+running updater cannot know what the new release retired; a tree without it is
+skipped, said in the log) right before the smoke boot, the renamed keys on the
+preflight frame; the real boot runs it on its own `.env` before the config is
+built (an updater older than this never calls the entry); the smoke child cannot
+write, so it reads the live file the updater names (`DEDALO_SMOKE_ENV_FILE`,
+read only — an older updater names none: tolerated, said) and gives the real
+boot's verdict. What cannot be renamed — a retired key set in the PROCESS env
+(systemd unit, container), an unwritable `.env` — refuses (update and boot),
+every such key named in one message. Delete an old line by hand once no older
+tree needs it. Gate: `env_retired_rename_native`.
 
 **DISK SPACE is a pre-download gate (2026-08-25).** A remote install died mid
 `bun install` with a wall of bun `NoSpaceLeft`/`FileNotFound` extraction errors

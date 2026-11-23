@@ -1974,7 +1974,8 @@ Merged since the last release; these ship with the next one.
     `DATA_LANG_SYNC` in early v7 installations, unlike its siblings (`DEDALO_DATA_LANG_SELECTOR`,
     `DEDALO_DATA_LANG_DEFAULT`). It is now `DEDALO_DATA_LANG_SYNC`, the v6 name, so a v6
     configuration carries over unchanged. The old spelling no longer configures anything: if it
-    is still in `../private/.env`, the server refuses to start and names the line to rename.
+    is still in `../private/.env`, the update (or the next start) appends the new name with the same
+    value and keeps the old line.
     See [Defining data language sync](./administration/configuration/config.md#defining-data-language-sync).
 
 - **"The language settings now all carry their v6 DEDALO_ names."**
@@ -1984,9 +1985,10 @@ Merged since the last release; these ship with the next one.
     `DEDALO_DATA_NOLAN` (was `DATA_NOLAN`) and `DEDALO_PROJECTS_DEFAULT_LANGS` (was
     `PROJECTS_DEFAULT_LANGS`) — the v6 names, so a v6 configuration carries over unchanged. The
     installer has written `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG` and `DATA_LANG` into
-    `../private/.env` since 7.0.0-beta.6: rename those lines before updating. An old spelling no
-    longer configures anything — if it is still there, the server refuses to start and names the line
-    to rename. See [Defining application language](./administration/configuration/config.md#defining-application-language).
+    `../private/.env` since 7.0.0-beta.6: nothing to do — the update (or the next start) appends
+    each new name with the same value and keeps the old line, which no longer configures anything.
+    An old spelling set in the process environment (a systemd unit, a container) is not renamed: the
+    server refuses to start and names every such key. See [Defining application language](./administration/configuration/config.md#defining-application-language).
 
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
@@ -2282,6 +2284,18 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **A code update renames retired configuration keys itself instead of failing.**
+
+    Updating an installation whose `../private/.env` still held a renamed setting (for example
+    `DATA_LANG_SYNC`, `APPLICATION_LANG`, `DATA_LANG` or `PROJECTS_DEFAULT_LANGS`, which the
+    installer itself wrote) failed at the pre-swap boot check, naming one key per attempt. The update
+    now appends each new name to `../private/.env` with the old line's value — the old line is kept,
+    nothing is edited or removed — and the new release does the same at its first start when the
+    installation's updater is older than this change. A renamed setting that is set in the process
+    environment (a systemd unit, a container) cannot be renamed by the engine: the update is refused,
+    naming every such key at once. See
+    [Defining application language](./administration/configuration/config.md#defining-application-language).
 
 - **"lg-nolan can no longer be configured as the working data language."**
 

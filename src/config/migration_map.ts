@@ -699,6 +699,8 @@ export const NEW_IN_V7: readonly string[] = [
 	'DEDALO_SMOKE_BOOT',
 	// set by the code updater on that same child (the live processes dir, read-only mount verdict)
 	'DEDALO_SMOKE_PROCESSES_DIR',
+	// set by the code updater on that same child (the live .env, read-only retired-key verdict)
+	'DEDALO_SMOKE_ENV_FILE',
 	// declared by the container stacks, never by an operator (installer unification D2)
 	'DEDALO_CLIENT_PUBLISH_DIR',
 	// written into the server drop-in by the production installer (C32, 2026-11-13)

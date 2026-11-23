@@ -1904,6 +1904,11 @@
 			"skipped": 0,
 			"assertions": 4
 		},
+		"test/unit/env_retired_rename_native.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 87
+		},
 		"test/unit/environment_view.test.ts": {
 			"tests": 2,
 			"skipped": 0,
