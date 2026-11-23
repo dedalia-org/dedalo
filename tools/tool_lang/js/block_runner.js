@@ -41,7 +41,7 @@
  *
  * Messages posted (the worker relays them to the main thread unchanged):
  *   { status: 'on_chunk',       data: { accumulated_text, remaining, repair_stats, failed_blocks } }
- *   { status: 'on_block_error', data: { message, block, total, accumulated_text, remaining } }
+ *   { status: 'on_block_error', data: { message, code, detail, block, total, accumulated_text, remaining } }
  *   { status: 'cancelled',      data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *   { status: 'end',            data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *
@@ -52,6 +52,10 @@
  *                  is right is unknowable, so none is kept)
  *   residual     — tokens the model invented (not in the block), removed; LOCAL numbers
  *                  with no document-wide meaning, so only their count matters
+ *   sentences_short — block numbers whose answer ends fewer sentences than the segment
+ *                  (sentences_short): saved, with a warning
+ * failed_blocks = [{ block, total, message, code, detail }] — code a BLOCK_ERROR_CODES key
+ * (null for an error that is not a BlockError), worded by the main thread.
  * The main thread reports them, and refuses a run with an unrepairable or duplicated token.
  *
  * TS differences from the v6 worker: a block that throws is SKIPPED and reported (v6 kept
@@ -77,11 +81,14 @@
  *   needs_webgpu_message, too_large_message — the two refusals that carry that advice
  *   collapse_model_breaks — the model's line breaks in a segment that had none → one space
  *   added_markup       — tag-shaped text a model wrote that its segment did not carry
- *   lost_text, MIN_TEXT_RATIO — an answer that lost the segment's text
+ *   lost_text          — an answer with no text for a segment that has some
+ *   sentences_short    — an answer that ends fewer sentences than its segment (cut short?)
+ *   stopped_at_token_limit — did a generation stop at max_new_tokens rather than its end token
+ *   BlockError, BLOCK_ERROR_CODES — the coded failure a block throws ({code, detail})
  */
 
 // imports
-import { conform_emphasis, restore_literal_escapes, restore_wrapping_emphasis } from './markdown_utils.js';
+import { conform_emphasis, restore_wrapping_emphasis, sentence_count } from './markdown_utils.js';
 import {
 	extract_placeholders,
 	normalize_placeholders,
@@ -380,9 +387,11 @@ export const to_global_tokens = (text, restore_map) => {
  * markdown_to_html, so inside a shielded block ('<li>uno\n\ndos</li>') it built malformed
  * HTML — a <p> across the </li>, a <br> between two </td><td>.
  *
- * The backslashes a model dropped from the text's literal '*', '_' and '`' are put back
- * BEFORE conform_emphasis (restore_literal_escapes — A1-02 re-review H1), so conforming
- * deletes only delimiters, never a literal character.
+ * The text's own '*', '_', '`' and '\' are tokens (markdown_utils.js shield_literals —
+ * A1-02 re-review 5, H1′), so every delimiter in the answer is the source's emphasis or code,
+ * or invented: conform_emphasis deletes the ones beyond the segment's. A quadruple-bracket
+ * shape the segment carries ('[[[[1]]]]': a token inside the text's own brackets) is kept as
+ * it is by normalize_placeholders.
  *
  * Markup the model WROTE (tag-shaped text the segment did not carry: '<br>', '<b>…</b>', a
  * second '<p>') is collected in `markup` — after the wrapper strip — and process_block
@@ -396,7 +405,8 @@ export const to_global_tokens = (text, restore_map) => {
  */
 const clean_output = (raw, source, known) => {
 	const invented = [];
-	const normalised = normalize_placeholders(strip_fences(String(raw ?? ''))).replace(placeholder_re(), (token) => {
+	const keep_quads = /\[\[\[\[\d+\]\]\]\]/.test(String(source));
+	const normalised = normalize_placeholders(strip_fences(String(raw ?? '')), keep_quads).replace(placeholder_re(), (token) => {
 		if (known.has(token)) {
 			return token;
 		}
@@ -409,7 +419,7 @@ const clean_output = (raw, source, known) => {
 
 	const text = restore_wrapping_emphasis(
 		source,
-		conform_emphasis(source, restore_literal_escapes(source, collapse_model_breaks(source, unwrapped))),
+		conform_emphasis(source, collapse_model_breaks(source, unwrapped)),
 	);
 
 	return { text, invented, markup };
@@ -449,44 +459,94 @@ export const added_markup = (source, output) => {
 }; //end added_markup
 
 /**
- * The share of a segment's text below which an answer is not a translation of it but a loss
- * (A1-02 re-review H2): an empty answer, or one of tokens only, would wipe the target's
- * text for that passage — possibly a human translation — and save. Generous on purpose:
- * translation into a script as dense as Chinese still keeps about a quarter of the
- * characters of a Latin-script source.
- * @type {number}
- */
-export const MIN_TEXT_RATIO = 0.1;
-
-/**
  * TEXT_LENGTH
- * The characters of a segment that are text: no token, no whitespace, no escaping
- * backslash. A metacharacter counts — a record whose text is '**' has text.
+ * The characters of a segment that are text: no token, no whitespace, no Markdown delimiter
+ * (the record's own metacharacters are tokens).
  * @param {string} text
  * @returns {number}
  */
 const text_length = (text) =>
 	String(text || '')
 		.replace(placeholder_re(), '')
-		.replace(/\\(.)/g, '$1')
+		.replace(/[*_`]/g, '')
 		.replace(/\s/g, '').length;
 
 /**
  * LOST_TEXT
- * Has the model's answer lost the text of a segment that had some — nothing left once tokens
- * and whitespace are removed, or less than MIN_TEXT_RATIO of the source's?
+ * Has the model's answer lost ALL the text of a segment that had some — nothing left once
+ * tokens, delimiters and whitespace are removed (A1-02 re-review H2)? Saved, it would wipe
+ * the target's text for that passage, possibly a human translation. Only the empty floor: a
+ * share of the source's length is no test of a translation (A1-02 re-review 5, L3) — '不明'
+ * is a whole answer to 'lugar de procedencia desconocido'. A SHORTENED answer is caught by
+ * sentences_short and stopped_at_token_limit instead.
  * @param {string} source - The block text sent to the model.
  * @param {string} output - The cleaned answer.
  * @returns {boolean}
  */
-export const lost_text = (source, output) => {
-	const source_length = text_length(source);
-	if (source_length === 0) {
-		return false;
+export const lost_text = (source, output) => text_length(source) > 0 && text_length(output) === 0; //end lost_text
+
+/**
+ * SENTENCES_SHORT
+ * Does an answer END fewer sentences than the segment it translates (markdown_utils.js
+ * sentence_count)? A translation keeps its sentences, or merges two; an answer that stops
+ * mid-way ends fewer — the signal of a truncated generation that has no other symptom
+ * (A1-02 re-review 5, L3). An UNCERTAINTY, never a refusal: two sentences legitimately
+ * merged look the same, so the run saves with a warning naming the passage.
+ * @param {string} source - The block text sent to the model.
+ * @param {string} output - The cleaned answer.
+ * @returns {boolean}
+ */
+export const sentences_short = (source, output) => sentence_count(output) < sentence_count(source); //end sentences_short
+
+/**
+ * STOPPED_AT_TOKEN_LIMIT
+ * Did a generation stop because it reached max_new_tokens rather than at its end token
+ * (A1-02 re-review 5, L3)? Its answer is cut, and nothing in the text says so: the block is
+ * REFUSED ('truncated'). The worker counts the generated tokens (a streamer) and remembers
+ * the last one; a generation whose max_new_tokens-th token is the end token finished.
+ * @param {{steps:number, last_token:(number|null)}} count - what the worker counted
+ * @param {number} max_new_tokens - the budget the generation ran with
+ * @param {Array<number>} end_token_ids - the model's end-of-sequence token ids
+ * @returns {boolean}
+ */
+export const stopped_at_token_limit = (count, max_new_tokens, end_token_ids) =>
+	Number(count?.steps) >= max_new_tokens && !end_token_ids.includes(count?.last_token); //end stopped_at_token_limit
+
+/**
+ * The codes a failed block carries ({code, detail}); the main thread names each with a
+ * register.json label (block_<code>) in the operator's language, the English text as the
+ * fallback (A1-02 re-review 5, L4).
+ *   added_markup — the model wrote markup the text did not have (detail: the tags)
+ *   lost_text    — the model returned no text for a passage that has some
+ *   repetition   — the model looped and could not be recovered
+ *   truncated    — the generation stopped at its token limit: the answer is cut
+ * @type {Object<string,string>}
+ */
+export const BLOCK_ERROR_CODES = Object.freeze({
+	added_markup: 'the model wrote markup the text did not have',
+	lost_text: 'the model returned no text for a passage that has some',
+	repetition: 'the model looped and could not be recovered (repetition degeneration)',
+	truncated: 'the model stopped at its length limit: the translation is cut short',
+});
+
+/**
+ * BLOCK_ERROR
+ * A block the worker refuses: `code` (BLOCK_ERROR_CODES) and `detail` travel to the main
+ * thread, which words them; `message` is the English for the console.
+ */
+export class BlockError extends Error {
+	/**
+	 * @param {string} code - a BLOCK_ERROR_CODES key
+	 * @param {string} [detail] - what to show after the label (the tags of added_markup)
+	 * @param {string} [label] - 'Block i/n', for the message
+	 */
+	constructor(code, detail = '', label = 'Block') {
+		super(`${label}: ${BLOCK_ERROR_CODES[code] ?? code}${detail ? ` (${detail})` : ''}`);
+		this.name = 'BlockError';
+		this.code = code;
+		this.detail = detail;
 	}
-	const output_length = text_length(output);
-	return output_length === 0 || output_length < source_length * MIN_TEXT_RATIO;
-}; //end lost_text
+}
 
 /**
  * STRIP_ADDED_PARAGRAPH
@@ -534,26 +594,42 @@ export const collapse_model_breaks = (source, output) => {
 }; //end collapse_model_breaks
 
 /**
+ * ANSWER_OF
+ * A translate() result as { text, stopped_at_limit }: the worker answers with both, a
+ * stand-in translator (the gates) may answer with the text alone.
+ * @param {*} result
+ * @returns {{text:*, stopped_at_limit:boolean}}
+ */
+const answer_of = (result) =>
+	result !== null && typeof result === 'object'
+		? { text: result.text, stopped_at_limit: result.stopped_at_limit === true }
+		: { text: result, stopped_at_limit: false };
+
+/**
  * PROCESS_BLOCK
  * Translate one block and account for every marker it carried.
  *
  *   1. Translate the segment — nothing but the segment goes to the model. A block that is
- *      nothing but tokens and whitespace is returned as it is, without a model call.
+ *      nothing but tokens, Markdown delimiters and whitespace is returned as it is, without
+ *      a model call.
  *   2. If the output looped, retry with each REPETITION_ESCALATIONS step in turn; a block
  *      still looping THROWS (a loop must never be written to the record). So does an answer
- *      that wrote markup (added_markup) or lost the text (lost_text): a thrown block is a
- *      failed block, and the main thread refuses the run.
+ *      that wrote markup (added_markup), lost the text (lost_text) or whose generation
+ *      stopped at its token limit (stopped_at_limit): a thrown block is a failed block, and
+ *      the main thread refuses the run. Each throw is a BlockError {code, detail}.
  *   3. Whatever markers the model dropped are placed by repair_placeholders() and reported.
  *   4. A marker the model wrote more than once is removed — every copy — and reported: the
  *      main thread refuses the run.
+ *   5. An answer that ends fewer sentences than its segment (sentences_short) is kept and
+ *      REPORTED: the main thread saves the run with a warning naming the passage.
  *
- * @param {Function} translate - (text, overrides, label) => Promise<string>; overrides =
- *   { repetition_penalty, do_sample?, temperature?, top_p? }
+ * @param {Function} translate - (text, overrides, label) => Promise<string | {text,
+ *   stopped_at_limit}>; overrides = { repetition_penalty, do_sample?, temperature?, top_p? }
  * @param {Object} block - { text, placeholders, restore_map, prefix, suffix, sep }
  * @param {Object} [options]
  * @param {string} [options.label='Block'] - Human label for messages, e.g. 'Block 2/5'
  * @param {Function} [options.is_cancelled] - () => boolean; stops the escalation early
- * @returns {Promise<{text:string, repaired:string[], unrepairable:string[], duplicated:string[], residual:string[]}>}
+ * @returns {Promise<{text:string, repaired:string[], unrepairable:string[], duplicated:string[], residual:string[], sentences_short:boolean}>}
  *   text in LOCAL tokens, WITHOUT the hoisted prefix/suffix (run_blocks attaches them).
  */
 export const process_block = async (translate, block, options = {}) => {
@@ -564,15 +640,16 @@ export const process_block = async (translate, block, options = {}) => {
 	const known = new Set(block_tokens);
 
 	// 1. nothing to translate: no model call (an empty prompt only invites invention)
-	if (block.text.replace(placeholder_re(), '').trim() === '') {
-		return { text: block.text, repaired: [], unrepairable: [], duplicated: [], residual: [] };
+	if (block.text.replace(placeholder_re(), '').replace(/[*_`]/g, '').trim() === '') {
+		return { text: block.text, repaired: [], unrepairable: [], duplicated: [], residual: [], sentences_short: false };
 	}
 
-	let output = clean_output(
-		await translate(block.text, { repetition_penalty: REPETITION_PENALTY_FIRST }, label),
-		block.text,
-		known,
-	);
+	const attempt = async (overrides, attempt_label) => {
+		const answer = answer_of(await translate(block.text, overrides, attempt_label));
+		return { ...clean_output(answer.text, block.text, known), stopped_at_limit: answer.stopped_at_limit };
+	};
+
+	let output = await attempt({ repetition_penalty: REPETITION_PENALTY_FIRST }, label);
 
 	// 2. repetition degeneration
 	if (detect_repetition(output.text, block.text)) {
@@ -581,26 +658,25 @@ export const process_block = async (translate, block, options = {}) => {
 				break;
 			}
 			const how = overrides.do_sample ? 'sampling' : `penalty ${overrides.repetition_penalty}`;
-			output = clean_output(
-				await translate(block.text, overrides, `${label} (repetition retry, ${how})`),
-				block.text,
-				known,
-			);
+			output = await attempt(overrides, `${label} (repetition retry, ${how})`);
 			if (!detect_repetition(output.text, block.text)) {
 				break;
 			}
 		}
 		if (detect_repetition(output.text, block.text)) {
-			throw new Error(`${label}: the model looped and could not be recovered (repetition degeneration)`);
+			throw new BlockError('repetition', '', label);
 		}
 	}
 
-	// 2b. an answer that is not a translation of the text: never written to the record
+	// 2b. an answer that is not a (whole) translation of the text: never written to the record
+	if (output.stopped_at_limit) {
+		throw new BlockError('truncated', '', label);
+	}
 	if (output.markup.length > 0) {
-		throw new Error(`${label}: the model wrote markup the text did not have (${output.markup.join(' ')})`);
+		throw new BlockError('added_markup', output.markup.join(' '), label);
 	}
 	if (lost_text(block.text, output.text)) {
-		throw new Error(`${label}: the model returned no text for a passage that has some`);
+		throw new BlockError('lost_text', '', label);
 	}
 
 	// 3. place whatever the model would not, and say so. Duplicated tokens are present,
@@ -620,6 +696,8 @@ export const process_block = async (translate, block, options = {}) => {
 		unrepairable: repaired.unrepairable,
 		duplicated,
 		residual: output.invented,
+		// 5. cut short? kept, and reported
+		sentences_short: sentences_short(block.text, output.text),
 	};
 }; //end process_block
 
@@ -643,7 +721,7 @@ export const process_block = async (translate, block, options = {}) => {
  *
  * @param {Object} options
  * @param {Array}    options.blocks       - see the header
- * @param {Function} options.translate    - (text, overrides, label) => Promise<string>
+ * @param {Function} options.translate    - (text, overrides, label) => Promise<string | {text, stopped_at_limit}>
  * @param {Function} options.post         - (message) => void; the worker passes self.postMessage
  * @param {Function} [options.is_cancelled] - () => boolean
  * @returns {Promise<Object>} The final result object (the 'end' or 'cancelled' payload).
@@ -664,6 +742,8 @@ export const run_blocks = async (options) => {
 		unrepairable: [],
 		duplicated: [],
 		residual: [],
+		// block numbers (1-based) whose answer ends fewer sentences than the segment
+		sentences_short: [],
 	};
 	const failed_blocks = [];
 
@@ -729,6 +809,9 @@ export const run_blocks = async (options) => {
 			repair_stats.unrepairable.push(...outcome.unrepairable.map(to_global));
 			repair_stats.duplicated.push(...outcome.duplicated.map(to_global));
 			repair_stats.residual.push(...outcome.residual);
+			if (outcome.sentences_short) {
+				repair_stats.sentences_short.push(i + 1);
+			}
 
 			result.accumulated_text = join_parts();
 			result.remaining = total_blocks - (i + 1);
@@ -738,7 +821,15 @@ export const run_blocks = async (options) => {
 			console.warn(`[block_runner] ${label} failed: ${err?.message || err}`);
 
 			parts.push(null);
-			failed_blocks.push({ block: i + 1, total: total_blocks, message: err?.message || String(err) });
+			// the code and detail are what the main thread words (BLOCK_ERROR_CODES); an error
+			// that is not a BlockError (a timeout, a crashed model) has its message only
+			failed_blocks.push({
+				block: i + 1,
+				total: total_blocks,
+				message: err?.message || String(err),
+				code: err?.code ?? null,
+				detail: err?.detail ?? '',
+			});
 
 			result.accumulated_text = join_parts();
 			result.remaining = total_blocks - (i + 1);
@@ -747,6 +838,8 @@ export const run_blocks = async (options) => {
 				status: 'on_block_error',
 				data: {
 					message: err?.message || String(err),
+					code: err?.code ?? null,
+					detail: err?.detail ?? '',
 					block: i + 1,
 					total: total_blocks,
 					accumulated_text: result.accumulated_text,

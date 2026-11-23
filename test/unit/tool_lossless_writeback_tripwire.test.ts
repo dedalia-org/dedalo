@@ -431,7 +431,11 @@ else {
 					'export const html_to_markdown = (html) => String(html);\n' +
 					'export const markdown_to_html = (markdown) => String(markdown);\n' +
 					"export const segment_markdown = (markdown) => String(markdown).split(/(?=<p>)/).filter(Boolean).map((text) => ({ text, sep: '' }));\n" +
-					'export const marks_in_text_nodes = (html, extract) => extract(String(html)).map((item) => item.mark);\n',
+					'export const marks_in_text_nodes = (html, extract) => extract(String(html)).map((item) => item.mark);\n' +
+					// block_runner.js's own (browser_translation.js imports its BLOCK_ERROR_CODES)
+					'export const conform_emphasis = (source, output) => output;\n' +
+					'export const restore_wrapping_emphasis = (source, output) => output;\n' +
+					'export const sentence_count = () => 0;\n',
 				loader: 'js',
 			}));
 		},

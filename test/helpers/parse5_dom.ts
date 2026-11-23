@@ -246,6 +246,23 @@ export function visibleText(html: string): string {
 	return textOf(bodyOf(html));
 }
 
+/** Every element named in `names`, with its text (`textContent`), in document order. */
+export function elementTexts(
+	html: string,
+	names: ReadonlySet<string>,
+): { name: string; text: string }[] {
+	const found: { name: string; text: string }[] = [];
+	const visit = (node: P5Node) => {
+		for (const child of childrenOf(node)) {
+			if ('tagName' in child && names.has(child.tagName))
+				found.push({ name: child.tagName, text: textOf(child) });
+			visit(child);
+		}
+	};
+	visit(bodyOf(html));
+	return found;
+}
+
 /** Every element's tag name in document order (the parsed tree, not the string). */
 export function elementNames(html: string): string[] {
 	const names: string[] = [];

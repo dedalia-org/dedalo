@@ -28,9 +28,11 @@
  * It also pins the refusals an identity model cannot reach (F3: crossed nesting) and the
  * model-wrapper strip (F6), on the same chain — and runs DEVIANT models (H1/H2/M2: dropped
  * backslashes, empty or tokens-only answers, written HTML, stray backticks and asterisks,
- * swapped/dropped/repeated tokens, reversed words) over the adversarial cases and a seeded
- * fuzz leg: every run is refused, or saves the model's text in the source's structure with
- * no literal deleted or invented and no markup as text (deviationProblems).
+ * swapped/dropped/repeated tokens, reversed words, moved delimiters, the reviewer's literal
+ * stars) over the adversarial cases and a seeded fuzz leg: every run is refused, or saves the
+ * model's text in the source's structure — the record's literals all there, no markup as
+ * text, every emphasis element one the model delimited, no emphasis lost the model did not
+ * drop (deviationProblems). A model that only drops backslashes saves N∘W(source) exactly.
  *
  * DOM: Bun has no DOMParser — the pipeline's is test/helpers/parse5_dom.ts (parse5, the
  * declared devDependency: a spec tree builder and serialiser). The real-browser twin is the
@@ -48,6 +50,7 @@ import { isIsolatedGateChild, mirrorIsolatedGate } from '../helpers/isolated_gat
 import {
 	browserSerialize,
 	elementNames,
+	elementTexts,
 	installParse5DomParser,
 	mapWordTextNodes,
 	visibleText,
@@ -121,30 +124,58 @@ else {
 	 * W: a newline run inside a text node with words is one space (see the header) — the
 	 * text the model receives. Not inside an element restored whole (markdown_utils.js
 	 * RAW_ATOM_TAGS: <pre>, <xmp>, <textarea>, <script>…), whose text never travels, nor where
-	 * the line breaks are visible: under an element whose inline style's LAST white-space /
-	 * white-space-collapse declaration keeps them (the nearest such element decides).
+	 * the line breaks are visible: under the nearest element whose inline style decides that
+	 * they are.
+	 *
+	 * Which styles keep them is WRITTEN OUT here, style string by style string, as CSS answers
+	 * it (A1-02 re-review 5, L2) — the gate does not run a parser of its own, nor the engine's:
+	 * an engine parser that misreads one of these is red against a stated answer. 'keep': the
+	 * breaks are visible; 'transform': collapsed; 'inherit': nothing valid declared, the parent
+	 * decides. A style that mentions white-space and is not listed THROWS.
 	 */
-	const KEEPS_BREAKS = new Set([
-		'pre',
-		'pre-wrap',
-		'pre-line',
-		'break-spaces',
-		'preserve',
-		'preserve-breaks',
-	]);
+	const WHITE_SPACE_EXPECTED: Record<string, 'keep' | 'transform' | 'inherit'> = {
+		'white-space: pre-wrap': 'keep',
+		'white-space:pre-line': 'keep',
+		'white-space: normal': 'transform',
+		'color:red; white-space:pre-line': 'keep',
+		'white-space-collapse: preserve-breaks': 'keep',
+		'white-space: pre; white-space: normal': 'transform',
+		'WHITE-SPACE: Pre-Wrap !important': 'keep',
+		// the reviewer's strings (re-review 5): importance, case, comments, combined keywords,
+		// an invalid or prefixed value dropped, a ';' inside a string — every one keeps
+		'white-space: pre-wrap !important': 'keep',
+		'WHITE-SPACE: PRE-WRAP': 'keep',
+		'white-space: pre-wrap ! important': 'keep',
+		'white-space: /*c*/ pre-wrap': 'keep',
+		'white-space: preserve nowrap': 'keep',
+		'white-space: preserve-breaks wrap': 'keep',
+		'white-space:pre !important; white-space:normal': 'keep',
+		'white-space: pre; white-space: bogus': 'keep',
+		'white-space: pre-wrap;': 'keep',
+		'white-space:-moz-pre-wrap; white-space:pre-wrap': 'keep',
+		'white-space:pre-wrap; white-space:-moz-pre-wrap': 'keep',
+		'font-family:"a;b"; white-space:pre-wrap': 'keep',
+		// and their mirrors
+		'white-space: pre !important; white-space: normal !important': 'transform',
+		'white-space: normal !important; white-space: pre': 'transform',
+		'white-space: nowrap': 'transform',
+		'white-space: collapse wrap': 'transform',
+		'white-space: break-spaces': 'keep',
+		'white-space: initial': 'transform',
+		'white-space: inherit': 'inherit',
+		'white-space:-moz-pre-wrap': 'inherit',
+		'white-space: pre-wrap nowrap': 'inherit',
+		'white-space: /* pre */ normal': 'transform',
+		'font-family:"white-space:pre"; color:red': 'inherit',
+	};
 	const textRule = (tag: string, attribute: (name: string) => string | null) => {
 		if (M.RAW_ATOM_TAGS.has(tag)) return 'subtree' as const;
-		const declarations = (attribute('style') ?? '')
-			.split(';')
-			.map((declaration) => declaration.split(':'))
-			.filter(([property]) => /^\s*white-space(-collapse)?\s*$/i.test(property ?? ''));
-		const last = declarations.at(-1);
-		if (!last) return undefined;
-		const value = (last[1] ?? '')
-			.replace(/!important/i, '')
-			.trim()
-			.toLowerCase();
-		return KEEPS_BREAKS.has(value) ? ('keep' as const) : ('transform' as const);
+		const style = attribute('style');
+		if (style === null || !/white-space/i.test(style)) return undefined;
+		const expected = WHITE_SPACE_EXPECTED[style];
+		if (expected === undefined)
+			throw new Error(`no stated white-space answer for style ${JSON.stringify(style)}`);
+		return expected === 'inherit' ? undefined : expected;
 	};
 	/**
 	 * A whitespace-only text node is a WORD space when an inline element or text sits on both
@@ -472,6 +503,67 @@ else {
 			'a record that repeats itself is not a loop',
 			'<p>la la la la la la la la la la la la, canta el coro con su voz de siempre.</p>',
 		],
+		// re-review 5 (H1′): literal metacharacters touching emphasis — the reviewer's table
+		...(
+			[
+				'<p>Nacido *1890 en <em>Roma</em>.</p>',
+				'<p>Moneda de <em>plata</em>* (ver nota).</p>',
+				'<p>Moneda *<em>plata</em> fina.</p>',
+				'<p><strong>Roma</strong>** nota</p>',
+				'<p><em>a</em>*<em>b</em></p>',
+				'<p><em>a</em> * <em>b</em></p>',
+				'<p><strong>Nota*</strong> y <em>otra</em></p>',
+				'<p><u>Ref_1</u> y <u>Ref_2</u></p>',
+				'<p><u>título</u>_ final</p>',
+				'<p>archivo_ y <u>nota</u></p>',
+				'<p><code>a`b</code> c</p>',
+				'<p>Del indoeuropeo *kʷékʷlos, <em>rueda</em>.</p>',
+				'<p>campo __init__ y <u>nota</u></p>',
+				'<p>campo id_ref y <u>nota</u></p>',
+				'<p>Valoración: *** (buena), * (mala)</p>',
+				'<p>3 * 4 = 12 y <em>más</em></p>',
+				'<p>3*4 y <em>más</em> 5*6</p>',
+				'<p>l`Hospitalet y <code>x</code></p>',
+				'<p><strong>Nota</strong>: valor ** desconocido</p>',
+				'<p>Ceca de Roma* y <em>Ostia</em>.</p>',
+				'<p>* Ejemplar dudoso, <em>falso</em>.</p>',
+				'<p>Ceca: <strong>Roma</strong>* (atribución dudosa)</p>',
+				'<p><em>Denario</em>* de <em>plata</em></p>',
+				'<p>Forma reconstruida *<em>kʷékʷlos</em>.</p>',
+				'<p><strong>Peso:</strong> 3,2 g * 2 ejemplares</p>',
+				'<p>Ref. RIC II* 123, <em>rara</em>.</p>',
+				'<p>Peso: 3,2 g * (ejemplar *b*) — cat. n.º 12_a, ceca l`Hospitalet.</p>',
+				'<p>ruta C:\\fondo\\[sic] y a\\b</p>',
+			] as const
+		).map((html): [string, string] => [`literal next to emphasis (H1′): ${html}`, html]),
+		// a token between the text's own brackets is text, not a mangled token
+		['a footnote star in brackets', '<p>nota [*] y [**] fin</p>'],
+		['an image in brackets', '<p>ver [<img src="a.jpg">] fin</p>'],
+		// re-review 5 (M1′): quirks mode puts a block inside a <p>, which must not split
+		[
+			'a table inside a paragraph (quirks, M1′)',
+			'<p>Medidas: <table><tr><td>3 g</td></tr></table> fin</p>',
+		],
+		['a legend inside a paragraph (M1′)', '<p>a <legend>x</legend> b</p>'],
+		['an option inside a paragraph (M1′)', '<p>a <option>x</option> b</p>'],
+		['an optgroup inside a paragraph (M1′)', '<p>a <optgroup>x</optgroup> b</p>'],
+		['a button holding a div inside a paragraph (M1′)', '<p>a <button><div>x</div></button> b</p>'],
+		// re-review 5 (L1): raw-text elements are one atom
+		[
+			'noembed, noframes, title (L1)',
+			'<p>a <noembed>x <b>y</b></noembed> b <noframes>z</noframes> <title>t &amp; u</title> c</p>',
+		],
+		// re-review 5 (L2): white-space as CSS reads it — WHITE_SPACE_EXPECTED states each answer
+		...Object.keys(WHITE_SPACE_EXPECTED).map((style): [string, string] => [
+			`white-space ${JSON.stringify(style)} (L2)`,
+			style.includes('"')
+				? `<p style='${style}'>uno\ndos <span>tres\n cuatro</span></p>`
+				: `<p style="${style}">uno\ndos <span>tres\n cuatro</span></p>`,
+		]),
+		[
+			'an inheriting white-space defers to the parent (L2)',
+			'<div style="white-space: pre-wrap"><p style="white-space: inherit">a\nb</p><p style="white-space:-moz-pre-wrap">c\nd</p></div>',
+		],
 	];
 
 	describe('identity round-trip: the corpus comes back as it went in (modulo N∘W)', () => {
@@ -543,6 +635,13 @@ else {
 			'#',
 			'|',
 			'1.',
+			// literals that touch a word, a bracket or emphasis (re-review 5, H1′)
+			'*1890',
+			'Roma*',
+			'__init__',
+			'[*]',
+			'***',
+			'\\[',
 		];
 		const INLINE = [
 			'strong',
@@ -592,11 +691,10 @@ else {
 					: attrRoll < 0.15
 						? ' class="k"'
 						: attrRoll < 0.22
-							? pick([
-									' style="white-space: pre-wrap"',
-									' style="white-space:pre-line"',
-									' style="white-space: normal"',
-								])
+							? (() => {
+									const style = pick(Object.keys(WHITE_SPACE_EXPECTED));
+									return style.includes('"') ? ` style='${style}'` : ` style="${style}"`;
+								})()
 							: '';
 			return `<${tag}${attrs}>${content(depth + 1)}</${tag}>`;
 		};
@@ -639,7 +737,17 @@ else {
 				return `<h${level}>${content(0)}</h${level}>`;
 			}
 			if (roll < 0.84) return '<hr>';
-			if (roll < 0.86) return pick(['<xmp>a\n  *b*</xmp>', '<listing>uno\ndos</listing>']);
+			if (roll < 0.86)
+				return pick([
+					'<xmp>a\n  *b*</xmp>',
+					'<listing>uno\ndos</listing>',
+					// quirks mode: a block inside a <p> (M1′)
+					`<p>${content(0)}<table><tr><td>${content(0)}</td></tr></table>${content(0)}</p>`,
+					((tag) => `<p>${content(0)}<${tag}>${content(0)}</${tag}>${content(0)}</p>`)(
+						pick(['legend', 'option', 'optgroup']),
+					),
+					`<p>${content(0)} <noembed>${content(0)}</noembed> <title>${words()}</title></p>`,
+				]);
 			if (roll < 0.9) return '<!-- bloque -->';
 			return depth === 0 ? LOOSE : `<p>${content(0)}</p>`;
 		};
@@ -736,25 +844,33 @@ else {
 	});
 
 	/**
-	 * THE DEVIANT-MODEL LEG (A1-02 re-review 4). A real model does not answer with its input:
-	 * it drops backslashes, returns nothing, writes HTML, breaks lines, adds or loses
-	 * backticks and asterisks, swaps, drops, repeats and moves tokens, reorders words. Every
-	 * such run must end in ONE of two ways:
+	 * THE DEVIANT-MODEL LEG (A1-02 re-reviews 4 and 5). A real model does not answer with its
+	 * input: it drops backslashes, returns nothing, writes HTML, breaks lines, adds or loses
+	 * backticks and asterisks, swaps, drops, repeats and moves tokens and delimiters, reorders
+	 * words. Every such run must end in ONE of two ways:
 	 *
 	 *   - REFUSED (a failed block, or the report refuses): nothing is saved; or
 	 *   - SAVED, and then what the record shows is the MODEL'S text in the SOURCE'S
 	 *     structure, nothing else (deviationProblems):
 	 *       a. its letters are the model's letters, in the model's order (whitespace and the
-	 *          Markdown metacharacters * _ ` \ aside) — nothing deleted, nothing invented;
-	 *       b. of each metacharacter * _ `, it shows no more than the model wrote, and no
-	 *          fewer than the record's own literals the model kept (a literal is never
-	 *          deleted, a delimiter is never shown as one) — per block, min(the answer's
-	 *          count, the segment's escaped literals);
+	 *          Markdown delimiters * _ ` aside; a backslash the model wrote before a bracket
+	 *          is its escaping of a token) — nothing deleted, nothing invented;
+	 *       b. the record's own literal * _ ` are all there: as many of each as the source shows
+	 *          (they travel as tokens — none is deleted, none is invented from a delimiter);
 	 *       c. no markup as visible text beyond what the source's text had;
 	 *       d. its elements are the source's: every element other than emphasis and code
 	 *          exactly as many times; emphasis and code never more often than the source
 	 *          (plus one per emphasis run balancing cut across two blocks: a model that moves
-	 *          the balancing delimiters gets that run back as two).
+	 *          the balancing delimiters gets that run back as two);
+	 *       e. every emphasis or code element the MODEL'S text produced spans exactly the
+	 *          letters between two delimiters of its kind the model wrote (or an answer edge
+	 *          where the segment itself has one: the wrapper restored around a wholly
+	 *          emphasised segment, the balancing of a run cut between blocks) — none spans
+	 *          text the model did not delimit ('<strong>Roma</strong>*' never saves as
+	 *          '*Roma'); an element with no letters spans none of the model's text (leg d
+	 *          counts it);
+	 *       f. no emphasis is lost (report.emphasis_lost) unless the model itself wrote fewer
+	 *          delimiters of a kind than its segment carried (outside code spans).
 	 *
 	 * The model's text is its answer per block (the LAST one: a loop is retried) less the
 	 * tokens and the <p>…</p> wrapper the contract strips (strip_added_paragraph — pinned by
@@ -764,19 +880,29 @@ else {
 	const TAG_SHAPE = /<\/?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?\/?>/g;
 	const META = ['*', '_', '`'] as const;
 	const MD_INLINE = new Set(['strong', 'b', 'em', 'i', 'u', 'code']);
-	// metacharacters first: a delimiter the model wrote INSIDE a token ('[[[*3]]]') is
-	// conformed away, and the token is a token again
-	const lettersOf = (text: string) => text.replace(/[\s*_`\\]/g, '').replace(TOKEN_RE, '');
+	// A backslash the MODEL wrote right before a bracket is its escaping of a token
+	// ('\\[\\[\\[1\\]\\]\\]'), not a letter: dropped from the model's text only, as written (before
+	// anything else is removed) — in the saved text every backslash is a character. Then
+	// metacharacters before tokens: a delimiter the model wrote INSIDE a token ('[[[*3]]]') is
+	// conformed away, and the token is a token again.
+	const lettersOf = (text: string, model = false) =>
+		(model ? text.replace(/\\(?=[[\]])/g, '') : text).replace(/[\s*_`]/g, '').replace(TOKEN_RE, '');
 	const countOf = (text: string, char: string) => text.split(char).length - 1;
-	const escapedCount = (text: string, char: string) => {
-		let count = 0;
-		for (let i = 0; i < text.length; i++) {
-			if (text[i] === '\\') {
-				if (text[i + 1] === char) count++;
-				i++;
-			}
-		}
-		return count;
+	/** The delimiters of a Markdown text as a reader takes them: longest first, left to right. */
+	const DELIMITER_RE = /\*\*|__|\*|_|`/g;
+	const delimitersOf = (text: string) =>
+		[...text.matchAll(DELIMITER_RE)].map((match) => ({
+			kind: match[0],
+			at: match.index,
+			end: match.index + match[0].length,
+		}));
+	const KIND_OF: Record<string, string> = {
+		strong: '**',
+		b: '**',
+		em: '*',
+		i: '*',
+		u: '__',
+		code: '`',
 	};
 	const tally = (names: string[]) => {
 		const counts = new Map<string, number>();
@@ -796,27 +922,20 @@ else {
 				) as string,
 			}));
 		const modelText = answers.map((answer) => answer.text).join(' ');
-		const savedText = visibleText(run.prepared.to_html(run.accumulated));
+		const savedHtml = run.prepared.to_html(run.accumulated) as string;
+		const savedText = visibleText(savedHtml);
 
 		// a. the model's letters, nothing else
-		if (lettersOf(savedText) !== lettersOf(modelText)) {
+		if (lettersOf(savedText) !== lettersOf(modelText, true)) {
 			problems.push(
 				`letters differ from the model's\n     saved ${JSON.stringify(savedText)}\n     model ${JSON.stringify(modelText)}`,
 			);
 		}
-		// b. metacharacters: no more than the model wrote, no fewer than the literals it kept
+		// b. the record's literals, every one
 		for (const char of META) {
-			const saved = countOf(savedText, char);
-			const model = countOf(modelText, char);
-			// per block: the literals of its segment the model's answer can still hold
-			const kept = answers.reduce(
-				(sum, answer) =>
-					sum + Math.min(countOf(answer.text, char), escapedCount(answer.sent, char)),
-				0,
-			);
-			if (saved > model || saved < kept) {
-				problems.push(`'${char}': saved ${saved}, model wrote ${model}, literals it kept ${kept}`);
-			}
+			const saved = countOf(visibleText(run.out), char);
+			const had = countOf(visibleText(source), char);
+			if (saved !== had) problems.push(`'${char}': saved ${saved}, the record has ${had}`);
 		}
 		// c. no markup as visible text
 		const visibleMarkup = (savedText.match(TAG_SHAPE) ?? []).length;
@@ -846,6 +965,83 @@ else {
 			if (MD_INLINE.has(name) ? got > had + (split.get(name) ?? 0) : got !== had) {
 				problems.push(`<${name}>: saved ${got}, source ${had}`);
 			}
+		}
+		// e. every emphasis / code element of the model's text is one the model delimited. The
+		// bounds of a span are the delimiters the model wrote, and the edges of an answer
+		// whose SEGMENT has a delimiter of that kind at that edge (the wrapper of a wholly
+		// emphasised segment, the balancing delimiters of a run cut between blocks: the
+		// engine restores those, the model never owned them).
+		const bounds: { kind: string; at: number; end: number }[] = [];
+		let offset = 0;
+		for (const answer of answers) {
+			for (const item of delimitersOf(answer.text)) {
+				bounds.push({ kind: item.kind, at: offset + item.at, end: offset + item.end });
+			}
+			const sent = answer.sent.trim();
+			for (const kind of ['**', '__', '*', '`']) {
+				if (sent.startsWith(kind)) bounds.push({ kind, at: offset, end: offset });
+				if (sent.endsWith(kind)) {
+					const end = offset + answer.text.length;
+					bounds.push({ kind, at: end, end });
+				}
+			}
+			offset += answer.text.length + 1;
+		}
+		const delimited = new Map<string, Set<string>>();
+		for (const open of bounds) {
+			for (const close of bounds) {
+				if (close.kind !== open.kind || close.at < open.end) continue;
+				const letters = lettersOf(modelText.slice(open.end, close.at), true);
+				if (!delimited.has(open.kind)) delimited.set(open.kind, new Set());
+				delimited.get(open.kind)?.add(letters);
+			}
+		}
+		for (const element of elementTexts(savedHtml, new Set(Object.keys(KIND_OF)))) {
+			const letters = lettersOf(element.text);
+			// tokens only: none of the model's text (a block nobody translated, a shielded
+			// span) — its count is leg d's
+			if (letters === '') continue;
+			const kind = KIND_OF[element.name] as string;
+			if (!delimited.get(kind)?.has(letters)) {
+				problems.push(
+					`<${element.name}> spans ${JSON.stringify(element.text)}, which the model did not delimit`,
+				);
+			}
+		}
+		// f. no emphasis lost the model did not drop (a delimiter written inside a code span
+		// is not one: code is literal)
+		if (run.report.emphasis_lost > 0) {
+			// the pairs of a kind a text can carry: a delimiter and the next of its kind with
+			// letters between ('____' is none), outside code spans (code is literal)
+			const pairsOf = (text: string) => {
+				const plain = text.replace(/`[^`]*`/g, 'C');
+				const counts = new Map<string, number>();
+				for (const kind of ['**', '__', '*', '`']) {
+					const marks = delimitersOf(plain).filter((item) => item.kind === kind);
+					let count = 0;
+					for (let i = 0; i + 1 < marks.length; ) {
+						const between = plain.slice(
+							(marks[i] as { end: number }).end,
+							(marks[i + 1] as { at: number }).at,
+						);
+						if (lettersOf(between, true) !== '' || /\[\[\[\d+\]\]\]/.test(between)) {
+							count++;
+							i += 2;
+						} else i++;
+					}
+					counts.set(kind, count);
+				}
+				return counts;
+			};
+			const dropped = answers.some((answer) => {
+				const sent = pairsOf(answer.sent);
+				const wrote = pairsOf(answer.text);
+				return [...sent].some(([kind, count]) => (wrote.get(kind) ?? 0) < count);
+			});
+			if (!dropped)
+				problems.push(
+					`emphasis lost (${run.report.emphasis_lost}) though the model wrote every delimiter`,
+				);
 		}
 		return problems;
 	}
@@ -899,6 +1095,15 @@ else {
 			return rest.slice(0, at) + token + rest.slice(at);
 		},
 		reverseWords: (text) => text.split(' ').reverse().join(' '),
+		// the reviewer's model of re-review 5: literal stars at word edges, as a model that
+		// never saw the record's own writes them
+		starsAtWordEnds: (text, random) =>
+			text
+				.split(' ')
+				.map((word) => (random() < 0.25 ? `${word}${random() < 0.5 ? '*' : '**'}` : word))
+				.join(' '),
+		// a model that escapes Markdown it thinks it sees
+		addEscapes: (text) => text.replace(/([*_`[\]])/g, '\\$1'),
 		moveDelimiter: (text, random) => {
 			const at = text.search(/\*\*|\*|__/);
 			if (at < 0) return text;
@@ -991,60 +1196,136 @@ else {
 				() => 'Moneda de\n\nplata\nfina.',
 				'saved',
 			],
+			// H1′ (re-review 5): the record's literals are tokens, so a model that drops
+			// backslashes has none to drop — the save is the source
 			[
-				'escaped * dropped (H1)',
-				'<p>Peso 2*3*4 g.</p>',
+				'backslashes dropped: nothing to drop (H1′)',
+				'<p>Peso 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell \\ fin.</p>',
 				(t) => t.replace(/\\/g, ''),
 				'saved',
-				'<p>Peso 2*3*4 g.</p>',
+				'<p>Peso 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell \\ fin.</p>',
 			],
 			[
-				'escaped ` dropped (H1)',
-				'<ul><li>l`Hospitalet y d`Urgell</li></ul>',
-				(t) => t.replace(/\\/g, ''),
-				'saved',
-				'<ul><li>l`Hospitalet y d`Urgell</li></ul>',
-			],
-			[
-				'escaped _ dropped (H1)',
-				'<p>a__b__c</p>',
-				(t) => t.replace(/\\/g, ''),
-				'saved',
-				'<p>a__b__c</p>',
-			],
-			[
-				'escapes dropped, heritage (H1)',
-				'<p>Peso: 3,2 g * (ejemplar *b*) — cat. n.º 12_a, ceca l`Hospitalet.</p>',
-				(t) => t.replace(/\\/g, ''),
-				'saved',
-				'<p>Peso: 3,2 g * (ejemplar *b*) — cat. n.º 12_a, ceca l`Hospitalet.</p>',
-			],
-			[
-				'escapes dropped next to real emphasis (H1)',
-				'<p><em>Moneda</em> de 2*3 g y <strong>oro</strong>.</p>',
-				(t) => t.replace(/\\/g, ''),
-				'saved',
-				'<p><em>Moneda</em> de 2*3 g y <strong>oro</strong>.</p>',
-			],
-			[
-				'a code span and a dropped literal backtick (H1)',
-				'<p><code>x</code> de l`Hospitalet</p>',
-				(t) => t.replace(/\\/g, ''),
-				'saved',
-				'<p><code>x</code> de l`Hospitalet</p>',
-			],
-			[
-				'a backslash the answer ends with stays a literal (H1)',
+				'a backslash the answer ends with is a character (H1′)',
 				'<p><em>uno dos</em></p>',
 				() => '*uno dos\\',
 				'saved',
 				'<p><em>uno dos\\</em></p>',
 			],
 			[
-				'a record whose text is only ** is not empty (H2)',
+				'a record whose text is only ** is never sent (H1′)',
 				'<p>**</p><p>Fin.</p>',
 				(t) => (t.includes('Fin') ? t : ''),
-				'refused',
+				'saved',
+				'<p>**</p><p>Fin.</p>',
+			],
+			// the reviewer's H1′ table: a model that writes the literal stars it never saw
+			// gets them deleted (they are not the record's), the record's own placed by repair
+			// and REPORTED — and emphasis only where the model delimited it
+			[
+				'born star reordered (H1′)',
+				'<p>Nacido *1890 en <em>Roma</em>.</p>',
+				() => 'In *Rome* born *1890.',
+				'saved',
+			],
+			[
+				'footnote star (H1′)',
+				'<p>Moneda de <em>plata</em>* (ver nota).</p>',
+				() => 'Silver* *coin* (see note).',
+				'saved',
+			],
+			[
+				'footnote star kept order (H1′)',
+				'<p>Moneda de <em>plata</em>* (ver nota).</p>',
+				() => '*Silver** coin (see note).',
+				'saved',
+			],
+			[
+				'star + em (H1′)',
+				'<p>Ceca de Roma* y <em>Ostia</em>.</p>',
+				() => 'Mint of Rome* and *Ostia*.',
+				'saved',
+			],
+			[
+				'star + em reordered (H1′)',
+				'<p>Ceca de Roma* y <em>Ostia</em>.</p>',
+				() => 'Mint of *Ostia* and Rome*.',
+				'saved',
+			],
+			[
+				'star list leading (H1′)',
+				'<p>* Ejemplar dudoso, <em>falso</em>.</p>',
+				() => '* Doubtful specimen, *fake*.',
+				'saved',
+			],
+			[
+				'underscore snake (H1′)',
+				'<p>campo id_ref y <u>nota</u></p>',
+				() => 'field id_ref and __note__',
+				'saved',
+			],
+			[
+				'double underscore (H1′)',
+				'<p>campo __init__ y <u>nota</u></p>',
+				() => 'field __init__ and __note__',
+				'saved',
+			],
+			[
+				'backtick apostrophe + code (H1′)',
+				'<p>l`Hospitalet y <code>x</code></p>',
+				() => 'l`Hospitalet and `x`',
+				'saved',
+			],
+			[
+				'backtick apostrophe + code reordered (H1′)',
+				'<p>l`Hospitalet y <code>x</code></p>',
+				() => '`x` and l`Hospitalet',
+				'saved',
+			],
+			[
+				'bold + literal ** reordered (H1′)',
+				'<p><strong>Nota</strong>: valor ** desconocido</p>',
+				() => 'value ** unknown: **Note**',
+				'saved',
+			],
+			[
+				'ratings (H1′)',
+				'<p>Valoración: *** (buena), * (mala)</p>',
+				() => 'Rating: *** (good), * (bad)',
+				'saved',
+			],
+			[
+				'multiply compact (H1′)',
+				'<p>3*4 y <em>más</em> 5*6</p>',
+				() => '3*4 and *more* 5*6',
+				'saved',
+			],
+			[
+				'reconstructed form reordered (H1′)',
+				'<p>Del indoeuropeo *kʷékʷlos, <em>rueda</em>.</p>',
+				() => '*Wheel*, from Indo-European *kʷékʷlos.',
+				'saved',
+			],
+			[
+				'emphasis, literal, emphasis (H1′)',
+				'<p><em>a</em>*<em>b</em></p>',
+				() => '*a**b*',
+				'saved',
+			],
+			[
+				'invented backticks are deleted (L5)',
+				'<p>Moneda de <em>plata</em> fina.</p>',
+				() => 'Silver `coin` of *fine* `x',
+				'saved',
+				'<p>Silver coin of <em>fine</em> x</p>',
+			],
+			// the strict-pair reading: the model's emphasis is where it delimited it
+			[
+				'a stray star never pairs across words (H1′)',
+				'<p>Moneda de <em>plata</em>* (ver nota).</p>',
+				() => 'Silver* *coin* (see note).[[[1]]]',
+				'saved',
+				'<p>Silver <em>coin</em> (see note).*</p>',
 			],
 			[
 				'model drops one bold delimiter',
@@ -1067,11 +1348,36 @@ else {
 			['empty answer (H2)', H, () => '', 'refused'],
 			['whitespace answer (H2)', H, () => '   ', 'refused'],
 			['tokens-only answer (H2)', H, (t) => (t.match(TOKEN_RE) ?? []).join(''), 'refused'],
+			// conform pairing (re-review 5, found by the 30000-seed deviant run): two delimiters
+			// with nothing between never pair, and a code span is settled first
 			[
-				'a few characters for a long passage (H2)',
+				'an empty pair the model writes before its emphasis',
+				'<p><u>Roma antigua</u> y más</p>',
+				(t) => t.replace('__', '____'),
+				'saved',
+				'<p><u>Roma antigua</u> y más</p>',
+			],
+			[
+				'a star the model writes inside a code span costs neither the code nor the emphasis',
+				'<p><strong>Ceca <code>RIC II</code> rara</strong> fin</p>',
+				(t) => t.replace('RIC', 'RIC**'),
+				'saved',
+				'<p><strong>Ceca <code>RIC II</code> rara</strong> fin</p>',
+			],
+			// L3 (re-review 5): no length ratio — a short answer is an answer
+			[
+				'a few characters for a long passage is not a loss (L3)',
 				'<p>Moneda de plata acuñada en la ceca de Roma hacia el año 200 a.C.</p>',
 				() => 'x.',
-				'refused',
+				'saved',
+				'<p>x.</p>',
+			],
+			[
+				'CJK: two characters for a long phrase (L3)',
+				'<p>Lugar de procedencia desconocido</p>',
+				() => '不明',
+				'saved',
+				'<p>不明</p>',
 			],
 			[
 				'one item blank (H2)',
@@ -1102,25 +1408,81 @@ else {
 			});
 		}
 
-		test('the elements whose line breaks are content are restored whole (L1)', () => {
-			for (const tag of ['pre', 'xmp', 'listing', 'plaintext', 'textarea']) {
+		test('a translation cut mid-sentence never saves clean; a short CJK one does (L3)', async () => {
+			const cut = await pipeline(
+				'<p>La moneda fue acuñada en Roma. Tiene ley baja.</p>',
+				() => 'The coin was minted in Rome. It has',
+			);
+			expect(cut.failed).toEqual([]);
+			expect(cut.report.sentences_short).toEqual([1]);
+			expect(cut.report.uncertain_count).toBeGreaterThan(0);
+			const cjk = await pipeline('<p>Lugar de procedencia desconocido</p>', () => '不明');
+			expect(cjk.report.sentences_short).toEqual([]);
+			expect(cjk.report.uncertain_count).toBe(0);
+			expect(cjk.report.refused).toBe(false);
+		});
+
+		test('the elements whose content is not text to translate are restored whole (L1)', () => {
+			for (const tag of [
+				'pre',
+				'xmp',
+				'listing',
+				'plaintext',
+				'textarea',
+				'noembed',
+				'noframes',
+				'title',
+			]) {
 				expect(M.RAW_ATOM_TAGS.has(tag), tag).toBe(true);
 			}
 		});
 
-		test('the oracle is not vacuous: each of its four checks rejects a doctored save', async () => {
-			const run = await pipeline('<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>');
-			const doctor = (accumulated: string, out = run.out) =>
-				deviationProblems('<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>', {
-					...run,
-					accumulated,
-					out,
-				});
+		test('the oracle is not vacuous: each of its six checks rejects a doctored save', async () => {
+			const html = '<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>';
+			const run = await pipeline(html);
+			const doctor = (accumulated: string, out = run.out, report = run.report) =>
+				deviationProblems(html, { ...run, accumulated, out, report });
 			expect(doctor(run.accumulated)).toEqual([]);
+			// a. letters
 			expect(doctor(run.accumulated.replace('Peso', 'Pesa')).join()).toContain('letters');
-			expect(doctor(run.accumulated.replace('2\\*3', '23')).join()).toContain("'*'");
+			// b. a literal of the record deleted
+			expect(doctor(run.accumulated, run.out.replace('2*3', '23')).join()).toContain("'*'");
+			// c. markup as text
 			expect(doctor(`${run.accumulated} <b>`).join()).toContain('visible markup');
+			// d. an element the source does not have
 			expect(doctor(run.accumulated, `${run.out}<code>z</code>`).join()).toContain('<code>');
+			// e. emphasis over text the model did not delimit
+			expect(doctor(run.accumulated.replace('*uno* y', '*uno y*')).join()).toContain(
+				'did not delimit',
+			);
+			// f. emphasis lost though the model wrote every delimiter
+			expect(
+				doctor(run.accumulated, run.out, { ...run.report, emphasis_lost: 1 }).join(),
+			).toContain('emphasis lost');
+		});
+
+		/**
+		 * A model that ONLY drops backslashes (otherwise identity) — the reviewer's H1′ model —
+		 * must save N∘W(source) exactly, clean, or be refused: the record's literals are tokens,
+		 * so there is nothing for it to drop, and nothing to guess.
+		 */
+		test(`a backslash-stripping model saves N∘W(source) or is refused: the corpus and ${FUZZ_SEEDS} generated documents (H1′)`, async () => {
+			const failures: string[] = [];
+			const sources = [
+				...CORPUS.map(([, html]) => html),
+				...Array.from({ length: FUZZ_SEEDS }, (_, k) => makeGenerator(k + 1).document()),
+			];
+			for (const html of sources) {
+				const run = await pipeline(html, (text) => text.replace(/\\/g, ''));
+				if (run.refusedBefore || run.failed.length > 0 || run.report.refused) continue;
+				const got = browserSerialize(run.out);
+				const want = expectedOf(html);
+				if ((got !== want || run.report.uncertain_count !== 0) && failures.length < 5)
+					failures.push(
+						`${JSON.stringify(html)}\n  ${firstDivergence(got, want)} uncertain ${run.report.uncertain_count}`,
+					);
+			}
+			expect(failures, failures.join('\n\n')).toEqual([]);
 		});
 
 		test(`seeded fuzz: ${FUZZ_SEEDS} generated documents × a deviant model`, async () => {

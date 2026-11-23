@@ -79,6 +79,7 @@
 	import {tr} from '../../../core/common/js/tr.js'
 	import {emphasis_tags_of, html_to_markdown, markdown_to_html, marks_in_text_nodes, segment_markdown} from './markdown_utils.js'
 	import {extract_placeholders, has_token_shaped_text, make_placeholder, normalize_placeholders, placeholder_re} from './placeholders.js'
+	import {BLOCK_ERROR_CODES} from './block_runner.js'
 
 
 
@@ -564,7 +565,7 @@ export const source_has_token_shaped_text = function(source_text) {
 *     markup, and markdown_to_html can escape everything it wrote (A1-02 review).
 *     Headings, lists, quotes, rules, tables and <div> are shielded too: block structure
 *     comes from the source, never from Markdown syntax the model writes (A1-02 re-review).
-* @param {string} source_text - The source HTML (marks intact, &nbsp; already cleaned).
+* @param {string} source_text - The source HTML (marks intact).
 * @returns {{md:string, placeholders:Object, descriptors:Array, block_tokens:Set<string>, block_kinds:Map<string,string>, emphasis_tags:Object}}
 *   placeholders: token → what it restores (a mark's bytes, or a serialised tag); descriptors: one per token,
 *   shield tokens flagged `shield: true`; block_tokens: the tokens of block-level tags;
@@ -582,7 +583,10 @@ export const source_to_markdown = function(source_text) {
 
 		const token = make_placeholder(descriptors.length + 1)
 
-		placeholders[token] = request.html
+		// a Dédalo mark INSIDE shielded markup (in the raw text of a <noembed> or <xmp>, an
+		// attribute) travels inside it: its token is put back into the markup here, so the
+		// mark is restored with it — never left as a '[[[n]]]' no pass would restore
+		placeholders[token] = request.html.replace(placeholder_re(), (inner) => placeholders[inner] ?? inner)
 
 		const descriptor = {
 			token		: token,
@@ -671,6 +675,7 @@ const MD_DELIMITERS = ['**', '__', '*']
 * sentence.
 *   in :  ['**Line one', 'Line two**']
 *   out:  ['**Line one**', '**Line two**']
+* An added delimiter goes inside the chunk's edge whitespace ('**a **' would not pair).
 * The delimiters added are returned per chunk (closed / reopened): they are not the
 * source's, and run_blocks removes them again where two translated chunks meet, so one
 * emphasis run cut at a sentence comes back as ONE run (A1-02 re-review: '<b>a. b</b>'
@@ -685,18 +690,18 @@ const balance_markdown_chunks = function(chunks) {
 
 	return chunks.map(function(chunk){
 
+		// the added delimiters go INSIDE the chunk's edge whitespace: a delimiter is an
+		// opener only before a non-space and a closer only after one (markdown_utils.js
+		// delimiter_pairs) — ' __a' or 'a __' would be deleted as unpaired
 		const reopened	= carried.join('')
-		const text		= reopened + chunk
+		const lead		= chunk.match(/^\s*/)[0]
+		const text		= lead + reopened + chunk.slice(lead.length)
 
 		const open = []
 		for (let i = 0; i < text.length; i++) {
 
-			// a backslash-escaped '\*' / '\_' is text, not a delimiter
-			if (text[i]==='\\') {
-				i++
-				continue
-			}
-
+			// every delimiter is one: the text's own '*' and '_' are tokens (markdown_utils.js
+			// shield_literals)
 			const delimiter = MD_DELIMITERS.find(item => text.startsWith(item, i))
 			if (!delimiter) {
 				continue
@@ -714,9 +719,10 @@ const balance_markdown_chunks = function(chunks) {
 		// close what is still open, innermost first, and carry it into the next chunk
 		carried = open.slice()
 
-		const closed = open.slice().reverse().join('')
+		const closed	= open.slice().reverse().join('')
+		const trail		= text.match(/\s*$/)[0]
 
-		return { text : text + closed, closed, reopened }
+		return { text : text.slice(0, text.length - trail.length) + closed + trail, closed, reopened }
 	})
 }//end balance_markdown_chunks
 
@@ -1013,11 +1019,13 @@ const is_degenerate = function(source_text, restored_text) {
 * SAVED WITH WARNINGS (Q2: save-with-warning, no accept/discard step):
 *   repaired / reordered  — positions WE chose
 *   residual              — tokens the model invented, removed
+*   sentences_short       — passages whose answer ends fewer sentences than the source
+*                           (block numbers): possibly cut short (A1-02 re-review 5, L3)
 * REPORTED ONLY: emphasis_lost.
 * @param {string} source_text   - The original HTML value (marks intact).
 * @param {string} restored_text - The translated HTML value, restored and reordered.
 * @param {Object} extra         - { repaired, unrepairable, duplicated, residual, reordered,
-*   tags_missing, stray, outside_text, structure_moved, tags_crossed }
+*   tags_missing, stray, outside_text, structure_moved, tags_crossed, sentences_short }
 * @returns {Object} the report; `refused` and `uncertain_count` decide.
 */
 export const validate_translation = function(source_text, restored_text, extra) {
@@ -1058,6 +1066,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		repaired		: extra?.repaired || [],
 		reordered		: extra?.reordered || [],
 		residual		: extra?.residual || [],
+		sentences_short	: extra?.sentences_short || [],
 		emphasis_lost	: count_emphasis_lost(source_text, restored_text),
 		total_marks		: source_marks.length
 	}
@@ -1078,7 +1087,8 @@ export const validate_translation = function(source_text, restored_text, extra) 
 	report.uncertain_count =
 		report.repaired.length +
 		report.reordered.length +
-		report.residual.length
+		report.residual.length +
+		report.sentences_short.length
 
 	return report
 }//end validate_translation
@@ -1155,17 +1165,19 @@ export const tags_crossed = function(html, descriptors) {
 * PREPARE_TRANSLATION
 * The source HTML as the blocks the worker translates — the pre-run half of the one
 * pipeline (finish_translation is the other; the identity round-trip gate runs both):
-*   &nbsp; decoded to U+00A0 (the character the browser makes of it; escape_html writes it
-*   back as &nbsp;, so '10&nbsp;km' stays '10&nbsp;km' — A1-02 re-review, it used to become
-*   '10 km'), the token-collision check, source_to_markdown, segment_markdown with the block
-*   cuts, build_blocks.
+*   the token-collision check, source_to_markdown, segment_markdown with the block cuts,
+*   build_blocks. &nbsp; is decoded by the PARSER, where it is an entity (text, attributes):
+*   the model sees U+00A0 and escape_html writes it back as &nbsp;, so '10&nbsp;km' stays
+*   '10&nbsp;km' (A1-02 re-review); in the raw text of a <xmp> or <noembed> it is six
+*   characters, restored as they were (re-review 5 — a string-wide decode turned them into
+*   U+00A0, and changed a Dédalo mark that carried one).
 * @param {string} source_text - The source HTML, marks intact.
 * @returns {Object} { refused: 'token_collision' } or { clean_source_text, md, placeholders,
 *   descriptors, block_tokens, block_kinds, segments, blocks, to_html }
 */
 export const prepare_translation = function(source_text) {
 
-	const clean_source_text = String(source_text).replace(/&nbsp;/g, '\u00A0')
+	const clean_source_text = String(source_text)
 
 	// the source's own text must not look like a token (it would be read back as one)
 	if (source_has_token_shaped_text(clean_source_text)) {
@@ -1210,7 +1222,7 @@ export const prepare_translation = function(source_text) {
 *   alone is not trusted).
 * @param {Object} prepared - prepare_translation() output.
 * @param {string} translated_md - document-wide-token Markdown (the worker's accumulated_text).
-* @param {Object} [repair_stats] - the worker's { repaired, unrepairable, duplicated, residual }.
+* @param {Object} [repair_stats] - the worker's { repaired, unrepairable, duplicated, residual, sentences_short }.
 * @returns {{restored_text:string, report:Object}}
 */
 export const finish_translation = function(prepared, translated_md, repair_stats) {
@@ -1236,6 +1248,7 @@ export const finish_translation = function(prepared, translated_md, repair_stats
 		unrepairable	: stats.unrepairable || [],
 		duplicated		: [...(stats.duplicated || []), ...restored.duplicated],
 		residual		: stats.residual || [],
+		sentences_short	: stats.sentences_short || [],
 		reordered		: [...ordered.reordered, ...ordered_tokens.reordered],
 		tags_missing	: restored.missing.filter(token => shield_tokens.has(token)),
 		stray			: restored.residual,
@@ -1246,6 +1259,29 @@ export const finish_translation = function(prepared, translated_md, repair_stats
 
 	return { restored_text, report }
 }//end finish_translation
+
+
+
+/**
+* BLOCK_FAILURE_TEXT
+* What went wrong with a failed block, in the operator's language (A1-02 re-review 5, L4):
+* the worker sends a CODE (block_runner.js BLOCK_ERROR_CODES) and a detail, never words; the
+* tool's register.json label 'block_<code>' words it, the English text is the fallback. A
+* failure without a code (a timeout, a crashed model) shows the worker's message.
+* @param {{code:(string|null), detail:string, message:string}} failed - a failed_blocks entry
+* @param {Function} get_label - (key) => string|null; the tool label resolver.
+* @returns {string}
+*/
+export const block_failure_text = function(failed, get_label) {
+
+	if (!failed?.code || !Object.hasOwn(BLOCK_ERROR_CODES, failed.code)) {
+		return failed?.message || ''
+	}
+
+	const worded = get_label(`block_${failed.code}`) || BLOCK_ERROR_CODES[failed.code]
+
+	return failed.detail ? `${worded} (${failed.detail})` : worded
+}//end block_failure_text
 
 
 
@@ -1325,6 +1361,14 @@ export const mark_report_lines = function(report, get_label) {
 		lines.push(
 			get_label('marks_reordered', report.reordered.length)
 			|| `${report.reordered.length} linked marks were reversed by the translation and reordered`
+		)
+	}
+
+	// passages that came back with fewer sentences than they had: possibly cut short
+	if (report.sentences_short.length>0) {
+		lines.push(
+			get_label('sentences_short', report.sentences_short.length)
+			|| `${report.sentences_short.length} passages came back with fewer sentences than the source: the translation may be cut short`
 		)
 	}
 
@@ -1653,7 +1697,13 @@ export const translate_component_browser = async function(options) {
 			const failed_blocks = []
 			const add_failed_block = function(item) {
 				if (!failed_blocks.some(failed => failed.block===item.block)) {
-					failed_blocks.push({ block : item.block, total : item.total, message : item.message })
+					failed_blocks.push({
+						block	: item.block,
+						total	: item.total,
+						message	: item.message,
+						code	: item.code ?? null,
+						detail	: item.detail ?? ''
+					})
 				}
 			}
 
@@ -1811,7 +1861,7 @@ export const translate_component_browser = async function(options) {
 				const listed = Math.min(failed_blocks.length, MAX_LISTED)
 				for (let i = 0; i < listed; i++) {
 					const failed = failed_blocks[i]
-					lines.push(`${block_label} ${failed.block}/${failed.total}: ${failed.message}`)
+					lines.push(`${block_label} ${failed.block}/${failed.total}: ${block_failure_text(failed, get_label)}`)
 				}
 				if (failed_blocks.length > MAX_LISTED) {
 					lines.push(`… +${failed_blocks.length - MAX_LISTED}`)

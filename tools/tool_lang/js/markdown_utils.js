@@ -70,11 +70,34 @@
  * writing its own; the per-block local token numbering and edge hoisting (55c816b41c) made
  * the extra tokens affordable.
  *
- * A MODEL THAT DROPS THE ESCAPES never costs the record a character (A1-02 re-review H1):
- * restore_literal_escapes puts back, per segment, the backslashes of the literal '*', '_'
- * and '`' the source escaped, before conform_emphasis deletes the delimiters the source did
- * not have — '2*3*4 g' stays '2*3*4 g', "l`Hospitalet" never becomes code.
- *
+ * A LITERAL '*', '_', '`' OR '\' OF THE TEXT IS A TOKEN, NEVER A CHARACTER THE MODEL SEES
+ * (A1-02 re-review 5, H1′). Markdown gives a literal metacharacter one form, the backslash
+ * escape, and a model is free to drop it: '2\*3\*4' answered as '2*3*4' is emphasis, and NO
+ * rule applied afterwards can tell which unescaped '*' was the record's — escape-restoration
+ * guessed, and saved '<strong>Roma</strong>*' as '*Roma' and '<em>a</em>*<em>b</em>' as
+ * '<em>a*b</em>'. So every run of them in a text node is an inline ATOM (shield_literals),
+ * restored by the token machinery wherever the model puts it — positioned like any mark,
+ * repaired and REPORTED when dropped, never confusable with a delimiter. The backslash is in
+ * the run too: normalize_placeholders deletes a backslash before a bracket (a model escaping
+ * a token), which would cost the record its own. Consequences, all deliberate:
+ *   - Markdown has NO escape: a backslash the model writes is a character (escape_html
+ *     handles it like any other), and every '*', '_' or '`' in its answer is either a
+ *     delimiter of the source's own emphasis/code or invented. conform_emphasis caps each
+ *     delimiter kind (** __ * _ `) at the source segment's count (code spans first; two
+ *     delimiters with nothing between never pair), and process_inline deletes whatever is
+ *     left unpaired or sits inside a code span — the model cannot add emphasis, code or a
+ *     literal metacharacter to the record, and emphasis spans only letters it delimited.
+ *   - Token cost. A literal mostly sits next to a word ('2*3', 'Roma*', '*1890', '__init__'):
+ *     a run is ONE token however long ('***' is one), it is numbered locally per block (one
+ *     digit), and at a segment edge it is hoisted like any edge token ('* Ejemplar…' never
+ *     reaches the model). Only a literal INSIDE a sentence is copied by the model, as a mark
+ *     is; one it drops is placed by repair_placeholders and reported, never lost. Records
+ *     dense in literals (identifiers like 'a_b_c_d') pay one token per run — the price of
+ *     never guessing.
+ *   - '[' or ']' around a token (a footnote '[*]', '[<img>]') is text next to a token; where
+ *     the segment itself carries that shape, every quadruple bracket the model writes is read
+ *     as brackets around a token, not as a mangled token (placeholders.js keep_quads).
+
  * Ported from v6 (d3991c3a66, 55c816b41c, 92da452aa1, 40bf5eaacf): <br> as a single '\n',
  * the model-added <p> wrapper strip, the join-before-inline emphasis rule, the edge-emphasis
  * rules 3b and the orphan-delimiter drop (rule 8), conform_emphasis,
@@ -85,19 +108,22 @@
  * Exports:
  *   html_to_markdown            — DOM walk: HTML string → Markdown string (tags shielded)
  *   markdown_to_html            — Markdown string → HTML string (model text escaped)
- *   restore_literal_escapes     — re-escape the literal * _ ` a model unescaped
  *   conform_emphasis            — delete emphasis delimiters the model invented
  *   restore_wrapping_emphasis   — re-wrap a wholly-emphasised segment the model unwrapped
  *   split_markdown_by_paragraph — split Markdown on \n\n+ boundaries → string[]
  *   segment_markdown            — split into {text, sep} segments the model can translate
  *                                 one at a time, WITHOUT losing what separated them
  *   marks_in_text_nodes         — every Dédalo-mark-shaped string that sits in a text node
+ *   sentence_count              — the sentence ends of a text (block_runner.js truncation signal)
+ *   white_space_keeps_breaks    — does a style attribute's white-space keep line breaks (fallback)
  */
 
 /**
  * Elements whose whole outerHTML is ONE atom token: their content is not prose to
- * translate (a script, an embedded object), is not reachable as text at all, or keeps its
- * line breaks as content (pre and its obsolete forms xmp, listing, plaintext).
+ * translate (a script, an embedded object), is not reachable as text at all, is RAW or
+ * escapable-raw text the parser never reads as markup (noembed, noframes, title — A1-02
+ * re-review 5, L1), or keeps its line breaks as content (pre and its obsolete forms xmp,
+ * listing, plaintext).
  * @type {Set<string>}
  */
 export const RAW_ATOM_TAGS = new Set([
@@ -113,6 +139,9 @@ export const RAW_ATOM_TAGS = new Set([
 	'audio',
 	'canvas',
 	'noscript',
+	'noembed',
+	'noframes',
+	'title',
 	'textarea',
 	'select',
 	// code is not prose, and its line breaks are content: one atom, restored as it was
@@ -123,38 +152,166 @@ export const RAW_ATOM_TAGS = new Set([
 ]);
 
 /**
- * The CSS white-space values that keep line breaks (white-space: pre | pre-wrap | pre-line |
- * break-spaces, or the longhand white-space-collapse: preserve | preserve-breaks |
- * break-spaces) — a newline there is visible, so it is not the model's to turn into a space.
+ * The white-space-collapse values (and the white-space keywords that set them) that keep
+ * line breaks: pre, pre-wrap, pre-line, break-spaces; preserve, preserve-breaks — a newline
+ * there is visible, so it is not the model's to turn into a space.
  * @type {Set<string>}
  */
 const PRESERVED_BREAK_VALUES = new Set(['pre', 'pre-wrap', 'pre-line', 'break-spaces', 'preserve', 'preserve-breaks']);
 
+/** white-space-collapse values (CSS Text 4) — the longhand, and one component of the shorthand. */
+const COLLAPSE_VALUES = new Set(['collapse', 'discard', 'preserve', 'preserve-breaks', 'preserve-spaces', 'break-spaces']);
+
+/** text-wrap-mode values — the shorthand's other component. */
+const WRAP_MODE_VALUES = new Set(['wrap', 'nowrap']);
+
+/** The white-space keywords that stand alone (never combined with another). */
+const WHITE_SPACE_SINGLE_VALUES = new Set(['normal', 'pre', 'pre-wrap', 'pre-line']);
+
 /**
- * DECLARED_WHITE_SPACE
- * The white-space value an inline style declares (the LAST white-space or
- * white-space-collapse declaration, as CSS reads it), lower-cased, or null.
- * @param {string|null} style - a style attribute
- * @returns {string|null}
+ * CSS-wide keywords that hand the decision to the parent (white-space is inherited, so
+ * 'unset' inherits; 'revert' rolls back to the UA value, which for every element this walk
+ * reaches is no white-space at all — the elements the UA styles with one are RAW_ATOM_TAGS).
  */
-const declared_white_space = (style) => {
-	let value = null;
-	for (const declaration of String(style || '').split(';')) {
+const INHERITING_KEYWORDS = new Set(['inherit', 'unset', 'revert', 'revert-layer']);
+
+/**
+ * WHITE_SPACE_DECISION
+ * What one white-space / white-space-collapse declaration says about line breaks.
+ * @param {string} property - 'white-space' | 'white-space-collapse'
+ * @param {string} value - lower-cased, without '!important'
+ * @returns {boolean|null|undefined} true: kept; false: collapsed; null: inherited (the
+ *   parent decides); undefined: an INVALID value, which CSS drops (prefixed, unknown,
+ *   misplaced keywords).
+ */
+const white_space_decision = (property, value) => {
+	const keywords = value.split(/\s+/).filter(Boolean);
+	if (keywords.length === 0) {
+		return undefined;
+	}
+	if (keywords.length === 1 && INHERITING_KEYWORDS.has(keywords[0])) {
+		return null;
+	}
+	if (keywords.length === 1 && keywords[0] === 'initial') {
+		return false;
+	}
+	if (property === 'white-space-collapse') {
+		return keywords.length === 1 && COLLAPSE_VALUES.has(keywords[0])
+			? PRESERVED_BREAK_VALUES.has(keywords[0])
+			: undefined;
+	}
+	if (keywords.length === 1 && WHITE_SPACE_SINGLE_VALUES.has(keywords[0])) {
+		return PRESERVED_BREAK_VALUES.has(keywords[0]);
+	}
+	// the shorthand's combined form: <white-space-collapse> || <text-wrap-mode>, each once
+	const collapse = keywords.filter((keyword) => COLLAPSE_VALUES.has(keyword));
+	const wrap = keywords.filter((keyword) => WRAP_MODE_VALUES.has(keyword));
+	if (collapse.length > 1 || wrap.length > 1 || collapse.length + wrap.length !== keywords.length) {
+		return undefined;
+	}
+	return collapse.length === 1 && PRESERVED_BREAK_VALUES.has(collapse[0]);
+}; //end white_space_decision
+
+/**
+ * STYLE_DECLARATIONS
+ * The declarations of a style attribute as CSS reads them: comments removed, split at the
+ * ';' that sit outside a string or a parenthesis ('font-family:"a;b"' is one declaration).
+ * @param {string} style
+ * @returns {string[]}
+ */
+const style_declarations = (style) => {
+	const declarations = [];
+	let current = '';
+	let quote = null;
+	let depth = 0;
+	for (let i = 0; i < style.length; i++) {
+		const char = style[i];
+		if (quote) {
+			current += char;
+			if (char === '\\' && i + 1 < style.length) {
+				current += style[++i];
+			} else if (char === quote) {
+				quote = null;
+			}
+			continue;
+		}
+		if (char === '/' && style[i + 1] === '*') {
+			const end = style.indexOf('*/', i + 2);
+			i = end === -1 ? style.length : end + 1;
+			current += ' ';
+			continue;
+		}
+		if (char === '"' || char === "'") {
+			quote = char;
+		} else if (char === '(') {
+			depth++;
+		} else if (char === ')') {
+			depth = Math.max(0, depth - 1);
+		} else if (char === ';' && depth === 0) {
+			declarations.push(current);
+			current = '';
+			continue;
+		}
+		current += char;
+	}
+	declarations.push(current);
+	return declarations;
+}; //end style_declarations
+
+/**
+ * WHITE_SPACE_KEEPS_BREAKS
+ * Does a style ATTRIBUTE keep line breaks — the cascade of its white-space and
+ * white-space-collapse declarations as CSS resolves it (A1-02 re-review 5, L2): comments
+ * ignored, an '!important' one (also written '! important') beats every normal one, the
+ * last valid one of the winning importance decides, and an invalid one ('-moz-pre-wrap',
+ * 'bogus') is dropped as if absent. The fallback for a DOM without CSSOM (the gate's parse5
+ * tree); the browser reads its own CSSOM (keeps_line_breaks).
+ * @param {string|null} style - a style attribute
+ * @returns {boolean|null} true / false, or null when it declares nothing (or inherits).
+ */
+export const white_space_keeps_breaks = (style) => {
+	let decision = null;
+	let decided_important = false;
+	for (const declaration of style_declarations(String(style || ''))) {
 		const colon = declaration.indexOf(':');
 		if (colon === -1) {
 			continue;
 		}
 		const property = declaration.slice(0, colon).trim().toLowerCase();
-		if (property === 'white-space' || property === 'white-space-collapse') {
-			value = declaration
-				.slice(colon + 1)
-				.replace(/!important/i, '')
-				.trim()
-				.toLowerCase();
+		if (property !== 'white-space' && property !== 'white-space-collapse') {
+			continue;
 		}
+		let value = declaration.slice(colon + 1).trim().toLowerCase();
+		const important = /!\s*important$/.exec(value);
+		if (important) {
+			value = value.slice(0, important.index).trim();
+		}
+		const outcome = white_space_decision(property, value);
+		if (outcome === undefined || (decided_important && !important)) {
+			continue;
+		}
+		decision = outcome;
+		decided_important = important !== null;
 	}
-	return value;
-};
+	return decision;
+}; //end white_space_keeps_breaks
+
+/**
+ * CSSOM_KEEPS_BREAKS
+ * The same question asked of the browser's own CSSOM, which already applied the cascade,
+ * importance and validity: the computed-from-the-declaration white-space-collapse longhand
+ * when the browser has it, else the white-space value.
+ * @param {CSSStyleDeclaration} style - element.style
+ * @returns {boolean|null}
+ */
+const cssom_keeps_breaks = (style) => {
+	const collapse = String(style.getPropertyValue('white-space-collapse') || '').trim().toLowerCase();
+	const value = collapse || String(style.getPropertyValue('white-space') || '').trim().toLowerCase();
+	if (!value) {
+		return null;
+	}
+	return white_space_decision(collapse ? 'white-space-collapse' : 'white-space', value) ?? null;
+}; //end cssom_keeps_breaks
 
 /**
  * HTML void elements: no content and no end tag, so one atom token.
@@ -479,39 +636,32 @@ const has_block_descendant = (node) =>
 /**
  * KEEPS_LINE_BREAKS
  * Does a text node sit where its line breaks are visible — under an element whose inline
- * style declares a white-space value that keeps them (PRESERVED_BREAK_VALUES)? The NEAREST
- * element that declares white-space decides ('white-space: normal' inside resets it).
+ * style declares a white-space that keeps them (PRESERVED_BREAK_VALUES)? The NEAREST element
+ * that declares one decides ('white-space: normal' inside resets it; 'inherit' passes the
+ * question up). The browser answers from its CSSOM (cssom_keeps_breaks: the cascade, the
+ * importance and the validity are CSS's own — A1-02 re-review 5, L2); a DOM without one (the
+ * gate's parse5 tree) from the attribute (white_space_keeps_breaks).
  * @param {Node} node - a text node
  * @returns {boolean}
  */
 const keeps_line_breaks = (node) => {
 	for (let element = node.parentElement; element; element = element.parentElement) {
-		const value = declared_white_space(element.getAttribute?.('style'));
-		if (value !== null) {
-			return PRESERVED_BREAK_VALUES.has(value);
+		if (!element.getAttribute?.('style')) {
+			continue;
+		}
+		const decision =
+			typeof element.style?.getPropertyValue === 'function'
+				? cssom_keeps_breaks(element.style)
+				: white_space_keeps_breaks(element.getAttribute('style'));
+		if (decision !== null) {
+			return decision;
 		}
 	}
 	return false;
 };
 
-
-/**
- * Private-use characters standing in, inside process_inline, for a backslash-escaped
- * Markdown metacharacter: the escaped character must reach the record as a literal, never
- * be read by an emphasis rule (v6 unescaped FIRST, so '2\*3\*4' became '2<em>3</em>4').
- * @type {Object<string,string>}
- */
-const ESCAPE_STANDINS = {
-	'\\': '',
-	'*': '',
-	_: '',
-	'[': '',
-	']': '',
-	'`': '',
-};
-
 /** The line-break stand-in: a '\n' inside a block, turned into <br> after the inline rules. */
-const LINE_BREAK_STANDIN = '';
+const LINE_BREAK_STANDIN = '\uE000';
 
 /** Brackets a set-aside inline code span's index inside process_inline (U+E007 <n> U+E007). */
 const CODE_STANDIN = '\uE007';
@@ -596,8 +746,8 @@ const escape_html = (text) =>
  * <br> is a single '\n' (v6 55c816b41c): '\n\n' is a paragraph boundary, the strongest cut
  * of segment_markdown, and emitting it cut any inline element containing a <br> in half.
  *
- * Text nodes: Markdown metacharacters (\ * _ `) are backslash-escaped so literal characters
- * survive; [ and ] are not (v6: escaping them made the model reproduce the backslashes). A
+ * Text nodes: every run of the Markdown metacharacters * _ ` \ is an inline ATOM
+ * (shield_literals — see the header: Markdown has no escape here); [ and ] are text. A
  * raw newline inside a text node is whitespace in HTML, so it travels as a space — left as
  * '\n' it would come back as a <br> — unless an inline white-space style makes it visible
  * (keeps_line_breaks): then it is an inline atom, restored exactly.
@@ -619,9 +769,6 @@ export function html_to_markdown(html, options = {}) {
 
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(html, 'text/html');
-
-	// Regex to detect [[[n]]] placeholder strings — never escaped
-	const token_re = /^\[\[\[\d+\]\]\]$/;
 
 	// how many shielded elements enclose the node being walked. Inside one, every element
 	// without a Markdown inline form is shielded too — a <p> or <br> inside a merged-cell
@@ -671,29 +818,6 @@ export function html_to_markdown(html, options = {}) {
 	};
 
 	/**
-	 * ESCAPE_MD (inner)
-	 * Backslash-escape the Markdown metacharacters of a text node. [[[n]]] tokens pass
-	 * through verbatim.
-	 * @param {string} text
-	 * @returns {string}
-	 */
-	const escape_md = (text) => {
-		const parts = text.split(/(\[\[\[\d+\]\]\])/);
-		return parts
-			.map((part) => {
-				if (token_re.test(part)) {
-					return part;
-				}
-				return part
-					.replace(/\\/g, '\\\\')
-					.replace(/\*/g, '\\*')
-					.replace(/_/g, '\\_')
-					.replace(/`/g, '\\`');
-			})
-			.join('');
-	};
-
-	/**
 	 * CALL_SHIELD (inner)
 	 * @param {Object} request - {html, kind, block, pair}
 	 * @returns {string} The token.
@@ -719,6 +843,19 @@ export function html_to_markdown(html, options = {}) {
 		const token = call_shield({ html: markup, kind: 'atom', block, pair: null });
 		return block && shield_depth === 0 ? `\n\n${token}\n\n` : token;
 	};
+
+	/**
+	 * SHIELD_LITERALS (inner)
+	 * Each run of the text's Markdown metacharacters (* _ ` \) as ONE inline atom (see the
+	 * header): the model never sees a literal it could read, write or drop as a delimiter.
+	 * @param {string} text
+	 * @returns {string}
+	 */
+	const shield_literals = (text) =>
+		text
+			.split(/([*_`\\]+)/)
+			.map((part, index) => (index % 2 === 1 ? atom(part, false) : part))
+			.join('');
 
 	/**
 	 * START_TAG (inner)
@@ -785,10 +922,10 @@ export function html_to_markdown(html, options = {}) {
 				// (with the spaces around it) is an inline atom, restored exactly
 				return text
 					.split(/([ \t]*[\r\n]+[ \t]*)/)
-					.map((part, index) => (index % 2 === 1 ? atom(part, false) : escape_md(part)))
+					.map((part, index) => (index % 2 === 1 ? atom(part, false) : shield_literals(part)))
 					.join('');
 			}
-			return escape_md(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
+			return shield_literals(text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '));
 		}
 
 		if (node.nodeType === 8) {
@@ -826,14 +963,16 @@ export function html_to_markdown(html, options = {}) {
 		if (MD_INLINE_TAGS.has(tag) || tag === 'p') {
 			const block = tag === 'p';
 			// what Markdown cannot carry: attributes, edge whitespace or <br>, emphasis inside
-			// code, emphasis wrapping blocks, emphasis Markdown would read back as other
-			// markup (A1-02 re-reviews)
+			// code, emphasis Markdown would read back as other markup, a block inside —
+			// emphasis wrapping blocks, or a <p> holding one (quirks mode lets a <table>,
+			// <legend>, <option> or <optgroup> sit in a <p>: as '\n\n' the paragraph split
+			// around it — A1-02 re-review 5, M1′) (A1-02 re-reviews)
 			if (
 				node.attributes.length > 0 ||
 				has_edge_space(node) ||
 				(MD_EMPHASIS_TAGS.has(tag) && (code_depth > 0 || !is_markdown_emphasis(node, tag))) ||
 				(tag === 'code' && has_descendant_tag(node, 'br')) ||
-				(!block && has_block_descendant(node))
+				has_block_descendant(node)
 			) {
 				return shield_element(node, block);
 			}
@@ -1009,22 +1148,23 @@ const with_line_breaks = (html) => html.split(LINE_BREAK_STANDIN).join('<br>');
 
 /**
  * PROCESS_INLINE
- * Inline Markdown → HTML, with every character of the text escaped.
+ * Inline Markdown → HTML, with every character of the text escaped. There is NO Markdown
+ * escape (see the header): the record's own '*', '_', '`' and '\' travel as tokens, so
+ * every one of them left in the text is the model's.
  *
  * Order:
- *   1. Backslash-escaped metacharacters (escape_md) are set aside as stand-ins, so no
- *      emphasis rule can read them; they come back as literal characters at the end.
- *   2. The whole text is HTML-escaped — from here on, the only '<' in it are the tags
+ *   1. The whole text is HTML-escaped — from here on, the only '<' in it are the tags
  *      the rules below emit.
- *   3. Inline code `…`, set aside as a stand-in until the end, so no emphasis rule reaches
- *      into or across it.
- *   4. Bold+italic ***…***, then the two edge shapes (rule 3b, v6 55c816b41c):
+ *   2. Inline code `…`, set aside as a stand-in until the end, so no emphasis rule reaches
+ *      into or across it. A '*' or '_' inside it cannot be a delimiter and is not the
+ *      record's: deleted.
+ *   3. Bold+italic ***…***, then the two edge shapes (rule 3b, v6 55c816b41c):
  *      '**bold *both***' and '***both* bold**'.
- *   5. Bold **…** (may contain a lone '*': an italic in the middle of the bold run).
- *   6. Italic *…*.
- *   7. Underline __…__.
- *   8. Orphan '**' / '__' (a delimiter whose partner the model dropped) are deleted
- *      (v6 rule 8); left in, they reach the record as literal asterisks.
+ *   4. Bold **…** (may contain a lone '*': an italic in the middle of the bold run).
+ *   5. Italic *…*.
+ *   6. Underline __…__.
+ *   7. Every '*', '_' and '`' still left — a delimiter whose partner the model dropped
+ *      (v6 rule 8) or one it invented — is deleted: none is a literal of the record.
  *
  * @param {string} text - Inline Markdown (line breaks as LINE_BREAK_STANDIN).
  * @returns {string} HTML ('' for falsy input).
@@ -1037,57 +1177,51 @@ function process_inline(text, emphasis_tags = DEFAULT_EMPHASIS_TAGS) {
 	const B = emphasis_tags.bold;
 	const I = emphasis_tags.italic;
 
-	// 1. set the escaped metacharacters aside
-	let out = text.replace(/\\([\\*_[\]`])/g, (_match, char) => ESCAPE_STANDINS[char]);
+	// 1. escape everything the model wrote
+	let out = escape_html(text);
 
-	// 2. escape everything the model wrote
-	out = escape_html(out);
-
-	// 3. inline code, SET ASIDE until the end: no emphasis rule may reach into or across it
+	// 2. inline code, SET ASIDE until the end: no emphasis rule may reach into or across it
 	// ('**a `b** c`' must not become <strong>a <code>b</strong> c</code>)
 	const code_spans = [];
 	// (a code span never spans a line break: '```' fences are text, not a code block)
 	out = out.replace(/`([^`\n\uE000]+)`/g, (_match, code) => {
-		code_spans.push(`<code>${code}</code>`);
+		code_spans.push(`<code>${code.replace(/[*_]/g, '')}</code>`);
 		return `${CODE_STANDIN}${code_spans.length - 1}${CODE_STANDIN}`;
 	});
 
-	// 4. bold+italic, and emphasis at the edge of a bold run
+	// 3. bold+italic, and emphasis at the edge of a bold run
 	out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, `<${B}><${I}>$1</${I}></${B}>`);
 	out = out.replace(/\*\*([^*\n]*)\*([^*\n]+)\*\*\*/g, `<${B}>$1<${I}>$2</${I}></${B}>`);
 	out = out.replace(/\*\*\*([^*\n]+)\*([^*\n]*)\*\*/g, `<${B}><${I}>$1</${I}>$2</${B}>`);
 
-	// 5. bold
+	// 4. bold
 	out = out.replace(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, `<${B}>$1</${B}>`);
 
-	// 6. italic
+	// 5. italic
 	out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, `<${I}>$1</${I}>`);
 
-	// 7. underline
+	// 6. underline
 	out = out.replace(/__([^_\n]+)__/g, '<u>$1</u>');
 
-	// 8. orphan delimiters
-	out = out.replace(/\*\*/g, '').replace(/__/g, '');
+	// 7. every metacharacter left is unpaired or invented
+	out = out.replace(/[*_`]/g, '');
 
-	// the code spans, then the escaped metacharacters as the literal characters they are
-	out = out.replace(CODE_STANDIN_RE, (_match, index) => code_spans[Number(index)]);
-	for (const [char, standin] of Object.entries(ESCAPE_STANDINS)) {
-		out = out.split(standin).join(char);
-	}
-
-	return out;
+	// the code spans
+	return out.replace(CODE_STANDIN_RE, (_match, index) => code_spans[Number(index)]);
 } //end process_inline
 
 /**
- * Paired Markdown emphasis delimiters, longest first so '**' is recognised before '*'.
+ * The Markdown delimiters a model's answer can hold, longest first so '**' is recognised
+ * before '*' and '__' before '_'. The source's are emphasis ('**', '*', '__') and code ('`');
+ * a single '_' is never the source's (the record's own travel as tokens).
  * @type {string[]}
  */
-const MD_DELIMITERS = ['**', '__', '*'];
+const MD_DELIMITERS = ['**', '__', '*', '_', '`'];
 
 /**
  * DELIMITER_POSITIONS
- * Every emphasis delimiter in a string, in order, longest first so '**' is never read as two
- * '*'. Backslash-escaped characters are skipped: a literal asterisk travels as '\*'. (v6)
+ * Every delimiter in a string, in order, longest first so '**' is never read as two '*'.
+ * Every one is a delimiter: Markdown has no escape here (see the header). (v6)
  * @param {string} text
  * @returns {Array<{delim:string, index:number}>}
  */
@@ -1098,11 +1232,6 @@ const delimiter_positions = (text) => {
 	}
 
 	for (let i = 0; i < text.length; i++) {
-		if (text[i] === '\\') {
-			i++;
-			continue;
-		}
-
 		const delim = MD_DELIMITERS.find((item) => text.startsWith(item, i));
 		if (!delim) {
 			continue;
@@ -1116,13 +1245,57 @@ const delimiter_positions = (text) => {
 }; //end delimiter_positions
 
 /**
+ * DELIMITER_PAIRS
+ * The delimiters of a text that PAIR, kind by kind, as emphasis or code reads them: an
+ * opener has a non-space character after it, a closer a non-space character before it (the
+ * source's own pairs always do — html_to_markdown shields emphasis with edge whitespace), and
+ * a closer takes the nearest open delimiter of its kind — never one right before it: a pair
+ * with nothing between ('____') emphasises nothing, so the second opens instead. 'Silver*
+ * *coin*' pairs '*coin*' and leaves the first '*' alone; ' ** ' pairs with nothing;
+ * '____Roma__' pairs the second and the last.
+ * @param {string} text
+ * @param {(index:number) => boolean} [skip] - positions that are not delimiters here (inside
+ *   a code span: code is literal).
+ * @returns {Array<{delim:string, open:number, close:number}>} in the order they close.
+ */
+const delimiter_pairs = (text, skip = () => false) => {
+	const pairs = [];
+	const open = {};
+	for (const item of delimiter_positions(text)) {
+		if (skip(item.index)) {
+			continue;
+		}
+		const before = text[item.index - 1];
+		const after = text[item.index + item.delim.length];
+		if (!open[item.delim]) {
+			open[item.delim] = [];
+		}
+		const stack = open[item.delim];
+		const adjacent = stack.length > 0 && stack[stack.length - 1] + item.delim.length === item.index;
+		const can_close = before !== undefined && !/\s/.test(before) && !adjacent;
+		const can_open = after !== undefined && !/\s/.test(after);
+		if (can_close && stack.length > 0) {
+			pairs.push({ delim: item.delim, open: stack.pop(), close: item.index });
+		} else if (can_open) {
+			stack.push(item.index);
+		}
+	}
+	return pairs;
+}; //end delimiter_pairs
+
+/**
  * CONFORM_EMPHASIS
- * Forbid the model from inventing emphasis the source never had. (v6 92da452aa1)
+ * Forbid the model from inventing emphasis or code the source never had. (v6 92da452aa1)
  *
- * Translating text does not create formatting, yet a small model scatters ** and __ through
- * its answer. The translation may not use more of a delimiter than the source segment did:
- * excess delimiters are deleted (the text is never touched, only the markers) and the
- * surviving count is floored to an even number, since delimiters come in pairs.
+ * Translating text does not create formatting, yet a small model scatters ** and __ (and
+ * backticks) through its answer. Every delimiter of the answer is the source's emphasis/code
+ * or invented (the record's literal '*', '_', '`' travel as tokens — see the header), so the
+ * answer keeps, of each kind, no more PAIRS than the source segment has delimiters for —
+ * the pairs that read as emphasis first (delimiter_pairs, in the order they close), then
+ * the model's other delimiters of the kind in order — and every other delimiter (beyond the
+ * source's, a single '_', the odd one out) is deleted. Code spans are settled first: a '*'
+ * or '_' inside a kept one is code's text, not a delimiter. Two delimiters of a kind with
+ * nothing between never pair. The text is never touched, only the markers.
  *
  * @param {string} source_text - The segment as sent to the model.
  * @param {string} output_text - The model's translation of it.
@@ -1138,25 +1311,58 @@ export function conform_emphasis(source_text, output_text) {
 		allowed[item.delim] = (allowed[item.delim] || 0) + 1;
 	}
 
+	// the pairs we keep: of each kind, as many as the source's delimiters make — the pairs
+	// that read as emphasis first, then (where the source has room left) the model's other
+	// delimiters of that kind in order: what the model wrote is its emphasis, kept up to the
+	// source's count, never lost to our reading of where a pair may stand
+	const keep = new Set();
+	const kept = {};
+	const take = (delim, open, close) => {
+		if ((kept[delim] || 0) + 2 > (allowed[delim] || 0)) {
+			return false;
+		}
+		kept[delim] = (kept[delim] || 0) + 2;
+		keep.add(open);
+		keep.add(close);
+		return true;
+	};
 	const positions = delimiter_positions(output_text);
-
-	const totals = {};
-	for (const item of positions) {
-		totals[item.delim] = (totals[item.delim] || 0) + 1;
-	}
-
-	// how many of each we are willing to keep — capped at the source, and even
-	const keep = {};
+	/** One kind: its reading pairs first, then its leftovers in order (never two adjacent). */
+	const keep_kind = (delim, skip) => {
+		const spans = [];
+		for (const pair of delimiter_pairs(output_text, skip)) {
+			if (pair.delim === delim && take(delim, pair.open, pair.close)) {
+				spans.push([pair.open, pair.close]);
+			}
+		}
+		const rest = positions.filter(
+			(item) => item.delim === delim && !keep.has(item.index) && !skip(item.index),
+		);
+		for (let k = 0; k + 1 < rest.length; ) {
+			if (rest[k].index + delim.length === rest[k + 1].index) {
+				k++;
+				continue;
+			}
+			if (take(delim, rest[k].index, rest[k + 1].index)) {
+				spans.push([rest[k].index, rest[k + 1].index]);
+			}
+			k += 2;
+		}
+		return spans;
+	};
+	// code first: a '*' or '_' inside a kept code span is code's literal text, never a
+	// delimiter (process_inline deletes it there) — it neither pairs nor blocks a pair
+	const code_spans = keep_kind('`', () => false);
+	const in_code = (index) => code_spans.some(([open, close]) => index > open && index < close);
 	for (const delim of MD_DELIMITERS) {
-		const count = Math.min(totals[delim] || 0, allowed[delim] || 0);
-		keep[delim] = count - (count % 2);
+		if (delim !== '`') {
+			keep_kind(delim, in_code);
+		}
 	}
 
-	const seen = {};
 	const discard = new Map();
 	for (const item of positions) {
-		seen[item.delim] = (seen[item.delim] || 0) + 1;
-		if (seen[item.delim] > keep[item.delim]) {
+		if (!keep.has(item.index)) {
 			discard.set(item.index, item.delim.length);
 		}
 	}
@@ -1180,129 +1386,6 @@ export function conform_emphasis(source_text, output_text) {
 } //end conform_emphasis
 
 /**
- * The metacharacters escape_md escapes in the TEXT, and a model may drop the backslash of.
- * (The backslash itself is not among them: a model that drops a literal '\\' deleted it.)
- * @type {string[]}
- */
-const LITERAL_METACHARACTERS = ['*', '_', '`'];
-
-/**
- * METACHARACTER_SCAN
- * Count a text's backslash-escaped metacharacters and locate its unescaped ones; a backslash
- * escapes whatever follows it (as delimiter_positions and process_inline read it).
- * @param {string} text
- * @returns {{escaped:Object<string,number>, unescaped:Object<string,number[]>}}
- */
-const metacharacter_scan = (text) => {
-	const escaped = { '*': 0, _: 0, '`': 0 };
-	const unescaped = { '*': [], _: [], '`': [] };
-	for (let i = 0; i < text.length; i++) {
-		const char = text[i];
-		if (char === '\\') {
-			const next = text[i + 1];
-			if (next !== undefined && Object.hasOwn(escaped, next)) {
-				escaped[next]++;
-			}
-			i++;
-			continue;
-		}
-		if (Object.hasOwn(unescaped, char)) {
-			unescaped[char].push(i);
-		}
-	}
-	return { escaped, unescaped };
-};
-
-/**
- * CANNOT_BE_DELIMITER
- * Can the run of `char` around `index` neither open nor close emphasis or code — between two
- * letters or digits ('2*3', 'a__b', "l`Hospitalet"), or between two spaces / text edges (a
- * lone ' * ')? Such a character is a literal whatever the model meant.
- * @param {string} text
- * @param {number} index
- * @returns {boolean}
- */
-const cannot_be_delimiter = (text, index) => {
-	const char = text[index];
-	let start = index;
-	while (start > 0 && text[start - 1] === char) {
-		start--;
-	}
-	let end = index;
-	while (end < text.length - 1 && text[end + 1] === char) {
-		end++;
-	}
-	const before = text[start - 1];
-	const after = text[end + 1];
-	const word = (c) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
-	const space = (c) => c === undefined || /\s/.test(c);
-	return (word(before) && word(after)) || (space(before) && space(after));
-};
-
-/**
- * RESTORE_LITERAL_ESCAPES
- * Put back the backslashes a model dropped from the record's literal metacharacters
- * (A1-02 re-review H1). The source segment escapes every literal '*', '_' and '`' of the
- * text (escape_md); a model that answers without the backslashes turns them into emphasis
- * delimiters — '2*3*4 g' saved as '234 g' (conform_emphasis deleted them as invented
- * emphasis), "l`Hospitalet y d`Urgell" saved with an invented <code>.
- *
- * For each metacharacter the source carried k escaped and the answer fewer: up to the
- * missing number of the answer's UNESCAPED ones are escaped again — those that cannot be a
- * delimiter first (cannot_be_delimiter), then in order of appearance. A backtick is a
- * literal outright when the source has no code span (fewer than two unescaped backticks):
- * then every unescaped backtick of the answer is escaped, and an answer cannot gain a code
- * span the source never had; when it has code spans, the answer's backticks beyond the
- * source's are escaped too. conform_emphasis then deletes only delimiters beyond the source's
- * own: a literal is never deleted, a delimiter never invented.
- *
- * A backslash the answer ENDS with (an odd run) is a literal too, and is escaped: left bare,
- * it would escape whatever the pipeline puts after it — the restored wrapping delimiter, a
- * hoisted token, the next block — and turn that into text.
- * @param {string} source_text - The segment as sent to the model.
- * @param {string} output_text - The model's answer.
- * @returns {string}
- */
-export function restore_literal_escapes(source_text, output_text) {
-	if (!output_text) {
-		return output_text;
-	}
-	const source = metacharacter_scan(String(source_text || ''));
-	const output = metacharacter_scan(output_text);
-
-	const to_escape = new Set();
-	for (const char of LITERAL_METACHARACTERS) {
-		const candidates = output.unescaped[char];
-		let count = Math.max(0, source.escaped[char] - output.escaped[char]);
-		if (char === '`') {
-			count = source.unescaped[char].length < 2
-				? candidates.length
-				: Math.max(count, candidates.length - source.unescaped[char].length);
-		}
-		count = Math.min(count, candidates.length);
-		if (count === 0) {
-			continue;
-		}
-		const ordered = [
-			...candidates.filter((index) => cannot_be_delimiter(output_text, index)),
-			...candidates.filter((index) => !cannot_be_delimiter(output_text, index)),
-		];
-		for (const index of ordered.slice(0, count)) {
-			to_escape.add(index);
-		}
-	}
-	let out = '';
-	for (let i = 0; i < output_text.length; i++) {
-		out += to_escape.has(i) ? `\\${output_text[i]}` : output_text[i];
-	}
-	const trailing = /\\+$/.exec(out);
-	if (trailing && trailing[0].length % 2 === 1) {
-		out += '\\';
-	}
-	return out;
-} //end restore_literal_escapes
-
-/**
  * WHOLLY_WRAPPED_DELIMITER
  * If a string is one emphasis span and nothing else (`**…**`, `*…*`, `__…__`), return that
  * delimiter, else null. (v6)
@@ -1317,7 +1400,7 @@ const wholly_wrapped_delimiter = (text) => {
 
 	const positions = delimiter_positions(trimmed);
 
-	for (const delim of MD_DELIMITERS) {
+	for (const delim of ['**', '__', '*']) {
 		const of_kind = positions.filter((item) => item.delim === delim);
 		if (of_kind.length !== 2) {
 			continue;
@@ -1407,17 +1490,13 @@ const segment_protected_ranges = (md) => {
 		ranges.push([match.index, match.index + match[0].length]);
 	}
 
-	// inline code: an UNESCAPED backtick to the next unescaped one on the same line. '\`' is
-	// a literal backtick of the text (escape_md) — an apostrophe in 'l`Hospitalet' — and
-	// opens nothing (A1-02 re-review: read as a code span, two of them swallowed the block
-	// cuts between list items)
+	// inline code: a backtick to the next one on the same line. Every backtick of the
+	// Markdown is a <code> delimiter: the text's own (an apostrophe in 'l`Hospitalet') is a
+	// token (shield_literals — A1-02 re-reviews: read as a code span, two of them swallowed
+	// the block cuts between list items)
 	let open_at = -1;
 	for (let i = 0; i < md.length; i++) {
 		const char = md[i];
-		if (char === '\\') {
-			i++;
-			continue;
-		}
 		if (char === '\n') {
 			open_at = -1;
 		} else if (char === '`') {
@@ -1451,12 +1530,13 @@ const in_protected = (ranges, offset) => ranges.some(([start, end]) => offset > 
  * two digits, is not followed by whitespace, or the next word starts lower-case.
  * @param {string} md
  * @param {Array<[number,number]>} ranges
+ * @param {RegExp} [terminators] - a /g regex of terminator runs (sentence_count widens it)
  * @returns {number[]}
  */
-const sentence_cuts = (md, ranges) => {
+const sentence_cuts = (md, ranges, terminators = /[.!?…]+/g) => {
 	const cuts = [];
 
-	for (const match of md.matchAll(/[.!?…]+/g)) {
+	for (const match of md.matchAll(terminators)) {
 		const terminator_start = match.index;
 		const terminator_end = match.index + match[0].length;
 
@@ -1496,6 +1576,47 @@ const sentence_cuts = (md, ranges) => {
 
 	return cuts;
 }; //end sentence_cuts
+
+/**
+ * Sentence terminators for COUNTING (sentence_count): the Latin ones, the Greek question
+ * mark (';' and U+037E), the Devanagari danda, the Arabic and Urdu marks, the Ethiopic and
+ * Myanmar full stops, and the CJK full-width ones — a translation into any catalog language
+ * ends its sentences with one of them.
+ */
+const COUNTED_TERMINATORS_RE = /[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]+/g;
+
+/** CJK terminators: a sentence ends there even with no space after it ('一。二。'). */
+const UNSPACED_TERMINATORS_RE = /[\u3002\uFF01\uFF1F\uFF61]+(?=\S)/g;
+
+/** Closing punctuation a sentence may end with after its terminator ('fin.»', '(sic.)'). */
+const TRAILING_CLOSERS_RE = /[\s"'\u2019\u201D\u00BB\u300D\u300F)\]]+$/u;
+
+/**
+ * SENTENCE_COUNT
+ * How many sentences of a text END — the cuts segment_markdown would make (abbreviations,
+ * initials, decimals and a following lower-case word are not ends), the unspaced CJK ends,
+ * and the text's own last terminator. A text that stops mid-sentence counts one fewer than
+ * the same text whole: block_runner.js compares an answer's count with its segment's (the
+ * truncation signal — A1-02 re-review 5, L3). Tokens and Markdown delimiters are not text.
+ * @param {string} text
+ * @returns {number}
+ */
+export const sentence_count = (text) => {
+	const plain = String(text || '')
+		.replace(/\[\[\[\d+\]\]\]/g, '')
+		.replace(/[*_`]/g, '');
+	const body = plain.replace(TRAILING_CLOSERS_RE, '');
+	if (body === '') {
+		return 0;
+	}
+	const ranges = segment_protected_ranges(plain);
+	let count = sentence_cuts(plain, ranges, COUNTED_TERMINATORS_RE).length;
+	count += [...plain.matchAll(UNSPACED_TERMINATORS_RE)].length;
+	if (/[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]$/.test(body)) {
+		count++;
+	}
+	return count;
+}; //end sentence_count
 
 /**
  * STRUCTURAL_BOUNDARIES

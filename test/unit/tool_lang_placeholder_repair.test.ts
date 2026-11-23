@@ -33,8 +33,11 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+	BLOCK_ERROR_CODES,
+	BlockError,
 	collapse_model_breaks,
 	detect_repetition,
+	lost_text,
 	MAX_LENGTH_RATIO,
 	needs_webgpu_message,
 	process_block,
@@ -42,7 +45,9 @@ import {
 	REPETITION_PENALTY_FIRST,
 	run_blocks,
 	run_precondition,
+	sentences_short,
 	smaller_model_advice,
+	stopped_at_token_limit,
 	strip_fences,
 	to_global_tokens,
 	too_large_message,
@@ -57,6 +62,7 @@ import {
 	markdown_to_html,
 	restore_wrapping_emphasis,
 	segment_markdown,
+	sentence_count,
 } from '../../tools/tool_lang/js/markdown_utils.js';
 import {
 	extract_placeholders,
@@ -102,6 +108,15 @@ describe('normalize_placeholders — the forms the model mangles come back as [[
 	test('a well-formed text is unchanged', () => {
 		const clean = '[[[1]]]Hola, [[[2]]]¡bienvenido!';
 		expect(normalize_placeholders(clean)).toBe(clean);
+	});
+
+	test('keep_quads: in a segment with its own "[" token "]", every quad is brackets around a token (re-review 5)', () => {
+		// whichever token the model put inside — moved or swapped — the brackets are its text
+		expect(normalize_placeholders('a [[[[2]]]] b [[[1]]]', true)).toBe('a [[[[2]]]] b [[[1]]]');
+		expect(normalize_placeholders('a [[[[ 2 ]]]] b', true)).toBe('a [[[[2]]]] b');
+		expect(normalize_placeholders('a \\[\\[\\[\\[1\\]\\]\\]\\]', true)).toBe('a [[[[1]]]]');
+		// a segment without one: a quad is a mangled token
+		expect(normalize_placeholders('a [[[[2]]]] b')).toBe('a [[[2]]] b');
 	});
 });
 
@@ -186,6 +201,7 @@ describe('process_block — one model call, repair what it dropped, refuse what 
 			unrepairable: [],
 			duplicated: [],
 			residual: [],
+			sentences_short: false,
 		});
 	});
 
@@ -267,6 +283,165 @@ describe('process_block — one model call, repair what it dropped, refuse what 
 	});
 });
 
+describe('L3: lost text is the empty floor only; a cut answer is caught by its sentences and its token limit (A1-02 re-review 5)', () => {
+	test('lost_text: no ratio — a short answer is an answer, an empty one is not', () => {
+		// CJK: two characters are a whole answer to a long phrase
+		expect(lost_text('lugar de procedencia desconocido', '不明')).toBe(false);
+		expect(
+			lost_text('Moneda de plata acuñada en la ceca de Roma hacia el año 200 a.C.', 'x.'),
+		).toBe(false);
+		expect(lost_text('Moneda de plata.', '')).toBe(true);
+		expect(lost_text('Moneda [[[1]]] de plata.', ' [[[1]]] ** ` ')).toBe(true);
+		// a segment with no text has nothing to lose
+		expect(lost_text('[[[1]]] **[[[2]]]**', '')).toBe(false);
+	});
+
+	test('sentence_count counts the sentences that END — not abbreviations, initials, decimals', () => {
+		expect(sentence_count('La moneda fue acuñada en Roma. Tiene ley baja.')).toBe(2);
+		expect(sentence_count('The coin was minted in Rome. It has')).toBe(1);
+		expect(sentence_count('Siglo III a. C., p. 400, 3.5 g y J. R. R. Tolkien.')).toBe(1);
+		expect(sentence_count('¿Dónde? Aquí.')).toBe(2);
+		expect(sentence_count('lugar de procedencia desconocido')).toBe(0);
+		expect(sentence_count('不明')).toBe(0);
+		// CJK terminators need no space; the Greek question mark and the danda count
+		expect(sentence_count('硬币在罗马铸造。成色很低。')).toBe(2);
+		expect(sentence_count('Πού; Εδώ.')).toBe(2);
+		expect(sentence_count('सिक्का रोम में बना। इसकी शुद्धता कम है।')).toBe(2);
+		// tokens and delimiters are not text; closing quotes after the end are allowed
+		expect(sentence_count('**Fin.**[[[1]]] «Otra.»')).toBe(2);
+	});
+
+	test('sentences_short: a translation that stopped mid-way is caught, a CJK one is not', () => {
+		expect(
+			sentences_short(
+				'La moneda fue acuñada en Roma. Tiene ley baja.',
+				'The coin was minted in Rome. It has',
+			),
+		).toBe(true);
+		expect(sentences_short('La moneda fue acuñada en Roma.', 'The coin was minted in')).toBe(true);
+		expect(
+			sentences_short(
+				'La moneda fue acuñada en Roma. Tiene ley baja.',
+				'The coin was minted in Rome. Its fineness is low.',
+			),
+		).toBe(false);
+		expect(sentences_short('lugar de procedencia desconocido', '不明')).toBe(false);
+		expect(
+			sentences_short(
+				'La moneda fue acuñada en Roma. Tiene ley baja.',
+				'硬币在罗马铸造。成色很低。',
+			),
+		).toBe(false);
+		expect(
+			sentences_short('Moneda de plata acuñada en la ceca de Roma hacia el año 200 a.C.', 'x.'),
+		).toBe(false);
+	});
+
+	test('stopped_at_token_limit: the budget used up without the end token is a cut answer', () => {
+		expect(stopped_at_token_limit({ steps: 64, last_token: 7 }, 64, [1])).toBe(true);
+		expect(stopped_at_token_limit({ steps: 64, last_token: 1 }, 64, [1, 106])).toBe(false);
+		expect(stopped_at_token_limit({ steps: 12, last_token: 1 }, 64, [1])).toBe(false);
+		// the end token unknown: a used-up budget counts as cut
+		expect(stopped_at_token_limit({ steps: 64, last_token: 1 }, 64, [])).toBe(true);
+	});
+
+	const short_block = {
+		text: 'La moneda fue acuñada en Roma. Tiene ley baja.',
+		placeholders: [],
+		restore_map: {},
+	};
+
+	test('process_block: a generation stopped at its limit is REFUSED with the code truncated', async () => {
+		const error = await process_block(
+			async () => ({ text: 'The coin was minted in Rome. Its fineness', stopped_at_limit: true }),
+			short_block,
+		).catch((thrown: unknown) => thrown);
+		expect(error).toBeInstanceOf(BlockError);
+		expect((error as BlockError).code).toBe('truncated');
+	});
+
+	test('process_block: an answer with fewer sentences is kept, and flagged sentences_short', async () => {
+		const out = await process_block(async () => 'The coin was minted in Rome. It has', short_block);
+		expect(out.text).toBe('The coin was minted in Rome. It has');
+		expect(out.sentences_short).toBe(true);
+		const messages: Message[] = [];
+		await run_blocks({
+			blocks: [{ ...short_block, prefix: '', suffix: '', sep: '' }],
+			translate: async () => 'The coin was minted in Rome. It has',
+			post: (message: Message) => messages.push(structuredClone(message)),
+		});
+		const end = messages.at(-1)?.data as { repair_stats: { sentences_short: number[] } };
+		expect(end.repair_stats.sentences_short).toEqual([1]);
+	});
+});
+
+describe('L4: a failed block carries a CODE and a detail, never words (A1-02 re-review 5)', () => {
+	const block = { text: 'Moneda de plata fina.', placeholders: [], restore_map: {} };
+	test.each([
+		['added_markup', async (): Promise<unknown> => 'Moneda de<br>plata fina.', '<br>'],
+		['lost_text', async (): Promise<unknown> => '  ', ''],
+		[
+			'repetition',
+			async (): Promise<unknown> => 'la moneda la moneda la moneda la moneda la moneda la moneda',
+			'',
+		],
+		[
+			'truncated',
+			async (): Promise<unknown> => ({ text: 'Moneda de', stopped_at_limit: true }),
+			'',
+		],
+	] as const)('%s', async (code, translate, detail) => {
+		const error = await process_block(translate, block).catch((thrown: unknown) => thrown);
+		expect(error).toBeInstanceOf(BlockError);
+		expect((error as BlockError).code).toBe(code);
+		expect((error as BlockError).detail).toBe(detail);
+		expect(Object.keys(BLOCK_ERROR_CODES)).toContain(code);
+	});
+
+	test('run_blocks forwards code and detail in failed_blocks and on_block_error', async () => {
+		const messages: Message[] = [];
+		await run_blocks({
+			blocks: [{ ...block, prefix: '', suffix: '', sep: '' }],
+			translate: async () => 'Moneda de <b>plata</b> fina.',
+			post: (message: Message) => messages.push(structuredClone(message)),
+		});
+		expect(messages[0]?.data).toMatchObject({ code: 'added_markup', detail: '<b> </b>' });
+		const end = messages.at(-1)?.data as { failed_blocks: unknown[] };
+		expect(end.failed_blocks).toMatchObject([
+			{ block: 1, code: 'added_markup', detail: '<b> </b>' },
+		]);
+	});
+
+	test('every code has a register.json label block_<code>, in every language of both tools', () => {
+		for (const tool of ['tool_lang', 'tool_lang_multi']) {
+			const register = JSON.parse(
+				readFileSync(resolve(import.meta.dir, `../../tools/${tool}/register.json`), 'utf8'),
+			) as {
+				misc: { dd1372: Array<{ value: Array<{ lang: string; name: string; value: string }> }> };
+			};
+			const labels = register.misc.dd1372[0]?.value ?? [];
+			const langs = new Set(
+				labels.filter((label) => label.name === 'block_error').map((label) => label.lang),
+			);
+			expect(langs.size, tool).toBeGreaterThanOrEqual(10);
+			for (const name of [
+				...Object.keys(BLOCK_ERROR_CODES).map((code) => `block_${code}`),
+				'sentences_short',
+			]) {
+				const have = new Set(
+					labels
+						.filter((label) => label.name === name && label.value.trim() !== '')
+						.map((label) => label.lang),
+				);
+				expect(
+					[...langs].filter((lang) => !have.has(lang)),
+					`${tool} ${name}`,
+				).toEqual([]);
+			}
+		}
+	});
+});
+
 describe('detect_repetition / strip_fences', () => {
 	test('an n-gram cycle is a loop; a short text or ordinary repetition is not', () => {
 		expect(detect_repetition(LOOP, 'One two.')).toBe(true);
@@ -333,6 +508,7 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 			unrepairable: [],
 			duplicated: [],
 			residual: [],
+			sentences_short: [],
 		});
 	});
 
@@ -390,7 +566,10 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 		expect(messages[1]?.data).toMatchObject({ block: 2, total: 2, message: 'inference timeout' });
 		const end = messages[2]?.data as { accumulated_text: string; failed_blocks: unknown[] };
 		expect(end.accumulated_text).toBe('Primera [[[1]]]part.');
-		expect(end.failed_blocks).toEqual([{ block: 2, total: 2, message: 'inference timeout' }]);
+		// an error that is not a BlockError carries no code: the main thread shows its message
+		expect(end.failed_blocks).toEqual([
+			{ block: 2, total: 2, message: 'inference timeout', code: null, detail: '' },
+		]);
 	});
 
 	test('cancel between blocks posts cancelled and stops', async () => {
@@ -475,12 +654,13 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 			'<p>1984. El museo abrió sus puertas.</p>',
 		],
 		['a dialogue dash', '- ¿Dónde estaba?', '<p>- ¿Dónde estaba?</p>'],
-		['an asterisk bullet', '* uno', '<p>* uno</p>'],
+		// a '*' or '`' the model wrote is never the record's (those travel as tokens): deleted
+		['an asterisk bullet', '* uno', '<p> uno</p>'],
 		['a rule', '---', '<p>---</p>'],
 		['a heading hash', '# 5 de mayo', '<p># 5 de mayo</p>'],
 		['a quote', '> cita', '<p>&gt; cita</p>'],
 		['a pipe table', '| a | b |\n|---|---|', '<p>| a | b |<br>|---|---|</p>'],
-		['a code fence', '```\ncode\n```', '<p>```<br>code<br>```</p>'],
+		['a code fence', '```\ncode\n```', '<p><br>code<br></p>'],
 		['a dash on a second line', 'Dijo:\n- Sí.', '<p>Dijo:<br>- Sí.</p>'],
 	])('markdown_to_html infers NO block from model text: %s', (_name, md, html) => {
 		expect(markdown_to_html(md)).toBe(html);
@@ -503,11 +683,17 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 	});
 
 	test('markdown_to_html: a code span is set aside — emphasis never reaches into or across it', () => {
-		expect(markdown_to_html('**a `b** c`')).toBe('<p>a <code>b** c</code></p>');
-		expect(markdown_to_html('x `**y**` z')).toBe('<p>x <code>**y**</code> z</p>');
+		// a '*' / '_' inside a code span cannot be a delimiter and is not the record's: deleted
+		expect(markdown_to_html('**a `b** c`')).toBe('<p>a <code>b c</code></p>');
+		expect(markdown_to_html('x `**y**` z')).toBe('<p>x <code>y</code> z</p>');
 		expect(markdown_to_html('**a** `*b*` *c*')).toBe(
-			'<p><strong>a</strong> <code>*b*</code> <em>c</em></p>',
+			'<p><strong>a</strong> <code>b</code> <em>c</em></p>',
 		);
+	});
+
+	test('markdown_to_html: NO Markdown escape — a backslash is a character, every metacharacter left is deleted (H1′)', () => {
+		expect(markdown_to_html('a\\*b\\* c \\ d')).toBe('<p>a\\<em>b\\</em> c \\ d</p>');
+		expect(markdown_to_html('2*3 x_y l`H')).toBe('<p>23 xy lH</p>');
 	});
 
 	// A1-02 re-review: block tag edges are mandatory cuts (block_kinds)
@@ -587,13 +773,13 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		}
 	});
 
-	test('segment_markdown: an escaped backtick opens no code span — the sentences around it are still cut (F2)', () => {
+	test('segment_markdown: a literal backtick is a token and opens no code span — the sentences around it are still cut (F2, H1′)', () => {
 		const sentences = Array.from(
 			{ length: 12 },
 			(_, i) => `Sentence ${i} is long enough to count.`,
 		);
-		sentences[0] = 'The mark \\` opens nothing.';
-		sentences[11] = 'Nor does this \\` one.';
+		sentences[0] = 'The mark l[[[1]]]Hospitalet opens nothing.';
+		sentences[11] = 'Nor does this [[[2]]] one.';
 		const segments = segment_markdown(sentences.join(' '), 120) as Array<{ text: string }>;
 		expect(segments.length).toBeGreaterThan(2);
 	});
@@ -628,6 +814,33 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 			restore_map: {},
 		});
 		expect(outcome.text).toBe('Uno. Dos.');
+	});
+
+	test('conform_emphasis keeps the PAIRS the source has delimiters for, and deletes every other delimiter (H1′)', () => {
+		// an unpaired one (no non-space on its inner side) never pairs across words
+		expect(conform_emphasis('Moneda de *plata*[[[1]]]', 'Silver* *coin* (see note)')).toBe(
+			'Silver *coin* (see note)',
+		);
+		// beyond the source's count: the first pairs to close are kept
+		expect(conform_emphasis('3[[[1]]]4 y *más*', '3*4 and *more* 5*6')).toBe('34 and *more* 56');
+		// a single '_' and an invented backtick are never the source's
+		expect(conform_emphasis('__a__ y `b`', '__a_b__ y `b` `c')).toBe('__ab__ y `b` c');
+		// the source's count, nothing beyond: no pair at all in a source without delimiters
+		expect(conform_emphasis('Valoración: [[[1]]]', 'Rating: *** (good) `x`')).toBe(
+			'Rating:  (good) x',
+		);
+		// strict pairs first; the model's other delimiters still pair in order when the
+		// source has room for them (its emphasis is kept, never 'lost' by our reading)
+		expect(conform_emphasis('Uno **dos** tres', 'One ** two ** three')).toBe('One ** two ** three');
+		// two delimiters with nothing between never pair: the second opens
+		expect(conform_emphasis('__Roma__ y', '____Rome__ and')).toBe('__Rome__ and');
+		expect(conform_emphasis('**a** b', '**** a** b**')).toBe('** a** b');
+		// code first: a '*' inside a kept code span is code's text — it neither pairs nor
+		// blocks the pair around the span
+		expect(conform_emphasis('**[[[1]]]`x y`[[[2]]]** z', '**[[[1]]]`x** y`[[[2]]]** z')).toBe(
+			'**[[[1]]]`x y`[[[2]]]** z',
+		);
+		expect(conform_emphasis('*`a b` c*', '*`a* b` c*')).toBe('*`a b` c*');
 	});
 
 	test('conform_emphasis drops emphasis the model invented; restore_wrapping_emphasis restores a dropped wrapper', () => {

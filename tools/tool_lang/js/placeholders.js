@@ -121,10 +121,18 @@ const normalize_digits = (str) => {
  * Note this only fixes tokens the model *emitted in some form*. Tokens it dropped
  * entirely are the job of repair_placeholders().
  *
+ * A quadruple-bracket shape is ambiguous: a mangled token, or a token between the text's
+ * own '[' and ']' ('[*]', '[<img>]' → '[[[[1]]]]'). The SEGMENT decides (A1-02 re-review 5):
+ * when it carries such a shape, every quad the model writes is read as brackets around a
+ * token — whichever token the model put there (it may move or swap them) — and only the
+ * inner token is normalised; when it carries none, a quad is a mangled token
+ * (block_runner.js clean_output passes `keep_quads`).
+ *
  * @param {string} text - Raw model output.
+ * @param {boolean} [keep_quads] - read '[[[[n]]]]' as '[' + token + ']'.
  * @returns {string} Text with every recognisable token normalised to [[[n]]].
  */
-export const normalize_placeholders = (text) => {
+export const normalize_placeholders = (text, keep_quads = false) => {
 	if (!text) {
 		return text;
 	}
@@ -136,7 +144,10 @@ export const normalize_placeholders = (text) => {
 	// quad brackets → triple
 	out = out.replace(/\[\[\[\[\s*([^\]\s]+)\s*\]\]\]\]/g, (match, id) => {
 		const n = normalize_digits(id);
-		return /^\d+$/.test(n) ? make_placeholder(n) : match;
+		if (!/^\d+$/.test(n)) {
+			return match;
+		}
+		return keep_quads ? `[${make_placeholder(n)}]` : make_placeholder(n);
 	});
 
 	// double brackets → triple (only when not already part of a triple)

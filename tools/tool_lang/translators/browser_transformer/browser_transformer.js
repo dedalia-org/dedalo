@@ -20,7 +20,7 @@
  *   Worker → Main:
  *     { status: 'init',           data: { progress, status, device, file, engine } }        – model loading
  *     { status: 'on_chunk',       data: { accumulated_text, remaining, repair_stats, failed_blocks } }
- *     { status: 'on_block_error', data: { message, block, total, accumulated_text, remaining } }
+ *     { status: 'on_block_error', data: { message, code, detail, block, total, accumulated_text, remaining } }
  *     { status: 'end',            data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *     { status: 'cancelled',      data: { accumulated_text, remaining, repair_stats, failed_blocks } }
  *     { status: 'error',          data: { message, code?, name?, stack? } }
@@ -45,7 +45,7 @@
 import { pipeline, env } from '/dedalo/lib/transformers/dist/transformers.js';
 // The block loop + marker repair + the pre-load refusals (testable without the model):
 // ../../js/block_runner.js.
-import { needs_webgpu_message, run_blocks, run_precondition, too_large_message } from '../../js/block_runner.js';
+import { needs_webgpu_message, run_blocks, run_precondition, stopped_at_token_limit, too_large_message } from '../../js/block_runner.js';
 
 // RC-01 (2026-07-28 audit): PIN the onnxruntime-web runtime to THIS install.
 // Without wasmPaths, transformers.js loads its WASM glue (.mjs + .wasm) from
@@ -553,21 +553,29 @@ self.onmessage = async (e) => {
  * So: the segment, and nothing but the segment. The Qwen shape carries its rules in a system
  * turn the model treats as instructions, never in the text.
  *
+ * The generation is COUNTED (token_counter, a streamer — transformers.js hands it the prompt
+ * once, then each generated token): an answer whose generation stopped at max_new_tokens
+ * rather than at the model's end token is cut short, and block_runner.js refuses the block
+ * ('truncated' — A1-02 re-review 5, L3).
+ *
  * @param {Function} handler        - The SHAPE_HANDLERS function for this model
  * @param {Function} translator     - The loaded pipeline
  * @param {string}   text           - The segment, carrying local [[[n]]] markers
  * @param {string}   sourceLangCode - e.g. 'es'
  * @param {string}   targetLangCode - e.g. 'ne'
  * @param {Object}   overrides      - { repetition_penalty, do_sample?, temperature?, top_p? }
- * @returns {Promise<string>}
+ * @returns {Promise<{text:string, stopped_at_limit:boolean}>}
  */
 async function translate_text(handler, translator, text, sourceLangCode, targetLangCode, overrides={}) {
+
+	const counter = token_counter();
 
 	// generation settings are shared across shapes; only the input differs (the handler)
 	const generation = {
 		max_new_tokens     : max_new_tokens_for(text),
 		do_sample          : overrides.do_sample===true,
-		repetition_penalty : overrides.repetition_penalty
+		repetition_penalty : overrides.repetition_penalty,
+		streamer           : counter
 	};
 
 	// temperature/top_p only mean something when sampling
@@ -576,7 +584,48 @@ async function translate_text(handler, translator, text, sourceLangCode, targetL
 		generation.top_p       = overrides.top_p ?? RETRY_TOP_P;
 	}
 
-	return handler(translator, text, sourceLangCode, targetLangCode, generation);
+	const answer = await handler(translator, text, sourceLangCode, targetLangCode, generation);
+
+	return {
+		text             : answer,
+		stopped_at_limit : stopped_at_token_limit(counter, generation.max_new_tokens, end_token_ids(translator))
+	};
+}
+
+/**
+ * TOKEN_COUNTER
+ * A transformers.js streamer that only counts: generate() calls put() once with the prompt,
+ * then once per generated token, then end().
+ * @returns {{steps:number, last_token:(number|null), put:Function, end:Function}}
+ */
+function token_counter() {
+	let prompt_seen = false;
+	return {
+		steps      : 0,
+		last_token : null,
+		put(ids) {
+			if (!prompt_seen) {
+				prompt_seen = true;
+				return;
+			}
+			this.steps++;
+			const id = ids?.[0]?.[0];
+			this.last_token = id===undefined ? null : Number(id);
+		},
+		end() {}
+	};
+}
+
+/**
+ * END_TOKEN_IDS
+ * The model's end-of-sequence token ids (its generation config; a number or a list), as
+ * numbers. Unknown → [] (a generation that used its whole budget then counts as cut).
+ * @param {Function} translator - The loaded pipeline
+ * @returns {number[]}
+ */
+function end_token_ids(translator) {
+	const ids = translator?.model?.generation_config?.eos_token_id ?? translator?.tokenizer?.eos_token_id;
+	return (Array.isArray(ids) ? ids : [ids]).filter((id) => id!==undefined && id!==null).map(Number);
 }
 
 

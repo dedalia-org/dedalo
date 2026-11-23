@@ -419,6 +419,26 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		assert.deepEqual(refusal_problems(run, 'the model wrote markup the text did not have'), []);
 	});
 
+	it('a refused block is worded from its CODE: the tool label in the operator\'s language, else English (L4)', async () => {
+		const labels = {
+			block_added_markup: 'El modelo escribió marcas que el texto no tenía',
+			block_lost_text: 'El modelo no devolvió texto para un pasaje que lo tiene',
+		};
+		for (const [answer, code] of [['La <b>ballena</b>', 'added_markup'], ['', 'lost_text']]) {
+			window.Worker = make_fake_worker({ translate: async () => answer });
+			dispose_browser_worker();
+			const worded = await run_translation({ get_label: (key) => labels[key] ?? null });
+			assert.isNull(worded.resolved, code);
+			assert.include(worded.status_text, labels[`block_${code}`], code);
+
+			window.Worker = make_fake_worker({ translate: async () => answer });
+			dispose_browser_worker();
+			const english = await run_translation();
+			assert.notInclude(english.status_text, labels[`block_${code}`], code);
+			assert.match(english.status_text, code === 'lost_text' ? /model returned no text/ : /model wrote markup/, code);
+		}
+	});
+
 	it('tag-shaped TEXT of the record itself is kept, escaped, never markup', async () => {
 		const source = '<p>La etiqueta &lt;script&gt; y &lt;img onerror=y&gt; del catálogo.</p>';
 		window.Worker = make_fake_worker({ translate: async (text) => text.replace('del catálogo', 'of the catalogue') });
@@ -440,14 +460,40 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		}
 	});
 
-	it('a model that drops the backslashes of literal * _ ` saves the literals, never emphasis or code (H1)', async () => {
-		const source = '<p>Peso 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell.</p>';
-		window.Worker = make_fake_worker({ translate: async (text) => text.replace(/\\/g, '').replace('Peso', 'Weight') });
+	it('the record\'s literal * _ ` \\ travel as tokens: the model never sees one, and each comes back where it stood (H1′)', async () => {
+		const source = '<p>Peso 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell \\x.</p>';
+		const sent = [];
+		window.Worker = make_fake_worker({
+			translate: async (text) => {
+				sent.push(text);
+				return text.replace('Peso', 'Weight');
+			},
+		});
 
 		const run = await run_translation({ source });
 
 		assert.isNull(run.rejected, run.status_text);
-		assert.equal(saved_value(run.saves), '<p>Weight 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell.</p>');
+		assert.deepEqual(sent.filter((text) => /[*_`\\]/.test(text)), [], 'no literal reaches the model');
+		assert.equal(saved_value(run.saves), '<p>Weight 2*3*4 g, ref. a__b__c, ceca l`Hospitalet y d`Urgell \\x.</p>');
+	});
+
+	it('a literal touching emphasis keeps its place and the emphasis its letters, whatever stars the model adds (H1′, re-review 5)', async () => {
+		// a model that writes a star at a word end, as one that never saw the record's would
+		const stars = async (text) => text.replace(/(\p{L}) /u, '$1* ');
+		for (const source of [
+			'<p>Ceca: <strong>Roma</strong>* (atribución dudosa)</p>',
+			'<p><em>a</em>*<em>b</em></p>',
+			'<p>Forma reconstruida *<em>kʷékʷlos</em>.</p>',
+		]) {
+			for (const [name, translate] of [['identity', async (text) => text], ['stars', stars]]) {
+				window.Worker = make_fake_worker({ translate });
+				dispose_browser_worker();
+				const run = await run_translation({ source });
+				assert.isNull(run.rejected, `${name} ${source}: ${run.status_text}`);
+				// an invented star is a delimiter beyond the source's: deleted
+				assert.equal(saved_value(run.saves), source, `${name} ${source}`);
+			}
+		}
 	});
 
 	// --- block structure comes from the SOURCE, never from the model's text (A1-02 re-review) ---
@@ -551,12 +597,55 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 			'<p>Texto <foo>x</foo> fin</p>',
 			'<xmp>a\nb  *c*</xmp><p>fin</p>',
 			'<p>Verso uno<span style="white-space: pre-wrap">\nverso dos\n  verso tres</span> fin</p>',
+			// quirks mode lets a block sit in a <p> (M1′): the paragraph must not split
+			'<p>Medidas: <table><tbody><tr><td>3 g</td></tr></tbody></table> fin</p>',
+			'<p>a <legend>x</legend> b</p>',
+			'<p>a <button><div>x</div></button> b</p>',
+			// restored whole, never sent (L1)
+			'<p>a <noembed>x <b>y</b></noembed> b <noframes>z</noframes> c</p>',
 		]) {
 			window.Worker = make_fake_worker(IDENTITY);
 			dispose_browser_worker();
 			const run = await run_translation({ source });
 			assert.isNull(run.rejected, `${source}: ${run.status_text}`);
 			assert.equal(as_browser(saved_value(run.saves)), as_browser(source), source);
+		}
+	});
+
+	it('white-space as THIS browser reads it (CSSOM): the stated answers, and the computed style agrees (L2)', async () => {
+		// the reviewer's strings (re-review 5) all keep the breaks; the mirrors collapse them
+		const STATED = {
+			'white-space: pre-wrap !important': true,
+			'WHITE-SPACE: PRE-WRAP': true,
+			'white-space: pre-wrap ! important': true,
+			'white-space: /*c*/ pre-wrap': true,
+			'white-space: preserve nowrap': true,
+			'white-space: preserve-breaks wrap': true,
+			'white-space:pre !important; white-space:normal': true,
+			'white-space: pre; white-space: bogus': true,
+			'white-space:-moz-pre-wrap; white-space:pre-wrap': true,
+			'white-space:pre-wrap; white-space:-moz-pre-wrap': true,
+			'font-family:"a;b"; white-space:pre-wrap': true,
+			'white-space: pre !important; white-space: normal !important': false,
+			'white-space: normal !important; white-space: pre': false,
+			'white-space: nowrap': false,
+			'white-space: /* pre */ normal': false,
+		};
+		for (const [style, keeps] of Object.entries(STATED)) {
+			// the browser's own rendering decides, independently of the engine's reading
+			const probe = document.createElement('p');
+			probe.setAttribute('style', style);
+			document.body.appendChild(probe);
+			const collapse = getComputedStyle(probe).whiteSpaceCollapse;
+			probe.remove();
+			assert.equal(['preserve', 'preserve-breaks', 'break-spaces'].includes(collapse), keeps, `computed ${style}: ${collapse}`);
+
+			const source = `<p style='${style}'>uno\ndos <span>tres</span></p>`;
+			window.Worker = make_fake_worker({ translate: async (text) => text });
+			dispose_browser_worker();
+			const run = await run_translation({ source });
+			assert.isNull(run.rejected, `${style}: ${run.status_text}`);
+			assert.equal(saved_value(run.saves).includes('uno\ndos'), keeps, style);
 		}
 	});
 
@@ -1005,7 +1094,9 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 					status: 'end',
 					data: {
 						remaining: 0,
-						accumulated_text: '[[[1]]]La [[[2]]]ballena blanca[[[3]]] nada. [TC_00:00:09.000_TC]Se sumerge hondo.',
+						// a mark with no '_' or '*' in its syntax: the model's own '_' are delimiters
+						// (deleted when unpaired), so an invented '[TC_…_TC]' comes back as text
+						accumulated_text: '[[[1]]]La [[[2]]]ballena blanca[[[3]]] nada. [index-n-9-term9-data::data]Se sumerge hondo.',
 						repair_stats: { repaired: [], unrepairable: [] },
 					},
 				},

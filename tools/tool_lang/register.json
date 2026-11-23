@@ -1089,6 +1089,281 @@
           },
           {
             "lang": "lg-eng",
+            "name": "block_added_markup",
+            "value": "The model wrote markup the text did not have"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_markup",
+            "value": "El modelo escribió marcado que el texto no tenía"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_markup",
+            "value": "Le modèle a écrit un balisage que le texte n’avait pas"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_markup",
+            "value": "Il modello ha scritto un markup che il testo non aveva"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_markup",
+            "value": "O modelo escreveu marcação que o texto não tinha"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_added_markup",
+            "value": "El model ha escrit marcatge que el text no tenia"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_markup",
+            "value": "Das Modell hat Auszeichnungen geschrieben, die der Text nicht hatte"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_markup",
+            "value": "मोडेलले पाठमा नभएको मार्कअप लेख्यो"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "block_added_markup",
+            "value": "كتب النموذج ترميزًا لم يكن في النص"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_markup",
+            "value": "Το μοντέλο έγραψε σήμανση που δεν είχε το κείμενο"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_markup",
+            "value": "Ereduak testuak ez zuen markaketa idatzi du"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_lost_text",
+            "value": "The model returned no text for a passage that has some"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_lost_text",
+            "value": "El modelo no devolvió texto para un pasaje que sí lo tiene"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_lost_text",
+            "value": "Le modèle n’a renvoyé aucun texte pour un passage qui en contient"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_lost_text",
+            "value": "Il modello non ha restituito testo per un passaggio che ne ha"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_lost_text",
+            "value": "O modelo não devolveu texto para uma passagem que o tem"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_lost_text",
+            "value": "El model no ha retornat text per a un passatge que en té"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_lost_text",
+            "value": "Das Modell gab für eine Passage mit Text keinen Text zurück"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_lost_text",
+            "value": "पाठ भएको खण्डका लागि मोडेलले कुनै पाठ फर्काएन"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "block_lost_text",
+            "value": "لم يُرجع النموذج أي نص لمقطع يحتوي على نص"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_lost_text",
+            "value": "Το μοντέλο δεν επέστρεψε κείμενο για ένα απόσπασμα που έχει"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_lost_text",
+            "value": "Ereduak ez du testurik itzuli testua duen pasarte baterako"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_repetition",
+            "value": "The model repeated itself and could not be recovered"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_repetition",
+            "value": "El modelo se repitió y no se pudo recuperar"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_repetition",
+            "value": "Le modèle s’est répété et n’a pas pu être récupéré"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_repetition",
+            "value": "Il modello si è ripetuto e non è stato possibile recuperarlo"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_repetition",
+            "value": "O modelo repetiu-se e não foi possível recuperá-lo"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_repetition",
+            "value": "El model s’ha repetit i no s’ha pogut recuperar"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_repetition",
+            "value": "Das Modell hat sich wiederholt und konnte nicht wiederhergestellt werden"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_repetition",
+            "value": "मोडेलले आफूलाई दोहोर्‍यायो र पुनःप्राप्त गर्न सकिएन"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "block_repetition",
+            "value": "كرر النموذج نفسه ولم يمكن استعادته"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_repetition",
+            "value": "Το μοντέλο επαναλήφθηκε και δεν ήταν δυνατή η ανάκτηση"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_repetition",
+            "value": "Eredua errepikatu egin da eta ezin izan da berreskuratu"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_truncated",
+            "value": "The model stopped at its length limit: the translation is cut short"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_truncated",
+            "value": "El modelo se detuvo en su límite de longitud: la traducción está cortada"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_truncated",
+            "value": "Le modèle s’est arrêté à sa limite de longueur : la traduction est tronquée"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_truncated",
+            "value": "Il modello si è fermato al suo limite di lunghezza: la traduzione è troncata"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_truncated",
+            "value": "O modelo parou no seu limite de comprimento: a tradução está cortada"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_truncated",
+            "value": "El model s’ha aturat al seu límit de longitud: la traducció està tallada"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_truncated",
+            "value": "Das Modell hat an seiner Längengrenze angehalten: die Übersetzung ist abgeschnitten"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_truncated",
+            "value": "मोडेल आफ्नो लम्बाइ सीमामा रोकियो: अनुवाद अधुरो छ"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "block_truncated",
+            "value": "توقف النموذج عند حد الطول: الترجمة مقطوعة"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_truncated",
+            "value": "Το μοντέλο σταμάτησε στο όριο μήκους του: η μετάφραση είναι κομμένη"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_truncated",
+            "value": "Eredua bere luzera-mugan gelditu da: itzulpena moztuta dago"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "sentences_short",
+            "value": "%s passages came back with fewer sentences than the source: the translation may be cut short"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "sentences_short",
+            "value": "%s pasajes volvieron con menos frases que el original: la traducción puede estar cortada"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "sentences_short",
+            "value": "%s passages sont revenus avec moins de phrases que la source : la traduction est peut-être tronquée"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "sentences_short",
+            "value": "%s passaggi sono tornati con meno frasi dell’originale: la traduzione potrebbe essere troncata"
+          },
+          {
+            "lang": "lg-por",
+            "name": "sentences_short",
+            "value": "%s passagens voltaram com menos frases do que o original: a tradução pode estar cortada"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "sentences_short",
+            "value": "%s passatges han tornat amb menys frases que l’original: la traducció pot estar tallada"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "sentences_short",
+            "value": "%s Passagen kamen mit weniger Sätzen als die Quelle zurück: die Übersetzung ist möglicherweise abgeschnitten"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "sentences_short",
+            "value": "%s खण्डहरू स्रोतभन्दा कम वाक्यसहित फर्किए: अनुवाद अधुरो हुन सक्छ"
+          },
+          {
+            "lang": "lg-ara",
+            "name": "sentences_short",
+            "value": "%s من المقاطع عادت بجمل أقل من المصدر: قد تكون الترجمة مقطوعة"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "sentences_short",
+            "value": "%s αποσπάσματα επέστρεψαν με λιγότερες προτάσεις από το πρωτότυπο: η μετάφραση ίσως είναι κομμένη"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "sentences_short",
+            "value": "%s pasartek jatorrizkoak baino esaldi gutxiagorekin itzuli dira: itzulpena moztuta egon daiteke"
+          },
+          {
+            "lang": "lg-eng",
             "name": "translation_cancelled",
             "value": "Translation cancelled"
           },
