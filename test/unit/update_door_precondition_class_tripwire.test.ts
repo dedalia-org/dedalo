@@ -29,6 +29,7 @@ import {
 } from '../../src/core/area_maintenance/widgets/registry.ts';
 import { isDedaloError } from '../../src/core/errors/dedalo_error.ts';
 import { getServerState, setServerState } from '../../src/core/resolve/server_state.ts';
+import * as permissions from '../../src/core/security/permissions.ts';
 import { type Principal, SUPERUSER_ID } from '../../src/core/security/permissions.ts';
 import {
 	DOOR_CLASSES,
@@ -38,29 +39,27 @@ import {
 	holdUpdateRunLock,
 } from '../../src/core/update/door_class.ts';
 import { createRunJournal, writeRunJournal } from '../../src/core/update/run/journal.ts';
-import {
-	installMaintenancePersonas,
-	MAINTENANCE_ADMIN_USER_ID,
-	removeMaintenancePersonas,
-} from '../helpers/maintenance_persona_fixture.ts';
-
-// A non-superuser global admin who PASSES the maintenance rule (dd88 granted at
-// level 2 — T2-O15-2), so the door's own superuser rule is what refuses.
-const ADMIN = {
-	userId: MAINTENANCE_ADMIN_USER_ID,
-	isGlobalAdmin: true,
-	isDeveloper: false,
-} as Principal;
+// A non-superuser global admin who PASSES the maintenance rule (T2-O15-2), so the
+// door's own superuser rule is what refuses. DB-FREE (this is a hermetic tripwire):
+// the rule's answer for THIS principal is seamed below — the rule itself (dd88 at
+// level 2, every persona × door) is gated by maintenance_access_agreement_native.
+const ADMIN = { userId: 4242, isGlobalAdmin: true, isDeveloper: false } as Principal;
 const SUPERUSER = { userId: SUPERUSER_ID, isGlobalAdmin: true, isDeveloper: true } as Principal;
 
 const roots: string[] = [];
 let maintenanceBefore = false;
-beforeAll(async () => {
+const realMaintenanceRule = permissions.canAccessMaintenanceArea;
+const maintenanceRule = spyOn(permissions, 'canAccessMaintenanceArea');
+beforeAll(() => {
 	maintenanceBefore = getServerState().maintenance_mode === true;
-	await installMaintenancePersonas();
+	// ADMIN passes; every other principal gets the REAL rule (the superuser's
+	// answer is DB-free: it never reaches the grant lookup).
+	maintenanceRule.mockImplementation((principal) =>
+		principal.userId === ADMIN.userId ? Promise.resolve(true) : realMaintenanceRule(principal),
+	);
 });
-afterAll(async () => {
-	await removeMaintenancePersonas();
+afterAll(() => {
+	maintenanceRule.mockRestore();
 	setServerState({ maintenance_mode: maintenanceBefore });
 	for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
