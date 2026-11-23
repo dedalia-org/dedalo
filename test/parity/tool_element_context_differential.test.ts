@@ -178,6 +178,60 @@ describe.if(hasPhpCredentials())(
 					}
 					slot(phpContext).value = [];
 					slot(tsContext).value = [];
+					// WC-2026-11-23-tool-lang-browser-translation-labels: the in-browser
+					// translation's labels, added after the final harvest. Additive only,
+					// EXACT set, same law as tool_export / tool_time_machine above.
+					const ADDED = new Set([
+						'block_added_markup',
+						'block_added_mark',
+						'block_added_emphasis',
+						'block_lost_text',
+						'block_repetition',
+						'block_truncated',
+						'sentences_short',
+						'emphasis_moved',
+						'emphasis_lost',
+						'translation_review_needed',
+						'translation_saved_with_warnings',
+						'translation_degenerate',
+						'marks_unplaced',
+						'marks_invented',
+						'marks_repositioned',
+						'marks_reordered',
+						'marks_removed_invalid',
+						'marks_outside_text',
+						'tags_out_of_order',
+						'tags_crossed',
+						'nothing_saved',
+						'translation_retry',
+						'translation_incomplete',
+						'translation_save_failed',
+						'translation_empty_result',
+						'translation_token_collision',
+						'translation_no_model',
+						'translation_lang_unmapped',
+						'gpu_unavailable',
+						'configuration',
+						'engine_qwen',
+						'engine_translategemma',
+						'engine_nllb',
+						'engine_madlad',
+						'engine_opus',
+						'translation_model',
+						'model_quality',
+						'model_quality_q4',
+						'model_quality_q8',
+						'requires_webgpu_hint',
+					]);
+					type LabelRow = { name?: unknown };
+					const tsLabels = tsContext.labels as LabelRow[];
+					const phpLabels = phpContext.labels as LabelRow[];
+					expect(Array.isArray(tsLabels)).toBe(true);
+					expect(Array.isArray(phpLabels)).toBe(true);
+					const tsNames = new Set(tsLabels.map((row) => String(row.name)));
+					expect([...ADDED].filter((name) => !tsNames.has(name))).toEqual([]);
+					for (const row of phpLabels) expect(ADDED.has(String(row.name))).toBe(false);
+					tsContext.labels = tsLabels.filter((row) => !ADDED.has(String(row.name)));
 				}
 				expect(tsContext).toEqual(phpContext);
 			});
