@@ -82,9 +82,9 @@ import {
 	type ComponentLockContext,
 	type ComponentLockHandle,
 	type ComponentShareHooks,
+	closeComponentShare,
 	componentLockBusy,
 	componentLockIsOurs,
-	componentShareVacant,
 	joinComponentShare,
 	refreshComponentLock,
 	relabelComponentLock,
@@ -449,7 +449,7 @@ function joinShareOrRelease(
 ): ComponentLockHandle | null {
 	let joined: ComponentLockHandle | null = null;
 	try {
-		joined = joinComponentShare(handle, componentKeyBase(target), allLangsLockKey(target), context);
+		joined = joinComponentShare(handle, componentKeyBase(target), context);
 	} finally {
 		if (joined === null) releaseComponentLock(handle);
 	}
@@ -1226,13 +1226,14 @@ export class MediaJobManager {
 	 * An unscoped target takes no lock (true).
 	 *
 	 * A per-lang holder then JOINS its component's share (component_lock.ts
-	 * SHARED COMPONENTS): registers, then probes the whole-component lock by
-	 * `link()` — the server's EEXIST is the answer, never a cached lookup. Held
-	 * whole → its own lock is given back and it refuses. The whole-component
-	 * side does the mirror look (claimWholeComponents → componentShareVacant,
-	 * `rmdir` of the share dir). Each side publishes BEFORE it looks, so of two
-	 * racing holders at least one sees the other (both may refuse; never both
-	 * proceed).
+	 * SHARED COMPONENTS): it registers — a `link()` into the share dir, which
+	 * the server refuses (ENOTDIR) while a whole-component holder's TOMBSTONE
+	 * stands at the dir's name; then its own lock is given back and it
+	 * refuses. The whole-component side (claimWholeComponents →
+	 * closeComponentShare) empties the dir at the server (`rmdir`) and links its
+	 * tombstone at the name. Each side's step is ONE server answer, so of two
+	 * racing holders exactly the later one is refused; two langs never refuse
+	 * each other.
 	 */
 	private takeFileLock(holderId: string, target: JobTarget): boolean {
 		if (!takesFileLock(target)) return true;
@@ -1445,11 +1446,12 @@ export class MediaJobManager {
 	 * the hold a record delete, a data wipe or a Time Machine restore takes over
 	 * the components whose files it moves. One synchronous step: each
 	 * component's all-langs claim (memory, then its all-langs lock file), then,
-	 * after every all-langs lock is published, each component's share asked AT
-	 * THE SERVER (componentShareVacant: `rmdir` of its share dir — never a
-	 * listing), refusing when any lang of any of them is held by another
-	 * instance. Null when anything is held; every claim already taken is given
-	 * back. The caller releases the claims (AvRecordHold).
+	 * after every all-langs lock is published, each component's share CLOSED AT
+	 * THE SERVER (closeComponentShare: `rmdir` of its share dir — never a
+	 * listing — then the tombstone at its name), refusing when any lang of any
+	 * of them is held by another instance. Null when anything is held; every
+	 * claim already taken is given back (its release removes its tombstone). The
+	 * caller releases the claims (AvRecordHold).
 	 */
 	claimWholeComponents(
 		sectionTipo: string,
@@ -1477,9 +1479,23 @@ export class MediaJobManager {
 		}
 		const context = this.lockContext();
 		for (const claim of claims) {
-			if (!componentShareVacant(componentKeyBase(claim.target), context)) return giveBack();
+			if (!this.closeShareOf(claim, context)) return giveBack();
 		}
 		return claims;
+	}
+
+	/**
+	 * Close the share of a whole claim's component: its held handle is replaced
+	 * by the one carrying the tombstone (released with it). False when a lang is
+	 * held; an unlocked claim (no file lock) closes nothing.
+	 */
+	private closeShareOf(claim: JobTargetClaim, context: ComponentLockContext): boolean {
+		const handle = this.fileLocks.get(claim.id);
+		if (handle === undefined) return true;
+		const closed = closeComponentShare(handle, componentKeyBase(claim.target), context);
+		if (closed === null) return false;
+		this.fileLocks.set(claim.id, closed);
+		return true;
 	}
 
 	/** End a held claim (idempotent: an adopted or released claim is a no-op). */

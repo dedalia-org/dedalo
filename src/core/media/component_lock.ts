@@ -91,28 +91,38 @@
  * SERVER, as the result of a mutation, never by a lookup or a listing (an NFS
  * client with `lookupcache=all` trusts a cached negative dentry or directory
  * listing for seconds — two looks that both miss would let both proceed):
- *  - a PER-LANG holder publishes its lock, REGISTERS (a hard link of its lock
- *    in the component's share dir `<s|id|c>.langs/`, named lock + token), then
- *    PROBES the whole-component name with `link(own lock, s|id|c|*)`. The
- *    server answers EEXIST when a whole holder stands there → the registration
- *    is withdrawn, refused. Linked → no whole holder existed at the server; the
- *    probe is withdrawn by CAS. (A whole holder that arrives during the probe
- *    meets EEXIST on its own publish and judges the probe — a live holder's
- *    lock — busy.)
- *  - the WHOLE holder publishes its lock, then `rmdir`s the share dir: removed,
- *    or absent → no per-lang holder is registered AT THE SERVER, and none can
- *    register afterwards without its probe meeting the published whole lock;
- *    ENOTEMPTY → registrations exist: they are judged (a listing is used to
- *    JUDGE them, never to decide vacancy), dead ones dropped and the server
- *    asked again; a live one refuses.
- * Crossed, X registers and Y publishes before either looks: Y's rmdir meets
- * X's entry (ENOTEMPTY), X's link meets Y's lock (EEXIST) — both refuse, never
- * both proceed. Every deciding answer is EEXIST / ENOTEMPTY / ENOENT from link,
- * rmdir and mkdir, which NFS executes at the server whatever the mount options
- * (a create or a removal cannot be answered from a client cache: a stale
- * cached dir handle answers ESTALE, which retries or refuses). What still
- * reads through the cache is the STALENESS judgement (identity + heartbeat
- * content and attributes), and that is why the mount is VERIFIED: on Linux an
+ *  - a PER-LANG holder publishes its lock, then REGISTERS: a hard link of its
+ *    lock INTO the component's share dir `<s|id|c>.langs/` (named lock +
+ *    token). Linked → registered, it proceeds. ENOENT → no dir: `mkdir` (EEXIST
+ *    is fine) and link again. ENOTDIR → a whole holder's TOMBSTONE stands at the
+ *    dir's name → refused (a DEAD holder's tombstone is reclaimed first).
+ *  - the WHOLE holder publishes its lock, then CLOSES the share: `rmdir` of the
+ *    share dir — removed or absent → no registration exists AT THE SERVER —
+ *    then its TOMBSTONE: a hard link of its own lock AT THE SHARE DIR'S NAME, as
+ *    a file. Linked → it proceeds; its release unlinks the tombstone by CAS (only
+ *    a link of ITS lock). EEXIST → a lang made the dir in between → asked again
+ *    (its registration then answers ENOTEMPTY). ENOTEMPTY → registrations exist:
+ *    they are judged (a listing JUDGES them, never decides vacancy), dead ones
+ *    dropped and the server asked again; a live one refuses. ENOTDIR → another
+ *    holder's tombstone: dead → reclaimed and asked again; live → refused.
+ * WHY NEVER BOTH: the share NAME is ONE server-side object, either a dir or a
+ * tombstone file. A lang proceeds only on a link INTO it as a dir; the whole
+ * holder only on a link AT it, which needs the name free. A registration that
+ * succeeded keeps the dir non-empty until it leaves, so every later rmdir
+ * answers ENOTEMPTY and every later tombstone EEXIST; a tombstone that stands
+ * makes every later registration answer ENOTDIR (or ENOENT → mkdir EEXIST,
+ * which repeats and then refuses). Whichever reached the server first wins,
+ * the later one is refused — no probe, no wait, nothing to withdraw — and two
+ * langs never refuse each other (registrations do not conflict; a dir another
+ * lang removed on leaving is made again). Every deciding answer is EEXIST /
+ * ENOTEMPTY / ENOTDIR / ENOENT from link, rmdir and mkdir, which NFS executes
+ * at the server whatever the mount options (a create or a removal cannot be
+ * answered from a client cache: a stale cached dir handle answers ESTALE,
+ * which makes the dir again or refuses). A crashed whole holder's tombstone
+ * carries its lock's identity (a hard link): judged by the usual staleness
+ * rules (pid / heartbeat at its lock's own path), sighted under its own name.
+ * What still reads through the cache is the STALENESS judgement (identity +
+ * heartbeat content and attributes), and that is why the mount is VERIFIED: on Linux an
  * NFS processes dir must be `lookupcache=none`, `actimeo=0` (or `noac`) and not
  * `nocto`, or the boot and every lock call refuse (processes_mount.ts). The
  * advisory pre-flight (componentLockBusy — `isOccupied`) still reads; the
@@ -197,11 +207,19 @@ export interface ComponentLockHandle {
 	readonly holder: string;
 	/** Set for a PER-LANG holder that joined its component's share. */
 	readonly share?: ComponentShare;
+	/** Set for a WHOLE-component holder: its tombstone at the share dir's name. */
+	readonly tombstone?: string;
 }
 
-/** Test seam of the share protocol: called between PUBLISH and LOOK, on both sides. */
+/**
+ * Test seams of the share protocol (the crossed interleavings). `afterPublish`:
+ * a per-lang holder REGISTERED / a whole holder's TOMBSTONE placed.
+ * `beforeTombstone`: the whole holder found the share empty and is about to
+ * place its tombstone.
+ */
 export interface ComponentShareHooks {
 	afterPublish?: (side: 'lang' | 'whole', key: string) => void;
+	beforeTombstone?: (componentKey: string) => void;
 }
 
 /** One reader-side sighting of a lock's changing part, on the READER's clock. */
@@ -614,18 +632,26 @@ function describeOwner(owner: ComponentLockOwner | null, path: string): string {
 	return `${owner.host}:${owner.pid}/${owner.instance} ${holder}`;
 }
 
+/** Why the file at a path may be removed (null: live) — its owner already read (null = unreadable). */
+type StaleJudge = (owner: ComponentLockOwner | null) => string | null;
+
 /**
  * Under the reclaim mutex: RE-JUDGE the lock (it may have come alive since the
  * first look), then remove it by CAS — verified to be the very lock judged
  * stale (same token, or for an unreadable lock the same inode/mtime) — and drop
  * its heartbeat. True when the path is now VACANT (the caller then creates its
- * own lock, or — a per-lang holder clearing a dead whole-component lock — asks
+ * own lock, or — a per-lang holder clearing a dead holder's tombstone — asks
  * again).
  */
-function vacateIfStale(path: string, key: string, context: ComponentLockContext): boolean {
+function vacateIfStale(
+	path: string,
+	key: string,
+	context: ComponentLockContext,
+	judge: StaleJudge,
+): boolean {
 	const judged = readOwner(path);
 	const judgedSignature = judged === null ? fileSignature(path) : null;
-	const reason = existsSync(path) ? staleReason(judged, path, context) : 'gone';
+	const reason = existsSync(path) ? judge(judged) : 'gone';
 	if (reason === null) return false;
 	const taken = takeAsideIf(path, 'reclaim', (current, peek) =>
 		isJudgedLock(judged, judgedSignature, current, peek),
@@ -723,11 +749,17 @@ function reclaimIfStale(
 	mark: string,
 	context: ComponentLockContext,
 	then: () => boolean,
+	judge: StaleJudge = (owner) => staleReason(owner, path, context),
 ): boolean {
 	try {
 		return (
-			staleReason(readOwner(path), path, context) !== null &&
-			underReclaimMutex(path, mark, context, () => vacateIfStale(path, key, context) && then())
+			judge(readOwner(path)) !== null &&
+			underReclaimMutex(
+				path,
+				mark,
+				context,
+				() => vacateIfStale(path, key, context, judge) && then(),
+			)
 		);
 	} catch (error) {
 		if (error instanceof DedaloError) throw error;
@@ -835,8 +867,6 @@ export function componentLockBusy(key: string, context: ComponentLockContext): b
 
 /** Attempts of each share step before it answers busy (a step only repeats on a server-side change). */
 const SHARE_ATTEMPTS = 3;
-/** The pause before a per-lang holder asks again when ANOTHER per-lang holder's probe stands at the path. */
-const PROBE_RETRY_MS = 2;
 
 /** The share dir of a component (`<section>|<id>|<component>`): its per-lang holders' registrations. */
 export function componentShareDir(dir: string, componentKey: string): string {
@@ -845,60 +875,69 @@ export function componentShareDir(dir: string, componentKey: string): string {
 
 /**
  * A PER-LANG holder (its own lock already published) joins its component's
- * share: REGISTER (a hard link of its lock in the share dir), then — the seam
- * between publish and look — PROBE the whole-component lock by `link()`ing its
- * own lock onto that exact name. The server answers EEXIST when a
- * whole-component holder stands there: the registration is withdrawn and the
- * answer is null (refused). Linked, nobody did: the probe is withdrawn by CAS
- * and the handle comes back with its share. Every deciding answer is the
- * server's own (see the header: SHARED COMPONENTS).
+ * share: it REGISTERS — `link(lock, <share dir>/<lock name>.<token>)` — and
+ * that one server answer is the whole look (see the header: SHARED
+ * COMPONENTS). Registered: the handle comes back with its share. The share
+ * name holds a whole holder's TOMBSTONE (ENOTDIR): refused (a dead holder's
+ * tombstone is reclaimed first). Null = refused; nothing is left registered.
  */
 export function joinComponentShare(
 	handle: ComponentLockHandle,
 	componentKey: string,
-	wholeKey: string,
 	context: ComponentLockContext,
 ): ComponentLockHandle | null {
 	return typed('share', handle.key, () => {
-		const share = registerInShare(handle, componentShareDir(context.dir, componentKey));
+		const share = registerInShare(handle, componentShareDir(context.dir, componentKey), context);
 		if (share === null) return null;
 		let joined = false;
 		try {
 			context.shareHooks?.afterPublish?.('lang', handle.key);
-			joined = probeWholeAbsent(handle, wholeKey, context);
+			joined = true;
 		} finally {
 			if (!joined) leaveShare(share);
 		}
-		return joined ? { ...handle, share } : null;
+		return { ...handle, share };
 	});
 }
 
+/** What a registration link met at the server. */
+type RegisterOutcome = 'linked' | 'no-dir' | 'tombstone';
+
 /**
- * Register `handle` in the share dir: `link(lock, <dir>/<lock name>.<token>)`.
- * ENOENT (or ESTALE) — the dir is gone (a whole-component holder removed it,
- * or none was ever made): make it and ask again. Null after the attempts (the
- * dir kept vanishing — logged, busy).
+ * Register `handle` in the share dir. ENOENT/ESTALE: no dir (none yet, or a
+ * whole holder removed it) — make it and ask again (EEXIST is fine: a dir
+ * another lang made, or a tombstone the next link meets). ENOTDIR: a tombstone
+ * stands at the name — a whole holder holds the component: refused, unless it
+ * is DEAD (reclaimed by CAS, then asked again). Null after the attempts (busy,
+ * logged).
  */
-function registerInShare(handle: ComponentLockHandle, dir: string): ComponentShare | null {
+function registerInShare(
+	handle: ComponentLockHandle,
+	dir: string,
+	context: ComponentLockContext,
+): ComponentShare | null {
 	const share = { dir, entry: join(dir, `${basename(handle.path)}.${handle.token}`) };
 	for (let attempt = 0; attempt < SHARE_ATTEMPTS; attempt++) {
-		if (linkUnlessDirGone(handle.path, share.entry)) return share;
-		makeLockDir(dir, false);
+		const outcome = linkIntoShare(handle.path, share.entry);
+		if (outcome === 'linked') return share;
+		if (outcome === 'no-dir') makeLockDir(dir, false);
+		else if (!clearDeadTombstone(dir, handle.token, context)) return null;
 	}
 	console.error(
-		`[media lock] ${handle.key}: could not register in ${dir} (it kept vanishing) — answered BUSY`,
+		`[media lock] ${handle.key}: could not register in ${dir} (it kept changing) — answered BUSY`,
 	);
 	return null;
 }
 
-/** link(from, to); false when the target dir (or the source) is gone, any other failure throws. */
-function linkUnlessDirGone(from: string, to: string): boolean {
+/** link(lock, entry) — what the server answered (any other failure throws). */
+function linkIntoShare(lock: string, entry: string): RegisterOutcome {
 	try {
-		linkSync(from, to);
-		return true;
+		linkSync(lock, entry);
+		return 'linked';
 	} catch (error) {
 		const code = errnoOf(error);
-		if (code === 'ENOENT' || code === 'ESTALE') return false;
+		if (code === 'ENOENT' || code === 'ESTALE') return 'no-dir';
+		if (code === 'ENOTDIR') return 'tombstone';
 		throw error;
 	}
 }
@@ -917,63 +956,34 @@ function makeLockDir(dir: string, recursive: boolean): void {
 }
 
 /**
- * Is the whole-component lock ABSENT at the server? Asked by `link()`ing our
- * own lock onto its name — never by a lookup. EEXIST: a dead whole-component
- * holder is reclaimed and the question asked again; another per-lang holder's
- * in-flight probe is waited out briefly; a live whole-component holder (or a
- * lock that cannot be read) answers false.
+ * A tombstone is a hard link of a whole holder's LOCK, so its content is that
+ * holder's identity: judged like its lock (pid / heartbeat at the lock's own
+ * path), sighted under the tombstone's name.
  */
-function probeWholeAbsent(
-	handle: ComponentLockHandle,
-	wholeKey: string,
+function tombstoneJudge(tombstone: string, context: ComponentLockContext): StaleJudge {
+	return (owner) =>
+		staleReason(
+			owner,
+			owner === null ? tombstone : join(context.dir, componentLockFileName(owner.key)),
+			context,
+			tombstone,
+		);
+}
+
+/** Remove a DEAD holder's tombstone (mutex + CAS); true when the name is free now. Live or unreadable: false. */
+function clearDeadTombstone(
+	tombstone: string,
+	mark: string,
 	context: ComponentLockContext,
 ): boolean {
-	const wholePath = join(context.dir, componentLockFileName(wholeKey));
-	for (let attempt = 0; attempt < SHARE_ATTEMPTS; attempt++) {
-		if (linkProbe(handle.path, wholePath)) {
-			withdrawProbe(handle, wholePath);
-			return true;
-		}
-		if (reclaimIfStale(wholePath, wholeKey, handle.token, context, () => true)) continue;
-		if (!isProbeOfAnother(wholePath, wholeKey)) return false;
-		Bun.sleepSync(PROBE_RETRY_MS);
-	}
-	return false;
-}
-
-/**
- * link(our lock, the whole-component name): true when linked (the name was
- * free AT THE SERVER), false on EEXIST. Anything else throws — our own lock
- * gone included (reclaimed: we hold nothing to probe with).
- */
-function linkProbe(ours: string, wholePath: string): boolean {
-	try {
-		linkSync(ours, wholePath);
-		return true;
-	} catch (error) {
-		if (errnoOf(error) === 'EEXIST') return false;
-		throw error;
-	}
-}
-
-/** Take our probe back off the whole-component name — by CAS: only a link of OUR lock is removed. */
-function withdrawProbe(handle: ComponentLockHandle, wholePath: string): void {
-	const taken = takeAsideIf(wholePath, 'probe', (owner) => owner?.token === handle.token);
-	if (taken.status !== 'taken') {
-		console.error(
-			`[media lock] ${handle.key}: the probe at ${wholePath} was not ours to withdraw (${taken.status})`,
-		);
-	}
-}
-
-/** Does the whole-component name hold ANOTHER per-lang holder's probe (a lock of another key)? */
-function isProbeOfAnother(wholePath: string, wholeKey: string): boolean {
-	try {
-		const owner = readOwner(wholePath);
-		return owner !== null && owner.key !== wholeKey;
-	} catch {
-		return false;
-	}
+	return reclaimIfStale(
+		tombstone,
+		'tombstone',
+		mark,
+		context,
+		() => true,
+		tombstoneJudge(tombstone, context),
+	);
 }
 
 /**
@@ -985,48 +995,106 @@ function isProbeOfAnother(wholePath: string, wholeKey: string): boolean {
 function leaveShare(share: ComponentShare): void {
 	try {
 		unlinkQuiet(share.entry);
-		removeShareDirIfEmpty(share.dir);
+		rmdirShare(share.dir);
 	} catch (error) {
 		console.error(`[media lock] leaving ${share.entry} failed: ${errorText(error)}`);
 	}
 }
 
+/** What an rmdir of the share name met at the server. */
+type RmdirOutcome = 'removed' | 'not-empty' | 'tombstone';
+
 /**
- * rmdir the share dir: TRUE when the server removed it (empty) or it was never
- * there — no per-lang holder is registered; false when it is not empty. The
- * answer is the server's (ENOTEMPTY), never a listing's.
+ * rmdir the share name — the server's answer: removed (or absent: nothing to
+ * remove), not empty (registrations), or not a dir (a tombstone stands there).
  */
-function removeShareDirIfEmpty(dir: string): boolean {
+function rmdirShare(dir: string): RmdirOutcome {
 	try {
 		rmdirSync(dir);
-		return true;
+		return 'removed';
 	} catch (error) {
 		const code = errnoOf(error);
-		if (code === 'ENOENT') return true;
-		if (code === 'ENOTEMPTY' || code === 'EEXIST') return false;
+		if (code === 'ENOENT') return 'removed';
+		if (code === 'ENOTEMPTY' || code === 'EEXIST') return 'not-empty';
+		if (code === 'ENOTDIR') return 'tombstone';
 		throw error;
 	}
 }
 
 /**
- * The WHOLE-component holder's look (its own lock already published — the seam
- * runs first): is the component's share EMPTY at the server? `rmdir` of the
- * share dir answers it — removed (or absent): no per-lang holder is registered,
- * and none can register without meeting the published whole-component lock.
- * ENOTEMPTY: the registrations are judged (the listing is only used to JUDGE,
- * never to decide vacancy) — dead ones dropped and the server asked again; a
- * live or unreadable one answers false.
+ * The WHOLE-component holder (its own lock already published) CLOSES the share:
+ * `rmdir` of the share dir (the server's answer), then a TOMBSTONE — its own
+ * lock hard-linked at the share dir's NAME, as a file. EEXIST on the tombstone:
+ * a lang made the dir in between — asked again (its registration then answers
+ * ENOTEMPTY). ENOTEMPTY: the registrations are judged (the listing JUDGES,
+ * never decides), dead ones dropped, asked again; a live one refuses. ENOTDIR:
+ * an older holder's tombstone — reclaimed if dead, else refused. The handle
+ * comes back with its tombstone (its release removes it by CAS), or null.
  */
-export function componentShareVacant(componentKey: string, context: ComponentLockContext): boolean {
+export function closeComponentShare(
+	handle: ComponentLockHandle,
+	componentKey: string,
+	context: ComponentLockContext,
+): ComponentLockHandle | null {
 	return typed('share', componentKey, () => {
-		context.shareHooks?.afterPublish?.('whole', componentKey);
 		const dir = componentShareDir(context.dir, componentKey);
 		for (let attempt = 0; attempt < SHARE_ATTEMPTS; attempt++) {
-			if (removeShareDirIfEmpty(dir)) return true;
-			if (!dropDeadRegistrations(dir, context)) return false;
+			const vacancy = shareVacancy(dir, handle.token, context);
+			if (vacancy === 'busy') return null;
+			if (vacancy === 'vacant' && placeTombstone(handle.path, dir, componentKey, context)) {
+				context.shareHooks?.afterPublish?.('whole', componentKey);
+				sweepOrphans(dir, context);
+				return { ...handle, tombstone: dir };
+			}
 		}
-		return false;
+		return null;
 	});
+}
+
+/** Is the share empty AT THE SERVER? 'vacant', 'busy', or 'again' (dead entries / a dead tombstone dropped). */
+function shareVacancy(
+	dir: string,
+	mark: string,
+	context: ComponentLockContext,
+): 'vacant' | 'busy' | 'again' {
+	const outcome = rmdirShare(dir);
+	if (outcome === 'removed') return 'vacant';
+	const cleared =
+		outcome === 'not-empty'
+			? dropDeadRegistrations(dir, context)
+			: clearDeadTombstone(dir, mark, context);
+	return cleared ? 'again' : 'busy';
+}
+
+/** link(our lock, the share name): true when placed; false on EEXIST (a dir or a tombstone appeared). */
+function placeTombstone(
+	lock: string,
+	dir: string,
+	componentKey: string,
+	context: ComponentLockContext,
+): boolean {
+	context.shareHooks?.beforeTombstone?.(componentKey);
+	try {
+		linkSync(lock, dir);
+		return true;
+	} catch (error) {
+		if (errnoOf(error) === 'EEXIST') return false;
+		throw error;
+	}
+}
+
+/** Take our tombstone back — by CAS: only a link of OUR lock is removed. Never throws (a release follows). */
+function removeTombstone(handle: ComponentLockHandle, tombstone: string): void {
+	try {
+		const taken = takeAsideIf(tombstone, 'untomb', (owner) => owner?.token === handle.token);
+		if (taken.status === 'kept') {
+			console.error(
+				`[media lock] ${handle.key}: the tombstone at ${tombstone} was not ours to remove — left`,
+			);
+		}
+	} catch (error) {
+		console.error(`[media lock] removing tombstone ${tombstone} failed: ${errorText(error)}`);
+	}
 }
 
 /** Judge every listed registration: false at the first live (or unreadable) one; dead ones are dropped. */
@@ -1049,9 +1117,7 @@ function dropDeadRegistrations(dir: string, context: ComponentLockContext): bool
 function dropIfDead(entry: string, context: ComponentLockContext): boolean {
 	let reason: string | null;
 	try {
-		const owner = readOwner(entry);
-		const lockPath = owner === null ? entry : join(context.dir, componentLockFileName(owner.key));
-		reason = staleReason(owner, lockPath, context, entry);
+		reason = tombstoneJudge(entry, context)(readOwner(entry));
 	} catch (error) {
 		console.error(
 			`[media lock] registration ${entry} cannot be read (${errorText(error)}) — answered BUSY`,
@@ -1100,6 +1166,7 @@ export function releaseComponentLock(
 	try {
 		typed('release', handle.key, () => {
 			if (handle.share !== undefined) leaveShare(handle.share);
+			if (handle.tombstone !== undefined) removeTombstone(handle, handle.tombstone);
 			const taken = takeAsideIf(
 				handle.path,
 				'release',
@@ -1127,6 +1194,7 @@ export function abandonComponentLock(handle: ComponentLockHandle): void {
 	try {
 		typed('abandon', handle.key, () => {
 			if (handle.share !== undefined) leaveShare(handle.share);
+			if (handle.tombstone !== undefined) removeTombstone(handle, handle.tombstone);
 			unlinkQuiet(heartbeatPath(handle.path, handle.token));
 		});
 	} finally {

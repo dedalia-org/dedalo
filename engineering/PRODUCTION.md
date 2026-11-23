@@ -1594,12 +1594,16 @@ language's lock of that component is live, and every per-language build or
 upload refuses while it is held. Builds of different languages of one component
 run side by side: each also REGISTERS in the component's share directory
 (`component_locks/<section>~7c<id>~7c<component>.langs/`, a hard link of its
-lock), then tries to `link()` its lock onto the whole-component name — EEXIST
-means a whole hold stands there and it refuses. The whole hold, once its lock is
-published, removes the share directory: it can only remove an EMPTY one, so a
-registered language refuses it (dead registrations are dropped by the same
-rules as dead locks). A share directory left empty is removed by the last
-language that leaves it.
+lock into it). The whole hold, once its lock is published, removes the share
+directory — it can only remove an EMPTY one, so a registered language refuses it
+(dead registrations are dropped by the same rules as dead locks) — and puts a
+TOMBSTONE at the directory's name: a hard link of its own lock, as a file. A
+language that registers while the tombstone stands is answered "not a
+directory" by the server and refuses; the whole hold's release takes its
+tombstone back (only its own), and a crashed holder's tombstone is judged like
+its lock. Whichever reaches the server first wins; two languages never refuse
+each other. A share directory left empty is removed by the last language that
+leaves it.
 
 A holder that finds its lock reclaimed (its heartbeat sees another token —
 it stalled past the bound) has LOST the component: the job is aborted and

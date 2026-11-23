@@ -266,3 +266,23 @@
   withdrawn), `media_processes_mount_native` (new, 12 — the mount table is read
   through `readBoundedSync` with a 4 MiB ceiling; past it or unopenable, the
   mount is refused typed, never trusted).
+- **Addendum 2026-11-23 (fourth review R1, the share without a probe):** the
+  per-lang PROBE at the whole name (link + 2 ms × 3 wait + CAS withdraw) is gone
+  — on NFS its withdraw (~7 synchronous RPCs) outlasted the wait, so two langs of
+  one component refused each other spuriously. Now the whole holder, after its
+  vacant `rmdir` of the share dir, links its lock AT the share dir's NAME as a
+  file — the TOMBSTONE. A per-lang registration (`link` into the dir) then gets
+  ENOTDIR (or ENOENT → `mkdir` EEXIST → refused after the attempts): refused,
+  server-answered. A registration that succeeded keeps the dir non-empty, so the
+  whole holder's `rmdir` answers ENOTEMPTY and its tombstone EEXIST (asked again
+  → refused). The release unlinks the tombstone by CAS (only a link of its own
+  lock); a crashed holder's tombstone is judged by its lock's rules (pid /
+  heartbeat at the lock's own path, sighted under the tombstone's name) and
+  reclaimed by the next lang or whole claim. Two langs never refuse each other
+  and nothing waits. No wire change. Gates: `media_component_lock_native`
+  (+3 → 60: crossed lang-first / whole-first, a lang crossing between the rmdir
+  and the tombstone (`lockShareHooks.beforeTombstone`); lang-vs-lang interleaved
+  and mid-leave (a dir removed between mkdir and link is made again), no wait;
+  dead tombstone reclaimed by a lang and by a whole claim; a live far
+  tombstone refuses while its heartbeat beats; a release takes back only its own
+  tombstone — replacing the probe-collision gate).
