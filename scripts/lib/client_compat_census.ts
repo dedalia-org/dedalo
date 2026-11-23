@@ -274,7 +274,7 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 	},
 	{
 		file: 'client/dedalo/core/area_maintenance/widgets/sequences_status/js/render_sequences_status.js',
-		pattern: /\bvalue\.msg\b/g,
+		pattern: /\bvalue\.result\b/g,
 		reason:
 			'The eager widget value IS the PHP-parity report block {result,msg,values} (src/core/area_maintenance/widgets/sequences_status.ts checkSequences).',
 	},
