@@ -36,6 +36,13 @@
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_media_versions .button.gear {
+    min-width: 44px;
+    -webkit-mask-size: 1em;
+    mask-size: 1em;
+  }
+}
 .wrapper_tool.tool_media_versions .job_progress {
   display: flex;
   flex-direction: column;

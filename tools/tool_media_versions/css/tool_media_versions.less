@@ -64,6 +64,18 @@
 		outline-offset: 2px;
 	}
 
+	// phone: the gear is a role=button control (A1-01), so it is a tap target
+	// (@phone_hit_target, tool_responsive.less). Only the HIT AREA grows: the
+	// icon is a `contain` mask (fn_add_mask), which would scale with the box, so
+	// it is pinned to its own 1em and stays centred in the wider target.
+	@media screen and (max-width: @width_break_point_phone) {
+		.button.gear {
+			min-width: 44px;
+			-webkit-mask-size: 1em;
+			mask-size: 1em;
+		}
+	}
+
 	// THE BUSY TIER. One readout for both paths — a build this browser started
 	// AND one it discovered already running (render_job_progress) — because a
 	// transcode must look the same whoever launched it. Local + inline for the
