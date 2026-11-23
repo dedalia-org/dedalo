@@ -510,6 +510,7 @@ self.onmessage = async (e) => {
 		// model call, under the per-block timeout.
 		await run_blocks({
 			blocks       : options.blocks,
+			mark_patterns: options.mark_patterns,
 			post         : (message) => self.postMessage(message),
 			is_cancelled : () => cancelled,
 			translate    : (text, overrides, label) => with_timeout(

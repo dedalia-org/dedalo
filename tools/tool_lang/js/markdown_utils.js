@@ -82,11 +82,13 @@
  * a token), which would cost the record its own. Consequences, all deliberate:
  *   - Markdown has NO escape: a backslash the model writes is a character (escape_html
  *     handles it like any other), and every '*', '_' or '`' in its answer is either a
- *     delimiter of the source's own emphasis/code or invented. conform_emphasis caps each
- *     delimiter kind (** __ * _ `) at the source segment's count (code spans first; two
- *     delimiters with nothing between never pair), and process_inline deletes whatever is
- *     left unpaired or sits inside a code span — the model cannot add emphasis, code or a
- *     literal metacharacter to the record, and emphasis spans only letters it delimited.
+ *     delimiter of the source's own emphasis/code or invented. conform_delimiters keeps,
+ *     per kind (** __ * _ `), only the pairs that READ as emphasis/code, never more than
+ *     the source segment has (code spans first; two delimiters with nothing between never
+ *     pair); every other one is deleted and reported, and more reading pairs than the
+ *     source's refuse the answer — which of them is the source's would be a guess. The
+ *     model cannot add emphasis, code or a literal metacharacter to the record, and no
+ *     emphasis lands on a span the model did not delimit.
  *   - Token cost. A literal mostly sits next to a word ('2*3', 'Roma*', '*1890', '__init__'):
  *     a run is ONE token however long ('***' is one), it is numbered locally per block (one
  *     digit), and at a segment edge it is hoisted like any edge token ('* Ejemplar…' never
@@ -108,7 +110,8 @@
  * Exports:
  *   html_to_markdown            — DOM walk: HTML string → Markdown string (tags shielded)
  *   markdown_to_html            — Markdown string → HTML string (model text escaped)
- *   conform_emphasis            — delete emphasis delimiters the model invented
+ *   conform_delimiters          — keep the model's reading pairs up to the source's; report the rest
+ *   conform_emphasis            — conform_delimiters' text
  *   restore_wrapping_emphasis   — re-wrap a wholly-emphasised segment the model unwrapped
  *   split_markdown_by_paragraph — split Markdown on \n\n+ boundaries → string[]
  *   segment_markdown            — split into {text, sep} segments the model can translate
@@ -1284,26 +1287,32 @@ const delimiter_pairs = (text, skip = () => false) => {
 }; //end delimiter_pairs
 
 /**
- * CONFORM_EMPHASIS
- * Forbid the model from inventing emphasis or code the source never had. (v6 92da452aa1)
+ * CONFORM_DELIMITERS
+ * Forbid the model from inventing emphasis or code the source never had, and from moving
+ * it by our guess. (v6 92da452aa1; A1-02 re-reviews 5 and 6)
  *
  * Translating text does not create formatting, yet a small model scatters ** and __ (and
  * backticks) through its answer. Every delimiter of the answer is the source's emphasis/code
- * or invented (the record's literal '*', '_', '`' travel as tokens — see the header), so the
- * answer keeps, of each kind, no more PAIRS than the source segment has delimiters for —
- * the pairs that read as emphasis first (delimiter_pairs, in the order they close), then
- * the model's other delimiters of the kind in order — and every other delimiter (beyond the
- * source's, a single '_', the odd one out) is deleted. Code spans are settled first: a '*'
- * or '_' inside a kept one is code's text, not a delimiter. Two delimiters of a kind with
- * nothing between never pair. The text is never touched, only the markers.
+ * or invented (the record's literal '*', '_', '`' travel as tokens — see the header). The
+ * answer keeps, of each kind, only the pairs that READ as emphasis or code (delimiter_pairs:
+ * an opener with a non-space after it, a closer with one before it, never two adjacent), and
+ * only as many as the source segment has; every other delimiter is deleted and REPORTED —
+ * never paired by position, which would put emphasis on a span nobody delimited
+ * ('Rome* and *Ostia' never saves as 'Rome<em> and </em>Ostia'). Code spans are settled
+ * first: a '*' or '_' inside a kept one is code's text. When the model's reading pairs of a
+ * kind outnumber the source's (and the source has some), which of them is the source's
+ * emphasis is a guess: the kind is named in `excess` and the caller refuses the answer
+ * (process_block: added_emphasis). A kind the source has none of is simply deleted. The
+ * text is never touched, only the markers.
  *
  * @param {string} source_text - The segment as sent to the model.
  * @param {string} output_text - The model's translation of it.
- * @returns {string}
+ * @returns {{text:string, deleted:string[], excess:string[]}} the conformed answer, the
+ *   delimiters deleted (in order), the kinds with more reading pairs than the source.
  */
-export function conform_emphasis(source_text, output_text) {
+export function conform_delimiters(source_text, output_text) {
 	if (!output_text) {
-		return output_text;
+		return { text: output_text, deleted: [], excess: [] };
 	}
 
 	const allowed = {};
@@ -1311,42 +1320,23 @@ export function conform_emphasis(source_text, output_text) {
 		allowed[item.delim] = (allowed[item.delim] || 0) + 1;
 	}
 
-	// the pairs we keep: of each kind, as many as the source's delimiters make — the pairs
-	// that read as emphasis first, then (where the source has room left) the model's other
-	// delimiters of that kind in order: what the model wrote is its emphasis, kept up to the
-	// source's count, never lost to our reading of where a pair may stand
 	const keep = new Set();
-	const kept = {};
-	const take = (delim, open, close) => {
-		if ((kept[delim] || 0) + 2 > (allowed[delim] || 0)) {
-			return false;
-		}
-		kept[delim] = (kept[delim] || 0) + 2;
-		keep.add(open);
-		keep.add(close);
-		return true;
-	};
+	const excess = [];
 	const positions = delimiter_positions(output_text);
-	/** One kind: its reading pairs first, then its leftovers in order (never two adjacent). */
+	/** One kind: its reading pairs, up to the source's pairs; more is a guess, named. */
 	const keep_kind = (delim, skip) => {
-		const spans = [];
-		for (const pair of delimiter_pairs(output_text, skip)) {
-			if (pair.delim === delim && take(delim, pair.open, pair.close)) {
-				spans.push([pair.open, pair.close]);
-			}
+		const pairs = delimiter_pairs(output_text, skip).filter((pair) => pair.delim === delim);
+		const room = Math.floor((allowed[delim] || 0) / 2);
+		// none allowed: every one is invented, deleting them all is no choice; some allowed
+		// and more written: keeping any is a guess
+		if (room > 0 && pairs.length > room) {
+			excess.push(delim);
 		}
-		const rest = positions.filter(
-			(item) => item.delim === delim && !keep.has(item.index) && !skip(item.index),
-		);
-		for (let k = 0; k + 1 < rest.length; ) {
-			if (rest[k].index + delim.length === rest[k + 1].index) {
-				k++;
-				continue;
-			}
-			if (take(delim, rest[k].index, rest[k + 1].index)) {
-				spans.push([rest[k].index, rest[k + 1].index]);
-			}
-			k += 2;
+		const spans = [];
+		for (const pair of pairs.slice(0, room)) {
+			keep.add(pair.open);
+			keep.add(pair.close);
+			spans.push([pair.open, pair.close]);
 		}
 		return spans;
 	};
@@ -1361,14 +1351,16 @@ export function conform_emphasis(source_text, output_text) {
 	}
 
 	const discard = new Map();
+	const deleted = [];
 	for (const item of positions) {
 		if (!keep.has(item.index)) {
 			discard.set(item.index, item.delim.length);
+			deleted.push(item.delim);
 		}
 	}
 
 	if (discard.size === 0) {
-		return output_text;
+		return { text: output_text, deleted, excess };
 	}
 
 	let out = '';
@@ -1382,8 +1374,18 @@ export function conform_emphasis(source_text, output_text) {
 		i++;
 	}
 
-	return out;
-} //end conform_emphasis
+	return { text: out, deleted, excess };
+} //end conform_delimiters
+
+/**
+ * CONFORM_EMPHASIS
+ * conform_delimiters' text alone.
+ * @param {string} source_text
+ * @param {string} output_text
+ * @returns {string}
+ */
+export const conform_emphasis = (source_text, output_text) =>
+	conform_delimiters(source_text, output_text).text; //end conform_emphasis
 
 /**
  * WHOLLY_WRAPPED_DELIMITER

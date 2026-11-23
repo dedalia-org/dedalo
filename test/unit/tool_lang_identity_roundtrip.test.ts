@@ -257,6 +257,7 @@ else {
 		const outputs = new Map<number, string>();
 		const run = await R.run_blocks({
 			blocks: prepared.blocks,
+			mark_patterns: B.mark_pattern_sources(),
 			translate: async (text: string, _overrides: unknown, label: string) => {
 				const index = Number(/^Block (\d+)\//.exec(label)?.[1]) - 1;
 				const block = prepared.blocks[index];
@@ -904,6 +905,61 @@ else {
 		u: '__',
 		code: '`',
 	};
+	/**
+	 * The pairs of a Markdown text that READ as emphasis or code, as a reader takes them
+	 * (stated here, not borrowed from the engine): code spans first (a backtick and the next
+	 * one; what is inside is literal), then, longest delimiter first, an opener has a
+	 * non-space after it, a closer a non-space before it and takes the nearest open one of its
+	 * kind, with letters or a token between.
+	 */
+	const readingPairs = (text: string) => {
+		const pairs: {
+			kind: string;
+			open: number;
+			openEnd: number;
+			close: number;
+			closeEnd: number;
+		}[] = [];
+		const code: [number, number][] = [];
+		const ticks = [...text.matchAll(/`/g)].map((match) => match.index);
+		for (let i = 0; i + 1 < ticks.length; i += 2) {
+			const open = ticks[i] as number;
+			const close = ticks[i + 1] as number;
+			if (close > open + 1) {
+				code.push([open, close]);
+				pairs.push({ kind: '`', open, openEnd: open + 1, close, closeEnd: close + 1 });
+			}
+		}
+		const inCode = (at: number) => code.some(([open, close]) => at >= open && at <= close);
+		const stacks = new Map<string, { at: number; end: number }[]>();
+		for (const item of delimitersOf(text)) {
+			if (item.kind === '`' || inCode(item.at)) continue;
+			const before = text[item.at - 1];
+			const after = text[item.end];
+			const stack = stacks.get(item.kind) ?? [];
+			stacks.set(item.kind, stack);
+			const top = stack.at(-1);
+			const between = top ? text.slice(top.end, item.at) : '';
+			if (
+				top &&
+				before !== undefined &&
+				/\S/.test(before) &&
+				(lettersOf(between, true) !== '' || /\[\[\[\d+\]\]\]/.test(between))
+			) {
+				stack.pop();
+				pairs.push({
+					kind: item.kind,
+					open: top.at,
+					openEnd: top.end,
+					close: item.at,
+					closeEnd: item.end,
+				});
+			} else if (after !== undefined && /\S/.test(after)) {
+				stack.push({ at: item.at, end: item.end });
+			}
+		}
+		return pairs;
+	};
 	const tally = (names: string[]) => {
 		const counts = new Map<string, number>();
 		for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -1011,28 +1067,9 @@ else {
 		// f. no emphasis lost the model did not drop (a delimiter written inside a code span
 		// is not one: code is literal)
 		if (run.report.emphasis_lost > 0) {
-			// the pairs of a kind a text can carry: a delimiter and the next of its kind with
-			// letters between ('____' is none), outside code spans (code is literal)
-			const pairsOf = (text: string) => {
-				const plain = text.replace(/`[^`]*`/g, 'C');
-				const counts = new Map<string, number>();
-				for (const kind of ['**', '__', '*', '`']) {
-					const marks = delimitersOf(plain).filter((item) => item.kind === kind);
-					let count = 0;
-					for (let i = 0; i + 1 < marks.length; ) {
-						const between = plain.slice(
-							(marks[i] as { end: number }).end,
-							(marks[i + 1] as { at: number }).at,
-						);
-						if (lettersOf(between, true) !== '' || /\[\[\[\d+\]\]\]/.test(between)) {
-							count++;
-							i += 2;
-						} else i++;
-					}
-					counts.set(kind, count);
-				}
-				return counts;
-			};
+			// the pairs of each kind a text READS as (F1: delimiters that do not read as a pair
+			// are deleted, so a model that wrote them but no pair dropped its emphasis)
+			const pairsOf = (text: string) => tally(readingPairs(text).map((pair) => pair.kind));
 			const dropped = answers.some((answer) => {
 				const sent = pairsOf(answer.sent);
 				const wrote = pairsOf(answer.text);
@@ -1042,6 +1079,56 @@ else {
 				problems.push(
 					`emphasis lost (${run.report.emphasis_lost}) though the model wrote every delimiter`,
 				);
+		}
+		// g. a CLEAN save (no warning) puts emphasis only where the source had it, or where the
+		// model wrote a pair that reads as one while writing no more of that kind than its
+		// segment had — the engine chose nothing (re-review 6, F1). The bounds are leg e's,
+		// with the model's READING pairs in place of any two delimiters: a pair the engine made
+		// out of delimiters that do not read ('Rome* and *Ostia') has none.
+		if (run.report.uncertain_count === 0) {
+			// the source's emphasis in the same token form as the saved text (its own Markdown,
+			// unrestored), so a mark reads the same on both sides
+			const sourceSpans = new Set(
+				elementTexts(run.prepared.to_html(run.prepared.md), new Set(Object.keys(KIND_OF))).map(
+					(element) => `${KIND_OF[element.name]}|${lettersOf(element.text)}`,
+				),
+			);
+			const opens: { kind: string; end: number }[] = [];
+			const closes: { kind: string; at: number }[] = [];
+			let at = 0;
+			for (const answer of answers) {
+				const wrote = readingPairs(answer.text);
+				const had = tally(readingPairs(answer.sent).map((pair) => pair.kind));
+				for (const pair of wrote) {
+					if (wrote.filter((other) => other.kind === pair.kind).length > (had.get(pair.kind) ?? 0))
+						continue;
+					opens.push({ kind: pair.kind, end: at + pair.openEnd });
+					closes.push({ kind: pair.kind, at: at + pair.close });
+				}
+				const sent = answer.sent.trim();
+				for (const kind of ['**', '__', '*', '`']) {
+					if (sent.startsWith(kind)) opens.push({ kind, end: at });
+					if (sent.endsWith(kind)) closes.push({ kind, at: at + answer.text.length });
+				}
+				at += answer.text.length + 1;
+			}
+			const modelSpans = new Set<string>();
+			for (const open of opens) {
+				for (const close of closes) {
+					if (close.kind === open.kind && close.at >= open.end)
+						modelSpans.add(`${open.kind}|${lettersOf(modelText.slice(open.end, close.at), true)}`);
+				}
+			}
+			for (const element of elementTexts(savedHtml, new Set(Object.keys(KIND_OF)))) {
+				const kind = KIND_OF[element.name] as string;
+				const letters = lettersOf(element.text);
+				if (letters === '') continue;
+				if (!sourceSpans.has(`${kind}|${letters}`) && !modelSpans.has(`${kind}|${letters}`)) {
+					problems.push(
+						`<${element.name}> spans ${JSON.stringify(element.text)} on a clean save: neither the source's emphasis nor a pair the model wrote`,
+					);
+				}
+			}
 		}
 		return problems;
 	}
@@ -1268,7 +1355,7 @@ else {
 				'double underscore (H1′)',
 				'<p>campo __init__ y <u>nota</u></p>',
 				() => 'field __init__ and __note__',
-				'saved',
+				'refused',
 			],
 			[
 				'backtick apostrophe + code (H1′)',
@@ -1298,7 +1385,7 @@ else {
 				'multiply compact (H1′)',
 				'<p>3*4 y <em>más</em> 5*6</p>',
 				() => '3*4 and *more* 5*6',
-				'saved',
+				'refused',
 			],
 			[
 				'reconstructed form reordered (H1′)',
@@ -1364,6 +1451,54 @@ else {
 				'saved',
 				'<p><strong>Ceca <code>RIC II</code> rara</strong> fin</p>',
 			],
+			// F1 (re-review 6): delimiters that do not read as a pair are never paired by
+			// position; more reading pairs than the segment's is a guess, refused
+			[
+				'flipped flanks (F1)',
+				'<p><em>Roma</em> y Ostia</p>',
+				() => 'Rome* and *Ostia',
+				'saved',
+				'<p>Rome and Ostia</p>',
+			],
+			[
+				'an invented pair first (F1)',
+				'<p>Uno <strong>dos</strong> tres</p>',
+				() => '**Uno** **dos** tres',
+				'refused',
+			],
+			[
+				'split emphasis (F1)',
+				'<p>Moneda <em>de plata fina</em></p>',
+				() => '*Fine* silver *coin*',
+				'refused',
+			],
+			[
+				'a stray pair across words (F1)',
+				'<p>Moneda de <strong>plata</strong> fina</p>',
+				() => 'Fine ** silver ** coin',
+				'saved',
+				'<p>Fine  silver  coin</p>',
+			],
+			['a lone opener (F1)', '<p><em>Roma</em>, capital</p>', () => '*Rome, capital*', 'saved'],
+			// F2: a Dédalo mark the model writes is refused, never saved mangled
+			[
+				'the model writes a TC mark (F2)',
+				'<p>Hola mundo</p>',
+				() => '[TC_00:00:01.000_TC] Hello world',
+				'refused',
+			],
+			[
+				'the model copies an index mark (F2)',
+				'<p>Una ballena blanca</p>',
+				() => 'A [index-n-1-ballena-data::data]white whale[/index-n-1-ballena-data::data]',
+				'refused',
+			],
+			[
+				'the model duplicates the source TC as text (F2)',
+				'<p>[TC_00:00:01.000_TC]Hola mundo</p>',
+				() => 'Hello [TC_00:00:01.000_TC] world',
+				'refused',
+			],
 			// L3 (re-review 5): no length ratio — a short answer is an answer
 			[
 				'a few characters for a long passage is not a loss (L3)',
@@ -1422,6 +1557,14 @@ else {
 			expect(cjk.report.refused).toBe(false);
 		});
 
+		test('a character the model wrote that conform deletes is never silent: the save carries a warning (F3)', async () => {
+			const run = await pipeline('<p>Nombre del fichero</p>', () => 'file_name');
+			expect(run.failed).toEqual([]);
+			expect(browserSerialize(run.out)).toBe('<p>filename</p>');
+			expect(run.report.residual).toEqual(['_']);
+			expect(run.report.uncertain_count).toBeGreaterThan(0);
+		});
+
 		test('the elements whose content is not text to translate are restored whole (L1)', () => {
 			for (const tag of [
 				'pre',
@@ -1437,11 +1580,15 @@ else {
 			}
 		});
 
-		test('the oracle is not vacuous: each of its six checks rejects a doctored save', async () => {
+		test('the oracle is not vacuous: each of its seven checks rejects a doctored save', async () => {
 			const html = '<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>';
 			const run = await pipeline(html);
-			const doctor = (accumulated: string, out = run.out, report = run.report) =>
-				deviationProblems(html, { ...run, accumulated, out, report });
+			const doctor = (
+				accumulated: string,
+				out = run.out,
+				report = run.report,
+				outputs = run.outputs,
+			) => deviationProblems(html, { ...run, accumulated, out, report, outputs });
 			expect(doctor(run.accumulated)).toEqual([]);
 			// a. letters
 			expect(doctor(run.accumulated.replace('Peso', 'Pesa')).join()).toContain('letters');
@@ -1459,6 +1606,14 @@ else {
 			expect(
 				doctor(run.accumulated, run.out, { ...run.report, emphasis_lost: 1 }).join(),
 			).toContain('emphasis lost');
+			// g. a clean save with emphasis the engine made of delimiters that do not read as a
+			// pair ('uno* y *x' saved as 'uno <em>y</em> x')
+			const sent = run.prepared.blocks[0].text as string;
+			expect(sent).toContain('*uno* y ');
+			const unread = new Map([[0, sent.replace('*uno* y ', 'uno* y *')]]);
+			expect(
+				doctor(run.accumulated.replace('*uno* y ', 'uno *y* '), run.out, run.report, unread).join(),
+			).toContain('on a clean save');
 		});
 
 		/**

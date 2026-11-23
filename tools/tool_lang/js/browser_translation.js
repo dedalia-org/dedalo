@@ -351,6 +351,23 @@ export const extract_dedalo_marks = function(text) {
 
 
 /**
+* MARK_PATTERN_SOURCES
+* The Dédalo mark patterns as data, for the worker (A1-02 re-review 6, F2): block_runner.js
+* finds a mark the model wrote in its raw answer before anything is conformed, and the
+* worker never imports the Dédalo runtime — so the patterns travel with the blocks.
+* @returns {Array<{source:string, flags:string}>}
+*/
+export const mark_pattern_sources = function() {
+
+	return DEDALO_MARKS.map((mark) => {
+		const pattern = tr.get_mark_pattern(mark)
+		return { source: pattern.source, flags: pattern.flags }
+	})
+}//end mark_pattern_sources
+
+
+
+/**
 * CLASSIFY_MARK
 * Decide whether a mark is one half of a paired mark or a standalone atom.
 *
@@ -1025,7 +1042,8 @@ const is_degenerate = function(source_text, restored_text) {
 * @param {string} source_text   - The original HTML value (marks intact).
 * @param {string} restored_text - The translated HTML value, restored and reordered.
 * @param {Object} extra         - { repaired, unrepairable, duplicated, residual, reordered,
-*   tags_missing, stray, outside_text, structure_moved, tags_crossed, sentences_short }
+*   tags_missing, stray, outside_text, structure_moved, tags_crossed, sentences_short,
+*   written_marks — marks found in the translated Markdown, where every real one is a token }
 * @returns {Object} the report; `refused` and `uncertain_count` decide.
 */
 export const validate_translation = function(source_text, restored_text, extra) {
@@ -1049,6 +1067,16 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		}
 		for (let i = 0; i < -delta; i++) {
 			added.push(mark)
+		}
+	}
+	// a mark written into the Markdown that did not survive to the result as itself
+	const surviving = [...added]
+	for (const mark of extra?.written_marks || []) {
+		const at = surviving.indexOf(mark)
+		if (at === -1) {
+			added.push(mark)
+		} else {
+			surviving.splice(at, 1)
 		}
 	}
 
@@ -1243,7 +1271,13 @@ export const finish_translation = function(prepared, translated_md, repair_stats
 	const outside_count	= (html) =>
 		extract_dedalo_marks(html).length - marks_in_text_nodes(html, extract_dedalo_marks).length
 
+	// every real mark is a token in the translated Markdown: a mark there was WRITTEN (by the
+	// model, or a worker that let it through) — counted as added even if the Markdown
+	// conversion mangles it into text (F2)
+	const written_marks = extract_dedalo_marks(String(translated_md ?? '')).map(item => item.mark)
+
 	const report = validate_translation(clean_source_text, restored_text, {
+		written_marks	: written_marks,
 		repaired		: stats.repaired || [],
 		unrepairable	: stats.unrepairable || [],
 		duplicated		: [...(stats.duplicated || []), ...restored.duplicated],
@@ -2220,6 +2254,7 @@ export const translate_component_browser = async function(options) {
 		translate_worker.postMessage({
 			options : {
 				blocks			: blocks,
+				mark_patterns	: mark_pattern_sources(),
 				sourceLangCode	: source_lang_code,
 				targetLangCode	: target_lang_code,
 				device			: device,

@@ -32,11 +32,13 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { tr } from '../../client/dedalo/core/common/js/tr.js';
 import {
 	BLOCK_ERROR_CODES,
 	BlockError,
 	collapse_model_breaks,
 	detect_repetition,
+	EMPHASIS_RETRY,
 	lost_text,
 	MAX_LENGTH_RATIO,
 	needs_webgpu_message,
@@ -58,6 +60,7 @@ import {
 	offered_models,
 } from '../../tools/tool_lang/js/browser_models.js';
 import {
+	conform_delimiters,
 	conform_emphasis,
 	markdown_to_html,
 	restore_wrapping_emphasis,
@@ -69,6 +72,12 @@ import {
 	normalize_placeholders,
 	repair_placeholders,
 } from '../../tools/tool_lang/js/placeholders.js';
+
+/** Two of tr.js's mark patterns as the main thread sends them (mark_pattern_sources). */
+const MARK_PATTERNS = ['tc', 'indexIn'].map((mark) => {
+	const pattern = tr.get_mark_pattern(mark) as RegExp;
+	return { source: pattern.source, flags: pattern.flags };
+});
 
 type Descriptor = { token: string; kind: 'open' | 'close' | 'atom'; pair: string | null };
 type Block = {
@@ -366,6 +375,7 @@ describe('L3: lost text is the empty floor only; a cut answer is caught by its s
 		expect(out.sentences_short).toBe(true);
 		const messages: Message[] = [];
 		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
 			blocks: [{ ...short_block, prefix: '', suffix: '', sep: '' }],
 			translate: async () => 'The coin was minted in Rome. It has',
 			post: (message: Message) => messages.push(structuredClone(message)),
@@ -401,6 +411,7 @@ describe('L4: a failed block carries a CODE and a detail, never words (A1-02 re-
 	test('run_blocks forwards code and detail in failed_blocks and on_block_error', async () => {
 		const messages: Message[] = [];
 		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
 			blocks: [{ ...block, prefix: '', suffix: '', sep: '' }],
 			translate: async () => 'Moneda de <b>plata</b> fina.',
 			post: (message: Message) => messages.push(structuredClone(message)),
@@ -410,6 +421,53 @@ describe('L4: a failed block carries a CODE and a detail, never words (A1-02 re-
 		expect(end.failed_blocks).toMatchObject([
 			{ block: 1, code: 'added_markup', detail: '<b> </b>' },
 		]);
+	});
+
+	test('added_emphasis: more emphasis than the segment has is asked once more (sampling), then refused (F1)', async () => {
+		const seg = { text: 'Uno **dos** tres', placeholders: [], restore_map: {} };
+		const asked: unknown[] = [];
+		const error = await process_block(async (_text: string, overrides: unknown) => {
+			asked.push(overrides);
+			return '**Uno** **dos** tres';
+		}, seg).catch((thrown: unknown) => thrown);
+		expect((error as BlockError).code).toBe('added_emphasis');
+		expect((error as BlockError).detail).toBe('**');
+		expect(asked).toEqual([{ repetition_penalty: 1.1 }, EMPHASIS_RETRY]);
+		// the retry's answer, when it is not a guess, is kept
+		let calls = 0;
+		const out = await process_block(
+			async () => (calls++ === 0 ? '**Uno** **dos** tres' : 'One **two** three'),
+			seg,
+		);
+		expect(out.text).toBe('One **two** three');
+		expect(out.residual).toEqual([]);
+	});
+
+	test('a deleted delimiter is reported in residual, never silent (F3)', async () => {
+		const seg = { text: 'Nombre del fichero', placeholders: [], restore_map: {} };
+		const out = await process_block(async () => 'file_name of the *file', seg);
+		expect(out.text).toBe('filename of the file');
+		expect(out.residual).toEqual(['_', '*']);
+	});
+
+	test('added_mark: a Dédalo mark the model WROTE fails the block, found before conform eats its "_" (F2)', async () => {
+		const messages: Message[] = [];
+		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
+			blocks: [{ ...block, prefix: '', suffix: '', sep: '' }],
+			translate: async () => '[TC_00:00:01.000_TC] Silver coin.',
+			post: (message: Message) => messages.push(structuredClone(message)),
+		});
+		expect(messages[0]?.data).toMatchObject({ code: 'added_mark', detail: '[TC_00:00:01.000_TC]' });
+	});
+
+	test('run_blocks without the mark patterns refuses to run: a written mark would go unseen (F2)', async () => {
+		await expect(
+			// deliberately missing the required key: the runtime refusal is the contract under test
+			run_blocks({ blocks: [], translate: async () => '', post: () => {} } as unknown as Parameters<
+				typeof run_blocks
+			>[0]),
+		).rejects.toThrow('mark_patterns');
 	});
 
 	test('every code has a register.json label block_<code>, in every language of both tools', () => {
@@ -489,6 +547,7 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 	async function run(translate: Translate, run_blocks_list: Block[] = blocks) {
 		const messages: Message[] = [];
 		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
 			blocks: run_blocks_list,
 			translate,
 			post: (message: Message) => messages.push(structuredClone(message)),
@@ -576,6 +635,7 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 		const messages: Message[] = [];
 		let cancelled = false;
 		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
 			blocks,
 			translate: async (text: string) => {
 				cancelled = true;
@@ -591,6 +651,7 @@ describe('run_blocks — messages, document-wide tokens, repair_stats', () => {
 		const messages: Message[] = [];
 		let cancelled = false;
 		await run_blocks({
+			mark_patterns: MARK_PATTERNS,
 			blocks,
 			translate: async (text: string) => {
 				if (text.startsWith('Second')) cancelled = true;
@@ -816,25 +877,41 @@ describe('markdown_utils — segmentation and model-text escaping (no DOM)', () 
 		expect(outcome.text).toBe('Uno. Dos.');
 	});
 
-	test('conform_emphasis keeps the PAIRS the source has delimiters for, and deletes every other delimiter (H1′)', () => {
+	test("conform_delimiters keeps only READING pairs, up to the source's; every other delimiter is deleted and reported (H1′, F1, F3)", () => {
 		// an unpaired one (no non-space on its inner side) never pairs across words
-		expect(conform_emphasis('Moneda de *plata*[[[1]]]', 'Silver* *coin* (see note)')).toBe(
-			'Silver *coin* (see note)',
-		);
-		// beyond the source's count: the first pairs to close are kept
-		expect(conform_emphasis('3[[[1]]]4 y *más*', '3*4 and *more* 5*6')).toBe('34 and *more* 56');
-		// a single '_' and an invented backtick are never the source's
-		expect(conform_emphasis('__a__ y `b`', '__a_b__ y `b` `c')).toBe('__ab__ y `b` c');
-		// the source's count, nothing beyond: no pair at all in a source without delimiters
+		expect(conform_delimiters('Moneda de *plata*[[[1]]]', 'Silver* *coin* (see note)')).toEqual({
+			text: 'Silver *coin* (see note)',
+			deleted: ['*'],
+			excess: [],
+		});
+		// a single '_' and an invented backtick are never the source's — deleted, reported
+		expect(conform_delimiters('__a__ y `b`', '__a_b__ y `b` `c')).toEqual({
+			text: '__ab__ y `b` c',
+			deleted: ['_', '`'],
+			excess: [],
+		});
+		expect(conform_delimiters('Nombre [[[1]]]', 'file_name [[[1]]]')).toEqual({
+			text: 'filename [[[1]]]',
+			deleted: ['_'],
+			excess: [],
+		});
+		// a source without delimiters: no pair at all
 		expect(conform_emphasis('Valoración: [[[1]]]', 'Rating: *** (good) `x`')).toBe(
 			'Rating:  (good) x',
 		);
-		// strict pairs first; the model's other delimiters still pair in order when the
-		// source has room for them (its emphasis is kept, never 'lost' by our reading)
-		expect(conform_emphasis('Uno **dos** tres', 'One ** two ** three')).toBe('One ** two ** three');
+		// delimiters that do not READ as a pair are never paired by position (F1): emphasis
+		// would land on a span nobody delimited ('Rome<em> and </em>Ostia')
+		expect(conform_delimiters('*Roma* y Ostia', 'Rome* and *Ostia')).toEqual({
+			text: 'Rome and Ostia',
+			deleted: ['*', '*'],
+			excess: [],
+		});
+		expect(conform_emphasis('Uno **dos** tres', 'One ** two ** three')).toBe('One  two  three');
+		// more reading pairs than the source has: which is the source's is a guess — named
+		expect(conform_delimiters('Uno **dos** tres', '**Uno** **dos** tres').excess).toEqual(['**']);
+		expect(conform_delimiters('3[[[1]]]4 y *más*', '3*4 and *more* 5*6').excess).toEqual(['*']);
 		// two delimiters with nothing between never pair: the second opens
 		expect(conform_emphasis('__Roma__ y', '____Rome__ and')).toBe('__Rome__ and');
-		expect(conform_emphasis('**a** b', '**** a** b**')).toBe('** a** b');
 		// code first: a '*' inside a kept code span is code's text — it neither pairs nor
 		// blocks the pair around the span
 		expect(conform_emphasis('**[[[1]]]`x y`[[[2]]]** z', '**[[[1]]]`x** y`[[[2]]]** z')).toBe(

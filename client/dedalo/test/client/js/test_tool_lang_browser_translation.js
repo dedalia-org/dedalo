@@ -133,6 +133,7 @@ const make_fake_worker = (behaviour) =>
 				}
 				run_blocks({
 					blocks: message.options.blocks,
+					mark_patterns: message.options.mark_patterns,
 					translate: behaviour.translate,
 					post: deliver,
 					is_cancelled: () => this.cancelled && !behaviour.ignore_cancel,
@@ -417,6 +418,14 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 		const run = await run_translation();
 
 		assert.deepEqual(refusal_problems(run, 'the model wrote markup the text did not have'), []);
+	});
+
+	it('a Dédalo mark the MODEL writes fails its block (added_mark) — never saved mangled (F2)', async () => {
+		window.Worker = make_fake_worker({ translate: async () => '[TC_00:00:05.000_TC] La [[[1]]]ballena blanca[[[2]]] nada. Se sumerge hondo.' });
+
+		const run = await run_translation();
+
+		assert.deepEqual(refusal_problems(run, 'the model wrote a Dédalo mark the text did not have'), []);
 	});
 
 	it('a refused block is worded from its CODE: the tool label in the operator\'s language, else English (L4)', async () => {
@@ -1094,9 +1103,9 @@ describe('TOOL_LANG BROWSER TRANSLATION — every Dédalo mark accounted for (A1
 					status: 'end',
 					data: {
 						remaining: 0,
-						// a mark with no '_' or '*' in its syntax: the model's own '_' are delimiters
-						// (deleted when unpaired), so an invented '[TC_…_TC]' comes back as text
-						accumulated_text: '[[[1]]]La [[[2]]]ballena blanca[[[3]]] nada. [index-n-9-term9-data::data]Se sumerge hondo.',
+						// '_' in its syntax: the Markdown conversion would mangle it into text, so
+						// the mark is counted where it was written (re-review 6, F2)
+						accumulated_text: '[[[1]]]La [[[2]]]ballena blanca[[[3]]] nada. [TC_00:00:09.000_TC]Se sumerge hondo.',
 						repair_stats: { repaired: [], unrepairable: [] },
 					},
 				},

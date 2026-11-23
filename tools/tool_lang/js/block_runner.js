@@ -51,7 +51,9 @@
  *   duplicated   — tokens the model emitted more than once; every copy removed (which copy
  *                  is right is unknowable, so none is kept)
  *   residual     — tokens the model invented (not in the block), removed; LOCAL numbers
- *                  with no document-wide meaning, so only their count matters
+ *                  with no document-wide meaning, so only their count matters — and the
+ *                  '*', '_', '`' delimiters conform_delimiters deleted (A1-02 re-review 6,
+ *                  F3: a deleted character of the answer is never silent)
  *   sentences_short — block numbers whose answer ends fewer sentences than the segment
  *                  (sentences_short): saved, with a warning
  * failed_blocks = [{ block, total, message, code, detail }] — code a BLOCK_ERROR_CODES key
@@ -68,7 +70,7 @@
  * during the last block ends the run as 'cancelled', never 'end'.
  *
  * Exports:
- *   REPETITION_PENALTY_FIRST, REPETITION_ESCALATIONS, MAX_LENGTH_RATIO
+ *   REPETITION_PENALTY_FIRST, REPETITION_ESCALATIONS, EMPHASIS_RETRY, MAX_LENGTH_RATIO
  *   strip_fences       — unwrap the fences, quotes or preamble a model put around its answer
  *   token_problems     — which of a block's tokens are not present exactly once
  *   detect_repetition  — has the model looped instead of translating
@@ -85,10 +87,12 @@
  *   sentences_short    — an answer that ends fewer sentences than its segment (cut short?)
  *   stopped_at_token_limit — did a generation stop at max_new_tokens rather than its end token
  *   BlockError, BLOCK_ERROR_CODES — the coded failure a block throws ({code, detail})
+ *   mark_finder        — the main thread's Dédalo mark patterns (tr.js, sent with the
+ *                        blocks) → a finder; the worker never imports the Dédalo runtime
  */
 
 // imports
-import { conform_emphasis, restore_wrapping_emphasis, sentence_count } from './markdown_utils.js';
+import { conform_delimiters, restore_wrapping_emphasis, sentence_count } from './markdown_utils.js';
 import {
 	extract_placeholders,
 	normalize_placeholders,
@@ -115,6 +119,29 @@ export const REPETITION_ESCALATIONS = [
 	{ repetition_penalty: 1.2 },
 	{ repetition_penalty: 1.2, do_sample: true, temperature: 0.3, top_p: 0.9 },
 ];
+
+/**
+ * The one retry an answer with more emphasis than its segment gets (A1-02 re-review 6, F1):
+ * sampling, so the answer can differ.
+ * @type {Object}
+ */
+export const EMPHASIS_RETRY = { repetition_penalty: REPETITION_PENALTY_FIRST, do_sample: true, temperature: 0.3, top_p: 0.9 };
+
+/**
+ * MARK_FINDER
+ * The Dédalo marks of a text, by the main thread's patterns (tr.js get_mark_pattern, sent
+ * with the blocks as {source, flags} — the worker never imports the Dédalo runtime).
+ * @param {Array<{source:string, flags:string}>} patterns
+ * @returns {(text:string) => string[]}
+ */
+export const mark_finder = (patterns) => {
+	const sources = patterns.map((pattern) => ({
+		source: pattern.source,
+		flags: pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
+	}));
+	return (text) =>
+		sources.flatMap((pattern) => [...String(text).matchAll(new RegExp(pattern.source, pattern.flags))].map((match) => match[0]));
+}; //end mark_finder
 
 /**
  * Longest repeating cycle to look for, in words: a greedy-decode loop is almost always a
@@ -389,9 +416,16 @@ export const to_global_tokens = (text, restore_map) => {
  *
  * The text's own '*', '_', '`' and '\' are tokens (markdown_utils.js shield_literals —
  * A1-02 re-review 5, H1′), so every delimiter in the answer is the source's emphasis or code,
- * or invented: conform_emphasis deletes the ones beyond the segment's. A quadruple-bracket
+ * or invented: conform_delimiters keeps the model's reading pairs up to the segment's and
+ * deletes the rest (`deleted`, reported as residual); more reading pairs than the segment's
+ * (`excess`) make the choice a guess, and process_block refuses it. A quadruple-bracket
  * shape the segment carries ('[[[[1]]]]': a token inside the text's own brackets) is kept as
  * it is by normalize_placeholders.
+ *
+ * A Dédalo mark the model WROTE ('[TC_00:00:01.000_TC]', '[index-n-1-…]') is found in the raw
+ * answer (`marks`), BEFORE anything is conformed — conform would delete its '_' and save it
+ * as mangled text (A1-02 re-review 6, F2). Every real mark of the segment is a token, so any
+ * mark in the answer is invented: process_block refuses the block (added_mark).
  *
  * Markup the model WROTE (tag-shaped text the segment did not carry: '<br>', '<b>…</b>', a
  * second '<p>') is collected in `markup` — after the wrapper strip — and process_block
@@ -401,12 +435,15 @@ export const to_global_tokens = (text, restore_map) => {
  * @param {*} raw - Model output.
  * @param {string} source - The block text sent to the model.
  * @param {Set<string>} known - The block's own tokens.
- * @returns {{text:string, invented:string[], markup:string[]}}
+ * @param {(text:string) => string[]} find_marks - Dédalo marks in a text (mark_finder).
+ * @returns {{text:string, invented:string[], markup:string[], marks:string[], deleted:string[], excess:string[]}}
  */
-const clean_output = (raw, source, known) => {
+const clean_output = (raw, source, known, find_marks) => {
 	const invented = [];
 	const keep_quads = /\[\[\[\[\d+\]\]\]\]/.test(String(source));
-	const normalised = normalize_placeholders(strip_fences(String(raw ?? '')), keep_quads).replace(placeholder_re(), (token) => {
+	const answer = strip_fences(String(raw ?? ''));
+	const marks = find_marks(answer);
+	const normalised = normalize_placeholders(answer, keep_quads).replace(placeholder_re(), (token) => {
 		if (known.has(token)) {
 			return token;
 		}
@@ -417,12 +454,10 @@ const clean_output = (raw, source, known) => {
 	const unwrapped = strip_added_paragraph(source, normalised);
 	const markup = added_markup(source, unwrapped);
 
-	const text = restore_wrapping_emphasis(
-		source,
-		conform_emphasis(source, collapse_model_breaks(source, unwrapped)),
-	);
+	const conformed = conform_delimiters(source, collapse_model_breaks(source, unwrapped));
+	const text = restore_wrapping_emphasis(source, conformed.text);
 
-	return { text, invented, markup };
+	return { text, invented, markup, marks, deleted: conformed.deleted, excess: conformed.excess };
 }; //end clean_output
 
 /**
@@ -517,6 +552,9 @@ export const stopped_at_token_limit = (count, max_new_tokens, end_token_ids) =>
  * register.json label (block_<code>) in the operator's language, the English text as the
  * fallback (A1-02 re-review 5, L4).
  *   added_markup — the model wrote markup the text did not have (detail: the tags)
+ *   added_mark   — the model wrote a Dédalo mark (detail: the marks): every real one is a token
+ *   added_emphasis — more reading emphasis/code pairs of a kind than the segment has, after
+ *                  one sampling retry (detail: the kinds): keeping any is a guess
  *   lost_text    — the model returned no text for a passage that has some
  *   repetition   — the model looped and could not be recovered
  *   truncated    — the generation stopped at its token limit: the answer is cut
@@ -524,6 +562,8 @@ export const stopped_at_token_limit = (count, max_new_tokens, end_token_ids) =>
  */
 export const BLOCK_ERROR_CODES = Object.freeze({
 	added_markup: 'the model wrote markup the text did not have',
+	added_mark: 'the model wrote a Dédalo mark the text did not have',
+	added_emphasis: 'the model wrote more emphasis than the text has: which is the original is a guess',
 	lost_text: 'the model returned no text for a passage that has some',
 	repetition: 'the model looped and could not be recovered (repetition degeneration)',
 	truncated: 'the model stopped at its length limit: the translation is cut short',
@@ -614,7 +654,9 @@ const answer_of = (result) =>
  *      a model call.
  *   2. If the output looped, retry with each REPETITION_ESCALATIONS step in turn; a block
  *      still looping THROWS (a loop must never be written to the record). So does an answer
- *      that wrote markup (added_markup), lost the text (lost_text) or whose generation
+ *      that wrote markup (added_markup) or a Dédalo mark (added_mark), kept more emphasis
+ *      pairs than the segment has after one sampling retry (added_emphasis), lost the text
+ *      (lost_text) or whose generation
  *      stopped at its token limit (stopped_at_limit): a thrown block is a failed block, and
  *      the main thread refuses the run. Each throw is a BlockError {code, detail}.
  *   3. Whatever markers the model dropped are placed by repair_placeholders() and reported.
@@ -635,6 +677,7 @@ const answer_of = (result) =>
 export const process_block = async (translate, block, options = {}) => {
 	const label = options.label || 'Block';
 	const is_cancelled = typeof options.is_cancelled === 'function' ? options.is_cancelled : () => false;
+	const find_marks = typeof options.find_marks === 'function' ? options.find_marks : () => [];
 
 	const block_tokens = [...new Set(extract_placeholders(block.text))];
 	const known = new Set(block_tokens);
@@ -646,10 +689,19 @@ export const process_block = async (translate, block, options = {}) => {
 
 	const attempt = async (overrides, attempt_label) => {
 		const answer = answer_of(await translate(block.text, overrides, attempt_label));
-		return { ...clean_output(answer.text, block.text, known), stopped_at_limit: answer.stopped_at_limit };
+		return {
+			...clean_output(answer.text, block.text, known, find_marks),
+			stopped_at_limit: answer.stopped_at_limit,
+		};
 	};
 
 	let output = await attempt({ repetition_penalty: REPETITION_PENALTY_FIRST }, label);
+
+	// 1b. more emphasis than the segment has: asked once more, sampling (a greedy decode
+	// would only repeat itself); still more, the block is refused below
+	if (output.excess.length > 0 && !is_cancelled()) {
+		output = await attempt(EMPHASIS_RETRY, `${label} (emphasis retry, sampling)`);
+	}
 
 	// 2. repetition degeneration
 	if (detect_repetition(output.text, block.text)) {
@@ -664,6 +716,10 @@ export const process_block = async (translate, block, options = {}) => {
 			}
 		}
 		if (detect_repetition(output.text, block.text)) {
+			// a mark it wrote is the more precise reason
+			if (output.marks.length > 0) {
+				throw new BlockError('added_mark', output.marks.join(' '), label);
+			}
 			throw new BlockError('repetition', '', label);
 		}
 	}
@@ -674,6 +730,12 @@ export const process_block = async (translate, block, options = {}) => {
 	}
 	if (output.markup.length > 0) {
 		throw new BlockError('added_markup', output.markup.join(' '), label);
+	}
+	if (output.marks.length > 0) {
+		throw new BlockError('added_mark', output.marks.join(' '), label);
+	}
+	if (output.excess.length > 0) {
+		throw new BlockError('added_emphasis', output.excess.join(' '), label);
 	}
 	if (lost_text(block.text, output.text)) {
 		throw new BlockError('lost_text', '', label);
@@ -695,7 +757,8 @@ export const process_block = async (translate, block, options = {}) => {
 		repaired: repaired.repaired,
 		unrepairable: repaired.unrepairable,
 		duplicated,
-		residual: output.invented,
+		// tokens the model invented, and the delimiters conform deleted: never silent
+		residual: [...output.invented, ...output.deleted],
 		// 5. cut short? kept, and reported
 		sentences_short: sentences_short(block.text, output.text),
 	};
@@ -724,6 +787,7 @@ export const process_block = async (translate, block, options = {}) => {
  * @param {Function} options.translate    - (text, overrides, label) => Promise<string | {text, stopped_at_limit}>
  * @param {Function} options.post         - (message) => void; the worker passes self.postMessage
  * @param {Function} [options.is_cancelled] - () => boolean
+ * @param {Array<{source: string, flags: string}>} options.mark_patterns - the Dédalo mark patterns as data (mark_pattern_sources())
  * @returns {Promise<Object>} The final result object (the 'end' or 'cancelled' payload).
  */
 export const run_blocks = async (options) => {
@@ -731,6 +795,11 @@ export const run_blocks = async (options) => {
 	const translate = options.translate;
 	const post = options.post;
 	const is_cancelled = typeof options.is_cancelled === 'function' ? options.is_cancelled : () => false;
+	// required: without the mark patterns a mark the model writes would go unseen (F2)
+	if (!Array.isArray(options.mark_patterns) || options.mark_patterns.length === 0) {
+		throw new Error('run_blocks: mark_patterns (the Dédalo mark patterns) are required');
+	}
+	const find_marks = mark_finder(options.mark_patterns);
 
 	const total_blocks = blocks.length;
 
@@ -795,7 +864,7 @@ export const run_blocks = async (options) => {
 		const label = `Block ${i + 1}/${total_blocks}`;
 
 		try {
-			const outcome = await process_block(translate, block, { label, is_cancelled });
+			const outcome = await process_block(translate, block, { label, is_cancelled, find_marks });
 
 			// hoisted tokens are document-wide already: attached AFTER the mapping
 			parts.push({

@@ -1312,6 +1312,106 @@
           },
           {
             "lang": "lg-cat",
+            "name": "block_added_mark",
+            "value": "El model ha escrit una marca de Dédalo que el text no tenia"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_mark",
+            "value": "Das Modell hat eine Dédalo-Marke geschrieben, die der Text nicht hatte"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_mark",
+            "value": "Το μοντέλο έγραψε ένα σημάδι Dédalo που δεν είχε το κείμενο"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_added_mark",
+            "value": "The model wrote a Dédalo mark the text did not have"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_mark",
+            "value": "Ereduak testuak ez zuen Dédalo marka bat idatzi du"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_mark",
+            "value": "Le modèle a écrit une marque Dédalo que le texte n’avait pas"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_mark",
+            "value": "Il modello ha scritto un marcatore Dédalo che il testo non aveva"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_mark",
+            "value": "मोडेलले पाठमा नभएको Dédalo चिन्ह लेख्यो"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_mark",
+            "value": "O modelo escreveu uma marca do Dédalo que o texto não tinha"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_mark",
+            "value": "El modelo escribió una marca de Dédalo que el texto no tenía"
+          },
+          {
+            "lang": "lg-cat",
+            "name": "block_added_emphasis",
+            "value": "El model ha escrit més negreta, cursiva o codi que el text: quin és l’original seria una suposició"
+          },
+          {
+            "lang": "lg-deu",
+            "name": "block_added_emphasis",
+            "value": "Das Modell hat mehr Fett, Kursiv oder Code geschrieben, als der Text hat: welches das Original ist, wäre geraten"
+          },
+          {
+            "lang": "lg-ell",
+            "name": "block_added_emphasis",
+            "value": "Το μοντέλο έγραψε περισσότερα έντονα, πλάγια ή κώδικα από όσα έχει το κείμενο: ποιο είναι το αρχικό θα ήταν εικασία"
+          },
+          {
+            "lang": "lg-eng",
+            "name": "block_added_emphasis",
+            "value": "The model wrote more bold, italic or code than the text has: which one is the original would be a guess"
+          },
+          {
+            "lang": "lg-eus",
+            "name": "block_added_emphasis",
+            "value": "Ereduak testuak baino lodi, etzan edo kode gehiago idatzi du: zein den jatorrizkoa asmatzea litzateke"
+          },
+          {
+            "lang": "lg-fra",
+            "name": "block_added_emphasis",
+            "value": "Le modèle a écrit plus de gras, d’italique ou de code que le texte n’en a : deviner l’original serait hasardeux"
+          },
+          {
+            "lang": "lg-ita",
+            "name": "block_added_emphasis",
+            "value": "Il modello ha scritto più grassetto, corsivo o codice di quanto ne abbia il testo: quale sia l’originale sarebbe un’ipotesi"
+          },
+          {
+            "lang": "lg-nep",
+            "name": "block_added_emphasis",
+            "value": "मोडेलले पाठमा भएभन्दा बढी बोल्ड, इटालिक वा कोड लेख्यो: कुन मूल हो भन्ने अनुमान मात्र हुनेछ"
+          },
+          {
+            "lang": "lg-por",
+            "name": "block_added_emphasis",
+            "value": "O modelo escreveu mais negrito, itálico ou código do que o texto tem: qual é o original seria um palpite"
+          },
+          {
+            "lang": "lg-spa",
+            "name": "block_added_emphasis",
+            "value": "El modelo escribió más negrita, cursiva o código que el texto: cuál es el original sería una suposición"
+          },
+          {
+            "lang": "lg-cat",
             "name": "block_lost_text",
             "value": "El model no ha retornat text per a un passatge que en té"
           },
