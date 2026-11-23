@@ -91,25 +91,24 @@ export function declaredDataLangs(source: DeclaredDataLangSource): ReadonlySet<s
 	// so a value that names no single real language ('', 'spa', 'all') puts every
 	// engine-default write into a slice nothing resolves. Named as an OPERATOR
 	// fixes it (../private/.env), not as the TS path that reads it.
-	if (!isDiffusionLangCode(source.dataLangDefault)) {
-		throw new Error(
-			`config: DEDALO_DATA_LANG_DEFAULT = '${source.dataLangDefault}' does not name one real ` +
-				"language (expected a 'lg-xxx' code; 'all' is a stored-value sentinel, not a " +
-				"language). It is the data-read fallback chain's first candidate and the language " +
-				'the engine writes in outside any request, so every such write would land in a ' +
-				'slice no read resolves (src/config/data_langs.ts).',
-		);
-	}
 	// The no-language SLOT is never a working language (owner ruling 2026-11-22):
 	// as the default it would be the menu data language of every fresh session,
 	// MCP stdio and the seed-clamp fallback — everyone would work in the slot
-	// untranslatable data is stored in. Refused like any other non-language.
-	if (source.dataLangDefault === NO_LANG) {
+	// untranslatable data is stored in. Refused like any other non-language, by
+	// the SAME refusal (one boot door, two reasons).
+	const notALanguage = !isDiffusionLangCode(source.dataLangDefault);
+	if (notALanguage || source.dataLangDefault === NO_LANG) {
 		throw new Error(
-			`config: DEDALO_DATA_LANG_DEFAULT = '${NO_LANG}' is the no-language storage slot ` +
-				'(DEDALO_DATA_NOLAN), not a language anyone works in. It is the data language every ' +
-				'session without a choice runs on and the language the engine writes in outside ' +
-				"any request — set it to a real 'lg-xxx' working language (src/config/data_langs.ts).",
+			notALanguage
+				? `config: DEDALO_DATA_LANG_DEFAULT = '${source.dataLangDefault}' does not name one real ` +
+						"language (expected a 'lg-xxx' code; 'all' is a stored-value sentinel, not a " +
+						"language). It is the data-read fallback chain's first candidate and the language " +
+						'the engine writes in outside any request, so every such write would land in a ' +
+						'slice no read resolves (src/config/data_langs.ts).'
+				: `config: DEDALO_DATA_LANG_DEFAULT = '${NO_LANG}' is the no-language storage slot ` +
+						'(DEDALO_DATA_NOLAN), not a language anyone works in. It is the data language every ' +
+						'session without a choice runs on and the language the engine writes in outside ' +
+						"any request — set it to a real 'lg-xxx' working language (src/config/data_langs.ts).",
 		);
 	}
 	// The project languages are taken VERBATIM, malformations included: the read
