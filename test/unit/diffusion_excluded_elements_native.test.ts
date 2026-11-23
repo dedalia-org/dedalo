@@ -89,6 +89,7 @@ import {
 import { countActivityRows, sweepActivityRows } from '../helpers/activity_rows.ts';
 import { DB_READY } from '../helpers/db_ready.ts';
 import { ensureDiffusionScratchTables } from '../helpers/diffusion_scratch_tables.ts';
+import { requireSuiteMariadb, SUITE_MARIADB_DATABASES } from '../helpers/suite_mariadb.ts';
 import { SCRATCH_CONFIG_ID, withScratchToolConfig } from '../helpers/tool_config_fixture.ts';
 import {
 	dropZzdifDomain,
@@ -171,6 +172,13 @@ async function panelElements(): Promise<string[]> {
 			.map((item) => item.tipo),
 	);
 }
+
+// buildDiffusionInfo resolves the domain's targets and opens a MariaDB pool per
+// target: acquire the lane's suite MariaDB first (PUB-05) so those pools are
+// proved to land there, never on the installation's server.
+beforeAll(async () => {
+	await requireSuiteMariadb(import.meta.path, SUITE_MARIADB_DATABASES());
+}, 120_000); // a cold suite MariaDB lane installs and starts a server
 
 /** dd996 records that name tool_diffusion (a census: beforeAll proves it starts empty). */
 async function diffusionConfigRecords(): Promise<number[]> {
