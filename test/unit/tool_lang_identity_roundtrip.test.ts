@@ -1711,15 +1711,15 @@ else {
 			});
 		}
 
-		test('a translation cut two sentences short never saves clean; a short CJK one does (L3, W2)', async () => {
+		test('a translation cut mid-sentence never saves clean; a short CJK one does (L3, W2)', async () => {
 			const cut = await pipeline(
-				'<p>La moneda fue acuñada en Roma. Tiene ley baja. Está muy gastada.</p>',
+				'<p>La moneda fue acuñada en Roma. Tiene ley baja.</p>',
 				() => 'The coin was minted in Rome. It has',
 			);
 			expect(cut.failed).toEqual([]);
 			expect(cut.report.sentences_short).toEqual([1]);
 			expect(cut.report.uncertain_count).toBeGreaterThan(0);
-			// one end fewer is a merge, an abbreviation's period, a script without stops: clean
+			// an abbreviation's period is no sentence end: a faithful era is clean
 			const era = await pipeline(
 				'<p>Reinado de Augusto (27 a.C.–14 d.C.)</p>',
 				() => 'Reign of Augustus (27 BC–AD 14)',
@@ -1905,6 +1905,17 @@ else {
 					'CHANGED: two sentences dropped',
 					'<p>Fíbula de bronce. Tiene resorte. Falta la aguja.</p>',
 					[['Fíbula de bronce. Tiene resorte. Falta la aguja.', 'Bronze fibula']],
+					true,
+				],
+				[
+					'CHANGED: exactly one sentence dropped',
+					'<p>Fíbula de bronce. Tiene resorte bilateral. Falta la aguja.</p>',
+					[
+						[
+							'Fíbula de bronce. Tiene resorte bilateral. Falta la aguja.',
+							'Bronze fibula. It has a bilateral spring.',
+						],
+					],
 					true,
 				],
 			];

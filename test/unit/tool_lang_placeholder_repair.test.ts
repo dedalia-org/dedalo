@@ -315,50 +315,61 @@ describe('L3: lost text is the empty floor only; a cut answer is caught by its s
 		expect(sentence_count('不明')).toBe(0);
 		// CJK terminators need no space; the Greek question mark and the danda count
 		expect(sentence_count('硬币在罗马铸造。成色很低。')).toBe(2);
-		expect(sentence_count('Πού; Εδώ είναι.')).toBe(2);
+		expect(sentence_count('Πού; Εδώ.')).toBe(2);
 		expect(sentence_count('सिक्का रोम में बना। इसकी शुद्धता कम है।')).toBe(2);
 		// tokens and delimiters are not text; closing quotes after the end are allowed
-		expect(sentence_count('**Final.**[[[1]]] «Otra.»')).toBe(2);
-		// an abbreviation's period ends nothing (W2): dotted internals, or three letters at most
+		expect(sentence_count('**Fin.**[[[1]]] «Otra.»')).toBe(2);
+		// an abbreviation's period ends nothing, decided by context (W2): dotted internals always
 		expect(sentence_count('Reinado de Augusto (27 a.C.–14 d.C.)')).toBe(0);
 		expect(sentence_count('Reign of Augustus (27 BC–AD 14)')).toBe(0);
 		expect(sentence_count('Periodo: siglos III–I a.C.')).toBe(0);
 		expect(sentence_count('Cerámica ática, ca. s. V a.C., figuras rojas.')).toBe(1);
+		// …the stated list before a capital ('Dr. Pérez', 'Cf. Smith')
+		expect(sentence_count('Dr. Pérez, Sr. García y Sra. López. Fin.')).toBe(2);
+		expect(sentence_count('Cf. Smith 1990.')).toBe(1);
+		// …a short token before a digit, a closing bracket, a comma
+		expect(sentence_count('Ver pp. 4 y 5.')).toBe(1);
+		expect(sentence_count('(ver cap.)')).toBe(0);
+		expect(sentence_count('Ver vol., tomo II.')).toBe(1);
+		// a period at the end, or before a capital or a mark, IS an end — short word or not
+		expect(sentence_count('Es mío.')).toBe(1);
+		expect(sentence_count('Fin.')).toBe(1);
+		// …even after a listed abbreviation: the end of the text is the end of a sentence
+		expect(sentence_count('Véase la fig.')).toBe(1);
 		expect(sentence_count('Ver p. 4. Otra cosa.')).toBe(2);
-		// the stated cost: a sentence ending on a word of three letters is not counted
-		expect(sentence_count('Es mío.')).toBe(0);
+		expect(sentence_count('Es mío. [[[1]]]otra cosa.')).toBe(2);
 		expect(sentence_count('Fíbula de bronce. Tiene resorte. Falta la aguja.')).toBe(3);
 		// an ellipsis or a '!' after a short word is no abbreviation
 		expect(sentence_count('¡Sí! ¡No!')).toBe(2);
 	});
 
-	test('sentences_short: two missing ends are caught; one is a merge, an abbreviation, a script (W2)', () => {
-		expect(
-			sentences_short(
-				'La moneda fue acuñada en Roma. Tiene ley baja. Está gastada.',
-				'The coin was minted in Rome. It has',
-			),
-		).toBe(true);
-		expect(
-			sentences_short('Fíbula de bronce. Tiene resorte. Falta la aguja.', 'Bronze fibula'),
-		).toBe(true);
-		// one end fewer is not enough
+	test('sentences_short: a translation that stopped mid-way or dropped a sentence is caught; a faithful one is not (W2)', () => {
 		expect(
 			sentences_short(
 				'La moneda fue acuñada en Roma. Tiene ley baja.',
 				'The coin was minted in Rome. It has',
 			),
-		).toBe(false);
-		expect(sentences_short('La moneda fue acuñada en Roma.', 'The coin was minted in')).toBe(false);
+		).toBe(true);
+		expect(sentences_short('La moneda fue acuñada en Roma.', 'The coin was minted in')).toBe(true);
+		// one sentence dropped is text lost: it warns
 		expect(
-			sentences_short('Reinado de Augusto (27 a.C.–14 d.C.)', 'Reign of Augustus (27 BC–AD 14)'),
-		).toBe(false);
-		expect(sentences_short('Uno. Dos. Tres. Cuatro.', '一二三四')).toBe(true);
+			sentences_short(
+				'Fíbula de bronce. Tiene resorte. Falta la aguja.',
+				'Bronze fibula. It has a spring.',
+			),
+		).toBe(true);
 		expect(
 			sentences_short(
 				'La moneda fue acuñada en Roma. Tiene ley baja.',
 				'The coin was minted in Rome. Its fineness is low.',
 			),
+		).toBe(false);
+		// an abbreviation's period is no end lost
+		expect(
+			sentences_short('Reinado de Augusto (27 a.C.–14 d.C.)', 'Reign of Augustus (27 BC–AD 14)'),
+		).toBe(false);
+		expect(
+			sentences_short('Acuñada hacia el 200 a.C. en Roma.', 'Minted around 200 BC in Rome.'),
 		).toBe(false);
 		expect(sentences_short('lugar de procedencia desconocido', '不明')).toBe(false);
 		expect(

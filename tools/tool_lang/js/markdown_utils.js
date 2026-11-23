@@ -1802,17 +1802,44 @@ const COUNTED_TERMINATORS_RE = /[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u10
 /** CJK terminators: a sentence ends there even with no space after it ('一。二。'). */
 const UNSPACED_TERMINATORS_RE = /[\u3002\uFF01\uFF1F\uFF61]+(?=\S)/g;
 
+/**
+ * What a mark token after a space stands for in sentence_count: a private-use character, not
+ * a space and not lower case, so the period before it ends a sentence.
+ */
+const MARK_STAND_IN = '\uE000';
+
 /** Closing punctuation a sentence may end with after its terminator ('fin.»', '(sic.)'). */
 const TRAILING_CLOSERS_RE = /[\s"'\u2019\u201D\u00BB\u300D\u300F)\]]+$/u;
 
 /**
+ * Abbreviations a capitalised word or a name follows, so context alone cannot tell them from a
+ * sentence end ('Dr. Pérez', 'ca. V', 'cf. Smith', 'fig. A'): titles and the reference
+ * abbreviations of a catalogue, in the catalog languages, lower case, without the period.
+ * Small on purpose — anything else is decided by context (abbreviation_end).
+ * @type {ReadonlySet<string>}
+ */
+const ABBREVIATIONS = new Set([
+	'dr', 'dra', 'sr', 'sra', 'srta', 'sres', 'mr', 'mrs', 'ms', 'st', 'sto', 'sta', 'prof',
+	'ca', 'cf', 'vid', 'fig', 'figs', 'lám', 'núm', 'vol',
+]);
+
+/** A run of letters of at most three: the tokens whose period context decides. */
+const SHORT_TOKEN_RE = /^\p{L}{1,3}$/u;
+
+/**
  * ABBREVIATION_END
- * Is the '.' ending at `end` the period of an abbreviation rather than a sentence end? Only a
- * lone '.' (an ellipsis or '!' is no abbreviation), after a token with dotted internals
- * ('a.C.', 'd.C.', 'IMP.CAES.') or of at most three letters ('ca.', 's.', 'etc.', 'Fig.' is
- * four and counts). Opening punctuation before the token is not part of it ('(ca.'). A
- * sentence that really ends on a short word ('Es mío.') is not counted either: the count is a
- * truncation signal, and sentences_short asks for two missing ends (final review, W2).
+ * Is the '.' ending at `end` the period of an abbreviation rather than a sentence end?
+ * (final review, W2 rework — by context, not by length alone.) Only a lone '.' (an ellipsis
+ * or a '!' is never one). In order:
+ *   1. a token with dotted internals ('a.C.', 'd.C.', 'p.ej.') is always an abbreviation;
+ *   2. a period at the end of the text IS a sentence end ('Es mío.', 'Fin.');
+ *   3. a token of ABBREVIATIONS is one ('Dr. Pérez');
+ *   4. a short token (SHORT_TOKEN_RE) whose period is followed by a digit or a lower-case
+ *      letter (after spaces), or straight by a closing bracket, a dash, a comma or a
+ *      semicolon, is one ('pp. 4', 'cap.)');
+ *   5. anything else — a period followed by spaces and an upper-case letter or a mark — is a
+ *      sentence end.
+ * Opening punctuation before the token is not part of it ('(ca.').
  * @param {string} text
  * @param {number} end - the offset just past the terminator run
  * @returns {boolean}
@@ -1823,22 +1850,43 @@ const abbreviation_end = (text, end) => {
 		return false;
 	}
 	const token = (text.slice(0, end - 1).match(/(\S+)$/u)?.[1] ?? '').replace(/^[([{«“‘"'¿¡]+/u, '');
-	return /\p{L}\.\p{L}/u.test(token) || /^\p{L}{1,3}$/u.test(token);
+	if (/\p{L}\.\p{L}/u.test(token)) {
+		return true;
+	}
+	if (text.slice(end).trim() === '') {
+		return false;
+	}
+	if (ABBREVIATIONS.has(token.toLowerCase())) {
+		return true;
+	}
+	if (SHORT_TOKEN_RE.test(token)) {
+		if (/^[)\]\-–—,;]/u.test(text.slice(end))) {
+			return true;
+		}
+		const next = text.slice(end).match(/^\s+(\S)/u)?.[1];
+		if (next !== undefined && /[\p{N}\p{Ll}]/u.test(next)) {
+			return true;
+		}
+	}
+	return false;
 }; //end abbreviation_end
 
 /**
  * SENTENCE_COUNT
  * How many sentences of a text END — the cuts segment_markdown would make (abbreviations,
  * initials, decimals and a following lower-case word are not ends), less the periods of an
- * abbreviation (abbreviation_end: '27 a.C.–14 d.C.' ends nothing), the unspaced CJK ends,
- * and the text's own last terminator unless it is an abbreviation's. A text that stops mid-sentence counts one fewer than
+ * abbreviation (abbreviation_end: '27 a.C.–14 d.C.' ends nothing, 'Es mío.' ends one), the
+ * unspaced CJK ends, and the text's own last terminator unless it is an abbreviation's. A text that stops mid-sentence counts one fewer than
  * the same text whole: block_runner.js compares an answer's count with its segment's (the
  * truncation signal — A1-02 re-review 5, L3). Tokens and Markdown delimiters are not text.
  * @param {string} text
  * @returns {number}
  */
 export const sentence_count = (text) => {
+	// a mark after a space starts a sentence like an upper-case letter does (MARK_STAND_IN);
+	// any other token is no text
 	const plain = String(text || '')
+		.replace(/(?<=\s)\[\[\[\d+\]\]\]/g, MARK_STAND_IN)
 		.replace(/\[\[\[\d+\]\]\]/g, '')
 		.replace(/[*_`]/g, '');
 	const body = plain.replace(TRAILING_CLOSERS_RE, '');
@@ -1852,7 +1900,7 @@ export const sentence_count = (text) => {
 	count += [...plain.matchAll(UNSPACED_TERMINATORS_RE)].length;
 	if (
 		/[.!?…;\u037E\u0964\u0965\u061F\u06D4\u1362\u104B\u3002\uFF01\uFF1F\uFF61]$/.test(body) &&
-		!abbreviation_end(body, body.length)
+		!abbreviation_end(plain, body.length)
 	) {
 		count++;
 	}
