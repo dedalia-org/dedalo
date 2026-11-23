@@ -1396,19 +1396,27 @@ describe('share dirs are BOUNDED: an idle empty one is swept (final review)', ()
 		const tick = clock();
 		const m = manager('inst-sweep', { lockClock: tick.now });
 		mkdirSync(shareDirOf(91));
-		const before = statSync(shareDirOf(91)).ino;
-		sweepVia(m, 95);
-		tick.advance(BOUND + 1);
+		// An open fd pins the old dir's inode past its rmdir: Linux (ext4/overlayfs, the CI
+		// image) hands a just-freed inode to the very next mkdir, so without the pin an
+		// equal ino would not mean "the same dir" and a differing one would not be guaranteed.
+		const pin = fs.openSync(shareDirOf(91), 'r');
 		let lang = null as ReturnType<MediaJobManager['claimTarget']>;
-		expect(
-			sweptLines(() => {
-				lang = m.claimTarget(langTarget(91, 'lg-fra'));
-			}),
-		).toContain(`swept idle share dir ${shareDirOf(91)}`);
-		const held = mustGet(lang, 'registered in the dir made again');
-		expect(statSync(shareDirOf(91)).ino).not.toBe(before); // a NEW dir …
-		expect(shareEntries(91)).toHaveLength(1); // … holding the registration
-		held.release();
+		try {
+			const before = fs.fstatSync(pin).ino;
+			sweepVia(m, 95);
+			tick.advance(BOUND + 1);
+			expect(
+				sweptLines(() => {
+					lang = m.claimTarget(langTarget(91, 'lg-fra'));
+				}),
+			).toContain(`swept idle share dir ${shareDirOf(91)}`);
+			mustGet(lang, 'registered in the dir made again');
+			expect(statSync(shareDirOf(91)).ino).not.toBe(before); // a NEW dir …
+			expect(shareEntries(91)).toHaveLength(1); // … holding the registration
+		} finally {
+			fs.closeSync(pin);
+			lang?.release();
+		}
 	});
 
 	test("a registration that lands between the sweep's look and its rmdir is never lost (ENOTEMPTY)", () => {
