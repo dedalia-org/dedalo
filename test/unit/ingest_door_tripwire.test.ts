@@ -28,11 +28,11 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { shippedTextFiles } from '../helpers/shipped_text_corpus.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
-const SCAN_ROOTS = ['src', 'tools', 'scripts', 'publication'];
 const DOOR = 'src/core/media/ingest/ingest_and_persist.ts';
 const DEFINER = 'src/core/media/ingest/process_uploaded_file.ts';
 /** Files that may name `processUploadedFile` from the defining module, each with its reason. */
@@ -41,16 +41,14 @@ const PERMITTED: ReadonlyMap<string, string> = new Map([
 	[DEFINER, 'Defines the function.'],
 ]);
 
-/** Every .ts file under the scan roots. */
-function collectSourceFiles(dir: string, out: string[] = []): string[] {
-	if (!existsSync(dir)) return out;
-	for (const name of readdirSync(dir)) {
-		if (name === 'node_modules' || name.startsWith('.') || name === 'dist') continue;
-		const full = join(dir, name);
-		if (statSync(full).isDirectory()) collectSourceFiles(full, out);
-		else if (name.endsWith('.ts') && !name.endsWith('.test.ts')) out.push(full);
-	}
-	return out;
+/**
+ * The CODE a shipped tree runs (the registered shipped-text lister — its roots
+ * are declared there, census_derivation_tripwire), tests excluded: anything that
+ * could import the defining module.
+ */
+const CODE = /\.(?:ts|tsx|mts|cts|js|mjs)$/;
+function shippedCode(): string[] {
+	return shippedTextFiles().filter((file) => CODE.test(file) && !file.endsWith('.test.ts'));
 }
 
 /** Block and line comments out: a comment naming the function is not a use. */
@@ -79,10 +77,8 @@ function usesIngestCore(source: string): boolean {
 }
 
 describe('ingest door tripwire', () => {
-	const files = SCAN_ROOTS.flatMap((root) => collectSourceFiles(join(REPO_ROOT, root)));
-	const users = files
-		.filter((file) => usesIngestCore(readFileSync(file, 'utf8')))
-		.map((file) => relative(REPO_ROOT, file));
+	const files = shippedCode();
+	const users = files.filter((file) => usesIngestCore(readFileSync(join(REPO_ROOT, file), 'utf8')));
 
 	test('processUploadedFile is imported by THE ingest door only', () => {
 		// Anti-vacuity: the scan read the tree and SAW the door use it.
