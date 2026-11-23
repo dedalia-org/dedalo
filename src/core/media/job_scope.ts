@@ -36,3 +36,28 @@ export function runWithJobSignal<T>(signal: AbortSignal, fn: () => T): T {
 export function currentJobSignal(): AbortSignal | undefined {
 	return jobSignalStore.getStore();
 }
+
+/**
+ * THE RUNNING JOB'S HOLD CHECK (A1-01 review M1). A component-scoped job holds
+ * its av component through a cross-process lock that can be LOST — reclaimed
+ * by another instance after this one stalled past the bound. ffmpeg does not
+ * observe the job's abort, so an encode can run to its end after the loss; what
+ * must not happen is its PUBLICATION. The job manager enters this scope with a
+ * check that throws when the hold is gone, and the two publication steps ask
+ * it immediately before they act: the atomic rename (media/atomic.ts
+ * writeAtomically), the files_info write-back (av_versions.ts), conform
+ * headers' two renames (engine/ffmpeg.ts conformHeader) and every move to
+ * deleted/ (file_ops.ts moveToDeleted). Outside a
+ * job — or in a job that holds no component — there is no check (a no-op).
+ */
+const jobHoldStore = new AsyncLocalStorage<() => void>();
+
+/** Run `fn` with `check` as the ambient job hold check. */
+export function runWithJobHold<T>(check: () => void, fn: () => T): T {
+	return jobHoldStore.run(check, fn);
+}
+
+/** Throw when the running job no longer holds its component (no-op outside a held job). */
+export function assertJobHold(): void {
+	jobHoldStore.getStore()?.();
+}

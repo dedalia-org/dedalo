@@ -19,16 +19,13 @@ import {
 	requireTesseractModel,
 } from '../../../src/core/media/engine/ocr_langs.ts';
 import { sanitizeSegment, stagingDir } from '../../../src/core/media/ingest/add_file.ts';
+import { ingestAndPersist } from '../../../src/core/media/ingest/ingest_and_persist.ts';
 import {
 	type IngestProcessOptions,
 	isMasterTier,
-	processUploadedFile,
 } from '../../../src/core/media/ingest/process_uploaded_file.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
-import {
-	nameKeysForQuality,
-	persistUploadedMedia,
-} from '../../../src/core/media/tools/files_info_persist.ts';
+import { nameKeysForQuality } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getModelByTipo, getTranslatableByTipo } from '../../../src/core/ontology/resolver.ts';
 import { currentDataLang } from '../../../src/core/resolve/request_lang.ts';
 import { saveComponentData } from '../../../src/core/section/record/save_component.ts';
@@ -257,35 +254,29 @@ async function processUploaded(ctx: ToolActionContext): Promise<ToolResponse> {
 		model,
 		masterTier: isMasterTier(spec, quality === '' ? undefined : quality),
 	});
-	const result = await processUploadedFile({
-		spec,
-		identity,
-		pathOpts,
-		userId,
-		keyDir: String(fileData.key_dir ?? ctx.options.key_dir ?? ''),
-		tmpName: String(fileData.tmp_name ?? ''),
-		extension: String(fileData.extension ?? ''),
-		quality,
-		processOptions,
-	});
-	// Persist the fresh files_info + the name keys to the record so the client
-	// renders the NEW image (not the stale/placeholder). Without this the upload
-	// only touched the disk; the stored media data stayed on the old file.
-	await persistUploadedMedia({
-		sectionTipo: identity.sectionTipo,
-		sectionId: identity.sectionId,
-		componentTipo: identity.componentTipo,
-		lang: identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: String(fileData.tmp_name ?? result.originalFileName),
-		originalNormalizedName: result.originalFileName,
-		// Provenance follows the tier the file landed in (PHP :778).
-		nameKeys: nameKeysForQuality(spec, quality),
-	});
-	// AFTER the persist commits: the transcode writes its own files_info back,
-	// and must not race the write above (see IngestResult.startTranscode).
+	// Ingest + persist + the av transcode, through THE ingest door (the build
+	// claim is released there, whatever throws — ingest_and_persist.ts).
+	const result = await ingestAndPersist(
+		{
+			spec,
+			identity,
+			pathOpts,
+			userId,
+			keyDir: String(fileData.key_dir ?? ctx.options.key_dir ?? ''),
+			tmpName: String(fileData.tmp_name ?? ''),
+			extension: String(fileData.extension ?? ''),
+			quality,
+			processOptions,
+		},
+		{
+			originalFileName: fileData.tmp_name === undefined ? undefined : String(fileData.tmp_name),
+			// Provenance follows the tier the file landed in (PHP :778).
+			nameKeys: nameKeysForQuality(spec, quality),
+		},
+	);
+	// AFTER the persist committed: the OCR job writes files_info back too.
 	const ocrStart = startOcrReporting(result.startOcr);
-	const jobId = result.startTranscode?.() ?? ocrStart.jobId;
+	const jobId = result.transcodeJobId ?? ocrStart.jobId;
 
 	// Activity audit (PHP logger 'UPLOAD COMPLETE' code 11,
 	// tool_upload :49). PHP serializes the whole file_data blob into the

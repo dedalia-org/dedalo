@@ -431,6 +431,12 @@ const ALLOWLISTED_MODULE_LET = new Set<string>([
  * list.
  */
 const ALLOWLISTED_MODULE_MAPSET = new Set<string>([
+	// The component-lock tokens held by ANY job manager in this process (A1-01
+	// review L3): process state, never request identity — added when a manager
+	// acquires a lock, deleted in the finally of its release / abandon. It answers
+	// the one question a lock file cannot: whether this process's own pid still
+	// means a lock. Bounded by the components held at once.
+	'core/media/component_lock.ts:PROCESS_HELD_TOKENS',
 	// Backup verifications in flight (OPS-1, 2026-09-30): keyed on FILE IDENTITY
 	// + how it is judged (realpath|size|mtimeMs|budgetMs|bin) — never request
 	// identity, so two askers of the same bytes share the same bytes' verdict.

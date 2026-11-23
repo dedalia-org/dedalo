@@ -1439,10 +1439,190 @@ const live_job_for_quality = function(self, quality) {
 		// and the server refuses a build of either. Matching only `label` would
 		// leave the audio column showing an idle gear whose click is guaranteed
 		// to be refused — the panel contradicting the server.
+		&& job_lang_matches(self, job)
 		&& (job.label===quality || (job.also_qualities || []).includes(quality))
 		&& (job.status==='running' || job.status==='queued')
 	) || null
 }//end live_job_for_quality
+
+
+
+/**
+* PANEL_LANG
+* The lang this panel's builds claim on the server — the SAME rule the server's
+* media context applies (tool_support.ts): the data lang for a translatable
+* component, null (the untranslatable slot) otherwise.
+*
+* @param {Object} self
+* @returns {string|null}
+*/
+const panel_lang = function(self) {
+
+	const element = self.main_element
+	return element
+		&& element.context
+		&& element.context.translatable===true
+		&& typeof element.lang==='string'
+		&& element.lang!=='lg-nolan'
+		? element.lang
+		: null
+}//end panel_lang
+
+
+
+/**
+* JOB_LANG_MATCHES
+* Does an activity row's job hold THIS panel's lang? The server keys the
+* component hold by section|id|component|lang, so a per-lang av build holds
+* only its own lang: the panel of another lang is free and must say so.
+* `record.lang` is null for an untranslatable job.
+*
+* @param {Object} self
+* @param {Object} job
+* @returns {boolean}
+*/
+const job_lang_matches = function(self, job) {
+
+	return (job.record.lang ?? null)===panel_lang(self)
+}//end job_lang_matches
+
+
+
+/**
+* LIVE_COMPONENT_JOB
+* The running job that holds this panel's WHOLE component, or null.
+*
+* One av build per COMPONENT (A1-01, as v6's single build lock): while a
+* component-scoped job (`scope: 'component'` — the ingest transcode, a build of
+* any tier) is live, the server refuses a build of EVERY tier of the component
+* with media.build_running. live_job_for_quality answers for the building tier;
+* this answers for the others, so their gears can be greyed instead of offered.
+*
+* @param {Object} self
+* @returns {Object|null} the activity row, or null when the component is free
+*/
+export const live_component_job = function(self) {
+
+	const jobs = self.record_jobs
+	if (!Array.isArray(jobs)) {
+		return null
+	}
+	return jobs.find(job =>
+		job
+		&& job.record
+		&& job.record.component_tipo===self.main_element.tipo
+		&& job_lang_matches(self, job)
+		&& job.scope==='component'
+		&& (job.status==='running' || job.status==='queued')
+	) || null
+}//end live_component_job
+
+
+
+/**
+* RELEASE_COMPONENT_BUSY_GEARS
+* Give the greyed gears back when the job that held the component ENDED WITHOUT
+* a re-render — the failed-build path keeps its cell readable with the reason,
+* so the panel is not re-rendered and the other tiers must be released here.
+* (The success path re-renders against a fresh get_record_jobs instead.)
+*
+* @param {Object} self
+* @returns {void}
+*/
+export const release_component_busy_gears = function(self) {
+
+	const root = self.node
+	if (!root || typeof root.querySelectorAll!=='function') {
+		return
+	}
+	for (const gear of root.querySelectorAll('.button.gear.component_busy')) {
+		gear.classList.remove('component_busy')
+		gear.removeAttribute('aria-disabled')
+		gear.removeAttribute('aria-describedby')
+		if (gear.busy_reason_node) {
+			gear.busy_reason_node.remove()
+			gear.busy_reason_node = null
+		}
+		if (gear.dataset.idle_title) {
+			gear.title = gear.dataset.idle_title
+		}
+	}
+}//end release_component_busy_gears
+
+
+
+/**
+* GREY_GEAR
+* Mark one build gear as held by the component's busy state: class, inert
+* (aria-disabled — it stays focusable, so a keyboard user reaches the reason),
+* the reason as its title AND as visually-hidden text the gear names through
+* aria-describedby (a title alone is not reliably announced).
+*
+* @param {HTMLElement} gear
+* @param {string} reason
+* @returns {void}
+*/
+let busy_reason_counter = 0
+const grey_gear = function(gear, reason) {
+
+	gear.classList.add('component_busy')
+	gear.setAttribute('aria-disabled', 'true')
+	gear.title = reason
+	if (!gear.busy_reason_node) {
+		busy_reason_counter++
+		const reason_node = ui.create_dom_element({
+			element_type	: 'span',
+			class_name		: 'component_busy_reason'
+		})
+		reason_node.id = 'component_busy_reason_' + busy_reason_counter
+		gear.after(reason_node)
+		gear.busy_reason_node = reason_node
+		gear.setAttribute('aria-describedby', reason_node.id)
+	}
+	gear.busy_reason_node.textContent = reason
+}//end grey_gear
+
+
+
+/**
+* COMPONENT_BUSY_REASON
+* The greyed gear's reason: the tool label plus the tier being built.
+*
+* @param {Object} self
+* @param {string} building - the label of the tier being built
+* @returns {string}
+*/
+const component_busy_reason = function(self, building) {
+
+	return (self.get_tool_label('component_busy') || 'A version of this file is being built. Wait until it finishes')
+		+ ` (${building})`
+}//end component_busy_reason
+
+
+
+/**
+* GREY_COMPONENT_GEARS
+* Grey every OTHER tier's gear the moment THIS browser's av build is accepted:
+* the server now refuses them (media.build_running — one av build per
+* component), and waiting for the next get_record_jobs to say so left them
+* offered meanwhile. A failed build releases them (release_component_busy_gears);
+* a finished one re-renders the grid.
+*
+* @param {Object} self
+* @param {string} building - the tier this browser started
+* @returns {void}
+*/
+export const grey_component_gears = function(self, building) {
+
+	const root = self.node
+	if (!root || typeof root.querySelectorAll!=='function') {
+		return
+	}
+	const reason = component_busy_reason(self, building)
+	for (const gear of root.querySelectorAll('.button.gear:not(.component_busy)')) {
+		grey_gear(gear, reason)
+	}
+}//end grey_component_gears
 
 
 
@@ -1540,7 +1720,7 @@ const render_job_progress = function(job, parent) {
 // transition and ends on the terminal one. The cap existed because a poller that
 // never hears anything cannot tell "still encoding" from "the server died"; a
 // stream that closes without a terminal frame answers that directly.
-const render_build_version = function(quality, self) {
+export const render_build_version = function(quality, self) {
 
 	// file_info_node
 		const file_info_node = ui.create_dom_element({
@@ -1558,8 +1738,10 @@ const render_build_version = function(quality, self) {
 	// moment this panel opens, instead of as an empty cell offering a gear.
 	//
 	// The gear is NOT rendered at all in that state: the server refuses a second
-	// build for a live target (AvBuildRefused), and offering a click that is
-	// guaranteed to be refused is how the duplicate-encode race read as normal use.
+	// build while one is live (media.build_running — one av build per COMPONENT,
+	// so another tier's gear is refused too, readably, below), and offering a
+	// click that is guaranteed to be refused is how the duplicate-encode race
+	// read as normal use.
 		const running_job = live_job_for_quality(self, quality)
 		if (running_job) {
 
@@ -1593,6 +1775,8 @@ const render_build_version = function(quality, self) {
 						})
 						// Server error text carries paths and tool output; textContent.
 						err_node.textContent = (get_label.error || 'Error') + ': ' + errors.join('; ')
+						// The component is free again: un-grey the other tiers' gears.
+						release_component_busy_gears(self)
 						return
 					}
 					self.refresh({
@@ -1609,17 +1793,58 @@ const render_build_version = function(quality, self) {
 	// server to build a version — see the doc-block and create_3d_posterframe.
 		const is_3d_posterframe = self.main_element.model==='component_3d' && quality===THUMB_QUALITY
 
+	// THE COMPONENT IS BUSY (A1-01, owner ruling 3). Another tier of this
+	// component is being built (or the ingest transcode runs): the server refuses
+	// THIS tier's build too (media.build_running — one av build per component).
+	// The gear stays visible — the tier IS buildable, just not now — but greyed,
+	// inert and titled with the reason, instead of offering a click that is
+	// guaranteed to be refused. A failed holder releases it
+	// (release_component_busy_gears); a finished one re-renders the grid.
+		const component_job	= live_component_job(self)
+		const idle_title	= is_3d_posterframe
+			? (self.get_tool_label('create_posterframe') || 'Create posterframe from the 3D scene')
+			: (get_label.build || 'Build') + ` ${quality} ` + (get_label.version || 'version')
+
 	// button_build_version
 		const button_build_version = ui.create_dom_element({
 			element_type	: 'span',
 			class_name		: 'button gear',
-			title			: is_3d_posterframe
-				? (self.get_tool_label('create_posterframe') || 'Create posterframe from the 3D scene')
-				: (get_label.build || 'Build') + ` ${quality} ` + (get_label.version || 'version'),
+			title			: idle_title,
 			parent			: file_info_node
 		})
+		// A control, not a picture: reachable and operable from the keyboard
+		// (Enter / Space, below), announced as a button. Its NAME is the action
+		// (aria-label), always; a greyed gear's reason is its DESCRIPTION only
+		// (aria-describedby, grey_gear) — the title alone would make the reason
+		// the name and a screen reader would announce it twice.
+		button_build_version.setAttribute('role', 'button')
+		button_build_version.setAttribute('tabindex', '0')
+		button_build_version.setAttribute('aria-label', idle_title)
+		button_build_version.dataset.idle_title = idle_title
+		if (component_job) {
+			grey_gear(button_build_version, component_busy_reason(self, component_job.label))
+		}
+		// ONE request per press: a second click, or a held key's auto-repeat,
+		// while this gear's request is still out asks the server nothing.
+		let in_flight = false
 		const fn_click = async function (e) {
 			e.stopPropagation()
+
+			// greyed: the component is busy — nothing to ask the server
+			if (button_build_version.classList.contains('component_busy')) {
+				return
+			}
+			if (in_flight) {
+				return
+			}
+			in_flight = true
+			try {
+				await run_build()
+			} finally {
+				in_flight = false
+			}
+		}
+		const run_build = async function () {
 
 			self.node.classList.add('loading')
 
@@ -1639,7 +1864,8 @@ const render_build_version = function(quality, self) {
 			// answers only for result===true, so before this a rejection was
 			// completely silent — the gear simply did nothing and the operator had
 			// no way to learn why. That path is now reachable on purpose: the server
-			// refuses a tier that is already being built (AvBuildRefused), and a
+			// refuses a build while the component already has one
+			// (media.build_running — one av build per component), and a
 			// refusal nobody can see is the same defect as a job that dies quietly.
 			if (!accepted) {
 				const wrapper = self.node?.content_data || self.node
@@ -1671,6 +1897,11 @@ const render_build_version = function(quality, self) {
 				// renders (render_job_progress), so a build looks identical whether
 				// this browser started it or the panel found it already running.
 				button_build_version.remove()
+				// The av transcode now holds the WHOLE component: grey the other
+				// tiers at once, not on the next get_record_jobs.
+				if (self.main_element.model === 'component_av' && quality !== THUMB_QUALITY) {
+					grey_component_gears(self, quality)
+				}
 
 				const progress_ui = render_job_progress(
 					{
@@ -1692,6 +1923,8 @@ const render_build_version = function(quality, self) {
 					progress_ui.stop()
 					progress_ui.node.remove()
 					file_info_node.appendChild(button_build_version)
+					// The component is free again: un-grey the other tiers' gears.
+					release_component_busy_gears(self)
 					const reason_node = ui.create_dom_element({
 						element_type	: 'span',
 						class_name		: 'build_error',
@@ -1817,6 +2050,16 @@ const render_build_version = function(quality, self) {
 			self.node.classList.remove('loading')
 		}
 		button_build_version.addEventListener('click', fn_click)
+		button_build_version.addEventListener('keydown', function(e) {
+			if (e.key==='Enter' || e.key===' ') {
+				e.preventDefault()
+				// a held key repeats keydown: one build per press
+				if (e.repeat) {
+					return
+				}
+				fn_click(e)
+			}
+		})
 
 
 	return file_info_node

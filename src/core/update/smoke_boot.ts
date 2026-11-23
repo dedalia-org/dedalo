@@ -15,6 +15,11 @@
  * `/health` over the socket (the host health_wait shape), then
  * SIGTERMs and requires a clean exit.
  *
+ * One live fact IS judged, read only: the mount of the LIVE media processes dir
+ * (`DEDALO_SMOKE_PROCESSES_DIR`, passed below) — the new release's real boot
+ * refuses an incoherent NFS mount (processes_mount.ts), so its smoke boot
+ * refuses it first and nothing is swapped.
+ *
  * HONEST LIMITS — what a green smoke boot does NOT prove:
  *  - that the release's BOOT MIGRATIONS succeed: they are deliberately
  *    skipped, because running them pre-swap would mutate the shared database
@@ -28,6 +33,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { envSnapshot } from '../../config/env.ts';
+import { configuredProcessesDir } from '../media/jobs.ts';
 import { refuseUpdate } from './refuse.ts';
 
 const HEALTH_TIMEOUT_MS = 30_000;
@@ -84,6 +90,11 @@ export async function smokeBootQuarantine(codeRoot: string, stagingDir: string):
 			DEDALO_PRIVATE_DIR: smokePrivateDir,
 			DEDALO_SESSION_DB_PATH: join(smokePrivateDir, 'dedalo_ts_sessions.sqlite'),
 			DEDALO_TS_STATE_PATH: join(smokePrivateDir, 'ts_state.json'),
+			// The LIVE processes dir, for the child's READ-ONLY mount verdict
+			// (processes_mount.ts verifySmokeProcessesDirMount): its own private
+			// dir is the throwaway above, so it cannot derive it — and a release
+			// whose real boot would refuse that mount is refused HERE, pre-swap.
+			DEDALO_SMOKE_PROCESSES_DIR: configuredProcessesDir(),
 		},
 	});
 	const stderrPromise = new Response(child.stderr).text();

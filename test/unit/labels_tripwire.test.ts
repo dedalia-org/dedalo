@@ -264,7 +264,7 @@ describe('labels tripwire (WC-033 — master.json defines, catalogs translate)',
 	});
 
 	// -----------------------------------------------------------------------
-	// FULL TRANSLATION COVERAGE for the non-error label set.
+	// FULL TRANSLATION COVERAGE — every master key, in every catalog.
 	//
 	// The fallback chain means an untranslated key serves the English master
 	// string — safe, but SILENT: a Spanish operator sees one English line in an
@@ -274,16 +274,16 @@ describe('labels tripwire (WC-033 — master.json defines, catalogs translate)',
 	//
 	// So coverage is an INVARIANT, not a chore: a new UI string must ship with
 	// its translations, exactly as it already must ship with its master
-	// definition. `error_*` is deliberately out of scope — the error registry
-	// is its own subsystem with its own disclosure rules — and is the only
-	// exemption; it is asserted below so the carve-out cannot quietly widen.
+	// definition. NO EXEMPTION (owner ruling 2026-11-22): the `error_*` carve-out
+	// is lifted — an error is the one string an operator MUST understand, and its
+	// label is what the client renders for every public refusal.
 	// -----------------------------------------------------------------------
-	test('every non-error master key is translated in every catalog', () => {
-		const nonError = Object.keys(loadMaster()).filter((key) => !key.startsWith('error_'));
+	test('every master key is translated in every catalog', () => {
+		const keys = Object.keys(loadMaster());
 		const gaps: string[] = [];
 		for (const catalog of loadCatalogs()) {
 			if (catalog.lang === MASTER_SOURCE_LANG) continue; // sparse override by design
-			const missing = nonError.filter((key) => catalog.map[key] === undefined);
+			const missing = keys.filter((key) => catalog.map[key] === undefined);
 			if (missing.length > 0) {
 				const shown = missing.slice(0, 5).join(', ');
 				gaps.push(
@@ -295,13 +295,5 @@ describe('labels tripwire (WC-033 — master.json defines, catalogs translate)',
 			gaps,
 			'a UI string ships with its translations — `bun run scripts/labels_fill.ts --lang <code>` lists the backlog',
 		).toEqual([]);
-	});
-
-	test('the only translation-coverage exemption is the error registry', () => {
-		// If this ever reaches zero the exemption above is dead and should go;
-		// if some OTHER prefix needs exempting it must be added deliberately
-		// here, not by widening the filter in the test above.
-		const exempt = Object.keys(loadMaster()).filter((key) => key.startsWith('error_'));
-		expect(exempt.length).toBeGreaterThan(0);
 	});
 });

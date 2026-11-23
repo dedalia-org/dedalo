@@ -59,14 +59,11 @@ import {
 	toDedaloError,
 } from '../../../src/core/errors/index.ts';
 import { stagingDir } from '../../../src/core/media/ingest/add_file.ts';
-import { processUploadedFile } from '../../../src/core/media/ingest/process_uploaded_file.ts';
+import { ingestAndPersist } from '../../../src/core/media/ingest/ingest_and_persist.ts';
 import { resolveStagedName } from '../../../src/core/media/ingest/staged_files.ts';
 import { buildMediaLocation } from '../../../src/core/media/path.ts';
 import { resolveMediaToolContext } from '../../../src/core/media/tool_support.ts';
-import {
-	nameKeysForQuality,
-	persistUploadedMedia,
-} from '../../../src/core/media/tools/files_info_persist.ts';
+import { nameKeysForQuality } from '../../../src/core/media/tools/files_info_persist.ts';
 import { getEffectivePropertiesByTipo } from '../../../src/core/ontology/alias.ts';
 import { getModelByTipo } from '../../../src/core/ontology/resolver.ts';
 import { authorizeRecordAccess } from '../../../src/core/security/write_door.ts';
@@ -414,7 +411,7 @@ interface IngestOutcome {
 
 /**
  * Ingest one staged file into a prepared media component of a committed record —
- * the disk half (processUploadedFile) AND the record half (persistUploadedMedia),
+ * the disk half AND the record half, through THE ingest door (ingestAndPersist),
  * like every upload door. Answers the non-fatal derivative failures and the
  * notices (a non-PDF original, a replaced transcription).
  */
@@ -425,27 +422,20 @@ async function ingestPrepared(
 	originalFileName: string,
 ): Promise<IngestOutcome> {
 	const extension = (tmpName.split('.').pop() ?? '').toLowerCase();
-	const result = await processUploadedFile({
-		spec: media.spec,
-		identity: media.identity,
-		pathOpts: media.pathOpts,
-		userId: scope.ctx.userId,
-		keyDir: scope.keyDir,
-		tmpName,
-		extension,
-		originalFileName,
-	});
-	await persistUploadedMedia({
-		sectionTipo: media.identity.sectionTipo,
-		sectionId: media.identity.sectionId,
-		componentTipo: media.identity.componentTipo,
-		lang: media.identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: originalFileName || result.originalFileName,
-		originalNormalizedName: result.originalFileName,
-		nameKeys: nameKeysForQuality(media.spec, undefined),
-	});
-	result.startTranscode?.();
+	// THE ingest door: ingest, persist, then the av transcode (ingest_and_persist.ts).
+	const result = await ingestAndPersist(
+		{
+			spec: media.spec,
+			identity: media.identity,
+			pathOpts: media.pathOpts,
+			userId: scope.ctx.userId,
+			keyDir: scope.keyDir,
+			tmpName,
+			extension,
+			originalFileName,
+		},
+		{ originalFileName, nameKeys: nameKeysForQuality(media.spec, undefined) },
+	);
 	return { warnings: result.derivativeErrors, notices: result.notices };
 }
 

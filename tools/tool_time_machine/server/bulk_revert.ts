@@ -76,6 +76,7 @@ import { sql, withTransaction } from '../../../src/core/db/postgres.ts';
 import { ensureTmHistoryReady, tmEpochPredicate } from '../../../src/core/db/record_generation.ts';
 import { TM_IMAGE_ABSENT_COLUMN, TM_ROLE } from '../../../src/core/db/time_machine.ts';
 import { DedaloError, ok, toDedaloError } from '../../../src/core/errors/index.ts';
+import type { AvRecordHold } from '../../../src/core/media/av_component_claim.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -114,9 +115,11 @@ import {
 	cascadeGroup,
 	deleteBornRecords,
 	goneBornAddresses,
+	holdCascadeAvComponents,
 	isOwnRecord,
 	type RecordContext,
 	type RecordOutcome,
+	releaseAvHolds,
 	undeleteCascadeRecord,
 	undeleteStandaloneRecord,
 } from './bulk_revert_records.ts';
@@ -227,7 +230,10 @@ export type BulkRevertInexactBasis =
 	| 'legacy_born_in_run'
 	| 'cascade_undelete'
 	/** dd199/dd200 restored; their `data`-column twin re-derived, not replayed (a named exemption) */
-	| 'metadata_twin';
+	| 'metadata_twin'
+	/** a record came back but some of its media files did not (they stay in
+	 *  `deleted/`, recoverable; the server log names each — A1-01 review F5) */
+	| 'media_not_restored';
 
 /** One `inexact[]` entry — only ever for a unit or record that passed the scope gate. */
 export interface BulkRevertInexact {
@@ -551,6 +557,8 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 		let inScope = false;
 		// Whether the error's CODE may ride a `failed` entry: the verdicts passed.
 		const verdict: UnitVerdict = { own: false, memberOpen: false };
+		// The av holds of the cascade records this unit brings back (A1-01 review F5).
+		let avHolds = new Map<string, AvRecordHold>();
 		try {
 			const pending = (byUnit.get(unit) ?? []).filter((marker) => !landed.has(marker));
 			// The unit's OWN record deleted (and not yet undeleted by another
@@ -568,6 +576,13 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 			inScope = !deferred;
 			// Deferred: the own record's verdict is the prelude's (its restored row).
 			verdict.own = !deferred;
+			// HELD BEFORE the unit's transaction (A1-01 review F5): a live av build
+			// on a record the prelude would bring back refuses the unit (`failed`,
+			// media.build_running) before any row comes back.
+			avHolds = await holdCascadeAvComponents(
+				pending.flatMap((root) => cascadeGroup(root, children)).filter((m) => !landed.has(m)),
+			);
+			const heldContext = { ...recordContext, avHolds };
 			const result = await revertUnit(
 				unit,
 				unitContext,
@@ -577,7 +592,7 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 						pending,
 						children,
 						landed,
-						recordContext,
+						heldContext,
 						verdict,
 					);
 					inScope = true;
@@ -611,6 +626,8 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 					codeAfterVerdict(error, verdictPassed(verdict)),
 				);
 			}
+		} finally {
+			releaseAvHolds(avHolds);
 		}
 	}
 	// A cascade target whose every re-linking unit was refused STAYS deleted:
@@ -655,7 +672,7 @@ async function executeRevert(ctx: ToolActionContext, run: RevertRun): Promise<To
 interface Relinked {
 	marker: RecordMarker;
 	kind: 'done' | 'present' | 'kept';
-	afterCommit?: () => Promise<void>;
+	afterCommit?: () => Promise<string[]>;
 }
 
 /** Report one handled cascade target, after its transaction committed. */
@@ -664,7 +681,11 @@ async function reportLanded(
 	report: Reporter,
 	activity: ActivitySink,
 ): Promise<void> {
-	await member.afterCommit?.();
+	const mediaErrors = (await member.afterCommit?.()) ?? [];
+	if (mediaErrors.length > 0) {
+		// The row landed (its scope verdict passed); its files did not all follow.
+		report.markInexact(locateRecord(member.marker), 'media_not_restored');
+	}
 	if (member.kind === 'kept') {
 		// Its row exists, so its own scope gate passed (mayUndelete): located.
 		report.skip(locateRecord(member.marker), 'cascade_delete_not_reverted', true, 'written since');
@@ -716,8 +737,35 @@ class GroupRefused extends Error {
  * the member that was being undeleted (`at`), never the group's first by
  * default — the rest `cascade_delete_not_reverted`; the file halves of the
  * landed members run after COMMIT.
+ *
+ * The group's av components are HELD before its transaction (A1-01 review F5,
+ * holdCascadeAvComponents): a live build or upload refuses the group before
+ * any row comes back — reported against its first member, unjudged (no record
+ * verdict ran: the reason alone). The file halves run under the holds,
+ * released after them.
  */
 async function undeleteStandaloneGroup(
+	group: readonly RecordMarker[],
+	context: RecordContext,
+	report: Reporter,
+	activity: ActivitySink,
+): Promise<void> {
+	let avHolds: Map<string, AvRecordHold>;
+	try {
+		avHolds = await holdCascadeAvComponents(group);
+	} catch (error) {
+		reportGroupFailure(group, error, group[0] as RecordMarker, false, report);
+		return;
+	}
+	try {
+		await landStandaloneGroup(group, { ...context, avHolds }, report, activity);
+	} finally {
+		releaseAvHolds(avHolds);
+	}
+}
+
+/** The held standalone group's transaction and report (see undeleteStandaloneGroup). */
+async function landStandaloneGroup(
 	group: readonly RecordMarker[],
 	context: RecordContext,
 	report: Reporter,

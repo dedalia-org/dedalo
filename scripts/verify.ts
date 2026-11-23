@@ -73,6 +73,7 @@ const TRIPWIRES = [
 	'test/unit/media_protection_tripwire.test.ts',
 	'test/unit/media_writer_discipline_tripwire.test.ts',
 	'test/unit/media_job_target_tripwire.test.ts',
+	'test/unit/ingest_door_tripwire.test.ts',
 	'test/unit/media_alternate_versions_tripwire.test.ts',
 	'test/unit/media_thumb_census_tripwire.test.ts',
 	'test/unit/mcp_write_scope_tripwire.test.ts',

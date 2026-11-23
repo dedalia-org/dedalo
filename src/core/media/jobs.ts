@@ -55,7 +55,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { config } from '../../config/config.ts';
 import { privateDir, readEnv } from '../../config/env.ts';
 import { readString } from '../../config/readers.ts';
@@ -76,7 +76,27 @@ import {
 	type RequestContext,
 	runWithRequestContext,
 } from '../security/request_context.ts';
-import { runWithJobSignal } from './job_scope.ts';
+import {
+	abandonComponentLock,
+	acquireComponentLock,
+	type ComponentLockContext,
+	type ComponentLockHandle,
+	type ComponentShareHooks,
+	closeComponentShare,
+	componentLockBusy,
+	componentLockIsOurs,
+	joinComponentShare,
+	refreshComponentLock,
+	relabelComponentLock,
+	releaseComponentLock,
+} from './component_lock.ts';
+import { runWithJobHold, runWithJobSignal } from './job_scope.ts';
+import {
+	assertProcessesMountCoherent,
+	MOUNT_REVERIFY_MS,
+	type MountProbe,
+	verifySmokeProcessesDirMount,
+} from './processes_mount.ts';
 import {
 	resolveProcessesDir,
 	TEST_PROCESSES_MARKER,
@@ -95,8 +115,13 @@ export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'interrupted' 
  * restart the user did not cause. The cause rides on `signal.reason` (an
  * `AbortError` DOMException, so anything that rejects with the reason still
  * rejects with an AbortError); `jobAbortInfo` reads it back.
+ *
+ * `lock_lost` (A1-01): a component-scoped job whose cross-process component
+ * lock was reclaimed by another instance (its heartbeat found another token).
+ * Not a stop: the job FAILS ('error'), and its publication steps refuse
+ * (job_scope.ts assertJobHold) — the component belongs to someone else now.
  */
-export type JobAbortCause = 'stop' | 'deadline' | 'shutdown';
+export type JobAbortCause = 'stop' | 'deadline' | 'shutdown' | 'lock_lost';
 
 export interface JobAbortInfo {
 	readonly cause: JobAbortCause;
@@ -117,6 +142,7 @@ const JOB_ABORT_CAUSES: ReadonlySet<unknown> = new Set<JobAbortCause>([
 	'stop',
 	'deadline',
 	'shutdown',
+	'lock_lost',
 ]);
 
 /** Why `signal` was aborted by the job manager; null when it was not (or by someone else). */
@@ -126,6 +152,15 @@ export function jobAbortInfo(signal: AbortSignal | null | undefined): JobAbortIn
 	return JOB_ABORT_CAUSES.has((info as { cause?: unknown } | undefined)?.cause)
 		? (info as JobAbortInfo)
 		: null;
+}
+
+/**
+ * The terminal status an ABORTED signal means: a lost component lock FAILS the
+ * job ('error'); every other abort is a stop. null when not aborted.
+ */
+function abortedStatus(signal: AbortSignal): 'stopped' | 'error' | null {
+	if (!signal.aborted) return null;
+	return jobAbortInfo(signal)?.cause === 'lock_lost' ? 'error' : 'stopped';
 }
 
 /**
@@ -313,6 +348,27 @@ export interface JobTarget {
 	 * job BLOCKS, not what it is called.
 	 */
 	also_qualities?: string[];
+	/**
+	 * `'component'`: this job (or claim) occupies the WHOLE component, not only
+	 * its tiers — any other component-scoped holder on the same
+	 * section/id/component/lang is refused, whatever tier it writes.
+	 *
+	 * The av build family (the upload claim, the ingest transcode, every
+	 * per-quality build) carries it: v6 held ONE build lock per component
+	 * (component_av::get_build_lock_path — every build reads the same master
+	 * and shares its sh/target files), and a tier-scoped guard let a 1080
+	 * build run while an upload replaced the master it was reading (A1-01).
+	 * Like `also_qualities` it widens what the holder BLOCKS, never its name.
+	 *
+	 * `'component_all'`: the WHOLE component in EVERY lang (A1-01 review F4) —
+	 * the record-wide hold of a delete, a wipe or a Time Machine restore, which
+	 * moves the files of every lang. It refuses while any lang of the component
+	 * is held, and every `'component'` holder of any lang refuses while it is
+	 * held — on this instance (memory keys) and on every other (the all-langs
+	 * lock file). A CLAIM only, taken through `claimWholeComponents` (never
+	 * `claimTarget`, never a job).
+	 */
+	scope?: 'component' | 'component_all';
 	/** Human tier name for the activity tray (never used for identity). */
 	label?: string;
 }
@@ -331,6 +387,83 @@ export function jobTargetKey(target: JobTarget): string {
 		target.quality,
 	].join('|');
 }
+
+/**
+ * The COMPONENT key a `scope: 'component'` holder also occupies — the target's
+ * key with the tier replaced by `*` (never a quality name, so it cannot collide
+ * with a tier key).
+ */
+function componentScopeKey(target: JobTarget): string {
+	return jobTargetKey({ ...target, quality: '*' });
+}
+
+/** The section|id|component part every component-level key starts with. */
+function componentKeyBase(target: JobTarget): string {
+	return [target.section_tipo, target.section_id, target.component_tipo].join('|');
+}
+
+/**
+ * The key EVERY `'component'` holder also occupies, whatever its lang — what a
+ * whole-component (`'component_all'`) claim probes. Four fields (a target key
+ * has five), so it never collides with one.
+ */
+function componentAnyLangKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|*any*`;
+}
+
+/**
+ * The key a whole-component (`'component_all'`) claim occupies — what every
+ * `'component'` holder of any lang probes. Four fields, never a target key.
+ */
+function componentAllLangsKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|*all*`;
+}
+
+/** The lock-file lang of a whole-component claim (`*` is never a lang). */
+const ALL_LANGS_LOCK_LANG = '*';
+
+/**
+ * The CROSS-PROCESS lock key of a component-scoped target (component_lock.ts):
+ * the component, every tier — section|id|component|lang; for a whole-component
+ * claim section|id|component|*.
+ */
+function componentLockKey(target: JobTarget): string {
+	const lang = target.scope === 'component_all' ? ALL_LANGS_LOCK_LANG : (target.lang ?? '');
+	return `${componentKeyBase(target)}|${lang}`;
+}
+
+/** The all-langs lock key of a target's component — what a per-lang holder checks after taking its own. */
+function allLangsLockKey(target: JobTarget): string {
+	return `${componentKeyBase(target)}|${ALL_LANGS_LOCK_LANG}`;
+}
+
+/** Does this target take a cross-process component lock? */
+function takesFileLock(target: JobTarget): boolean {
+	return target.scope === 'component' || target.scope === 'component_all';
+}
+
+/**
+ * A per-lang holder's join of its component's share (component_lock.ts): the
+ * handle with its share, or null — and then its own lock is given back. A
+ * failure is typed and propagates, the lock given back all the same.
+ */
+function joinShareOrRelease(
+	handle: ComponentLockHandle,
+	target: JobTarget,
+	context: ComponentLockContext,
+): ComponentLockHandle | null {
+	let joined: ComponentLockHandle | null = null;
+	try {
+		joined = joinComponentShare(handle, componentKeyBase(target), context);
+	} finally {
+		if (joined === null) releaseComponentLock(handle);
+	}
+	return joined;
+}
+
+/** Heartbeat of a held component lock, and the age past which another instance reclaims it. */
+const COMPONENT_LOCK_HEARTBEAT_MS = 15_000;
+const COMPONENT_LOCK_STALE_AFTER_MS = 120_000;
 
 /**
  * The key PREFIX every target on one record shares.
@@ -515,6 +648,49 @@ function captureJobRunScope(jobId: string): JobRunScope {
 }
 
 /**
+ * The processes dir this installation's config names — RESOLVED (the test seam
+ * followed), never created: what processesDir below creates, and what the
+ * updater hands its pre-swap smoke boot for the read-only mount verdict
+ * (core/update/smoke_boot.ts → processes_mount.ts verifySmokeProcessesDirMount).
+ */
+export function configuredProcessesDir(): string {
+	return resolveProcessesDir(readEnv('DEDALO_MEDIA_PROCESSES_DIR'), join(privateDir, 'processes'));
+}
+
+/**
+ * The LIVE processes dir as the updater's pre-swap SMOKE boot can know it (its
+ * own DEDALO_PRIVATE_DIR is a throwaway under the staging dir): the one the
+ * updater names (`DEDALO_SMOKE_PROCESSES_DIR`); else — an updater older than
+ * that key — an explicit ABSOLUTE `DEDALO_MEDIA_PROCESSES_DIR`, which rides the
+ * child env unchanged (envSnapshot carries the live ../private/.env); else
+ * undefined: the default lives under the live private dir, which the child
+ * cannot resolve.
+ */
+export function smokeProcessesDir(): string | undefined {
+	const named = readEnv('DEDALO_SMOKE_PROCESSES_DIR');
+	if (named !== undefined && named !== '') return named;
+	const explicit = readEnv('DEDALO_MEDIA_PROCESSES_DIR');
+	return explicit !== undefined && isAbsolute(explicit) ? explicit : undefined;
+}
+
+/**
+ * SMOKE BOOT: the read-only mount verdict on the live processes dir
+ * (processes_mount.ts). A dir that cannot be known (an older updater, a default
+ * or relative processes dir) is said loudly; nothing is judged — the real boot
+ * still judges it.
+ */
+export function verifySmokeBootProcessesDirMount(probe: MountProbe = {}): void {
+	const dir = smokeProcessesDir();
+	if (dir === undefined) {
+		console.warn(
+			'[smoke boot] the live processes dir is not known (the updater named no DEDALO_SMOKE_PROCESSES_DIR and DEDALO_MEDIA_PROCESSES_DIR is not an absolute path) — its mount is NOT verified before the swap (the real boot still verifies it)',
+		);
+		return;
+	}
+	verifySmokeProcessesDirMount(dir, probe);
+}
+
+/**
  * Directory holding the TS process files (its own private tree, not PHP's).
  * DEDALO_MEDIA_PROCESSES_DIR moves it (read per call so it stays test-settable).
  * UNDER THE TEST-MEDIA SEAM the default is the marked suite sibling
@@ -526,10 +702,7 @@ function captureJobRunScope(jobId: string): JobRunScope {
  * ../private/processes tree.
  */
 function processesDir(): string {
-	const dir = resolveProcessesDir(
-		readEnv('DEDALO_MEDIA_PROCESSES_DIR'),
-		join(privateDir, 'processes'),
-	);
+	const dir = configuredProcessesDir();
 	assertProcessesDirDeclared(dir, 'media jobs processesDir');
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o750 });
 	return dir;
@@ -724,6 +897,15 @@ function isStaleLiveRecord(record: JobRecord, pfileMtimeMs: number): boolean {
 }
 
 /**
+ * BOOT: verify the processes dir's mount before anything uses it
+ * (processes_mount.ts — throws a typed `media.not_configured`; server.ts
+ * refuses to start on it).
+ */
+export function verifyProcessesDirMount(probe: MountProbe = {}): void {
+	assertProcessesMountCoherent(processesDir(), probe);
+}
+
+/**
  * Boot sweep (audit S2-15 mandatory reconcile + S3-46 residue GC): flip stale
  * live pfiles to 'interrupted' (console.error each — a crashed transcode must
  * never be silent) and prune terminal pfiles past retention. Idempotent; safe
@@ -791,6 +973,21 @@ export interface MediaJobManagerOptions {
 	/** Per-lane deadline in ms; 0 disables. Per-submit override: `JobSubmitMeta.deadlineMs`. */
 	deadlinesMs?: Partial<Record<JobLane, number>>;
 	clock?: () => number;
+	/** This manager's identity in a component lock file (default: random per manager). */
+	instanceId?: string;
+	/**
+	 * Component-lock heartbeat period and stale bound (ms) — see
+	 * component_lock.ts. A period of 0 arms NO timer: the heartbeat runs only
+	 * through `heartbeatNow()` (the gates' deterministic tick).
+	 */
+	lockHeartbeatMs?: number;
+	lockStaleAfterMs?: number;
+	/** The lock READER's clock for staleness sightings (monotonic by default; gates inject one). */
+	lockClock?: () => number;
+	/** The share protocol's publish→look seam (gates only: the crossed interleavings). */
+	lockShareHooks?: ComponentShareHooks;
+	/** Where the lock door reads the processes dir's mount (the real host by default; gates inject). */
+	lockMountProbe?: MountProbe;
 }
 
 /** What a submit site must declare. `lane` is REQUIRED — see `submit`. */
@@ -811,6 +1008,39 @@ export interface JobSubmitMeta {
 	 * callback is swallowed: it must never take down the job manager.
 	 */
 	onTerminal?: (record: JobRecord) => void;
+	/**
+	 * EXCLUSIVE submit: refuse with `media.build_running` when any tier this job
+	 * would occupy (`target.quality` + `also_qualities`) is already live — a job
+	 * OR a claim (claimTarget). The check and the index entry happen in the same
+	 * synchronous block, so two exclusive submits for one target can never both
+	 * pass. Requires `target`. The av builds set it (av_versions.ts); nothing
+	 * else does today.
+	 */
+	exclusive?: boolean;
+	/**
+	 * A claim the submitter holds on this job's target (claimTarget). The job
+	 * ADOPTS it: the claim leaves the index and the job enters it in one
+	 * synchronous step, so the target is never free in between. Must still be
+	 * held and name the same target — anything else is an engine defect.
+	 */
+	claim?: JobTargetClaim;
+}
+
+/**
+ * A HELD RESERVATION of a job target, before any job exists (claimTarget).
+ *
+ * Why it exists: the av upload refuses while a build of the same component is
+ * live (A1-01), but between that check and the transcode submit lie the file
+ * move, the posterframe and the caller's files_info persist — all awaited. A
+ * bare `hasLiveJobForTarget` check there lets two concurrent uploads both pass
+ * and both replace the master. A claim occupies the target in the live index
+ * from the check onward, so the second upload sees it as a running build.
+ */
+export interface JobTargetClaim {
+	readonly id: string;
+	readonly target: JobTarget;
+	/** Give the target back. Idempotent; a no-op once a job adopted the claim. */
+	release(): void;
 }
 
 export class MediaJobManager {
@@ -831,18 +1061,48 @@ export class MediaJobManager {
 	 * transition, so a key present here always names live work.
 	 */
 	private readonly liveByTarget = new Map<string, Set<string>>();
+	/** Held, not-yet-adopted target claims by claim id (claimTarget) — they live in liveByTarget too. */
+	private readonly claims = new Map<string, JobTarget>();
 	/** A monotonic clock injected for determinism in tests (default Date.now via performance origin). */
 	private readonly clock: () => number;
 	/** Armed deadline timers by job id — cleared on every settle. */
 	private readonly deadlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	/** Armed deadline EXPIRIES by job id — the timer's body, also the gates' deterministic tick (deadlineNow). */
+	private readonly deadlineExpiries = new Map<string, () => void>();
 	/** Submit-site terminal callbacks by job id (JobSubmitMeta.onTerminal) — fired once, then dropped. */
 	private readonly terminalCallbacks = new Map<string, (record: JobRecord) => void>();
+	/**
+	 * CROSS-PROCESS component locks held by this manager, by holder (claim or
+	 * job) id — taken with the in-memory index (memory first, then the file) for
+	 * every `scope: 'component'` holder, released with it (component_lock.ts).
+	 */
+	private readonly fileLocks = new Map<string, ComponentLockHandle>();
+	/** This manager's own sightings of other holders' locks (component_lock.ts staleness). */
+	private readonly lockObservations = new Map<string, { signature: string; since: number }>();
+	/** Jobs whose WORKER has not settled yet (a deadline makes the record terminal first). */
+	private readonly activeWorkers = new Set<string>();
+	private readonly lockClock: (() => number) | undefined;
+	private readonly lockShareHooks: ComponentShareHooks | undefined;
+	private readonly lockMountProbe: MountProbe | undefined;
+	/** The processes dir whose mount this manager verified, and when (re-verified when the dir changes or the bound lapses). */
+	private verifiedMountDir: string | null = null;
+	private verifiedMountAt = 0;
+	private readonly instance: string;
+	private readonly lockHeartbeatMs: number;
+	private readonly lockStaleAfterMs: number;
+	private heartbeat: ReturnType<typeof setInterval> | null = null;
 
 	constructor(options: MediaJobManagerOptions = {}) {
 		this.budgets = resolveLaneMap(options.budgets, DEFAULT_LANE_BUDGETS, 1);
 		this.deadlinesMs = resolveLaneMap(options.deadlinesMs, DEFAULT_LANE_DEADLINES_MS, 0);
 		for (const lane of JOB_LANES) this.lanes[lane] = { active: 0, queue: [] };
 		this.clock = options.clock ?? (() => Math.round(globalThis.performance.now()));
+		this.instance = options.instanceId ?? crypto.randomUUID();
+		this.lockHeartbeatMs = options.lockHeartbeatMs ?? COMPONENT_LOCK_HEARTBEAT_MS;
+		this.lockStaleAfterMs = options.lockStaleAfterMs ?? COMPONENT_LOCK_STALE_AFTER_MS;
+		this.lockClock = options.lockClock;
+		this.lockShareHooks = options.lockShareHooks;
+		this.lockMountProbe = options.lockMountProbe;
 	}
 
 	/** Allocate a deterministic job id (no Date/Math.random — resume-safe). */
@@ -909,11 +1169,8 @@ export class MediaJobManager {
 		};
 	}
 
-	/**
-	 * Every tier key a job OCCUPIES: its own, plus any companion tier the same
-	 * job also writes (`also_qualities` — the ingest transcode's audio tier).
-	 */
-	private occupiedKeys(target: JobTarget): string[] {
+	/** The tier keys of a target: its own tier and every companion tier (`also_qualities`). */
+	private tierKeys(target: JobTarget): string[] {
 		const keys = [jobTargetKey(target)];
 		for (const quality of target.also_qualities ?? []) {
 			keys.push(jobTargetKey({ ...target, quality }));
@@ -921,27 +1178,470 @@ export class MediaJobManager {
 		return keys;
 	}
 
+	/**
+	 * Every key a holder OCCUPIES: its own tier, any companion tier the same job
+	 * also writes (`also_qualities` — the ingest transcode's audio tier), and,
+	 * component-scoped, the component in its lang plus the any-lang marker; a
+	 * whole-component claim occupies the all-langs key alone.
+	 */
+	private occupiedKeys(target: JobTarget): string[] {
+		if (target.scope === 'component_all') return [componentAllLangsKey(target)];
+		const keys = this.tierKeys(target);
+		if (target.scope === 'component') {
+			keys.push(componentScopeKey(target), componentAnyLangKey(target));
+		}
+		return keys;
+	}
+
+	/**
+	 * Every key whose holder REFUSES this target — not the same set it occupies:
+	 * a per-lang holder is refused by its own tiers, its lang's component and a
+	 * whole-component claim (never by another lang's marker); a whole-component
+	 * claim is refused by another whole-component claim and by any lang's holder.
+	 */
+	private probeKeys(target: JobTarget): string[] {
+		if (target.scope === 'component_all') {
+			return [componentAllLangsKey(target), componentAnyLangKey(target)];
+		}
+		const keys = this.tierKeys(target);
+		if (target.scope === 'component') {
+			keys.push(componentScopeKey(target), componentAllLangsKey(target));
+		}
+		return keys;
+	}
+
 	/** Enter a targeted job into the live-by-target index (no-op when untargeted). */
 	private indexLive(record: JobRecord): void {
 		if (record.target === undefined) return;
-		for (const key of this.occupiedKeys(record.target)) {
+		this.indexKeys(record.id, record.target);
+	}
+
+	/**
+	 * Drop a job from the live-by-target index AND its component lock. Idempotent
+	 * (the terminal transition and the worker's settle may both call it).
+	 */
+	private unindexLive(record: JobRecord): void {
+		if (record.target === undefined) return;
+		this.unindexKeys(record.id, record.target);
+		this.dropFileLock(record.id);
+	}
+
+	/**
+	 * The TERMINAL transition's unindex. A component-scoped job whose worker is
+	 * still running (a deadline finished the record first) keeps the component
+	 * until the worker SETTLES — like its lane slot (A1-01 review L4): ffmpeg
+	 * does not observe the abort, and freeing the component under a running
+	 * encode would admit a second writer of the same files. run()'s settle
+	 * releases it.
+	 */
+	private unindexAtTerminal(record: JobRecord): void {
+		if (
+			record.target !== undefined &&
+			takesFileLock(record.target) &&
+			this.activeWorkers.has(record.id)
+		) {
+			return;
+		}
+		this.unindexLive(record);
+	}
+
+	/**
+	 * Where and as whom this manager takes component locks (the SHARED processes
+	 * dir). The dir's MOUNT is verified first (processes_mount.ts): an NFS mount
+	 * that caches lookups or attributes refuses every lock call, typed.
+	 */
+	private lockContext(): ComponentLockContext {
+		const dir = processesDir();
+		this.verifyMountOf(dir);
+		return {
+			dir: join(dir, 'component_locks'),
+			instance: this.instance,
+			staleAfterMs: this.lockStaleAfterMs,
+			observations: this.lockObservations,
+			...(this.lockClock === undefined ? {} : { now: this.lockClock }),
+			...(this.lockShareHooks === undefined ? {} : { shareHooks: this.lockShareHooks }),
+		};
+	}
+
+	/**
+	 * The lock door's mount check (processes_mount.ts): read again when the dir
+	 * changed or MOUNT_REVERIFY_MS lapsed (this manager's clock) — a remount
+	 * while the instance runs is refused within that bound, never trusted
+	 * forever. A refusal is not remembered: the next call reads again.
+	 */
+	private verifyMountOf(dir: string): void {
+		const now = this.clock();
+		if (this.verifiedMountDir === dir && now - this.verifiedMountAt < MOUNT_REVERIFY_MS) return;
+		assertProcessesMountCoherent(dir, this.lockMountProbe);
+		this.verifiedMountDir = dir;
+		this.verifiedMountAt = now;
+	}
+
+	/**
+	 * Take the cross-process lock for a component-scoped holder, AFTER the
+	 * in-memory check passed. False when another instance holds the component.
+	 * An unscoped target takes no lock (true).
+	 *
+	 * A per-lang holder then JOINS its component's share (component_lock.ts
+	 * SHARED COMPONENTS): it registers — a `link()` into the share dir, which
+	 * the server refuses (ENOTDIR) while a whole-component holder's TOMBSTONE
+	 * stands at the dir's name; then its own lock is given back and it
+	 * refuses. The whole-component side (claimWholeComponents →
+	 * closeComponentShare) empties the dir at the server (`rmdir`) and links its
+	 * tombstone at the name. Each side's step is ONE server answer, so of two
+	 * racing holders exactly the later one is refused; two langs never refuse
+	 * each other.
+	 */
+	private takeFileLock(holderId: string, target: JobTarget): boolean {
+		if (!takesFileLock(target)) return true;
+		const context = this.lockContext();
+		const handle = acquireComponentLock(componentLockKey(target), holderId, context);
+		if (handle === null) return false;
+		const held =
+			target.scope === 'component' ? joinShareOrRelease(handle, target, context) : handle;
+		if (held === null) return false;
+		this.fileLocks.set(holderId, held);
+		this.armHeartbeat();
+		return true;
+	}
+
+	/** Give a holder's component lock back (never throws: called on terminal paths). */
+	private dropFileLock(holderId: string): void {
+		const handle = this.fileLocks.get(holderId);
+		if (handle === undefined) return;
+		this.fileLocks.delete(holderId);
+		if (this.fileLocks.size === 0) this.disarmHeartbeat();
+		try {
+			releaseComponentLock(handle);
+		} catch (error) {
+			console.error(
+				`[media lock] releasing ${handle.key} (${holderId}) failed: ${(error as Error).message}`,
+			);
+		}
+	}
+
+	/**
+	 * A job ADOPTING a claim keeps the claim's lock file: the component is never
+	 * free in between. The lock's heartbeat is re-labelled with the job id (L7),
+	 * so the directory names the job that holds it, not a finished claim.
+	 */
+	private moveFileLock(fromId: string, toId: string): void {
+		const handle = this.fileLocks.get(fromId);
+		if (handle === undefined) return;
+		this.fileLocks.delete(fromId);
+		let relabelled = handle;
+		try {
+			relabelled = relabelComponentLock(handle, toId);
+		} catch (error) {
+			console.error(
+				`[media lock] relabel ${handle.key} → ${toId} failed: ${(error as Error).message}`,
+			);
+		}
+		this.fileLocks.set(toId, relabelled);
+	}
+
+	/** Refresh every held lock's heartbeat while any is held (unref'd: never keeps the process up). */
+	private armHeartbeat(): void {
+		if (this.heartbeat !== null || this.lockHeartbeatMs <= 0) return;
+		this.heartbeat = setInterval(() => this.heartbeatNow(), this.lockHeartbeatMs);
+		this.heartbeat.unref?.();
+	}
+
+	private disarmHeartbeat(): void {
+		if (this.heartbeat === null) return;
+		clearInterval(this.heartbeat);
+		this.heartbeat = null;
+	}
+
+	/**
+	 * One heartbeat pass (the interval's tick; public as the gates' deterministic
+	 * tick). A lock that is no longer ours — another instance reclaimed it — is a
+	 * LOST hold: forgotten (never released: it is someone else's now) and, for a
+	 * job, its controller is aborted with `lock_lost`, which fails the job; its
+	 * publication steps refuse on their own (assertHolds).
+	 */
+	heartbeatNow(): void {
+		for (const [holderId, handle] of [...this.fileLocks]) {
+			try {
+				if (refreshComponentLock(handle)) continue;
+				this.loseFileLock(holderId, handle);
+			} catch (error) {
+				console.error(`[media lock] heartbeat ${handle.key} failed: ${(error as Error).message}`);
+			}
+		}
+	}
+
+	/** A hold found LOST: forget it, abort its job, say so. */
+	private loseFileLock(holderId: string, handle: ComponentLockHandle): void {
+		this.fileLocks.delete(holderId);
+		if (this.fileLocks.size === 0) this.disarmHeartbeat();
+		try {
+			abandonComponentLock(handle);
+		} catch (error) {
+			console.error(`[media lock] abandoning ${handle.key} failed: ${(error as Error).message}`);
+		}
+		console.error(
+			`[media lock] ${handle.key} (${holderId}) was reclaimed by another instance — hold LOST`,
+		);
+		this.controllers.get(holderId)?.abort(jobAbortReason({ cause: 'lock_lost' }));
+	}
+
+	/**
+	 * The running job's hold check (job_scope.ts assertJobHold): a
+	 * component-scoped job must still hold its lock — in memory AND on disk —
+	 * immediately before it publishes. Throws media.build_running when the
+	 * component is someone else's now.
+	 */
+	private assertHolds(record: JobRecord): void {
+		if (record.target === undefined) return;
+		this.assertFileLockHeld(record.id, record.target, 'media job');
+	}
+
+	/**
+	 * A HELD CLAIM's hold check (A1-01 review F3) — the claim's twin of
+	 * assertHolds: a component-scoped claim must still hold its lock in memory
+	 * AND on disk. A claim already released or adopted by its job answers
+	 * nothing (the job's own check takes over). Throws media.build_running when
+	 * another instance reclaimed it.
+	 */
+	assertClaimHolds(claimId: string): void {
+		const target = this.claims.get(claimId);
+		if (target === undefined) return;
+		this.assertFileLockHeld(claimId, target, 'media claim');
+	}
+
+	/**
+	 * Run `work` under `claim`'s hold check: every publication step inside it
+	 * (media/atomic.ts writeAtomically, the files_info write-back) asks
+	 * assertClaimHolds immediately before it acts — so an operation whose claim
+	 * was lost while it awaited publishes nothing after the loss.
+	 */
+	runUnderClaim<T>(claim: JobTargetClaim, work: () => T): T {
+		return runWithJobHold(() => this.assertClaimHolds(claim.id), work);
+	}
+
+	/** The shared hold check: a file-locked holder's lock must still be ours on disk. */
+	private assertFileLockHeld(holderId: string, target: JobTarget, what: string): void {
+		if (!takesFileLock(target)) return;
+		const handle = this.fileLocks.get(holderId);
+		if (handle !== undefined && componentLockIsOurs(handle)) return;
+		if (handle !== undefined) this.loseFileLock(holderId, handle);
+		throw new DedaloError('media.build_running', {
+			message: `${what} ${holderId}: the component lock of '${jobTargetKey(target)}' was lost — nothing published`,
+			coordinates: { target: jobTargetKey(target) },
+		});
+	}
+
+	/** Enter one holder (a job id or a claim id) under every key its target occupies. */
+	private indexKeys(holderId: string, target: JobTarget): void {
+		for (const key of this.occupiedKeys(target)) {
 			let ids = this.liveByTarget.get(key);
 			if (ids === undefined) {
 				ids = new Set();
 				this.liveByTarget.set(key, ids);
 			}
-			ids.add(record.id);
+			ids.add(holderId);
 		}
 	}
 
-	/** Drop a job from the live-by-target index (called on EVERY terminal path). */
-	private unindexLive(record: JobRecord): void {
-		if (record.target === undefined) return;
-		for (const key of this.occupiedKeys(record.target)) {
+	/** Drop one holder from every key its target occupies. */
+	private unindexKeys(holderId: string, target: JobTarget): void {
+		for (const key of this.occupiedKeys(target)) {
 			const ids = this.liveByTarget.get(key);
 			if (ids === undefined) continue;
-			ids.delete(record.id);
+			ids.delete(holderId);
 			if (ids.size === 0) this.liveByTarget.delete(key);
+		}
+	}
+
+	/**
+	 * Is ANY key this target would occupy held by someone other than `exceptId`?
+	 * The exclusive guard's question — wider than hasLiveJobForTarget, which
+	 * asks about one tier: an ingest transcode also writes `also_qualities`,
+	 * and a component-scoped target occupies the whole component.
+	 */
+	private occupiedByOther(target: JobTarget, exceptId: string | null): boolean {
+		for (const key of this.probeKeys(target)) {
+			for (const holder of this.liveByTarget.get(key) ?? []) {
+				if (holder !== exceptId) return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * CLAIM a target before its job exists — see JobTargetClaim. Synchronous: the
+	 * check and the index entry cannot interleave with another claim or submit.
+	 * Returns null when any tier the target occupies is already live (a job or
+	 * another claim); the caller refuses. The holder MUST end the claim: adopt it
+	 * in `submit({claim})` or `release()` it (try/finally).
+	 */
+	claimTarget(target: JobTarget): JobTargetClaim | null {
+		if (target.scope === 'component_all') {
+			throw new DedaloError('internal.invariant', {
+				message: 'claimTarget: a whole-component claim is taken through claimWholeComponents',
+				coordinates: { target: jobTargetKey(target) },
+			});
+		}
+		return this.claimHeld(target);
+	}
+
+	/** The claim proper: memory check, the file lock, the index entry — one synchronous step. */
+	private claimHeld(target: JobTarget): JobTargetClaim | null {
+		if (this.occupiedByOther(target, null)) return null;
+		this.counter += 1;
+		const id = `claim_${process.pid}_${this.counter}`;
+		// Memory first, then the file: another INSTANCE may hold the component.
+		if (!this.takeFileLock(id, target)) return null;
+		this.claims.set(id, target);
+		this.indexKeys(id, target);
+		return { id, target, release: () => this.releaseClaim(id) };
+	}
+
+	/**
+	 * CLAIM WHOLE av components — every lang — of one record (A1-01 review F4):
+	 * the hold a record delete, a data wipe or a Time Machine restore takes over
+	 * the components whose files it moves. One synchronous step: each
+	 * component's all-langs claim (memory, then its all-langs lock file), then,
+	 * after every all-langs lock is published, each component's share CLOSED AT
+	 * THE SERVER (closeComponentShare: `rmdir` of its share dir — never a
+	 * listing — then the tombstone at its name), refusing when any lang of any
+	 * of them is held by another instance. Null when anything is held; every
+	 * claim already taken is given back (its release removes its tombstone). The
+	 * caller releases the claims (AvRecordHold).
+	 */
+	claimWholeComponents(
+		sectionTipo: string,
+		sectionId: number,
+		componentTipos: readonly string[],
+		tier: string,
+	): JobTargetClaim[] | null {
+		const claims: JobTargetClaim[] = [];
+		const giveBack = (): null => {
+			for (const claim of claims) claim.release();
+			return null;
+		};
+		// A THROW anywhere below (an acquire error, the mount re-verified and
+		// refused, an rmdir/link/readdir failure closing a share) gives back
+		// everything already taken — memory keys, whole locks, tombstones — then
+		// propagates: nothing stays held until a restart (final review F1).
+		try {
+			for (const componentTipo of componentTipos) {
+				const claim = this.claimHeld({
+					section_tipo: sectionTipo,
+					section_id: sectionId,
+					component_tipo: componentTipo,
+					lang: null,
+					quality: tier,
+					label: tier,
+					scope: 'component_all',
+				});
+				if (claim === null) return giveBack();
+				claims.push(claim);
+			}
+			const context = this.lockContext();
+			for (const claim of claims) {
+				if (!this.closeShareOf(claim, context)) return giveBack();
+			}
+			return claims;
+		} catch (error) {
+			giveBack();
+			throw error;
+		}
+	}
+
+	/**
+	 * Close the share of a whole claim's component: its held handle is replaced
+	 * by the one carrying the tombstone (released with it). False when a lang is
+	 * held — and when the claim holds no file lock at all (a whole claim always
+	 * takes one; without it nothing excludes the langs, so it is refused).
+	 */
+	private closeShareOf(claim: JobTargetClaim, context: ComponentLockContext): boolean {
+		const handle = this.fileLocks.get(claim.id);
+		if (handle === undefined) return false;
+		const closed = closeComponentShare(handle, componentKeyBase(claim.target), context);
+		if (closed === null) return false;
+		this.fileLocks.set(claim.id, closed);
+		return true;
+	}
+
+	/** End a held claim (idempotent: an adopted or released claim is a no-op). */
+	private releaseClaim(id: string): void {
+		const target = this.claims.get(id);
+		if (target === undefined) return;
+		this.claims.delete(id);
+		this.unindexKeys(id, target);
+		this.dropFileLock(id);
+	}
+
+	/**
+	 * The synchronous admission of a targeted submit (`exclusive` / `claim`):
+	 * validate the claim, refuse a busy target, then release the claim — the
+	 * caller indexes the job in the SAME tick, so nothing can slip in between.
+	 */
+	private admitTargeted(meta: JobSubmitMeta, jobId: string): void {
+		const claimId = this.adoptableClaimId(meta);
+		if (meta.exclusive === true) this.assertTargetFree(meta.target, claimId);
+		if (claimId !== null) {
+			this.moveFileLock(claimId, jobId);
+			this.releaseClaim(claimId);
+		} else if (meta.exclusive === true && meta.target !== undefined) {
+			this.assertFileLockTaken(jobId, meta.target);
+		}
+	}
+
+	/**
+	 * The claim a submit may adopt (null when it hands none): held, naming the
+	 * job's own target, and — review F3 — still OURS on disk (a claim another
+	 * instance reclaimed while its holder awaited the upload's move, posterframe
+	 * and persist is not adopted). A whole-component target is never a job.
+	 */
+	private adoptableClaimId(meta: JobSubmitMeta): string | null {
+		if (meta.target?.scope === 'component_all') {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: a whole-component target is a claim, never a job',
+				coordinates: { target: jobTargetKey(meta.target) },
+			});
+		}
+		if (meta.claim === undefined) return null;
+		const claimId = this.assertClaimHeld(meta.claim, meta.target);
+		this.assertClaimHolds(claimId);
+		return claimId;
+	}
+
+	/** The exclusive submit's cross-process half: another instance holding the component refuses. */
+	private assertFileLockTaken(jobId: string, target: JobTarget): void {
+		if (this.takeFileLock(jobId, target)) return;
+		throw new DedaloError('media.build_running', {
+			message: `media job submit: '${jobTargetKey(target)}' is held by another server instance`,
+			coordinates: { target: jobTargetKey(target) },
+		});
+	}
+
+	/** A claim handed to submit must still be held and name the job's own target. */
+	private assertClaimHeld(claim: JobTargetClaim, target: JobTarget | undefined): string {
+		const held = this.claims.get(claim.id);
+		if (held === undefined || target === undefined || jobTargetKey(held) !== jobTargetKey(target)) {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: the claim is not held or names another target',
+				coordinates: { claim_id: claim.id },
+			});
+		}
+		return claim.id;
+	}
+
+	/** The exclusive refusal: any tier the target occupies is held by someone but `claimId`. */
+	private assertTargetFree(target: JobTarget | undefined, claimId: string | null): void {
+		if (target === undefined) {
+			throw new DedaloError('internal.invariant', {
+				message: 'media job submit: an exclusive submit needs a target',
+			});
+		}
+		if (this.occupiedByOther(target, claimId)) {
+			throw new DedaloError('media.build_running', {
+				message: `media job submit: '${jobTargetKey(target)}' already has a live build`,
+				coordinates: { target: jobTargetKey(target) },
+			});
 		}
 	}
 
@@ -957,14 +1657,37 @@ export class MediaJobManager {
 	 *
 	 * THE LIMIT, stated rather than discovered: a SECOND server instance sharing
 	 * ../private/processes (a deployment `isStaleLiveRecord` explicitly
-	 * contemplates) has its own registry, so each instance could admit a build for
-	 * the same target. The cost is a wasted duplicate encode whose loser is
-	 * discarded by the atomic rename — never corruption — but if this ever needs
-	 * to be exact, the fix is to promote media jobs onto the durable queue, not to
-	 * bolt a lock onto this map.
+	 * contemplates) has its own registry, so THIS question answers for this
+	 * instance only — for a generic target the cost is a wasted duplicate encode
+	 * whose loser is discarded by the atomic rename, never corruption. The av
+	 * build family (`scope: 'component'`, A1-01) does NOT live with that limit:
+	 * its claims and exclusive submits also take the cross-process component lock
+	 * file (component_lock.ts; `isOccupied` asks it), so an upload on instance B
+	 * sees a transcode on instance A — provided both share the processes dir
+	 * (engineering/PRODUCTION.md §8.1).
+	 *
+	 * A held CLAIM (claimTarget) counts as live: an av upload between its check
+	 * and its transcode submit occupies the tier exactly as the job will.
 	 */
 	hasLiveJobForTarget(target: JobTarget): boolean {
 		return (this.liveByTarget.get(jobTargetKey(target))?.size ?? 0) > 0;
+	}
+
+	/**
+	 * Would `target` be refused right now? The exclusive guard's own question
+	 * (every key it occupies: tier, companion tiers, the component when scoped —
+	 * and, scoped, the cross-process component lock of ANOTHER instance), for a
+	 * pre-flight that must answer BEFORE it awaits anything. A question, not a
+	 * reservation: the answer that holds is the exclusive submit's.
+	 */
+	isOccupied(target: JobTarget): boolean {
+		if (this.occupiedByOther(target, null)) return true;
+		if (target.scope !== 'component') return false;
+		const context = this.lockContext();
+		return (
+			componentLockBusy(componentLockKey(target), context) ||
+			componentLockBusy(allLangsLockKey(target), context)
+		);
 	}
 
 	/**
@@ -1077,7 +1800,11 @@ export class MediaJobManager {
 	 */
 	submit(kind: string, worker: JobWorker, meta: JobSubmitMeta): JobRecord {
 		assertNotReadOnlyRequest('MediaJobManager.submit');
+		// The id first (a refused submit spends one counter value, nothing else),
+		// so the component lock is taken under the job's own name. Then, before
+		// anything is registered: a refusal here leaves no trace.
 		const id = this.nextId(kind);
+		this.admitTargeted(meta, id);
 		// The worker's identity, read NOW — the request's synchronous flow is the
 		// only moment it is the submitter's (JobRunScope).
 		const scope = captureJobRunScope(id);
@@ -1138,7 +1865,7 @@ export class MediaJobManager {
 	): Promise<void> {
 		const acquired = await this.acquire(record.lane, controller.signal);
 		if (!acquired || controller.signal.aborted) {
-			this.endNeverStarted(record, acquired);
+			this.endNeverStarted(record, acquired, controller.signal);
 			return;
 		}
 		record.status = 'running';
@@ -1147,6 +1874,7 @@ export class MediaJobManager {
 		// THE DEADLINE IS ARMED HERE, not at submit: a job that waited behind a full
 		// lane must not be killed for having waited (the clock decision, header).
 		this.armDeadline(record, controller);
+		this.activeWorkers.add(record.id);
 		try {
 			const result = await this.runWorker(
 				record,
@@ -1168,13 +1896,18 @@ export class MediaJobManager {
 				},
 				scope,
 			);
+			this.activeWorkers.delete(record.id);
 			record.data = result;
-			this.finish(record, controller.signal.aborted ? 'stopped' : 'done');
+			this.finish(record, abortedStatus(controller.signal) ?? 'done');
 		} catch (error) {
-			this.failRun(record, error, controller.signal.aborted);
+			this.activeWorkers.delete(record.id);
+			this.failRun(record, error, controller.signal);
 		} finally {
+			this.activeWorkers.delete(record.id);
 			this.clearDeadline(record.id);
 			this.release(record.lane);
+			// THE SETTLE: a component held past a deadline is released here (L4).
+			this.unindexLive(record);
 		}
 	}
 
@@ -1183,13 +1916,10 @@ export class MediaJobManager {
 	 * (recordFailure — see JobRecord.errors / .error), the log line the full
 	 * (log-only) message.
 	 */
-	private failRun(record: JobRecord, error: unknown, aborted: boolean): void {
-		if (isLiveStatus(record.status)) recordFailure(record, error, aborted);
-		this.finish(
-			record,
-			aborted ? 'stopped' : 'error',
-			error instanceof Error ? error.message : String(error),
-		);
+	private failRun(record: JobRecord, error: unknown, signal: AbortSignal): void {
+		const status = abortedStatus(signal) ?? 'error';
+		if (isLiveStatus(record.status)) recordFailure(record, error, status === 'stopped');
+		this.finish(record, status, error instanceof Error ? error.message : String(error));
 	}
 
 	/**
@@ -1203,13 +1933,14 @@ export class MediaJobManager {
 	 * (update_code_phases resolve_final_frame; the pre-lane wire served
 	 * `errors: []` here too). The operator log gets the line instead.
 	 */
-	private endNeverStarted(record: JobRecord, acquired: boolean): void {
+	private endNeverStarted(record: JobRecord, acquired: boolean, signal: AbortSignal): void {
 		if (isLiveStatus(record.status)) {
 			console.log(
 				`[media jobs] job ${record.id} (${record.kind}, lane ${record.lane}) stopped before it started (was queued)`,
 			);
 		}
-		this.finish(record, 'stopped');
+		// A hold lost while queued FAILS the job ('error'); any other abort is a stop.
+		this.finish(record, abortedStatus(signal) ?? 'stopped');
 		if (acquired) this.release(record.lane);
 	}
 
@@ -1231,7 +1962,7 @@ export class MediaJobManager {
 	 * (test/unit/media_jobs_reconcile.test.ts).
 	 */
 	protected runWorker(
-		_record: JobRecord,
+		record: JobRecord,
 		controller: AbortController,
 		worker: JobWorker,
 		ctx: Parameters<JobWorker>[0],
@@ -1239,7 +1970,12 @@ export class MediaJobManager {
 	): Promise<unknown> {
 		return runWithRequestContext(scope.context, () =>
 			runWithRequestLangs(scope.langs, () =>
-				runWithJobSignal(controller.signal, () => worker(ctx)),
+				runWithJobSignal(controller.signal, () =>
+					runWithJobHold(
+						() => this.assertHolds(record),
+						() => worker(ctx),
+					),
+				),
 			),
 		);
 	}
@@ -1252,7 +1988,8 @@ export class MediaJobManager {
 	 */
 	private armDeadline(record: JobRecord, controller: AbortController): void {
 		if (record.deadline_ms <= 0) return;
-		const timer = setTimeout(() => {
+		const expire = (): void => {
+			clearTimeout(this.deadlineTimers.get(record.id));
 			this.deadlineTimers.delete(record.id);
 			if (!isLiveStatus(record.status)) return;
 			incrementCounter('job_deadline_fired');
@@ -1273,13 +2010,28 @@ export class MediaJobManager {
 			}, JOB_DEADLINE_SETTLE_GRACE_MS);
 			unrefTimer(grace);
 			this.deadlineTimers.set(`${record.id}::grace`, grace);
-		}, record.deadline_ms);
+		};
+		const timer = setTimeout(expire, record.deadline_ms);
 		unrefTimer(timer);
 		this.deadlineTimers.set(record.id, timer);
+		this.deadlineExpiries.set(record.id, expire);
+	}
+
+	/**
+	 * Fire a job's ARMED deadline now — public as the gates' deterministic tick
+	 * (like heartbeatNow): a gate drives the expiry instead of racing a short
+	 * real timer. False when no deadline is armed (none, already fired, settled).
+	 */
+	deadlineNow(jobId: string): boolean {
+		const expire = this.deadlineExpiries.get(jobId);
+		if (expire === undefined) return false;
+		expire();
+		return true;
 	}
 
 	/** Disarm a job's deadline (and its held-lane grace) — called on every settle. */
 	private clearDeadline(id: string): void {
+		this.deadlineExpiries.delete(id);
 		for (const key of [id, `${id}::grace`]) {
 			const timer = this.deadlineTimers.get(key);
 			if (timer !== undefined) {
@@ -1302,8 +2054,9 @@ export class MediaJobManager {
 		record.finishedAtWall = Date.now();
 		// Out of the live index BEFORE the frame is published: a subscriber woken by
 		// the terminal commit may immediately re-submit the same target (the panel's
-		// retry), and it must not be refused by the job that just ended.
-		this.unindexLive(record);
+		// retry), and it must not be refused by the job that just ended. (A
+		// component-scoped job still RUNNING past a deadline keeps it — L4.)
+		this.unindexAtTerminal(record);
 		// The TERMINAL frame: subscribers see is_running:false and close their
 		// stream. Committed before the subscriber set is dropped below.
 		this.commit(record);
@@ -1382,6 +2135,10 @@ export class MediaJobManager {
 			this.notifyTerminal(record);
 			interrupted.push(record.id);
 		}
+		// Held claims own lock FILES too (L3): a shutdown between an upload's claim
+		// and its transcode must not leave the component locked for the fleet.
+		for (const claimId of [...this.claims.keys()]) this.releaseClaim(claimId);
+		this.disarmHeartbeat();
 		return interrupted;
 	}
 

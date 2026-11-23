@@ -277,6 +277,52 @@ describe('media job projection', () => {
 		expect(row.also_qualities).toEqual(['audio']);
 	});
 
+	test('a component-scoped job says so (the panel greys EVERY tier of the component)', () => {
+		// A1-01 owner ruling 3: one av build per COMPONENT — while a
+		// component-scoped job is live the server refuses a build of ANY tier, so
+		// the panel must know the scope or it offers gears that are guaranteed to
+		// be refused.
+		const row = activityRowFromMediaJob(
+			mediaRecord({
+				target: {
+					section_tipo: 'test94',
+					section_id: 7,
+					component_tipo: 'test95',
+					lang: null,
+					quality: '1080',
+					label: '1080',
+					scope: 'component',
+				},
+			}),
+		);
+		expect(row.scope).toBe('component');
+	});
+
+	test('a media row names the job target lang (null when untranslatable, never undefined)', () => {
+		// A1-01 review L6: the server keys an av component's hold by lang, so the
+		// panel greys only its own lang's gears — it needs the lang to compare.
+		const target = {
+			section_tipo: 'test94',
+			section_id: 7,
+			component_tipo: 'test95',
+			quality: '1080',
+			label: '1080',
+			scope: 'component' as const,
+		};
+		const perLang = activityRowFromMediaJob(mediaRecord({ target: { ...target, lang: 'lg-spa' } }));
+		expect(perLang.record?.lang).toBe('lg-spa');
+		const untranslatable = activityRowFromMediaJob(
+			mediaRecord({ target: { ...target, lang: null } }),
+		);
+		expect(untranslatable.record?.lang).toBeNull();
+	});
+
+	test('an unscoped job reports scope null, never undefined', () => {
+		// Uniform wire shape: the client compares `job.scope === 'component'`.
+		const row = activityRowFromMediaJob(mediaRecord());
+		expect(row.scope).toBeNull();
+	});
+
 	test('a job with no companion tiers reports an empty list, never undefined', () => {
 		// The client does `(job.also_qualities || []).includes(...)`; an explicit
 		// empty array keeps the wire shape uniform across every row.

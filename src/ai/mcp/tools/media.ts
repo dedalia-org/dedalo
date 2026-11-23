@@ -1,7 +1,7 @@
 /**
  * MEDIA tools — upload/attach a file to a media component and read back the
  * stored variants. The upload funnels into the ONE existing ingest engine
- * (receiveUpload sniff+stage → processUploadedFile → persistUploadedMedia):
+ * (receiveUpload sniff+stage → ingestAndPersist, the ingest door):
  * there is no second media write path (review doc D4).
  *
  * File input is a `source` union:
@@ -24,10 +24,9 @@ import { config } from '../../../config/config.ts';
 import { readEnv } from '../../../config/env.ts';
 import { readMatrixRecord } from '../../../core/db/matrix.ts';
 import { DedaloError } from '../../../core/errors/dedalo_error.ts';
-import { processUploadedFile } from '../../../core/media/ingest/process_uploaded_file.ts';
+import { ingestAndPersist } from '../../../core/media/ingest/ingest_and_persist.ts';
 import { receiveUpload } from '../../../core/media/ingest/upload.ts';
 import { resolveMediaToolContext } from '../../../core/media/tool_support.ts';
-import { persistUploadedMedia } from '../../../core/media/tools/files_info_persist.ts';
 import {
 	getColumnNameByModel,
 	getMatrixTableFromTipo,
@@ -222,7 +221,9 @@ export async function uploadMedia(
 		section_id: sectionId,
 		lang: input.lang,
 	});
-	const result = await processUploadedFile({
+	// Ingest + persist + the av transcode through THE ingest door, which releases
+	// the av build claim whatever throws (ingest_and_persist.ts).
+	const result = await ingestAndPersist({
 		spec,
 		identity,
 		pathOpts,
@@ -231,18 +232,7 @@ export async function uploadMedia(
 		tmpName,
 		extension,
 	});
-	await persistUploadedMedia({
-		sectionTipo: identity.sectionTipo,
-		sectionId: identity.sectionId,
-		componentTipo: identity.componentTipo,
-		lang: identity.lang,
-		filesInfo: result.filesInfo,
-		originalFileName: result.originalFileName,
-		originalNormalizedName: result.originalFileName,
-	});
-	// AFTER the persist commits: the transcode writes its own files_info back, and
-	// must not race the write above (see IngestResult.startTranscode).
-	const jobId = result.startTranscode?.() ?? null;
+	const jobId = result.transcodeJobId;
 	return {
 		section_tipo: sectionTipo,
 		section_id: sectionId,

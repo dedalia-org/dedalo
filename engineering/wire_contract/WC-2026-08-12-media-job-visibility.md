@@ -87,6 +87,13 @@ gate rather than rendering a failed publication as still running.
 
 ## Divergence 3 — `build_version` REFUSES a tier that is already being built
 
+> **Superseded in part (2026-11-22):** the busy refusal is now
+> `media.build_running` (409), and its scope is the whole av COMPONENT (one
+> build per component, any tier; an upload included) — see
+> `WC-2026-11-22-av-upload-build-running`. `AvBuildRefused` /
+> `media.av_build_refused` keeps only the refusals that do not depend on another
+> job. The text below is the 2026-08-12 shape.
+
 `submitAvVersionBuild` now raises `AvBuildRefused` when a live job holds the
 same target, so `tool_media_versions::build_version` answers
 `{result:false, msg:"… is already being built for this record …"}` where it

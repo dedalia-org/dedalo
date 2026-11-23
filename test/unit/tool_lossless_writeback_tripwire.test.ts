@@ -974,17 +974,11 @@ else {
 		},
 		'tools/tool_import_files/server/index.ts :: importFiles': {
 			doors: {
-				processUploadedFile: {
+				ingestAndPersist: {
 					verdict: 'operator-value',
 					bypass_reason: BYPASS.filesInfo,
 					reason:
-						'ingests the file the operator is importing into the target media component (derivatives built from THAT file; an AV transcode re-scans files_info under the row lock when it ends). The written files_info describes the imported file, never a transform of the stored one.',
-				},
-				persistUploadedMedia: {
-					verdict: 'operator-value',
-					bypass_reason: BYPASS.filesInfo,
-					reason:
-						'records the imported file on the media item: the stored items are RE-READ under the row lock (readMatrixKeyForUpdate) and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
+						'THE ingest door (ingest_and_persist.ts, A1-01): ingests the file the operator is importing into the target media component (derivatives built from THAT file; an AV transcode re-scans files_info under the row lock when it ends). The written files_info describes the imported file, never a transform of the stored one. Then records the imported file on the media item: the stored items are RE-READ under the row lock (readMatrixKeyForUpdate) and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
 				},
 				createSectionRecord: {
 					verdict: 'new-record',
@@ -1030,17 +1024,11 @@ else {
 		},
 		'tools/tool_import_zotero/server/index.ts :: ingestPrepared': {
 			doors: {
-				processUploadedFile: {
+				ingestAndPersist: {
 					verdict: 'operator-value',
 					bypass_reason: BYPASS.filesInfo,
 					reason:
-						'ingests the PDF an imported item names in `archive` (staged in the same upload), and the cover rendered from it, into the committed record’s pdf / identifying image component (derivatives built from THAT file). The written files_info describes the imported file, never a transform of the stored one.',
-				},
-				persistUploadedMedia: {
-					verdict: 'operator-value',
-					bypass_reason: BYPASS.filesInfo,
-					reason:
-						'records the imported PDF / cover on the media item: the stored items are RE-READ under the row lock and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
+						'THE ingest door (ingest_and_persist.ts, A1-01): ingests the PDF an imported item names in `archive` (staged in the same upload), and the cover rendered from it, into the committed record’s pdf / identifying image component (derivatives built from THAT file). The written files_info describes the imported file, never a transform of the stored one. Then records the imported PDF / cover on the media item: the stored items are RE-READ under the row lock and only that language item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
 				},
 			},
 		},
@@ -1151,17 +1139,11 @@ else {
 					reason:
 						'add_new_element on the OBVERSE_PORTAL_TIPO / REVERSE_PORTAL_TIPO obverse/reverse portals of the lot commitOneLot created in this call: births one IMAGE_SECTION_TIPO image record per face and appends its locator. Nothing stored is read or replaced.',
 				},
-				processUploadedFile: {
+				ingestAndPersistDeferred: {
 					verdict: 'new-record',
 					bypass_reason: BYPASS.filesInfo,
 					reason:
-						'ingests one cropCoinPair face (the harvested lot image, split by crop_50) into IMAGE_COMPONENT_TIPO of the IMAGE_SECTION_TIPO record the portal add_new_element just created; transcodes start only once both faces are in.',
-				},
-				persistUploadedMedia: {
-					verdict: 'new-record',
-					bypass_reason: BYPASS.filesInfo,
-					reason:
-						'records that face’s files_info and name keys on IMAGE_COMPONENT_TIPO of the IMAGE_SECTION_TIPO record born in this call (stored items re-read under the row lock); the record held no media before.',
+						'THE ingest door (ingest_and_persist.ts, A1-01): ingests one cropCoinPair face (the harvested lot image, split by crop_50) into IMAGE_COMPONENT_TIPO of the IMAGE_SECTION_TIPO record the portal add_new_element just created; transcodes start only once both faces are in. Then records that face’s files_info and name keys on IMAGE_COMPONENT_TIPO of the IMAGE_SECTION_TIPO record born in this call (stored items re-read under the row lock); the record held no media before.',
 				},
 			},
 		},
@@ -1257,33 +1239,21 @@ else {
 		},
 		'tools/tool_bibliography_acquisition/server/index.ts :: importDocumentForPublication': {
 			doors: {
-				processUploadedFile: {
+				ingestAndPersist: {
 					verdict: 'new-record',
 					bypass_reason: BYPASS.filesInfo,
 					reason:
-						'ingests the harvested PDF (harvestFetch, application/pdf, ≤50 MB) into DOCUMENT_TIPO of the PUBLICATION_TIPO record commitOnePublication created in this call; the record held no document before.',
-				},
-				persistUploadedMedia: {
-					verdict: 'new-record',
-					bypass_reason: BYPASS.filesInfo,
-					reason:
-						'records the PDF’s files_info and name keys on DOCUMENT_TIPO of the PUBLICATION_TIPO record born in this call (stored items re-read under the row lock).',
+						'THE ingest door (ingest_and_persist.ts, A1-01): ingests the harvested PDF (harvestFetch, application/pdf, ≤50 MB) into DOCUMENT_TIPO of the PUBLICATION_TIPO record commitOnePublication created in this call; the record held no document before. Then records the PDF’s files_info and name keys on DOCUMENT_TIPO of the PUBLICATION_TIPO record born in this call (stored items re-read under the row lock).',
 				},
 			},
 		},
 		'tools/tool_upload/server/index.ts :: processUploaded': {
 			doors: {
-				processUploadedFile: {
+				ingestAndPersist: {
 					verdict: 'operator-value',
 					bypass_reason: BYPASS.filesInfo,
 					reason:
-						'ingests the file the operator uploaded into THIS media component: the derivatives are built from that file, and an AV transcode re-scans files_info under the row lock when it ends. Nothing stored is transformed.',
-				},
-				persistUploadedMedia: {
-					verdict: 'operator-value',
-					bypass_reason: BYPASS.filesInfo,
-					reason:
-						'records the uploaded file on the media item: the stored items are RE-READ under the row lock and only that item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
+						'THE ingest door (ingest_and_persist.ts, A1-01): ingests the file the operator uploaded into THIS media component: the derivatives are built from that file, and an AV transcode re-scans files_info under the row lock when it ends. Nothing stored is transformed. Then records the uploaded file on the media item: the stored items are RE-READ under the row lock and only that item’s files_info and name keys are set from the new file; the other items and languages are kept verbatim.',
 				},
 			},
 		},
@@ -1744,8 +1714,13 @@ else {
 	 * an external portal is recomputed by its law (the mirror lands through its chokepoint
 	 * entry); the bypass is the dropped item's frame strip, reasoned with
 	 * BYPASS.dataframeRemoval. A new door, not backlog.
+	 * 24 → 19 (2026-11-22, A1-01 review): the five media-ingest actions above (tool_upload,
+	 * tool_import_files, tool_import_zotero, numisdata importImagePair, bibliography
+	 * importDocumentForPublication) reach processUploadedFile + persistUploadedMedia through
+	 * ONE door now — ingestAndPersist / ingestAndPersistDeferred (ingest_door_tripwire) — so
+	 * each action's two cells became one. Same writers, same BYPASS.filesInfo reason.
 	 */
-	const BYPASS_TOOL_CELLS = 24;
+	const BYPASS_TOOL_CELLS = 19;
 
 	/**
 	 * The tether of every SERVER PENDING cell: what turns red when the defect is fixed

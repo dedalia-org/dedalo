@@ -266,7 +266,10 @@ const SCANNED_CALL_FLOOR = 60;
 // made those calls became visible: widgets/export_hierarchy.ts,
 // diffusion_bridge/diffusion_delete.ts, ontology/recovery_file.ts,
 // mediastore/media_index.ts and the csv/json/markdown/xml writers.
-const CEILING_FILES = 48;
+// 48 → 49 (2026-11-22, A1-01 owner ruling 5): media/component_lock.ts, the
+// cross-process av component lock (see the call ceiling below). Bounded, sync by
+// design — a new door, not a regression of an existing one.
+const CEILING_FILES = 49;
 // 93 → 88 (2026-09-30, OPS-2 review): the backup's hand-written process-record
 // writes left backup.ts when the dump became a registered maintenance job.
 // 88 → 86 (2026-10-01, DIFF-1/PERF-2): files.ts stages through a numeric fd
@@ -295,7 +298,15 @@ const CEILING_FILES = 48;
 // writable-roots manifest (a few hundred bytes of JSON) ONCE at boot, before any
 // listener, to refuse a configured path outside ProtectSystem=strict's roots —
 // the same class as install_state.ts; never a served request. MEASURED: 138.
-const CEILING_CALLS = 138;
+// 138 → 141 (2026-11-22, A1-01 owner ruling 5): media/component_lock.ts, the
+// cross-process av component lock — O_EXCL create + write, owner read, heartbeat
+// write of a few hundred bytes of JSON; sync by design (the claim must not yield
+// between the file create and the in-memory index). MEASURED: 141.
+// 141 → 143 (2026-11-22, A1-01 review M1/M2/L2): component_lock.ts reads the
+// heartbeat file (its own, separate from the immutable lock) and, once at load,
+// /proc/sys/kernel/random/boot_id (the machine identity) — both a few bytes.
+// MEASURED: 143.
+const CEILING_CALLS = 143;
 
 const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
@@ -381,6 +392,11 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 		file: 'src/core/media/ingest/upload.ts',
 		reason:
 			'KNOWN-OPEN, the chunked-upload assembler: it writes the received blob and its part files synchronously on the request path — the one entry here that is a defect rather than a justification, kept visible instead of silent',
+	},
+	{
+		file: 'src/core/media/component_lock.ts',
+		reason:
+			'the cross-process av component lock (A1-01, owner ruling 5): one lock file and one heartbeat of a few hundred bytes of JSON per held component. SYNC BECAUSE ITS CALLERS ARE SYNCHRONOUS APIs — MediaJobManager.claimTarget, submit (its exclusive admission) and isOccupied answer in the same tick, and the in-memory index taken in that tick is what makes the check and the claim indivisible; an async lock would split them. Bounded by the owner record, never by media bytes. RISK, documented in engineering/PRODUCTION.md §8.1: on a hung HARD NFS mount these calls freeze the event loop',
 	},
 	{
 		file: 'src/core/media/jobs.ts',

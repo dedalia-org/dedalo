@@ -444,7 +444,11 @@ describe('repair: a twin this host cannot write is REPORTED, and costs nothing e
 		// awaited the call for its side effects alone would compile, pass every test
 		// in this file, and silently lose every twin failure on the install.
 		const source = readFileSync(join(REPO_ROOT, 'src/core/media/repair.ts'), 'utf8');
-		expect(source).toMatch(/errors\.push\(\s*\.\.\.\(await regenerateMissingDerivatives\(/);
+		// (Since A1-01 ruling 4 the av pass runs under the component hold — the
+		// merge is the same, through the wrapper's return value.)
+		expect(source).toMatch(
+			/errors\.push\(\s*\.\.\.\(await (?:withAvComponentClaim\([^()]*,\s*\(\)\s*=>\s*)?regenerateMissingDerivatives\(/,
+		);
 		// …and the FATAL half still has its own channel (positive control: both
 		// paths reach `errors`, so this is a merge and not a replacement).
 		expect(source).toMatch(/catch \(error\) \{\s*errors\.push\(\(error as Error\)\.message\);/);

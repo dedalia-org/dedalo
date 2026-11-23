@@ -4,10 +4,10 @@
 	"cap": 6,
 	"root": "src/core",
 	"summary": {
-		"files": 950,
-		"functions": 16951,
-		"functionsOverCap": 640,
-		"filesOverCap": 252
+		"files": 953,
+		"functions": 17008,
+		"functionsOverCap": 639,
+		"filesOverCap": 251
 	},
 	"ledger": [
 		{
@@ -260,6 +260,11 @@
 			"generated": "2026-11-22",
 			"functionsOverCap": 640,
 			"filesOverCap": 252
+		},
+		{
+			"generated": "2026-11-22",
+			"functionsOverCap": 639,
+			"filesOverCap": 251
 		}
 	],
 	"files": {
@@ -268,7 +273,6 @@
 		"src/core/api/dedalo_files.ts": 9,
 		"src/core/api/dispatch.ts": 19,
 		"src/core/api/handlers/dd_component_3d_api.ts": 13,
-		"src/core/api/handlers/dd_component_av_api.ts": 7,
 		"src/core/api/handlers/dd_component_info.ts": 11,
 		"src/core/api/handlers/dd_component_text_area_api.ts": 17,
 		"src/core/api/handlers/dd_core_api.ts": 61,
@@ -370,7 +374,7 @@
 		"src/core/media/file_ops.ts": 17,
 		"src/core/media/files_info.ts": 12,
 		"src/core/media/ingest/add_file.ts": 8,
-		"src/core/media/ingest/process_uploaded_file.ts": 21,
+		"src/core/media/ingest/process_uploaded_file.ts": 18,
 		"src/core/media/ingest/staged_files.ts": 12,
 		"src/core/media/ingest/staged_name_record.ts": 10,
 		"src/core/media/ingest/staging_gc.ts": 10,

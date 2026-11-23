@@ -75,6 +75,24 @@ is refused and nothing is swapped.
 Setting it by hand on the real server yields a process that serves \`/health\` and nothing
 else — never do it. See \`engineering/PRODUCTION.md\` for the update pipeline.`,
 	},
+	DEDALO_SMOKE_PROCESSES_DIR: {
+		// Read only under DEDALO_SMOKE_BOOT (src/core/media/processes_mount.ts
+		// verifySmokeProcessesDirMount): the smoke child's own private dir is a
+		// throwaway, so the updater names the LIVE processes dir explicitly.
+		type: 'string',
+		scope: 'environment',
+		default: undefined,
+		heading: 'Live media processes dir, for the pre-swap boot check',
+		typeLabel: 'absolute path',
+		typeSuffix: '(set by the updater; never by hand)',
+		doc: `Set by the code updater on its pre-swap boot CHILD (see \`DEDALO_SMOKE_BOOT\`), never by an
+administrator: the media processes directory the RUNNING installation uses.
+
+The new release's real boot refuses a processes directory on an NFS mount that caches
+lookups or attributes (\`engineering/PRODUCTION.md\` §8.1). The pre-swap boot reads the same
+verdict on this directory — read only, nothing is created — so an update that would not start
+is refused before the installation tree is replaced. Ignored outside that boot.`,
+	},
 	DEDALO_CLIENT_PUBLISH_DIR: {
 		// Read from the PROCESS environment only (src/core/install/client_publish.ts):
 		// it names a mount of the container the launcher built, which a value in

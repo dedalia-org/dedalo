@@ -1694,8 +1694,8 @@ export function errorText(error: unknown): string {
  * Nothing in the request path serialized code updates. `stagingDir` is a fixed
  * path shared by every run; `prepareStagingDirOrRefuse` swept it
  * unconditionally; the client sends `prevent_lock: true` so the record lock is
- * bypassed; and `mediaJobs.submit` has NO duplicate guard (`hasLiveJobForTarget`
- * is advisory and only av_versions.ts consults it). Two admins pressing Update
+ * bypassed; and `mediaJobs.submit` has no duplicate guard unless the submitter
+ * opts in (`exclusive` — only the av builds do, A1-01). Two admins pressing Update
  * — or one admin in two browsers, since the client's busy flag is per-browser
  * IndexedDB and sits on a different button — therefore ran two whole-tree
  * replacements against one staging dir. Three ways that ends badly, all

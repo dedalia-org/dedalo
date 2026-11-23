@@ -23,6 +23,7 @@ import { existsSync, renameSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, extname } from 'node:path';
 import { config } from '../../../config/config.ts';
 import { withTempSibling, writeAtomically } from '../atomic.ts';
+import { assertJobHold } from '../job_scope.ts';
 import { withAvSlot } from './admission.ts';
 import { resolveFaststart } from './binaries.ts';
 import { type FfmpegProfile, getFfmpegProfile } from './ffmpeg_profiles.ts';
@@ -696,7 +697,10 @@ export async function conformHeader(
 		}
 		// 3. Only now: preserve the pre-conform file (PHP mv source → *_untouched)
 		//    and publish. Both renames are same-directory metadata operations, so
-		//    the window in which `source` does not exist is a single syscall.
+		//    the window in which `source` does not exist is a single syscall. A job
+		//    or claim that LOST its component publishes nothing (job_scope.ts; a
+		//    no-op outside one) — asked here, after the remux, right before acting.
+		assertJobHold();
 		renameSync(source, untouched);
 		renameSync(temp, source);
 	});

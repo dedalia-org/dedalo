@@ -2365,6 +2365,29 @@ export async function startServer() {
 		})().catch((error) => console.error('[db stats] boot wipe probe failed:', error));
 	} // end if (!smokeBoot)
 
+	// THE PROCESSES DIR'S MOUNT, BEFORE ANYTHING USES IT (A1-01 N1b): on Linux an
+	// NFS processes dir that caches lookups or attributes (no lookupcache=none,
+	// no actimeo=0/noac, or nocto) lets the component locks judge a live holder
+	// dead — refuse to start, loudly (core/media/processes_mount.ts). The lock
+	// door refuses on its own too; this makes the misconfiguration a boot error
+	// instead of a refused upload. In a SMOKE boot (the updater's pre-swap boot
+	// of a new release, R2) the same verdict is read on the LIVE processes dir
+	// (the one the updater names, else an explicit absolute one — jobs.ts
+	// smokeProcessesDir) — read only, nothing created — so a release whose real
+	// boot would exit here is refused before the swap, not after it.
+	{
+		const { verifyProcessesDirMount, verifySmokeBootProcessesDirMount } = await import(
+			'./core/media/jobs.ts'
+		);
+		const verify = smokeBoot ? verifySmokeBootProcessesDirMount : verifyProcessesDirMount;
+		try {
+			verify();
+		} catch (error) {
+			console.error(`FATAL: ${(error as Error).message}`);
+			process.exit(1);
+		}
+	}
+
 	// Media job pfile reconcile + residue GC (audit S2-15/S3-46): flip stale
 	// 'running' pfiles from previous process lives to 'interrupted' and prune
 	// ancient terminal pfiles. Fire-and-forget — pure filesystem hygiene.

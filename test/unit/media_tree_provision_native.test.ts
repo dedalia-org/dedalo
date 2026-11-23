@@ -1036,6 +1036,12 @@ const DIR_MODE_REGISTER: Readonly<Record<string, DirModeRow>> = Object.freeze({
 		kind: 'not_media',
 		reason: '../private/processes — the TS media-process tree, NOT under the media root',
 	},
+	'src/core/media/component_lock.ts': {
+		modes: ['0o750'],
+		kind: 'not_media',
+		reason:
+			'<processes>/component_locks — the cross-process av component locks (A1-01), inside the TS media-process tree beside the job pfiles, NOT under the media root',
+	},
 	'src/core/ontology/ontology_update.ts': {
 		modes: ['0o750'],
 		kind: 'not_media',

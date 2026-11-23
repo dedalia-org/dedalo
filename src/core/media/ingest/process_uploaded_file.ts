@@ -34,10 +34,11 @@ import { DedaloError } from '../../errors/dedalo_error.ts';
 import { currentDataLang } from '../../resolve/request_lang.ts';
 // The av encoder lives in ../av_versions.ts — ONE encoder for ingest and for the
 // media-versions tool's per-quality build (see that module's header).
-import { submitAvTranscode } from '../av_versions.ts';
+import { avIngestTarget, submitAvTranscode } from '../av_versions.ts';
 import { fileFingerprint, stillSameFile } from '../file_fingerprint.ts';
 import { moveToDeleted } from '../file_ops.ts';
 import { type FileInfoEntry, scanContextFromItem, scanFilesInfo } from '../files_info.ts';
+import { type JobTargetClaim, jobTargetKey, mediaJobs } from '../jobs.ts';
 import { completeMediaPathOptions } from '../ontology_path.ts';
 import {
 	buildMediaIdentifier,
@@ -64,6 +65,7 @@ import { type AddFileInput, addFile, stagingDir } from './add_file.ts';
 import { writeMediaCompanions } from './companion_writes.ts';
 import { fireMediaIngestEvent } from './ingest_event.ts';
 import { type PdfTranscriptionOutcome, transcribePdf } from './pdf_transcription.ts';
+import { deleteStagedFile } from './staged_files.ts';
 import { forgetStagedDisplayName, readStagedDisplayName } from './staged_name_record.ts';
 
 export interface IngestInput extends Omit<AddFileInput, 'spec'> {
@@ -211,6 +213,16 @@ export interface IngestResult {
 	 * every other type (and for an av upload that needs no transcode).
 	 */
 	startTranscode: (() => string) | null;
+	/**
+	 * Give back the av upload's hold on the component's build target (A1-01 —
+	 * see claimAvBuildTarget). startTranscode ADOPTS the hold; a caller that does
+	 * not reach it (its own persist threw) MUST release it, or every upload and
+	 * build of that component is refused until the process restarts. Call it in
+	 * a `finally` around persist + startTranscode: idempotent, a no-op after
+	 * startTranscode, after an ingest that offered no transcode, and for every
+	 * non-av model.
+	 */
+	releaseBuildClaim: () => void;
 }
 
 /**
@@ -506,6 +518,72 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		assertIngestableQuality(spec, quality);
 		assertNormalizedExtensionForTier(spec, quality, assertAllowedExtension(spec, input.extension));
 	}
+	// THE LAST PRE-MOVE REFUSAL (A1-01): an av build of this component is live.
+	// From here the claim occupies the whole component (one build per
+	// component, v6's build lock) until the job
+	// adopts it (startTranscode) or it is released — on a throw below, on an
+	// ingest that starts no transcode, or by the caller (releaseBuildClaim).
+	const claim = claimAvBuildTarget(input, pathOpts);
+	try {
+		const ingested = await ingestUnderClaim(input, pathOpts, quality, claim);
+		if (ingested.startTranscode === null) claim?.release();
+		return { ...ingested, releaseBuildClaim: () => claim?.release() };
+	} catch (error) {
+		claim?.release();
+		throw error;
+	}
+}
+
+/**
+ * The ingest UNDER its av claim (A1-01 review F3): every publication step of it
+ * (the posterframe/thumb mint's atomic renames) re-checks that the claim's lock
+ * is still ours on disk, and its transcode submit refuses to adopt a claim
+ * another instance reclaimed meanwhile. No claim (every non-av model): as is.
+ */
+function ingestUnderClaim(
+	input: IngestInput,
+	pathOpts: MediaPathOptions,
+	quality: string | undefined,
+	claim: JobTargetClaim | null,
+): Promise<Omit<IngestResult, 'releaseBuildClaim'>> {
+	const run = () => ingestStaged(input, pathOpts, quality, claim);
+	return claim === null ? run() : mediaJobs.runUnderClaim(claim, run);
+}
+
+/**
+ * Claim the av ingest transcode's target BEFORE the move, or refuse the upload.
+ *
+ * Ported from v6 (tool_upload :80, component_av::is_build_locked): replacing the
+ * master while ffmpeg reads it lets the encode of the OLD master win the default
+ * tier, and two ingest transcodes race their files_info write-backs. The refusal
+ * DISCARDS the staged upload, as v6 did (deleteStagedFile — the file, its
+ * preview, its name record), and touches nothing in the media tree. The claim,
+ * not a bare hasLiveJobForTarget question, is what makes the refusal hold for
+ * two concurrent uploads: the second one sees the first one's claim. The
+ * target is COMPONENT-scoped (avIngestTarget): a per-quality build of any tier
+ * refuses the upload, and the held claim refuses any build. null for every
+ * non-av model.
+ */
+function claimAvBuildTarget(input: IngestInput, pathOpts: MediaPathOptions): JobTargetClaim | null {
+	if (input.spec.model !== 'component_av') return null;
+	const target = avIngestTarget(input.spec, input.identity);
+	const claim = mediaJobs.claimTarget(target);
+	if (claim !== null) return claim;
+	deleteStagedFile(input.userId, input.keyDir, input.tmpName, pathOpts.mediaRoot);
+	throw new DedaloError('media.build_running', {
+		message: `upload refused: a build is live for ${jobTargetKey(target)}; staged '${input.tmpName}' discarded`,
+		coordinates: { target: jobTargetKey(target), tmp_name: input.tmpName },
+	});
+}
+
+/** The ingest proper, from the staged file to the result (processUploadedFile holds the claim). */
+async function ingestStaged(
+	input: IngestInput,
+	pathOpts: MediaPathOptions,
+	quality: string | undefined,
+	claim: JobTargetClaim | null,
+): Promise<Omit<IngestResult, 'releaseBuildClaim'>> {
+	const { spec, identity } = input;
 	// THE CURATOR'S FILE NAME, recovered from the SERVER (staged_name_record.ts).
 	//
 	// This is the line that makes the human-filename restoration reach production.
@@ -746,8 +824,17 @@ export async function processUploadedFile(input: IngestInput): Promise<IngestRes
 		if (canDerive && (isMaster || !existsSync(defaultFile))) {
 			// userId travels so the transcode appears in ITS OWN uploader's activity
 			// tray — an unowned job would be invisible to the person who started it.
+			// The job ADOPTS the upload's claim, so the tiers are never free between
+			// the refusal check above and the encode.
 			startTranscode = (): string =>
-				submitAvTranscode(spec, identity, pathOpts, added.extension, input.userId);
+				submitAvTranscode(
+					spec,
+					identity,
+					pathOpts,
+					added.extension,
+					input.userId,
+					claim ?? undefined,
+				);
 		}
 		// THE PICTURE, NOW — not when the transcode finishes and not when an operator
 		// remembers. A new master makes the old posterframe a picture of a video this

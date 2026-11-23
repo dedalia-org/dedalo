@@ -50,13 +50,23 @@
  * asserts zero residue. assertTestDatabase before the first write.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
 import { sql, withTransaction } from '../../src/core/db/postgres.ts';
 import { decodeTmImage, recordBulkBirth } from '../../src/core/db/time_machine.ts';
+import { avIngestTarget } from '../../src/core/media/av_versions.ts';
+import { mediaJobs } from '../../src/core/media/jobs.ts';
 import { resolveMediaPathOptions } from '../../src/core/media/ontology_path.ts';
 import { buildMediaLocation } from '../../src/core/media/path.ts';
 import { getMatrixTableFromTipo } from '../../src/core/ontology/resolver.ts';
@@ -133,6 +143,7 @@ const LMAIN = `${TLD}17`; // input_text, translatable (lang-SLICED) WITH a dataf
 const LSLOT = `${TLD}18`;
 const HMAIN2 = `${TLD}19`; // a second portal whose frames live in HSLOT too (a SHARED slot)
 const OSLOT = `${TLD}20`; // a dataframe slot NO component declares (parent: the section) — orphan frames
+const AV = `${TLD}21`; // component_av (a live build holds the record's undelete — A1-01 F5)
 const TABLE = 'matrix_test';
 const USER_ID = -1;
 
@@ -194,6 +205,7 @@ const SITUATION = situation({
 		portalWithSlot(HMAIN2, HSLOT),
 		{ tipo: DATE, parent: SECTION, model: 'component_date', term: { 'lg-eng': 'Date' } },
 		{ tipo: IMAGE, parent: SECTION, model: 'component_image', term: { 'lg-eng': 'Image' } },
+		{ tipo: AV, parent: SECTION, model: 'component_av', term: { 'lg-eng': 'Audiovisual' } },
 		{
 			tipo: LMAIN,
 			parent: SECTION,
@@ -2484,6 +2496,177 @@ describe('a cascade target another record REFERENCED (inverse references, D3)', 
 		expect(targetsOf(await stored(other, 'relation', MAIN2))).toEqual([role]);
 		expect(data.skipped).toEqual([]);
 		expect(data.inexact.map((entry) => entry.basis)).toEqual(['cascade_undelete']);
+	});
+});
+
+/** A live av upload of `id`'s AV component, in a lang its data never named (another lang's build). */
+function holdAvBuild(id: number): () => void {
+	const av = mustGet(mediaTypeOf('component_av'), 'av spec');
+	const claim = mustGet(
+		mediaJobs.claimTarget(
+			avIngestTarget(av, {
+				componentTipo: AV,
+				sectionTipo: SECTION,
+				sectionId: id,
+				lang: 'lg-fra',
+			}),
+		),
+		'av upload claim',
+	);
+	return () => claim.release();
+}
+
+/** Run `fn` while the directory of `live` refuses new entries (a mover cannot put a file back). */
+async function withLiveDirReadOnly<T>(live: string, fn: () => Promise<T>): Promise<T> {
+	chmodSync(dirname(live), 0o555);
+	try {
+		return await fn();
+	} finally {
+		chmodSync(dirname(live), 0o775);
+	}
+}
+
+describe('the undelete WAITS for a live av build, and reports files that did not come back (A1-01 F5)', () => {
+	test('STANDALONE: a live build refuses the group BEFORE its row comes back; freed, it comes back', async () => {
+		const target = await rec();
+		await setText(target, 'lg-spa', 'av record');
+		const id = await mint();
+		expect(
+			(await deleteSectionRecord(SECTION, target, USER_ID, undefined, { bulkProcessId: id }))
+				.removed,
+		).toBe(true);
+		const release = holdAvBuild(target);
+		try {
+			const data = await revert(id);
+			expect(await stored(target, 'data', 'section_id')).toBe('NO-RECORD');
+			// Refused before the record's scope verdict: the reason alone (SEC-16).
+			expect(data.skipped).toEqual([{ reason: 'failed' }]);
+		} finally {
+			release();
+		}
+		const back = await revert(id);
+		expect(back.skipped).toEqual([]);
+		expect(texts(await stored(target, 'string', TEXT))).toEqual(['lg-spa:av record']);
+	});
+
+	test('RE-LINKED BY A UNIT: a live build refuses the unit (failed, media.build_running) before the row comes back', async () => {
+		const [target, other] = [await rec(), await rec()];
+		await setText(target, 'lg-spa', 'relinked av record');
+		await seed(other, 'relation', MAIN2, [locator(1, target, MAIN2)]);
+		const id = await mint();
+		expect(
+			(await deleteSectionRecord(SECTION, target, USER_ID, undefined, { bulkProcessId: id }))
+				.removed,
+		).toBe(true);
+		expect(targetsOf(await stored(other, 'relation', MAIN2))).toEqual([]);
+		const release = holdAvBuild(target);
+		try {
+			const data = await revert(id);
+			expect(await stored(target, 'data', 'section_id')).toBe('NO-RECORD');
+			expect(targetsOf(await stored(other, 'relation', MAIN2))).toEqual([]);
+			expect(data.skipped).toEqual([
+				{
+					reason: 'failed',
+					section_tipo: SECTION,
+					tipo: MAIN2,
+					section_id: other,
+					code: 'media.build_running',
+				},
+				// The target its refused unit would have re-linked stays deleted: counted, unlocated.
+				{ reason: 'cascade_delete_not_reverted' },
+			]);
+		} finally {
+			release();
+		}
+		const back = await revert(id);
+		expect(back.skipped).toEqual([]);
+		expect(targetsOf(await stored(other, 'relation', MAIN2))).toEqual([target]);
+	});
+
+	test('the file half moves the AV files back under the SAME hold the row half took (no self-refusal)', async () => {
+		const avSpec = mustGet(mediaTypeOf('component_av'), 'av spec');
+		const target = await rec();
+		await setText(target, 'lg-spa', 'record with an av file');
+		await seed(target, 'media', AV, [{ id: 1 }]);
+		const live = buildMediaLocation(
+			avSpec,
+			{ componentTipo: AV, sectionTipo: SECTION, sectionId: target, lang: null },
+			avSpec.defaultQuality,
+			'mp4',
+			await resolveMediaPathOptions(AV, SECTION, target),
+		).absolutePath;
+		mkdirSync(dirname(live), { recursive: true });
+		writeFileSync(live, 'av-bytes');
+		plantedMedia.push(live);
+		const id = await mint();
+		expect(
+			(await deleteSectionRecord(SECTION, target, USER_ID, undefined, { bulkProcessId: id }))
+				.removed,
+		).toBe(true);
+		expectMovedToDeleted(live);
+		const data = await revert(id);
+		expect(data.skipped).toEqual([]);
+		expect(data.inexact.map((entry) => entry.basis)).toEqual(['cascade_undelete']);
+		expectBackLive(live, 'av-bytes');
+	});
+
+	test('SOFT (a wiped row): its AV files come back under the SAME hold too', async () => {
+		const avSpec = mustGet(mediaTypeOf('component_av'), 'av spec');
+		const host = await rec();
+		const [t1, role] = [await rec(), await rec()];
+		await setText(role, 'lg-spa', 'role record');
+		await seed(role, 'media', AV, [{ id: 1 }]);
+		const live = buildMediaLocation(
+			avSpec,
+			{ componentTipo: AV, sectionTipo: SECTION, sectionId: role, lang: null },
+			avSpec.defaultQuality,
+			'mp4',
+			await resolveMediaPathOptions(AV, SECTION, role),
+		).absolutePath;
+		mkdirSync(dirname(live), { recursive: true });
+		writeFileSync(live, 'soft-av-bytes');
+		plantedMedia.push(live);
+		await seed(host, 'relation', SMAIN, [locator(1, t1, SMAIN)]);
+		await seed(host, 'relation', SSLOT, [{ id: 1, ...frame(1, role, SMAIN, SSLOT) }]);
+		const run = await mint();
+		await save(host, SSLOT, 'lg-nolan', [{ action: 'remove', id: 1, value: null }], { bulk: run });
+		expect(await stored(role, 'media', AV)).toBeUndefined();
+		expectMovedToDeleted(live);
+		const data = await revert(run);
+		expect(data.skipped).toEqual([]);
+		expect(data.inexact.map((entry) => entry.basis)).not.toContain('media_not_restored');
+		expectBackLive(live, 'soft-av-bytes');
+	});
+
+	test('a file the mover could not put back is REPORTED (inexact: media_not_restored), never only logged', async () => {
+		const target = await rec();
+		await setText(target, 'lg-spa', 'record whose file stays out');
+		const live = await plantImage(target, 'stays-in-deleted');
+		const id = await mint();
+		expect(
+			(await deleteSectionRecord(SECTION, target, USER_ID, undefined, { bulkProcessId: id }))
+				.removed,
+		).toBe(true);
+		expectMovedToDeleted(live);
+		const errors = spyOn(console, 'error').mockImplementation(() => {});
+		const data = await withLiveDirReadOnly(live, () => revert(id)).finally(() =>
+			errors.mockRestore(),
+		);
+		expect(texts(await stored(target, 'string', TEXT))).toEqual([
+			'lg-spa:record whose file stays out',
+		]);
+		expect(data.skipped).toEqual([]);
+		expect(data.inexact.map((entry) => entry.basis).sort()).toEqual([
+			'cascade_undelete',
+			'media_not_restored',
+		]);
+		expect(data.inexact).toContainEqual({
+			basis: 'media_not_restored',
+			section_tipo: SECTION,
+			section_id: target,
+			tipo: SECTION,
+		});
+		expectMovedToDeleted(live); // still recoverable in deleted/
 	});
 });
 

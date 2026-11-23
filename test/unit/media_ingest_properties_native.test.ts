@@ -604,6 +604,9 @@ describe('an AV ingest populates the ontology-declared companions', () => {
 				extension: 'mp4',
 				originalFileName: 'María Piñón entrevista.mp4',
 			});
+			// The ingest holds the component's build claim (and its lock file) for
+			// a transcode this gate never starts: hand it back, as a caller must.
+			result.releaseBuildClaim();
 			expect(result.humanFileName).toBe('María Piñón entrevista.mp4');
 			expect(await storedValue(AV_SECTION, sectionId, AV_FILENAME_TARGET)).toBe(
 				'María Piñón entrevista.mp4',

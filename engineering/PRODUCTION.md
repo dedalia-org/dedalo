@@ -1511,6 +1511,147 @@ claim/sweep cadences (run them in a dedicated instance/host instead). The
 delete-propagation executor registers regardless. `DEDALO_DIFFUSION_MAX_RUNNERS`
 (default 2) is enforced atomically inside the claim statement.
 
+### 8.1 Several instances, one media tree: share the processes dir
+
+Media jobs run IN-PROCESS, each instance with its own registry. What keeps two
+instances from building the same av component at once (an upload on one
+replacing the master under a transcode on the other — A1-01) is a per-component
+LOCK FILE in the media processes dir (`DEDALO_MEDIA_PROCESSES_DIR`, default
+`../private/processes`, subdirectory `component_locks/`; `src/core/media/component_lock.ts`).
+So every instance that serves the same media tree MUST point
+`DEDALO_MEDIA_PROCESSES_DIR` at ONE shared directory, on a filesystem with an
+atomic exclusive create, link, rename and rmdir (any local filesystem; NFSv3+
+for a network share — mounted as below). Instances with separate processes dirs
+see each other's builds as free — the guard degrades to per-instance, silently.
+
+**An NFS processes dir must not cache.** Mount it
+`lookupcache=none,actimeo=0` (or `lookupcache=none,noac`), and never `nocto`:
+
+```
+fs.example:/export/dedalo_processes  /var/lib/dedalo/processes  nfs4  rw,soft,timeo=50,retrans=2,lookupcache=none,actimeo=0  0 0
+```
+
+Who holds a component is decided by the server's own answer to a create or a
+removal, which no client cache can fake; but judging whether a holder is DEAD
+reads its lock and heartbeat, and a client that caches lookups or attributes
+can serve a stale heartbeat (or none) for up to a minute and take a live
+holder's lock. On Linux the instance VERIFIES the mount (`/proc/self/mountinfo`;
+the mount holding the dir is the one whose `maj:min` is the dir's own device —
+of its nearest existing ancestor when it is not created yet — so a mount stacked
+over another resolves to what the kernel resolved): an `nfs`/`nfs4` mount without
+`lookupcache=none`, without `noac` or all four attribute-cache times at 0
+(`actimeo=0` shows as `acregmin=0,acregmax=0,acdirmin=0,acdirmax=0`), or with
+`nocto` makes the boot refuse (`FATAL: the media processes dir … is on nfs4 at
+…, mounted without the coherence the component locks need: …`), and every lock
+call refuses with `media.not_configured` naming the same. The lock calls read
+the table again at most every 60 s, so a remount while the instance runs is
+refused within a minute. A code update checks it BEFORE the swap: the new
+release's pre-swap boot reads the same verdict on the running installation's
+processes dir (read only, nothing created) and the update is refused, nothing
+swapped — rather than swapping in a release that would then refuse to start.
+That pre-swap check needs the running updater to name the live processes dir;
+an updater older than this release does not, and its new-release boot check can
+then judge only an explicit absolute `DEDALO_MEDIA_PROCESSES_DIR` (a default
+processes dir, under the private dir, cannot be derived from the throwaway one
+the check runs with — it says so in the log and judges nothing). **Upgrade note:**
+an installation whose processes dir is on NFS must be remounted
+`lookupcache=none,actimeo=0` (fstab above, then `mount -o remount` or a
+reboot) BEFORE it updates to this version, or the updated server refuses to
+start.
+Other platforms are not verified (macOS is a development platform); the
+requirement stands.
+
+Each hold is two files: the immutable `<key>.lock` (host + boot/pid-namespace
+id, pid, instance, token, start — published with an atomic `link()`) and the
+holder's own heartbeat `<key>.lock.<token>.hb` (a beat counter and the current
+holder id, re-labelled to the job when a job adopts an upload's claim), beaten
+every 15 s. Every release or reclaim is compare-and-swap that never empties the
+path to check it: whatever stands there is hard-linked to a private name and
+THAT is read; only the expected lock is then renamed aside, and dropped only
+when it is the very inode that was checked (otherwise put back). So no instance
+ever deletes a lock that is not the one it judged, and no third instance can
+slip a lock into a path a check vacated. A lock is reclaimed — and logged
+`[media lock] reclaimed …` — when its holder is on the SAME machine (hostname +
+boot id + pid namespace on Linux; hostname + `kern.bootsessionuuid` on macOS)
+and its pid is dead, or is this very process but held by no manager in it;
+otherwise when this instance has SEEN its heartbeat stay unchanged for 120 s of
+its OWN clock. No timestamp written by another host is compared with this
+host's clock, so clock skew cannot make a live lock stale; a dead holder on
+another host costs at most one bound of waiting. The flip side, stated: a holder
+on another host that is alive but HUNG (heartbeat frozen) past 120 s is
+reclaimed too.
+
+**What this instance cannot read is busy.** A lock or heartbeat it cannot read
+(EACCES from a foreign uid or group, EIO/ESTALE from a sick mount, EMFILE) is
+never judged stale — the component answers busy, and every attempt logs
+`[media lock] … cannot be read (<errno>) — treated as BUSY, never reclaimed`.
+Such a lock waits for an operator: fix the permissions (every instance must run
+with a uid/group that can read and write the shared dir) or the mount, or
+remove the file by hand once its holder is known dead. A holder that cannot
+read its OWN lock retries, logs, keeps beating, and refuses to publish
+(`media.operation_failed`) rather than concluding the hold was lost.
+
+**Crash residue cleans itself — on the next attempts, not by a timer.** A dead
+holder's lock is reclaimed by an acquire once the rule above says so: on the
+same machine by the first attempt; from another machine only by an attempt made
+at least 120 s after that instance FIRST saw the heartbeat (a first sighting is
+never stale — so the first refused upload starts the count and a retry after
+two minutes succeeds). Nothing reclaims a lock nobody asks for. The files a crash leaves BESIDE a lock (a heartbeat of
+a dead token, a staged `.new`, a heartbeat temp file, a CAS peek or aside name,
+a `.reclaim` mutex without its lock) are swept by the next successful acquire of
+that component once that instance has seen them unchanged for 120 s. A
+component nobody acquires again keeps its residue until someone does; the
+files are a few hundred bytes each. A shutdown releases the locks of every held
+job and claim.
+
+A record delete, a data wipe or a Time Machine undelete holds each av
+component of the record WHOLE — every language — through one more lock per
+component, `<section>|<id>|<component>|*`: taken, it refuses while any
+language's lock of that component is live, and every per-language build or
+upload refuses while it is held. Builds of different languages of one component
+run side by side: each also REGISTERS in the component's share directory
+(`component_locks/<section>~7c<id>~7c<component>.langs/`, a hard link of its
+lock into it). The whole hold, once its lock is published, removes the share
+directory — it can only remove an EMPTY one, so a registered language refuses it
+(dead registrations are dropped by the same rules as dead locks) — and puts a
+TOMBSTONE at the directory's name: a hard link of its own lock, as a file. A
+language that registers while the tombstone stands is answered "not a
+directory" by the server and refuses; the whole hold's release takes its
+tombstone back (only its own), and a crashed holder's tombstone is judged like
+its lock. Whichever reaches the server first wins; two languages never refuse
+each other. A language leaving only removes its own registration — never the
+share directory, so no leave can race another language's registration; an
+empty share directory is removed by the next whole hold, or by the orphan
+sweep. The sweep runs on every lock acquire and every whole hold's close of a
+share, and removes a share directory only when THAT instance has itself
+sighted it unchanged (inode and mtime) for the lock stale bound — 120 s, the
+same bound as a frozen heartbeat (`COMPONENT_LOCK_STALE_AFTER_MS` in
+`src/core/media/jobs.ts`; no operator setting changes it). Its `rmdir` only
+ever removes an empty directory, so the lock directory does not grow over the
+life of the installation.
+
+A holder that finds its lock reclaimed (its heartbeat sees another token —
+it stalled past the bound) has LOST the component: the job is aborted and
+FAILS, and its two publication steps refuse on their own — the atomic rename of
+an encoded tier and the files_info write-back re-check the lock immediately
+before they act — so nothing it produced after the loss is published. The same
+check covers the synchronous av operations (an upload's ingest, conform
+headers, deleting a quality, the poster frame): they run under their claim, and
+a claim found reclaimed publishes nothing more and is never handed on to a
+transcode.
+
+**Filesystem stall risk.** The lock calls are SYNCHRONOUS by design: the job
+manager's claim, exclusive submit and pre-flight are synchronous APIs, and the
+in-memory index taken in the same tick is what makes "check, then claim"
+indivisible. On an NFS share mounted `hard` (the default), a server that stops
+answering blocks those calls — and with them the instance's whole event loop —
+until it answers. Either keep the processes dir on LOCAL disk and run ONE
+instance per media tree, or mount the share `soft,timeo=<deciseconds>,retrans=<n>`
+(e.g. `soft,timeo=50,retrans=2`), so a dead server turns into an error the lock
+door reports (`media.operation_failed`) instead of a frozen instance. Do not
+put the processes dir on a share whose server is less available than the
+instances themselves.
+
 ## 9. Residue lifecycle (S3-46/62/63/64)
 
 Automatic: media pfiles reconciled at boot + pruned after 30 days (terminal);

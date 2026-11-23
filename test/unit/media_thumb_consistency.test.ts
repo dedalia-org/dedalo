@@ -119,7 +119,7 @@ async function stageAndIngest(
 	mkdirSync(dir, { recursive: true });
 	const tmpName = `up_${fileName}`;
 	await write(`${dir}/${tmpName}`);
-	await processUploadedFile({
+	const result = await processUploadedFile({
 		spec,
 		identity,
 		pathOpts,
@@ -129,6 +129,9 @@ async function stageAndIngest(
 		extension,
 		quality: spec.originalQuality,
 	});
+	// The av ingest holds the component's build claim (and its lock file) for
+	// a transcode this seam never starts: hand it back, as a caller must.
+	result.releaseBuildClaim();
 }
 
 // DECLARE the scratch root — the media doors refuse an unmarked one under the

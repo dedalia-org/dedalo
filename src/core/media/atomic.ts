@@ -38,6 +38,7 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sweepSequenceSiblings } from './engine/imagemagick.ts';
+import { assertJobHold } from './job_scope.ts';
 
 /**
  * A unique temp path in the same dir as `target` (atomic-rename staging). The
@@ -91,6 +92,10 @@ export async function writeAtomically(
 	try {
 		await produce(temp);
 		beforeRename?.();
+		// A job that LOST its component hold (another instance reclaimed it) must
+		// not publish: checked at the last moment before the one publication step
+		// (job_scope.ts assertJobHold — a no-op outside a held job).
+		assertJobHold();
 		renameSync(temp, target);
 		return target;
 	} finally {
@@ -100,8 +105,9 @@ export async function writeAtomically(
 
 /**
  * Synchronous twin of `writeAtomically`, for a FIXED-SIZE payload only (see the
- * header): the one caller is `ingest/staged_name_record.ts`, which writes the
- * uploader's display name as a short string. Never use it for bytes that scale
+ * header). Its callers write a short string: `ingest/staged_name_record.ts`
+ * (the uploader's display name) and `component_lock.ts` (a lock's heartbeat —
+ * synchronous by design, see that header). Never use it for bytes that scale
  * with a media file or a subprocess — that blocks the event loop.
  */
 export function writeAtomicallySync(target: string, produce: (temp: string) => void): string {

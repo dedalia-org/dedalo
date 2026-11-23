@@ -81,6 +81,10 @@ import {
 	type TmCoords,
 } from '../../../src/core/db/time_machine.ts';
 import { DedaloError, ok, specOf } from '../../../src/core/errors/index.ts';
+import {
+	type AvRecordHold,
+	holdRecordAvComponents,
+} from '../../../src/core/media/av_component_claim.ts';
 import { restoreDeletedSectionMediaFiles } from '../../../src/core/media/file_ops.ts';
 import {
 	effectiveSaveLang,
@@ -158,12 +162,25 @@ export async function restoreSection(
 	userId: number,
 	door?: ChangedKeysDoor,
 ): Promise<void> {
-	const columns = await withTransaction(async () => {
-		const written = await restoreSectionRow(snapshot, tmId, sectionTipo, sectionId, userId, door);
-		await recordRecoverRow(sectionTipo, sectionId, userId);
-		return written;
-	});
-	await restoreSectionMedia(sectionTipo, sectionId, columns);
+	// THE RECORD AV HOLD (A1-01 review M3), BEFORE anything is written: a build,
+	// upload or av operation live on an av component of the record refuses the
+	// restore (media.build_running, nothing written); held through the file
+	// half, released after it.
+	const snapshotMedia =
+		snapshot !== null && typeof snapshot === 'object'
+			? (snapshot as { media?: unknown }).media
+			: undefined;
+	const avHold = await holdRecordAvComponents(sectionTipo, sectionId, snapshotMedia);
+	try {
+		const columns = await withTransaction(async () => {
+			const written = await restoreSectionRow(snapshot, tmId, sectionTipo, sectionId, userId, door);
+			await recordRecoverRow(sectionTipo, sectionId, userId);
+			return written;
+		});
+		await restoreSectionMedia(sectionTipo, sectionId, columns, avHold);
+	} finally {
+		avHold.release();
+	}
 	// The restored TM row is NOT consumed: it stays history, and the recover row
 	// written above takes it off the deleted-records list (see the header). The
 	// session-SQO drop is apply_value's (the caller with a session).
@@ -422,20 +439,33 @@ export async function restoreSectionMedia(
 	sectionTipo: string,
 	sectionId: number,
 	columns: Partial<Record<MatrixJsonbColumn, unknown>>,
-): Promise<void> {
+	avHold?: AvRecordHold,
+): Promise<string[]> {
 	try {
 		const mediaColumn = columns.media as Record<string, unknown[]> | null | undefined;
-		const outcome = await restoreDeletedSectionMediaFiles(sectionTipo, sectionId, mediaColumn);
+		// Under the caller's record av hold (restoreSection took it before the
+		// row half); a caller without one (the bulk revert's post-commit halves)
+		// gets the mover's own — a busy av component is then reported below and
+		// its files stay in deleted/, never moved under a build (A1-01 review M3).
+		const outcome = await restoreDeletedSectionMediaFiles(
+			sectionTipo,
+			sectionId,
+			mediaColumn,
+			avHold === undefined ? {} : { avHold },
+		);
 		if (outcome.errors.length > 0) {
 			console.error(
 				`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} reported: ${outcome.errors.join('; ')}`,
 			);
 		}
+		return outcome.errors;
 	} catch (error) {
 		// Never fail a landed restore on the file half — say it loudly instead.
+		const message = error instanceof Error ? error.message : String(error);
 		console.error(
-			`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} FAILED: ${error instanceof Error ? error.message : String(error)}`,
+			`[tool_time_machine] media restore for ${sectionTipo}/${sectionId} FAILED: ${message}`,
 		);
+		return [message];
 	}
 }
 

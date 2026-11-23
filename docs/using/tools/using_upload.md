@@ -31,6 +31,8 @@ Upload is tied to the media components — image, audiovisual, PDF, 3D and SVG. 
 4. On success, the message turns to a success note and — for a component — a preview of the updated media is shown. On failure, the error message is shown as plain text.
 5. For a video, the web/audio versions are transcoded in the background; the preview may finish before those are fully ready. Use [Media versions](using_media_versions.md) to check or re-sync the qualities if needed.
 
+**While a video is still being converted, a new upload to the same field is refused** with *"A version build is already running for this file. Wait until it finishes and try again"*. This covers the conversion started by a previous upload and any quality being rebuilt in [Media versions](using_media_versions.md): one build runs per field at a time. Other fields of the same record are not affected. The file you sent is discarded and the stored file is left exactly as it was. Wait until the job in the activity tray (bottom-right corner) finishes, then upload again.
+
 ## PDFs: the transcription and OCR
 
 When you upload a PDF, Dédalo also copies its text into the record's transcription field — the text area linked to the PDF, such as *Transcription* next to *Document* in the resources media section. Each page starts with a page tag that marks where that page begins. The text is saved in your current data language.
