@@ -289,20 +289,25 @@ const dedalo_to_locale = function(dedalo_lang, json_langs) {
 * handles Markdown emphasis far better than an opaque [[[n]]] token.
 *
 * 'reference' matches both halves of a reference pair (its pattern takes an optional '/').
-* @type {string[]}
+* 'draw' is the pre-4.9.0 name of 'svg', still in records and still drawn (render_draw.js, the
+* text_area layer picker): without it a draw mark travelled to the model as text (A1-02 final
+* review, F2). Every key of tr.get_mark_pattern is here or in the gate's stated non-mark list
+* (tool_lang_identity_roundtrip.test.ts), so a new tr.js mark cannot be missed again.
+* @type {readonly string[]}
 */
-const DEDALO_MARKS = [
+export const DEDALO_MARKS = Object.freeze([
 	'indexIn',
 	'indexOut',
 	'tc',
 	'svg',
+	'draw',
 	'geo',
 	'page',
 	'person',
 	'note',
 	'reference',
 	'lang'
-]
+])
 
 
 
@@ -374,7 +379,7 @@ export const mark_pattern_sources = function() {
 * index and reference marks come in pairs that wrap a span of text and share a numeric
 * id — '[index-n-7-…]' … '[/index-n-7-…]'. Knowing that a token is the *close* of a
 * specific *open* is what lets the repair place it deterministically when the model
-* drops it. Everything else (tc, note, person, svg, geo, page, lang) stands alone.
+* drops it. Everything else (tc, note, person, svg, draw, geo, page, lang) stands alone.
 * @param {string} mark - The raw mark string.
 * @returns {{kind:string, pair_key:string|null}} kind is 'open' | 'close' | 'atom'.
 */
@@ -1038,11 +1043,13 @@ const is_degenerate = function(source_text, restored_text) {
 *   residual              — tokens the model invented, removed
 *   sentences_short       — passages whose answer ends fewer sentences than the source
 *                           (block numbers): possibly cut short (A1-02 re-review 5, L3)
+*   emphasis_moved        — passages whose bold/italic/code sits on other words than the
+*                           source's (block numbers; A1-02 final review, F1)
 * REPORTED ONLY: emphasis_lost.
 * @param {string} source_text   - The original HTML value (marks intact).
 * @param {string} restored_text - The translated HTML value, restored and reordered.
 * @param {Object} extra         - { repaired, unrepairable, duplicated, residual, reordered,
-*   tags_missing, stray, outside_text, structure_moved, tags_crossed, sentences_short,
+*   tags_missing, stray, outside_text, structure_moved, tags_crossed, sentences_short, emphasis_moved,
 *   written_marks — marks found in the translated Markdown, where every real one is a token }
 * @returns {Object} the report; `refused` and `uncertain_count` decide.
 */
@@ -1095,6 +1102,7 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		reordered		: extra?.reordered || [],
 		residual		: extra?.residual || [],
 		sentences_short	: extra?.sentences_short || [],
+		emphasis_moved	: extra?.emphasis_moved || [],
 		emphasis_lost	: count_emphasis_lost(source_text, restored_text),
 		total_marks		: source_marks.length
 	}
@@ -1116,7 +1124,8 @@ export const validate_translation = function(source_text, restored_text, extra) 
 		report.repaired.length +
 		report.reordered.length +
 		report.residual.length +
-		report.sentences_short.length
+		report.sentences_short.length +
+		report.emphasis_moved.length
 
 	return report
 }//end validate_translation
@@ -1250,7 +1259,8 @@ export const prepare_translation = function(source_text) {
 *   alone is not trusted).
 * @param {Object} prepared - prepare_translation() output.
 * @param {string} translated_md - document-wide-token Markdown (the worker's accumulated_text).
-* @param {Object} [repair_stats] - the worker's { repaired, unrepairable, duplicated, residual, sentences_short }.
+* @param {Object} [repair_stats] - the worker's { repaired, unrepairable, duplicated, residual, sentences_short,
+*   emphasis_moved }.
 * @returns {{restored_text:string, report:Object}}
 */
 export const finish_translation = function(prepared, translated_md, repair_stats) {
@@ -1283,6 +1293,7 @@ export const finish_translation = function(prepared, translated_md, repair_stats
 		duplicated		: [...(stats.duplicated || []), ...restored.duplicated],
 		residual		: stats.residual || [],
 		sentences_short	: stats.sentences_short || [],
+		emphasis_moved	: stats.emphasis_moved || [],
 		reordered		: [...ordered.reordered, ...ordered_tokens.reordered],
 		tags_missing	: restored.missing.filter(token => shield_tokens.has(token)),
 		stray			: restored.residual,
@@ -1403,6 +1414,14 @@ export const mark_report_lines = function(report, get_label) {
 		lines.push(
 			get_label('sentences_short', report.sentences_short.length)
 			|| `${report.sentences_short.length} passages came back with fewer sentences than the source: the translation may be cut short`
+		)
+	}
+
+	// passages whose bold/italic/code the model put on other words than the source's
+	if (report.emphasis_moved.length>0) {
+		lines.push(
+			get_label('emphasis_moved', report.emphasis_moved.length)
+			|| `${report.emphasis_moved.length} passages have bold, italic or code on other words than the source: check the formatting`
 		)
 	}
 

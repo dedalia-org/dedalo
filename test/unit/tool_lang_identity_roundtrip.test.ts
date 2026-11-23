@@ -321,6 +321,8 @@ else {
 	const REF_IN = '[reference-n-6-ref-data:{"section_tipo":"test3","section_id":"2"}:data]';
 	const REF_OUT = '[/reference-n-6-ref-data:{"section_tipo":"test3","section_id":"2"}:data]';
 	const LANG = '[lang-n-7--data:"lg-cat":data]';
+	// the pre-4.9.0 name of svg, still in records and still drawn (final review, F2)
+	const DRAW = '[draw-n-8--data:{"section_tipo":"test3","section_id":"7"}:data]';
 
 	/** The corpus: [name, source]. Every case must round-trip under N∘W. */
 	const CORPUS: [string, string][] = [
@@ -458,6 +460,8 @@ else {
 			`<p>${PERSON}Ana: ${REF_IN}uno</p><ul><li>${PAGE}dos${REF_OUT}</li><li>${LANG}tres</li></ul>`,
 		],
 		['marks at item edges', `<ul><li>${IN}a</li><li>b${OUT}</li></ul>`],
+		['a draw mark (F2)', `<p>Ver la zona ${DRAW} del mapa antiguo de la ciudad</p>`],
+		['a draw mark beside an svg mark (F2)', `<p>${SVG}${DRAW} capa <em>dos</em></p>`],
 		[
 			'a long list (one segment per item)',
 			`<ul>${Array.from({ length: 30 }, (_, i) => `<li>Elemento número ${i + 1} de la lista, con algo de texto.</li>`).join('')}</ul>`,
@@ -965,6 +969,79 @@ else {
 		for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
 		return counts;
 	};
+	/**
+	 * Emphasis on other words than the source's (final review, F1), stated here, not borrowed
+	 * from the engine. A word: a run of letters, digits and combining marks; in a script
+	 * written without spaces (Han, kana, Thai, Lao, Khmer, Myanmar) each character is one and
+	 * none is "inside a word". A token has no width here.
+	 */
+	const NO_SPACE =
+		/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/u;
+	const inWord = (char: string | undefined) =>
+		char !== undefined && /[\p{L}\p{N}\p{M}]/u.test(char) && !NO_SPACE.test(char);
+	const wordsIn = (text: string) =>
+		[...text.replace(TOKEN_RE, ' ').matchAll(/[\p{L}\p{N}\p{M}]+/gu)].flatMap((run) => {
+			const chars = [...run[0]];
+			const pieces: string[] = [];
+			let piece = '';
+			for (const char of chars) {
+				if (NO_SPACE.test(char)) {
+					if (piece) pieces.push(piece);
+					pieces.push(char);
+					piece = '';
+				} else piece += char;
+			}
+			if (piece) pieces.push(piece);
+			return pieces.map((word) => word.toLowerCase());
+		});
+	/** words, tokens and punctuation runs (the delimiters aside): what a translation may keep */
+	const itemsIn = (text: string) => {
+		const items = [...text.matchAll(TOKEN_RE)].map((match) => match[0]);
+		const rest = text.replace(TOKEN_RE, ' ');
+		items.push(...wordsIn(rest));
+		items.push(...(rest.match(/[^\s*_`\p{L}\p{N}\p{M}]+/gu) ?? []));
+		return items;
+	};
+	/** the character beside an edge, through any token */
+	const besideEdge = (text: string, index: number, step: -1 | 1) => {
+		let at = index;
+		for (;;) {
+			const match =
+				step < 0
+					? /\[\[\[\d+\]\]\]$/.exec(text.slice(0, at + 1))
+					: /^\[\[\[\d+\]\]\]/.exec(text.slice(at));
+			if (!match) return text[at];
+			at += step * match[0].length;
+		}
+	};
+	type Pair = { kind: string; open: number; openEnd: number; close: number; closeEnd: number };
+	/** why a span the model wrote is not its source span — or '' */
+	const movedBy = (sent: string, had: Pair, wrote: string, got: Pair) => {
+		if (!inWord(besideEdge(sent, had.open - 1, -1)) && inWord(besideEdge(wrote, got.open - 1, -1)))
+			return 'opens inside a word';
+		if (!inWord(besideEdge(sent, had.closeEnd, 1)) && inWord(besideEdge(wrote, got.closeEnd, 1)))
+			return 'closes inside a word';
+		const shareOf = (text: string, pair: Pair) => {
+			const all = wordsIn(text).length;
+			return all === 0 ? null : wordsIn(text.slice(pair.openEnd, pair.close)).length / all;
+		};
+		const before = shareOf(sent, had);
+		const after = shareOf(wrote, got);
+		if (before !== null && after !== null && (after < before / 2 || after > before * 2))
+			return `covers ${after.toFixed(2)} of its words, the source ${before.toFixed(2)}`;
+		const inBefore = tally(itemsIn(sent.slice(had.openEnd, had.close)));
+		const inAfter = tally(itemsIn(wrote.slice(got.openEnd, got.close)));
+		const allBefore = tally(itemsIn(sent));
+		const allAfter = tally(itemsIn(wrote));
+		for (const item of new Set([...inBefore.keys(), ...inAfter.keys()])) {
+			const a = inBefore.get(item) ?? 0;
+			const b = inAfter.get(item) ?? 0;
+			const outA = (allBefore.get(item) ?? 0) - a;
+			const outB = (allAfter.get(item) ?? 0) - b;
+			if ((b > a && outB < outA) || (b < a && outB > outA)) return `'${item}' changed sides`;
+		}
+		return '';
+	};
 
 	function deviationProblems(source: string, run: Run): string[] {
 		const problems: string[] = [];
@@ -1127,6 +1204,26 @@ else {
 					problems.push(
 						`<${element.name}> spans ${JSON.stringify(element.text)} on a clean save: neither the source's emphasis nor a pair the model wrote`,
 					);
+				}
+			}
+			// …and a pair the model wrote is on its source span's words (final review, F1): each
+			// one, in reading order, against the segment's of its kind, in reading order
+			for (const answer of answers) {
+				// the model's escaping of a token ('\\[\\[\\[1\\]\\]\\]') is not text (see lettersOf)
+				const text = answer.text.replace(/\\(?=[[\]])/g, '');
+				const had = readingPairs(answer.sent).sort((a, b) => a.open - b.open);
+				const wrote = readingPairs(text).sort((a, b) => a.open - b.open);
+				for (const kind of new Set(wrote.map((pair) => pair.kind))) {
+					const theirs = had.filter((pair) => pair.kind === kind);
+					const own = wrote.filter((pair) => pair.kind === kind);
+					if (own.length > theirs.length) continue;
+					own.forEach((pair, k) => {
+						const why = movedBy(answer.sent, theirs[k] as Pair, text, pair);
+						if (why)
+							problems.push(
+								`'${kind}' moved on a clean save (${why}): ${JSON.stringify(text.slice(pair.open, pair.closeEnd))}`,
+							);
+					});
 				}
 			}
 		}
@@ -1499,6 +1596,29 @@ else {
 				() => 'Hello [TC_00:00:01.000_TC] world',
 				'refused',
 			],
+			// a draw mark is a token (final review, F2): its 'data:' never reaches the model
+			[
+				'a draw mark survives a translated text (F2)',
+				`<p>Ver la zona ${DRAW} del mapa antiguo de la ciudad</p>`,
+				(t) =>
+					t
+						.replace('Ver la zona', 'See the area')
+						.replace('del mapa antiguo de la ciudad', 'of the old city map'),
+				'saved',
+				`<p>See the area ${DRAW} of the old city map</p>`,
+			],
+			[
+				'a draw mark the model drops is put back, with a warning (F2)',
+				`<p>Ver la zona ${DRAW} del mapa antiguo de la ciudad</p>`,
+				() => 'See the area of the old city map',
+				'saved',
+			],
+			[
+				'a draw mark the model writes is refused (F2)',
+				'<p>Ver la zona del mapa antiguo de la ciudad</p>',
+				() => 'See [draw-n-2--data:5:data] the area of the old city map',
+				'refused',
+			],
 			// L3 (re-review 5): no length ratio — a short answer is an answer
 			[
 				'a few characters for a long passage is not a loss (L3)',
@@ -1565,6 +1685,111 @@ else {
 			expect(run.report.uncertain_count).toBeGreaterThan(0);
 		});
 
+		test('a draw mark never reaches the model; dropped, it is put back with a warning (F2)', async () => {
+			const html = `<p>Ver la zona ${DRAW} del mapa antiguo de la ciudad</p>`;
+			const dropped = await pipeline(html, () => 'See the area of the old city map');
+			expect(dropped.sent.join()).not.toContain('draw');
+			expect(dropped.failed).toEqual([]);
+			expect(dropped.report.refused).toBe(false);
+			expect(dropped.out).toContain(DRAW);
+			expect(dropped.report.uncertain_count).toBeGreaterThan(0);
+		});
+
+		/**
+		 * Every key of tr.js get_mark_pattern is a mark the pipeline shields (DEDALO_MARKS) or is
+		 * named here with why it is not one — a new tr.js mark is red until it is decided
+		 * (final review, F2: 'draw' was missed). The keys are read from tr.js's own switch, and
+		 * each must answer a RegExp, so the reading cannot go stale.
+		 */
+		test('the shielded marks are every tr.js mark: derived from get_mark_pattern, minus a stated list (F2)', async () => {
+			const { tr } = await import('../../client/dedalo/core/common/js/tr.js');
+			const source = await Bun.file(join(CLIENT_COMMON, 'tr.js')).text();
+			const body = source.slice(
+				source.indexOf('get_mark_pattern : (mark) => {'),
+				source.indexOf('//end get_mark_pattern'),
+			);
+			const keys = [...body.matchAll(/case '([^']+)'\s*:/g)].map((match) => match[1] as string);
+			expect(keys).toContain('draw');
+			for (const key of keys) expect(tr.get_mark_pattern(key), key).toBeInstanceOf(RegExp);
+			/** not a mark of its own: a looser/combined spelling of shielded ones (each example is found whole) */
+			const ALIASES: Record<string, string[]> = {
+				tc_full: ['[TC_00:01:25.627_TC]'],
+				geo_full: ['[geo-n-1--data:{"type":"Point"}:data]'],
+				index: ['[index-n-1-a-data::data]', '[/index-n-1-a-data::data]'],
+				referenceIn: ['[reference-n-6-ref-data:{}:data]'],
+				referenceOut: ['[/reference-n-6-ref-data:{}:data]'],
+			};
+			/** not a Dédalo mark at all */
+			const NOT_MARKS: Record<string, string> = {
+				tc_value: 'the time inside a tc mark, never a tag of its own',
+				p: 'block structure, carried by the Markdown',
+				html_style: 'emphasis: Markdown carries it (strong/em/i/u)',
+				strong: 'emphasis: Markdown carries it',
+				em: 'emphasis: Markdown carries it',
+				i: 'emphasis: Markdown carries it',
+				u: 'emphasis: Markdown carries it',
+				'apertium-notrans': 'an Apertium element: markup, shielded as a tag',
+			};
+			const marks = [...B.DEDALO_MARKS];
+			expect(marks).toContain('draw');
+			expect(
+				[...keys].sort(),
+				'every tr.js key is a mark, an alias or a stated non-mark — and nothing else',
+			).toEqual(
+				[...new Set([...marks, ...Object.keys(ALIASES), ...Object.keys(NOT_MARKS)])].sort(),
+			);
+			for (const [alias, examples] of Object.entries(ALIASES)) {
+				for (const example of examples) {
+					expect(
+						B.extract_dedalo_marks(`a ${example} b`).map((item: { mark: string }) => item.mark),
+						`${alias}: ${example}`,
+					).toEqual([example]);
+				}
+			}
+			// the worker's copy is the same list
+			expect(B.mark_pattern_sources().map((item: { source: string }) => item.source)).toEqual(
+				marks.map((mark: string) => (tr.get_mark_pattern(mark) as RegExp).source),
+			);
+		});
+
+		test('emphasis the model moved onto other words saves with a warning, never clean (F1)', async () => {
+			for (const [name, html, model] of [
+				[
+					'one word for its neighbour',
+					'<p><strong>Sí</strong> 200 monedas</p>',
+					() => 'Sí **200** monedas',
+				],
+				['an edge inside a word', '<p>Texto [<em>sic</em>] aquí</p>', () => 'Texto [si*c]* aquí'],
+				['an edge alone, mid-word', '<p>Ver <em>Roma</em> hoy</p>', () => 'Ver R*oma* hoy'],
+				[
+					'one word of five, then four',
+					'<p>Una <em>moneda</em> de plata fina</p>',
+					() => '*Una moneda de plata* fina',
+				],
+				[
+					'a mark out of the span',
+					`<p>Fin <u>${TC}moneda</u> ya</p>`,
+					(t: string) => t.replace('__[[[1]]]', '[[[1]]]__'),
+				],
+			] as const) {
+				const run = await pipeline(html, model);
+				expect(run.failed, name).toEqual([]);
+				expect(run.report.refused, name).toBe(false);
+				expect(run.report.emphasis_moved, name).toEqual([1]);
+				expect(run.report.uncertain_count, name).toBeGreaterThan(0);
+			}
+			// a translation that keeps the emphasis on its own words is clean, CJK included
+			for (const [html, model] of [
+				['<p>Moneda de <strong>plata</strong> fina</p>', () => 'Fine **silver** coin'],
+				['<p>Moneda de <strong>plata</strong> fina</p>', () => '上質な**銀**貨'],
+				['<p>la ceca de <em>Roma</em></p>', () => 'the mint of *Rome*'],
+			] as const) {
+				const run = await pipeline(html, model);
+				expect(run.report.emphasis_moved, html).toEqual([]);
+				expect(run.report.uncertain_count, html).toBe(0);
+			}
+		});
+
 		test('the elements whose content is not text to translate are restored whole (L1)', () => {
 			for (const tag of [
 				'pre',
@@ -1580,7 +1805,7 @@ else {
 			}
 		});
 
-		test('the oracle is not vacuous: each of its seven checks rejects a doctored save', async () => {
+		test('the oracle is not vacuous: each of its eight checks rejects a doctored save', async () => {
 			const html = '<p>Peso 2*3 g <em>uno</em> y <span class="k">x</span>.</p>';
 			const run = await pipeline(html);
 			const doctor = (
@@ -1614,6 +1839,17 @@ else {
 			expect(
 				doctor(run.accumulated.replace('*uno* y ', 'uno *y* '), run.out, run.report, unread).join(),
 			).toContain('on a clean save');
+			// g′. a clean save with a READING pair the model moved onto other words (F1): 'uno'
+			// out of the span, 'y' into it
+			const moved = new Map([[0, sent.replace('*uno* y ', 'uno *y* ')]]);
+			const movedProblems = doctor(
+				run.accumulated.replace('*uno* y ', 'uno *y* '),
+				run.out,
+				run.report,
+				moved,
+			).join();
+			expect(movedProblems).toContain('moved on a clean save');
+			expect(movedProblems).not.toContain('neither the source');
 		});
 
 		/**
