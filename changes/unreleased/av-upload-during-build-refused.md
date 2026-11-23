@@ -23,7 +23,7 @@ must share one media processes directory (`DEDALO_MEDIA_PROCESSES_DIR`), where t
 locks live; on a network share, mount it so that a server that stops answering cannot freeze the
 instances, and without caching (NFS: `lookupcache=none,actimeo=0`, never `nocto`) — on Linux a
 server whose processes directory is on NFS mounted otherwise refuses to start and says which
-option is missing. A lock an instance cannot read (wrong permissions, a failing share) counts as busy and is
+option is missing, and a code update onto such a server is refused before anything is replaced. A lock an instance cannot read (wrong permissions, a failing share) counts as busy and is
 never taken over — the log names the file and the error, so every instance must run as a user that
 can read and write that directory. See [the configuration reference](./administration/configuration/config.md).
 

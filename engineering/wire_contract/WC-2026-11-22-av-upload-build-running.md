@@ -286,3 +286,29 @@
   dead tombstone reclaimed by a lang and by a whole claim; a live far
   tombstone refuses while its heartbeat beats; a release takes back only its own
   tombstone — replacing the probe-collision gate).
+- **Addendum 2026-11-23 (fourth review R2 + R3, the mount verdict):** R2 — the
+  pre-swap SMOKE boot no longer skips the mount check: the updater names the
+  LIVE processes dir to its child (`DEDALO_SMOKE_PROCESSES_DIR`, environment
+  scope, set by the updater only; `configuredProcessesDir()` — resolved, never
+  created) and the child reads the same verdict READ ONLY
+  (`verifySmokeProcessesDirMount`: nearest existing ancestor, realpath, no
+  mkdir) — refused → FATAL exit 1 → `update.refused`, nothing swapped. An
+  updater older than the key names no dir: said loudly, not judged (the real
+  boot still judges). R3 — the mount is matched BY DEVICE: the dir's `st_dev`
+  (glibc `maj:min` decoding) against mountinfo field 3, the deepest prefix mount
+  carrying that device; only when none carries it (btrfs subvolume) the deepest
+  prefix alone — an over-mount resolves to what the kernel resolved. A path that
+  cannot be located (EACCES/EIO, not ENOENT) is refused typed. The lock door
+  re-reads the table past `MOUNT_REVERIFY_MS` (60 s, the manager's clock), a
+  refusal is never remembered. Wire: no change (same `media.not_configured`).
+  Gates: `media_processes_mount_native` 12→18 (over-mounts both ways by device +
+  the no-device fallback, in `mountOf` and at the door (a share stacked over a
+  local disk refused, the disk itself not judged); st_dev decoding incl. majors/minors past the low bits,
+  and on a /proc host the kernel's own '/' device; nearest-ancestor verdict
+  creates nothing; re-verify only past the bound, a remount refused, a refusal
+  not remembered; the smoke verdict refuses a live default-NFS dir creating
+  nothing, passes a coherent one, says an unnamed one; `configuredProcessesDir`),
+  `code_update_smoke_boot` +2 (a child running the real verdict on the named
+  live dir refuses the update, nothing swapped; server.ts's mount block is never
+  behind a `!smokeBoot` guard) and the neutralised-env case now requires the
+  named live dir.

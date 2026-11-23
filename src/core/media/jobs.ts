@@ -91,7 +91,11 @@ import {
 	releaseComponentLock,
 } from './component_lock.ts';
 import { runWithJobHold, runWithJobSignal } from './job_scope.ts';
-import { assertProcessesMountCoherent, type MountProbe } from './processes_mount.ts';
+import {
+	assertProcessesMountCoherent,
+	MOUNT_REVERIFY_MS,
+	type MountProbe,
+} from './processes_mount.ts';
 import {
 	resolveProcessesDir,
 	TEST_PROCESSES_MARKER,
@@ -643,6 +647,16 @@ function captureJobRunScope(jobId: string): JobRunScope {
 }
 
 /**
+ * The processes dir this installation's config names — RESOLVED (the test seam
+ * followed), never created: what processesDir below creates, and what the
+ * updater hands its pre-swap smoke boot for the read-only mount verdict
+ * (core/update/smoke_boot.ts → processes_mount.ts verifySmokeProcessesDirMount).
+ */
+export function configuredProcessesDir(): string {
+	return resolveProcessesDir(readEnv('DEDALO_MEDIA_PROCESSES_DIR'), join(privateDir, 'processes'));
+}
+
+/**
  * Directory holding the TS process files (its own private tree, not PHP's).
  * DEDALO_MEDIA_PROCESSES_DIR moves it (read per call so it stays test-settable).
  * UNDER THE TEST-MEDIA SEAM the default is the marked suite sibling
@@ -654,10 +668,7 @@ function captureJobRunScope(jobId: string): JobRunScope {
  * ../private/processes tree.
  */
 function processesDir(): string {
-	const dir = resolveProcessesDir(
-		readEnv('DEDALO_MEDIA_PROCESSES_DIR'),
-		join(privateDir, 'processes'),
-	);
+	const dir = configuredProcessesDir();
 	assertProcessesDirDeclared(dir, 'media jobs processesDir');
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o750 });
 	return dir;
@@ -1039,8 +1050,9 @@ export class MediaJobManager {
 	private readonly lockClock: (() => number) | undefined;
 	private readonly lockShareHooks: ComponentShareHooks | undefined;
 	private readonly lockMountProbe: MountProbe | undefined;
-	/** The processes dir whose mount this manager verified (re-verified when the dir changes). */
+	/** The processes dir whose mount this manager verified, and when (re-verified when the dir changes or the bound lapses). */
 	private verifiedMountDir: string | null = null;
+	private verifiedMountAt = 0;
 	private readonly instance: string;
 	private readonly lockHeartbeatMs: number;
 	private readonly lockStaleAfterMs: number;
@@ -1206,10 +1218,7 @@ export class MediaJobManager {
 	 */
 	private lockContext(): ComponentLockContext {
 		const dir = processesDir();
-		if (this.verifiedMountDir !== dir) {
-			assertProcessesMountCoherent(dir, this.lockMountProbe);
-			this.verifiedMountDir = dir;
-		}
+		this.verifyMountOf(dir);
 		return {
 			dir: join(dir, 'component_locks'),
 			instance: this.instance,
@@ -1218,6 +1227,20 @@ export class MediaJobManager {
 			...(this.lockClock === undefined ? {} : { now: this.lockClock }),
 			...(this.lockShareHooks === undefined ? {} : { shareHooks: this.lockShareHooks }),
 		};
+	}
+
+	/**
+	 * The lock door's mount check (processes_mount.ts): read again when the dir
+	 * changed or MOUNT_REVERIFY_MS lapsed (this manager's clock) — a remount
+	 * while the instance runs is refused within that bound, never trusted
+	 * forever. A refusal is not remembered: the next call reads again.
+	 */
+	private verifyMountOf(dir: string): void {
+		const now = this.clock();
+		if (this.verifiedMountDir === dir && now - this.verifiedMountAt < MOUNT_REVERIFY_MS) return;
+		assertProcessesMountCoherent(dir, this.lockMountProbe);
+		this.verifiedMountDir = dir;
+		this.verifiedMountAt = now;
 	}
 
 	/**

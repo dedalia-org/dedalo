@@ -18,6 +18,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { configuredProcessesDir } from '../../src/core/media/jobs.ts';
 import { smokeBootQuarantine } from '../../src/core/update/smoke_boot.ts';
 import { refusalOf } from '../helpers/refusal.ts';
 import { removeScratchDir, scratchDir } from '../helpers/scratch_dir.ts';
@@ -91,6 +92,43 @@ process.on('SIGTERM', () => {
 `;
 
 describe('smokeBootQuarantine', () => {
+	test('a release whose real boot would refuse the LIVE processes dir mount is refused BEFORE the swap (R2)', async () => {
+		// The child runs the REAL verdict (processes_mount.ts) on the dir the
+		// updater names, as a Linux host whose share is a default NFS mount
+		// (every cache on) — the boot block of src/server.ts: FATAL, exit 1.
+		const mountModule = new URL('../../src/core/media/processes_mount.ts', import.meta.url)
+			.pathname;
+		const { codeRoot, staging } = syntheticTree(
+			'nfs_live',
+			`
+import { realpathSync } from 'node:fs';
+import { dirname } from 'node:path';
+const { verifySmokeProcessesDirMount } = await import(${JSON.stringify(mountModule)});
+const live = process.env.DEDALO_SMOKE_PROCESSES_DIR;
+let existing = live;
+for (;;) { try { existing = realpathSync(existing); break; } catch { existing = dirname(existing); } }
+try {
+	verifySmokeProcessesDirMount({
+		platform: 'linux',
+		deviceOf: () => '0:52',
+		mountinfo: () => ['29 1 259:2 / / rw - ext4 /dev/sda1 rw', '120 29 0:52 / ' + existing + ' rw - nfs4 fs:/export rw,vers=4.2,hard'].join('\\n'),
+	});
+} catch (error) {
+	console.error('FATAL: ' + error.message);
+	process.exit(1);
+}
+console.error('the mount verdict passed');
+process.exit(3);
+`,
+		);
+		const refusal = await refusalOf(smokeBootQuarantine(codeRoot, staging));
+		expect(refusal.code).toBe('update.refused');
+		expect(refusal.publicMessage).toContain('nothing was swapped');
+		const log = String((refusal.cause as Error | undefined)?.message ?? '');
+		expect(log).toContain('FATAL');
+		expect(log).toContain('lookupcache=none');
+	}, 60000);
+
 	test('a tree that binds and answers /health passes (SIGTERM, clean exit)', async () => {
 		const { codeRoot, staging } = syntheticTree('healthy', HEALTHY_SERVER);
 		// resolves without throwing — the whole contract
@@ -137,6 +175,12 @@ const bad = ['DEDALO_PRIVATE_DIR', 'DEDALO_SESSION_DB_PATH', 'DEDALO_TS_STATE_PA
 );
 if (bad.length > 0) {
 	console.error('NOT NEUTRALISED: ' + bad.join(','));
+	process.exit(2);
+}
+// The LIVE processes dir is named for the read-only mount verdict (R2) —
+// the one live path the child is handed, and only for reading.
+if (process.env.DEDALO_SMOKE_PROCESSES_DIR !== ${JSON.stringify(configuredProcessesDir())}) {
+	console.error('LIVE PROCESSES DIR NOT NAMED: ' + process.env.DEDALO_SMOKE_PROCESSES_DIR);
 	process.exit(2);
 }
 // The throwaway ts_state.json must already exist and be sealed, so the child
@@ -200,5 +244,14 @@ describe('smoke boot read-only-by-structure tripwire', () => {
 		// shared DB, so their presence is pinned too.
 		const guards = src.match(/!smokeBoot\b/g) ?? [];
 		expect(guards.length).toBeGreaterThanOrEqual(4);
+	});
+
+	test('server.ts reads the processes-dir mount verdict in a smoke boot too (R2) — never behind a skip guard', async () => {
+		const src = await Bun.file(new URL('../../src/server.ts', import.meta.url)).text();
+		const block = src.slice(src.indexOf("THE PROCESSES DIR'S MOUNT"));
+		const verdict = block.slice(0, block.indexOf('process.exit(1)'));
+		expect(verdict).toContain('verifySmokeProcessesDirMount');
+		expect(verdict).toContain('verifyProcessesDirMount');
+		expect(verdict).not.toMatch(/!smokeBoot\b/);
 	});
 });

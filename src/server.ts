@@ -2370,11 +2370,16 @@ export async function startServer() {
 	// no actimeo=0/noac, or nocto) lets the component locks judge a live holder
 	// dead — refuse to start, loudly (core/media/processes_mount.ts). The lock
 	// door refuses on its own too; this makes the misconfiguration a boot error
-	// instead of a refused upload. Skipped in a smoke boot like the reconcile.
-	if (!smokeBoot) {
-		const { verifyProcessesDirMount } = await import('./core/media/jobs.ts');
+	// instead of a refused upload. In a SMOKE boot (the updater's pre-swap boot
+	// of a new release, R2) the same verdict is read on the LIVE processes dir
+	// the updater names — read only, nothing created — so a release whose real
+	// boot would exit here is refused before the swap, not after it.
+	{
+		const verify = smokeBoot
+			? (await import('./core/media/processes_mount.ts')).verifySmokeProcessesDirMount
+			: (await import('./core/media/jobs.ts')).verifyProcessesDirMount;
 		try {
-			verifyProcessesDirMount();
+			verify();
 		} catch (error) {
 			console.error(`FATAL: ${(error as Error).message}`);
 			process.exit(1);

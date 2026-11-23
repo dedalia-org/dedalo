@@ -1535,14 +1535,22 @@ Who holds a component is decided by the server's own answer to a create or a
 removal, which no client cache can fake; but judging whether a holder is DEAD
 reads its lock and heartbeat, and a client that caches lookups or attributes
 can serve a stale heartbeat (or none) for up to a minute and take a live
-holder's lock. On Linux the instance VERIFIES the mount (`/proc/self/mountinfo`,
-the mount holding the dir's real path): an `nfs`/`nfs4` mount without
+holder's lock. On Linux the instance VERIFIES the mount (`/proc/self/mountinfo`;
+the mount holding the dir is the one whose `maj:min` is the dir's own device —
+of its nearest existing ancestor when it is not created yet — so a mount stacked
+over another resolves to what the kernel resolved): an `nfs`/`nfs4` mount without
 `lookupcache=none`, without `noac` or all four attribute-cache times at 0
 (`actimeo=0` shows as `acregmin=0,acregmax=0,acdirmin=0,acdirmax=0`), or with
 `nocto` makes the boot refuse (`FATAL: the media processes dir … is on nfs4 at
 …, mounted without the coherence the component locks need: …`), and every lock
-call refuses with `media.not_configured` naming the same. Other platforms are
-not verified (macOS is a development platform); the requirement stands.
+call refuses with `media.not_configured` naming the same. The lock calls read
+the table again at most every 60 s, so a remount while the instance runs is
+refused within a minute. A code update checks it BEFORE the swap: the new
+release's pre-swap boot reads the same verdict on the running installation's
+processes dir (read only, nothing created) and the update is refused, nothing
+swapped — rather than swapping in a release that would then refuse to start.
+Other platforms are not verified (macOS is a development platform); the
+requirement stands.
 
 Each hold is two files: the immutable `<key>.lock` (host + boot/pid-namespace
 id, pid, instance, token, start — published with an atomic `link()`) and the
