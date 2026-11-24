@@ -32,6 +32,7 @@ Validated by `fulltextQuerySchema`.
 |-----------|------|---------|-------|
 | `q` | string | — | **Required.** 1–512 chars. Boolean mode: `+word` (required), `-word` (excluded), `"phrase"`. |
 | `column` | string | `transcription` | Must name a FULLTEXT-indexed text column. |
+| `lang` | string | — | `lg-xxx` format. One language variant only — without it a hit comes back once per language row and `pagination.total` counts rows. A `400` on a table without a `lang` column. |
 | `limit` | integer | `100` | `0`–`1000`. `0` skips the data query (count-only). |
 | `offset` | integer | `0` | `≥ 0`. |
 | `count` | boolean | `false` | `true`/`1` add `pagination.total` (extra `COUNT` query). |
@@ -228,7 +229,7 @@ Notes on the response:
 
 These endpoints follow the same conventions as the rest of the API (see [HTTP semantics](http_semantics.md)):
 
-- **Validation** (`400`) — missing/oversized `q` or `terms`, unknown `column`, a column without a FULLTEXT index, malformed `lang`, or out-of-range `max_characters` / `max_occurrences`. The body is RFC 9457 Problem Details, with an `errors:[{ pointer, message }]` array.
+- **Validation** (`400`) — missing/oversized `q` or `terms`, unknown `column`, a column without a FULLTEXT index, malformed `lang`, out-of-range `max_characters` / `max_occurrences`, or AV fragments / AV indexation on a database whose AV tables are missing or lack the `AV_*` columns (a non-AV publication). The body is RFC 9457 Problem Details, with an `errors:[{ pointer, message }]` array.
 - **Not found** (`404`) — unknown db/table, or a record/section that does not exist.
 - **Caching** — successful responses carry `Cache-Control: public, max-age=N` and a weak `ETag`; `If-None-Match` yields `304`. `meta.response_time_ms` (mirrored as the `X-Response-Time` header) is excluded from the ETag.
 - **Pagination** — only the `search` endpoint paginates (`limit`/`offset`/`count` + `Link` header); the per-record fragment endpoints return all extracted fragments inline.

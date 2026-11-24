@@ -241,6 +241,7 @@ MariaDB FULLTEXT search (`MATCH … AGAINST` in boolean mode) over an indexed te
 | --- | --- | --- | --- |
 | `q` | string | — | **Required.** 1–512 chars. Supports `+word`, `-word`, `"phrase"`. |
 | `column` | string | `transcription` | FULLTEXT-indexed column to search. |
+| `lang` | string | — | `lg-xxx` format. One language variant only — without it a hit comes back once per language row and `pagination.total` counts rows. A `400` on a table without a `lang` column. |
 | `limit` | integer | `100` | `min(0)`, `max(1000)`. |
 | `offset` | integer | `0` | `min(0)`. |
 | `count` | boolean | `false` | Adds `pagination.total`. |

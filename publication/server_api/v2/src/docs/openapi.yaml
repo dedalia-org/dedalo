@@ -36,6 +36,9 @@ info:
 
     Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `like`, `in`, `not_in`,
     `is_null`, `is_not_null`. For `in`/`not_in`, values are pipe-separated.
+    For `gt`/`gte`/`lt`/`lte` a plain number (`-150`, `12.5`) is compared as a
+    number, so text columns holding numbers (BC years) range correctly; any
+    other value compares as text.
 
     Examples:
     - `filter[section_id]=1` → `WHERE section_id = 1`
@@ -320,6 +323,7 @@ paths:
           in: query
           description: 'FULLTEXT-indexed column to search (default: transcription).'
           schema: { type: string, default: transcription }
+        - $ref: '#/components/parameters/Lang'
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
         - $ref: '#/components/parameters/Count'
@@ -405,6 +409,7 @@ paths:
       description: |
         Extracts transcription excerpts with their `[tc-in-out]` timecode ranges
         and media URLs, joining the `audiovisual` table for video and image assets.
+        A database whose AV tables or columns are missing answers `400`.
       operationId: getAvFragments
       tags: [Search]
       parameters:
@@ -445,7 +450,8 @@ paths:
       description: |
         Resolves a thesaurus indexation locator to an audiovisual fragment:
         transcription slice between timecodes, media URLs, speakers and
-        associated thesaurus terms.
+        associated thesaurus terms. A database whose AV tables or columns are
+        missing answers `400`.
       operationId: getAvIndexationFragment
       tags: [Search]
       parameters:
@@ -604,7 +610,8 @@ components:
         Bracketed filter conditions: `filter[field][operator]=value`
         (`operator` defaults to `eq`). Repeat for AND. Operators: eq, ne, gt,
         gte, lt, lte, like, in, not_in, is_null, is_not_null; `in`/`not_in`
-        take pipe-separated values.
+        take pipe-separated values; `gt`/`gte`/`lt`/`lte` compare a plain
+        number as a number.
       style: deepObject
       explode: true
       schema:
@@ -676,7 +683,8 @@ components:
       in: query
       description: |
         Resolves the `dd_relations` column. Pass `true` to load the
-        section_tipo→table mapping from `publication_schema`, or a JSON object
+        section_tipo→table mapping from `publication_schema` (written by every
+        diffusion run; `400` on a database that has none), or a JSON object
         like `{"rsc170":"interview"}`.
       schema: { type: string }
 

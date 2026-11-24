@@ -42,7 +42,7 @@
 import { dbExecute } from '../db/pool';
 import { validateTableName, validateColumnName } from '../db/query-builder';
 import { parseJsonStrings } from '../utils/parse-json';
-import { BudgetExceededError, ValidationError } from '../errors';
+import { BudgetExceededError, ValidationError, isNoSuchTableError } from '../errors';
 import { COLUMNS, PUBLICATION_SCHEMA_TABLE, PUBLICATION_SCHEMA_ID, MAX_RESOLVE_DEPTH, MAX_RESOLVE_ROWS, MAX_RESOLVE_KEYS } from '../constants';
 import { TTLCache } from '../db/schema-cache';
 import type { DbRow } from '../db/types';
@@ -53,7 +53,6 @@ export type RelationMap = Record<string, string>;
 export type InverseRelationMap = Record<string, string>;
 
 const schemaCache = new TTLCache<InverseRelationMap>(30);
-const ERRNO_NO_SUCH_TABLE = 1146;
 
 /**
  * The publication's own `section_tipo` → table map, written by diffusion into
@@ -79,10 +78,9 @@ export async function getPublicationSchema(db: string): Promise<InverseRelationM
   try {
     rows = await dbExecute<DbRow[]>(db, sql, [PUBLICATION_SCHEMA_ID]);
   } catch (error) {
-    // errno 1146 (no such table): a publication written without a schema table — the
-    // Dédalo v7 diffusion engine writes none — is the same client-side 400 as an empty one.
-    // Bun's MySQLError carries the server's number in `errno` (its `code` is Bun's own).
-    if (error instanceof Error && (error as { errno?: number }).errno === ERRNO_NO_SUCH_TABLE) {
+    // errno 1146 (no such table): a publication written without a schema table (one
+    // published before diffusion wrote it) is the same client-side 400 as an empty one.
+    if (isNoSuchTableError(error)) {
       throw new ValidationError('publication_schema table not found or empty');
     }
     throw error;

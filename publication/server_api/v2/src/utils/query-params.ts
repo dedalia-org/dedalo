@@ -141,6 +141,21 @@ export function parseSort(sort: string): OrderClause[] {
   return clauses;
 }
 
+const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
+
+/**
+ * A range operand that is a plain number binds AS a number, so the comparison is
+ * numeric even on a text column: publication columns often hold numbers as text
+ * (`date_in` = '-150'), and compared as strings '-150' >= '-100' and '9' > '10'.
+ * Anything else (an ISO date, a code) stays text and compares as text. Integers
+ * past 2^53 stay text: a double would round them.
+ */
+function rangeOperand(value: string | number | null): string | number | null {
+  if (typeof value !== 'string' || !NUMERIC_RE.test(value)) return value;
+  const number = Number(value);
+  return Number.isInteger(number) && !Number.isSafeInteger(number) ? value : number;
+}
+
 /**
  * Renders conditions into a WHERE fragment (without the `WHERE` keyword) and the
  * positionally matching parameter list. An empty condition list yields an empty
@@ -174,19 +189,19 @@ export function buildWhere(conditions: FilterCondition[]): { sql: string; params
         break;
       case 'gt':
         clauses.push(`${quoted} > ?`);
-        params.push(values[0]);
+        params.push(rangeOperand(values[0]));
         break;
       case 'gte':
         clauses.push(`${quoted} >= ?`);
-        params.push(values[0]);
+        params.push(rangeOperand(values[0]));
         break;
       case 'lt':
         clauses.push(`${quoted} < ?`);
-        params.push(values[0]);
+        params.push(rangeOperand(values[0]));
         break;
       case 'lte':
         clauses.push(`${quoted} <= ?`);
-        params.push(values[0]);
+        params.push(rangeOperand(values[0]));
         break;
       case 'like':
         clauses.push(`${quoted} LIKE ?`);

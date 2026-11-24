@@ -2944,6 +2944,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **"Publication API v2: fulltext search takes `lang`."**
+
+    `GET /{db}/tables/{table}/search` and the MCP `fulltext_search` / `count_records` (with `q`) accept `lang`. Without it a multilingual record matches once per language row, so a page of hits held the same record several times and `pagination.total` counted rows. On a table without a `lang` column the parameter is a `400`, as on the record list (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
+
 - **"An element's `properties.label` lang map now replaces its label in the edit and list contexts, chosen through the same language fallback as every ontology label."**
 
     An ontology node (or a request's properties override) whose `properties.label` is an object
@@ -2956,9 +2960,17 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Publication API v2: AV fragments on a database without the AV tables answer 400, not 500."**
+
+    `…/records/{id}/av-fragments` and `av-indexation-fragment` join the tables and columns named by the `AV_*` settings. On a publication without them (a numismatic one, say, whose `audiovisual` table has no `image` column) MariaDB's *table doesn't exist* / *unknown column* reached the client as a 500 *An unexpected error occurred*. It is now a 400 naming what is missing (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
+
 - **"Publication API v2: `resolve_inverse_relations=true` on a database without a `publication_schema` table answers 400, not 500."**
 
-    A publication written without a `publication_schema` table — which includes every database published by the v7 diffusion engine — made `resolve_inverse_relations=true` fail with a 500 *An unexpected error occurred*. It now answers the documented 400 problem *publication_schema table not found or empty*; pass an explicit `section_tipo` → table map instead (see [Querying](./diffusion/publication_api/v2/querying.md)).
+    A publication written without a `publication_schema` table (every database the v7 diffusion engine published before it began writing one) made `resolve_inverse_relations=true` fail with a 500 *An unexpected error occurred*. It now answers the documented 400 problem *publication_schema table not found or empty*; pass an explicit `section_tipo` → table map instead (see [Querying](./diffusion/publication_api/v2/querying.md)).
+
+- **"Publication API v2: range filters compare numbers as numbers, so BC dates work."**
+
+    `gt`, `gte`, `lt` and `lte` bound every value as text. Publication columns often store numbers as text (a type's `date_in` is `-150`), and compared as text `filter[date_in][gte]=-150&filter[date_in][lte]=-100` matched nothing. A plain number is now compared as a number; any other value (an ISO date, a code) still compares as text (see [Querying](./diffusion/publication_api/v2/querying.md)).
 
 - **Object identification's grouping run refuses a language the installation does not have.**
 

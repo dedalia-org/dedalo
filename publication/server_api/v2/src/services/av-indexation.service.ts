@@ -21,7 +21,7 @@
 
 import { dbExecute } from '../db/pool';
 import { avSchema, config } from '../config';
-import { NotFoundError } from '../errors';
+import { NotFoundError, ValidationError, isMissingTableOrColumnError } from '../errors';
 import { COLUMNS } from '../constants';
 import { parseJsonStrings } from '../utils/parse-json';
 import type { Locator, AvIndexationFragment, Speaker } from '../db/types';
@@ -50,7 +50,14 @@ export async function getAvIndexationFragment(db: string, locator: Locator): Pro
     WHERE i.${COLUMNS.SECTION_ID} = ?
   `;
 
-  const rows = await dbExecute<DbRow[]>(db, sql, [section_id]);
+  const rows = await dbExecute<DbRow[]>(db, sql, [section_id]).catch(error => {
+    if (isMissingTableOrColumnError(error)) {
+      throw new ValidationError(
+        `AV indexation is not available on this database: "${avSchema.table}", "${avSchema.mediaTable}" or "${avSchema.speakerTable}" is missing or lacks the AV_* columns (${(error as Error).message})`,
+      );
+    }
+    throw error;
+  });
 
   if (rows.length === 0) {
     throw new NotFoundError(`Record not found for section_id: ${section_id}`);

@@ -42,6 +42,14 @@ describe('Docs routes', () => {
     expect(body).toContain('/{db}/tables/{table}/records');
   });
 
+  test('OpenAPI search operation documents the lang parameter the route accepts', async () => {
+    const body = await (await handleOpenApiSpec(new Request(`${BASE}/openapi.yaml`))).text();
+    const start = body.indexOf('  /{db}/tables/{table}/search:');
+    expect(start).toBeGreaterThan(-1);
+    const searchOperation = body.slice(start, body.indexOf('\n  /', start + 1));
+    expect(searchOperation).toContain("$ref: '#/components/parameters/Lang'");
+  });
+
   test('Swagger assets are served from node_modules', async () => {
     const res = await handleSwaggerAssets(new Request(`${BASE}/docs/swagger/swagger-ui.css`));
     expect(res.status).toBe(200);

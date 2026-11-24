@@ -36,6 +36,7 @@ export async function handleTableSearch(_req: Request, params: Record<string, st
   const { rows, total } = await fulltextSearch(db, params.table, {
     q: query.q,
     column: query.column,
+    lang: query.lang,
     limit: query.limit,
     offset: query.offset,
     withTotal: query.count,

@@ -120,7 +120,18 @@ describe('buildWhere', () => {
     expect(sql).toBe(
       '`a` = ? AND `b` != ? AND `c` > ? AND `d` >= ? AND `e` < ? AND `f` <= ? AND `g` LIKE ? AND `h` IN (?,?) AND `i` NOT IN (?) AND `j` IS NULL AND `k` IS NOT NULL',
     );
-    expect(p).toEqual(['1', '2', '3', '4', '5', '6', 'x%', '7', '8', '9']);
+    expect(p).toEqual(['1', '2', 3, 4, 5, 6, 'x%', '7', '8', '9']);
+  });
+
+  test('range operands: numbers bind as numbers (BC years in text columns), the rest as text', () => {
+    const bound = (value: string) => buildWhere([{ field: 'd', operator: 'gte', values: [value] }]).params[0];
+    expect(bound('-150')).toBe(-150);
+    expect(bound('2.5')).toBe(2.5);
+    expect(bound('1936-05-01')).toBe('1936-05-01');
+    expect(bound('12a')).toBe('12a');
+    expect(bound('99999999999999999999')).toBe('99999999999999999999');
+    // equality keeps text: '0012' must not match '12'
+    expect(buildWhere([{ field: 'd', operator: 'eq', values: ['0012'] }]).params[0]).toBe('0012');
   });
 
   test('empty conditions produce empty sql', () => {

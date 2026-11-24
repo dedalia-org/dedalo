@@ -156,6 +156,7 @@ export const getRecordQuerySchema = z.object({
 export const fulltextQuerySchema = z.object({
   q: boundedQuery,
   column: z.string().default(DEFAULT_COLUMN),
+  lang: langSchema.optional(),
   limit: limitSchema,
   offset: offsetSchema,
   count: queryBoolean.default(false),
