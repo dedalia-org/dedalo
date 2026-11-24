@@ -588,6 +588,11 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **The JSON editor's indent guides are readable in the dark theme.**
+
+    In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn
+    almost white and drowned out the content. They are now faint lines, as in the light theme.
+
 - **"An audiovisual record without a stored duration shows its measured duration, or nothing — no longer an invented 00:00:00."**
 
     The duration shown beside an interview's recordings used to read `00:00:00.000` whenever no

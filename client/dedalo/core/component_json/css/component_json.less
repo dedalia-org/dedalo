@@ -368,6 +368,14 @@
 			--jse-warning-color:                             var(--color_warning);
 			--jse-info-color:                                var(--color_info);
 
+			// text mode indent guides: CodeMirror runs its LIGHT theme here, so the
+			// markers default to #F0F1F2 — near-white slabs on a dark page. Set on
+			// .cm-editor itself (where the lib's baseTheme defines them).
+			.cm-editor {
+				--indent-marker-bg-color:                    rgba(255, 255, 255, 0.07);
+				--indent-marker-active-bg-color:             rgba(255, 255, 255, 0.16);
+			}
+
 		}//end .content_value
 
 		// editor toolbar (menu bar)
