@@ -76,6 +76,10 @@ const authoring = {
 	affected_models: models,
 	show_in_component: true,
 	active: true,
+	// open_as ∈ 'modal' (default: a modal over the page) | 'window' (a separate
+	// browser window) | 'attach' (built onto the live caller component; the client
+	// class implements attach()/detach(); needs show_in_component: true and
+	// show_in_inspector: false). Enforced by validateRegister (src/core/tools/register.ts).
 	properties: { open_as: 'modal' },
 };
 writeFileSync(resolve(targetDir, 'register.json'), `${JSON.stringify(authoring, null, '\t')}\n`);

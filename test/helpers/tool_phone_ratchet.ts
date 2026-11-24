@@ -19,6 +19,8 @@
  * 44px on its shortest side, no console error.
  */
 
+import { TOOL_OPEN_AS_VALUES, type ToolOpenAs } from '../../src/core/tools/types.ts';
+
 /** The phone floor — equal to `@min_target_viewport` in vars.less (pinned by the tripwire). */
 export const PHONE_VIEWPORT = { width: 360, height: 740 } as const;
 
@@ -381,3 +383,121 @@ export const HIDDEN_BY_CAPABILITY: Record<
 		probe: test3Section(),
 	},
 };
+
+// ---- tool open modes (shared by test:tools:phone and test:crawl) ----------
+
+/**
+ * Every `open_as` a tool may declare — the registry's own closed set
+ * (src/core/tools/types.ts TOOL_OPEN_AS_VALUES, enforced by validateOpenAs at
+ * import), re-exported so a harness can never accept a value registration
+ * refuses. `attach`
+ * opens NO modal and NO window: the tool decorates its caller component — the
+ * caller's root node carries `data-tools-attached` (space-separated tool
+ * names) and the tool's button(s) `aria-pressed="true"`; a second mousedown on
+ * the button detaches it. A harness branches on this list and nothing else.
+ */
+export const TOOL_OPEN_MODES = TOOL_OPEN_AS_VALUES;
+export type ToolOpenMode = ToolOpenAs;
+
+/** A tool context's `open_as` (absent = 'modal', the client default). An unknown value THROWS — never a silent modal. */
+export function toolOpenMode(raw: unknown): ToolOpenMode {
+	const value = raw === undefined || raw === null || raw === '' ? 'modal' : String(raw);
+	if (!(TOOL_OPEN_MODES as readonly string[]).includes(value))
+		throw new Error(`unknown open_as '${value}' (known: ${TOOL_OPEN_MODES.join(', ')})`);
+	return value as ToolOpenMode;
+}
+
+/** The caller node while `tool` is attached to it. */
+export const attachMarkerSelector = (tool: string): string => `[data-tools-attached~="${tool}"]`;
+
+/** The tool's own button(s) inside the caller node (ui.js build_component_tool_button). */
+export const attachButtonSelector = (tool: string): string => `[data-tool="${tool}"].button.tool`;
+
+/** What one attach toggle observed in the page (attachToggleInPage). */
+export interface AttachObservation {
+	/** set when the toggle could not even be attempted (no button) */
+	error?: string;
+	/** a <dd-modal> existed or appeared between the mousedown and the settled state */
+	modalSeen: boolean;
+	/** the caller node matched attachMarkerSelector */
+	marker: boolean;
+	/** every tool button's aria-pressed, in DOM order */
+	pressed: (string | null)[];
+	/** a tool button still aria-busy="true" */
+	busy: boolean;
+}
+
+/**
+ * PAGE-SIDE (passed to page.evaluate — self-contained, no outer references):
+ * mousedown the tool's button inside `caller`, watch the DOM for a <dd-modal>
+ * from before the click until the expected state settles (or `timeoutMs`),
+ * then report what is true.
+ */
+export async function attachToggleInPage(
+	caller: Element,
+	tool: string,
+	expect: 'on' | 'off',
+	timeoutMs: number,
+): Promise<AttachObservation> {
+	const buttonSel = `[data-tool="${tool}"].button.tool`;
+	const markerSel = `[data-tools-attached~="${tool}"]`;
+	const buttons = () => [...caller.querySelectorAll(buttonSel)];
+	const first = buttons()[0];
+	if (!first)
+		return {
+			error: `no ${buttonSel} inside the caller node`,
+			modalSeen: false,
+			marker: false,
+			pressed: [],
+			busy: false,
+		};
+	let modalSeen = document.querySelector('dd-modal') !== null;
+	const observer = new MutationObserver((records) => {
+		for (const r of records)
+			for (const n of r.addedNodes)
+				if (
+					n instanceof Element &&
+					(n.localName === 'dd-modal' || n.querySelector('dd-modal') !== null)
+				)
+					modalSeen = true;
+	});
+	observer.observe(document.documentElement, { childList: true, subtree: true });
+	const state = () => {
+		const pressed = buttons().map((b) => b.getAttribute('aria-pressed'));
+		return {
+			marker: caller.matches(markerSel),
+			pressed,
+			busy: buttons().some((b) => b.getAttribute('aria-busy') === 'true'),
+		};
+	};
+	const settled = (s: ReturnType<typeof state>) =>
+		expect === 'on'
+			? s.marker && !s.busy && s.pressed.length > 0 && s.pressed.every((p) => p === 'true')
+			: !s.marker && s.pressed.every((p) => p === 'false');
+	first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+	const deadline = Date.now() + timeoutMs;
+	while (!settled(state()) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+	// a late modal still counts: give the open one more beat before judging
+	await new Promise((r) => setTimeout(r, 300));
+	observer.disconnect();
+	if (document.querySelector('dd-modal') !== null) modalSeen = true;
+	return { modalSeen, ...state() };
+}
+
+/** Problems with one attach toggle (empty = the contract held). Pure. */
+export function judgeAttach(tool: string, expect: 'on' | 'off', o: AttachObservation): string[] {
+	if (o.error) return [`attach ${expect}: ${o.error}`];
+	const out: string[] = [];
+	if (o.modalSeen) out.push(`attach ${expect}: a <dd-modal> appeared (open_as attach opens none)`);
+	if (expect === 'on') {
+		if (!o.marker) out.push(`attach on: caller lacks ${attachMarkerSelector(tool)}`);
+		if (o.pressed.length === 0 || o.pressed.some((p) => p !== 'true'))
+			out.push(`attach on: button aria-pressed ${JSON.stringify(o.pressed)}, want all "true"`);
+		if (o.busy) out.push('attach on: button still aria-busy="true"');
+	} else {
+		if (o.marker) out.push(`attach off: caller still carries ${attachMarkerSelector(tool)}`);
+		if (o.pressed.some((p) => p !== 'false'))
+			out.push(`attach off: button aria-pressed ${JSON.stringify(o.pressed)}, want all "false"`);
+	}
+	return out;
+}

@@ -2913,6 +2913,19 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **Tools can open attached to their component, with no modal or window.**
+
+    A tool's `properties.open_as` now takes a third value, `attach`, beside `modal` and `window`;
+    any other value is refused at registration. An `attach` tool puts its controls straight on
+    the component it was opened from — a toolbar on a map, for instance — and the engine
+    re-attaches it when the component redraws, removes it when the component goes away, and
+    switches it off on a second press of its button. Tools of this kind used to open an empty
+    modal and close it again, which users saw as a flash on screen; it is gone. How to write one:
+    [JS lifecycle](./development/tools/js_lifecycle.md#the-attach-lifecycle) and
+    [register.json](./development/tools/register_json.md#propertiesopen_as).
+
+    Wire contract: `WC-2026-11-24-tool-open-as-attach`.
+
 - **"An element's `properties.label` lang map now replaces its label in the edit and list contexts, chosen through the same language fallback as every ontology label."**
 
     An ontology node (or a request's properties override) whose `properties.label` is an object
@@ -2956,7 +2969,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 119 entries"
+??? note "Wire contract — 120 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3077,6 +3090,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
     - `WC-2026-11-22-tool-availability-context`
     - `WC-2026-11-23-tool-lang-browser-translation-labels`
+    - `WC-2026-11-24-tool-open-as-attach`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

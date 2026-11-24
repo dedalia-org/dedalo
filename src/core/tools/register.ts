@@ -33,6 +33,7 @@ import { getLoadedTool } from './loader.ts';
 import { DD64_SECTION_TIPO, TIPO, TOOLS_REGISTER_SECTION_TIPO } from './ontology_map.ts';
 import { getRoots } from './paths.ts';
 import { authoringRegisterSchema } from './register_schema.ts';
+import { TOOL_OPEN_AS_VALUES } from './types.ts';
 
 /** Column-keyed tool record (the register.json dump shape / import unit). */
 export interface ToolRecord {
@@ -320,6 +321,8 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 		}
 	}
 
+	errors.push(...validateOpenAs(record, typeof name === 'string' && name !== '' ? name : basename));
+
 	// Minimum-Dédalo-version gate (PHP: strip a trailing .dev before comparing).
 	const minVersion = getItems(record, TIPO.DEDALO_VERSION_MIN)?.[0]?.value;
 	if (typeof minVersion === 'string' && minVersion !== '') {
@@ -328,6 +331,37 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 		}
 	}
 
+	return errors;
+}
+
+/**
+ * The open-mode law (`properties.open_as`, dd1335). When present it is one of
+ * TOOL_OPEN_AS_VALUES; 'attach' (built onto the live caller component, no
+ * modal/window) additionally requires show_in_component YES and
+ * show_in_inspector NOT yes — an attached tool has no inspector button to open
+ * it from. Runs inside validateRegister, so both register formats (authoring,
+ * converted first; column-keyed dumps) meet it at importTools. The client half
+ * (attach()/detach() on the tool class) is gated in
+ * test/unit/tools_register_validate.test.ts.
+ */
+export function validateOpenAs(record: ToolRecord, toolName: string): string[] {
+	const properties = getItems(record, TIPO.PROPERTIES)?.[0]?.value;
+	if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) return [];
+	if (!('open_as' in properties)) return [];
+	const openAs = (properties as { open_as?: unknown }).open_as;
+	if (!(TOOL_OPEN_AS_VALUES as readonly unknown[]).includes(openAs)) {
+		return [
+			`Tool '${toolName}': invalid properties.open_as ${JSON.stringify(openAs)} — must be one of ${TOOL_OPEN_AS_VALUES.map((v) => `'${v}'`).join(', ')}`,
+		];
+	}
+	if (openAs !== 'attach') return [];
+	const errors: string[] = [];
+	if (!radioYes(record, TIPO.SHOW_IN_COMPONENT)) {
+		errors.push(`Tool '${toolName}': open_as 'attach' requires show_in_component: true`);
+	}
+	if (radioYes(record, TIPO.SHOW_IN_INSPECTOR)) {
+		errors.push(`Tool '${toolName}': open_as 'attach' requires show_in_inspector: false`);
+	}
 	return errors;
 }
 

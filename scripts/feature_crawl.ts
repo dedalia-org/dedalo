@@ -52,7 +52,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import puppeteer, { type BrowserContext, type Page } from 'puppeteer';
+import puppeteer, { type BrowserContext, type ElementHandle, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import { isLocatorInArray } from '../src/core/concepts/locator.ts';
 import {
@@ -69,6 +69,13 @@ import {
 	postureOverruns,
 } from '../test/helpers/feature_crawl_ratchet.ts';
 import { JOURNEYS, type JourneyContext, type PersonaName } from '../test/helpers/journey_cases.ts';
+import {
+	attachMarkerSelector,
+	attachToggleInPage,
+	judgeAttach,
+	TOOL_OPEN_MODES,
+	toolOpenMode,
+} from '../test/helpers/tool_phone_ratchet.ts';
 import {
 	findFreePort,
 	localSuiteFingerprint,
@@ -1122,6 +1129,7 @@ async function openTool(
 				toolName: string,
 				c: { tipo: string; section_tipo: string; mode: string; model: string },
 				modalOnly: boolean,
+				knownModes: readonly string[],
 			) => {
 				const spec = '/dedalo/core/common/js/instances.js'; // the page's own module, not a repo path
 				const { get_all_instances } = (await import(spec)) as {
@@ -1144,8 +1152,17 @@ async function openTool(
 				instance.node?.scrollIntoView?.({ block: 'center' });
 				const tool_context = offers(instance);
 				const openAs = String(tool_context.properties?.open_as ?? 'modal');
-				// audit: a window's first requests would race the write guard
-				if (modalOnly && openAs !== 'modal') return 'skipped';
+				// unknown open_as: fail loudly BEFORE opening (the client would fall into modal)
+				if (!knownModes.includes(openAs)) return `unknown open_as '${openAs}'`;
+				// audit: a window's first requests would race the write guard;
+				// modal and attach stay in this (guarded) page
+				if (modalOnly && openAs !== 'modal' && openAs !== 'attach') return 'skipped';
+				// attach: the harness opens it by the button's mousedown (the toggle
+				// a user clicks), so only hand the caller node over to Node
+				if (openAs === 'attach') {
+					(window as unknown as { __dd_probe_caller?: unknown }).__dd_probe_caller = instance.node;
+					return openAs;
+				}
 				void open_tool({ tool_context, caller: instance });
 				return openAs;
 			},
@@ -1157,35 +1174,43 @@ async function openTool(
 				model: caller.model,
 			},
 			audit,
+			TOOL_OPEN_MODES,
 		);
 		if (result === 'skipped') {
 			console.log(`    audit: ${name} opens a window — not opened`);
 			await closePage(page);
 			return;
 		}
-		if (result !== 'modal' && result !== 'window' && result !== 'tab') throw new Error(result);
-		const toolPage = result === 'modal' ? page : ((await popup) ?? page);
-		const toolSignals = toolPage === page ? signals : watch(toolPage);
-		await toolPage.waitForSelector(`.wrapper_tool.${name}`, { timeout: 30_000 });
-		await settle(toolPage);
-		const panel = await toolPage.$(
-			`.wrapper_tool.${name} .content_data_error, .wrapper_tool.${name} .tool_error, .wrapper_tool.${name} .api_error_panel`,
-		);
-		if (panel)
-			add(
-				who,
-				tipo,
-				'tool',
-				`tool_error:${name}`,
-				`tool rendered its error panel (caller ${caller.model} ${caller.tipo} on ${from}): ${(
-					(await panel.evaluate((n) => n.textContent ?? '').catch(() => '')) as string
-				)
-					.trim()
-					.slice(0, 160)}`,
-				toolPage,
+		// any other string is the page's own error (no caller, unknown open_as)
+		if (!(TOOL_OPEN_MODES as readonly string[]).includes(result)) throw new Error(result);
+		const openAs = toolOpenMode(result);
+		if (openAs === 'attach') {
+			// the page's own signals are reported once, below, after the toggle-off
+			await probeAttachedTool(page, who, tipo, from, name, caller);
+		} else {
+			const toolPage = openAs === 'modal' ? page : ((await popup) ?? page);
+			const toolSignals = toolPage === page ? signals : watch(toolPage);
+			await toolPage.waitForSelector(`.wrapper_tool.${name}`, { timeout: 30_000 });
+			await settle(toolPage);
+			const panel = await toolPage.$(
+				`.wrapper_tool.${name} .content_data_error, .wrapper_tool.${name} .tool_error, .wrapper_tool.${name} .api_error_panel`,
 			);
-		await reportSignals(toolSignals, who, tipo, `tool:${name}`, toolPage, false);
-		if (toolPage !== page) await closePage(toolPage);
+			if (panel)
+				add(
+					who,
+					tipo,
+					'tool',
+					`tool_error:${name}`,
+					`tool rendered its error panel (caller ${caller.model} ${caller.tipo} on ${from}): ${(
+						(await panel.evaluate((n) => n.textContent ?? '').catch(() => '')) as string
+					)
+						.trim()
+						.slice(0, 160)}`,
+					toolPage,
+				);
+			await reportSignals(toolSignals, who, tipo, `tool:${name}`, toolPage, false);
+			if (toolPage !== page) await closePage(toolPage);
+		}
 	} catch (err) {
 		add(
 			who,
@@ -1198,6 +1223,58 @@ async function openTool(
 	}
 	await reportSignals(signals, who, tipo, `tool:${name}`, page, false);
 	await closePage(page);
+}
+
+/**
+ * open_as 'attach': no modal, no window — the tool decorates its caller. Toggle
+ * it on by the button's mousedown, judge the CALLER node as the tool surface,
+ * toggle it off again; no <dd-modal> may appear at any point, and the page is
+ * left as found (marker gone, aria-pressed false).
+ */
+async function probeAttachedTool(
+	page: Page,
+	who: string,
+	tipo: string,
+	from: string,
+	name: string,
+	caller: LiveInstance,
+): Promise<void> {
+	const handle = await page.evaluateHandle(() => {
+		const w = window as unknown as { __dd_probe_caller?: Element };
+		const node = w.__dd_probe_caller;
+		w.__dd_probe_caller = undefined;
+		return node ?? null;
+	});
+	const node = handle.asElement() as ElementHandle<Element> | null;
+	if (!node) await handle.dispose();
+	if (!node) throw new Error(`attach: caller ${caller.model} ${caller.tipo} has no node`);
+	try {
+		const on = await page.evaluate(attachToggleInPage, node, name, 'on' as const, 30_000);
+		const onProblems = judgeAttach(name, 'on', on);
+		if (onProblems.length > 0) throw new Error(onProblems.join('; '));
+		await settle(page);
+		const panel = await node.$('.content_data_error, .tool_error, .api_error_panel');
+		if (panel)
+			add(
+				who,
+				tipo,
+				'tool',
+				`tool_error:${name}`,
+				`attached tool rendered an error panel in its caller (${caller.model} ${caller.tipo} on ${from}): ${(
+					(await panel.evaluate((n) => n.textContent ?? '').catch(() => '')) as string
+				)
+					.trim()
+					.slice(0, 160)}`,
+				page,
+			);
+		const off = await page.evaluate(attachToggleInPage, node, name, 'off' as const, 30_000);
+		const offProblems = judgeAttach(name, 'off', off);
+		if (offProblems.length > 0) throw new Error(offProblems.join('; '));
+		if (await page.$(attachMarkerSelector(name)))
+			throw new Error(`attach off: a node still carries ${attachMarkerSelector(name)}`);
+	} finally {
+		await node.dispose();
+	}
 }
 
 // ---- page plumbing ------------------------------------------------------

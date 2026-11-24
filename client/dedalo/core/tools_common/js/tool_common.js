@@ -19,8 +19,11 @@
 *       prototypes onto a concrete tool constructor (replaces the boilerplate each
 *       tool file used to repeat manually).
 *   - `open_tool` — the single public dispatcher that determines how a tool should
-*       be visualised (modal vs. new window) and hands off to `view_modal` /
-*       `view_window`.
+*       be visualised (modal, new window, or attached onto its caller) and hands off
+*       to `view_modal` / `view_window` / `view_attach`.
+*   - `is_tool_attached` — whether an `open_as:'attach'` tool is currently attached
+*       to a given caller (read by the component tool button to keep its pressed
+*       state across re-renders).
 *   - `load_component` — utility to asynchronously instantiate and build a component
 *       inside a tool, managing the tool's `ar_instances` registry.
 *   - `get_tool_label` — label resolver bound to `this.context.labels`
@@ -44,6 +47,7 @@
 *   tool_common   — base constructor (prototype methods assigned below)
 *   wire_tool     — prototype-wiring factory
 *   open_tool     — public tool launcher
+*   is_tool_attached — attach-mode state probe (tool name + caller)
 *   load_component — component loader for use inside tool render code
 */
 
@@ -55,7 +59,14 @@
 	import {dd_request_idle_callback} from '../../../core/common/js/events.js'
 	import {common, create_source} from '../../../core/common/js/common.js'
 	import {ui} from '../../../core/common/js/ui.js'
-	import {response_data} from '../../../core/common/js/api_error.js'
+	import {event_manager} from '../../../core/common/js/event_manager.js'
+	import {
+		ApiError,
+		CLIENT_ERROR,
+		is_api_error,
+		response_data
+		} from '../../../core/common/js/api_error.js'
+	import {handle_api_error} from '../../../core/common/js/error_dispatch.js'
 	import {register_tool_error_labels} from '../../../core/common/js/render_api_error.js'
 	import {
 		clone,
@@ -884,8 +895,8 @@ export const load_component = async function(options) {
 /**
 * OPEN_TOOL
 * Public entry point that opens any registered Dédalo tool in the appropriate
-* visualisation mode.  Inits, builds, and renders the requested tool, dispatching
-* to `view_window` or `view_modal` based on `open_as`.
+* visualisation mode.  Inits, builds, and renders (or attaches) the requested tool,
+* dispatching to `view_window`, `view_modal` or `view_attach` based on `open_as`.
 *
 * Preferred usage: do NOT call `open_tool` directly from component code.
 * Instead publish the `open_tool` event so that page-level observers can
@@ -921,6 +932,16 @@ export const load_component = async function(options) {
 * `open_as` priority:
 *   options.open_as > tool_context.properties.open_as > 'modal' (hardcoded default).
 *
+* `open_as` values:
+*   - 'window' — a separate browser window (`view_window`).
+*   - 'modal'  — a Dédalo modal panel in the current window (`view_modal`). Any
+*     other value also lands here (registration refuses anything outside the
+*     closed set modal | window | attach; the retired 'tab'/'popup' are gone).
+*   - 'attach' — no panel at all: the tool decorates its live caller (e.g. a
+*     toolbar on a component's map) through its own `attach()` / `detach()`
+*     methods (`view_attach`). A second open of the same tool on the same caller
+*     detaches it (toggle).
+*
 * `windowFeatures` priority:
 *   options.windowFeatures > tool_context.properties.windowFeatures > null.
 *
@@ -932,13 +953,14 @@ export const load_component = async function(options) {
 * @param {Object|null} [options.caller_options=null] - Arbitrary extra data passed
 *   through to the tool; tool-specific, not interpreted here
 * @param {string|null} [options.open_as=null] - Visualisation mode override:
-*   'window' | 'modal' | 'tab' | 'popup'; when null, falls back to
-*   `tool_context.properties.open_as` or 'modal'
+*   'window' | 'modal' | 'attach' (the closed set; anything else falls back to 'modal');
+*   when null, falls back to `tool_context.properties.open_as` or 'modal'
 * @param {string|Object|null} [options.windowFeatures=null] - Browser window-features
 *   string ('left=100,top=100,width=320,height=320') or object
 *   ({ left: 100, top: 0, width: 760, height: 500 }); overrides the context value
-* @returns {Promise<Object|boolean>} The tool instance (modal path) or the new Window
-*   object (window path); false on validation failure or missing context
+* @returns {Promise<Object|boolean>} The tool instance (modal and attach paths) or the
+*   new Window object (window path); false on validation failure, missing context,
+*   a refused/failed attach, or an attach toggle-off
 */
 export const open_tool = async (options) => {
 
@@ -997,7 +1019,7 @@ export const open_tool = async (options) => {
 		const caller = options.caller
 		// caller_options. Object with additional data for the tool
 		const caller_options = options.caller_options || null
-		// open_as. Mode of tool visualization: modal, tab, popup
+		// open_as. Mode of tool visualization: modal | window | attach
 		// Priority: explicit override > registered context property > hardcoded 'modal'.
 		const open_as = options.open_as
 			? options.open_as // overwrite context value when is passed
@@ -1012,9 +1034,19 @@ export const open_tool = async (options) => {
 				? tool_context.properties.windowFeatures
 				: null
 
+	// attach. No panel: the tool is built straight onto its caller (toggle on a
+	// second open). Routed before the window/modal split below.
+	if (open_as==='attach') {
+		return await view_attach({
+			tool_context	: tool_context, // object
+			caller			: caller, // object like component_geolocation instance
+			caller_options	: caller_options
+		})
+	}
+
 	// open tool visualization
 	// 'window' is the only open_as value that uses a separate browser window;
-	// all other values ('modal', 'tab', 'popup') go through view_modal.
+	// 'modal' (and any unexpected value) goes through view_modal.
 	return (open_as==='window')
 		? await view_window({
 			tool_context	: tool_context, // object
@@ -1026,7 +1058,7 @@ export const open_tool = async (options) => {
 			tool_context	: tool_context, // object
 			caller			: caller, // object like component_input_text instance
 			caller_options	: caller_options,
-			open_as			: open_as, // string like 'tab' | 'popup'
+			open_as			: open_as, // string, 'modal'
 			windowFeatures	: current_windowFeatures // string like 'left=100,top=100,width=320,height=320'
 		  })
 }//end open_tool
@@ -1100,8 +1132,8 @@ const load_window_features = () => import('./window_features.js')
 *   icon, label, properties, …) — used to construct the instance options and UI
 * @param {Object} options.caller - Live caller instance; required (guards early exit)
 * @param {Object|null} [options.caller_options] - Extra data forwarded to the tool
-* @param {string} [options.open_as] - Sub-mode hint forwarded verbatim (e.g. 'tab',
-*   'popup'); currently informational only — modal rendering does not differ by sub-mode
+* @param {string} [options.open_as] - The resolved mode, forwarded verbatim ('modal');
+*   informational only — modal rendering does not depend on it
 * @param {Object|null} [options.windowFeatures] - Object whose keys are CSS property
 *   names and values are CSS values, applied to `modal.modal_content` to size the modal
 * @returns {Promise<Object|boolean>} Resolves once the tool instance is loaded (before
@@ -1443,6 +1475,650 @@ const view_modal = async function(options) {
 
 	return view_promise
 }//end view_modal
+
+
+
+/**
+* ATTACHING_TOOL_KEYS
+* Attach keys (see get_attach_key) of the `open_as:'attach'` tools currently
+* LOADING (instance load, build, first attach). Lets view_attach refuse a second
+* click synchronously, before the async load, so a slow network never starts two
+* attaches of the same tool on the same caller.
+*/
+const attaching_tool_keys = new Set()
+
+
+
+/**
+* ATTACHED_TOOLS
+* Attach key → entry of every `open_as:'attach'` tool registered on a caller
+* (from just before its first attach until its teardown). Entry shape:
+*   {
+*     instance          : Object        — the built tool instance
+*     tokens            : string[]      — event_manager tokens owned by core
+*     caller            : Object        — the caller instance the tool decorates
+*     tool_name         : string
+*     state             : 'loading' | 'attached' | 'closing'
+*                         (only 'attached' answers is_tool_attached)
+*     surface_attached  : boolean       — the tool's UI is currently on the caller
+*                         (attach() succeeded and no detach() since)
+*     closing_promise   : Promise|null  — the running teardown, shared by every requester
+*     queue             : Promise       — serialises every attach/detach of the entry
+*     reattach_pending  : boolean       — a re-attach is queued and has not started yet
+*   }
+*/
+const attached_tools = new Map()
+
+
+
+/**
+* GET_ATTACH_KEY
+* The ONE spelling of an attach key: tool name + the caller's instance `id`.
+* Keyed on the LIVE caller instance, not on (id_base, lang) as view_modal is:
+*   - two live instances of the same component (an edit view and a hover window)
+*     share id_base + lang, and must attach independently;
+*   - rebuild_component_in_lang (common.js) mutates `caller.lang` in place, so a
+*     lang-based key would go stale on an attached tool.
+* `caller.id` is unique per instance and set once at init.
+* @param {string} tool_name - Tool name, e.g. 'tool_uca_maps'
+* @param {Object} caller - Caller instance
+* @returns {string}
+*/
+const get_attach_key = (tool_name, caller) => `${tool_name}__${caller.id}`
+
+
+
+/**
+* IS_TOOL_ATTACHED
+* Whether an `open_as:'attach'` tool is currently attached to the given caller
+* instance. A tool still loading, or whose teardown already started, counts as
+* NOT attached (its button must read released at once, not after the async detach).
+* Used by ui.tool.build_component_tool_button so a re-rendered button keeps its
+* pressed state.
+* @param {string} tool_name - Tool name, e.g. 'tool_uca_maps'
+* @param {Object} caller - Caller instance (component/section)
+* @returns {boolean}
+*/
+export const is_tool_attached = (tool_name, caller) => {
+
+	if (!tool_name || !caller) {
+		return false
+	}
+
+	const entry = attached_tools.get( get_attach_key(tool_name, caller) )
+
+	return !!entry && entry.state==='attached'
+}//end is_tool_attached
+
+
+
+/**
+* GET_CALLER_TOOL_BUTTONS
+* The tool buttons of `tool_name` currently inside the caller's node
+* (`[data-tool="<name>"].button.tool`). Empty when the caller has no node yet
+* (not rendered) or any more (destroyed).
+* @param {Object} caller - Caller instance
+* @param {string} tool_name - Tool name
+* @returns {HTMLElement[]}
+*/
+const get_caller_tool_buttons = (caller, tool_name) => {
+
+	const node = caller?.node
+	if (!node || typeof node.querySelectorAll!=='function') {
+		return []
+	}
+
+	return [...node.querySelectorAll(`[data-tool="${CSS.escape(tool_name)}"].button.tool`)]
+}//end get_caller_tool_buttons
+
+
+
+/**
+* SET_ATTACH_LOADING_MARKER
+* Marks (or unmarks) the caller's buttons of this tool as busy:
+* `aria-busy="true"` + class `loading` (styled in buttons.less).
+* @param {Object} caller - Caller instance
+* @param {string} tool_name - Tool name
+* @param {boolean} loading - true to set the marker, false to remove it
+* @returns {void}
+*/
+const set_attach_loading_marker = (caller, tool_name, loading) => {
+
+	const buttons = get_caller_tool_buttons(caller, tool_name)
+	for (const button of buttons) {
+		if (loading===true) {
+			button.setAttribute('aria-busy', 'true')
+			button.classList.add('loading')
+		}else{
+			button.removeAttribute('aria-busy')
+			button.classList.remove('loading')
+		}
+	}
+}//end set_attach_loading_marker
+
+
+
+/**
+* SET_ATTACHED_MARKER
+* Reflects the attached state on the caller's current node:
+*   - every button of this tool gets `aria-pressed` "true" / "false"
+*   - `caller.node[data-tools-attached]` holds the space-separated names of the
+*     attached tools (so `[data-tools-attached~="tool_x"]` matches); a name is
+*     removed on detach and the attribute dropped when it becomes empty.
+* Safe to call with no caller node (nothing to mark).
+* @param {Object} caller - Caller instance
+* @param {string} tool_name - Tool name
+* @param {boolean} attached - true when the tool is attached
+* @returns {void}
+*/
+const set_attached_marker = (caller, tool_name, attached) => {
+
+	// buttons
+		const buttons = get_caller_tool_buttons(caller, tool_name)
+		for (const button of buttons) {
+			button.setAttribute('aria-pressed', attached===true ? 'true' : 'false')
+		}
+
+	// caller node attribute (token list)
+		const node = caller?.node
+		if (!node || typeof node.getAttribute!=='function') {
+			return
+		}
+		const names = new Set(
+			(node.getAttribute('data-tools-attached') || '').split(/\s+/).filter(Boolean)
+		)
+		if (attached===true) {
+			names.add(tool_name)
+		}else{
+			names.delete(tool_name)
+		}
+		if (names.size > 0) {
+			node.setAttribute('data-tools-attached', [...names].join(' '))
+		}else{
+			node.removeAttribute('data-tools-attached')
+		}
+}//end set_attached_marker
+
+
+
+/**
+* REPORT_ATTACH_FAILURE
+* Surfaces an attach-mode failure ONCE through the client's standard error path
+* (error_dispatch.handle_api_error → policy table → toast for `client.*`).
+*   - An ApiError that came out of a request (source 'envelope' / 'transport')
+*     was already published as 'api_error' by data_manager, which the page hands
+*     to the same policy: dispatching it again would show it twice, so it is only
+*     logged here.
+*   - Anything else (a throw in the tool's own attach/build code, a missing
+*     contract method, a falsy attach) is the client's own failure and is typed
+*     `client.render_failed` (`details.reason:'tool_attach'`): the thing the user
+*     asked for could not be built.
+* @param {string} tool_name - Tool name
+* @param {Object} caller - Caller instance
+* @param {*} error - The failure (Error, ApiError or any thrown value)
+* @returns {void}
+*/
+const report_attach_failure = (tool_name, caller, error) => {
+
+	console.error(`view_attach: tool '${tool_name}' could not be attached to ${caller?.model} (${caller?.tipo}):`, error);
+
+	// already dispatched by the transport (data_manager published 'api_error')
+		if (is_api_error(error) && (error.source==='envelope' || error.source==='transport')) {
+			return
+		}
+
+	const api_error = is_api_error(error)
+		? error
+		: new ApiError({
+			code	: CLIENT_ERROR.RENDER_FAILED,
+			details	: {reason: 'tool_attach'},
+			source	: 'client',
+			raw		: error
+		  })
+
+	handle_api_error(api_error)
+	.catch(err => {
+		console.error('view_attach: handle_api_error failed:', err)
+	})
+}//end report_attach_failure
+
+
+
+/**
+* ASSERT_ATTACH_CONTRACT
+* An attach-mode tool must implement BOTH `attach()` and `detach()`: core cannot
+* release a surface the tool cannot remove, so a half contract is a failure,
+* not a degraded mode.
+* @param {Object} instance - Tool instance
+* @returns {void}
+* @throws {Error} naming the missing method(s)
+*/
+const assert_attach_contract = (instance) => {
+
+	const missing = ['attach', 'detach'].filter(name => typeof instance?.[name]!=='function')
+	if (missing.length > 0) {
+		throw new Error(`Invalid attach tool '${instance?.model}': missing method(s) ${missing.join(', ')}`)
+	}
+}//end assert_attach_contract
+
+
+
+/**
+* ENQUEUE
+* Runs `task` after every attach/detach already queued on the entry, so no two
+* of them ever overlap. A failed task never blocks the ones after it.
+* @param {Object} entry - attached_tools entry
+* @param {Function} task - async () => *
+* @returns {Promise<*>} the task's own result (rejects when the task throws)
+*/
+const enqueue = (entry, task) => {
+
+	const run = entry.queue.catch(() => {}).then(task)
+	entry.queue = run.catch(() => {})
+
+	return run
+}//end enqueue
+
+
+
+/**
+* DETACH_SURFACE
+* `detach()` the tool's UI from the caller when it is on it (idempotent: a second
+* call, or a call after a failed attach, does nothing). Run inside the queue.
+* @param {Object} entry - attached_tools entry
+* @returns {Promise<void>}
+*/
+const detach_surface = async (entry) => {
+
+	if (entry.surface_attached!==true) {
+		return
+	}
+	entry.surface_attached = false
+	await entry.instance.detach()
+}//end detach_surface
+
+
+
+/**
+* ATTACH_SURFACE
+* (Re-)attach the tool's UI onto the caller's CURRENT node: detach first when it
+* is still on (a plain re-render, no destroy event before it), then `attach()`
+* and re-apply the attached markers. Run inside the queue.
+* @param {Object} entry - attached_tools entry
+* @returns {Promise<void>}
+* @throws {Error} when attach() throws or resolves falsy
+*/
+const attach_surface = async (entry) => {
+
+	await detach_surface(entry)
+	if (entry.state==='closing') {
+		return
+	}
+
+	const attached = await entry.instance.attach()
+	if (!attached) {
+		throw new Error(`Tool '${entry.tool_name}' attach() returned a falsy value`)
+	}
+	entry.surface_attached = true
+}//end attach_surface
+
+
+
+/**
+* TEARDOWN_ATTACHED_TOOL
+* Removes an attached tool from its caller and releases it:
+*   1. marks the entry closing (is_tool_attached → false at once) and unsubscribes
+*      the lifecycle tokens, so nothing else is scheduled;
+*   2. queued after any running attach/detach: `detach()` when the UI is on the
+*      caller (the tool tolerates an already-gone surface), then
+*      `instance.destroy(true, true, true)`;
+*   3. drops the entry and clears the markers on the caller's current node.
+* Idempotent: concurrent requesters (toggle click + caller destroy) share the
+* one running teardown.
+* (!) Never await this from INSIDE a queued task of the same entry: it queues
+* behind that task and would wait on itself.
+* @param {string} open_key - Attach key
+* @param {Object} entry - attached_tools entry
+* @returns {Promise<void>}
+*/
+const teardown_attached_tool = (open_key, entry) => {
+
+	if (entry.closing_promise) {
+		return entry.closing_promise
+	}
+	entry.state = 'closing'
+
+	// stop listening first: a render/destroy during the teardown must not
+	// schedule anything else
+		for (const token of entry.tokens) {
+			event_manager.unsubscribe(token)
+		}
+		entry.tokens.length = 0
+
+	entry.closing_promise = enqueue(entry, async () => {
+
+		// detach (the tool removes everything it added)
+			try {
+				await detach_surface(entry)
+			} catch (error) {
+				console.error(`view_attach: '${entry.tool_name}' detach failed:`, error);
+			}
+
+		// destroy the tool instance
+			try {
+				await entry.instance.destroy(true, true, true)
+			} catch (error) {
+				console.error(`view_attach: '${entry.tool_name}' destroy failed:`, error);
+			}
+
+		// unregister + markers
+			if (attached_tools.get(open_key)===entry) {
+				attached_tools.delete(open_key)
+			}
+			set_attach_loading_marker(entry.caller, entry.tool_name, false)
+			set_attached_marker(entry.caller, entry.tool_name, false)
+	})
+
+	return entry.closing_promise
+}//end teardown_attached_tool
+
+
+
+/**
+* SCHEDULE_REATTACH
+* Re-attaches the tool after its caller rendered (`render_<caller.id>`): the
+* caller replaced its node, so whatever the tool hung on the old node is gone.
+* attach_surface (detach when still on, then attach onto the new node), then the
+* markers on the new node.
+* Serialised on the entry's queue: a render during the FIRST attach runs after it
+* (so the tool ends on the new node), overlapping renders never run two
+* re-attaches at once, and renders arriving while one is still QUEUED coalesce
+* into it (it reads the caller's node when it runs, i.e. the latest).
+* A failed re-attach is surfaced once and the tool is torn down (released, not
+* left half-attached).
+* @param {string} open_key - Attach key
+* @param {Object} entry - attached_tools entry
+* @returns {void}
+*/
+const schedule_reattach = (open_key, entry) => {
+
+	if (entry.state==='closing' || entry.reattach_pending===true) {
+		return
+	}
+	entry.reattach_pending = true
+
+	enqueue(entry, async () => {
+
+		entry.reattach_pending = false
+		// only an attached tool re-attaches (a failed first attach, a teardown)
+		if (entry.state!=='attached') {
+			return
+		}
+
+		try {
+			await attach_surface(entry)
+			if (entry.state==='attached') {
+				set_attached_marker(entry.caller, entry.tool_name, true)
+			}
+		} catch (error) {
+			report_attach_failure(entry.tool_name, entry.caller, error)
+			// (!) not awaited: the teardown queues behind this very task
+			teardown_attached_tool(open_key, entry)
+		}
+	})
+}//end schedule_reattach
+
+
+
+/**
+* ON_CALLER_DESTROY
+* `destroy_<caller.id>`: the caller's surface is going away. Published by a real
+* destroy AND by every refresh (common.refresh runs destroy(delete_self=false)
+* before rebuilding), and a refresh whose build fails publishes no render after
+* it. So: always detach at once (queued) — the UI never stays on a dead surface —
+* and destroy the tool only when the caller itself is destroyed. A following
+* render re-attaches (schedule_reattach).
+* @param {string} open_key - Attach key
+* @param {Object} entry - attached_tools entry
+* @returns {void}
+*/
+const on_caller_destroy = (open_key, entry) => {
+
+	if (entry.caller.status==='destroyed') {
+		teardown_attached_tool(open_key, entry)
+		return
+	}
+
+	enqueue(entry, () => detach_surface(entry))
+	.catch(error => {
+		console.error(`view_attach: '${entry.tool_name}' detach on caller destroy failed:`, error);
+	})
+}//end on_caller_destroy
+
+
+
+/**
+* VIEW_ATTACH
+* Opens an `open_as:'attach'` tool: no modal, no window — the tool is built
+* straight onto its live caller (e.g. a toolbar on a component's map), which
+* avoids the empty-modal flash such tools caused under view_modal.
+*
+* Tool contract (checked after build, before the first attach):
+*   - `attach()`  async; puts the tool's UI onto `self.caller`; resolves truthy on
+*                 success; MUST be safe to call again (core calls it after every
+*                 caller render).
+*   - `detach()`  async; removes everything `attach()` added; tolerates an
+*                 already-gone surface (the caller's node may have been replaced).
+*   - `render()` is NOT called.
+*
+* Keys: the attach key is tool name + `caller.id` (get_attach_key) — per live
+* caller instance. The tool instance's `id_variant` is `caller.id` too: with
+* view_modal's `caller.id_base`, two live callers sharing id_base + lang (edit
+* view + hover window) resolved to ONE tool instance in the instances map.
+*
+* Flow:
+*   1. toggle — the tool is attached to this caller: tear it down (detach +
+*      destroy + unsubscribe + unregister + markers) and resolve false.
+*   2. guard — the same key is loading (or tearing down): refuse synchronously
+*      (false), so repeated clicks never start a second attach.
+*   3. load — `get_instance` + `load_style(tool_css_url(model))` in parallel,
+*      `build(true)`, contract check. Buttons carry the loading marker meanwhile.
+*   4. register + subscribe BEFORE the first attach (so a caller render during it
+*      is not missed — the queue runs the re-attach after it):
+*        `render_<caller.id>`  → schedule_reattach
+*        `destroy_<caller.id>` → on_caller_destroy (detach always; teardown when
+*                                the caller is really destroyed)
+*   5. first attach (queued), then the attached markers.
+*
+* Failure (load, build, missing attach/detach, attach throws or is falsy): the
+* instance is destroyed, keys and subscriptions dropped, button markers reset, the
+* error surfaced once (report_attach_failure) and the promise resolves false.
+*
+* @param {Object} options
+* @param {Object} options.tool_context - Full tool context object
+* @param {Object} options.caller - Live caller instance; required
+* @param {Object|null} [options.caller_options] - Extra data forwarded to the tool
+* @returns {Promise<Object|boolean>} The attached tool instance; false on toggle-off,
+*   refusal (already loading) or failure
+*/
+const view_attach = async function(options) {
+
+	// options
+		const caller = options.caller
+
+	// validate caller
+		if (!caller) {
+			console.error('view_attach: missing caller');
+			return false
+		}
+
+	// tool context (clone to avoid mutating the passed-in object)
+	// Same merge as view_modal, except id_variant: the caller INSTANCE id, so two
+	// live callers sharing id_base + lang get two tool instances (see header).
+		const tool_context = Object.assign({}, options.tool_context || {}, {
+			lang		: caller.lang,
+			type		: 'tool',
+			id_variant	: caller.id // one tool instance per live caller
+		})
+		const tool_name = tool_context.name
+
+	// instance options
+		const instance_options = Object.assign({
+			caller			: caller,
+			caller_options	: options.caller_options || null
+		}, tool_context)
+
+	// open_key (per live caller instance)
+		const open_key = get_attach_key(tool_name, caller)
+
+	// loading guard (synchronous: before any await)
+		if (attaching_tool_keys.has(open_key)) {
+			return false
+		}
+
+	// toggle. Attached (or tearing down): release it
+		const attached_entry = attached_tools.get(open_key)
+		if (attached_entry) {
+			if (attached_entry.state==='attached') {
+				// markers flip at once; the async teardown follows
+				set_attached_marker(caller, tool_name, false)
+				await teardown_attached_tool(open_key, attached_entry)
+			}
+			return false
+		}
+
+		attaching_tool_keys.add(open_key)
+		set_attach_loading_marker(caller, tool_name, true)
+
+	// fail. Clean up everything a failed open left and surface the error once
+		let tool_instance	= null
+		let entry			= null
+		const fail = async (error) => {
+			if (entry) {
+				entry.state = 'closing'
+				for (const token of entry.tokens) {
+					event_manager.unsubscribe(token)
+				}
+				entry.tokens.length = 0
+				if (attached_tools.get(open_key)===entry) {
+					attached_tools.delete(open_key)
+				}
+			}
+			if (tool_instance) {
+				try {
+					await tool_instance.destroy(true, true, true)
+				} catch (destroy_error) {
+					console.error(`view_attach: '${tool_name}' destroy after failure failed:`, destroy_error);
+				}
+			}
+			attaching_tool_keys.delete(open_key)
+			set_attach_loading_marker(caller, tool_name, false)
+			set_attached_marker(caller, tool_name, false)
+
+			report_attach_failure(tool_name, caller, error)
+
+			return false
+		}
+
+	// load + build + contract
+		try {
+
+			// instance + tool CSS in parallel (tool_css_url, exactly as build() does,
+			// so the two loads dedup to one request — see view_modal)
+				const css_url = tool_context.model
+					? tool_css_url(tool_context.model)
+					: tool_context.css?.url
+				const [instance] = await Promise.all([
+					get_instance(instance_options),
+					css_url ? load_style(css_url) : null
+				])
+
+			if (!instance) {
+				throw new Error(`Tool instance '${tool_name}' could not be created`)
+			}
+
+			// already running elsewhere (e.g. opened through another path): not ours
+			// to attach nor to destroy
+				if (instance.status && instance.status!=='initialized') {
+					console.warn(`view_attach: tool '${tool_name}' is already running for this caller (status: ${instance.status}); not attached.`);
+					attaching_tool_keys.delete(open_key)
+					set_attach_loading_marker(caller, tool_name, false)
+					return false
+				}
+
+			tool_instance = instance
+
+			// build
+				await tool_instance.build(true)
+				if (typeof tool_instance.error!=='undefined') {
+					throw new Error(`Tool '${tool_name}' build failed: ${tool_instance.error}`)
+				}
+
+			// contract
+				assert_attach_contract(tool_instance)
+
+		} catch (error) {
+			return fail(error)
+		}
+
+	// register + lifecycle subscriptions, BEFORE the first attach
+		entry = {
+			instance			: tool_instance,
+			tokens				: [],
+			caller				: caller,
+			tool_name			: tool_name,
+			state				: 'loading',
+			surface_attached	: false,
+			closing_promise		: null,
+			queue				: Promise.resolve(),
+			reattach_pending	: false
+		}
+		attached_tools.set(open_key, entry)
+		const current_entry = entry
+		// caller rendered: its node was replaced → re-attach onto the new one
+		entry.tokens.push(
+			event_manager.subscribe('render_' + caller.id, () => {
+				schedule_reattach(open_key, current_entry)
+			})
+		)
+		// caller surface going away (destroy or refresh)
+		entry.tokens.push(
+			event_manager.subscribe('destroy_' + caller.id, () => {
+				on_caller_destroy(open_key, current_entry)
+			})
+		)
+
+	// first attach (queued: a render arriving meanwhile re-attaches after it).
+	// The state flips INSIDE the task, so a re-attach queued behind it sees an
+	// attached tool.
+		try {
+			await enqueue(entry, async () => {
+				await attach_surface(current_entry)
+				if (current_entry.state==='loading') {
+					current_entry.state = 'attached'
+				}
+			})
+		} catch (error) {
+			return fail(error)
+		}
+
+	// loaded
+		attaching_tool_keys.delete(open_key)
+		set_attach_loading_marker(caller, tool_name, false)
+
+	// caller destroyed while the tool was loading: its destroy event found the
+	// entry still loading — release the tool now
+		if (caller.status==='destroyed' || entry.state==='closing') {
+			await teardown_attached_tool(open_key, entry) // joins a running teardown
+			return false
+		}
+
+	// attached
+		set_attached_marker(caller, tool_name, true)
+
+
+	return tool_instance
+}//end view_attach
 
 
 

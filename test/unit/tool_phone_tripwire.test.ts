@@ -36,12 +36,18 @@ import { type AiCapabilities, toolOfferedByCapabilities } from '../../src/ai/cap
 import { trackedRepoFiles } from '../helpers/css_reference_corpus.ts';
 import { isGrantOnlyTool } from '../helpers/tool_directory_corpus.ts';
 import {
+	type AttachObservation,
+	attachButtonSelector,
+	attachMarkerSelector,
 	HIDDEN_BY_CAPABILITY,
+	judgeAttach,
 	NOT_YET_PHONE,
 	PHONE_CASES,
 	PHONE_HIT_TARGET_PX,
 	PHONE_RUN_ENV,
 	PHONE_VIEWPORT,
+	TOOL_OPEN_MODES,
+	toolOpenMode,
 } from '../helpers/tool_phone_ratchet.ts';
 
 const REPO_ROOT = join(import.meta.dir, '..', '..');
@@ -212,5 +218,68 @@ describe('one phone width everywhere', () => {
 		expect(read(join(TOOLS_COMMON_CSS, 'tool_common.less'))).toMatch(
 			/@import \(once\) "tool_responsive";/,
 		);
+	});
+});
+
+describe('tool open modes (harness branch: modal / window / tab / attach)', () => {
+	test('absent open_as is the client default, modal', () => {
+		expect(toolOpenMode(undefined)).toBe('modal');
+		expect(toolOpenMode(null)).toBe('modal');
+		expect(toolOpenMode('')).toBe('modal');
+	});
+	test('every known mode passes through, attach included', () => {
+		for (const mode of TOOL_OPEN_MODES) expect(toolOpenMode(mode)).toBe(mode);
+		expect(TOOL_OPEN_MODES).toContain('attach');
+	});
+	test('an unknown open_as throws — never a silent modal', () => {
+		expect(() => toolOpenMode('popup')).toThrow(/unknown open_as 'popup'/);
+		expect(() => toolOpenMode('Attach')).toThrow(/unknown open_as/);
+	});
+	test('selectors match the attach contract', () => {
+		expect(attachMarkerSelector('tool_x')).toBe('[data-tools-attached~="tool_x"]');
+		expect(attachButtonSelector('tool_x')).toBe('[data-tool="tool_x"].button.tool');
+	});
+
+	const attachedOn: AttachObservation = {
+		modalSeen: false,
+		marker: true,
+		pressed: ['true'],
+		busy: false,
+	};
+	const detached: AttachObservation = {
+		modalSeen: false,
+		marker: false,
+		pressed: ['false'],
+		busy: false,
+	};
+	test('judgeAttach: the contract held → no problems', () => {
+		expect(judgeAttach('tool_x', 'on', attachedOn)).toEqual([]);
+		expect(judgeAttach('tool_x', 'off', detached)).toEqual([]);
+	});
+	test('judgeAttach: a modal is red in either direction', () => {
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, modalSeen: true }).join()).toMatch(
+			/dd-modal/,
+		);
+		expect(judgeAttach('tool_x', 'off', { ...detached, modalSeen: true }).join()).toMatch(
+			/dd-modal/,
+		);
+	});
+	test('judgeAttach on: missing marker, unpressed or busy button, no button are red', () => {
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, marker: false }).join()).toMatch(
+			/data-tools-attached~="tool_x"/,
+		);
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, pressed: ['true', 'false'] })).toHaveLength(
+			1,
+		);
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, pressed: [] })).toHaveLength(1);
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, busy: true })).toHaveLength(1);
+		expect(judgeAttach('tool_x', 'on', { ...attachedOn, error: 'no button' })).toEqual([
+			'attach on: no button',
+		]);
+	});
+	test('judgeAttach off: a lingering marker or pressed button is red', () => {
+		expect(judgeAttach('tool_x', 'off', { ...detached, marker: true })).toHaveLength(1);
+		expect(judgeAttach('tool_x', 'off', { ...detached, pressed: ['true'] })).toHaveLength(1);
+		expect(judgeAttach('tool_x', 'off', { ...detached, pressed: [null] })).toHaveLength(1);
 	});
 });
