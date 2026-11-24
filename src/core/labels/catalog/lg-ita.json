@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "La destinazione di pubblicazione è occupata con un'altra esecuzione; riprova quando sarà terminata",
 	"error_diffusion_unknown_format": "Nessuno scrittore di diffusione gestisce quel formato di pubblicazione",
 	"error_diffusion_unported_fn": "La pubblicazione usa una funzione dell'ontologia che questo motore non implementa ancora",
+	"error_diffusion_value_rejected": "Un valore pubblicato non entra nella sua colonna di destinazione",
 	"error_engine_uncovered_scope": "Questa operazione non è disponibile su questo server",
 	"error_envelope_not_an_envelope": "La risposta del server non è un envelope dell'API",
 	"error_export_artifact_busy": "Questa esportazione è ancora in corso o si sta creando un file a partire da essa. Interrompila, o attendi che finisca, poi riprova",

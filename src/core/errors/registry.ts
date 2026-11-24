@@ -1929,6 +1929,18 @@ export const ERROR_REGISTRY = {
 	// The element's diffusion config does not compile (PlanCompileError). The
 	// operator authored that config; the compiler's per-cause list is the
 	// `publicMessage` — public, because the report's cause list IS the fix.
+	// MariaDB strict mode refused one published value (too long / out of range /
+	// incorrect) — named to table, column and record; the fix is the ontology's
+	// field type or a hand ALTER of a column the additive schema never retypes.
+	'diffusion.value_rejected': {
+		category: 'caller',
+		status: 400,
+		label_key: 'error_diffusion_value_rejected',
+		message: 'A published value does not fit its target column',
+		severity: 'error',
+		disclosure: 'public',
+		retryable: false,
+	},
 	'diffusion.plan_compile_failed': {
 		category: 'caller',
 		status: 400,

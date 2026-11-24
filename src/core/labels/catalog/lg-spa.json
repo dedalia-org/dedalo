@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "El destino de publicación está ocupado con otra ejecución; vuelva a intentarlo cuando termine",
 	"error_diffusion_unknown_format": "Ningún escritor de difusión sirve ese formato de publicación",
 	"error_diffusion_unported_fn": "La publicación usa una función de ontología que este motor aún no implementa",
+	"error_diffusion_value_rejected": "Un valor publicado no cabe en su columna de destino",
 	"error_engine_uncovered_scope": "Esta operación no está disponible en este servidor",
 	"error_envelope_not_an_envelope": "La respuesta del servidor no es un sobre de la API",
 	"error_export_artifact_busy": "Esta exportación sigue en curso o se está generando un fichero a partir de ella. Deténgala, o espere a que termine, e inténtelo de nuevo",

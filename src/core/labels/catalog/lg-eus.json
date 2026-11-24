@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "Argitalpenaren helburua beste exekuzio batekin lanpetuta dago; saiatu berriro amaitzen denean",
 	"error_diffusion_unknown_format": "Ez dago argitalpen-formatu hori zerbitzatzen duen hedapen-idazlerik",
 	"error_diffusion_unported_fn": "Argitalpenak motor honek oraindik inplementatzen ez duen ontologia-funtzio bat erabiltzen du",
+	"error_diffusion_value_rejected": "Argitaratutako balio bat ez da sartzen bere helburuko zutabean",
 	"error_engine_uncovered_scope": "Eragiketa hau ez dago erabilgarri zerbitzari honetan",
 	"error_envelope_not_an_envelope": "Zerbitzariaren erantzuna ez da API gutun-azal bat",
 	"error_export_artifact_busy": "Esportazio hau oraindik exekutatzen ari da edo fitxategi bat eraikitzen ari da bertatik. Gelditu edo itxaron amaitu arte, eta saiatu berriro",

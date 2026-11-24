@@ -2290,6 +2290,18 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Diffusion: a `text_format` pattern no longer strips a leading `/` (or other separator) from the value itself."**
+
+    The `text_format` parser trims separators left over when a placeholder is empty. It also trimmed the first or last character of a real value when that character was `/`, `-`, `,` or `|`, so a media path published through a pattern lost its leading slash (`dedalo/media/…` instead of `/dedalo/media/…`, next to columns that kept it). Only the pattern's own separators are trimmed now. Re-publish the affected sections to correct the published values.
+
+- **"Diffusion: a value MariaDB refuses names the record instead of stopping the run with an unexpected error."**
+
+    When a MariaDB target in strict mode refused a published value (too long for its column, out of range, or of the wrong type), the whole run stopped with *An unexpected error stopped the diffusion run* and no clue which record caused it. It now stops as `diffusion.value_rejected`, naming the table, column, `section_id`, language and the type the ontology declares. Published columns are never retyped: after widening a field in the ontology, `ALTER` the live column or drop the table and re-publish (see [Native engine](./diffusion/native_engine.md)).
+
+- **"Diffusion writes the `publication_schema` table again, so `resolve_inverse_relations=true` works on v7 publications."**
+
+    Version 6 wrote a `publication_schema` table when a diffusion element was saved in the ontology. Version 7 stopped writing it, so on every database it published `resolve_inverse_relations=true` (and v1's `resolve_portal`) had no map to read. Each run of an `sql` element now writes the table. Its `dd_relations` lists every section the element publishes with its table. The element's `properties.diffusion.publication_schema` is kept as written, and its own `dd_relations` entries take precedence. A malformed map stops the plan with a named error. A `publication_schema` still at the top level of `properties` (the v6 location) is read when `diffusion` has none, with a warning to move it. Each run merges its entries over the stored row, so elements sharing a database and field maps a v6 install wrote are kept. Existing databases get the table on their next run (see [Native engine](./diffusion/native_engine.md)).
+
 - **A code update renames retired configuration keys itself instead of failing.**
 
     Updating an installation whose `../private/.env` still held a renamed setting (for example

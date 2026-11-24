@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "发布目标正忙于另一次运行；请在其完成后重试",
 	"error_diffusion_unknown_format": "没有发布写入器支持该发布格式",
 	"error_diffusion_unported_fn": "该发布使用了此引擎尚未实现的本体函数",
+	"error_diffusion_value_rejected": "已发布的值无法放入其目标列",
 	"error_engine_uncovered_scope": "此服务器不提供此操作",
 	"error_envelope_not_an_envelope": "服务器响应不是 API 信封",
 	"error_export_artifact_busy": "此导出仍在运行，或正在基于它生成文件。请停止它，或等待其结束后重试",

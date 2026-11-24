@@ -356,7 +356,9 @@ export function replace(pattern: string, values: (string | null | undefined)[]):
 		match = regex.exec(pattern);
 	}
 
-	// Phase 1: substitute each placeholder, marking empties
+	// Phase 1: mark empties; a non-empty value enters as an opaque token, so the
+	// cleanup only ever sees the PATTERN's own separators — a value's content
+	// (a media path's leading '/', a trailing '-') is never trimmed as one.
 	let result = pattern;
 	for (let i = 0; i < placeholderNames.length; i++) {
 		const name = placeholderNames[i] as string;
@@ -364,12 +366,16 @@ export function replace(pattern: string, values: (string | null | undefined)[]):
 		const isEmpty = value === null || value === undefined || value === '';
 		const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		const phRegex = new RegExp(`\\$\\{${safeName}\\}`, 'g');
-		result = result.replace(phRegex, isEmpty ? EMPTY_MARKER : String(value));
+		result = result.replace(phRegex, isEmpty ? EMPTY_MARKER : valueToken(i));
 	}
 
-	// Phase 2: cleanup formatting around removed content
-	return cleanupFormatting(result);
+	// Phase 2: cleanup formatting around removed content, then the values go in
+	return cleanupFormatting(result).replace(VALUE_TOKEN_RE, (_, i) => String(values[Number(i)]));
 }
+
+/** Private-use delimiters: cannot occur in a pattern, carry the value index. */
+const valueToken = (i: number): string => `\uE000${i}\uE001`;
+const VALUE_TOKEN_RE = /\uE000(\d+)\uE001/g;
 
 /**
  * Removes empty-value markers together with their adjacent separators

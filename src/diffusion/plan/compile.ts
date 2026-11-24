@@ -78,7 +78,10 @@ import { getModelByTipo } from '../../core/ontology/resolver.ts';
 import { getTldFromTipo } from '../../core/ontology/tld.ts';
 import { resolveDataframeSlotTipos } from '../../core/relations/dataframe_slots.ts';
 import { RdfNamespaceTable } from '../resolve/rdf_graph_ir.ts';
-import { tableRowSizeViolation } from '../targets/mariadb/sql_generator.ts';
+import {
+	PUBLICATION_SCHEMA_TABLE,
+	tableRowSizeViolation,
+} from '../targets/mariadb/sql_generator.ts';
 import { currentOntologyRevision } from './cache.ts';
 import { KNOWN_FORMATS, TABLE_FORMATS } from './formats.ts';
 import {
@@ -1289,6 +1292,9 @@ export async function compileElementPlan(
 		}
 		diagnostics.errors.push(...globalTableElementErrors(sections));
 	}
+	const publicationSchema = sqlTarget
+		? buildPublicationSchema(elementNode.properties, sections, diagnostics)
+		: null;
 
 	if (diagnostics.errors.length > 0 || target === null) {
 		if (target === null && diagnostics.errors.length === 0) {
@@ -1314,12 +1320,72 @@ export async function compileElementPlan(
 		recursion: { maxLevels },
 		langPolicy: buildLangPolicy(),
 		...(rdf !== null ? { rdf } : {}),
+		...(publicationSchema !== null ? { publicationSchema } : {}),
 		...(usesFn(sections, MAP_TARGET_SECTION_TIPO_FN)
 			? { targetSectionTables: getTargetSectionTableNames(tree, elementTipo) }
 			: {}),
 		warnings: diagnostics.warnings,
 		degradations: diagnostics.degradations,
 	};
+}
+
+/**
+ * PublicationPlan.publicationSchema: `properties.diffusion.publication_schema`
+ * verbatim (v6 wrote it on ontology save; v7 had stopped writing it), with
+ * `dd_relations` = section tipo → the table this plan writes it to (first
+ * table wins) under the ontology's entries — so `resolve_inverse_relations=true`
+ * works on any element without a hand-kept copy of a map the engine knows.
+ * The v6 top-level spelling (the migration never moved it) is read when the
+ * nested one is absent, with a warning. A malformed map is a compile error.
+ */
+function buildPublicationSchema(
+	properties: Record<string, unknown> | null | undefined,
+	sections: SectionPlan[],
+	diagnostics: { errors: string[]; warnings: string[] },
+): Record<string, unknown> {
+	const where = 'properties.diffusion.publication_schema';
+	if (sections.some((section) => section.tableName === PUBLICATION_SCHEMA_TABLE)) {
+		diagnostics.errors.push(
+			`a table named '${PUBLICATION_SCHEMA_TABLE}' collides with the schema table the engine writes — rename it`,
+		);
+	}
+	const diffusion = properties?.diffusion as Record<string, unknown> | undefined;
+	const nested = diffusion?.publication_schema;
+	const topLevel = properties?.publication_schema;
+	if (topLevel !== undefined) {
+		diagnostics.warnings.push(
+			nested !== undefined
+				? `top-level 'publication_schema' (v6 spelling) is ignored: ${where} is set`
+				: `top-level 'publication_schema' is the v6 spelling — read for now, move it to ${where}`,
+		);
+	}
+	const declared = nested ?? topLevel;
+	if (declared !== undefined && !isStringMap(declared, ['dd_relations'])) {
+		diagnostics.errors.push(
+			`${where} must be an object {field_name: table_name} (plus an optional dd_relations {section_tipo: table_name})`,
+		);
+		return {};
+	}
+	const schema = (declared ?? {}) as Record<string, unknown>;
+	const declaredRelations = schema.dd_relations;
+	if (declaredRelations !== undefined && !isStringMap(declaredRelations, [])) {
+		diagnostics.errors.push(`${where}.dd_relations must be an object {section_tipo: table_name}`);
+		return {};
+	}
+	const derivedRelations: Record<string, string> = {};
+	for (const section of sections) derivedRelations[section.sectionTipo] ??= section.tableName;
+	return {
+		...schema,
+		dd_relations: { ...derivedRelations, ...(declaredRelations as Record<string, string>) },
+	};
+}
+
+/** A plain object whose values are strings (keys in `objectKeys` may hold objects). */
+function isStringMap(value: unknown, objectKeys: string[]): boolean {
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+	return Object.entries(value).every(([key, item]) =>
+		objectKeys.includes(key) ? typeof item === 'object' && item !== null : typeof item === 'string',
+	);
 }
 
 /** The ddo fn whose argument is compiled into the plan (PublicationPlan.targetSectionTables). */

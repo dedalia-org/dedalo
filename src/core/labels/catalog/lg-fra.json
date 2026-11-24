@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "La cible de publication est occupée par une autre exécution ; réessayez quand elle sera terminée",
 	"error_diffusion_unknown_format": "Aucun rédacteur de diffusion ne prend en charge ce format de publication",
 	"error_diffusion_unported_fn": "La publication utilise une fonction d'ontologie que ce moteur n'implémente pas encore",
+	"error_diffusion_value_rejected": "Une valeur publiée ne tient pas dans sa colonne cible",
 	"error_engine_uncovered_scope": "Cette opération n'est pas disponible sur ce serveur",
 	"error_envelope_not_an_envelope": "La réponse du serveur n'est pas une enveloppe d'API",
 	"error_export_artifact_busy": "Cet export est toujours en cours ou un fichier est en cours de construction à partir de celui-ci. Arrêtez-le, ou attendez qu'il se termine, puis réessayez",
