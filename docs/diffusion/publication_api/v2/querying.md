@@ -213,7 +213,7 @@ Three forms are supported:
 
 `resolve_inverse_relations` resolves the `dd_relations` column — the inbound locators pointing **at** the current record. Each locator carries a `section_tipo`, which is mapped to a target table.
 
-- Pass `true` (or `1`) to load the `section_tipo`→table mapping from the database's `publication_schema` (cached ~30 s).
+- Pass `true` (or `1`) to load the `section_tipo`→table mapping from the database's `publication_schema` (cached ~30 s). A database without that table (or with an empty one) answers `400` — the v7 diffusion engine writes none, so pass an explicit map there.
 - Or pass a JSON object that maps `section_tipo` to table directly, e.g. `{"rsc170":"interview"}`.
 
 ```bash

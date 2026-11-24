@@ -2939,6 +2939,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **"Publication API v2: `resolve_inverse_relations=true` on a database without a `publication_schema` table answers 400, not 500."**
+
+    A publication written without a `publication_schema` table — which includes every database published by the v7 diffusion engine — made `resolve_inverse_relations=true` fail with a 500 *An unexpected error occurred*. It now answers the documented 400 problem *publication_schema table not found or empty*; pass an explicit `section_tipo` → table map instead (see [Querying](./diffusion/publication_api/v2/querying.md)).
+
 - **Object identification's grouping run refuses a language the installation does not have.**
 
     The `cluster` action of the identification tool accepted any `lang` the caller sent

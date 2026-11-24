@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime } from 'bun:test';
 import { __setTestDbExecute } from '../src/db/pool';
 import type { DbRow } from '../src/db/types';
 import { dbNames } from '../src/config';
@@ -50,6 +50,8 @@ export const sqlLog: Array<{ sql: string; params: unknown[] }> = [];
 
 /** Set by the fulltext-error describe: the MATCH statements raise this instead of answering. */
 let fulltextRefusal: Error | null = null;
+// Set by the one describe that proves a missing publication_schema table is a 400.
+let schemaRefusal: Error | null = null;
 
 function columnsResult(table: string, withTableName: boolean): Record<string, string>[] {
   const cols = table === 'interview' ? INTERVIEW_COLUMNS : table === 'ts_themes' ? THEMES_COLUMNS : [];
@@ -146,6 +148,7 @@ async function mockDbExecute(_db: string, sql: string, params: unknown[] = []): 
     ];
   }
   if (s.includes('publication_schema')) {
+    if (schemaRefusal !== null) throw schemaRefusal;
     return [{ data: JSON.stringify({ dd_relations: { rsc170: 'interview' } }) }];
   }
   if (s.includes('WHERE `section_id` = ?')) {
@@ -724,6 +727,31 @@ describe('unknown columns are a client error (400), not a server error (500)', (
   test('real columns still pass', async () => {
     const { res } = await get(`/${MOCK_DB}/tables/interview/records?sort=-section_id&fields=section_id,title`);
     expect(res.status).toBe(200);
+  });
+});
+
+describe('a publication without publication_schema is the client’s problem, not a 500', () => {
+  // The v7 diffusion engine writes no publication_schema table, so `resolve_inverse_relations=true`
+  // on its output hits MariaDB errno 1146. Unmapped, that reached the error handler as a 500.
+  // Step past the 30 s schema cache so a map cached by earlier tests cannot answer instead.
+  afterEach(() => {
+    schemaRefusal = null;
+    setSystemTime();
+  });
+
+  test('errno 1146 → 400 problem+json naming the table', async () => {
+    setSystemTime(new Date(Date.now() + 120_000));
+    schemaRefusal = Object.assign(new Error("Table 'x.publication_schema' doesn't exist"), { errno: 1146 });
+    const { res, body } = await get(`/${MOCK_DB}/tables/interview/records/1?resolve_inverse_relations=true`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain('publication_schema table not found');
+  });
+
+  test('any other failure is rethrown untouched (still a 500)', async () => {
+    setSystemTime(new Date(Date.now() + 240_000));
+    schemaRefusal = new Error('MariaDB server has gone away');
+    const { res } = await get(`/${MOCK_DB}/tables/interview/records/1?resolve_inverse_relations=true`);
+    expect(res.status).toBe(500);
   });
 });
 
