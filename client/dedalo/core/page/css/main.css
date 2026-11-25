@@ -756,6 +756,11 @@ template {
   --ut_shadow: 0 1px 2px rgba(27, 31, 36, 0.06), 0 8px 24px -16px rgba(27, 31, 36, 0.25);
   --ut_grain: 0.018;
 }
+@media screen and (max-width: 600px) {
+  :root {
+    --menu_heigth: 3rem;
+  }
+}
 /**
  * theme_dark
  *
@@ -7386,6 +7391,11 @@ body.has_instance_color .menu > .content_data > .dedalo_icon_top {
   background-color: color-mix(in oklab, var(--instance_color) 55%, var(--fg_inverse));
   mask: url('../../themes/default/dedalo_logo.svg') center / contain no-repeat;
 }
+@media screen and (max-width: 600px) {
+  body.has_instance_color .menu > .content_data > .dedalo_icon_top {
+    mask-size: 1.3rem 1.3rem;
+  }
+}
 body.has_instance_color .menu > .debug_info_bar {
   background-color: var(--debug_info_bar_bg);
 }
@@ -10770,6 +10780,61 @@ body:has(.component_av.view_viewer) {
 @media screen and (max-width: 1185px) {
   .menu > .content_data > .section_label_container > .button_toggle_inspector {
     display: none;
+  }
+}
+@media screen and (max-width: 600px) {
+  .menu > .content_data {
+    padding-left: 0.25rem;
+  }
+  .menu > .content_data > .top_item {
+    margin-left: 0;
+    height: var(--menu_heigth);
+    line-height: normal;
+  }
+  .menu > .content_data > .quit,
+  .menu > .content_data > .dedalo_icon_top,
+  .menu > .content_data > .menu_mobile_icon,
+  .menu > .content_data > .theme_toggle,
+  .menu > .content_data > .ai_assistant_button {
+    flex: 0 0 auto;
+    width: 2.6rem;
+    margin: 0;
+    background-size: 1.3rem 1.3rem;
+  }
+  .menu > .content_data > .menu_mobile_icon {
+    background-size: 1.15rem 1.15rem;
+  }
+  .menu > .content_data > .logged_user_name {
+    display: flex;
+    align-items: center;
+    margin-left: 0.25rem;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .menu > .content_data > .dedalo_aplication_langs_selector {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 0;
+    margin-left: 0.5rem;
+    padding-right: 1.25em;
+    line-height: normal;
+  }
+  .menu > .content_data > .menu_spacer {
+    display: none;
+  }
+  .menu > .content_data > .section_label_container {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+  .menu > .content_data > .section_label_container > .section_label {
+    display: block;
+    height: var(--menu_heigth);
+    line-height: var(--menu_heigth);
+    margin-right: 0.75rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 .menu > .debug_info_bar {

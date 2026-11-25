@@ -618,6 +618,14 @@ Merged since the last release; these ship with the next one.
     On a phone, an open menu taller than the screen could not be scrolled, so its last entries were
     out of reach. The open menu now scrolls on its own, below the top bar.
 
+- **On a phone, the top bar's buttons are finger-sized and line up.**
+
+    On a phone, the top bar's buttons (quit, Dédalo logo, menu, theme) were narrow targets that were
+    hard to hit with a finger, the icons had different sizes, and the text sat lower than the icons.
+    The bar is now taller, each button is a finger-sized target with an icon of the same size, and
+    icons and text share one centre line. A long section name is shortened instead of wrapping to a
+    second line.
+
 - **On a phone, the list edit and delete-record dialogs fit the screen.**
 
     On a phone, editing a field from a list or deleting a record opened a dialog wider than the screen,

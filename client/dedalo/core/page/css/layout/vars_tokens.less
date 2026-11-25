@@ -60,6 +60,10 @@
 	// reserve exactly the space the menu will occupy before it exists — a placeholder
 	// is a sibling of .menu, so a var scoped to .menu is unreachable from it.
 	--menu_heigth: 2.2rem;
+	// phone: a finger-sized bar (~45px); sticky offsets + placeholders follow the token
+	@media screen and (max-width: @width_break_point_phone) {
+		--menu_heigth: 3rem;
+	}
 	--inspector_width: 19rem;
 	--inspector_rail_width: 48px; // width when inspector collapses into the icon rail
 	--inspector_block_radius: 8px; // corner radius of inspector content cards

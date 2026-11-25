@@ -27,6 +27,11 @@ body.has_instance_color {
 				background-image: none;
 				background-color: color-mix(in oklab, var(--instance_color) 55%, var(--fg_inverse));
 				mask: url('../../themes/default/dedalo_logo.svg') center / contain no-repeat;
+
+				// phone: the box is a finger target; the glyph keeps the other icons' size (menu.less)
+				@media screen and (max-width: @width_break_point_phone) {
+					mask-size: 1.3rem 1.3rem;
+				}
 			}
 		}
 
