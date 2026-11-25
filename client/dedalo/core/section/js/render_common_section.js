@@ -622,6 +622,13 @@ export const render_list_after = function(self, options) {
 			nodes.push(print_notice)
 		}
 
+	// bottom pager (phone only, list.less): the end of the list is where a page
+	// turn is wanted, the top paginator is a full scroll away
+		const list_pager = render_list_pager(self, size)
+		if (list_pager) {
+			nodes.push(list_pager)
+		}
+
 	if (nodes.length===0) {
 		return null
 	}
@@ -635,6 +642,85 @@ export const render_list_after = function(self, options) {
 
 	return list_after
 }//end render_list_after
+
+
+
+/**
+* RENDER_LIST_PAGER
+* A previous / "page X of N" / next strip for the END of a list, so a phone user
+* who scrolled through the page does not have to scroll back up to the paginator.
+* It lives in `.list_after`, rebuilt on every page ('content' render), so it is
+* never stale. Offsets come from the section's own sqo (the paginator instance
+* refreshes AFTER this render); the turn goes through `paginator.paginate`, the
+* same door as the top strip. The list's top is brought into view on a turn.
+* Shown at phone widths only (list.less `.list_pager`).
+* @param {Object} self - The section instance
+* @param {number} size - Rows on this page
+* @returns {HTMLElement|null} div.list_pager, or null (no paginator, no rows, show-all)
+*/
+export const render_list_pager = function(self, size) {
+
+	const sqo		= self.rqo?.sqo
+	const limit		= Number(sqo?.limit) || 0
+	const offset	= Number(sqo?.offset) || 0
+	if (!self.paginator || size===0 || limit<1) {
+		return null
+	}
+
+	const pager = ui.create_dom_element({
+		element_type	: 'nav',
+		class_name		: 'list_pager'
+	})
+
+	const turn = (new_offset) => {
+		self.paginator.paginate(new_offset)
+		self.node?.scrollIntoView({block: 'start'})
+	}
+
+	const button_prev = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'list_pager_prev',
+		title			: get_label.previous_page || 'Previous page',
+		parent			: pager
+	})
+	button_prev.setAttribute('aria-label', button_prev.title)
+	button_prev.disabled = offset===0
+	button_prev.addEventListener('click', () => turn(Math.max(0, offset - limit)))
+
+	const page_info = ui.create_dom_element({
+		element_type	: 'span',
+		class_name		: 'list_pager_info',
+		text_content	: (get_label.page || 'Page') + ' ' + (Math.floor(offset / limit) + 1),
+		parent			: pager
+	})
+
+	const button_next = ui.create_dom_element({
+		element_type	: 'button',
+		class_name		: 'list_pager_next',
+		title			: get_label.next_page || 'Next page',
+		parent			: pager
+	})
+	button_next.setAttribute('aria-label', button_next.title)
+	// disabled until the (cached) total says there is a next page
+	button_next.disabled = true
+	if (typeof self.get_total==='function') {
+		self.get_total()
+		.then(total => {
+			const pages = Math.ceil(total / limit)
+			page_info.textContent += ' ' + (get_label.of || 'of') + ' '
+				+ new Intl.NumberFormat('es-ES').format(pages)
+			button_next.disabled = offset + limit >= total
+		})
+		.catch(() => {
+			// count failed: a full page may have a next one
+			button_next.disabled = size<limit
+		})
+	}
+	button_next.addEventListener('click', () => turn(offset + limit))
+
+
+	return pager
+}//end render_list_pager
 
 
 

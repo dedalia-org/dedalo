@@ -28,6 +28,13 @@
 				opacity: 0.35;
 				transition: opacity 0.15s linear;
 			}
+			// phone: both are `display: contents` (no box, so no opacity of
+			// their own) — dim their children instead
+			@media screen and (max-width: @width_break_point_0) {
+				>.nav_buttons>*, >.paginator_info>* {
+					opacity: 0.35;
+				}
+			}
 			// spinner as a flex item of content_data (align-items:center), not
 			// inline text: vertical-align:middle sat it on the x-height, too low
 			&::after {
@@ -126,11 +133,28 @@
 			min-width: 7rem;
 			margin-top: 0px;
 
+			// phone: no box, so "Page [n] of N" flows on the nav buttons' line
+			// (also `contents`) and "Displayed records …" breaks onto its own.
+			// As one box its max-content width (the whole sentence) always
+			// wrapped it below the buttons, and mid-sentence inside
 			@media screen and (max-width: @width_break_point_0) {
+				display: contents;
 
+				>.page_position {
+					margin-left: 0.5rem;
+				}
+
+				>.displayed_records {
+					flex-basis: 100%;
+				}
 			}
 
-			>.page_info {
+			// "Page [n] of N": one unit, never broken inside (render_paginator)
+			>.page_position {
+				white-space: nowrap;
+			}
+
+			.page_info {
 				padding-left: 0.25em;
 				transition: opacity 0.2s linear;
 
@@ -140,7 +164,7 @@
 				}
 			}
 
-			>.goto_page {
+			.goto_page {
 				padding-left: 0.1em;
 				@media screen and (max-width: @width_break_point_0) {
 					display: initial;
@@ -153,7 +177,7 @@
 			    margin: 0;
 			}
 
-			>input.input_go_to_page {
+			input.input_go_to_page {
 				font-family: 'Menlo', monospace; // use monospace font to preserve char width in JS auto-adjust
 				text-align: center;
 				padding: 0.25rem;
@@ -171,6 +195,10 @@
 
 			>.displayed_records {
 				padding-left: 0.5em;
+				// phone: its own line, aligned with "Page" above
+				@media screen and (max-width: @width_break_point_0) {
+					padding-left: 0.25em;
+				}
 			}
 		}//end .paginator_info
 	}//end .content_data

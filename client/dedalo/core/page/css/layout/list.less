@@ -21,6 +21,46 @@
 	text-wrap: unset;
 }
 
+// bottom pager (render_common_section.render_list_pager): phone only — on a
+// desktop the whole page fits near the top paginator
+.list_after>.list_pager {
+	display: none;
+
+	@media screen and (max-width: @width_break_point_0) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		padding: 0.5rem 0 1.5rem 0;
+
+		>button {
+			// a thumb-sized target (WCAG 2.5.5)
+			min-width: 3rem;
+			min-height: 3rem;
+			justify-content: center;
+
+			// the icon by hand: .fn_append_icon nests its own @media, which
+			// inside this one compiles to an invalid (ignored) query
+			&:before {
+				content: '';
+				display: inline-block;
+				height: 1.25rem;
+				width: 1.25rem;
+				background-color: currentColor;
+				.fn_add_mask('chevron_light.svg');
+			}
+
+			&:disabled {
+				opacity: 0.35;
+			}
+		}
+
+		>.list_pager_prev:before {
+			transform: scaleX(-1);
+		}
+	}
+}
+
 // list_body. Used in sections and portals in list mode
 .list_body {
 	// 'style' (NOT 'layout') — the same rule already applied to
