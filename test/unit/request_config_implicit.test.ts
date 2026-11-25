@@ -245,6 +245,9 @@ const LIST_OWNER = 'zzrqw60';
 const LIST_OWNER_NODE = 'zzrqw61';
 const LIST_OWNER_TEXT = 'zzrqw62';
 const EXPLICIT_PORTAL = 'zzrqw80';
+const NO_SECTION = 'zzrqw70';
+const NO_GRAPH = 'zzrqw71';
+const MODEL_DEFAULT = 'zzrqw72';
 
 const selfDdo = (tipo: string) => ({ tipo, section_tipo: 'self', parent: 'self' });
 
@@ -307,6 +310,21 @@ const WALK = situation({
 			model: 'section_list',
 			order_number: 9,
 			relations: [{ tipo: TARGET_A }, { tipo: LIST_OWNER_TEXT }, { tipo: TARGET_B }],
+		},
+		{
+			tipo: NO_SECTION,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 6,
+			relations: [{ tipo: TEXT_A }, { tipo: TEXT_B }],
+		},
+		{ tipo: NO_GRAPH, parent: HOST, model: 'component_select', order_number: 7 },
+		{
+			tipo: MODEL_DEFAULT,
+			parent: HOST,
+			model: 'component_relation_model',
+			order_number: 8,
+			relations: [{ tipo: TEXT_A }],
 		},
 		{
 			tipo: EXPLICIT_PORTAL,
@@ -412,6 +430,59 @@ describe('the implicit walk (zzrqw situation)', () => {
 				{ tipo: TEXT_A, model: 'component_input_text', sectionTipo: TARGET_B },
 				{ tipo: TEXT_C, model: 'component_input_text', sectionTipo: TARGET_B },
 			]);
+		});
+	});
+
+	// RC-3 (WC-2026-11-25-implicit-component-target-caller-section): PHP
+	// clean_and_extract_related :508-520 starts from the CALLER's section and
+	// only a section node overwrites it — was: null target, empty sqo.
+	describe("RC-3 — a component whose relations name no section targets the caller's section", () => {
+		test('no section node, no model targetSource → the caller section, on the sqo and every ddo', async () => {
+			for (const mode of ['edit', 'list', 'search']) {
+				const config = await build(NO_SECTION, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A, TEXT_B]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [HOST]]);
+				for (const ddo of config[0]?.show?.ddo_map ?? []) {
+					expect([mode, ddo.tipo, ddo.section_tipo]).toEqual([mode, ddo.tipo, HOST]);
+				}
+			}
+		});
+
+		test("it is the CALLER's section, not the node's ontology parent", async () => {
+			const config = await build(NO_SECTION, VIRTUAL_HOST, 'edit');
+			expect(extractSqoSectionTipos(config[0])).toEqual([VIRTUAL_HOST]);
+		});
+
+		test('a declared section node still wins over the caller default', async () => {
+			expect(extractSqoSectionTipos((await build(SELECT_NO_LIST, HOST, 'edit'))[0])).toEqual([
+				TARGET_A,
+			]);
+		});
+
+		test('a model targetSource ranks above the caller default (whatever it resolves)', async () => {
+			const { resolveTargetSourceFor } = await import(
+				'../../src/core/relations/request_config/target_sources.ts'
+			);
+			const declared = await resolveTargetSourceFor('component_relation_model', HOST);
+			expect(declared).not.toBeNull();
+			const config = await build(MODEL_DEFAULT, HOST, 'edit');
+			expect(shown(config)).toEqual([TEXT_A]);
+			expect(extractSqoSectionTipos(config[0])).toEqual((declared ?? []).slice(0, 1));
+			expect(extractSqoSectionTipos(config[0])).not.toContain(HOST);
+			// …and when it resolves NONE the model still owns the answer: degraded
+			// empty, never the caller's own section. dd153's `<tld>2` (dd2) is no
+			// section and it has no registry pairing → [].
+			const NO_MODEL_SECTION_CALLER = 'dd153';
+			expect(
+				await resolveTargetSourceFor('component_relation_model', NO_MODEL_SECTION_CALLER),
+			).toEqual([]);
+			const degraded = await build(MODEL_DEFAULT, NO_MODEL_SECTION_CALLER, 'edit');
+			expect(shown(degraded)).toEqual([TEXT_A]);
+			expect(extractSqoSectionTipos(degraded[0])).toEqual([]);
+		});
+
+		test('a node with NO relation graph keeps the configless answer (no config)', async () => {
+			expect(await build(NO_GRAPH, HOST, 'edit')).toEqual([]);
 		});
 	});
 

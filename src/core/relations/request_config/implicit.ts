@@ -393,8 +393,9 @@ export async function buildImplicitComponentListConfig(
 	// PHP clean_and_extract_related :508 is handed the CALLER's section_tipo as
 	// the default target and only overwrites it when a section node is found —
 	// so a section whose section_list carries no section node targets ITSELF.
-	// This is what puts the section back on the sqo (and on every ddo below);
-	// component owners keep the null → empty-sqo behaviour they had.
+	// This is what puts the section back on the sqo (and on every ddo below).
+	// Component owners get the same default as the LAST rung, below the model
+	// default (T2-RC-3, next statement).
 	if (targetSectionTipo === null && context.ownerIsSection) {
 		targetSectionTipo = context.ownerSectionTipo;
 	}
@@ -409,6 +410,25 @@ export async function buildImplicitComponentListConfig(
 	// the node that declared nothing. Section owners are excluded — a section is
 	// its own target and carries no component-model facet.
 	targetSectionTipo = applyModelDefaultTarget(targetSectionTipo, context);
+	// T2-RC-3 — the CALLER'S OWN SECTION is the last rung for a component owner
+	// whose relations name no section and whose model declares no targetSource:
+	// PHP clean_and_extract_related :508-520 (= v6 :3844) starts from the
+	// caller's section_tipo and only a section node overwrites it. The old "keep
+	// null" emitted an empty sqo — ddos with no section to read from.
+	// Precedence: section node of the walk / model targetSource (above,
+	// unchanged) > this default. A model that DECLARES a targetSource owns the
+	// answer even when it resolves nothing (component_relation_model with no
+	// model section stays degraded-empty: the caller's own thesaurus is not its
+	// model list). Scoped to a walk that produced links: a node with NO relation
+	// graph keeps the configless branch below.
+	// WC-2026-11-25-implicit-component-target-caller-section
+	if (
+		targetSectionTipo === null &&
+		ddoMap.length > 0 &&
+		context.modelDefaultTargets === undefined
+	) {
+		targetSectionTipo = context.ownerSectionTipo;
+	}
 	// Fix section_tipo for ddos read before the section node appeared.
 	if (targetSectionTipo !== null) {
 		for (const ddo of ddoMap) {

@@ -275,8 +275,10 @@ Merged since the last release; these ship with the next one.
     The "+" of the thesaurus tree used to set *descriptor* and *indexable* to Yes on every new
     term, even where the thesaurus defines another default (a term defined to start as a
     non-descriptor was created as a descriptor). A new term now starts with exactly the
-    defaults its thesaurus defines. Where the thesaurus defines none — the case for the
-    standard thesauri — both fields start empty: set them on the new term yourself. Until
+    defaults its thesaurus defines. The shipped ontology defines them for the thesauri it ships:
+    a new publication starts as a non-descriptor; a new person, entity or thesaurus term as a
+    descriptor, and as indexable where its thesaurus has that field. Where a thesaurus defines none, the field starts empty: set it
+    on the new term yourself. Until
     *descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
     a term's children has it set, the term shows no arrow to open its children after the page is
     reloaded, and the new term is reached from its section's list until you set it.
@@ -2959,6 +2961,19 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **A component whose list configuration names no section now reads from the caller's own section.**
+
+    A component without an explicit `request_config` builds its configuration from its ontology
+    relations. When those relations named columns but no section, the configuration came out
+    with an empty target (`sqo.section_tipo: []`): columns with nothing to read them from. It now
+    targets the section the component is shown in, as earlier Dédalo versions did. A section
+    named in the relations, or the component model's own default target (the typology selector),
+    still wins, and a component with no relations at all still gets no configuration. The
+    projects-administration filter of a user record relates to the projects section in the
+    shipped ontology, so it keeps its projects list.
+
+    Wire contract: `WC-2026-11-25-implicit-component-target-caller-section`.
+
 - **Object identification's grouping run refuses a language the installation does not have.**
 
     The `cluster` action of the identification tool accepted any `lang` the caller sent
@@ -2990,7 +3005,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 122 entries"
+??? note "Wire contract — 123 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3111,6 +3126,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
     - `WC-2026-11-22-tool-availability-context`
     - `WC-2026-11-23-tool-lang-browser-translation-labels`
+    - `WC-2026-11-25-implicit-component-target-caller-section`
     - `WC-2026-11-25-publication-host-ipv6-listener`
     - `WC-2026-11-25-publication-host-one-machine-install`
     - `WC-2026-11-25-publication-host-public-url-http-upgrade`

@@ -311,3 +311,27 @@ divergence from PHP.
   link_children): child `is_descriptor` true, parent `has_descriptor_children` false, no
   `link_children_nd`; mutation (a null flag counted as a descriptor) red.
 - **Gate reconciliation:** TS-native only; no fixture, no re-harvest.
+
+## Addendum 2026-11-25 — the release now declares the flag defaults (T2 THES-04/05, M4 re-ruled)
+
+- **What changed:** the 2026-11-22 addendum's ruling ("no `dato_default` on the flag
+  components") was superseded on the master ontology: the 7.0 release re-exported 2026-11-25
+  (fbbd8e9bd8) declares `rsc678` = `dd64/2` (No — the owner's choice) and `rsc1027`, `rsc1032`,
+  `rsc1033`, `hierarchy4` = `dd64/1` (Yes). No engine change: the tree's "+" still writes no
+  flag value of its own and the birth seed applies each declaration verbatim (int section_id,
+  no Time Machine row). What changes is the stated consequence: on the shipped ontology a
+  tree-created term in those thesauri is born WITH its flags, and the "empty until a curator
+  sets it" paragraph above holds only where a flag component declares none.
+- **Census (release, every section_map, derived — never a hand list):** 35 section_maps name
+  36 flag uses (34 distinct components); every named flag component exists and declares a well-formed default EXCEPT
+  `dd1445` (`is_descriptor` of `dd1100`'s section_map, the "web dedalo" thesaurus) — not
+  among the five carriers M4 ruled on. It is a NAMED exemption awaiting an owner decision on
+  the master ontology (never fixed in the engine), held both ways.
+- **Gate:** `test/unit/release_ontology_preconditions.test.ts` (reads the vendored release off
+  disk): undeclared flags = exactly the named exemptions; every declaration a well-formed
+  locator list; and, on the suite DB, the birth seed's value for every installed thesaurus
+  section equals the release declaration with int ids. Red against the previous release
+  (fbbd8e9bd8^: the five carriers undeclared); mutation (seed skipping the flags' model) red.
+  `test/unit/ts_api_mutations_native.test.ts` (`zztad`: declared `/2` → `/2`; none → no key;
+  declared `/1` → one item, int id, no TM row for the key) unchanged and green.
+- **Gate reconciliation:** TS-native only; no fixture, no re-harvest.

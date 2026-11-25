@@ -512,8 +512,9 @@ export async function addChild(rqo: Rqo, principal: Principal): Promise<TsApiOut
 	// still created, and the finding travels back as a warning. The flags' VALUES
 	// are not this door's: a tree-created term is born with what the ontology
 	// declares (the create door's birth seed, record_defaults.ts `dato_default`)
-	// and nothing else — no hardcoded dd64/1 (T2 THES-04/05, owner ruling
-	// 2026-11-19 M4: "the user must handle these properties manually").
+	// and nothing else — no hardcoded dd64/1 (T2 THES-04/05). The release
+	// declares the flags' defaults (M4, 2026-11-25); a flag declaring none is
+	// born empty. Census: test/unit/release_ontology_preconditions.test.ts.
 	const warnings: string[] = [];
 	if (thesaurus.is_descriptor === undefined) {
 		warnings.push("Invalid section_map 'is_descriptor' property from section");
