@@ -169,7 +169,7 @@ export function rejectedValueError(
 		coordinates: {
 			table: table.tableName,
 			column: rejection.column,
-			section_id: String(row?.sectionId ?? ''),
+			section_id: row ? Number(row.sectionId) : '',
 			errno: rejection.errno,
 		},
 		cause: error,

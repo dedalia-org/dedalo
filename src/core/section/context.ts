@@ -39,6 +39,12 @@ export interface SectionStampParams {
 	simple?: boolean;
 }
 
+/** Stamp the section node's own non-empty properties.color (trimmed); absent → no key. */
+async function stampOwnColor(entry: StructureContextEntry, tipo: string): Promise<void> {
+	const color = ((await getNode(tipo))?.properties as { color?: unknown } | null)?.color;
+	if (typeof color === 'string' && color.trim() !== '') entry.color = color.trim();
+}
+
 /**
  * Stamp the section-only context extras onto `entry` in place (PHP :2056-2100):
  * - matrix_table (the section's storage table);
@@ -87,8 +93,7 @@ export async function stampSectionContext(
 	// swap), which is why the colour never reached the list. Every mode; only an
 	// explicit colour (no grey fallback — an uncoloured list stays unmarked).
 	// The client paints it as the list Id-column stripe.
-	const color = ((await getNode(params.tipo))?.properties as { color?: unknown } | null)?.color;
-	if (typeof color === 'string' && color.trim() !== '') entry.color = color.trim();
+	await stampOwnColor(entry, params.tipo);
 
 	// Tools: the section's toolbar (PHP common::get_tools). PHP's `$simple`
 	// (build_structure_context:1865) is the only MODE gate — a section satisfies

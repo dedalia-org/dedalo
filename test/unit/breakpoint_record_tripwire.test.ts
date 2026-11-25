@@ -208,12 +208,6 @@ const EMPTY_MEDIA_BANK: ReadonlyArray<{ file: string; count: number; reason: str
 		reason:
 			'menu.less:48, :620, :665 — three `max-width: @width_break_point_3` wrappers whose bodies are entirely commented out (a `--menu_heigth` override, a line-height, a height). All three blame to d31bad80c1 and have emitted nothing since. Delete the wrappers.',
 	},
-	{
-		file: 'client/dedalo/core/paginator/css/paginator.less',
-		count: 1,
-		reason:
-			'paginator.less:103 — a bare `max-width: @width_break_point_0` block with an empty body. Delete it.',
-	},
 ];
 
 // ---------------------------------------------------------------------------

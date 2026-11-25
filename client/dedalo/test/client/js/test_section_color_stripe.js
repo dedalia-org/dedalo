@@ -20,7 +20,20 @@
 import { apply_section_color } from '../../../core/section/js/view_default_list_section.js';
 import { open_css_frame } from './css_fixture_frame.js';
 
-const COLOR = 'rgb(122, 75, 140)'; // #7a4b8c
+// A root token, not a hex: test files are in colour_literal_ratchet's JS corpus.
+// apply_section_color passes any CSS colour through, so the token proves the same path.
+const SECTION_COLOR = 'var(--color_orange_dedalo)';
+
+/** The computed paint of SECTION_COLOR in a frame (resolved by the frame's real main.css). */
+const computed_color = (frame) => {
+	const probe = frame.doc.createElement('div');
+	probe.style.color = SECTION_COLOR;
+	frame.container.appendChild(probe);
+	const color = frame.win.getComputedStyle(probe).color;
+	probe.remove();
+	assert.notEqual(color, '', 'token resolves');
+	return color;
+};
 
 let desktop = null;
 let phone = null;
@@ -50,7 +63,11 @@ const make_list = (doc) => {
 
 const border = (win, node) => {
 	const style = win.getComputedStyle(node);
-	return { width: style.borderLeftWidth, color: style.borderLeftColor, kind: style.borderLeftStyle };
+	return {
+		width: style.borderLeftWidth,
+		color: style.borderLeftColor,
+		kind: style.borderLeftStyle,
+	};
 };
 
 describe('SECTION COLOR STRIPE — the list mark of the section identifying colour', () => {
@@ -72,9 +89,9 @@ describe('SECTION COLOR STRIPE — the list mark of the section identifying colo
 
 	it('marks the list body with the class and the custom property', () => {
 		const list = make_list(desktop.doc);
-		apply_section_color(list.list_body, '#7a4b8c');
+		apply_section_color(list.list_body, SECTION_COLOR);
 		assert.isTrue(list.list_body.classList.contains('has_section_color'));
-		assert.equal(list.list_body.style.getPropertyValue('--section_color'), '#7a4b8c');
+		assert.equal(list.list_body.style.getPropertyValue('--section_color'), SECTION_COLOR);
 	});
 
 	it('leaves the list body untouched without a colour', () => {
@@ -88,13 +105,23 @@ describe('SECTION COLOR STRIPE — the list mark of the section identifying colo
 
 	it('desktop: paints a 4px stripe on the Id header and the Id cell, not on placeholders', () => {
 		const list = make_list(desktop.doc);
-		apply_section_color(list.list_body, '#7a4b8c');
+		apply_section_color(list.list_body, SECTION_COLOR);
 		desktop.container.appendChild(list.list_body);
-		for (const [name, node] of [['header', list.head_id], ['id cell', list.id_cell]]) {
-			assert.deepEqual(border(desktop.win, node), { width: '4px', color: COLOR, kind: 'solid' }, name);
+		for (const [name, node] of [
+			['header', list.head_id],
+			['id cell', list.id_cell],
+		]) {
+			assert.deepEqual(
+				border(desktop.win, node),
+				{ width: '4px', color: computed_color(desktop), kind: 'solid' },
+				name,
+			);
 		}
 		// the stripe follows the list body's rounded top-left corner
-		assert.equal(desktop.win.getComputedStyle(list.head_id).borderTopLeftRadius, desktop.win.getComputedStyle(list.list_body).borderTopLeftRadius);
+		assert.equal(
+			desktop.win.getComputedStyle(list.head_id).borderTopLeftRadius,
+			desktop.win.getComputedStyle(list.list_body).borderTopLeftRadius,
+		);
 		assert.notEqual(desktop.win.getComputedStyle(list.head_id).borderTopLeftRadius, '0px');
 		// the row card edge is a phone rule only
 		assert.equal(border(desktop.win, list.row).width, '0px');
@@ -103,9 +130,13 @@ describe('SECTION COLOR STRIPE — the list mark of the section identifying colo
 
 	it('phone: paints the whole card edge instead', () => {
 		const list = make_list(phone.doc);
-		apply_section_color(list.list_body, '#7a4b8c');
+		apply_section_color(list.list_body, SECTION_COLOR);
 		phone.container.appendChild(list.list_body);
-		assert.deepEqual(border(phone.win, list.row), { width: '4px', color: COLOR, kind: 'solid' });
+		assert.deepEqual(border(phone.win, list.row), {
+			width: '4px',
+			color: computed_color(phone),
+			kind: 'solid',
+		});
 		assert.equal(border(phone.win, list.id_cell).width, '0px');
 		assert.equal(border(phone.win, list.placeholder).width, '0px');
 	});

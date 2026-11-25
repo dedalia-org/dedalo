@@ -58,10 +58,12 @@ export const ERRNO_DATABASE_ACCESS_DENIED = 1044;
  * column — 1406 data too long, 1264 out of range, 1366 incorrect value. The
  * driver message names the column and the 1-based row of the statement.
  */
-const ERRNOS_VALUE_REJECTED = new Set([1406, 1264, 1366]);
+const ERRNOS_VALUE_REJECTED: ReadonlySet<number> = new Set([1406, 1264, 1366]);
 
 /** The column + 1-based statement row of a strict-mode value refusal; null for any other error. */
-export function valueRejection(error: unknown): { errno: number; column: string; row: number } | null {
+export function valueRejection(
+	error: unknown,
+): { errno: number; column: string; row: number } | null {
 	const { errno, message } = (error as MariadbErrorLike) ?? {};
 	if (errno === undefined || !ERRNOS_VALUE_REJECTED.has(errno)) return null;
 	// 1406/1264: column 'v' at row 2 · 1366: column `db`.`table`.`v` at row 2

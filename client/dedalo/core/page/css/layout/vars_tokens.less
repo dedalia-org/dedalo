@@ -59,11 +59,7 @@
 	// menu height. Declared at :root (not on .menu) so the LOADING PLACEHOLDERS can
 	// reserve exactly the space the menu will occupy before it exists — a placeholder
 	// is a sibling of .menu, so a var scoped to .menu is unreachable from it.
-	--menu_heigth: 2.2rem;
-	// phone: a finger-sized bar (~45px); sticky offsets + placeholders follow the token
-	@media screen and (max-width: @width_break_point_phone) {
-		--menu_heigth: 3rem;
-	}
+	--menu_heigth: 2.2rem; // phone override after this block
 	--inspector_width: 19rem;
 	--inspector_rail_width: 48px; // width when inspector collapses into the icon rail
 	--inspector_block_radius: 8px; // corner radius of inspector content cards
@@ -520,4 +516,12 @@
 	--ut_pending: #afb8c1;
 	--ut_shadow: 0 1px 2px rgba(27,31,36,.06), 0 8px 24px -16px rgba(27,31,36,.25);
 	--ut_grain: .018;
+}
+
+// phone: a finger-sized bar (~45px); sticky offsets + placeholders follow the token.
+// Outside :root on purpose — a nested @media ends the :root block for scripts/tool_colors.ts.
+@media screen and (max-width: @width_break_point_phone) {
+	:root {
+		--menu_heigth: 3rem;
+	}
 }
