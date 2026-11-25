@@ -624,6 +624,11 @@ Merged since the last release; these ship with the next one.
     so the page scrolled sideways. Both dialogs now fill the screen width, and the delete buttons sit
     right under the dialog's content instead of halfway down an empty sheet.
 
+- **Escape closes a dialog while typing in a text field.**
+
+    Pressing Escape while editing a text field inside a dialog (for example, editing a field from a
+    list) did nothing. Escape now closes the dialog, as it does everywhere else.
+
 - **The JSON editor's indent guides are readable in the dark theme.**
 
     In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn

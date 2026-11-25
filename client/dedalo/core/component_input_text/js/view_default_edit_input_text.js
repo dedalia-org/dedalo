@@ -282,7 +282,10 @@ const get_content_value = (i, current_value, self) => {
 		// keyup event
 			let debounce_timer = null
 			input.addEventListener('keyup', function(e) {
-				e.stopPropagation()
+				// Escape must reach dd-modal's document keyup listener (closes the modal)
+				if (e.key !== 'Escape') {
+					e.stopPropagation()
+				}
 				// skip non-character keys (modifiers, arrows, etc.)
 				// UIUX-10: e.key can be undefined for some synthetic/IME/autofill events;
 				// guard before reading .length so the handler doesn't throw a TypeError.
