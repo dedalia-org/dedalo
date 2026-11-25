@@ -373,6 +373,13 @@ const DECLARED: ReadonlyArray<Classification> = [
 		why: 'The Mocha runner chrome (`bun run test:client`). Its own document, not the application: it declares the --ut_* chrome palette at :root and would collide with nothing in the SPA because it is never loaded there.',
 	},
 	{
+		entrypoint: 'client/dedalo/test/client/fixtures/tool_test_attach/css/tool_test_attach.less',
+		role: 'SPA_INJECTED',
+		document:
+			'client/dedalo/test/client/frame.html — the suite frame that carries main.css, joined by load_style(tool_css_url) when the fixture tool builds',
+		why: 'The client-suite scratch tool for open_as attach (test_tool_open_as_attach.js), mapped in only by DEDALO_TOOLS_URLS and never shipped. tool_common.build() rejects when the tool sheet 404s, so the fixture needs a real one; it is SPA_INJECTED exactly like a registered tool sheet, just outside tools/.',
+	},
+	{
 		entrypoint: 'client/dedalo/core/button_common/css/button_common.less',
 		role: 'DEAD',
 		document: 'none — no tracked JS, HTML or TS names button_common.css',

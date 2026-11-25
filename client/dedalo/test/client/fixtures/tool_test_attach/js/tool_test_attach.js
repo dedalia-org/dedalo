@@ -1,6 +1,8 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*eslint no-undef: "error"*/
 
+// Its sheet, css/tool_test_attach.css, is injected by build() via load_style(tool_css_url);
+// a missing sheet rejects the build, so the fixture ships one (css_corpus_tripwire).
 import { common } from '../../../../../core/common/js/common.js';
 import { tool_common, wire_tool } from '../../../../../core/tools_common/js/tool_common.js';
 
