@@ -28,13 +28,14 @@ import { encodeRecord } from '../src/provision/init/journal_format';
 import { NGINX_MAP_PINS, envelopePcre } from '../src/rules/directives';
 import { renderHostMap } from '../src/rules/host_map';
 import { parseRestoreconDryRun } from '../src/provision/init/parse/selinux';
-import { footgunProblems, initHostDeps, productionWorld, runInit, SECRET_PROMPTS } from '../src/provision/init/run';
+import { footgunProblems, initHostDeps, productionWorld, rerunCommand, runInit, SECRET_PROMPTS, settleDecisions } from '../src/provision/init/run';
+import type { Unasked } from '../src/provision/init/run';
 import type { InitWorld } from '../src/provision/init/run';
 import { sourceDigest } from '../src/provision/init/source';
 import { openPairingPackage } from '../src/provision/pairing_package';
 import type { ScriptedAnswers } from '../src/provision/init/tty';
-import { scriptedPrompter } from '../src/provision/init/tty';
-import type { MountRow, Prompter } from '../src/provision/init/types';
+import { SCRIPTED_ENTER, scriptedPrompter } from '../src/provision/init/tty';
+import type { Item, ItemOption, MountRow, Prompter } from '../src/provision/init/types';
 import { fixture } from './fixtures/init/load';
 import type { FakeOs } from './support/provision_fake_host';
 import { FAKE_TOKEN, FakeInitHost } from './support/provision_fake_host';
@@ -527,12 +528,12 @@ function reportOf(w: World, id: string): string[] {
   return w.out.slice(start, end < 0 ? undefined : end);
 }
 
-/** Which list an item was printed in (1, 2 or 3), or null. */
-function listOf(w: World, id: string): 1 | 2 | 3 | null {
+/** Which list an item was printed in (1, 2, 3 or 4 — "needs your action", P2), or null. */
+function listOf(w: World, id: string): 1 | 2 | 3 | 4 | null {
   const at = w.out.findIndex(line => line.startsWith(`  [${id}]`));
   if (at < 0) return null;
-  const header = w.out.slice(0, at).reverse().find(line => /^[123]\. /.test(line));
-  return header === undefined ? null : (Number(header[0]) as 1 | 2 | 3);
+  const header = w.out.slice(0, at).reverse().find(line => /^[1234]\. /.test(line));
+  return header === undefined ? null : (Number(header[0]) as 1 | 2 | 3 | 4);
 }
 
 /* ── 1. converge, and a second run is all right ──────────────────────────────────── */
@@ -898,11 +899,14 @@ describe('case 9b: a refused provision apply answered `manual` stops what depend
     expect(await init(w, firstRun(w, { ...v2Draft, media: { mode: 'copy', root: missing } }))).toBe(EXIT.REFUSED);
     expect(w.err.join('\n')).toContain(`parent directory '${dirname(missing)}' of '${missing}' does not exist`);
     // The re-run (install.sh --kit again): apply is now a blocking refusal whose only answer is `manual`.
+    // Answered EXPLICITLY (--decide): since P2 a manual-only decision is not asked, and init's own
+    // manual answer stops the run before anything is done (the 'P2 in a whole run' gates); an
+    // explicit `manual` keeps this contract — the independent changes run, the dependents do not.
     w.out.length = 0;
     w.err.length = 0;
     sourceMode(w);
-    w.prompter = scriptedPrompter(operator(w, { 'provision.apply': 'manual' }));
-    const code = await init(w, firstRun(w, { ...v2Draft, media: { mode: 'copy', root: missing } }));
+    useOperator(w);
+    const code = await init(w, firstRun(w, { ...v2Draft, media: { mode: 'copy', root: missing } }, ['--decide', 'provision.apply=manual']));
     expect(reportOf(w, 'provision.apply').join('\n')).toContain(`parent directory '${dirname(missing)}' of '${missing}' does not exist`);
     expect(w.err.filter(line => line.includes('[failed]'))).toEqual([]);
     expect(code).toBe(EXIT.REFUSED);
@@ -1005,7 +1009,7 @@ describe('case 13: an alias-only vhost match', () => {
     w.serverLine = 'other.org';
     w.host.seedFile(w.profile.vhost, '<VirtualHost *:443>\n  ServerName other.org\n  ServerAlias example.org\n  SSLEngine on\n</VirtualHost>\n');
     expect(await init(w, firstRun(w, DRAFT, ['--yes']))).toBe(EXIT.REFUSED);
-    expect(listOf(w, 'declaration.vhost')).toBe(3);
+    expect(listOf(w, 'declaration.vhost')).toBe(3); // no terminal: manual-only stays an open decision (--yes resolves none; review lane A)
     expect(reportOf(w, 'declaration.vhost')[0]).toContain('(blocking');
     expect(w.err[0]).toContain('declaration.vhost');
     expect(hostMutations(w)).toEqual([]);
@@ -1046,7 +1050,7 @@ describe('case 15: EL with SELinux enforcing', () => {
     if (rule === undefined) throw new Error('fixture: no v1 rule');
     rule.type = 'httpd_sys_rw_content_t';
     expect(await init(w, ['test', '--yes'])).toBe(EXIT.REFUSED);
-    expect(listOf(w, 'provision.apply')).toBe(3);
+    expect(listOf(w, 'provision.apply')).toBe(4); // manual-only: "needs your action" (P2)
     expect(reportOf(w, 'provision.apply').join('\n')).toContain('semanage fcontext -l -C');
   });
 
@@ -1223,7 +1227,7 @@ describe('case 18: hardened hosts', () => {
     const w = makeWorld();
     w.host.mounts.push({ mountPoint: '/opt', fsType: 'ext4', readOnly: false, noexec: true, seclabel: false, context: null });
     expect(await init(w, firstRun(w, { ...DRAFT, layout: 'system' }, ['--yes']))).toBe(EXIT.REFUSED);
-    expect(listOf(w, 'host.noexec')).toBe(3);
+    expect(listOf(w, 'host.noexec')).toBe(3); // no terminal: manual-only stays an open decision (--yes resolves none; review lane A)
     expect(reportOf(w, 'host.noexec')[0]).toContain('(blocking');
     expect(hostMutations(w)).toEqual([]);
   });
@@ -1313,9 +1317,9 @@ describe('case 19: an EL 8 host (unsupported: systemd 239, kernel 4.18)', () => 
     w.host.seedFile('/etc/os-release', 'NAME="Rocky Linux"\nID="rocky"\nID_LIKE="rhel centos fedora"\nVERSION_ID="8.10"\nPRETTY_NAME="Rocky Linux 8.10 (Green Obsidian)"\n');
     w.host.kernelRelease = '4.18.0-553.el8_10.x86_64';
     expect(await init(w, firstRun(w, DRAFT, ['--dry-run']))).toBe(EXIT.DRIFT);
-    expect(listOf(w, 'host.os')).toBe(3);
+    expect(listOf(w, 'host.os')).toBe(3); // no terminal: manual-only stays an open decision (--yes resolves none; review lane A)
     expect(reportOf(w, 'host.os').join('\n')).toContain('upgrade to RHEL, Rocky or Alma 9 or 10');
-    expect(listOf(w, 'host.kernel')).toBe(3);
+    expect(listOf(w, 'host.kernel')).toBe(3); // no terminal: manual-only stays an open decision (--yes resolves none; review lane A)
     expect(reportOf(w, 'host.kernel')[0]).toContain('(blocking');
   });
 });
@@ -1622,5 +1626,163 @@ describe('the kit install.sh was given: offered for removal once the install con
     // --yes without a terminal: the decisions and secrets stay open → REFUSED, the kit untouched.
     expect(await init(w, firstRun(w, DRAFT, ['--yes', ...kitArgs()]))).toBe(EXIT.REFUSED);
     expect(w.host.lstat(KIT)?.type).toBe('file');
+  });
+});
+
+/* ── P2: how a decision is asked (decision_class.ts, run.ts settleDecisions) ─────── */
+
+describe('P2: settleDecisions asks only what has a real choice', () => {
+  const MANUAL_ONLY: ItemOption = { id: 'manual', label: 'by hand', resolves: 'manual' };
+  const base = { list: 'decision' as const, area: 'declaration' as const, title: 't', facts: [], commands: [], after: [], blocking: false, optional: false, operatorFile: false, hostWide: false };
+  const items: Item[] = [
+    { ...base, id: 'declaration.v2_port', title: 'a port only you can free', options: [MANUAL_ONLY], defaultOption: 'manual', blocking: true },
+    { ...base, id: 'host.web', options: [{ id: 'apache', label: 'apache', resolves: 'act' }] },
+    { ...base, id: 'declaration.layout', options: [{ id: 'home', label: 'home', resolves: 'act' }, { id: 'system', label: 'system', resolves: 'act' }], defaultOption: 'home' },
+    { ...base, id: 'web.vhost.0123abcd', options: [{ id: 'act', label: 'do it', resolves: 'act', confirm: 'typed' }, MANUAL_ONLY], defaultOption: 'act', operatorFile: true },
+  ];
+  async function settle(choices: Record<string, string>) {
+    const prompter = scriptedPrompter({ choices });
+    const answers = new Map<string, string>();
+    const unasked: Unasked = { needsAction: new Set(), auto: new Map() };
+    let recomputed = 0;
+    await settleDecisions(prompter, { items }, answers, unasked, current => {
+      recomputed += 1;
+      return current;
+    });
+    return { prompter, answers, unasked, recomputed };
+  }
+
+  test('a manual-only decision is never prompted: answered manual, recorded as needs-action', async () => {
+    const { prompter, answers, unasked } = await settle({});
+    expect(prompter.asked.some(line => line.includes('declaration.v2_port'))).toBe(false);
+    expect(answers.get('declaration.v2_port')).toBe('manual');
+    expect([...unasked.needsAction]).toEqual(['declaration.v2_port']);
+  });
+
+  test('a single-option decision (not manual, not typed) is resolved without asking: "auto: the only option"', async () => {
+    const { prompter, answers, unasked } = await settle({});
+    expect(prompter.asked.some(line => line.includes('host.web'))).toBe(false);
+    expect(answers.get('host.web')).toBe('apache');
+    expect([...unasked.auto]).toEqual([['host.web', 'apache']]);
+  });
+
+  test('Enter takes the default of an ordinary decision; Enter is refused on a typed one (it stays open)', async () => {
+    const { prompter, answers, recomputed } = await settle({ 'declaration.layout': SCRIPTED_ENTER, 'web.vhost.0123abcd': SCRIPTED_ENTER });
+    expect(answers.get('declaration.layout')).toBe('home');
+    expect(answers.has('web.vhost.0123abcd')).toBe(false);
+    expect(prompter.asked).toEqual(['choose declaration.layout', 'enter declaration.layout=home', 'choose web.vhost.0123abcd', 'enter refused web.vhost.0123abcd']);
+    // Every answer, asked or not, recomputes the list (an answer can bring a new decision).
+    expect(recomputed).toBe(3);
+  });
+
+  test('a typed decision answered by typing is taken; --decide-style answers given beforehand are never re-asked', async () => {
+    const { answers } = await settle({ 'declaration.layout': 'system', 'web.vhost.0123abcd': 'act' });
+    expect(answers.get('web.vhost.0123abcd')).toBe('act');
+    const prompter = scriptedPrompter({});
+    const given = new Map([['declaration.v2_port', 'manual'], ['host.web', 'apache'], ['declaration.layout', 'system'], ['web.vhost.0123abcd', 'manual']]);
+    const unasked: Unasked = { needsAction: new Set(), auto: new Map() };
+    await settleDecisions(prompter, { items }, given, unasked, current => current);
+    expect(prompter.asked).toEqual([]);
+    expect([unasked.needsAction.size, unasked.auto.size]).toEqual([0, 0]);
+  });
+
+  test('rerunCommand: the installed install.sh once rerun.env exists, else the operator\'s first command named', () => {
+    expect(rerunCommand('test', '/home/example.org/host_agent', true)).toBe('sh /home/example.org/host_agent/deploy/install.sh test');
+    expect(rerunCommand('test', '/home/example.org/host_agent', false)).toStartWith('sh install.sh test with the same --source or --kit');
+    expect(rerunCommand('test', null, true)).toStartWith('sh install.sh test with the same --source or --kit');
+  });
+});
+
+describe('P2 in a whole run', () => {
+  test('a blocking manual-only refusal is not asked: listed under "needs your action" with the re-run command; REFUSED', async () => {
+    // case 9b's re-run, without the operator typing `manual` for provision.apply.
+    const missing = '/srv/no_such_parent/media';
+    const declaration = { ...expectedV2Only(PROFILES.el), media: { mode: 'copy' as const, root: missing } };
+    const w = makeWorld({ os: 'el', declaration });
+    w.host.entries.delete(missing);
+    w.host.entries.delete(dirname(missing));
+    const { apis: _apis, ...v2Draft } = DRAFT;
+    const draft = { ...v2Draft, media: { mode: 'copy' as const, root: missing } };
+    useOperator(w);
+    expect(await init(w, firstRun(w, draft))).toBe(EXIT.REFUSED);
+    w.out.length = 0;
+    w.err.length = 0;
+    sourceMode(w);
+    useOperator(w);
+    const mutationsBefore = hostMutations(w).length;
+    expect(await init(w, firstRun(w, draft))).toBe(EXIT.REFUSED);
+    expect(w.prompter.asked?.some(line => line.includes('provision.apply'))).toBe(false);
+    expect(listOf(w, 'provision.apply')).toBe(4);
+    // Init answered it, not the operator: nothing is done this time (no confirmation even asked).
+    expect(hostMutations(w).length).toBe(mutationsBefore);
+    expect(w.prompter.asked?.some(line => line.startsWith('confirm '))).toBe(false);
+    expect(w.err.at(-1)).toContain('1 item(s) need your action before anything is done: provision.apply');
+    const at = w.out.findIndex(line => line.startsWith('needs your action ('));
+    expect(at).toBeGreaterThanOrEqual(0);
+    const summary = w.out.slice(at);
+    expect(summary.some(line => line.startsWith('  [provision.apply] '))).toBe(true);
+    expect(summary.join('\n')).toContain(`parent directory '${dirname(missing)}' of '${missing}' does not exist`);
+    expect(summary.at(-1)).toStartWith('then re-run: sh ');
+    expect(summary.at(-1)).toContain(' test');
+    expect(journalText(w)).not.toContain('api_config.v2_env');
+  });
+
+  test('a blocking manual-only decision with almost nothing after it still stops the run before anything is done', async () => {
+    // case 13 on a terminal: only init.keep_ref runs after declaration.vhost, so an EXPLICIT manual
+    // would let the rest run; init's own manual answer must not.
+    const w = makeWorld();
+    w.serverLine = 'other.org';
+    w.host.seedFile(w.profile.vhost, '<VirtualHost *:443>\n  ServerName other.org\n  ServerAlias example.org\n  SSLEngine on\n</VirtualHost>\n');
+    useOperator(w);
+    const code = await init(w, firstRun(w));
+    expect(code).toBe(EXIT.REFUSED);
+    expect(w.prompter.asked?.some(line => line.includes('declaration.vhost'))).toBe(false);
+    expect(hostMutations(w)).toEqual([]);
+    expect(w.out.join('\n')).not.toContain('converged');
+    const at = w.out.findIndex(line => line.startsWith('needs your action ('));
+    expect(w.out.slice(at).some(line => line.startsWith('  [declaration.vhost] '))).toBe(true);
+    // A non-blocking needs-action item (the optional pairing by hand) is listed with it.
+    expect(w.out.slice(at).some(line => line.startsWith('  [pair.instructions] '))).toBe(true);
+  });
+
+  test('without a terminal nothing is answered for the operator (--yes resolves no decision): the blocking manual-only decision stays open', async () => {
+    const w = makeWorld();
+    w.serverLine = 'other.org';
+    w.host.seedFile(w.profile.vhost, '<VirtualHost *:443>\n  ServerName other.org\n  ServerAlias example.org\n  SSLEngine on\n</VirtualHost>\n');
+    expect(await init(w, firstRun(w, DRAFT, ['--yes']))).toBe(EXIT.REFUSED);
+    expect(w.err[0]).toContain('need your decision before anything is done: declaration.vhost');
+    expect(w.out.some(line => line.startsWith('needs your action ('))).toBe(false);
+    expect(hostMutations(w)).toEqual([]);
+    // The report says the same as the refusal (review lane A): an open decision in list 3, never
+    // "4. needs your action … they are not asked"; counted under "to decide"; the refusal names
+    // the by-hand work and the re-run command.
+    expect(listOf(w, 'declaration.vhost')).toBe(3);
+    expect(w.out.some(line => line.startsWith('4. '))).toBe(false);
+    expect(w.out.find(line => line.startsWith('provision init: ') && line.includes(' to decide'))).not.toContain('need your action');
+    expect(reportOf(w, 'declaration.vhost').join('\n')).toContain('--decide declaration.vhost=manual');
+    const cannot = w.err.find(line => line.startsWith('provision init: init cannot do declaration.vhost'));
+    expect(cannot).toContain('then: sh install.sh test');
+  });
+
+  test('a dry run ON a terminal previews the interactive run: the manual-only decision is in list 4', async () => {
+    const w = makeWorld();
+    w.serverLine = 'other.org';
+    w.host.seedFile(w.profile.vhost, '<VirtualHost *:443>\n  ServerName other.org\n  ServerAlias example.org\n  SSLEngine on\n</VirtualHost>\n');
+    useOperator(w);
+    expect(await init(w, firstRun(w, DRAFT, ['--dry-run']))).toBe(EXIT.DRIFT);
+    expect(listOf(w, 'declaration.vhost')).toBe(4);
+    expect(w.prompter.asked ?? []).toEqual([]);
+  });
+
+  test('Enter on an ordinary decision takes its default; Enter on the typed vhost edit is refused and the file is untouched', async () => {
+    const w = makeWorld();
+    const before = w.host.body(w.profile.vhost);
+    w.prompter = scriptedPrompter({ ...operator(w), choices: { 'api_config.v1_db_transport': SCRIPTED_ENTER, [vhostId(w)]: SCRIPTED_ENTER } });
+    const code = await init(w, firstRun(w));
+    expect(w.prompter.asked).toContain(`enter refused ${vhostId(w)}`);
+    expect(w.prompter.asked?.some(line => line.startsWith('enter api_config.v1_db_transport='))).toBe(true);
+    expect(w.host.body(w.profile.vhost)).toBe(before);
+    expect(code).toBe(EXIT.REFUSED);
+    expect(w.err.join('\n')).toContain(vhostId(w));
   });
 });

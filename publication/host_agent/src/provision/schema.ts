@@ -16,7 +16,7 @@ import {
   DOMAIN_PATTERN,
   FPM_VERSION_PATTERN,
   INSTANCE_PATTERN,
-  LISTEN_HOST_PATTERN,
+  listenHostProblem,
   LayoutError,
   RELEASES_RETAINED_MAX,
   RELEASES_RETAINED_MIN,
@@ -41,7 +41,14 @@ const listenSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('unix') }),
   z.strictObject({
     kind: z.literal('tls'),
-    host: z.string().regex(LISTEN_HOST_PATTERN, 'must be a canonical non-zero IPv4 address (spec §2.2: the channel binds one private interface, never a hostname or wildcard)'),
+    // The ONE listen-host grammar (layout.ts listenHostProblem): a canonical non-zero IPv4, or a
+    // private IPv6 (fc00::/7 or ::1) in its RFC 5952 form — the refusal names which rule failed.
+    host: z.string().superRefine((host, ctx) => {
+      const problem = listenHostProblem(host);
+      if (problem !== null) {
+        ctx.addIssue({ code: 'custom', message: `${problem} (spec §2.2: the channel binds one private interface, never a hostname or wildcard)` });
+      }
+    }),
     port,
   }),
 ]);

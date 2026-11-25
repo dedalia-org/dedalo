@@ -19,6 +19,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { widget } from '../../src/core/area_maintenance/widgets/publication_hosts.ts';
+import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
+import { formatErrorLine } from '../../src/core/errors/log.ts';
 import { overrideMediaProtectionPathsForTests } from '../../src/core/media/protection.ts';
 import {
 	attachProbe,
@@ -33,6 +35,7 @@ import {
 	bareOrigin,
 	type CopyHolding,
 	copyBatchChanged,
+	httpsUpgradeOf,
 	NEVER_PROBED,
 	PROBE_MAX_AGE_MS,
 	type ProbeDeps,
@@ -51,7 +54,11 @@ import {
 } from '../../src/core/publication_host/registry.ts';
 import { loadRuntime, updateHostRuntime } from '../../src/core/publication_host/runtime.ts';
 import type { Principal } from '../../src/core/security/permissions.ts';
-import type { PinnedFetchInit } from '../../src/core/security/ssrf_guard.ts';
+import {
+	fetchGuardedText,
+	type PinnedFetchInit,
+	refusedRedirectLocation,
+} from '../../src/core/security/ssrf_guard.ts';
 import { markMediaRoot } from '../helpers/media_scratch_root.ts';
 import { useScratchPublicationHostsBase } from '../helpers/publication_host_fixtures.ts';
 import { stripComments } from '../helpers/strip_comments.ts';
@@ -78,11 +85,15 @@ function record(overrides: Partial<PublicationHostRecord> = {}): PublicationHost
 	};
 }
 
-type Answer = (init: PinnedFetchInit) => Response;
+type Answer = (init: PinnedFetchInit, url: URL) => Response;
 interface Seen {
 	path: string;
 	search: string;
 	range: string | null;
+	/** The scheme and port the pinned request went out on, and the Host it kept. */
+	protocol: string;
+	port: string;
+	host: string | null;
 }
 
 /**
@@ -99,11 +110,20 @@ function fakeDeps(
 		copyHolding: async () => holding,
 		lookup: async () => [{ address, family: 4 }],
 		fetch: async (url: string, init: PinnedFetchInit) => {
-			const { pathname, search } = new URL(url);
-			seen.push({ path: pathname, search, range: new Headers(init.headers).get('range') });
+			const parsed = new URL(url);
+			const { pathname, search } = parsed;
+			const headers = new Headers(init.headers);
+			seen.push({
+				path: pathname,
+				search,
+				range: headers.get('range'),
+				protocol: parsed.protocol,
+				port: parsed.port,
+				host: headers.get('host'),
+			});
 			const answer = answers[pathname.slice(pathname.lastIndexOf('/') + 1)];
 			if (answer === undefined) throw new Error(`unexpected probe request ${url}`);
-			return answer(init);
+			return answer(init, parsed);
 		},
 	};
 }
@@ -397,6 +417,238 @@ describe('probeHostRecord (P2): through the PUBLIC door, as the public sees it',
 	test('no public_url → unknown, nothing sent', async () => {
 		const probe = await probeHostRecord(record({ public_url: null }), fakeDeps({}));
 		expect(probe).toMatchObject({ state: 'unknown', detail: 'the public URL is not set' });
+	});
+});
+
+describe('THE ONE REDIRECT FOLLOWED: an http → https upgrade of the same URL (§7)', () => {
+	const HTTP_URL = 'http://www.museum.test';
+	const mediaPath = (path: string): string => `/dedalo/${config.mediaDir}/${path}`;
+	/** A 3xx whose Location the test builds from the request's own path. */
+	const redirectTo =
+		(status: number, target: (path: string) => string): Answer =>
+		(_init, url) =>
+			new Response(null, { status, headers: { location: target(url.pathname) } });
+	/** Over https: `then`; over http: a 301 to the https twin (what a :80 → :443 site does). */
+	const upgrading =
+		(then: Answer): Answer =>
+		(init, url) =>
+			url.protocol === 'http:'
+				? new Response(null, {
+						status: 301,
+						headers: { location: `https://www.museum.test${url.pathname}` },
+					})
+				: then(init, url);
+
+	test('301 http → https same host: followed ONCE, through the guard again; ok with the note', async () => {
+		const seen: Seen[] = [];
+		const probe = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps({ [PUB_FILE]: upgrading(partial), [UNPUB_FILE]: upgrading(notFound) }, seen),
+		);
+		expect(probe.state).toBe('ok');
+		expect(probe.published_status).toBe(200);
+		expect(probe.unpublished_status).toBe(404);
+		expect(probe.detail).toBe(
+			'http redirects to https — set the public URL to https://www.museum.test',
+		);
+		// Two requests per side, the second on https:443 — PINNED to the vetted address
+		// (the injected fetch sees the IP, the real name kept as Host), Range kept.
+		expect(seen.map((s) => [s.protocol, s.port, s.path])).toEqual([
+			['http:', '', mediaPath(PUB_PATH)],
+			['https:', '', mediaPath(PUB_PATH)],
+			['http:', '', mediaPath(UNPUB_PATH)],
+			['https:', '', mediaPath(UNPUB_PATH)],
+		]);
+		expect(seen.every((s) => s.host === 'www.museum.test' && s.range === 'bytes=0-0')).toBe(true);
+	});
+
+	test('an explicit http port upgrades to the https DEFAULT port; an explicit https port is refused', async () => {
+		const toDefault = await probeHostRecord(
+			record({ public_url: 'http://www.museum.test:8080' }),
+			fakeDeps({ [PUB_FILE]: upgrading(partial), [UNPUB_FILE]: upgrading(notFound) }),
+		);
+		expect(toDefault.state).toBe('ok');
+		expect(toDefault.detail).toContain('set the public URL to https://www.museum.test');
+
+		const seen: Seen[] = [];
+		const toPort = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps(
+				{
+					[PUB_FILE]: redirectTo(301, (path) => `https://www.museum.test:8443${path}`),
+					[UNPUB_FILE]: notFound,
+				},
+				seen,
+			),
+		);
+		expect(toPort.state).toBe('failed');
+		expect(toPort.published_status).toBe(301);
+		expect(toPort.detail).toContain('redirected to https://www.museum.test:8443/');
+		expect(seen.filter((s) => s.path === mediaPath(PUB_PATH))).toHaveLength(1);
+	});
+
+	test('301 to ANOTHER host is refused, never followed: failed, the detail says where it pointed', async () => {
+		const seen: Seen[] = [];
+		const probe = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps(
+				{
+					[PUB_FILE]: redirectTo(301, (path) => `https://cdn.museum.test${path}`),
+					[UNPUB_FILE]: notFound,
+				},
+				seen,
+			),
+		);
+		expect(probe.state).toBe('failed');
+		expect(probe.published_status).toBe(301);
+		expect(probe.detail).toContain(
+			`the published file answered HTTP 301 (must be 2xx): redirected to https://cdn.museum.test${mediaPath(PUB_PATH)}, not followed`,
+		);
+		expect(probe.detail).not.toContain('set the public URL');
+		expect(seen.map((s) => s.protocol)).toEqual(['http:', 'http:']);
+	});
+
+	test('302 chain of two (http → https twin → elsewhere) is refused: no second hop', async () => {
+		const seen: Seen[] = [];
+		const secondRedirect = redirectTo(302, () => 'https://www.museum.test/login');
+		const probe = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps({ [PUB_FILE]: upgrading(secondRedirect), [UNPUB_FILE]: upgrading(notFound) }, seen),
+		);
+		expect(probe.state).toBe('failed');
+		expect(probe.published_status).toBe(302);
+		expect(probe.detail).toContain(
+			'after the http → https upgrade, a second redirect: redirected to https://www.museum.test/login, not followed',
+		);
+		// The upgrade WAS followed, so the note is still given.
+		expect(probe.detail).toContain('set the public URL to https://www.museum.test');
+		expect(seen.filter((s) => s.path === mediaPath(PUB_PATH)).map((s) => s.protocol)).toEqual([
+			'http:',
+			'https:',
+		]);
+		expect(seen.some((s) => s.path === '/login')).toBe(false);
+	});
+
+	test('a redirect from the https twin back to ITSELF is not a second upgrade either', async () => {
+		const loop = redirectTo(302, (path) => `https://www.museum.test${path}`);
+		const seen: Seen[] = [];
+		const probe = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps({ [PUB_FILE]: upgrading(loop), [UNPUB_FILE]: upgrading(notFound) }, seen),
+		);
+		expect(probe.state).toBe('failed');
+		expect(seen.filter((s) => s.path === mediaPath(PUB_PATH))).toHaveLength(2);
+	});
+
+	test('https → http DOWNGRADE is refused: failed, the detail names the http target', async () => {
+		const seen: Seen[] = [];
+		const probe = await probeHostRecord(
+			record(),
+			fakeDeps(
+				{
+					[PUB_FILE]: redirectTo(301, (path) => `http://www.museum.test${path}`),
+					[UNPUB_FILE]: notFound,
+				},
+				seen,
+			),
+		);
+		expect(probe.state).toBe('failed');
+		expect(probe.published_status).toBe(301);
+		expect(probe.detail).toContain(`redirected to http://www.museum.test${mediaPath(PUB_PATH)}`);
+		expect(seen.map((s) => s.protocol)).toEqual(['https:', 'https:']);
+	});
+
+	test('the upgraded URL is RE-VETTED: an https twin resolving private is unknown, never a pass', async () => {
+		let lookups = 0;
+		const deps: ProbeDeps = {
+			...fakeDeps({ [PUB_FILE]: upgrading(partial), [UNPUB_FILE]: upgrading(notFound) }),
+			// The first answer is public, every later one private (a rebinding resolver).
+			lookup: async () => {
+				lookups++;
+				return [{ address: lookups === 1 ? PUBLIC_IP : '10.0.0.5', family: 4 }];
+			},
+		};
+		const probe = await probeHostRecord(record({ public_url: HTTP_URL }), deps);
+		expect(probe.state).toBe('unknown');
+		expect(probe.detail).toContain('published: not a public host');
+		expect(probe.detail).toContain('set the public URL to https://www.museum.test');
+		expect(lookups).toBeGreaterThanOrEqual(2);
+	});
+
+	test("a refused redirect's target is shown without credentials", async () => {
+		const probe = await probeHostRecord(
+			record({ public_url: HTTP_URL }),
+			fakeDeps({
+				[PUB_FILE]: redirectTo(301, (path) => `https://user:secret@www.museum.test${path}`),
+				[UNPUB_FILE]: notFound,
+			}),
+		);
+		expect(probe.state).toBe('failed');
+		expect(probe.detail).toContain(`redirected to https://www.museum.test${mediaPath(PUB_PATH)}`);
+		expect(probe.detail).not.toContain('secret');
+	});
+
+	test('httpsUpgradeOf: only the exact https twin of the requested URL, built from the REQUEST', () => {
+		const asked = 'http://www.museum.test/dedalo/media/a%20b.jpg';
+		const twin = 'https://www.museum.test/dedalo/media/a%20b.jpg';
+		for (const [location, expected] of [
+			[twin, twin],
+			['https://WWW.Museum.test:443/dedalo/media/a%20b.jpg', twin],
+			['https://www.museum.test/dedalo/media/a b.jpg', twin],
+			['https://www.museum.test/dedalo/media/other.jpg', null],
+			['https://www.museum.test/dedalo/media/a%20b.jpg?x=1', null],
+			['https://www.museum.test/dedalo/media/a%20b.jpg#f', null],
+			['https://u:p@www.museum.test/dedalo/media/a%20b.jpg', null],
+			['https://evil.test/dedalo/media/a%20b.jpg', null],
+			['https://www.museum.test.evil.test/dedalo/media/a%20b.jpg', null],
+			['https://www.museum.test:8443/dedalo/media/a%20b.jpg', null],
+			['http://www.museum.test/dedalo/media/a%20b.jpg', null],
+			['/dedalo/media/a%20b.jpg', null],
+			['//www.museum.test/dedalo/media/a%20b.jpg', null],
+			['ftp://www.museum.test/dedalo/media/a%20b.jpg', null],
+			['https://[::1', null],
+			['', null],
+		] as const) {
+			expect(httpsUpgradeOf(asked, location), location).toBe(expected);
+		}
+		// An https request is never "upgraded" (nothing to upgrade; a hop to itself is a loop).
+		expect(httpsUpgradeOf(twin, twin)).toBeNull();
+		// An explicit http port upgrades to the https default port.
+		expect(
+			httpsUpgradeOf('http://www.museum.test:8080/x.jpg', 'https://www.museum.test/x.jpg'),
+		).toBe('https://www.museum.test/x.jpg');
+		// The returned URL is the REQUEST's twin: a query the request carried is kept as sent.
+		expect(httpsUpgradeOf('http://h.test/x?a=1', 'https://h.test/x?a=1')).toBe(
+			'https://h.test/x?a=1',
+		);
+	});
+
+	test("the peer's Location never reaches the log line: no forged k=v, no signed query (log injection)", async () => {
+		// A header value may carry spaces: printed raw as a coordinate it would FORGE pairs
+		// (`formatErrorLine` joins ` k=v` unescaped), and a presigned redirect would write its
+		// signature into the operator's log. The raw Location rides the error's own field.
+		const hostile = '/x reason=timeout status=200 job=forged?X-Amz-Signature=secret';
+		const deps = fakeDeps({ [PUB_FILE]: redirectTo(302, () => hostile) });
+		let caught: unknown;
+		try {
+			await fetchGuardedText(`https://www.museum.test${mediaPath(PUB_PATH)}`, {}, deps);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(DedaloError);
+		const line = formatErrorLine(caught as DedaloError);
+		expect(line).toBe('[security] security.outbound_failed reason=redirect status=302');
+		expect(refusedRedirectLocation(caught), 'the caller that asks still gets it raw').toBe(hostile);
+		// Any other failure carries none.
+		expect(refusedRedirectLocation(new DedaloError('security.outbound_failed'))).toBeNull();
+		// And the probe's detail (operator-facing) shows it resolved and display-safe.
+		const probe = await probeHostRecord(
+			record(),
+			fakeDeps({ [PUB_FILE]: redirectTo(302, () => hostile), [UNPUB_FILE]: notFound }),
+		);
+		expect(probe.state).toBe('failed');
+		expect(probe.detail).toContain('redirected to https://www.museum.test/x%20reason=timeout');
+		expect(probe.detail).not.toContain(' reason=timeout');
 	});
 });
 

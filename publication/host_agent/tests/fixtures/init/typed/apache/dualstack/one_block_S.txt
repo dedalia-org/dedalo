@@ -1,0 +1,22 @@
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.17.0.4. Set the 'ServerName' directive globally to suppress this message
+VirtualHost configuration:
+192.0.2.1:443          museum.org (/etc/apache2/sites-enabled/museum.org-le-ssl.conf:2)
+[2001:db8::1]:443      museum.org (/etc/apache2/sites-enabled/museum.org-le-ssl.conf:2)
+*:80                   is a NameVirtualHost
+         default server 172.17.0.4 (/etc/apache2/sites-enabled/000-default.conf:1)
+         port 80 namevhost 172.17.0.4 (/etc/apache2/sites-enabled/000-default.conf:1)
+         port 80 namevhost museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+                 alias www.museum.org
+[::]:80                is a NameVirtualHost
+         default server museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+         port 80 namevhost museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+                 alias www.museum.org
+ServerRoot: "/etc/apache2"
+Main DocumentRoot: "/var/www/html"
+Main ErrorLog: "/var/log/apache2/error.log"
+Mutex default: dir="/var/run/apache2/" mechanism=default 
+PidFile: "/var/run/apache2/apache2.pid"
+Define: DUMP_VHOSTS
+Define: DUMP_RUN_CFG
+User: name="www-data" id=33
+Group: name="www-data" id=33

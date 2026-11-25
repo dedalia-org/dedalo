@@ -6,6 +6,7 @@
  * test/unit/publication_host_init_pair_native.test.ts.
  */
 import { describe, expect, test } from 'bun:test';
+import { classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
 import { AUDIT_ACTION_ORIGIN, type AuditAction } from '../src/audit';
 import type { SyncSpawner, SyncSpawnOptions } from '../src/exec';
 import { initExec } from '../src/exec';
@@ -471,6 +472,9 @@ describe('the package after the pairing: engineContactSince + writtenPackageItem
       const item = writtenPackageItem(planned, path, { present: true, ...state });
       expect(item).toMatchObject({ list: 'decision', defaultOption: PACKAGE_REMOVE, action: { kind: 'pair_package_remove', path } });
       expect(item.options?.map(o => [o.id, o.resolves])).toEqual([[PACKAGE_REMOVE, 'act'], [PACKAGE_KEEP, 'skip']]);
+      // P2: removing the package is TYPED (decision_class.ts): Enter never takes the remove default.
+      expect(typedMarkProblems(item)).toEqual([]);
+      expect(classifyDecision(item)).toEqual({ kind: 'typed', enter: null });
     }
   });
 });

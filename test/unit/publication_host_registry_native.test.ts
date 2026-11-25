@@ -335,9 +335,15 @@ describe('the strict shape', () => {
 			}),
 		],
 		[
-			'an http public_url',
+			'a public_url of another scheme',
 			mutate((h) => {
-				h.public_url = 'http://www.museum.example';
+				h.public_url = 'ftp://www.museum.example';
+			}),
+		],
+		[
+			'an http public_url with a path',
+			mutate((h) => {
+				h.public_url = 'http://www.museum.example/site';
 			}),
 		],
 		[
@@ -429,6 +435,17 @@ describe('the strict shape', () => {
 		['an extra top-level key', { version: 1, hosts: [], note: 'x' }],
 	])('%s is invalid_shape', (_label, value) => {
 		expect(reasonOf(() => validateRegistry(value))).toBe('invalid_shape');
+	});
+
+	// §7: https is proposed, http is NOT refused (an http-only intranet); the probe
+	// follows one http → https upgrade and says so.
+	test.each([
+		['an https origin', 'https://www.museum.example'],
+		['an https origin with a port', 'https://www.museum.example:8443'],
+		['an http origin', 'http://www.museum.example'],
+		['an http origin with a port', 'http://intranet.museum.example:8080'],
+	] as const)('public_url: %s is accepted', (_label, url) => {
+		expect(validateRegistry(file(host({ public_url: url }))).hosts[0]?.public_url).toBe(url);
 	});
 
 	test.each([

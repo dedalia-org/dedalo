@@ -18,16 +18,25 @@
  * an alias-only or wildcard-only match is reported as such (compare makes it a blocking
  * decision), never edited.
  *
- * PURE, ZERO-DEPENDENCY (tests/provision_zero_dep.test.ts): ../types and ./nginx only.
+ * PURE, ZERO-DEPENDENCY (tests/provision_zero_dep.test.ts): ../types, ./nginx and ./redirect only.
  */
 import type { ModuleLine } from '../types';
 import { parseNginxVersion } from './nginx';
+import { isAbsoluteRedirectTarget, isCatchAllPattern } from './redirect';
 
 /* ── `-S` ────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * ONE vhost on ONE port, whatever addresses it listens on. `<VirtualHost 192.0.2.1:443
+ * [2001:db8::1]:443>` (or `*:443` + `[::]:443`) is printed by `-S` once per address — under each
+ * address's own NameVirtualHost section, IPv6 bracketed (`[2001:db8::1]:443`) — but it is ONE
+ * block, edited once: the entries are keyed on file + line + port, the addresses collected in the
+ * order `-S` prints them. Two rows for one block made draft.ts chooseVhost call the site "crowded"
+ * (a blocking manual-only decision) on every dual-stack host.
+ */
 export interface ApacheSEntry {
-  /** `*`, `_default_`, `192.0.2.10`, `[::1]`. */
-  readonly address: string;
+  /** Every address `-S` lists for this block on this port: `*`, `_default_`, `192.0.2.10`, `[::1]`. */
+  readonly addresses: readonly string[];
   readonly port: number;
   /** The name `-S` prints (ServerName, or the host's name for a vhost without one). */
   readonly serverName: string;
@@ -47,18 +56,22 @@ export interface ApacheS {
 
 /** `httpd -S` / `apache2ctl -S` (stdout and stderr together; AH… warnings are skipped). */
 export function parseApacheS(text: string): ApacheS {
-  const entries: { address: string; port: number; serverName: string; file: string; line: number; aliases: string[]; isDefault: boolean }[] = [];
+  const entries: { addresses: string[]; port: number; serverName: string; file: string; line: number; aliases: string[]; isDefault: boolean }[] = [];
   let user: string | null = null;
   let group: string | null = null;
   let address: { address: string; port: number } | null = null;
   let defaultAt: string | null = null;
+  // One entry per block and port (file + line + port): a block listening on several addresses is
+  // printed once per address, and every printing adds its address to the same entry. Aliases are
+  // printed again under each address: kept once.
   const add = (where: { address: string; port: number }, serverName: string, file: string, line: number, isDefault: boolean) => {
-    const existing = entries.find(entry => entry.file === file && entry.line === line && entry.port === where.port && entry.address === where.address);
+    const existing = entries.find(entry => entry.file === file && entry.line === line && entry.port === where.port);
     if (existing) {
       existing.isDefault ||= isDefault;
+      if (!existing.addresses.includes(where.address)) existing.addresses.push(where.address);
       return existing;
     }
-    const entry = { ...where, serverName, file, line, aliases: [] as string[], isDefault };
+    const entry = { addresses: [where.address], port: where.port, serverName, file, line, aliases: [] as string[], isDefault };
     entries.push(entry);
     return entry;
   };
@@ -93,7 +106,7 @@ export function parseApacheS(text: string): ApacheS {
     }
     const alias = /^(?:wild )?alias (\S+)$/.exec(trimmed);
     if (alias && last) {
-      last.aliases.push(alias[1] as string);
+      if (!last.aliases.includes(alias[1] as string)) last.aliases.push(alias[1] as string);
       continue;
     }
     const account = /^(User|Group): name="([^"]*)"/.exec(trimmed);
@@ -105,7 +118,7 @@ export function parseApacheS(text: string): ApacheS {
     last = null; // ServerRoot:, Mutex, Define:, AH… warnings, "VirtualHost configuration:"
   }
   return Object.freeze({
-    entries: Object.freeze(entries.map(entry => Object.freeze({ ...entry, aliases: Object.freeze(entry.aliases) }))),
+    entries: Object.freeze(entries.map(entry => Object.freeze({ ...entry, addresses: Object.freeze(entry.addresses), aliases: Object.freeze(entry.aliases) }))),
     user,
     group,
   });
@@ -278,6 +291,141 @@ export interface VhostBlock {
   readonly ourReference: boolean;
   /** Guide-style hand-written Dédalo lines (web.manual_lines): every physical line, in order. */
   readonly manualLines: readonly { readonly line: number; readonly text: string }[];
+  /**
+   * Every request is answered with a redirect to an absolute URL (the :80 → https:// vhost, a
+   * canonical-host redirect): the block serves nothing, so it is never a candidate for the APIs
+   * include (draft.ts chooseVhost). The closed set of forms: wholeSiteRedirect, wholeSiteRewrite
+   * (whose RewriteConds must hold for every request the block serves: conditionsWholeSite).
+   */
+  readonly redirectOnly: boolean;
+}
+
+/* ── redirect-only blocks (./redirect holds the patterns nginx shares) ───────────── */
+
+/** mod_alias status words and codes that redirect (`gone` does not). */
+const REDIRECT_STATUS = /^(?:permanent|temp|seeother|3\d\d)$/i;
+
+/**
+ * What a block serves, as far as a RewriteCond can test it: its names (ServerName + every
+ * ServerAlias), whether it speaks TLS, and the ports its `<VirtualHost>` addresses name (null when
+ * one address names none: `%{SERVER_PORT}` cannot be judged).
+ */
+interface BlockScope {
+  readonly names: readonly string[];
+  readonly ssl: boolean;
+  readonly ports: readonly string[] | null;
+}
+
+/** `[OR]`, `[NC,OR]`, `[ornext]` … → the lower-case flag words. */
+function conditionFlags(args: readonly string[]): string[] {
+  const list = /^\[(.*)\]$/.exec(args[2] ?? '')?.[1] ?? '';
+  return list.split(',').map(flag => flag.trim().toLowerCase()).filter(flag => flag !== '');
+}
+
+/**
+ * One CondPattern against one value, as mod_rewrite reads it: a leading `!` negates, `=x` is a
+ * string equality, anything else a regex (PCRE; the simple patterns operators write are the same
+ * in JS). The other comparison forms (`-f`, `<x`, `-ipmatch` …) and an uncompilable regex answer
+ * null: unknown, so the caller keeps the block a candidate.
+ */
+function conditionHolds(pattern: string, nocase: boolean, value: string): boolean | null {
+  const negated = pattern.startsWith('!');
+  const body = negated ? pattern.slice(1) : pattern;
+  let holds: boolean;
+  if (body.startsWith('=')) holds = nocase ? body.slice(1).toLowerCase() === value.toLowerCase() : body.slice(1) === value;
+  else if (/^(?:-|<|>)/.test(body)) return null;
+  else {
+    try {
+      holds = new RegExp(body, nocase ? 'i' : '').test(value);
+    } catch {
+      return null;
+    }
+  }
+  return negated ? !holds : holds;
+}
+
+/**
+ * True when ONE RewriteCond is true for EVERY request the block serves — so it cannot spare any of
+ * them from the redirect. Owner-reviewed narrowing (2026-11, review lane A): before it, ANY test
+ * of a host or scheme variable counted as "only selects which host/scheme is redirected", so a
+ * TLS vhost that serves museum.org and redirects only `www.` (or only "not the canonical host",
+ * or `%{HTTPS} off` inside the :443 block) came out redirect-only and was dropped from the APIs
+ * candidates (draft.ts chooseVhost) — a blocking "the TLS vhost is missing" on a correct host, or
+ * the plain :80 block chosen silently. The closed set that may hold for every request:
+ *   - the ACME exception, `%{REQUEST_URI} !…well-known…` (certbot's renewal path: the block serves
+ *     only the challenge files, never the site);
+ *   - a POSITIVE host test (`%{SERVER_NAME}` / `%{HTTP_HOST}`, `=name` or a regex) only as part of
+ *     an [OR] chain that, together, matches the ServerName and every ServerAlias (certbot's
+ *     `=museum.org [OR]` + `=www.museum.org`) — judged by groupWholeSite, never alone here;
+ *   - a scheme/port test that is true for the block's OWN scheme and ports: `%{HTTPS}` against
+ *     on/off from the block's TLS, `%{REQUEST_SCHEME}` against https/http, `%{SERVER_PORT}`
+ *     against its `<VirtualHost>` ports (so `%{HTTPS} off` holds on :80 and NEVER on :443).
+ * `%{HTTP:X-Forwarded-Proto}` is a request header (a TLS-terminating proxy sets it per request):
+ * never whole-site. Anything else selects which requests are redirected.
+ */
+function conditionAlwaysHolds(args: readonly string[], scope: BlockScope): boolean {
+  const variable = (args[0] ?? '').toUpperCase();
+  const pattern = args[1] ?? '';
+  const nocase = conditionFlags(args).some(flag => flag === 'nc' || flag === 'nocase');
+  if (variable === '%{REQUEST_URI}') return pattern.startsWith('!') && pattern.includes('.well-known');
+  const values =
+    variable === '%{HTTPS}'
+      ? [scope.ssl ? 'on' : 'off']
+      : variable === '%{REQUEST_SCHEME}'
+        ? [scope.ssl ? 'https' : 'http']
+        : variable === '%{SERVER_PORT}'
+          ? scope.ports
+          : null;
+  if (values === null || values.length === 0) return false;
+  return values.every(value => conditionHolds(pattern, nocase, value) === true);
+}
+
+/**
+ * A positive host test's names: true when this condition matches `name`. A negated test
+ * (`!^museum\.org$`, "not the canonical host") is never counted: it is how a block redirects the
+ * names it does NOT serve as its own, while serving the rest.
+ */
+function hostTestMatches(args: readonly string[], name: string): boolean {
+  const variable = (args[0] ?? '').toUpperCase();
+  const pattern = args[1] ?? '';
+  if ((variable !== '%{SERVER_NAME}' && variable !== '%{HTTP_HOST}') || pattern.startsWith('!')) return false;
+  // Host names are case-insensitive (the block's are lower-cased, browsers send them so): compare
+  // them so whatever the [NC] flag says.
+  return conditionHolds(pattern, true, name) === true;
+}
+
+/**
+ * One [OR] chain (a lone condition is a chain of one) is true for every request the block serves
+ * when one member always holds (conditionAlwaysHolds), or when its positive host tests together
+ * match every name the block serves. A wildcard name (`*.museum.org`) or a block without a
+ * ServerName cannot be covered by a list of names: the chain selects.
+ */
+function chainWholeSite(chain: readonly (readonly string[])[], scope: BlockScope): boolean {
+  if (chain.some(args => conditionAlwaysHolds(args, scope))) return true;
+  if (scope.names.length === 0 || scope.names.some(name => /[*?]/.test(name))) return false;
+  return scope.names.every(name => chain.some(args => hostTestMatches(args, name)));
+}
+
+/**
+ * The conditions of one RewriteRule (they bind to the NEXT rule only) are true for every request
+ * the block serves: mod_rewrite ANDs them, except that `[OR]` joins a condition to the next one.
+ */
+function conditionsWholeSite(conditions: readonly (readonly string[])[], scope: BlockScope): boolean {
+  let chain: (readonly string[])[] = [];
+  for (const args of conditions) {
+    chain.push(args);
+    if (conditionFlags(args).some(flag => flag === 'or' || flag === 'ornext')) continue;
+    if (!chainWholeSite(chain, scope)) return false;
+    chain = [];
+  }
+  // A trailing [OR] has no right-hand side; mod_rewrite ignores the flag there.
+  return chain.length === 0 || chainWholeSite(chain, scope);
+}
+
+/** The ports a `<VirtualHost>`'s addresses name (`*:80`, `[::]:443`); null when one names none. */
+function virtualHostPorts(addresses: readonly string[]): string[] | null {
+  const ports = addresses.map(address => /:(\d+)$/.exec(address)?.[1] ?? null);
+  return ports.length > 0 && ports.every((port): port is string => port !== null) ? [...new Set(ports)] : null;
 }
 
 /** The guide's (docs/install/publication_host.md step 9) hand-written Dédalo lines. */
@@ -308,6 +456,14 @@ export function readVhostBlock(text: string, line: number, context: VhostReadCon
   const accessLogs: string[] = [];
   let fpmHandler: string | null = null;
   let ourReference = false;
+  // Redirect-only: a catch-all redirect to an absolute URL at the block's top level (or inside
+  // <IfModule> only — the usual `<IfModule mod_rewrite.c>` wrapper). A redirect inside
+  // <Directory>/<Location>/<If> is per-path, so the block still serves.
+  let rewriteEngine = false;
+  let rewriteConditions: (readonly string[])[] = [];
+  let redirectOnly = false;
+  // Each catch-all `RewriteRule … [R]` at block level, with the conditions bound to it.
+  const catchAllRules: (readonly (readonly string[])[])[] = [];
   const manual = new Set<number>();
   const markRange = (from: number, to: number) => {
     for (let at = from; at <= to; at++) manual.add(at);
@@ -349,6 +505,18 @@ export function readVhostBlock(text: string, line: number, context: VhostReadCon
       continue;
     }
     const arg = entry.args[0] ?? '';
+    const blockLevel = stack.every(section => section.name === 'ifmodule');
+    if (blockLevel) {
+      // RewriteCond lines bind to the NEXT RewriteRule only.
+      if (entry.name === 'rewritecond') rewriteConditions.push(entry.args);
+      else if (entry.name === 'rewriterule') {
+        const conditions = rewriteConditions;
+        rewriteConditions = [];
+        // Judged after the block is read: the conditions are weighed against its names, TLS and ports.
+        if (rewriteEngine && wholeSiteRewrite(entry.args)) catchAllRules.push(conditions);
+      } else if (entry.name === 'rewriteengine') rewriteEngine = arg.toLowerCase() === 'on';
+      else if (wholeSiteRedirect(entry.name, entry.args)) redirectOnly = true;
+    }
     switch (entry.name) {
       case 'servername':
         if (stack.length === 0) serverName = arg.replace(/:\d+$/, '').toLowerCase();
@@ -393,6 +561,9 @@ export function readVhostBlock(text: string, line: number, context: VhostReadCon
     }
   }
   if (endLine === -1) throw new Error(`parse(apache): the <VirtualHost> at line ${line} has no </VirtualHost>`);
+  const ssl = sslEngine || certificate;
+  const scope: BlockScope = { names: serverName === null ? [] : [serverName, ...aliases], ssl, ports: virtualHostPorts(start.args) };
+  if (catchAllRules.some(conditions => conditionsWholeSite(conditions, scope))) redirectOnly = true;
   // The guide's own comment lines directly above a manual block are part of it.
   for (const at of [...manual].sort((a, b) => a - b)) {
     for (let above = at - 1; above > line && !manual.has(above) && GUIDE_COMMENT.test(physical[above - 1] ?? ''); above--) manual.add(above);
@@ -406,14 +577,49 @@ export function readVhostBlock(text: string, line: number, context: VhostReadCon
     endLine,
     serverName,
     aliases: Object.freeze(aliases),
-    ssl: sslEngine || certificate,
+    ssl,
     documentRoot,
     errorLog,
     accessLogs: Object.freeze(accessLogs),
     fpmHandler,
     ourReference,
     manualLines: Object.freeze(manualLines),
+    redirectOnly,
   });
+}
+
+/**
+ * mod_alias: `Redirect [status] / <absolute URL>`, `RedirectPermanent|RedirectTemp / <URL>`,
+ * `RedirectMatch [status] <catch-all regex> <URL>`. `Redirect` matches by prefix, so only `/` is
+ * every request.
+ */
+function wholeSiteRedirect(name: string, args: readonly string[]): boolean {
+  const withStatus = args.length === 3;
+  if (withStatus && !REDIRECT_STATUS.test(args[0] ?? '')) return false;
+  const [path, target] = withStatus ? [args[1] ?? '', args[2] ?? ''] : [args[0] ?? '', args[1] ?? ''];
+  if (!isAbsoluteRedirectTarget(target)) return false;
+  switch (name) {
+    case 'redirect':
+      return path === '/';
+    case 'redirectpermanent':
+    case 'redirecttemp':
+      return !withStatus && path === '/';
+    case 'redirectmatch':
+      return isCatchAllPattern(path);
+    default:
+      return false;
+  }
+}
+
+/**
+ * mod_rewrite: `RewriteRule <catch-all> <absolute URL> [..R..]`. The R flag is required: without it
+ * mod_rewrite strips a substitution naming the current host and serves it internally.
+ */
+function wholeSiteRewrite(args: readonly string[]): boolean {
+  const [pattern = '', target = '', flags = ''] = args;
+  if (!isCatchAllPattern(pattern) || !isAbsoluteRedirectTarget(target)) return false;
+  const list = /^\[(.*)\]$/.exec(flags)?.[1]?.split(',') ?? [];
+  return list.some(flag => /^(?:R|redirect)(?:=.*)?$/i.test(flag.trim()));
 }
 
 /* ── matching (security) ─────────────────────────────────────────────────────────── */

@@ -264,7 +264,8 @@ export function writtenPackageItem(
     ],
     commands: [],
     options: [
-      { id: PACKAGE_REMOVE, label: `remove ${path}`, resolves: 'act' as const },
+      // Typed (decision_class.ts): removing the package is never taken by Enter.
+      { id: PACKAGE_REMOVE, label: `remove ${path}`, resolves: 'act' as const, confirm: 'typed' as const },
       { id: PACKAGE_KEEP, label: 'keep it', resolves: 'skip' as const },
     ],
     defaultOption: PACKAGE_REMOVE,
@@ -569,7 +570,7 @@ export function pairOneMachine(
           kind: 'decision',
           id: 'replace',
           options: [
-            { id: 'replace', label: `re-pair '${invocation.name}' (replace keeps its public URL, qualities and probe files)`, resolves: 'replace' },
+            { id: 'replace', label: `re-pair '${invocation.name}' (replace keeps its public URL, qualities and probe files)`, resolves: 'replace', confirm: 'typed' },
             { id: 'skip', label: 'leave the existing registration', resolves: 'skip' },
             MANUAL,
           ],

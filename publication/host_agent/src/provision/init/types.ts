@@ -128,13 +128,23 @@ export interface MapDef {
   readonly variable: string;
 }
 
+/**
+ * ONE ROW PER VHOST AND PORT, never per listen address: a block on several addresses of one port
+ * (Apache `<VirtualHost 192.0.2.1:443 [2001:db8::1]:443>`, nginx `listen 443; listen [::]:443;`)
+ * is one row whose `addresses` lists them all. Two SEPARATE blocks of one site, one per address
+ * family, stay two rows: draft.ts chooseVhost pairs them (the site's `vhostTwins`).
+ */
 export interface Vhost {
   readonly file: string;
   readonly realpath: string;
   readonly line: number;
   readonly endLine: number;
+  /** Every address this block listens on at `port`, as the server prints it (`*`, `_default_`, `192.0.2.1`, `[::]`), in its order. */
+  readonly addresses: readonly string[];
   readonly port: number;
   readonly ssl: boolean;
+  /** Every request is redirected to an absolute URL (the :80 → https:// block): never a candidate for the include. */
+  readonly redirectOnly: boolean;
   readonly serverName: string;
   readonly matchedBy: 'servername' | 'alias' | 'wildcard' | 'regex';
   readonly documentRoot: string | null;
@@ -418,6 +428,14 @@ export interface ItemOption {
   readonly id: string;
   readonly label: string;
   readonly resolves: 'act' | 'skip' | 'manual' | 'relocate' | 'replace';
+  /**
+   * 'typed' ⇒ this option edits an operator file, replaces a pairing, removes something, or sets an
+   * SELinux boolean / mount option: a decision offering it is answered only by TYPING an option id —
+   * Enter never takes its default, and it is never resolved as "the only option" (decision_class.ts).
+   * Set by the PRODUCER (compare.ts, pair.ts), never inferred from a label; the agreement with the
+   * action kinds is gated (decision_class.ts typedMarkProblems).
+   */
+  readonly confirm?: 'typed';
 }
 
 /** The item id grammar (stable across runs; `--decide` takes it). */
@@ -481,8 +499,21 @@ export type InitAction =
     }
   | { readonly kind: 'apache_modules'; readonly mods: readonly string[] }
   /** act computes `after` with web_edit.ts, re-read under the TOCTOU check (beforeSha). */
-  /** `line`: the 1-based opener line (Vhost.line) — a file may hold several vhosts (a :80 redirect and the TLS one). */
-  | { readonly kind: 'vhost_reference'; readonly path: string; readonly beforeSha: string; readonly server: WebServer; readonly edit: 'reference'; readonly line: number }
+  /**
+   * `line`: the 1-based opener line (Vhost.line) — a file may hold several vhosts (a :80 redirect and the TLS one).
+   * `alsoLines`: the openers of the same site's address-family twins IN THE SAME FILE (draft.ts
+   * vhostTwins): one edit of the file, one transaction, so the second insertion never meets a
+   * beforeSha the first one already changed. Absent = `line` only.
+   */
+  | {
+      readonly kind: 'vhost_reference';
+      readonly path: string;
+      readonly beforeSha: string;
+      readonly server: WebServer;
+      readonly edit: 'reference';
+      readonly line: number;
+      readonly alsoLines?: readonly number[];
+    }
   | {
       readonly kind: 'vhost_manual_removal';
       readonly path: string;
@@ -509,7 +540,10 @@ export interface Prompter {
   readonly interactive: boolean;
   /** `<question> [y/N]`; false on anything but y/yes. */
   confirm(question: string): Promise<boolean>;
-  /** One decision: the option id typed (the default is shown but must be typed); null = aborted. */
+  /**
+   * One decision: the option id chosen; null = aborted. Enter answers the shown default unless the
+   * decision is `typed` (decision_class.ts classifyDecision — the one rule both prompters follow).
+   */
   choose(item: Item): Promise<string | null>;
   /** A visible value with a default; null = aborted. */
   visible(label: string, defaultValue: string | null): Promise<string | null>;

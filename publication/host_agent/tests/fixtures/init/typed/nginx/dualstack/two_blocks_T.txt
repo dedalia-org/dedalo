@@ -1,0 +1,36 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+user www-data;
+events { worker_connections 768; }
+http {
+    include /etc/nginx/sites-enabled/*;
+}
+
+# configuration file /etc/nginx/sites-enabled/museum.org:
+# One server per address family (an operator's habit from before dual-stack `listen` pairs).
+server {
+    listen 80;
+    server_name museum.org;
+    rewrite ^ https://museum.org$request_uri? permanent;
+}
+server {
+    listen [::]:80;
+    server_name museum.org;
+    return 301 https://museum.org$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name museum.org;
+    root /home/museum.org/httpdocs;
+    error_log /var/log/nginx/museum.org/error.log;
+    ssl_certificate /etc/letsencrypt/live/museum.org/fullchain.pem;
+}
+server {
+    listen [::]:443 ssl;
+    server_name museum.org;
+    root /home/museum.org/httpdocs;
+    error_log /var/log/nginx/museum.org/error.log;
+    ssl_certificate /etc/letsencrypt/live/museum.org/fullchain.pem;
+}
+

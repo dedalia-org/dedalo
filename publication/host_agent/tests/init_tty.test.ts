@@ -1,12 +1,13 @@
 /**
  * init/tty.ts — the operator's terminal (spec §1.2 TTY), on fake streams: raw mode on only while a
  * question is open and ALWAYS restored (Enter, Ctrl-C, Ctrl-D, SIGINT); a hidden answer is never
- * echoed and must be typed twice; a decision's default is shown, never taken; no TTY answers null.
+ * echoed and must be typed twice; a decision's default is taken by Enter unless the decision is
+ * `typed` (decision_class.ts) or has no default; no TTY answers null.
  * Seam: TtyStreams (input/output/signals); scriptedPrompter is the same contract, scripted.
  */
 import { describe, expect, test } from 'bun:test';
 import type { TtyInput, TtyOutput, TtySignals } from '../src/provision/init/tty';
-import { SECRET_ATTEMPTS, scriptedPrompter, ttyPrompter } from '../src/provision/init/tty';
+import { SCRIPTED_ENTER, SECRET_ATTEMPTS, enterAnswer, scriptedPrompter, ttyPrompter } from '../src/provision/init/tty';
 import type { Item } from '../src/provision/init/types';
 
 class FakeInput implements TtyInput {
@@ -86,6 +87,19 @@ const DECISION: Item = {
   hostWide: false,
 };
 
+/** The same decision with a typed option (an operator file edit): Enter takes nothing. */
+const TYPED: Item = {
+  ...DECISION,
+  id: 'web.vhost.0123abcd',
+  title: 'add the include',
+  options: [
+    { id: 'act', label: 'do it', resolves: 'act', confirm: 'typed' },
+    { id: 'manual', label: 'by hand', resolves: 'manual' },
+  ],
+  defaultOption: 'act',
+  operatorFile: true,
+};
+
 describe('ttyPrompter', () => {
   test('interactive only when stdin and stdout are TTYs with raw mode', () => {
     expect(terminal().prompter.interactive).toBe(true);
@@ -117,13 +131,35 @@ describe('ttyPrompter', () => {
     }
   });
 
-  test('choose: the default is shown but must be typed; an unknown option asks again; the title is sanitized', async () => {
-    const t = terminal('\r', 'nope\r', 'system\r');
+  test('choose: an unknown option asks again; a typed option is taken; the title is sanitized', async () => {
+    const t = terminal('nope\r', 'system\r');
     expect(await t.prompter.choose(DECISION)).toBe('system');
     expect(t.output.text).toContain('home: the per-site home (default)');
-    expect(t.output.text).toContain('the default is shown, never taken: type an option');
     expect(t.output.text).toContain("'nope' is not one of home, system");
     expect(t.output.text).not.toContain('\x1b');
+  });
+
+  test('choose (class choose): Enter takes the shown default, and the prompt says so', async () => {
+    const t = terminal('\r');
+    expect(await t.prompter.choose(DECISION)).toBe('home');
+    expect(t.output.text).toContain('choose home | system (default home — Enter takes it): ');
+    expect(t.input.raw).toEqual([true, false]);
+  });
+
+  test('choose (class typed): Enter is refused, naming why; only a typed option answers', async () => {
+    const t = terminal('\r', '\r', 'act\r');
+    expect(await t.prompter.choose(TYPED)).toBe('act');
+    expect(t.output.text).toContain('choose act | manual (default act — type it): ');
+    expect(t.output.text.split('this decision changes your files or the whole host: Enter takes nothing, type an option')).toHaveLength(3);
+    const manual = terminal('\r', 'manual\r');
+    expect(await manual.prompter.choose(TYPED)).toBe('manual');
+  });
+
+  test('choose without a default: Enter takes nothing', async () => {
+    const t = terminal('\r', 'system\r');
+    expect(await t.prompter.choose({ ...DECISION, defaultOption: undefined })).toBe('system');
+    expect(t.output.text).toContain('this decision has no default: type an option');
+    expect(t.output.text).toContain('choose home | system: ');
   });
 
   test('visible: echoed, backspace edits, an empty answer takes the shown default', async () => {
@@ -215,6 +251,15 @@ describe('scriptedPrompter', () => {
     expect(await p.secret('pw')).toBe('x');
     expect(await p.secret('other')).toBeNull();
     expect(p.asked).toEqual(['confirm Apply?', 'choose declaration.layout', 'choose other', 'visible host', 'visible port', 'secret pw', 'secret other']);
+  });
+
+  test('SCRIPTED_ENTER is the terminal\'s Enter: the default of a choose decision; nothing for a typed one', async () => {
+    const p = scriptedPrompter({ choices: { [DECISION.id]: SCRIPTED_ENTER, [TYPED.id]: SCRIPTED_ENTER } });
+    expect(await p.choose(DECISION)).toBe('home');
+    expect(await p.choose(TYPED)).toBeNull();
+    expect(p.asked).toEqual([`choose ${DECISION.id}`, `enter ${DECISION.id}=home`, `choose ${TYPED.id}`, `enter refused ${TYPED.id}`]);
+    // The one rule both prompters read.
+    expect([enterAnswer(DECISION), enterAnswer(TYPED), enterAnswer({ ...DECISION, defaultOption: undefined })]).toEqual(['home', null, null]);
   });
 
   test('not interactive: nothing is answered', async () => {

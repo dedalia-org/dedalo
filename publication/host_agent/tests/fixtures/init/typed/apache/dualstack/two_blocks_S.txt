@@ -1,0 +1,11 @@
+VirtualHost configuration:
+0.0.0.0:443            museum.org (/etc/apache2/sites-enabled/museum.org-v4.conf:1)
+[::]:443               museum.org (/etc/apache2/sites-enabled/museum.org-v6.conf:1)
+0.0.0.0:80             museum.org (/etc/apache2/sites-enabled/museum.org-redirect.conf:2)
+[::]:80                museum.org (/etc/apache2/sites-enabled/museum.org-redirect.conf:8)
+ServerRoot: "/etc/apache2"
+Main DocumentRoot: "/var/www/html"
+Main ErrorLog: "/var/log/apache2/error.log"
+PidFile: "/var/run/apache2/apache2.pid"
+User: name="www-data" id=33
+Group: name="www-data" id=33

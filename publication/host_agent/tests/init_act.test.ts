@@ -785,6 +785,28 @@ describe('operator files (§5.10)', () => {
     expect(after.slice(0, 3).join('\n')).not.toContain('IncludeOptional');
   });
 
+  test('address-family twins in ONE file (alsoLines): one edit, one transaction, the include after EACH opener — bottom-up, idempotent', () => {
+    const w = makeWorld();
+    const twins = '<VirtualHost 0.0.0.0:443>\n  ServerName example.org\n</VirtualHost>\n<VirtualHost [::]:443>\n  ServerName example.org\n</VirtualHost>\n';
+    w.host.seedFile(VHOST, twins);
+    const ctx = { ...w.ctx, ports: { ...w.ctx.ports, webEdit: { insertApacheReference, insertNginxReference, removeManualLines } } };
+    const twinItem = (beforeSha: string, also: number) => item({ kind: 'vhost_reference', path: VHOST, beforeSha, server: 'apache', edit: 'reference', line: 1, alsoLines: [also] }, 'change', 'web.vhost.0a1b2c3d');
+    expect(executeItems([twinItem(sha(twins), 4)], ctx).exit).toBe(0);
+    expect(w.edits).toHaveLength(1);
+    const after = Buffer.from(w.edits[0]?.after ?? []).toString().split('\n');
+    expect(after.filter(line => line.trim() === 'IncludeOptional /etc/dedalo_publication_host/test/web.apache.conf')).toHaveLength(2);
+    // Each include sits right after its own opener (the second opener moved down by the first insertion).
+    expect([after[0], after[2], after[5], after[7]]).toEqual([
+      '<VirtualHost 0.0.0.0:443>',
+      '    IncludeOptional /etc/dedalo_publication_host/test/web.apache.conf',
+      '<VirtualHost [::]:443>',
+      '    IncludeOptional /etc/dedalo_publication_host/test/web.apache.conf',
+    ]);
+    // Both present now (a re-run names the openers where they now stand, 1 and 6): a noop, no second transaction.
+    expect(executeItems([twinItem(w.host.readOperatorFile(VHOST).sha, 6)], ctx).outcomes[0]?.status).toBe('noop');
+    expect(w.edits).toHaveLength(1);
+  });
+
   test('MUTATION: TOCTOU — a file changed since shown is never edited', () => {
     const w = vhostWorld();
     const shown = reference();

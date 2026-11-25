@@ -58,7 +58,13 @@ export interface MockReply {
 	body: unknown;
 }
 
-export type MockListen = { kind: 'tls'; pki: TestPki } | { kind: 'unix'; socket: string };
+/**
+ * Where the mock listens: mTLS on loopback (`hostname` defaults to 127.0.0.1; `::1` drives the
+ * IPv6 listener — the pki's server SAN must name it), or a unix socket.
+ */
+export type MockListen =
+	| { kind: 'tls'; pki: TestPki; hostname?: string }
+	| { kind: 'unix'; socket: string };
 
 export interface MockAgent {
 	/** The TCP port (tls), 0 for a unix socket. */
@@ -268,7 +274,7 @@ export function startMockAgent(listen: MockListen, instance: string, token: stri
 	const server =
 		listen.kind === 'tls'
 			? Bun.serve({
-					hostname: '127.0.0.1',
+					hostname: listen.hostname ?? '127.0.0.1',
 					port: 0,
 					tls: {
 						cert: listen.pki.serverCertPem,

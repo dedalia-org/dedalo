@@ -139,7 +139,9 @@ port label (`src/provision/selinux.ts`).
 **The guided install** (spec §9) is `provision init`, started only through
 `deploy/install.sh` (it stages the source root-only, verifies Bun against `.bun-sha256`, then
 starts Bun with an empty environment). It discovers the host, compares it with the draft,
-prints *already right* / *will change* / *needs your decision*, and acts after confirmation:
+prints *already right* / *will change* / *needs your decision* (and, on a terminal, *needs your
+action*: how each decision is asked is `src/provision/init/decision_class.ts`, spec §9.16), and
+acts after confirmation:
 it creates the missing accounts, makes the site home root's, edits the operator's vhost (with
 backup, configtest and rollback), sets SELinux booleans only on a typed answer, writes the API
 configuration files, runs `provision apply` in-process, proves the agent (B4,

@@ -48,7 +48,10 @@ import { OPEN_WIDGET_EVENT } from '../../../core/area_maintenance/js/maintenance
 import { build_map_view } from '../../../core/area_maintenance/js/render_area_maintenance.js';
 import { media_control } from '../../../core/area_maintenance/widgets/media_control/js/media_control.js';
 import { publication_hosts } from '../../../core/area_maintenance/widgets/publication_hosts/js/publication_hosts.js';
-import { read_host_fields } from '../../../core/area_maintenance/widgets/publication_hosts/js/render_publication_hosts.js';
+import {
+	public_url_value,
+	read_host_fields,
+} from '../../../core/area_maintenance/widgets/publication_hosts/js/render_publication_hosts.js';
 import { check_row } from '../../../core/area_maintenance/widgets/update_code/js/render_update_status.js';
 import { ApiError, CLIENT_ERROR } from '../../../core/common/js/api_error.js';
 import { data_manager } from '../../../core/common/js/data_manager.js';
@@ -902,6 +905,48 @@ describe('PUBLICATION_HOSTS WIDGET', function () {
 				},
 			]);
 			assert.strictEqual(self.reloads, 1);
+		});
+
+		it('public_url_value: https is proposed, http is kept as typed (§7)', function () {
+			assert.isNull(public_url_value(''), 'blank = not set');
+			assert.isNull(public_url_value('https://'), 'the bare proposed scheme = not set');
+			assert.strictEqual(
+				public_url_value('www.example.test'),
+				'https://www.example.test',
+				'no scheme typed: https is proposed',
+			);
+			assert.strictEqual(public_url_value('https://www.example.test'), 'https://www.example.test');
+			assert.strictEqual(
+				public_url_value('http://intranet.example.test'),
+				'http://intranet.example.test',
+				'http is never rewritten nor refused here: the server answers a notice',
+			);
+		});
+
+		it('the public URL field proposes https on focus and shows the server sentence on save', async function () {
+			const self = build_widget(ok_value([build_host({ public_url: null })]));
+			self.next_response = {
+				ok: true,
+				data: { host: 'www', fields: ['public_url'] },
+				msg: "OK. Host 'www' updated: public_url. Notice: the public URL is http://.",
+			};
+			const content = await mount(self);
+			const input = content.querySelector('.host_edit input[name="public_url"]');
+			assert.include(input.placeholder, 'https://');
+			input.dispatchEvent(new Event('focus'));
+			assert.strictEqual(input.value, 'https://', 'an empty field receives the https scheme');
+			input.dispatchEvent(new Event('blur'));
+			assert.strictEqual(input.value, '', 'left untouched, it is blank again');
+
+			input.value = 'http://intranet.example.test';
+			content.querySelector('.host_edit .button_save_host').click();
+			await settle();
+			assert.strictEqual(self.calls[0].options.public_url, 'http://intranet.example.test');
+			assert.include(
+				content.querySelector('.body_response').textContent,
+				'Notice: the public URL is http://',
+				'the save shows the server sentence, notice included',
+			);
 		});
 
 		it('read_host_fields: blank inputs are null, qualities split on commas', function () {

@@ -22,7 +22,9 @@
  * parseDraft, inside the kit's own copy (kit_build.ts).
  *
  * MULTI-INSTANCE. Two drafts are on the same machine when both listen on a socket (one machine:
- * the work system's) or both on TLS at the same IPv4 address. Siblings are the other drafts on
+ * the work system's) or both on TLS at the same address — an IPv4, or a private IPv6 compared in
+ * its RFC 5952 form (layout.ts sameListenHost), so `FD00:0::1` and `fd00::1` are one machine.
+ * Siblings are the other drafts on
  * that machine — awaiting installation, or paired and still in the registry — and the registry's
  * hosts at that address (their instance and listener: the registry knows no more of them).
  *
@@ -34,6 +36,12 @@
  *
  * A DRAFT'S STATE is derived, never stored: `paired` while the registry holds a host whose
  * instance is the draft's (and, on TLS, at the draft's address), `awaiting` otherwise.
+ *
+ * ONE MACHINE IS THE DEFAULT (spec §1.1): the public website as another vhost of this server.
+ * propose_draft proposes it unless told otherwise, and a one-machine draft is installed with
+ * ONE block run here as root (oneMachineInstall: the draft file, the agent's dependencies when
+ * missing, install.sh --source <this release tree>) — init pairs it itself; the kit and the
+ * sealed package are the two-machine path.
  */
 
 import { join } from 'node:path';
@@ -45,14 +53,16 @@ import {
 import {
 	type AgentLayout,
 	cleanAbsolute,
+	comparableHost,
 	DOMAIN_PATTERN,
 	derive,
 	FORBIDDEN_HOMES,
 	type HostDeclaration,
 	INSTANCE_PATTERN,
 	LayoutError,
-	LISTEN_HOST_PATTERN,
 	layoutPaths,
+	listenHostProblem,
+	sameListenHost,
 	V1_PHP_FLOOR,
 } from '../../../publication/host_agent/src/provision/layout.ts';
 import {
@@ -232,14 +242,28 @@ function readListen(r: Reader, value: unknown): PanelDraft['listen'] {
 	}
 	return {
 		kind: 'tls',
-		host: r.text(
-			'listen.host',
-			listen.host,
-			LISTEN_HOST_PATTERN,
-			'the private IPv4 address the agent binds (e.g. 10.20.0.2)',
-		),
+		host: readListenHost(r, listen.host),
 		port: r.port('listen.port', listen.port),
 	};
+}
+
+/**
+ * `listen.host`: the private address the agent binds — the agent's ONE grammar (layout.ts
+ * listenHostProblem: a canonical IPv4, or a unique local / loopback IPv6). What an operator
+ * TYPES is canonicalized first (`FD00:0::1` → `fd00::1`, RFC 5952): the draft file then carries
+ * the one spelling the agent's own schema demands and every comparison downstream reads. A
+ * refusal says why (a link-local needs a zone id the channel cannot carry, a global address is
+ * not private, a hostname is never one).
+ */
+function readListenHost(r: Reader, value: unknown): string {
+	const host = typeof value === 'string' ? comparableHost(value.trim()) : value;
+	const problem = listenHostProblem(host);
+	if (problem === null) return host as string;
+	r.refuse(
+		'listen.host',
+		`must be the private address the agent binds — an IPv4 (e.g. 10.20.0.2) or a unique local IPv6 (e.g. fd00:20::2): ${problem}`,
+	);
+	return '';
 }
 
 /** `site.home`: empty/absent = the default; else a clean absolute path no site-sharing directory. */
@@ -457,13 +481,16 @@ function siblingField(refusal: string): DraftField {
 	return formFieldOf(/^([a-z0-9_.]+)/.exec(refusal)?.[1] ?? 'instance');
 }
 
-/** Are two listeners on the same machine (both sockets: the work system's; both TLS: one IPv4)? */
+/**
+ * Are two listeners on the same machine (both sockets: the work system's; both TLS: one address,
+ * compared canonically — an IPv6 has many spellings and one RFC 5952 form)?
+ */
 export function sameMachine(
 	a: PanelDraft['listen'],
 	b: PublicationHostRecord['address'] | PanelDraft['listen'],
 ): boolean {
 	if (a.kind === 'unix') return b.kind === 'unix';
-	return b.kind === 'tls' && b.host === a.host;
+	return b.kind === 'tls' && sameListenHost(b.host, a.host);
 }
 
 /** derive() of a draft's stand-in, or the field it refuses. */
@@ -493,7 +520,7 @@ export function pairedRecord(
 				(listen.kind === 'unix'
 					? host.address.kind === 'unix'
 					: host.address.kind === 'tls' &&
-						host.address.host === listen.host &&
+						sameListenHost(host.address.host, listen.host) &&
 						host.address.port === listen.port),
 		) ?? null
 	);
@@ -641,7 +668,7 @@ function nextFree(from: number, taken: ReadonlySet<number>): number {
 export interface ProposalInput {
 	domain: string;
 	machines: 'one' | 'two';
-	/** two machines: the private IPv4 the agent will bind (may be ''). */
+	/** two machines: the private address (IPv4 or unique local IPv6) the agent will bind (may be ''). */
 	listenHost: string;
 	apis: 'v2_only' | 'v1_and_v2';
 	/** one machine: the work system's own group (null when it cannot be named). */
@@ -663,7 +690,7 @@ export function proposeDraft(
 	const listen: PanelDraft['listen'] =
 		input.machines === 'one'
 			? { kind: 'unix' }
-			: { kind: 'tls', host: input.listenHost, port: DEFAULT_TLS_PORT };
+			: { kind: 'tls', host: proposedListenHost(input.listenHost), port: DEFAULT_TLS_PORT };
 	const onMachine = context.drafts.filter((stored) => sameMachine(listen, stored.draft.listen));
 	const v2Port = nextFree(
 		DEFAULTS.v2Port,
@@ -690,6 +717,14 @@ export function proposeDraft(
 	return { name: instance, draft };
 }
 
+/**
+ * The address the form was given, in the one spelling the draft keeps (an IPv6 in its RFC 5952
+ * form); '' when none was. Not judged here: a proposal is never stored, save_draft judges it.
+ */
+function proposedListenHost(host: unknown): string {
+	return typeof host === 'string' ? comparableHost(host.trim()) : '';
+}
+
 /** init's default name for an instance, or '' when the domain gave no instance name. */
 function named(instance: string, of: (instance: string) => string): string {
 	return instance === '' ? '' : of(instance);
@@ -707,7 +742,9 @@ function proposedTlsPort(
 			stored.draft.listen.kind === 'tls' ? [stored.draft.listen.port] : [],
 		),
 		...context.registry.hosts.flatMap((paired) =>
-			paired.address.kind === 'tls' && paired.address.host === host ? [paired.address.port] : [],
+			paired.address.kind === 'tls' && sameListenHost(paired.address.host, host)
+				? [paired.address.port]
+				: [],
 		),
 		v2Port,
 	]);
@@ -725,6 +762,123 @@ function proposedMedia(input: ProposalInput): PanelDraft['media'] {
 /** The draft file the kit carries (`draft.json`): the panel draft, nothing added. */
 export function draftJson(draft: PanelDraft): string {
 	return `${JSON.stringify(draft, null, 2)}\n`;
+}
+
+// ------------------------------------------------------------- the one-machine install (§1.1)
+
+/**
+ * What the one-machine install block is built from: facts of THIS work system, read by the
+ * panel (publication_host_setup.ts SetupDeps.installSource), never typed by anyone.
+ */
+export interface InstallSource {
+	/** The installed release tree the engine runs from: install.sh's `--source`. */
+	root: string;
+	/** The pinned Bun running this engine (its own executable). */
+	bun: string;
+	/** The account that runs Dédalo, or null when it has no name (a bare uid). */
+	user: string | null;
+	/** The agent's production dependencies are present in the tree (`hostagent:install` ran). */
+	agentDeps: boolean;
+}
+
+/** The wire shape of a one-machine draft's install (root only, the draft row's `install`). */
+export interface OneMachineInstall {
+	/** The release tree given as `--source`. */
+	source: string;
+	/** Where the block writes the draft: root-only, as install.sh requires of `--draft`. */
+	draft_file: string;
+	/** The agent's dependencies were found in the tree (false: the block installs them first). */
+	agent_deps: boolean;
+	/** The block to paste into a root shell on THIS server. */
+	command: string;
+}
+
+/**
+ * The heredoc terminator of the draft in the block. A draft line can never equal it: every
+ * line of draftJson() is JSON (indentation, a brace, or a quoted key), and the terminator is
+ * a bare upper-case word — asserted anyway (oneMachineInstall), since a match would end the
+ * file early and run the rest of the draft as shell.
+ */
+export const DRAFT_HEREDOC_END = 'DEDALO_PUBLICATION_HOST_DRAFT';
+
+/** The directory the block writes the draft into (root's own: install.sh wants a root-owned file). */
+export const ONE_MACHINE_DRAFT_DIR = '/root';
+
+/** A word the shell reads back unchanged: bare when it is plainly safe, else single-quoted. */
+export function shellWord(value: string): string {
+	if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * THE ONE BLOCK a one-machine draft is installed with (spec §1.1, §9.14): on this server, as
+ * root, three steps the operator page's guided install describes, with this installation's own
+ * paths filled in —
+ *   1. the draft written as a root-only file (install.sh refuses a `--draft` another account
+ *      can write: root never runs config a non-root account can change);
+ *   2. ONLY when the tree lacks them, the agent's production dependencies, installed in the
+ *      release tree as the account that runs Dédalo (`hostagent:install`, by the pinned Bun
+ *      named outright, so no PATH decides which Bun runs) — `node_modules` is tolerated by the
+ *      publication manifest, so this never drifts the release the kit builder verifies;
+ *   3. install.sh from the release tree with `--source` = that tree. It shows the source digest
+ *      and asks before any of it runs as root. On one machine provision init then pairs the
+ *      host itself (it runs this work system's pairing command): no kit, no package. A draft
+ *      whose registry name is not its instance passes `--pair-name`, so the pairing lands
+ *      under the name this panel shows.
+ * Pure: every value is shell-quoted where it is not plainly safe, and the draft goes through a
+ * quoted heredoc (no expansion inside).
+ */
+export function oneMachineInstall(
+	name: string,
+	draft: PanelDraft,
+	source: InstallSource,
+): OneMachineInstall {
+	if (draft.listen.kind !== 'unix') {
+		throw new Error(`draft '${name}' listens on TLS: two machines install from the kit`);
+	}
+	const json = draftJson(draft);
+	if (json.split('\n').includes(DRAFT_HEREDOC_END)) {
+		throw new Error(`draft '${name}' holds the heredoc terminator line`);
+	}
+	const draftFile = `${ONE_MACHINE_DRAFT_DIR}/${draft.instance}.draft.json`;
+	const file = shellWord(draftFile);
+	const installSh = shellWord(`${source.root}/publication/host_agent/deploy/install.sh`);
+	const pairName = name === draft.instance ? '' : ` -- --pair-name ${shellWord(name)}`;
+	const lines = [
+		'# On THIS server, as root. One machine: provision init pairs the host itself.',
+		'# 1. The draft, as a file only root can write (install.sh refuses any other).',
+		`(umask 077 && rm -f ${file} && cat > ${file}) <<'${DRAFT_HEREDOC_END}'`,
+		...json.replace(/\n$/, '').split('\n'),
+		DRAFT_HEREDOC_END,
+		...agentDepsLines(source),
+		`# ${source.agentDeps ? 2 : 3}. The guided install from this release tree (it shows the source digest and asks first).`,
+		`sh ${installSh} ${shellWord(draft.instance)} --source ${shellWord(source.root)} --draft ${file}${pairName}`,
+	];
+	return {
+		source: source.root,
+		draft_file: draftFile,
+		agent_deps: source.agentDeps,
+		command: `${lines.join('\n')}\n`,
+	};
+}
+
+/** Step 2 of the block: nothing when the dependencies are there, else their install. */
+function agentDepsLines(source: InstallSource): string[] {
+	if (source.agentDeps) return [];
+	const agentDir = `${source.root}/publication/host_agent`;
+	// what `bun run hostagent:install` runs (package.json), with the pinned Bun named outright
+	const install = `cd ${shellWord(agentDir)} && exec ${shellWord(source.bun)} install --frozen-lockfile --production`;
+	if (source.user === null) {
+		return [
+			"# 2. The agent's production dependencies are missing from the release tree. Install them",
+			'#    as the account that runs Dédalo (this server runs it under a uid with no name):',
+			`#    ${install}`,
+		];
+	}
+	return [
+		"# 2. The agent's production dependencies, installed in the release tree as the account that runs Dédalo.",
+		`su -s /bin/sh ${shellWord(source.user)} -c ${shellWord(install)}`,
+	];
 }
 
 // --------------------------------------------------------------------------------- the store

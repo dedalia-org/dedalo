@@ -60,6 +60,8 @@ const ZERO_DEP = [
   'init/pair.ts',
   'init/web_edit.ts',
   'init/report.ts',
+  // How a decision is asked (P2): report.ts and tty.ts read it.
+  'init/decision_class.ts',
   ...readdirSync(join(PROVISION, 'render'))
     .filter(name => name.endsWith('.ts'))
     .map(name => `render/${name}`),

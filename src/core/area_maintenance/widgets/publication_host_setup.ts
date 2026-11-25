@@ -17,6 +17,16 @@
  *
  * EVERY ACTION IS ROOT-ONLY (the widget's E10 rule), checked FIRST, before any module loads.
  *
+ * ONE MACHINE FIRST (spec §1.1). The common case is the public website as another vhost of THIS
+ * server: propose_draft proposes it by default, and root's draft row of an awaiting one-machine
+ * draft carries `install` — the ONE block to run here as root (drafts.ts oneMachineInstall:
+ * the draft as a root-only file, the agent's dependencies when the tree lacks them, install.sh
+ * --source <this release tree>). provision init pairs such a host itself, during that install;
+ * the panel sees it as the draft's derived `paired` state. The kit stays available (it is the
+ * two-machine path, and a one-machine operator may still prefer it). After a pairing the panel
+ * offers FIRST USE (docs step 10): the client chains the widget's own apply_rules → push_apis
+ * → probe_public, each its own bounded, root-only request (render_new_host.js run_first_use).
+ *
  * WHY THE PANEL MAY PAIR NOW, AND STILL TAKES NO ADDRESS. A typed agent address could send the
  * engine's credentials anywhere; that is why the panel had no pairing form. pair_package takes
  * no address: the address comes from INSIDE the package, it must equal the listener of a draft
@@ -35,11 +45,16 @@
  * passes loadDefaultSetupDeps. Gate: test/unit/publication_host_setup_native.test.ts.
  */
 
+import { userInfo } from 'node:os';
+import { join } from 'node:path';
+import { sameListenHost } from '../../../../publication/host_agent/src/provision/layout.ts';
 import type { PairingParts } from '../../../../publication/host_agent/src/provision/pairing_package.ts';
 import { DedaloError } from '../../errors/dedalo_error.ts';
 import type {
 	DraftContext,
 	DraftsFile,
+	InstallSource,
+	OneMachineInstall,
 	PanelDraft,
 	StoredDraft,
 } from '../../publication_host/drafts.ts';
@@ -154,6 +169,9 @@ export interface SetupDeps {
 	engineGroup(): Promise<string | null>;
 	/** The work system's media root (one machine, shared mode), or null. */
 	engineMediaRoot(): string | null;
+	/** This work system's release tree, pinned Bun, account and agent-dependency state (§1.1). */
+	installSource(): Promise<InstallSource>;
+	oneMachineInstall: typeof import('../../publication_host/drafts.ts').oneMachineInstall;
 	buildKit(name: string, draft: PanelDraft): Promise<PanelKit>;
 	cachedKit(name: string, draft: PanelDraft): Promise<PanelKit | null>;
 	readKit(kit: PanelKit): Promise<Uint8Array | null>;
@@ -196,6 +214,7 @@ export async function loadDefaultSetupDeps(): Promise<SetupDeps> {
 	const { config } = await import('../../../config/config.ts');
 	const { assertTestMediaRoot } = await import('../../media/test_media_root.ts');
 	const { pushAnswerWithinMs } = await import('./publication_hosts.ts');
+	const { projectRoot } = await import('../../../config/env.ts');
 	return {
 		loadRegistry: registry.loadRegistry,
 		loadDrafts: drafts.loadDrafts,
@@ -215,6 +234,14 @@ export async function loadDefaultSetupDeps(): Promise<SetupDeps> {
 				? null
 				: assertTestMediaRoot(root, 'publication_host_setup.engineMediaRoot');
 		},
+		installSource: async () => ({
+			root: projectRoot,
+			// the pinned Bun this engine runs on: the one the release's dependencies are for
+			bun: process.execPath,
+			user: ownUserName(),
+			agentDeps: await agentDepsInstalled(projectRoot),
+		}),
+		oneMachineInstall: drafts.oneMachineInstall,
 		buildKit: (name, draft) => kits.buildPanelKit(name, draft),
 		cachedKit: (name, draft) => kits.cachedPanelKit(name, draft),
 		readKit: kits.readPanelKit,
@@ -241,6 +268,40 @@ async function ownGroupName(): Promise<string | null> {
 	} catch {
 		// no /etc/group (not a Unix host): the operator names the group
 		return null;
+	}
+}
+
+/** This process's account name (the account that runs Dédalo), or null for a nameless uid. */
+function ownUserName(): string | null {
+	try {
+		const name = userInfo().username;
+		return name === '' ? null : name;
+	} catch {
+		// a uid with no passwd entry (a container's bare uid): the block names no account
+		return null;
+	}
+}
+
+/**
+ * Are the agent's production dependencies present in the tree (`bun run hostagent:install`
+ * ran)? Every `dependencies` entry of the agent's package.json must have its own package.json
+ * under the agent's node_modules. An unreadable package.json is `false`: the block then
+ * installs them, and the install is what reports a broken tree. Async (request path).
+ */
+export async function agentDepsInstalled(root: string): Promise<boolean> {
+	const { access, readFile } = await import('node:fs/promises');
+	const agentDir = join(root, 'publication', 'host_agent');
+	try {
+		const manifest = JSON.parse(await readFile(join(agentDir, 'package.json'), 'utf8')) as {
+			dependencies?: Record<string, string>;
+		};
+		const names = Object.keys(manifest.dependencies ?? {});
+		await Promise.all(
+			names.map((name) => access(join(agentDir, 'node_modules', name, 'package.json'))),
+		);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
@@ -391,6 +452,12 @@ export interface DraftRow {
 	state: 'awaiting' | 'paired';
 	paired_as: string | null;
 	kit: Omit<PanelKit, 'file'> | null;
+	/**
+	 * An AWAITING ONE-MACHINE draft: the block to run on this server (drafts.ts
+	 * oneMachineInstall). null for a paired draft, a two-machine draft (the kit + the sealed
+	 * package), or when this server's install facts could not be read (logged; the kit stays).
+	 */
+	install: OneMachineInstall | null;
 }
 
 function kitSummary(kit: PanelKit | null): Omit<PanelKit, 'file'> | null {
@@ -412,6 +479,10 @@ export async function draftRows(
 		console.error(`${TAG} drafts unusable: ${(error as Error).message}`);
 		return { state: 'drafts_invalid', drafts: null };
 	}
+	// read once per panel load, and only when a one-machine draft is listed
+	const source = file.drafts.some((stored) => stored.draft.listen.kind === 'unix')
+		? await installSourceOrNull(deps)
+		: null;
 	const rows = await Promise.all(
 		file.drafts.map(async (stored): Promise<DraftRow> => {
 			const paired = registry === null ? null : deps.pairedRecord(stored, registry);
@@ -423,10 +494,40 @@ export async function draftRows(
 				state: paired === null ? 'awaiting' : 'paired',
 				paired_as: paired?.name ?? null,
 				kit: kitSummary(kit),
+				install: rowInstall(deps, stored, paired === null, source),
 			};
 		}),
 	);
 	return { state: 'ok', drafts: rows };
+}
+
+/** This server's install facts, or null (logged: the rows then offer the kit alone). */
+async function installSourceOrNull(deps: SetupDeps): Promise<InstallSource | null> {
+	try {
+		return await deps.installSource();
+	} catch (error) {
+		console.error(`${TAG} install source unreadable: the one-machine block is not shown`, error);
+		return null;
+	}
+}
+
+/** The one-machine block of an awaiting socket draft; null otherwise (see DraftRow.install). */
+function rowInstall(
+	deps: SetupDeps,
+	stored: StoredDraft,
+	awaiting: boolean,
+	source: InstallSource | null,
+): OneMachineInstall | null {
+	if (!awaiting || source === null || stored.draft.listen.kind !== 'unix') return null;
+	return deps.oneMachineInstall(stored.name, stored.draft, source);
+}
+
+/** save_draft's sentence: what to do next, by topology (one machine never needs the kit). */
+export function savedDraftSentence(name: string, listen: PanelDraft['listen']['kind']): string {
+	if (listen === 'unix') {
+		return `OK. Draft '${name}' saved. Run the install block shown under it on this server, as root: the host pairs itself during the install (no kit, no package).`;
+	}
+	return `OK. Draft '${name}' saved. Build its kit, install the publication host from it, then pair the host with the sealed package.`;
 }
 
 function logLine(action: string, name: string, principal: Principal, detail: string): void {
@@ -525,7 +626,7 @@ const saveDraftAction: Action = async (options, principal, loadDeps) => {
 	});
 	return {
 		data: { name: stored.name, draft: stored.draft },
-		msg: `OK. Draft '${stored.name}' saved. Build its kit, install the publication host from it, then pair the host.`,
+		msg: savedDraftSentence(stored.name, draft.listen.kind),
 	};
 };
 
@@ -659,7 +760,9 @@ function packageReason(error: unknown): PanelPairReason | null {
 
 /**
  * The binding check the panel adds to the shared path: the package must be THIS draft's —
- * same instance, and the agent address inside it equal to the draft's listener. Runs before the
+ * same instance, and the agent address inside it equal to the draft's listener (the host
+ * compared canonically: an IPv6 draft and the fragment's bracketed URL host are one RFC 5952
+ * spelling, whatever either side wrote). Runs before the
  * token is looked at and before anything is dialled.
  */
 export function packageBinding(
@@ -671,7 +774,7 @@ export function packageBinding(
 		if (
 			listen.kind !== 'tls' ||
 			address.kind !== 'tls' ||
-			address.host !== listen.host ||
+			!sameListenHost(address.host, listen.host) ||
 			address.port !== listen.port
 		) {
 			throw pairRefused('address_mismatch');
@@ -782,7 +885,7 @@ const pairPackageAction: Action = async (options, principal, loadDeps) => {
 		});
 		return {
 			data: { name, instance: outcome.record.instance, address_label: label },
-			msg: `OK. '${name}' is paired (${label}): the agent proved the package's fingerprint over mTLS. Delete the package on the publication host now; its passphrase opens nothing else.`,
+			msg: `OK. '${name}' is paired (${label}): the agent proved the package's fingerprint over mTLS. Delete the package on the publication host now; its passphrase opens nothing else. ${FIRST_USE_NEXT}`,
 		};
 	} catch (error) {
 		const failure = pairFailure(error);
@@ -793,6 +896,13 @@ const pairPackageAction: Action = async (options, principal, loadDeps) => {
 		bytes.fill(0);
 	}
 };
+
+/**
+ * The next step after any pairing (docs step 10): the panel's First use chains the widget's own
+ * apply_rules → push_apis → probe_public (render_new_host.js run_first_use).
+ */
+export const FIRST_USE_NEXT =
+	'Next: First use under the draft (media rules, API releases, public check).';
 
 /** The bound actions the publication_hosts widget lists (apiActions). */
 export const SETUP_ACTIONS = Object.freeze([

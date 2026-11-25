@@ -171,6 +171,13 @@ export interface DraftCompletion {
   readonly homeReasons: readonly string[];
   /** The site's chosen vhost / FPM install / work unit, when there is one. */
   readonly vhost: Vhost | null;
+  /**
+   * The chosen vhost's ADDRESS-FAMILY TWINS: separate blocks of the same site — same exact
+   * ServerName, port and TLS-ness, one on IPv4/wildcard and one on IPv6 (chooseVhost). Each receives
+   * the same include (compare web.vhost.<sha8>); `vhost` stays the one the FPM pick and the
+   * per-site facts read. Empty for a site served by one block.
+   */
+  readonly vhostTwins: readonly Vhost[];
   readonly fpm: FpmInstall | null;
   readonly workUnit: WorkUnit | null;
   /** The final declaration already on the host, the diff base (spec §1.2). */
@@ -315,57 +322,137 @@ function pickFpm(candidates: readonly FpmInstall[], vhost: Vhost | null): FpmIns
 
 interface VhostChoice {
   readonly vhost: Vhost | null;
+  readonly twins: readonly Vhost[];
   readonly decision: DraftDecision | null;
 }
 
+/**
+ * An address's family. Bracketed or colon-bearing = IPv6; everything else — `*`, `_default_`,
+ * `0.0.0.0`, an IPv4 address, a host name — is the IPv4/wildcard side (nginx's bare `listen 443`
+ * is IPv4 only; Apache's `*` may also take IPv6, but an operator who wrote a separate `[::]` block
+ * meant the two to split the families).
+ */
+export function addressFamily(address: string): 'ipv4' | 'ipv6' {
+  return address.startsWith('[') || address.includes(':') ? 'ipv6' : 'ipv4';
+}
+
+function familiesOf(vhost: Vhost): Set<'ipv4' | 'ipv6'> {
+  return new Set((vhost.addresses.length > 0 ? vhost.addresses : ['*']).map(addressFamily));
+}
+
+/** A row as the report names it: file:line, port, EVERY address it listens on, TLS. */
+export function describeVhost(vhost: Vhost): string {
+  const on = vhost.addresses.length > 0 ? ` on ${vhost.addresses.join(', ')}` : '';
+  return `${vhost.realpath}:${vhost.line} port ${vhost.port}${on}${vhost.ssl ? ' (TLS)' : ''}`;
+}
+
+/** One site: the vhost the include and the per-site facts start from, and its address-family twins. */
+interface VhostSite {
+  readonly primary: Vhost;
+  readonly twins: readonly Vhost[];
+}
+
+function describeSite(site: VhostSite): string {
+  return [site.primary, ...site.twins].map(describeVhost).join(' + ');
+}
+
+/**
+ * The exact-ServerName serving rows of ONE port → one site, or null when they are genuinely
+ * different blocks ("crowded"). Several rows are one site only as address-family twins: the same
+ * TLS-ness and pairwise-disjoint families (one IPv4/wildcard block, one IPv6 block). Two blocks
+ * sharing a family on one port are two servings of the name — which one Apache or nginx answers
+ * with is not init's to guess, so that stays the blocking manual decision. The primary is the
+ * IPv4/wildcard row (then by file and line): a fixed choice, so the item ids stay stable.
+ */
+function siteOfPort(rows: readonly Vhost[]): VhostSite | null {
+  const first = rows[0];
+  if (first === undefined) return null;
+  if (rows.some(row => row.ssl !== first.ssl)) return null;
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const family of familiesOf(row)) {
+      if (seen.has(family)) return null;
+      seen.add(family);
+    }
+  }
+  const sorted = [...rows].sort(
+    (x, y) =>
+      Number(!familiesOf(x).has('ipv4')) - Number(!familiesOf(y).has('ipv4')) ||
+      (x.realpath < y.realpath ? -1 : x.realpath > y.realpath ? 1 : 0) ||
+      x.line - y.line,
+  );
+  return { primary: sorted[0] as Vhost, twins: sorted.slice(1) };
+}
+
+/**
+ * declaration.vhost (spec §3.2 web.vhost — security: a candidate only on an EXACT ServerName).
+ * Redirect-only rows (the :80 → https:// block) are never candidates; only redirects claiming the
+ * name is a blocker naming the missing serving vhost. The candidates form one site per port
+ * (siteOfPort); one site is taken without asking, several (a plain :80 that serves, and the TLS
+ * :443) are a non-blocking decision that proposes the TLS one.
+ */
 function chooseVhost(domain: string, facts: HostFacts, answer: string | undefined): VhostChoice {
-  const exact = facts.web.vhosts.filter(vhost => vhost.serverName === domain && vhost.matchedBy === 'servername');
+  const exactAll = facts.web.vhosts.filter(vhost => vhost.serverName === domain && vhost.matchedBy === 'servername');
+  const redirects = exactAll.filter(vhost => vhost.redirectOnly);
+  const exact = exactAll.filter(vhost => !vhost.redirectOnly);
   const loose = facts.web.vhosts.filter(vhost => vhost.serverName === domain && vhost.matchedBy !== 'servername');
-  const describe = (vhost: Vhost) => `${vhost.realpath}:${vhost.line} port ${vhost.port}${vhost.ssl ? ' (TLS)' : ''}`;
   const title = `the vhost that serves ${domain}`;
+  const redirectFacts = redirects.map(vhost => `${describeVhost(vhost)} only redirects every request: it never receives the APIs include`);
+  const blocking = (facts_: string[]): VhostChoice => ({
+    vhost: null,
+    twins: [],
+    decision: { id: 'declaration.vhost', area: 'declaration', title, facts: facts_, commands: [], options: [MANUAL], defaultOption: 'manual', blocking: true },
+  });
   if (exact.length === 0) {
-    const facts_ =
+    const server = facts.web.server ?? 'web server';
+    if (redirects.length > 0) {
+      return blocking([
+        ...redirectFacts,
+        `no ${server} vhost with ServerName ${domain} serves the site — only redirects claim it: the vhost they send to (the TLS one) is missing; init never creates a vhost`,
+        ...loose.map(vhost => `${describeVhost(vhost)} matches ${domain} only by ${vhost.matchedBy}: init edits a vhost only on an exact ServerName`),
+      ]);
+    }
+    return blocking(
       loose.length > 0
-        ? loose.map(vhost => `${describe(vhost)} matches ${domain} only by ${vhost.matchedBy}: init edits a vhost only on an exact ServerName`)
-        : [`no ${facts.web.server ?? 'web server'} vhost has ServerName ${domain}; init never creates a vhost`];
-    return {
-      vhost: null,
-      decision: { id: 'declaration.vhost', area: 'declaration', title, facts: facts_, commands: [], options: [MANUAL], defaultOption: 'manual', blocking: true },
-    };
+        ? loose.map(vhost => `${describeVhost(vhost)} matches ${domain} only by ${vhost.matchedBy}: init edits a vhost only on an exact ServerName`)
+        : [`no ${server} vhost has ServerName ${domain}; init never creates a vhost`],
+    );
   }
   const ports = new Map<number, Vhost[]>();
   for (const vhost of exact) ports.set(vhost.port, [...(ports.get(vhost.port) ?? []), vhost]);
-  const crowded = [...ports.entries()].filter(([, rows]) => rows.length > 1);
-  if (crowded.length > 0) {
-    return {
-      vhost: null,
-      decision: {
-        id: 'declaration.vhost',
-        area: 'declaration',
-        title,
-        facts: crowded.flatMap(([port, rows]) => [`port ${port} has ${rows.length} vhosts claiming ServerName ${domain}:`, ...rows.map(describe)]),
-        commands: [],
-        options: [MANUAL],
-        defaultOption: 'manual',
-        blocking: true,
-      },
-    };
+  const sites: VhostSite[] = [];
+  const crowded: [number, Vhost[]][] = [];
+  for (const [port, rows] of ports) {
+    const site = siteOfPort(rows);
+    if (site === null) crowded.push([port, rows]);
+    else sites.push(site);
   }
-  if (exact.length === 1) return { vhost: exact[0] as Vhost, decision: null };
-  const options = exact.map(vhost => ({ id: `v-${vhostSha8(vhost)}`, label: describe(vhost), resolves: 'act' as const }));
-  const tls = exact.filter(vhost => vhost.ssl && vhost.port !== 80);
-  const proposed = tls.length === 1 ? (tls[0] as Vhost) : null;
-  const answered = exact.find(vhost => answer === `v-${vhostSha8(vhost)}`) ?? null;
+  if (crowded.length > 0) {
+    return blocking(
+      crowded.flatMap(([port, rows]) => [`port ${port} has ${rows.length} different vhosts claiming ServerName ${domain}:`, ...rows.map(describeVhost)]),
+    );
+  }
+  if (sites.length === 1) {
+    const site = sites[0] as VhostSite;
+    return { vhost: site.primary, twins: site.twins, decision: null };
+  }
+  const optionId = (site: VhostSite) => `v-${vhostSha8(site.primary)}`;
+  const options = sites.map(site => ({ id: optionId(site), label: describeSite(site), resolves: 'act' as const }));
+  const tls = sites.filter(site => site.primary.ssl && site.primary.port !== 80);
+  const proposed = tls.length === 1 ? (tls[0] as VhostSite) : null;
+  const answered = sites.find(site => answer === optionId(site)) ?? null;
+  const chosen = answered ?? proposed;
   return {
-    vhost: answered ?? proposed,
+    vhost: chosen?.primary ?? null,
+    twins: chosen?.twins ?? [],
     decision: {
       id: 'declaration.vhost',
       area: 'declaration',
       title,
-      facts: [`${exact.length} vhosts have ServerName ${domain}; the include goes into one`, ...exact.map(describe)],
+      facts: [`${sites.length} vhosts have ServerName ${domain}; the include goes into one`, ...sites.map(describeSite), ...redirectFacts],
       commands: [],
       options,
-      ...(proposed === null ? {} : { defaultOption: `v-${vhostSha8(proposed)}` }),
+      ...(proposed === null ? {} : { defaultOption: optionId(proposed) }),
       blocking: false,
     },
   };
@@ -380,9 +467,9 @@ function nextFreePort(facts: HostFacts, from: number, taken: ReadonlySet<number>
   return null;
 }
 
-function logDirs(vhost: Vhost | null): string[] {
-  if (vhost === null) return [];
-  const files = [vhost.errorLog, ...vhost.accessLogs].filter((file): file is string => file !== null);
+/** The log directories of the site's blocks (the chosen vhost and its twins: each may name its own). */
+function logDirs(vhosts: readonly Vhost[]): string[] {
+  const files = vhosts.flatMap(vhost => [vhost.errorLog, ...vhost.accessLogs]).filter((file): file is string => file !== null);
   const dirs = files
     .filter(file => ABSOLUTE_PATH_PATTERN.test(file) && !file.split('/').includes('..'))
     .map(file => dirname(file))
@@ -451,11 +538,13 @@ export function completeDraft(draft: DraftDeclaration, facts: HostFacts, options
   /* site: vhost, FPM, home */
   const site = draft.site;
   let vhost: Vhost | null = null;
+  let vhostTwins: readonly Vhost[] = [];
   let fpm: FpmInstall | null = null;
   let siteFpm: { flavor: FpmFlavor; version: string } | undefined;
   if (site !== undefined) {
     const choice = chooseVhost(site.domain, facts, answers.get('declaration.vhost'));
     vhost = choice.vhost;
+    vhostTwins = choice.twins;
     if (choice.decision !== null) decisions.push(choice.decision);
     const candidates = servesV1 ? fpmCandidates(facts) : [];
     if (!servesV1) {
@@ -690,7 +779,7 @@ export function completeDraft(draft: DraftDeclaration, facts: HostFacts, options
     server !== 'nginx'
       ? draft.web?.nginx_map
       : fill('web.nginx_map', draft.web?.nginx_map, facts.web.confDInHttp === true ? 'conf_d' : 'none', facts.web.confDInHttp === true ? 'nginx -T: conf.d is included inside http{}' : 'nginx -T: conf.d is not included inside http{}');
-  const dirs = server === 'nginx' ? logDirs(vhost) : [];
+  const dirs = server === 'nginx' && vhost !== null ? logDirs([vhost, ...vhostTwins]) : [];
   const logDirsValue = fill('web.log_dirs', draft.web?.log_dirs, dirs.length > 0 ? dirs : undefined, `the log paths of ${vhost?.realpath ?? 'the vhost'}`);
   const phpBin = !servesV1
     ? draft.php_bin
@@ -716,7 +805,7 @@ export function completeDraft(draft: DraftDeclaration, facts: HostFacts, options
   };
   if (unfilled.length > 0 || server === undefined || webUnit === undefined || agentUser === undefined || (servesV1 && v1User === undefined) || v2User === undefined || v2Group === undefined) {
     layoutDecision(kindSource === 'paths' ? null : kind);
-    return freeze({ declaration: null, layout: null, layoutError: null, kind: null, kindSource, sources, decisions, unfilled, homeReasons, vhost, fpm, workUnit, existing, siteDomain: site?.domain ?? null, answers, servesV1 });
+    return freeze({ declaration: null, layout: null, layoutError: null, kind: null, kindSource, sources, decisions, unfilled, homeReasons, vhost, vhostTwins, fpm, workUnit, existing, siteDomain: site?.domain ?? null, answers, servesV1 });
   }
   const web: HostDeclaration['web'] = {
     server,
@@ -781,6 +870,7 @@ export function completeDraft(draft: DraftDeclaration, facts: HostFacts, options
     unfilled,
     homeReasons,
     vhost,
+    vhostTwins,
     fpm,
     workUnit,
     existing,

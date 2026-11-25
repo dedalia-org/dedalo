@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { guarded } from '../src/provision/cli';
-import { REDACTED, countLine, redactLine, renderLists, sanitizeLine } from '../src/provision/init/report';
+import { REDACTED, countLine, redactLine, renderLists, renderNeedsAction, sanitizeLine } from '../src/provision/init/report';
 import type { Item } from '../src/provision/init/types';
 
 const SECRET = 'Zq7pX2kN9wLm4vRt';
@@ -95,7 +95,7 @@ describe('renderLists: three lists, whole, in order', () => {
   ];
 
   test('the headers carry the counts; each item prints its id, flags, facts, commands, diff and options', () => {
-    const lines = renderLists(items, { answers: new Map([['web.vhost_reference', 'manual']]) });
+    const lines = renderLists(items, { answers: new Map([['web.vhost_reference', 'manual']]), interactive: true });
     expect(lines.filter(line => /^[123]\. /.test(line))).toEqual(['1. already right (1)', '2. will change (1)', '3. needs your decision (2)']);
     expect(lines).toContain('  [host.os] Debian 12');
     expect(lines).toContain('      - debian 12: supported');
@@ -115,14 +115,75 @@ describe('renderLists: three lists, whole, in order', () => {
   });
 
   test('a multi-line fact is indented under its bullet; a title cannot carry an escape', () => {
-    const lines = renderLists([item('x.y', 'right', { title: 'evil\x1b]52;c;AAAA\x07title', facts: ['first\nsecond'] })]);
+    const lines = renderLists([item('x.y', 'right', { title: 'evil\x1b]52;c;AAAA\x07title', facts: ['first\nsecond'] })], { interactive: true });
     expect(lines).toContain('  [x.y] eviltitle');
     expect(lines).toContain('      - first');
     expect(lines).toContain('        second');
   });
 
   test('empty lists still print their headers; countLine counts each list', () => {
-    expect(renderLists([])).toEqual(['1. already right (0)', '2. will change (0)', '3. needs your decision (0)']);
-    expect(countLine(items)).toBe('1 right, 1 to change, 2 to decide');
+    expect(renderLists([], { interactive: true })).toEqual(['1. already right (0)', '2. will change (0)', '3. needs your decision (0)']);
+    expect(countLine(items, true)).toBe('1 right, 1 to change, 2 to decide');
+  });
+});
+
+describe('P2: list 4 "needs your action", the typed hint, the end-of-run summary', () => {
+  const manualOnly = item('declaration.vhost', 'decision', {
+    title: 'the vhost that serves example.org',
+    blocking: true,
+    facts: [`SetEnv DB_PASSWORD ${SECRET}`],
+    commands: ['create the vhost'],
+    options: [{ id: 'manual', label: 'by hand', resolves: 'manual' }],
+    defaultOption: 'manual',
+  });
+  const typed = item('web.vhost.0123abcd', 'decision', {
+    operatorFile: true,
+    options: [
+      { id: 'act', label: 'do it', resolves: 'act', confirm: 'typed' },
+      { id: 'manual', label: 'by hand', resolves: 'manual' },
+    ],
+    defaultOption: 'act',
+  });
+
+  test('a manual-only decision is printed under list 4, without options; a typed one says Enter takes nothing', () => {
+    const lines = renderLists([manualOnly, typed], { interactive: true });
+    expect(lines.filter(line => /^[1234]\. /.test(line))).toEqual([
+      '1. already right (0)',
+      '2. will change (0)',
+      '3. needs your decision (1)',
+      '4. needs your action (1) — init cannot do these; they are not asked',
+    ]);
+    const at = (text: string) => lines.findIndex(line => line.includes(text));
+    expect(at('[declaration.vhost]')).toBeGreaterThan(at('4. needs your action'));
+    expect(at('[web.vhost.0123abcd]')).toBeLessThan(at('4. needs your action'));
+    expect(lines).toContain('      init cannot do this: do it by hand (the commands above), then run init again');
+    expect(lines).not.toContain('      manual: by hand (default)');
+    expect(lines).toContain('      type the option: this changes your files or the whole host, so Enter takes nothing');
+    expect(lines.join('\n')).not.toContain(SECRET);
+    expect(countLine([manualOnly, typed], true)).toBe('0 right, 0 to change, 1 to decide, 1 need your action');
+  });
+
+  test('without a terminal a manual-only decision stays in list 3 with its options and its --decide: --yes resolves no decision, so "they are not asked" would be false (review lane A)', () => {
+    const lines = renderLists([manualOnly, typed], { interactive: false });
+    expect(lines.filter(line => /^[1234]\. /.test(line))).toEqual(['1. already right (0)', '2. will change (0)', '3. needs your decision (2)']);
+    expect(lines.join('\n')).not.toContain('needs your action');
+    expect(lines).toContain('      manual: by hand (default)');
+    expect(lines).toContain(
+      '      init cannot do this: do it by hand (the commands above), then run init again; without a terminal it stays open until --decide declaration.vhost=manual',
+    );
+    expect(lines.join('\n')).not.toContain(SECRET);
+    expect(countLine([manualOnly, typed], false)).toBe('0 right, 0 to change, 2 to decide');
+  });
+
+  test('renderNeedsAction: each item with its (redacted) facts and commands, then the re-run command; nothing for none', () => {
+    const lines = renderNeedsAction([manualOnly], 'sh /home/example.org/host_agent/deploy/install.sh test');
+    expect(lines).toEqual([
+      'needs your action (1) — init cannot do these; do them, then run init again:',
+      '  [declaration.vhost] the vhost that serves example.org',
+      `      - SetEnv DB_PASSWORD ${REDACTED}`,
+      '      $ create the vhost',
+      'then re-run: sh /home/example.org/host_agent/deploy/install.sh test',
+    ]);
+    expect(renderNeedsAction([], 'x')).toEqual([]);
   });
 });

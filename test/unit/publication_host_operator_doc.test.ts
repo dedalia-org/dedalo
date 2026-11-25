@@ -16,6 +16,7 @@ import { INIT_FLAGS } from '../../publication/host_agent/src/provision/init/args
 import { DEFAULTS, draftServesV1 } from '../../publication/host_agent/src/provision/init/draft';
 import { parseDraft } from '../../publication/host_agent/src/provision/init/draft_schema';
 import { OS_SUPPORT } from '../../publication/host_agent/src/provision/init/parse/os';
+import { rerunCommand } from '../../publication/host_agent/src/provision/init/run';
 import type { HostDeclaration } from '../../publication/host_agent/src/provision/layout';
 import {
 	BUN_KERNEL_FLOOR,
@@ -26,6 +27,7 @@ import {
 	INSTANCE_PATTERN,
 	LISTEN_HOST_PATTERN,
 	layoutPaths,
+	listenHostProblem,
 	NGINX_MAP_INCLUDE_PATH,
 	PUBHOST_GROUP,
 	SYSTEM_LAYOUT,
@@ -111,6 +113,21 @@ describe('publication host operator page', () => {
 			expect(LISTEN_HOST_PATTERN.test(host!), `${host} is not a listen.host`).toBe(true);
 			expect(`${host}:${port}`).toBe(`${example.listen.host}:${example.listen.port}`);
 		}
+	});
+
+	test('every bracketed IPv6 agent URL names a listen.host the agent grammar accepts, as written (2026-11-25)', () => {
+		// The IPv4 scan above cannot see `https://[fd00:20::2]:8471/…` (its host class stops at the
+		// first ':'), so the IPv6 example step 7 shows would go unchecked without this one. The
+		// page writes the bracketed form a URL needs; the grammar judges the bare literal inside,
+		// canonical spelling included — the doc must show what `listen.host` accepts.
+		const hosts = [...page.matchAll(/https:\/\/\[([^\]\s]+)\]:(\d+)\/publication\/host_agent/g)];
+		expect(hosts.length, 'step 7 shows the IPv6 health request').toBeGreaterThan(0);
+		for (const [, host, port] of hosts) {
+			expect(listenHostProblem(host), `${host} is not a listen.host`).toBeNull();
+			expect(Number(port)).toBe(example.listen.port);
+		}
+		// Positive control: the same scan refuses a link-local example (zone-id-only, §2.2 of the spec).
+		expect(listenHostProblem('fe80::2')).not.toBeNull();
 	});
 
 	test('step 3 says listen.host is an IPv4 address literal, no hostname, no wildcard', () => {
@@ -272,13 +289,17 @@ describe('the guided install (provision init) states what the code does', () => 
 	});
 
 	test('the draft example is a draft parseDraft accepts; the proposed defaults are draft.ts DEFAULTS', () => {
-		const block = section('### The draft', '### The three lists').match(/```json\n([\s\S]*?)\n```/);
+		const block = section('### The draft', '### The report and its lists').match(
+			/```json\n([\s\S]*?)\n```/,
+		);
 		if (!block?.[1]) throw new Error('the draft section has no json');
 		const draft = parseDraft(JSON.parse(block[1]), 'the guide');
 		expect(INSTANCE_PATTERN.test(draft.instance)).toBe(true);
 		// The first draft is the recommended v2-only one; the second asks for v1 too.
 		const drafts = [
-			...section('### The draft', '### The three lists').matchAll(/```json\n([\s\S]*?)\n```/g),
+			...section('### The draft', '### The report and its lists').matchAll(
+				/```json\n([\s\S]*?)\n```/g,
+			),
 		].map((m) => parseDraft(JSON.parse(m[1] ?? ''), 'the guide'));
 		expect(drafts.map((d) => draftServesV1(d))).toEqual([false, true]);
 		for (const name of [DEFAULTS.agentUser, DEFAULTS.v1User, DEFAULTS.v2User, DEFAULTS.v2Unit]) {
@@ -393,6 +414,44 @@ describe('the guided install (provision init) states what the code does', () => 
 		expect(flat).toContain('**EL 8 is not supported.**');
 		expect(flat).toContain(`the units need systemd ${SYSTEMD_FLOOR}`);
 		expect(flat).toContain(`Bun documents kernel ${BUN_KERNEL_FLOOR} or newer`);
+	});
+
+	test('the decision kinds, the vhost blockers and the re-run command are quoted as the code prints them (2026-11-25)', () => {
+		// Spelling-level on purpose: an operator searches the page for the line the terminal shows,
+		// so each quoted line must still exist in the module that prints it. The class RULE itself is
+		// gated in publication/host_agent/tests/init_decision_class.test.ts.
+		const source = (path: string) =>
+			readFileSync(join(repoRoot, 'publication/host_agent/src/provision/init', path), 'utf8');
+		const tty = source('tty.ts');
+		const run = source('run.ts');
+		const draft = source('draft.ts');
+		// The whole page: the guided-install section AND its troubleshooting rows quote these lines.
+		const flat = page.replace(/\s+/g, ' ');
+		const quoted: [string, string, string][] = [
+			['— type it)', tty, 'tty.ts typed prompt'],
+			['— Enter takes it)', tty, 'tty.ts ordinary prompt'],
+			[
+				'this decision changes your files or the whole host: Enter takes nothing',
+				tty,
+				'tty.ts enterRefusedLine',
+			],
+			['auto: the only option —', run, 'run.ts auto line'],
+			['need your action before anything is done', run, 'run.ts blocking needs-action refusal'],
+			[
+				'only redirects claim it: the vhost they send to (the TLS one) is missing',
+				draft,
+				'draft.ts chooseVhost',
+			],
+			['different vhosts claiming ServerName', draft, 'draft.ts crowded'],
+		];
+		for (const [text, code, where] of quoted) {
+			expect(flat, `the page quotes ${where}`).toContain(text);
+			expect(code, `${where} still prints it`).toContain(text);
+		}
+		// The re-run command the page shows is rerunCommand's, for the page's own example names.
+		expect(flat).toContain(
+			`\`${rerunCommand('museum_org', '/home/museum.org/host_agent', true)}\``.replace(/\s+/g, ' '),
+		);
 	});
 });
 

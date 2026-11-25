@@ -34,7 +34,7 @@ because every copy of them so far has drifted from the original:
 | `untilAborted` | The one "race a promise against a stop" primitive: the awaited work is never cancelled, the listener never outlives the call. Gated by OUTCOME: every harvest wait on a job's signal must leave no abort listener behind (`harvest_door_native`). |
 | `parseRetryAfterMs` | The one `Retry-After` reader (digits or an HTTP-date, anything else null), UNCLAMPED — each door applies its own ceiling. Gated by OUTCOME at each door that honours the header: a lenient date `Date.parse` would read (`2099-01-01T00:00:00Z`) must ask no wait (`harvest_door_native`, `external_transport_native`). |
 | `fetchPinnedHop` | The shared pinned primitive: ONE request, vetted and pinned, redirect handed back unread (§4). |
-| `fetchGuardedText` | `fetchPinnedHop` used ONCE: vetted AND pinned (the name is resolved once, the socket connects to the address that was vetted), bounded, and any 3xx with a `Location` REFUSED as a typed `security.outbound_failed` reason `redirect`. |
+| `fetchGuardedText` | `fetchPinnedHop` used ONCE: vetted AND pinned (the name is resolved once, the socket connects to the address that was vetted), bounded, and any 3xx with a `Location` REFUSED as a typed `security.outbound_failed` reason `redirect` — a `RedirectRefused` whose log coordinates are only `{reason, status}`; the raw `Location` (capped at 2048 characters) rides a field of its own, read with `refusedRedirectLocation(error)`, never logged (2026-11-25: a peer-chosen string in a log line is log forging, and a presigned URL in it a leaked credential). |
 
 Address refusals are `security.ssrf_blocked` at the single-call and harvesting
 doors, with OPERATOR disclosure: naming what a host resolved to is the
@@ -79,6 +79,18 @@ address (split-horizon DNS included) is refused like any other, and the probe re
 the probe reads the status, never a body. The same subsystem's agent channel is a door of
 its own (`agentRequest`, above). The probe never uses it: a gate seen from the private side
 proves nothing about what the public sees.
+
+**The re-call pattern (2026-11-25).** The door never follows a redirect, but a caller may
+judge a refused one under a NAMED policy of its own and then make ONE more `fetchGuardedText`
+call — fully re-vetted and re-pinned — to a URL it BUILT ITSELF. The `Location` is read only
+through `refusedRedirectLocation` (never from the log coordinates) and only to compare: the URL
+dialled never comes from its text. The public-URL probe is the one user: its policy is
+`httpsUpgradeOf(requested, location)` (`probe.ts`) — the `Location` must be exactly the https
+twin of the requested URL (same host, http → https, the https default port from 80 or any
+explicit port, same path and query, no credentials, no fragment). A redirect on the second call
+is refused, so there is never a second hop; any other redirect stays the refused 3xx. This is
+not a redirect loop and not a second `fetchPinnedHop` importer (§4): the caller holds the door,
+not the hop.
 
 **The geo services are a `fetchGuardedText` caller, not a door**
 (`src/core/geo_services/`, the one entry point `callGeoService`). On behalf of a tool or a
@@ -262,6 +274,13 @@ policy, in this order:
    `https://<host>:<port>` with mTLS from the host's engine bundle — the client
    certificate and key, the bundle's CA as the ONLY trust root,
    `rejectUnauthorized: true`, the certificate checked against the REGISTRY host.
+   The host is an IPv4 literal or a private IPv6 one (ULA `fc00::/7`, or `::1`), in
+   RFC 5952 form (`registry.ts` normalizes it and refuses a zone id): the URL
+   brackets an IPv6 host (`https://[fd00::1]:8471`) and the certificate's IP SAN is
+   checked against it under the same mTLS policy. The generic guard
+   (`assertPublicUrl`) refuses exactly those addresses, so only this named door
+   reaches an agent's private IPv6. Not verified: how a `NO_PROXY` list in the
+   engine's environment treats a bracketed IPv6 agent address.
    The explicit `true` is load-bearing: measured on Bun 1.4.2, it is what keeps
    verification on when `NODE_TLS_REJECT_UNAUTHORIZED=0` is in the environment.
    A unix-socket host is dialled at its socket, and only after the filesystem
@@ -667,7 +686,9 @@ That is why it has exactly ONE production IMPORTER, the harvest redirect loop
 the first one to forget a per-hop rule is an open redirect into the harvester.
 Inside the guard, `fetchGuardedText` uses the hop ONCE and refuses any
 `location` it hands back — no loop, so not a second redirect-follower; it is how
-the single-call door connects to the address it vetted.
+the single-call door connects to the address it vetted. A caller that re-calls the
+door after judging a refused `Location` (§2, the re-call pattern) does not import the
+hop either: each of its calls is a whole, re-vetted `fetchGuardedText`.
 
 The loop itself, `followVetted`, is held to the same rule one level up. It
 vets every hop's URL, but robots.txt and pacing are whatever its caller passes

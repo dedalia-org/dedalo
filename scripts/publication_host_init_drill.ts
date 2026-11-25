@@ -264,11 +264,13 @@ const PROMPT_RULES: PromptRule[] = [
 		pattern: /API_WEB_USER_CODE[^\n]*:\s*$/,
 		answer: (_m, s) => s.apiWebUserCode,
 	},
-	// A decision: the default is shown and must be typed (spec §1.2) — init/tty.ts prints
-	// `choose a | b (default a — type it): `.
+	// A decision with a default — init/tty.ts prints `choose a | b (default a — type it): ` for a
+	// typed one (init/decision_class.ts) and `(default a — Enter takes it)` for the rest. The drill
+	// TYPES the default in both cases (it answers by id, never by Enter). Decisions whose only answer
+	// is manual, or that have one option, are not asked at all (init/run.ts askDecisions).
 	{
-		name: 'decision (typed default)',
-		pattern: /^choose [^\n]*\(default ([a-z0-9_-]+) — type it\):\s*$/m,
+		name: 'decision (default)',
+		pattern: /^choose [^\n]*\(default ([a-z0-9_-]+) — (?:type it|Enter takes it)\):\s*$/m,
 		answer: (m) => m[1] ?? null,
 	},
 	// The visible values with NO default (init/run.ts SECRET_PROMPTS): the drill's own (no database is reached).

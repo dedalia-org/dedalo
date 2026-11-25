@@ -26,6 +26,22 @@
  * No cache-busting header, on purpose: a CDN still serving an unpublished file is
  * exactly the exposure this probe exists to see.
  *
+ * THE ONE REDIRECT FOLLOWED — AN UPGRADE (§7; the door pattern: OUTBOUND_SPEC §2). Public sites commonly answer :80 with a
+ * redirect to :443, so a public URL entered as `http://museum.org` would otherwise probe
+ * red forever. The door still refuses every redirect; the probe reads where the refused
+ * one pointed (`refusedRedirectLocation` — the guard keeps the peer's raw Location OFF its
+ * log-printed coordinates) and follows it ONCE, and only when it is
+ * exactly the https twin of the URL it asked for: same host, scheme http → https, the
+ * https default port (from 80 or any explicit port), same path and query, no credentials,
+ * no fragment (`httpsUpgradeOf`). The URL followed is BUILT FROM THE PROBE'S OWN URL —
+ * the peer's Location only answers yes or no, it never supplies a byte of the target —
+ * and goes back through the SAME guarded door, so it is re-vetted and pinned like the
+ * first. A redirect on that second request is refused (never a second hop); so is any
+ * other redirect, as an answer whose status is the 3xx (`failed`, as before), with a
+ * detail that says where it pointed. A followed upgrade adds a note to the verdict's
+ * detail — even an `ok` one — telling the operator to store the https URL. Each side
+ * may take two requests, so its time bound is twice the per-request deadline.
+ *
  * COPY HOSTS — A 404 MUST BE THE GATE'S, NOT ABSENCE'S. On a `copy`-mode host the
  * unpublished file is, by construction, never copied (the desired set holds published
  * keys only, the agent refuses an unmarked put), so its public URL answers 404 whether
@@ -79,6 +95,7 @@ import {
 	isAddressRefusal,
 	isSsrfRefusal,
 	type PinnedHopDeps,
+	refusedRedirectLocation,
 } from '../security/ssrf_guard.ts';
 import { hostMediaManifest, hostStatus } from './agent_client.ts';
 import { getHost, loadRegistry, type PublicationHostRecord } from './registry.ts';
@@ -251,7 +268,15 @@ export async function validateProbePaths(record: PublicationHostRecord): Promise
 // P2 — through the public door
 // ---------------------------------------------------------------------------
 
-type Answer = { readonly status: number } | { readonly unknown: string };
+/**
+ * What one side of the probe answered. `redirect` names a refused redirect (where it
+ * pointed: the verdict's failure says so); `upgradedTo` is the https origin of a followed
+ * http → https upgrade (the verdict's note).
+ */
+type Answer = (
+	| { readonly status: number; readonly redirect?: string }
+	| { readonly unknown: string }
+) & { readonly upgradedTo?: string };
 
 /** `origin` is `bareOrigin(...)`'s answer — never the raw registry string. */
 function probeUrl(origin: string, path: string): string {
@@ -295,13 +320,104 @@ function answerOfFailure(error: unknown): Answer {
 	return answerOfOutbound(error.coordinates ?? {});
 }
 
-async function publicAnswer(url: string, deps: ProbeDeps): Promise<Answer> {
+/** A redirect the door refused: its 3xx and the raw Location (`RedirectRefused`). */
+interface RefusedRedirect {
+	readonly status: number;
+	readonly location: string;
+}
+
+/**
+ * The refused redirect a door failure carries, or null for any other failure. The status
+ * is the guard's `status` coordinate; the Location is read from the error's own field
+ * (`refusedRedirectLocation`), never from the coordinates — those are log text.
+ */
+function refusedRedirectOf(error: unknown): RefusedRedirect | null {
+	const location = refusedRedirectLocation(error);
+	if (location === null) return null;
+	const status = (error as DedaloError).coordinates?.status;
+	return typeof status === 'number' ? { status, location } : null;
+}
+
+/** ONE request through the public door: its answer, or the redirect it refused. */
+async function guardedHop(
+	url: string,
+	deps: ProbeDeps,
+): Promise<{ answer: Answer } | { redirect: RefusedRedirect }> {
 	try {
 		await fetchGuardedText(url, probeOptions(deps), deps);
-		return { status: 200 };
+		return { answer: { status: 200 } };
 	} catch (error) {
-		return answerOfFailure(error);
+		const redirect = refusedRedirectOf(error);
+		return redirect === null ? { answer: answerOfFailure(error) } : { redirect };
 	}
+}
+
+/**
+ * THE upgrade policy (header: THE ONE REDIRECT FOLLOWED). The https URL to follow when
+ * `location` (resolved against `requested`) is EXACTLY the https twin of `requested` —
+ * same host, http → https, the https default port, same path and query, no credentials,
+ * no fragment; null for anything else. The returned URL is built from `requested`, never
+ * from `location`: the peer's text decides yes or no and supplies nothing.
+ */
+export function httpsUpgradeOf(requested: string, location: string): string | null {
+	const from = new URL(requested);
+	if (from.protocol !== 'http:') return null;
+	const twin = new URL(from.href);
+	twin.protocol = 'https:';
+	twin.port = '';
+	try {
+		// Compared as normalized hrefs: case, a default `:443`, percent-encoding of the path.
+		return new URL(location, from).href === twin.href ? twin.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/** The longest redirect target a detail quotes (a peer's text, shown to the operator). */
+const REDIRECT_TARGET_MAX = 200;
+
+/** Where a refused redirect pointed, display-safe: resolved, credentials dropped, bounded. */
+function redirectTarget(location: string, requested: string): string {
+	let target: string;
+	try {
+		const url = new URL(location, requested);
+		url.username = '';
+		url.password = '';
+		target = url.href;
+	} catch {
+		return 'an unparseable Location';
+	}
+	const flat = target.replace(/[\p{Cc}\p{Cf}\s]+/gu, '');
+	return flat.length > REDIRECT_TARGET_MAX ? `${flat.slice(0, REDIRECT_TARGET_MAX - 1)}…` : flat;
+}
+
+/** A refused redirect as an answer: its 3xx (judged like any status) and where it pointed. */
+function refusedRedirectAnswer(
+	redirect: RefusedRedirect,
+	requested: string,
+	after: string,
+): Answer {
+	const where = redirectTarget(redirect.location, requested);
+	return {
+		status: redirect.status,
+		redirect: `${after}redirected to ${where}, not followed (only one http → https upgrade of the same host, path and query is)`,
+	};
+}
+
+/**
+ * One side of the probe: the request, and — only for an http → https upgrade of that very
+ * URL — ONE more request to its https twin through the same door. Never a third.
+ */
+async function publicAnswer(url: string, deps: ProbeDeps): Promise<Answer> {
+	const first = await guardedHop(url, deps);
+	if ('answer' in first) return first.answer;
+	const upgrade = httpsUpgradeOf(url, first.redirect.location);
+	if (upgrade === null) return refusedRedirectAnswer(first.redirect, url, '');
+	const upgradedTo = new URL(upgrade).origin;
+	const second = await guardedHop(upgrade, deps);
+	if ('answer' in second) return { ...second.answer, upgradedTo };
+	const again = 'after the http → https upgrade, a second redirect: ';
+	return { ...refusedRedirectAnswer(second.redirect, upgrade, again), upgradedTo };
 }
 
 function statusOf(answer: Answer): number | null {
@@ -318,13 +434,34 @@ function unpublishedFailure(status: number): string {
 		: `the unpublished file answered HTTP ${status} (must be 404)`;
 }
 
-function gateFailures(published: number | null, unpublished: number | null): string[] {
+/** A failure sentence plus where a refused redirect pointed, when that is what answered. */
+function withRedirect(failure: string, answer: Answer): string {
+	return 'redirect' in answer && answer.redirect !== undefined
+		? `${failure}: ${answer.redirect}`
+		: failure;
+}
+
+function gateFailures(published: Answer, unpublished: Answer): string[] {
 	const failures: string[] = [];
-	if (published !== null && published !== 200) {
-		failures.push(`the published file answered HTTP ${published} (must be 2xx)`);
+	const publishedStatus = statusOf(published);
+	const unpublishedStatus = statusOf(unpublished);
+	if (publishedStatus !== null && publishedStatus !== 200) {
+		const failure = `the published file answered HTTP ${publishedStatus} (must be 2xx)`;
+		failures.push(withRedirect(failure, published));
 	}
-	if (unpublished !== null && unpublished !== 404) failures.push(unpublishedFailure(unpublished));
+	if (unpublishedStatus !== null && unpublishedStatus !== 404) {
+		failures.push(withRedirect(unpublishedFailure(unpublishedStatus), unpublished));
+	}
 	return failures;
+}
+
+/**
+ * The operator's note when either side followed the http → https upgrade: the stored
+ * public URL costs every request a redirect, and the https one is what the public uses.
+ */
+function upgradeNote(published: Answer, unpublished: Answer): string | null {
+	const origin = published.upgradedTo ?? unpublished.upgradedTo;
+	return origin === undefined ? null : `http redirects to https — set the public URL to ${origin}`;
 }
 
 function verdict(published: Answer, unpublished: Answer, at: string): GateProbe {
@@ -333,15 +470,19 @@ function verdict(published: Answer, unpublished: Answer, at: string): GateProbe 
 		published_status: statusOf(published),
 		unpublished_status: statusOf(unpublished),
 	};
-	const failures = gateFailures(statuses.published_status, statuses.unpublished_status);
+	const failures = gateFailures(published, unpublished);
 	const unknown = [unknownOf('published', published), unknownOf('unpublished', unpublished)].filter(
 		(part): part is string => part !== null,
 	);
+	const note = upgradeNote(published, unpublished);
+	const notes = note === null ? [] : [note];
 	if (failures.length > 0) {
-		return { ...statuses, state: 'failed', detail: [...failures, ...unknown].join('; ') };
+		return { ...statuses, state: 'failed', detail: [...failures, ...unknown, ...notes].join('; ') };
 	}
-	if (unknown.length > 0) return { ...statuses, state: 'unknown', detail: unknown.join('; ') };
-	return { ...statuses, state: 'ok', detail: null };
+	if (unknown.length > 0) {
+		return { ...statuses, state: 'unknown', detail: [...unknown, ...notes].join('; ') };
+	}
+	return { ...statuses, state: 'ok', detail: note };
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +543,11 @@ async function gateAnswer(
 	if (!('status' in unpublished) || unpublished.status !== 404) return unpublished;
 	// AFTER the request: a file listed now was there then (an unmarked put is refused).
 	const detail = holdingDetail(await (deps.copyHolding ?? agentCopyHolding)(record, path));
-	return detail === null ? unpublished : { unknown: detail };
+	if (detail === null) return unpublished;
+	// The upgrade note survives the downgrade to unknown: it is about the URL, not the gate.
+	return unpublished.upgradedTo === undefined
+		? { unknown: detail }
+		: { unknown: detail, upgradedTo: unpublished.upgradedTo };
 }
 
 function unknownProbe(at: string, detail: string): GateProbe {
