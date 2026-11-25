@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Dédalo now runs on Bun 1.4.5, a security release.
     - The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser.
     - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
     - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
@@ -1937,6 +1938,26 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-12-recovery-mode-retired`.
 
 #### Changed
+
+- **Dédalo now runs on Bun 1.4.5, a security release.** *(action needed)*
+
+    The pinned runtime (`.bun-version`) moves from Bun 1.4.4 to 1.4.5, Bun's security release for
+    TLS, HTTP/3 and DNS (BoringSSL, c-ares and llhttp updated). The runtime behaviours the engine
+    depends on were re-checked on 1.4.5 and are unchanged. The update panel refuses this release until
+    the server runs Bun 1.4.5. The container images also move to nginx 1.31.9 and a rebuilt
+    MariaDB 11.8.9.
+
+    **Action needed, before you apply this update:**
+
+    - **Host installation:** as root, install the verified 1.4.5 runtime at `/opt/dedalo/bun/1.4.5/bun`
+      exactly as [the `host_runtime` step](./install/manual_install.md#manual-host_runtime) does (with
+      `PIN=1.4.5`, checked against this release's `.bun-sha256`), point the instance's `ExecStart` at
+      it ([the `host_units` step](./install/manual_install.md#manual-host_units)), run
+      `systemctl daemon-reload`, restart the instance, then apply the update.
+    - **Container installation:** nothing extra; the new image carries Bun 1.4.5
+      ([Upgrading](./install/docker.md#upgrading)).
+    - **Publication hosts:** each site's Bun must move to 1.4.5 as well, or its **Bun version** row
+      turns red ([Upgrading a site's Bun](./install/publication_host.md#upgrading-a-sites-bun)).
 
 - **"Installing a publication host is easier: the guided install handles IPv4 + IPv6 and redirect virtual hosts, Enter takes ordinary defaults, the panel prints the one-server install, and the public check accepts an http address that moves to https."**
 

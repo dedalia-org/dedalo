@@ -216,7 +216,7 @@ services:
   # start until the engine has written those files (restart: unless-stopped makes
   # it retry).
   nginx:
-    image: nginx:1.31.8-alpine@sha256:fed7e14be83cbd2661a75cdc5b872d936cf155d46c327084d30b8df19ae88d72
+    image: nginx:1.31.9-alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
     restart: unless-stopped
     depends_on:
       - dedalo
@@ -274,7 +274,7 @@ services:
   # The engine NEVER creates the target database — a missing one is a loud
   # configuration error. MARIADB_DATABASE creates it here.
   mariadb:
-    image: mariadb:11.8.9@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+    image: mariadb:11.8.9@sha256:e1d5495f445654134f226f55a41ce0da227116f6f27f283101f405c794d841fc
     profiles: ["diffusion"]
     restart: unless-stopped
     environment:
