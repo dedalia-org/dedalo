@@ -3,9 +3,9 @@
 	"engine_version": "7.0.0",
 	"seed": {
 		"file": "install/db/dedalo_install.pgsql.gz",
-		"bytes": 1828335,
-		"sha256": "cd4c419bdb23140f1088076f91b687a8739443c08818203a71c951ab3d2f66c8",
-		"content_sha256": "f74f6bb21a5e9d0a7a121f206e821ede65d0deae120f59f8edf66bccf93bb2a5",
+		"bytes": 1828138,
+		"sha256": "2751fcd1af0402b3340d76f1e900f0572a52eb7eff53ac13791c13fd3243dea2",
+		"content_sha256": "48d75cd00fc8706d971aa1947b889b3abebe55765ac09e7fb1b62fb284934cc2",
 		"pg_dump_version": "18.4 (Homebrew)"
 	},
 	"sources": {
@@ -28,14 +28,14 @@
 		"install/db/seed/matrix_hierarchy_main.copy.gz": "428a17df3cd241164b21af50d0f2bded6ed8677014853329182c554a655b1336",
 		"install/db/seed/matrix_langs.copy.gz": "ba220588e8405426180997c285c1aa685022c8818ed77f29379a624f9f73a908",
 		"install/db/seed/schema.sql": "a87804631af3c7addf2e92382782966652d0ae01e4e8f780c72cadedf3b72c00",
-		"install/import/ontology/7.0/dd.copy.gz": "9939fd184ff3f0fec07e313a8b9d2da8346c4a91c34e7231de75b4217f0fc266",
-		"install/import/ontology/7.0/hierarchy.copy.gz": "6187e689ebfe6d6830db4b40c45e85ad6b12e5e0409aa5114253b1547f2aa641",
+		"install/import/ontology/7.0/dd.copy.gz": "40704738cf22776fdd7fc54b3af3d3a121bb44731d5e9a1fe0d3ddcb61e50a5c",
+		"install/import/ontology/7.0/hierarchy.copy.gz": "c9e8730ae857febf015a90b0954cdf4c98e24e14db14021ebb01eac6c8fe6cb9",
 		"install/import/ontology/7.0/lg.copy.gz": "43a1c17fc535e654ae8ec89863adbe11dac6d185e61e3d646e2237cdec813896",
 		"install/import/ontology/7.0/matrix_dd.copy.gz": "604ba1afb7e3f203c6bfd66314406ed98207ba133cbdca7c3ba400c5c4a31920",
-		"install/import/ontology/7.0/ontology.copy.gz": "59b6bb56e5b40bb645d010fabc62593c0f1b68b020b748b72604499576a5cd91",
-		"install/import/ontology/7.0/ontology.json": "3dd3167c7321192513df9a3c90d1aac02a174495f9dd7ccdcb0e45eec75f0f1c",
-		"install/import/ontology/7.0/ontologytype.copy.gz": "9c1c802960df68388872520a677f602b56fed4bcd291f54beed9004fd43633ef",
-		"install/import/ontology/7.0/rsc.copy.gz": "d6aeb57093c144f3bc6f9dcbffe3a3c59729a7b12f078f85fe00ae9933443ccf",
+		"install/import/ontology/7.0/ontology.copy.gz": "ee4d36f1543ec77874845a4f59b0d875890fa55591fb0464ec396a103c86bc4d",
+		"install/import/ontology/7.0/ontology.json": "7c9c28cfb16a49ac362e3e22e43fafce0dc0fa7bd0f424daf812c7365d0b8dfb",
+		"install/import/ontology/7.0/ontologytype.copy.gz": "35e103de045d5d83b0b0394cb10a6bf6b41141054bdc6db2146b2e497a9b1e06",
+		"install/import/ontology/7.0/rsc.copy.gz": "57796870c0bb74a79dd3657f14c895592123fe8ae62e8a555696ab972dd903f8",
 		"scripts/seed_build_child.ts": "c352b3c246a13eb58b3ecc58e1704cf1d01b95ed6d0904b8bdf36644d8438035",
 		"src/core/install/copy_section_ids.ts": "f9a9efa56897f0bc862b64343cca5dfc3e175f44b38537d789e85225ec0ce4cc",
 		"src/core/install/seed_build.ts": "8ae17f77904cda654b905b7efaa8d6d817eb822e1e5b9ec7b0b68cc2cbbf1693",
@@ -44,7 +44,7 @@
 	"rules_digest": "37c08ceda16f2f743df6a6d847629b1548280378d712b5f26a0c2a9ef74ae34e",
 	"ontology_release": {
 		"version": "7.0.0",
-		"date": "2026-11-07T19:25:37+01:00"
+		"date": "2026-11-25T19:36:25+01:00"
 	},
 	"tables": {
 		"dd_ontology": 3501,
@@ -94,7 +94,7 @@
 			"ontology lg in sync (9 nodes)",
 			"matrix_string_search filled by the boot self-heal (73317 rows)",
 			"matrix_string_search stamped with its declared derivation",
-			"matrix_relation_index filled by the boot self-heal (175137 rows)",
+			"matrix_relation_index filled by the boot self-heal (175136 rows)",
 			"matrix_relation_index stamped with its declared derivation",
 			"lg (Languages) active",
 			"root password set and verified"
