@@ -601,6 +601,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **On a phone, the record graph view stacks the graph above the record panel.**
+
+    On a phone, the relations graph of a record was squeezed into a narrow strip beside a fixed-width
+    record panel. The graph now takes the full width at the top of the screen, with the selected
+    node's record panel below it, and the hint text gets its own row above the controls.
+
 - **On a phone, the Id header of each record card lines up with the rest of the card.**
 
     In a list on a phone, each record is a card headed by its Id. In Activity and Time Machine lists

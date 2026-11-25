@@ -21988,6 +21988,37 @@ body.inspector_resizing {
   font-size: 0.75rem;
   color: var(--color_grey_8);
 }
+@media screen and (max-width: 600px) {
+  .section.view_graph.edit .graph_toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+  .section.view_graph.edit .graph_toolbar .graph_hint {
+    flex: 1 0 100%;
+    order: -1;
+  }
+  .section.view_graph.edit > .content_data {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 60vh auto;
+    height: auto;
+  }
+  .section.view_graph.edit > .content_data .graph_canvas {
+    border-radius: 6px 6px 0 0;
+  }
+  .section.view_graph.edit > .content_data .node_detail {
+    height: auto;
+    border-left: 1px solid var(--color_grey_12);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    overflow-y: visible;
+  }
+  .section.view_graph.edit > .content_data .node_detail .node_detail_header {
+    position: relative;
+  }
+  .section.view_graph.edit > .content_data.detail_hidden {
+    grid-template-rows: 60vh;
+  }
+}
 /**
 * view_base_section
 *
