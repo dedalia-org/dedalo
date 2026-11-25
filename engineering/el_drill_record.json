@@ -1,5 +1,5 @@
 {
-	"inputs_digest": "c8dd1a0ae5faac8f86d465eee17fc7cbcbd63a99e1ab0c5de7874cd0c8f30820",
+	"inputs_digest": "ce69971ddcceac5ffa0aedd877740b71407528aec5e1390b78e22617a2702c74",
 	"hosts": [
 		{
 			"os": "el10",
@@ -7,8 +7,8 @@
 			"version": "10.2",
 			"kernel": "6.12.0-211.7.3.el10_2.aarch64",
 			"selinux": "enforcing",
-			"sha": "8f029818bdf02fa37b3ba5469e82e32184d50635",
-			"at": "2026-11-10T20:11:52.367Z",
+			"sha": "1d0ee521315f66f7e74f05dc0fcf6b811db17db4",
+			"at": "2026-11-25T23:34:14.890Z",
 			"measured": {
 				"booleans": {
 					"httpd_can_network_relay": {
@@ -107,13 +107,13 @@
 				"publication/host_agent/src/media/probe.ts": "b9720f713357f010ef0533953363c53023ae925424444440e6561d45b92b443d",
 				"publication/host_agent/src/media/repair.ts": "652fc79a3519bfdab9a4f38445e598b5a3873dc79d7cc3d04a1fd509a60ccc89",
 				"publication/host_agent/src/media/sha_index.ts": "1394654dee5818731dd23bd81c7941b903e48a2f12661ffd32667e92175585d7",
-				"scripts/publication_host_init_drill.ts": "0cc7462cbdab1ab1f986af58b66ea38ffa226d5f319eb97378d15891be241401",
+				"scripts/publication_host_init_drill.ts": "a22bc9a2a5eccbfaad6308a21a5bdea79382f10161d6bd734dcee8e8e8eed808",
 				"src/core/media/protection.ts": "3ea410673e31c4ca44498349de8acc47ce7d7cbad140aa42e2535d5d3c58e180",
 				"src/core/media/publication_host_rules.ts": "e643d340e01844df85ecf912441985dbc1ba1c70448d8d6ee0f3b159ebd2aaab",
 				"src/core/publication_host/rules.ts": "2d670b39f91a92151ca072ce54d0e775c468cf21463113ec3155a3f02ae5295d"
 			},
-			"legs_digest": "e650402e9edea7f9818e6a6e386b62d24362f6f4d99ef764a6fa9a161275aef7",
-			"tree_dirty": true
+			"legs_digest": "1f38ade2c5677b880d8f7a1cb861cf01acb0a2d907929fac99e76dc043a46a7c",
+			"tree_dirty": false
 		},
 		{
 			"os": "el9",
@@ -121,8 +121,8 @@
 			"version": "9.8",
 			"kernel": "5.14.0-687.5.3.el9_8.aarch64",
 			"selinux": "enforcing",
-			"sha": "8f029818bdf02fa37b3ba5469e82e32184d50635",
-			"at": "2026-11-10T20:13:23.555Z",
+			"sha": "1d0ee521315f66f7e74f05dc0fcf6b811db17db4",
+			"at": "2026-11-25T23:44:19.799Z",
 			"measured": {
 				"booleans": {
 					"httpd_can_network_relay": {
@@ -221,13 +221,13 @@
 				"publication/host_agent/src/media/probe.ts": "b9720f713357f010ef0533953363c53023ae925424444440e6561d45b92b443d",
 				"publication/host_agent/src/media/repair.ts": "652fc79a3519bfdab9a4f38445e598b5a3873dc79d7cc3d04a1fd509a60ccc89",
 				"publication/host_agent/src/media/sha_index.ts": "1394654dee5818731dd23bd81c7941b903e48a2f12661ffd32667e92175585d7",
-				"scripts/publication_host_init_drill.ts": "0cc7462cbdab1ab1f986af58b66ea38ffa226d5f319eb97378d15891be241401",
+				"scripts/publication_host_init_drill.ts": "a22bc9a2a5eccbfaad6308a21a5bdea79382f10161d6bd734dcee8e8e8eed808",
 				"src/core/media/protection.ts": "3ea410673e31c4ca44498349de8acc47ce7d7cbad140aa42e2535d5d3c58e180",
 				"src/core/media/publication_host_rules.ts": "e643d340e01844df85ecf912441985dbc1ba1c70448d8d6ee0f3b159ebd2aaab",
 				"src/core/publication_host/rules.ts": "2d670b39f91a92151ca072ce54d0e775c468cf21463113ec3155a3f02ae5295d"
 			},
-			"legs_digest": "e650402e9edea7f9818e6a6e386b62d24362f6f4d99ef764a6fa9a161275aef7",
-			"tree_dirty": true
+			"legs_digest": "1f38ade2c5677b880d8f7a1cb861cf01acb0a2d907929fac99e76dc043a46a7c",
+			"tree_dirty": false
 		}
 	]
 }
