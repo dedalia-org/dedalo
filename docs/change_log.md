@@ -197,6 +197,11 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The Stop button of a running process shows a stop icon.**
+
+    The button that stops a running process (publishing, exports, updates) showed a gear icon,
+    which suggests settings. It now shows a cancel icon.
+
 - **"Activating or repairing a hierarchy links its root term only when it is unambiguous — the one term without a parent — and keeps every valid root."**
 
     The *General term* of a hierarchy is the root its thesaurus tree hangs from. When it was
