@@ -645,6 +645,8 @@ template {
   --transition-fast: 120ms var(--ease-standard);
   --transition-base: 200ms var(--ease-standard);
   --transition-slow: 400ms var(--ease-standard);
+  --list_card_label_bg: var(--color_grey_13);
+  --list_card_label_border: var(--bg_surface);
   --menu_dropdown_text: var(--color_grey_14);
   --menu_dropdown_bg: var(--color_grey_16);
   --menu_dropdown_border: var(--color_grey_9);
@@ -893,6 +895,8 @@ template {
   --color_grey_4_light: #f0f2f5;
   --menu_bg_active_border: #cc7a20;
   --service_bg_dark: #cc6a10;
+  --list_card_label_bg: var(--color_grey_14);
+  --list_card_label_border: var(--color_grey_13);
   --menu_dropdown_text: #b4b4b4;
   --menu_dropdown_bg: #31353d;
   --menu_dropdown_border: #3a3a3a;
@@ -6574,20 +6578,41 @@ dd-modal.dd_presets::part(content) {
   .list_body.layout_table:where(:not(.column *)) > .header_wrapper_list {
     display: none;
   }
+  .list_body.layout_table:where(:not(.column *)) {
+    background-color: transparent;
+  }
   .list_body.layout_table:where(:not(.column *)) > .content_data,
   :where(.list_body:not(.layout_table)) > .content_data.list.section {
     display: block;
     padding-top: 0.25rem;
-  }
-  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:first-child:not(.placeholder) > .column:first-child,
-  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:first-child:not(.placeholder) > .column:first-child {
-    margin-top: 0.25rem;
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder),
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) {
     display: grid;
     grid-template-columns: 1fr;
     width: 100%;
+    background-color: var(--bg_surface);
+    border-radius: 0.7rem;
+    margin-bottom: 1rem;
+  }
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column:first-child,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:first-child,
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column:first-child:before,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:first-child:before {
+    border-top-left-radius: 0.7rem;
+  }
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column:first-child,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:first-child {
+    border-top-right-radius: 0.7rem;
+  }
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column:last-child,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:last-child {
+    box-shadow: none;
+  }
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column:last-child:before,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column:last-child:before {
+    border-bottom-left-radius: 0.7rem;
+    border-bottom: none;
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column {
@@ -6613,7 +6638,7 @@ dd-modal.dd_presets::part(content) {
     display: flex;
     align-items: center;
     width: 22%;
-    background-color: var(--color_grey_14);
+    background-color: var(--list_card_label_bg);
     padding: 0.25rem;
     padding-left: 0.5rem;
     word-break: break-word;
@@ -6623,27 +6648,34 @@ dd-modal.dd_presets::part(content) {
     left: -0.2rem;
     top: -0.5rem;
     height: calc(100% + 0.5rem);
-    border-bottom: 1px solid var(--color_grey_13);
+    border-bottom: 1px solid var(--list_card_label_border);
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column.column_section_id {
     position: sticky;
     top: 0px;
     z-index: 1;
-    box-shadow: 0px 4px 2px 0px var(--color_grey_9);
     font-size: 1.5rem;
-    margin-top: 2rem;
-    margin-bottom: 0.25rem;
     grid-template-columns: 22% 1fr 1fr;
     display: grid;
+    padding-top: 0;
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id:before,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column.column_section_id:before {
     font-size: 1.5rem;
     text-transform: uppercase;
     width: auto;
-    top: 0rem;
+    top: 0;
+    height: auto;
     margin-right: 0rem;
+    color: var(--fg_default);
+  }
+  .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id > .section_id_container,
+  :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column.column_section_id > .section_id_container {
+    grid-column: 2 / -1;
+    align-self: center;
+    text-align: left;
+    padding-left: 0.5rem;
   }
   .list_body.layout_table:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) > .column.column_section_id .button_edit,
   :where(.list_body:not(.layout_table)) > .content_data.list.section > .section_record:not(.placeholder) > .column.column_section_id .button_edit {

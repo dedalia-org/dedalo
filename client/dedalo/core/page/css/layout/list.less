@@ -131,20 +131,43 @@
 		display: none;
 	}
 
+	// no sheet behind the cards: each card is its own surface (below), so the
+	// gaps between cards show the page, not a white band
+	.list_body.layout_table:where(:not(.column *)) {
+		background-color: transparent;
+	}
+
 	// the content_data becomes a block of cards
 	.list_body.layout_table:where(:not(.column *))>.content_data,
 	:where(.list_body:not(.layout_table))>.content_data.list.section {
 		display: block;
 		padding-top: 0.25rem;
 
-		>.section_record:first-child:not(.placeholder)>.column:first-child {
-			margin-top: 0.25rem;
-		}
-
 		>.section_record:not(.placeholder) {
 			display: grid;
 			grid-template-columns: 1fr;
 			width: 100%;
+			// the card: rounded by its first/last cells, NOT by a clip (row-box
+			// ring law: the portal drag handle in the id cell stays hit-testable)
+			background-color: var(--bg_surface);
+			border-radius: .7rem;
+			margin-bottom: 1rem;
+
+			>.column:first-child,
+			>.column:first-child:before {
+				border-top-left-radius: .7rem;
+			}
+			>.column:first-child {
+				border-top-right-radius: .7rem;
+			}
+			// the row separator under the last cell would draw outside the card
+			>.column:last-child {
+				box-shadow: none;
+			}
+			>.column:last-child:before {
+				border-bottom-left-radius: .7rem;
+				border-bottom: none;
+			}
 
 			>.column {
 				font-size: 0.9rem;
@@ -169,7 +192,7 @@
 					display: flex;
 					align-items: center;
 					width: 22%;
-					background-color: @color_grey_14;
+					background-color: var(--list_card_label_bg);
 					padding: 0.25rem;
 					padding-left: 0.5rem;
 					word-break: break-word;
@@ -179,7 +202,7 @@
 					left: -0.2rem;
 					top: -0.5rem;
 					height: calc(100% + 0.5rem);
-					border-bottom: 1px solid @color_grey_13;
+					border-bottom: 1px solid var(--list_card_label_border);
 				}
 
 				// the card's Id header, pinned while its card scrolls. NO
@@ -191,19 +214,34 @@
 					position: sticky;
 					top: 0px;
 					z-index: 1;
-					box-shadow: 0px 4px 2px 0px @color_grey_9;
 					font-size: 1.5rem;
-					margin-top: 2rem;
-					margin-bottom: 0.25rem;
 					grid-template-columns: 22% 1fr 1fr;
 					display: grid;
+
+					// no top padding to compensate: the label stretches over the
+					// whole grid row, so it neither drops below the cell nor leaves
+					// a strip of the cell's colour under it, and centres with the id
+					padding-top: 0;
 
 					&:before {
 						font-size: 1.5rem;
 						text-transform: uppercase;
 						width: auto;
-						top: 0rem;
+						top: 0;
+						height: auto;
 						margin-right: 0rem;
+						// a coloured header (activity / TM) sets an inverse ink on
+						// the cell; the label keeps its own surface, so its own ink
+						color: var(--fg_default);
+					}
+
+					// activity / TM id: one value spanning the value tracks,
+					// left-aligned like the other card values
+					>.section_id_container {
+						grid-column: 2 / -1;
+						align-self: center;
+						text-align: left;
+						padding-left: 0.5rem;
 					}
 
 					.button_edit {

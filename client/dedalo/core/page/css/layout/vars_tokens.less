@@ -330,6 +330,11 @@
 	--transition-slow: 400ms var(--ease-standard); // theme / modal cross-fades
 
 	// ---- COMPONENT SEMANTIC TOKENS ----
+	// list phone cards — the label column. Light's grey_14 IS the canvas
+	// (--bg_app), so the labels melted into the page: one step darker, with
+	// surface-coloured gutters (a grey_13 rule would vanish on a grey_13 fill)
+	--list_card_label_bg:       var(--color_grey_13);
+	--list_card_label_border:   var(--bg_surface);
 	--menu_dropdown_text:       var(--color_grey_14);
 	--menu_dropdown_bg:         var(--color_grey_16);
 	--menu_dropdown_border:     var(--color_grey_9);
