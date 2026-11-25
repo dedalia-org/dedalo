@@ -327,7 +327,9 @@ render_common_section.render_delete_record_dialog = async (options) => {
 			footer		: footer,
 			size		: 'small', // string size small|big|normal
 			callback	: (dd_modal) => {
-				dd_modal.modal_content.style.width = '34rem'
+				// `dd_delete_record` carries the width (layout.less `::part(content)`):
+				// an inline width beat the phone full-sheet tier and overflowed the page
+				dd_modal.classList.add('dd_delete_record')
 			}
 		})
 

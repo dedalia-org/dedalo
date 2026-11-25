@@ -618,6 +618,12 @@ Merged since the last release; these ship with the next one.
     On a phone, an open menu taller than the screen could not be scrolled, so its last entries were
     out of reach. The open menu now scrolls on its own, below the top bar.
 
+- **On a phone, the list edit and delete-record dialogs fit the screen.**
+
+    On a phone, editing a field from a list or deleting a record opened a dialog wider than the screen,
+    so the page scrolled sideways. Both dialogs now fill the screen width, and the delete buttons sit
+    right under the dialog's content instead of halfway down an empty sheet.
+
 - **The JSON editor's indent guides are readable in the dark theme.**
 
     In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn

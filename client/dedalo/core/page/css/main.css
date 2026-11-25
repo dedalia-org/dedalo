@@ -5767,6 +5767,40 @@ dd-modal.dd_presets::part(content) {
     max-width: 100vw;
   }
 }
+dd-modal.dd_edit_modal::part(content) {
+  width: 30rem;
+  max-width: 92vw;
+}
+@media screen and (max-width: 600px) {
+  dd-modal.dd_edit_modal::part(content) {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
+dd-modal.dd_delete_record::part(content) {
+  width: 34rem;
+  max-width: 92vw;
+}
+@media screen and (max-width: 600px) {
+  dd-modal.dd_delete_record::part(content) {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
+dd-modal.dd_delete_record .body.content {
+  padding-top: 1.5rem;
+  padding-bottom: 0.5rem;
+}
+dd-modal.dd_delete_record .footer.content {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-bottom: 1.25rem;
+}
+dd-modal.dd_delete_record .footer.content > button {
+  margin: 0;
+}
 .disabled_component .content_data.component,
 .disabled_component .buttons_container,
 .disabled_component input,

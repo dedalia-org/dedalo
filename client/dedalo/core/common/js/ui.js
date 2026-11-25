@@ -4945,7 +4945,9 @@ export const ui = {
 
 				// re-size and position the modal content
 				dd_modal.modal_content.classList.add('center')
-				dd_modal.modal_content.style.width = '30rem'
+				// `dd_edit_modal` carries the width (layout.less `::part(content)`): an
+				// inline width beat the phone full-sheet tier and overflowed the page
+				dd_modal.classList.add('dd_edit_modal')
 
 				// activate once attached and sized: activation measures the field
 				// (tab_lifted, --tools_width); detached, every rect is 0 and the

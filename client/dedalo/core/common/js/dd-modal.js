@@ -400,6 +400,9 @@ class DDModal extends HTMLElement {
 					border-radius: 0;
 					resize: none;
 					padding-bottom: env(safe-area-inset-bottom);
+					/* rows pack at the top: stretched auto rows split the spare
+					   sheet height between body and footer (a gap under short bodies) */
+					align-content: start;
 				}
 			}
 
