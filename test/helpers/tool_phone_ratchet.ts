@@ -487,17 +487,27 @@ export async function attachToggleInPage(
 /** Problems with one attach toggle (empty = the contract held). Pure. */
 export function judgeAttach(tool: string, expect: 'on' | 'off', o: AttachObservation): string[] {
 	if (o.error) return [`attach ${expect}: ${o.error}`];
+	const modal = o.modalSeen
+		? [`attach ${expect}: a <dd-modal> appeared (open_as attach opens none)`]
+		: [];
+	return [...modal, ...(expect === 'on' ? judgeAttachOn(tool, o) : judgeAttachOff(tool, o))];
+}
+
+/** Toggled on: marker present, every button pressed, none busy. */
+function judgeAttachOn(tool: string, o: AttachObservation): string[] {
 	const out: string[] = [];
-	if (o.modalSeen) out.push(`attach ${expect}: a <dd-modal> appeared (open_as attach opens none)`);
-	if (expect === 'on') {
-		if (!o.marker) out.push(`attach on: caller lacks ${attachMarkerSelector(tool)}`);
-		if (o.pressed.length === 0 || o.pressed.some((p) => p !== 'true'))
-			out.push(`attach on: button aria-pressed ${JSON.stringify(o.pressed)}, want all "true"`);
-		if (o.busy) out.push('attach on: button still aria-busy="true"');
-	} else {
-		if (o.marker) out.push(`attach off: caller still carries ${attachMarkerSelector(tool)}`);
-		if (o.pressed.some((p) => p !== 'false'))
-			out.push(`attach off: button aria-pressed ${JSON.stringify(o.pressed)}, want all "false"`);
-	}
+	if (!o.marker) out.push(`attach on: caller lacks ${attachMarkerSelector(tool)}`);
+	if (o.pressed.length === 0 || o.pressed.some((p) => p !== 'true'))
+		out.push(`attach on: button aria-pressed ${JSON.stringify(o.pressed)}, want all "true"`);
+	if (o.busy) out.push('attach on: button still aria-busy="true"');
+	return out;
+}
+
+/** Toggled off: marker gone, every button unpressed. */
+function judgeAttachOff(tool: string, o: AttachObservation): string[] {
+	const out: string[] = [];
+	if (o.marker) out.push(`attach off: caller still carries ${attachMarkerSelector(tool)}`);
+	if (o.pressed.some((p) => p !== 'false'))
+		out.push(`attach off: button aria-pressed ${JSON.stringify(o.pressed)}, want all "false"`);
 	return out;
 }

@@ -2,12 +2,12 @@
 /*global it, describe, before, after, beforeEach, afterEach, assert, DEDALO_TOOLS_URLS */
 /*eslint no-undef: "error"*/
 
-import { elements } from './elements.js';
-import { get_instance, get_instance_by_id } from '../../../core/common/js/instances.js';
-import { event_manager } from '../../../core/common/js/event_manager.js';
-import { ERROR_SIGNAL } from '../../../core/common/js/error_dispatch.js';
 import { CLIENT_ERROR } from '../../../core/common/js/api_error.js';
+import { ERROR_SIGNAL } from '../../../core/common/js/error_dispatch.js';
+import { event_manager } from '../../../core/common/js/event_manager.js';
+import { get_instance, get_instance_by_id } from '../../../core/common/js/instances.js';
 import { is_tool_attached, open_tool } from '../../../core/tools_common/js/tool_common.js';
+import { elements } from './elements.js';
 
 /**
  * TOOL OPEN MODE `open_as:'attach'` (tool_common.view_attach)
@@ -205,7 +205,10 @@ describe('TOOL OPEN_AS ATTACH (view_attach)', function () {
 		assert.isNull(get_instance_by_id(instance.id), 'the instance left the registry');
 		assert.equal(surfaces().length, 0, 'the tool UI is gone');
 		assert.notInclude(attached_names(caller), TOOL_NAME);
-		assert.isFalse(caller.node.hasAttribute('data-tools-attached'), 'an empty token list drops the attribute');
+		assert.isFalse(
+			caller.node.hasAttribute('data-tools-attached'),
+			'an empty token list drops the attribute',
+		);
 		assert.equal(tool_buttons(caller)[0].getAttribute('aria-pressed'), 'false');
 		assert.isFalse(is_tool_attached(TOOL_NAME, caller));
 		assert.equal(fixture.count('attach'), 1, 'no re-attach on toggle-off');
@@ -265,7 +268,11 @@ describe('TOOL OPEN_AS ATTACH (view_attach)', function () {
 		assert.equal(surfaces(old_node).length, 0, 'nothing left on the old node');
 		assert.include(attached_names(caller), TOOL_NAME, 'marker re-applied on the new node');
 		assert.equal(tool_buttons(caller).length, 1);
-		assert.equal(tool_buttons(caller)[0].getAttribute('aria-pressed'), 'true', 'rebuilt button reads pressed');
+		assert.equal(
+			tool_buttons(caller)[0].getAttribute('aria-pressed'),
+			'true',
+			'rebuilt button reads pressed',
+		);
 		assert.equal(fixture.count('render'), 0, 'render() never called');
 		assert.equal(fixture.count('init'), 1, 'the same instance re-attached');
 		assert.equal(fixture.count('destroy'), 0, 'not destroyed by a re-render');
@@ -376,7 +383,11 @@ describe('TOOL OPEN_AS ATTACH (view_attach)', function () {
 			1,
 		);
 		const ops = failed_log.map((e) => e.op);
-		assert.deepEqual(ops, ['init', 'build', 'attach', 'destroy'], 'attach threw → destroyed, never attached');
+		assert.deepEqual(
+			ops,
+			['init', 'build', 'attach', 'destroy'],
+			'attach threw → destroyed, never attached',
+		);
 		assert.notInclude(ops, 'detach', 'core does not detach a tool that never attached');
 	});
 
@@ -476,7 +487,10 @@ describe('TOOL OPEN_AS ATTACH (view_attach)', function () {
 
 		try {
 			caller.lang = original_lang === 'lg-spa' ? 'lg-eng' : 'lg-spa'; // what rebuild_component_in_lang does
-			assert.isTrue(is_tool_attached(TOOL_NAME, caller), 'the key follows the live instance, not its lang');
+			assert.isTrue(
+				is_tool_attached(TOOL_NAME, caller),
+				'the key follows the live instance, not its lang',
+			);
 
 			const second = await open();
 			assert.isFalse(second, 'the open toggles the attached tool off');
@@ -513,5 +527,4 @@ describe('TOOL OPEN_AS ATTACH (view_attach)', function () {
 		assert.isTrue(is_tool_attached(TOOL_NAME, caller));
 		assert.equal(signals.length, 0, 'no error surfaced');
 	});
-
 });

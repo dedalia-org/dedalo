@@ -1128,8 +1128,7 @@ async function openTool(
 			async (
 				toolName: string,
 				c: { tipo: string; section_tipo: string; mode: string; model: string },
-				modalOnly: boolean,
-				knownModes: readonly string[],
+				routes: Record<string, 'open' | 'hand' | 'skip'>,
 			) => {
 				const spec = '/dedalo/core/common/js/instances.js'; // the page's own module, not a repo path
 				const { get_all_instances } = (await import(spec)) as {
@@ -1152,19 +1151,24 @@ async function openTool(
 				instance.node?.scrollIntoView?.({ block: 'center' });
 				const tool_context = offers(instance);
 				const openAs = String(tool_context.properties?.open_as ?? 'modal');
-				// unknown open_as: fail loudly BEFORE opening (the client would fall into modal)
-				if (!knownModes.includes(openAs)) return `unknown open_as '${openAs}'`;
-				// audit: a window's first requests would race the write guard;
-				// modal and attach stay in this (guarded) page
-				if (modalOnly && openAs !== 'modal' && openAs !== 'attach') return 'skipped';
-				// attach: the harness opens it by the button's mousedown (the toggle
-				// a user clicks), so only hand the caller node over to Node
-				if (openAs === 'attach') {
-					(window as unknown as { __dd_probe_caller?: unknown }).__dd_probe_caller = instance.node;
-					return openAs;
-				}
-				void open_tool({ tool_context, caller: instance });
-				return openAs;
+				// the route per mode is decided in Node (openToolRoutes); a mode with no
+				// route is unknown and fails loudly BEFORE opening (the client would fall
+				// into modal). attach: the harness opens it by the button's mousedown
+				// (the toggle a user clicks), so only hand the caller node over to Node
+				const act = {
+					open: () => {
+						void open_tool({ tool_context, caller: instance });
+						return openAs;
+					},
+					hand: () => {
+						(window as unknown as { __dd_probe_caller?: unknown }).__dd_probe_caller =
+							instance.node;
+						return openAs;
+					},
+					skip: () => 'skipped',
+					unknown: () => `unknown open_as '${openAs}'`,
+				};
+				return act[routes[openAs] ?? 'unknown']();
 			},
 			name,
 			{
@@ -1173,8 +1177,7 @@ async function openTool(
 				mode: caller.mode,
 				model: caller.model,
 			},
-			audit,
-			TOOL_OPEN_MODES,
+			openToolRoutes(audit),
 		);
 		if (result === 'skipped') {
 			console.log(`    audit: ${name} opens a window — not opened`);
@@ -1226,6 +1229,42 @@ async function openTool(
 }
 
 /**
+ * How the page treats each open mode: modal opens in place, attach hands the
+ * caller node to Node (probeAttachedTool toggles it), window opens a popup —
+ * except in an audit, where a window's first requests would race the write
+ * guard, so it is skipped. Modes absent here are unknown to the harness.
+ */
+function openToolRoutes(audit: boolean): Record<string, 'open' | 'hand' | 'skip'> {
+	const routes: Record<string, 'open' | 'hand' | 'skip'> = {};
+	for (const mode of TOOL_OPEN_MODES) routes[mode] = mode === 'attach' ? 'hand' : 'open';
+	if (audit) routes.window = 'skip';
+	return routes;
+}
+
+/** An attached tool that rendered an error panel inside its caller is a finding. */
+async function reportCallerErrorPanel(
+	page: Page,
+	node: ElementHandle<Element>,
+	who: string,
+	tipo: string,
+	from: string,
+	name: string,
+	caller: LiveInstance,
+): Promise<void> {
+	const panel = await node.$('.content_data_error, .tool_error, .api_error_panel');
+	if (!panel) return;
+	const text = (await panel.evaluate((n) => n.textContent ?? '').catch(() => '')) as string;
+	add(
+		who,
+		tipo,
+		'tool',
+		`tool_error:${name}`,
+		`attached tool rendered an error panel in its caller (${caller.model} ${caller.tipo} on ${from}): ${text.trim().slice(0, 160)}`,
+		page,
+	);
+}
+
+/**
  * open_as 'attach': no modal, no window — the tool decorates its caller. Toggle
  * it on by the button's mousedown, judge the CALLER node as the tool surface,
  * toggle it off again; no <dd-modal> may appear at any point, and the page is
@@ -1253,20 +1292,7 @@ async function probeAttachedTool(
 		const onProblems = judgeAttach(name, 'on', on);
 		if (onProblems.length > 0) throw new Error(onProblems.join('; '));
 		await settle(page);
-		const panel = await node.$('.content_data_error, .tool_error, .api_error_panel');
-		if (panel)
-			add(
-				who,
-				tipo,
-				'tool',
-				`tool_error:${name}`,
-				`attached tool rendered an error panel in its caller (${caller.model} ${caller.tipo} on ${from}): ${(
-					(await panel.evaluate((n) => n.textContent ?? '').catch(() => '')) as string
-				)
-					.trim()
-					.slice(0, 160)}`,
-				page,
-			);
+		await reportCallerErrorPanel(page, node, who, tipo, from, name, caller);
 		const off = await page.evaluate(attachToggleInPage, node, name, 'off' as const, 30_000);
 		const offProblems = judgeAttach(name, 'off', off);
 		if (offProblems.length > 0) throw new Error(offProblems.join('; '));
