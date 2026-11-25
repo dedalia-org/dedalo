@@ -3163,6 +3163,8 @@ describe.if(DB_READY)('Step 3 — the authorization-door matrix', () => {
 		);
 		expect(refused).toBeInstanceOf(DedaloError);
 		expect((refused as DedaloError).code).toBe('perm.denied');
+		// the COMPONENT half refused (a section-floor shortfall carries the same code)
+		expect((refused as DedaloError).message).toContain('component grant on (test3, test9)');
 		for (const sectionId of records) expect(await holdsTerm(sectionId)).toBe(false);
 
 		// THE RULING: served, every row written, the locator stored on each.
