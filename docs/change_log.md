@@ -637,6 +637,13 @@ Merged since the last release; these ship with the next one.
     Pressing Escape while editing a text field inside a dialog (for example, editing a field from a
     list) did nothing. Escape now closes the dialog, as it does everywhere else.
 
+- **On a phone, the multi-language tool's controls fit the screen and each language is set apart.**
+
+    On a phone, the multi-language tool's translator selector wrapped awkwardly under the button, and
+    its configuration panel ran off the right edge and covered the first language. The selector now
+    fills its own row with the settings gear at its end, the panel opens below them within the screen
+    width, and the model choice wraps under its label. A thin line now separates each language.
+
 - **The JSON editor's indent guides are readable in the dark theme.**
 
     In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn
