@@ -252,6 +252,10 @@ const STORAGE_NODE = 'zzrqw90';
 const INDEX_STORAGE_ONLY = 'zzrqw91';
 const INDEX_WITH_SIBLING = 'zzrqw92';
 const SELECT_WITH_STORAGE = 'zzrqw93';
+const SELECT_STORAGE_ONLY = 'zzrqw94';
+const INDEX_WITH_SECTION = 'zzrqw95';
+const STORAGE_LIST_OWNER = 'zzrqw96';
+const STORAGE_LIST_NODE = 'zzrqw97';
 
 const selfDdo = (tipo: string) => ({ tipo, section_tipo: 'self', parent: 'self' });
 
@@ -352,6 +356,28 @@ const WALK = situation({
 			model: 'component_select',
 			order_number: 12,
 			relations: [{ tipo: STORAGE_NODE }, { tipo: TEXT_A }],
+		},
+		{
+			tipo: SELECT_STORAGE_ONLY,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 13,
+			relations: [{ tipo: STORAGE_NODE }],
+		},
+		{
+			tipo: INDEX_WITH_SECTION,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 14,
+			relations: [{ tipo: TARGET_A }, { tipo: TEXT_A }],
+		},
+		{ tipo: STORAGE_LIST_OWNER, parent: 'test1', model: 'section' },
+		{
+			tipo: STORAGE_LIST_NODE,
+			parent: STORAGE_LIST_OWNER,
+			model: 'section_list',
+			order_number: 9,
+			relations: [{ tipo: STORAGE_NODE }],
 		},
 		{
 			tipo: EXPLICIT_PORTAL,
@@ -513,6 +539,25 @@ describe('the implicit walk (zzrqw situation)', () => {
 				const config = await build(SELECT_WITH_STORAGE, HOST, mode);
 				expect([mode, shown(config)]).toEqual([mode, [TEXT_A]]);
 				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [HOST]]);
+			}
+		});
+
+		test('a matrix_table node as the ONLY relation: no ddo, no target → the configless answer', async () => {
+			for (const mode of ['edit', 'list']) {
+				// a non-index component: no config at all (was: one junk matrix_table ddo)
+				expect([mode, await build(SELECT_STORAGE_ONLY, HOST, mode)]).toEqual([mode, []]);
+				// a section whose section_list names only the storage node: itself, no column
+				const section = await build(STORAGE_LIST_OWNER, STORAGE_LIST_OWNER, 'list', true);
+				expect(shown(section)).toEqual([]);
+				expect(extractSqoSectionTipos(section[0])).toEqual([STORAGE_LIST_OWNER]);
+			}
+		});
+
+		test('a relation_index that DECLARES a section node keeps it as its target', async () => {
+			for (const mode of ['edit', 'list']) {
+				const config = await build(INDEX_WITH_SECTION, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [TARGET_A]]);
 			}
 		});
 

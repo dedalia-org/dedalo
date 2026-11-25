@@ -34,7 +34,15 @@
   Before, it was emitted as a junk ddo no client module renders, which also made a
   relation_index related only to a matrix_table node (e.g. `dd22`) look as if it had columns.
   No consumer read such a ddo: the principal-free walk's consumers (`implicitComponentChildren`
-  → export / flat children) already kept only `component_*` links.
+  → export / flat children) already kept only `component_*` links. **Shape change for a node
+  whose ONLY non-section relation is a matrix_table node, any model:** it used to get one
+  config whose `show.ddo_map` held that junk ddo and whose `sqo.section_tipo` was `[]`; it now
+  has an empty ddo_map and no target, so it takes the configless answer — NO config for a
+  non-index component (e.g. a `component_select` or `component_portal`), the base item (sqo
+  `[]`, ddo_map `[]`) for a `component_relation_index`. A SECTION whose `section_list` names
+  only a matrix_table node keeps itself as target (the section rung) with an empty ddo_map.
+  A relation_index that declares a `section` relation node still targets that section — the
+  exclusion covers only the caller rung.
 - **Other doors that now see the caller's section** — every consumer of the same config
   (`getElementTargetSectionTipos` / `buildRequestConfigForElement`): the import conform target
   check (`tools/import_conform.ts`), the picker constraint (`relations/picker_constraint.ts
@@ -59,5 +67,6 @@
   two exclusions above.)
 - **Gate reconciliation:** TS-native: `test/unit/request_config_implicit.test.ts` → "RC-3 — a
   component whose relations name no section targets the caller's section" (red before; the
-  targetSource, no-graph, relation_index and matrix_table scopes each mutation-checked). No frozen fixture changed
+  targetSource, no-graph, relation_index, matrix_table, matrix_table-only and
+  declared-section relation_index scopes each mutation-checked). No frozen fixture changed
   (`request_config_differential` unchanged); no re-harvest.

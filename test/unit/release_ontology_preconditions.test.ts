@@ -41,14 +41,14 @@ const records = readReleaseOntology();
 /** The section_map scope keys that name a yes/no flag component. */
 const FLAG_KEYS = ['is_descriptor', 'is_indexable'] as const;
 
+/** Birth-seed checks on a fresh suite DB (measured 2026-11-25). Shrink-only. */
+const CHECKED_FLOOR = 12;
+
 /**
  * Flag components the release names WITHOUT a dato_default — each awaiting an
  * owner decision on the master ontology (never fixed here: ontology nodes
  * belong to the master). Shrink-only.
  */
-/** Birth-seed checks on a fresh suite DB (measured 2026-11-25). */
-const CHECKED_FLOOR = 12;
-
 const UNDECLARED_PENDING_OWNER: Readonly<Record<string, string>> = {
 	dd1445:
 		"is_descriptor of dd1100's section_map (the 'web dedalo' thesaurus) — not among the five " +
