@@ -136,3 +136,8 @@
   probes; NOT_YET_PROBED ceiling 60 → 59), `test/unit/dd128_write_census_tripwire.test.ts`
   (rows `delegates`, derived DELEGATING_ENGINES, positive control),
   `test/unit/media_timecode.test.ts` (tipo/component_tipo conflict, id grammar).
+- **2026-11-25 (owner ruling, FYI-1 / T2-S06):** the propagate door never consults the
+  relation's TARGET section — a writer of the relation (pair 2, section floor ≥1 on the
+  record's own section) propagates a locator into a section it holds at 0; pinned by
+  `authz_door_matrix_native` leg `FYI-1 propagate_into_unreadable_target` (PROPAGATOR vs
+  PROPAGATOR_NO_PAIR, `test/helpers/authz_door_fixture.ts`).

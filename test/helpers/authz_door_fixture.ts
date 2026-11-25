@@ -99,6 +99,15 @@
  *   944030/944040 IRI_READER       No      P        = IRI_EDITOR's test3 grants with test140=1 (the IRI READ-only) — the frame
  *                                                   follows it to 1 (T0-4 decision 1)
  *
+ *   944031/944041 PROPAGATOR       No      P        test3=2, test9=2 (test3's component_autocomplete_hi →
+ *                                                   the hierarchy_types-2 thesauri), test101=1, testgeob1 at
+ *                                                   an EXPLICIT 0 (the relation's TARGET thesaurus: no access)
+ *                                                   — the owner ruling 2026-11-25 (FYI-1 / T2-S06): a writer
+ *                                                   of the relation propagates locators into a target section
+ *                                                   it may not even read
+ *   944032/944042 PROPAGATOR_NO_PAIR No    P        = PROPAGATOR with test9 at an EXPLICIT 0 (the control:
+ *                                                   only the pair separates it)
+ *
  *   (User ids skip 944021/944022 — the projects — so a profile id, N + 10,
  *   never lands on another record of the band.)
  *
@@ -162,6 +171,15 @@ export const AUTHZ_CHILD_EDITOR_USER_ID = 944027;
 export const AUTHZ_FEATURE_EDITOR_USER_ID = 944028;
 export const AUTHZ_IRI_EDITOR_USER_ID = 944029;
 export const AUTHZ_IRI_READER_USER_ID = 944030;
+export const AUTHZ_PROPAGATOR_USER_ID = 944031;
+export const AUTHZ_PROPAGATOR_NO_PAIR_USER_ID = 944032;
+/**
+ * test3's component_autocomplete_hi — its targets are the hierarchy_types-2
+ * thesauri, which on the suite DB include the synthetic `testgeob1`.
+ */
+export const AUTHZ_RELATION = 'test9';
+/** The relation's TARGET section the propagator holds NOTHING on (a synthetic test thesaurus). */
+export const AUTHZ_RELATION_TARGET = 'testgeob1';
 /** test3's component_iri (its fixed label frame is dd560, component_iri/descriptor.ts). */
 export const AUTHZ_IRI = 'test140';
 /** The IRI label frame's target section and its label field (seed-shipped `dd` ontology). */
@@ -342,6 +360,14 @@ const iriGrants = (iriLevel: number): [string, string, number][] => [
 	[AUTHZ_SECTION, AUTHZ_FILTER, 1],
 	[AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_SECTION, 1],
 	[AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_FIELD, 1],
+];
+
+/** The propagators' common grants: test3 writable, the relation at `pairLevel`, its TARGET at 0. */
+const propagatorGrants = (pairLevel: number): [string, string, number][] => [
+	[AUTHZ_SECTION, AUTHZ_SECTION, 2],
+	[AUTHZ_SECTION, AUTHZ_RELATION, pairLevel],
+	[AUTHZ_SECTION, AUTHZ_FILTER, 1],
+	[AUTHZ_RELATION_TARGET, AUTHZ_RELATION_TARGET, 0],
 ];
 
 const IDENTITIES: readonly IdentitySpec[] = [
@@ -572,6 +598,22 @@ const IDENTITIES: readonly IdentitySpec[] = [
 		admin: false,
 		project: AUTHZ_PROJECT_P,
 		grants: iriGrants(1),
+	},
+	{
+		// The owner ruling 2026-11-25 (FYI-1 / T2-S06): writes test3's relation,
+		// holds NOTHING on the relation's target thesaurus.
+		userId: AUTHZ_PROPAGATOR_USER_ID,
+		name: 'zzauthz_propagator',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: propagatorGrants(2),
+	},
+	{
+		userId: AUTHZ_PROPAGATOR_NO_PAIR_USER_ID,
+		name: 'zzauthz_propagator_no_pair',
+		admin: false,
+		project: AUTHZ_PROJECT_P,
+		grants: propagatorGrants(0),
 	},
 	{
 		userId: AUTHZ_TOOL_GRANTED_USER_ID,
@@ -814,6 +856,8 @@ export interface AuthzIdentities {
 	featureEditor: Principal;
 	iriEditor: Principal;
 	iriReader: Principal;
+	propagator: Principal;
+	propagatorNoPair: Principal;
 }
 
 export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
@@ -836,6 +880,8 @@ export async function resolveAuthzIdentities(): Promise<AuthzIdentities> {
 		featureEditor: await resolvePrincipal(AUTHZ_FEATURE_EDITOR_USER_ID),
 		iriEditor: await resolvePrincipal(AUTHZ_IRI_EDITOR_USER_ID),
 		iriReader: await resolvePrincipal(AUTHZ_IRI_READER_USER_ID),
+		propagator: await resolvePrincipal(AUTHZ_PROPAGATOR_USER_ID),
+		propagatorNoPair: await resolvePrincipal(AUTHZ_PROPAGATOR_NO_PAIR_USER_ID),
 	};
 }
 
@@ -954,6 +1000,16 @@ export async function assertAuthzDoorContrast(ids: AuthzIdentities): Promise<voi
 		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_IRI, iriLevel);
 		await expectLevel(label, p, AUTHZ_SECTION, 'dd560', 0);
 		await expectLevel(label, p, AUTHZ_IRI_LABEL_SECTION, AUTHZ_IRI_LABEL_SECTION, 1);
+	}
+	// The propagators: test3 writable, the relation at 2 / 0, its TARGET at 0.
+	for (const [label, p, pairLevel] of [
+		['propagator', ids.propagator, 2],
+		['propagatorNoPair', ids.propagatorNoPair, 0],
+	] as const) {
+		if (p.isGlobalAdmin) problems.push(`${label} is a global admin`);
+		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_SECTION, 2);
+		await expectLevel(label, p, AUTHZ_SECTION, AUTHZ_RELATION, pairLevel);
+		await expectLevel(label, p, AUTHZ_RELATION_TARGET, AUTHZ_RELATION_TARGET, 0);
 	}
 	if (problems.length > 0) {
 		throw new Error(`authz_door_fixture: the contrast is degraded — ${problems.join('; ')}`);
