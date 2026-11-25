@@ -93,6 +93,17 @@ const privateFileValues: Record<string, string> = (() => {
 })();
 
 /**
+ * Read a RETIRED key's value under its replacement name for the rest of this
+ * process (env_retired_rename.ts — the ONE caller): after the boot appended the
+ * replacement line to the file, or when the smoke child tolerates a key the
+ * real boot will rename. The parsed map is the file's mirror, so it learns the
+ * line the boot itself wrote.
+ */
+export function adoptRenamedEnvValue(key: string, value: string): void {
+	privateFileValues[key] = value;
+}
+
+/**
  * PHP-catalog constant names honored as FALLBACK spellings of TS-native keys,
  * so an administrator migrating from the PHP server can carry their existing
  * `DEDALO_*` .env lines over unchanged. The TS-native name always wins when

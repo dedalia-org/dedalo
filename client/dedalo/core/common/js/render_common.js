@@ -702,7 +702,7 @@ export const render_stream = function(options) {
 		const has_stop_capability = pid || on_stop
 		const button_stop_process = ui.create_dom_element({
 			element_type	: 'button',
-			class_name		: 'gear button_stop_process' + (has_stop_capability ? '' : ' hide'),
+			class_name		: 'cancel button_stop_process' + (has_stop_capability ? '' : ' hide'),
 			text_content	: 'Stop',
 			parent			: process_status_node
 		})

@@ -183,6 +183,10 @@ describe('pattern replacer (parser_helper replace)', () => {
 		['', ['value'], ''],
 		['${a} - ${b}', ['Hello', null], 'Hello'],
 		['${a} | ${b}', [null, 'World'], 'World'],
+		// a value's own edge characters are content, not separators (media paths)
+		['${a}', ['/dedalo/media/image/x.jpg'], '/dedalo/media/image/x.jpg'],
+		['${a} - ${b}', ['/x.jpg', null], '/x.jpg'],
+		['${a}, ${b}', [null, '1936-'], '1936-'],
 	];
 
 	test.each(cases)('replace(%p, %p) → %p', (pattern, values, expected) => {

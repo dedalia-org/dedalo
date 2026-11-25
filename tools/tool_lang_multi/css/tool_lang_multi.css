@@ -39,14 +39,21 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem;
   position: relative;
 }
-.wrapper_tool.tool_lang_multi .top_container > .icon {
-  margin-right: 0.5rem;
-  font-size: 1.4rem;
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_lang_multi .top_container {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container,
+  .wrapper_tool.tool_lang_multi .top_container > .status_container {
+    grid-column: 1 / -1;
+  }
 }
-.wrapper_tool.tool_lang_multi .top_container > .automatic_label {
-  padding-right: 1rem;
+.wrapper_tool.tool_lang_multi .top_container > .icon {
+  font-size: 1.4rem;
 }
 .wrapper_tool.tool_lang_multi .top_container .button_automatic_translation {
   background-color: var(--tool_lang_multi_fill);
@@ -80,10 +87,29 @@
   align-items: center;
 }
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > select {
-  margin-left: 0.75em;
+  margin-left: 0.25em;
   width: fit-content;
   height: 2.75em;
   font-size: 0.8em;
+}
+@media screen and (max-width: 600px) {
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.5rem;
+  }
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > select {
+    width: 100%;
+    margin-left: 0;
+  }
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .icon.gear {
+    margin-left: 0;
+  }
+  .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container {
+    grid-column: 1 / -1;
+    position: static;
+    white-space: normal;
+  }
 }
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .icon.gear {
   width: 1.2em;
@@ -116,16 +142,38 @@
   position: absolute;
   top: 100%;
   left: 0;
-  background: var(--color_white);
-  border: 1px solid var(--color_grey_12);
+  background: var(--bg_surface);
+  color: var(--fg_default);
+  border: 1px solid var(--border_default);
+  box-shadow: var(--shadow-2);
   border-radius: 3px;
   padding: 0.5rem 0.75rem;
   margin-top: 0.25em;
   z-index: 100;
   white-space: nowrap;
+  max-width: calc(100vw - 2rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container.hide {
   display: none;
+}
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .model_container,
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .quality_container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .model_container.hide,
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .quality_container.hide {
+  display: none;
+}
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .model_container > select,
+.wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container > .quality_container > select {
+  min-width: 0;
+  max-width: 100%;
 }
 .wrapper_tool.tool_lang_multi .top_container > .automatic_translation_container > .configuration_container .device_container {
   display: flex;
@@ -146,12 +194,14 @@
 @media screen and (max-width: 600px) {
   .wrapper_tool.tool_lang_multi .components_container {
     grid-template-columns: minmax(0, 1fr);
-    grid-gap: 1.5em;
+    grid-gap: 1em;
   }
 }
 .wrapper_tool.tool_lang_multi .components_container .target_component_container {
   min-height: 110px;
   position: relative;
+  border-top: 1px solid var(--border_default);
+  padding-top: 0.25em;
 }
 .wrapper_tool.tool_lang_multi .components_container .target_component_container.source > .wrapper_component {
   border-left: 2px solid var(--tool_lang_multi);

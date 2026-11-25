@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "اشاعت کا ہدف کسی دوسرے رن میں مصروف ہے؛ اس کے ختم ہونے پر دوبارہ کوشش کریں",
 	"error_diffusion_unknown_format": "کوئی پھیلاؤ رائٹر اس اشاعتی فارمیٹ کو پیش نہیں کرتا",
 	"error_diffusion_unported_fn": "اشاعت ایک ایسا آنٹولوجی فنکشن استعمال کرتی ہے جو یہ انجن ابھی نافذ نہیں کرتا",
+	"error_diffusion_value_rejected": "شائع کردہ قدر اپنے ہدف کالم میں نہیں سماتی",
 	"error_engine_uncovered_scope": "یہ عمل اس سرور پر دستیاب نہیں",
 	"error_envelope_not_an_envelope": "سرور کا جواب API لفافہ نہیں ہے",
 	"error_export_artifact_busy": "یہ برآمد ابھی جاری ہے یا اس سے فائل بنائی جا رہی ہے۔ اسے روکیں، یا اس کے ختم ہونے تک انتظار کریں، پھر دوبارہ کوشش کریں",

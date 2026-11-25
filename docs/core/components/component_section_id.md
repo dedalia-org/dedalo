@@ -258,6 +258,12 @@ to its `value` (or `section_id`) before resolution.
   default — its descriptor declares no `sortable: false` override — so "order by id"
   is sortable like any other component, subject only to the one per-tipo exception
   (the notes-text tipo `rsc329`, always non-sortable).
+- **Section colour.** In edit mode the wrapper is filled with the parent section's
+  identifying colour: the context `color`, i.e. the section node's `properties.color`,
+  falling back to `#b9b9b9` (`structure_context.ts`), painted on both the idle and the
+  active state so activation never changes it. The list Id column is not this
+  component; it gets the same colour as a stripe — see
+  [Section list → Section colour](../sections/section_list.md#section-colour).
 - **No observers/observables.** This component does not participate in the
   observer/observable mechanism — it produces no data changes to broadcast.
 - **Client validation.** The client model strips everything but digits from typed input,

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime } from 'bun:test';
 import { __setTestDbExecute } from '../src/db/pool';
 import type { DbRow } from '../src/db/types';
 import { dbNames } from '../src/config';
@@ -50,6 +50,10 @@ export const sqlLog: Array<{ sql: string; params: unknown[] }> = [];
 
 /** Set by the fulltext-error describe: the MATCH statements raise this instead of answering. */
 let fulltextRefusal: Error | null = null;
+// Set by the one describe that proves a missing publication_schema table is a 400.
+let schemaRefusal: Error | null = null;
+// Set by the describe that proves a missing AV join table is a 400: the AV joins raise it.
+let avTableRefusal: Error | null = null;
 
 function columnsResult(table: string, withTableName: boolean): Record<string, string>[] {
   const cols = table === 'interview' ? INTERVIEW_COLUMNS : table === 'ts_themes' ? THEMES_COLUMNS : [];
@@ -101,6 +105,7 @@ async function mockDbExecute(_db: string, sql: string, params: unknown[] = []): 
   // else in the suite can provoke it; this switch exists for the one describe that proves the
   // mapping, and for nothing else.
   if (fulltextRefusal !== null && s.includes('MATCH(')) throw fulltextRefusal;
+  if (avTableRefusal !== null && s.includes('LEFT JOIN') && s.includes('audiovisual')) throw avTableRefusal;
 
   if (s.includes('INFORMATION_SCHEMA.TABLES')) {
     return [
@@ -146,6 +151,7 @@ async function mockDbExecute(_db: string, sql: string, params: unknown[] = []): 
     ];
   }
   if (s.includes('publication_schema')) {
+    if (schemaRefusal !== null) throw schemaRefusal;
     return [{ data: JSON.stringify({ dd_relations: { rsc170: 'interview' } }) }];
   }
   if (s.includes('WHERE `section_id` = ?')) {
@@ -328,6 +334,24 @@ describe('API integration (mocked DB)', () => {
     expect(body.data[0].relevance).toBe(1.5);
     expect(body.data[0].fragments[0].text).toContain('<mark>guerra</mark>');
     expect(body.pagination.total).toBe(1);
+  });
+
+  test('fulltext search with lang binds one language in both the hits and the count', async () => {
+    sqlLog.length = 0;
+    const { res } = await get(`/${MOCK_DB}/tables/interview/search?q=guerra&lang=lg-spa&count=true`);
+    expect(res.status).toBe(200);
+    const matches = sqlLog.filter(q => q.sql.includes('MATCH('));
+    expect(matches.length).toBe(2);
+    for (const q of matches) {
+      expect(q.sql).toContain('AND `lang` = ?');
+      expect(q.params).toContain('lg-spa');
+    }
+  });
+
+  test('fulltext search with lang on a table without a lang column is a 400', async () => {
+    const { res, body } = await get(`/${MOCK_DB}/tables/ts_themes/search?q=x&column=term&lang=lg-spa`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain('no "lang" column');
   });
 
   test('fulltext search requires q', async () => {
@@ -724,6 +748,66 @@ describe('unknown columns are a client error (400), not a server error (500)', (
   test('real columns still pass', async () => {
     const { res } = await get(`/${MOCK_DB}/tables/interview/records?sort=-section_id&fields=section_id,title`);
     expect(res.status).toBe(200);
+  });
+});
+
+describe('a publication without publication_schema is the client’s problem, not a 500', () => {
+  // A database published before the engine wrote publication_schema (2026-11-24) has none, so
+  // `resolve_inverse_relations=true` on it hits MariaDB errno 1146. Unmapped, that reached the error handler as a 500.
+  // Step past the 30 s schema cache so a map cached by earlier tests cannot answer instead.
+  afterEach(() => {
+    schemaRefusal = null;
+    setSystemTime();
+  });
+
+  test('errno 1146 → 400 problem+json naming the table', async () => {
+    setSystemTime(new Date(Date.now() + 120_000));
+    schemaRefusal = Object.assign(new Error("Table 'x.publication_schema' doesn't exist"), { errno: 1146 });
+    const { res, body } = await get(`/${MOCK_DB}/tables/interview/records/1?resolve_inverse_relations=true`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain('publication_schema table not found');
+  });
+
+  test('any other failure is rethrown untouched (still a 500)', async () => {
+    setSystemTime(new Date(Date.now() + 240_000));
+    schemaRefusal = new Error('MariaDB server has gone away');
+    const { res } = await get(`/${MOCK_DB}/tables/interview/records/1?resolve_inverse_relations=true`);
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('a publication without the AV tables is the client’s problem, not a 500', () => {
+  // A non-AV publication (a numismatic one) has no AV_MEDIA_TABLE: the joins hit errno 1146.
+  afterEach(() => {
+    avTableRefusal = null;
+  });
+  const missing = () => Object.assign(new Error("Table 'x.audiovisual' doesn't exist"), { errno: 1146 });
+
+  test('av-fragments → 400 naming the table', async () => {
+    avTableRefusal = missing();
+    const { res, body } = await get(`/${MOCK_DB}/tables/interview/records/1/av-fragments?terms=guerra`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain('"audiovisual" table is missing');
+  });
+
+  test('av-fragments on an AV table without the configured columns (errno 1054) → 400', async () => {
+    avTableRefusal = Object.assign(new Error("Unknown column 'a.image' in 'SELECT'"), { errno: 1054 });
+    const { res, body } = await get(`/${MOCK_DB}/tables/interview/records/1/av-fragments?terms=guerra`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain("Unknown column 'a.image'");
+  });
+
+  test('av-indexation-fragment → 400', async () => {
+    avTableRefusal = missing();
+    const { res, body } = await get(`/${MOCK_DB}/av-indexation-fragment?section_id=1`);
+    expect(res.status).toBe(400);
+    expect(body.detail).toContain('AV indexation is not available');
+  });
+
+  test('any other failure is still a 500', async () => {
+    avTableRefusal = new Error('MariaDB server has gone away');
+    const { res } = await get(`/${MOCK_DB}/tables/interview/records/1/av-fragments?terms=guerra`);
+    expect(res.status).toBe(500);
   });
 });
 

@@ -251,6 +251,7 @@ export const tools: ToolDefinition[] = [
         const { total } = await fulltextSearch(db, args.table as string, {
           q: args.q as string,
           column: (args.column ?? DEFAULT_COLUMN) as string,
+          lang: args.lang as string | undefined,
           limit: 0,
           offset: 0,
           withTotal: true,
@@ -275,6 +276,7 @@ export const tools: ToolDefinition[] = [
       table: z.string().describe('Target table name'),
       q: mcpBounded.q,
       column: z.string().optional().describe(`Column to search in (default: ${DEFAULT_COLUMN})`),
+      lang: z.string().optional().describe('Language filter (e.g., lg-eng, lg-spa); without it a hit is returned once per language'),
       limit: mcpBounded.limit,
       offset: mcpBounded.offset,
       count: z.boolean().optional().describe('When true, also return the total count of matching rows'),
@@ -286,6 +288,7 @@ export const tools: ToolDefinition[] = [
       const { rows, total } = await fulltextSearch(db, args.table as string, {
         q: args.q as string,
         column: (args.column ?? DEFAULT_COLUMN) as string,
+        lang: args.lang as string | undefined,
         limit: (args.limit ?? DEFAULT_LIMIT) as number,
         offset: (args.offset ?? 0) as number,
         withTotal: (args.count ?? false) as boolean,

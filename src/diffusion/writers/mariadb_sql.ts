@@ -50,15 +50,20 @@ import {
 	isMissingDatabaseError,
 	isMissingTableError,
 	probeTargetDatabase,
+	valueRejection,
 } from '../targets/mariadb/db.ts';
 import {
 	DEFAULT_UPSERT_BATCH_BYTES,
 	DEFAULT_UPSERT_BATCH_ROWS,
+	fieldSqlType,
 	generateAddColumns,
 	generateBatchUpsert,
 	generateColumnsQuery,
 	generateCreateTable,
 	generateDelete,
+	generatePublicationSchemaStatements,
+	mergePublicationSchema,
+	PUBLICATION_SCHEMA_TABLE,
 	planUpsertBatches,
 	tableColumnFields,
 } from '../targets/mariadb/sql_generator.ts';
@@ -118,13 +123,57 @@ async function upsertRows(
 	let affectedRows = 0;
 	for (const batch of batches) {
 		const statement = generateBatchUpsert(table.tableName, columnNames, batch);
-		const result = (await runner.unsafe(
-			boundSqlTargetStatement(statement.sql),
-			statement.params,
-		)) as MariadbExecResult;
+		let result: MariadbExecResult;
+		try {
+			result = (await runner.unsafe(
+				boundSqlTargetStatement(statement.sql),
+				statement.params,
+			)) as MariadbExecResult;
+		} catch (error) {
+			throw rejectedValueError(table, batch, error) ?? error;
+		}
 		affectedRows += result.affectedRows ?? 0;
 	}
 	return affectedRows;
+}
+
+/**
+ * A strict-mode value refusal named down to the record: table, column, section_id,
+ * lang, the value's length and the type the ontology declares. Left raw it was an
+ * untyped `diffusion.run_failed` naming nothing. When the plan's type would hold
+ * the value, the live column is narrower than the ontology now says — schema
+ * evolution is additive-only (never retypes), so that is the operator's ALTER.
+ */
+export function rejectedValueError(
+	table: SectionPlan,
+	batch: ProjectedRow[],
+	error: unknown,
+): DedaloError | null {
+	const rejection = valueRejection(error);
+	if (rejection === null) return null;
+	const row = batch[rejection.row - 1];
+	const field = tableColumnFields(table).find((f) => f.columnName === rejection.column);
+	const value = row?.columns[rejection.column] ?? null;
+	const declared = field ? fieldSqlType(field) : 'unknown';
+	const record = row
+		? `section_id ${row.sectionId}, lang ${row.lang ?? '-'}`
+		: `statement row ${rejection.row}`;
+	const length = value === null ? '' : ` (${[...value].length} chars)`;
+	const drift = /^(TEXT|MEDIUMTEXT)$/.test(declared)
+		? ` The ontology declares ${declared}, so the live column is older and narrower: published columns are never retyped — ALTER it (or drop the table and re-publish).`
+		: ` The ontology declares ${declared}: widen the field there.`;
+	const message = `MariaDB refused a value (errno ${rejection.errno}) for ${table.tableName}.${rejection.column}, ${record}${length}.${drift}`;
+	return new DedaloError('diffusion.value_rejected', {
+		message,
+		publicMessage: message,
+		coordinates: {
+			table: table.tableName,
+			column: rejection.column,
+			section_id: row ? Number(row.sectionId) : '',
+			errno: rejection.errno,
+		},
+		cause: error,
+	});
 }
 
 /**
@@ -192,6 +241,15 @@ class MariadbWriterSession implements WriterSession {
 		// Global tables: the same three steps, keyed by their VARCHAR composite key.
 		for (const global of distinctGlobalTables(this.plan)) {
 			await this.ensureTable(global.schema, globalKeyType(global));
+		}
+		if (this.plan.publicationSchema !== undefined) {
+			const pool = getTargetPool(this.database);
+			const { create, read } = generatePublicationSchemaStatements(PUBLICATION_SCHEMA_TABLE, {});
+			await pool.unsafe(boundSqlTargetStatement(create), []);
+			const stored = (await pool.unsafe(boundSqlTargetStatement(read), [])) as { data?: unknown }[];
+			const merged = mergePublicationSchema(stored[0]?.data, this.plan.publicationSchema);
+			const { replace } = generatePublicationSchemaStatements(PUBLICATION_SCHEMA_TABLE, merged);
+			await pool.unsafe(boundSqlTargetStatement(replace.sql), replace.params);
 		}
 		this.schemaEnsured = true;
 	}

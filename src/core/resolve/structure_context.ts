@@ -225,7 +225,9 @@ export interface StructureContextEntry extends StructureContextCore {
 	/** component_section_id only: the parent section's display colour (PHP
 	 * component_section_id_json.php default branch, ontology_node::get_color →
 	 * section properties.color ?? '#b9b9b9'). The client paints it as the wrapper
-	 * background on both idle and .active states. */
+	 * background on both idle and .active states.
+	 * section: the section node's explicit properties.color only (no fallback),
+	 * every mode — the list Id-column stripe (WC-2026-11-25-section-context-color). */
 	color?: string;
 	/** Search-mode components only (PHP class.common.php:2010-2013): the operator
 	 * tooltip the client renders under a selected search component. Both are

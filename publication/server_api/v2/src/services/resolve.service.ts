@@ -42,7 +42,7 @@
 import { dbExecute } from '../db/pool';
 import { validateTableName, validateColumnName } from '../db/query-builder';
 import { parseJsonStrings } from '../utils/parse-json';
-import { BudgetExceededError, ValidationError } from '../errors';
+import { BudgetExceededError, ValidationError, isNoSuchTableError } from '../errors';
 import { COLUMNS, PUBLICATION_SCHEMA_TABLE, PUBLICATION_SCHEMA_ID, MAX_RESOLVE_DEPTH, MAX_RESOLVE_ROWS, MAX_RESOLVE_KEYS } from '../constants';
 import { TTLCache } from '../db/schema-cache';
 import type { DbRow } from '../db/types';
@@ -74,7 +74,17 @@ export async function getPublicationSchema(db: string): Promise<InverseRelationM
   validateTableName(PUBLICATION_SCHEMA_TABLE);
 
   const sql = `SELECT data FROM \`${PUBLICATION_SCHEMA_TABLE}\` WHERE id = ?`;
-  const rows = await dbExecute<DbRow[]>(db, sql, [PUBLICATION_SCHEMA_ID]);
+  let rows: DbRow[];
+  try {
+    rows = await dbExecute<DbRow[]>(db, sql, [PUBLICATION_SCHEMA_ID]);
+  } catch (error) {
+    // errno 1146 (no such table): a publication written without a schema table (one
+    // published before diffusion wrote it) is the same client-side 400 as an empty one.
+    if (isNoSuchTableError(error)) {
+      throw new ValidationError('publication_schema table not found or empty');
+    }
+    throw error;
+  }
 
   const row = (rows as Record<string, unknown>[])[0];
   if (!row || !row.data) {

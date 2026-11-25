@@ -102,7 +102,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { config } from '../../config/config.ts';
-import { projectRoot, readEnv } from '../../config/env.ts';
+import { liveProcessEnv, privateDir, projectRoot, readEnv } from '../../config/env.ts';
 import { DedaloError, ok } from '../errors/index.ts';
 import type { ApiEnvelope } from '../errors/schema.ts';
 import { writeTextFileDurablyAsync } from '../files/durable_async.ts';
@@ -295,6 +295,8 @@ export interface PhaseTracker {
 	/** Mark a phase this pipeline does not run (code_restore.ts fetches nothing). */
 	skip: (phase: UpdatePhaseId) => void;
 	fail: (message: string) => void;
+	/** A progress sentence on the running phase (no status change). */
+	note: (message: string) => void;
 }
 
 export function createPhaseTracker(
@@ -344,6 +346,9 @@ export function createPhaseTracker(
 			statuses.set(failed, 'failed');
 			emit(failed, { message });
 		},
+		note(message) {
+			if (current !== null) emit(current, { message });
+		},
 	};
 }
 
@@ -364,6 +369,12 @@ export interface CodeUpdateSeams {
 	installDeps?: (codeRoot: string) => Promise<void>;
 	/** Pre-swap boot check of the quarantine (default: smoke_boot.ts). */
 	smokeBoot?: (codeRoot: string, stagingDir: string) => Promise<void>;
+	/**
+	 * Pre-swap rename of the keys the QUARANTINE tree retired, in the live
+	 * private .env (default: renameRetiredEnvKeysPreSwap on ../private/.env).
+	 * Returns the renamed keys' progress sentence, or null.
+	 */
+	renameRetiredEnvKeys?: (codeRoot: string) => Promise<string | null>;
 	/** Override deployment-channel detection (tests). */
 	channel?: DeploymentChannel;
 	/** The FIRST swap rename, live tree → backup (tests inject an EBUSY-style
@@ -1660,7 +1671,124 @@ async function prepareQuarantine(
 	await (seams.installDeps ?? installDepsReal)(codeRoot);
 
 	phases.start('preflight');
+	// BEFORE the smoke boot: the new release's real boot reads the renamed keys,
+	// and its smoke child judges the live .env this call has just completed.
+	await renameRetiredEnvKeysStep(codeRoot, seams, phases);
 	await (seams.smokeBoot ?? smokeBootQuarantine)(codeRoot, stagingDir);
+}
+
+/** The preflight's rename step: the seam or the real door, its sentence on the phase track. */
+async function renameRetiredEnvKeysStep(
+	codeRoot: string,
+	seams: CodeUpdateSeams,
+	phases: PhaseTracker,
+): Promise<void> {
+	const rename =
+		seams.renameRetiredEnvKeys ??
+		((root: string) => renameRetiredEnvKeysPreSwap(root, join(privateDir, '.env')));
+	const renamed = await rename(codeRoot);
+	if (renamed !== null) phases.note(renamed);
+}
+
+/** The quarantine tree's rename entry (scripts/ops/rename_retired_env_keys.ts). */
+export const RETIRED_ENV_RENAME_ENTRY = join('scripts', 'ops', 'rename_retired_env_keys.ts');
+
+/**
+ * Rename, in the LIVE `envPath`, the keys the QUARANTINE tree retired — with
+ * that tree's own entry, because this (running, older) updater cannot know
+ * them. APPEND-ONLY (src/config/env_retired_rename.ts). A tree without the
+ * entry (a release cut before 2026-11-23) is skipped, said in the log. A key
+ * the entry could not rename (set in the process environment, unwritable file)
+ * refuses the update, every such key named: its real boot would refuse.
+ * Returns the operator's progress sentence when keys were renamed, else null.
+ */
+export async function renameRetiredEnvKeysPreSwap(
+	codeRoot: string,
+	envPath: string,
+): Promise<string | null> {
+	if (!existsSync(join(codeRoot, RETIRED_ENV_RENAME_ENTRY))) {
+		console.warn(
+			`[code update] the release ships no ${RETIRED_ENV_RENAME_ENTRY} — retired config keys are not renamed before the swap (its own boot judges them)`,
+		);
+		return null;
+	}
+	const report = await runRetiredEnvRenameEntry(codeRoot, envPath);
+	for (const { retired, replacement } of report.appended) {
+		console.warn(
+			`[code update] RETIRED key renamed: appended '${replacement}' to ${envPath} with the value of '${retired}' (that line is kept)`,
+		);
+	}
+	if (report.refused.length > 0) {
+		const named = report.refused.map((key) => refusedRetiredKeyText(key, envPath)).join('; ');
+		refuseUpdate(
+			'update.refused',
+			`Error. The new release retired config keys that cannot be renamed automatically: ${named} — nothing was swapped`,
+		);
+	}
+	return report.appended.length === 0
+		? null
+		: `Renamed retired config keys in ${envPath}: ${report.appended.map(({ retired, replacement }) => `${retired} → ${replacement}`).join(', ')}`;
+}
+
+interface RetiredEnvRenameReport {
+	appended: { retired: string; replacement: string }[];
+	refused: { retired: string; replacement: string; blocker: string }[];
+}
+
+/** Spawn the quarantine entry and parse its one JSON line; refuses on a crash or bad output. */
+async function runRetiredEnvRenameEntry(
+	codeRoot: string,
+	envPath: string,
+): Promise<RetiredEnvRenameReport> {
+	// The LIVE process env, not envSnapshot: the entry tells a key set in the
+	// process environment from one set in the file, and the snapshot merges them.
+	const child = Bun.spawn([process.execPath, 'run', RETIRED_ENV_RENAME_ENTRY, envPath], {
+		cwd: codeRoot,
+		env: liveProcessEnv(),
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	const parsed = parseRetiredEnvRenameReport(stdout, exitCode);
+	if (typeof parsed === 'string') {
+		return refuseUpdate(
+			'update.refused',
+			'Error. The new release could not check the configuration for retired keys — nothing was swapped',
+			new Error(`retired-key rename: ${parsed}\n${stderr.trim()}`),
+		);
+	}
+	return parsed;
+}
+
+/** The entry's last stdout line as its report, or why it is not one. */
+function parseRetiredEnvRenameReport(
+	stdout: string,
+	exitCode: number,
+): RetiredEnvRenameReport | string {
+	if (exitCode !== 0) return `exit ${exitCode}`;
+	try {
+		return JSON.parse(stdout.trim().split('\n').pop() ?? '') ?? 'no report';
+	} catch (error) {
+		return errorText(error);
+	}
+}
+
+/** One refused key, worded for the operator by its blocker. */
+function refusedRetiredKeyText(
+	{ retired, replacement, blocker }: RetiredEnvRenameReport['refused'][number],
+	envPath: string,
+): string {
+	if (blocker === 'process_env') {
+		return `${retired} → ${replacement} (set in the process environment: rename it there)`;
+	}
+	if (blocker === 'readback') {
+		return `${retired} → ${replacement} (the appended line did not read back as its value, rolled back: add it by hand)`;
+	}
+	return `${retired} → ${replacement} (${envPath} is not writable)`;
 }
 
 /**

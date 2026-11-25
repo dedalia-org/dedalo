@@ -133,6 +133,7 @@ MariaDB `FULLTEXT` search (`MATCH … AGAINST` in boolean mode). Returns rows wi
 | `table` | string | **yes** | Target table. |
 | `q` | string | **yes** | Query; supports boolean operators (`+word`, `-word`, `"phrase"`). |
 | `column` | string | no | Column to search (default `transcription`). |
+| `lang` | string | no | One language variant; without it a hit is returned once per language. |
 | `limit` | number | no | Default `100`, max `1000` (a larger value is refused, not clamped). |
 | `offset` | number | no | Default `0`. |
 | `count` | boolean | no | When `true`, also return the total match count. |

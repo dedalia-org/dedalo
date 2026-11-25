@@ -996,6 +996,13 @@
 			// no accordion bar) so its body reads as part of the panel
 			.ctx_body {
 				padding: 0.9rem 1.15rem 1.2rem;
+				// phone width: long unbreakable tokens (backup file paths) break instead
+				// of overflowing the panel and widening the page (overflow stays visible
+				// for popups, so contain:inline-size alone does not stop them)
+				overflow-wrap: anywhere;
+				// the base `button { width: max-content }` keeps a long label on one
+				// line past the panel; cap it so the label wraps instead
+				button { max-width: 100%; }
 
 				.map_ctx_lead {
 					// a one- or two-sentence lead, not prose: wide enough to sit on

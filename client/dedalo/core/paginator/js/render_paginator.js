@@ -283,12 +283,20 @@ const get_content_data = async function(self) {
 			parent			: fragment
 		})
 
+		// page_position. "Page [n] of N" as ONE unit: on a phone the info block
+		// has no box (paginator.less) and these three must wrap together
+			const page_position = ui.create_dom_element({
+				element_type	: 'span',
+				class_name		: 'page_position',
+				parent			: paginator_info
+			})
+
 		// page_info
 			const page_node = ui.create_dom_element({
 				element_type	: 'span',
 				class_name		: 'page_info inactive',
 				inner_html		: (get_label.page || 'Page'),
-				parent			: paginator_info
+				parent			: page_position
 			})
 
 			// input_go_to_page
@@ -298,7 +306,7 @@ const get_content_data = async function(self) {
 					class_name		: 'input_go_to_page',
 					title			: get_label.go_to_page,
 					// placeholder	: 1,
-					parent			: paginator_info
+					parent			: page_position
 				})
 
 				// keyup event
@@ -364,7 +372,7 @@ const get_content_data = async function(self) {
 				element_type	: 'span',
 				class_name		: 'page_info inactive',
 				inner_html		: ` Loading data ...  `,
-				parent			: paginator_info
+				parent			: page_position
 			})
 			// active_value
 			// Replaces "Loading data ..." with "of <total_pages>" once the DB responds.

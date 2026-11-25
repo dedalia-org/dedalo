@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "Das Publikationsziel ist mit einem anderen Lauf beschäftigt; versuchen Sie es erneut, wenn er beendet ist",
 	"error_diffusion_unknown_format": "Kein Diffusions-Writer bedient dieses Publikationsformat",
 	"error_diffusion_unported_fn": "Die Publikation verwendet eine Ontologiefunktion, die diese Engine noch nicht implementiert",
+	"error_diffusion_value_rejected": "Ein veröffentlichter Wert passt nicht in seine Zielspalte",
 	"error_engine_uncovered_scope": "Dieser Vorgang ist auf diesem Server nicht verfügbar",
 	"error_envelope_not_an_envelope": "Die Serverantwort ist kein API-Umschlag",
 	"error_export_artifact_busy": "Dieser Export läuft noch oder es wird gerade eine Datei daraus erstellt. Halten Sie ihn an oder warten Sie, bis er beendet ist, und versuchen Sie es dann erneut",

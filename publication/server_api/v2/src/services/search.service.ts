@@ -22,7 +22,7 @@ import { validateColumnName } from '../db/query-builder';
 import { dbExecute } from '../db/pool';
 import { avSchema, config } from '../config';
 import { parseJsonStrings } from '../utils/parse-json';
-import { NotFoundError, ValidationError } from '../errors';
+import { NotFoundError, ValidationError, isMissingTableOrColumnError } from '../errors';
 import { COLUMNS } from '../constants';
 import { extractFragments, pageAtPosition, timecodesAtPosition } from '../utils/fragments';
 import { resolveRelations, resolveInverseRelations, normalizeResolveRelations, normalizeResolveInverseRelations } from './resolve.service';
@@ -37,6 +37,8 @@ export interface FulltextOptions {
   limit: number;
   offset: number;
   withTotal?: boolean;
+  /** One language variant only; without it a hit comes back once per language row. */
+  lang?: string;
   resolve_relations?: string;
   resolve_inverse_relations?: string;
 }
@@ -96,6 +98,14 @@ export async function fulltextSearch(
 
   const escapedCol = `\`${column}\``;
 
+  // Same rule as the record list: a lang on a table without the column is a 400, never ignored.
+  const { lang } = options;
+  if (lang && !(await tableHasColumn(db, table, COLUMNS.LANG))) {
+    throw new ValidationError(`Table "${table}" has no "${COLUMNS.LANG}" column; the lang parameter is not supported`);
+  }
+  const langClause = lang ? ` AND \`${COLUMNS.LANG}\` = ?` : '';
+  const langParams = lang ? [lang] : [];
+
   // limit=0 is the count-only request (the `count_records` MCP tool takes this path):
   // skip the search entirely and fall through to the COUNT below.
   let rows: Record<string, unknown>[] = [];
@@ -103,11 +113,11 @@ export async function fulltextSearch(
     const sql = `
       SELECT *, MATCH(${escapedCol}) AGAINST(? IN BOOLEAN MODE) as relevance
       FROM \`${table}\`
-      WHERE MATCH(${escapedCol}) AGAINST(? IN BOOLEAN MODE)
+      WHERE MATCH(${escapedCol}) AGAINST(? IN BOOLEAN MODE)${langClause}
       ORDER BY relevance DESC
       LIMIT ? OFFSET ?
     `;
-    const result = await dbExecute<DbRow[]>(db, sql, [q, q, limit, offset])
+    const result = await dbExecute<DbRow[]>(db, sql, [q, q, ...langParams, limit, offset])
       .catch(error => mapFulltextError(error, column));
 
     // Each hit is decorated with the passages that produced it. The excerpt window (320
@@ -138,9 +148,9 @@ export async function fulltextSearch(
     const countSql = `
       SELECT COUNT(*) as total
       FROM \`${table}\`
-      WHERE MATCH(${escapedCol}) AGAINST(? IN BOOLEAN MODE)
+      WHERE MATCH(${escapedCol}) AGAINST(? IN BOOLEAN MODE)${langClause}
     `;
-    const countRows = await dbExecute<DbRow[]>(db, countSql, [q])
+    const countRows = await dbExecute<DbRow[]>(db, countSql, [q, ...langParams])
       .catch(error => mapFulltextError(error, column));
     total = (countRows as Array<{ total: number }>)[0]?.total ?? 0;
   }
@@ -275,7 +285,14 @@ export async function avFragments(
   }
   sql += ' LIMIT 1';
 
-  const rows = await dbExecute<DbRow[]>(db, sql, params);
+  const rows = await dbExecute<DbRow[]>(db, sql, params).catch(error => {
+    if (isMissingTableOrColumnError(error)) {
+      throw new ValidationError(
+        `AV fragments are not available on this database: its "${avSchema.mediaTable}" table is missing or lacks the AV_* columns (${(error as Error).message})`,
+      );
+    }
+    throw error;
+  });
 
   if (rows.length === 0) {
     const langSuffix = lang ? ` (lang: ${lang})` : '';

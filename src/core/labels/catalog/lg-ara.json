@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "وجهة النشر مشغولة بتشغيل آخر؛ أعد المحاولة عند انتهائه",
 	"error_diffusion_unknown_format": "لا يوجد كاتب نشر يخدم صيغة النشر هذه",
 	"error_diffusion_unported_fn": "يستخدم النشر دالة أنطولوجيا لم يُنفّذها هذا المحرك بعد",
+	"error_diffusion_value_rejected": "قيمة منشورة لا تتسع في عمود الوجهة الخاص بها",
 	"error_engine_uncovered_scope": "هذه العملية غير متاحة على هذا الخادم",
 	"error_envelope_not_an_envelope": "استجابة الخادم ليست مغلّف API",
 	"error_export_artifact_busy": "هذا التصدير لا يزال قيد التشغيل أو يجري إنشاء ملف منه. أوقفه أو انتظر حتى ينتهي، ثم حاول مرة أخرى",

@@ -209,6 +209,11 @@ function escapeCommentLiteral(text: string): string {
 	return text.replace(/\\/g, '\\\\').replace(/'/g, "''");
 }
 
+/** The SQL type the plan declares for a field's column (what CREATE/ADD would emit). */
+export function fieldSqlType(field: FieldPlan): string {
+	return sqlTypeFor(field.column, field.outputFormat);
+}
+
 /**
  * One column's definition clause. The provenance COMMENT keeps the oracle's
  * `term - tipo` intent with what the plan carries: the sanitized column name
@@ -329,6 +334,72 @@ export function generateCreateTable(
 		`  ${definitionClauses.join(',\n  ')}`,
 		') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;',
 	].join('\n');
+}
+
+/** The table the publication APIs read an element's schema row from (v6 name, kept). */
+export const PUBLICATION_SCHEMA_TABLE = 'publication_schema';
+
+/**
+ * The element's schema row (PublicationPlan.publicationSchema): the v6 table
+ * shape the publication APIs read (`SELECT data … WHERE id = 1`), one row per
+ * database — merged into, never replaced blind (mergePublicationSchema).
+ */
+export function generatePublicationSchemaStatements(
+	tableName: string,
+	schema: Record<string, unknown>,
+): { create: string; read: string; replace: SqlStatement } {
+	const safeTable = escapeSqlIdentifier(tableName);
+	return {
+		create: [
+			`CREATE TABLE IF NOT EXISTS ${safeTable} (`,
+			'  `id` INT(11) NOT NULL,',
+			'  `data` MEDIUMTEXT NOT NULL,',
+			'  PRIMARY KEY (`id`)',
+			') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;',
+		].join('\n'),
+		read: `SELECT \`data\` FROM ${safeTable} WHERE \`id\` = 1`,
+		replace: {
+			sql: `REPLACE INTO ${safeTable} (\`id\`, \`data\`) VALUES (1, ?)`,
+			params: [JSON.stringify(schema)],
+		},
+	};
+}
+
+/**
+ * Row 1 is per DATABASE, but a plan knows one element: several elements may
+ * publish into one database, and a v6 install's row holds field maps no v7
+ * property declares yet. So the run's map is laid OVER the stored one (its keys
+ * win, `dd_relations` merged key by key) — an entry no element declares any
+ * more stays until the row is deleted. An unreadable stored row is replaced.
+ */
+export function mergePublicationSchema(
+	stored: unknown,
+	ours: Record<string, unknown>,
+): Record<string, unknown> {
+	let previous: unknown = stored;
+	if (typeof stored === 'string') {
+		try {
+			previous = JSON.parse(stored);
+		} catch {
+			previous = null;
+		}
+	}
+	if (previous === null || typeof previous !== 'object' || Array.isArray(previous)) return ours;
+	const old = previous as Record<string, unknown>;
+	const oldRelations =
+		old.dd_relations !== null &&
+		typeof old.dd_relations === 'object' &&
+		!Array.isArray(old.dd_relations)
+			? (old.dd_relations as Record<string, unknown>)
+			: {};
+	return {
+		...old,
+		...ours,
+		dd_relations: {
+			...oldRelations,
+			...(ours.dd_relations as Record<string, unknown> | undefined),
+		},
+	};
 }
 
 /** INFORMATION_SCHEMA read listing a table's existing columns (ensure diff). */

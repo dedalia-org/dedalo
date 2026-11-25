@@ -18,6 +18,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { privateDir } from '../../src/config/env.ts';
 import { configuredProcessesDir } from '../../src/core/media/jobs.ts';
 import { smokeBootQuarantine } from '../../src/core/update/smoke_boot.ts';
 import { refusalOf } from '../helpers/refusal.ts';
@@ -181,6 +182,12 @@ if (bad.length > 0) {
 // the one live path the child is handed, and only for reading.
 if (process.env.DEDALO_SMOKE_PROCESSES_DIR !== ${JSON.stringify(configuredProcessesDir())}) {
 	console.error('LIVE PROCESSES DIR NOT NAMED: ' + process.env.DEDALO_SMOKE_PROCESSES_DIR);
+	process.exit(2);
+}
+// The LIVE .env is named for the read-only retired-key verdict — without it
+// the child takes the 'older updater' branch and judges nothing.
+if (process.env.DEDALO_SMOKE_ENV_FILE !== ${JSON.stringify(join(privateDir, '.env'))}) {
+	console.error('LIVE ENV FILE NOT NAMED: ' + process.env.DEDALO_SMOKE_ENV_FILE);
 	process.exit(2);
 }
 // The throwaway ts_state.json must already exist and be sealed, so the child

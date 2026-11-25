@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "公開先は別の実行で使用中です。完了後に再試行してください",
 	"error_diffusion_unknown_format": "その公開形式に対応する配信ライターがありません",
 	"error_diffusion_unported_fn": "この公開では、このエンジンがまだ実装していないオントロジー関数が使われています",
+	"error_diffusion_value_rejected": "公開された値が対象の列に収まりません",
 	"error_engine_uncovered_scope": "この操作はこのサーバーでは利用できません",
 	"error_envelope_not_an_envelope": "サーバーの応答は API エンベロープではありません",
 	"error_export_artifact_busy": "このエクスポートはまだ実行中か、そこからファイルを作成中です。停止するか、終了するまで待ってから再試行してください",

@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "게시 대상이 다른 실행으로 사용 중입니다. 완료된 후 다시 시도하세요",
 	"error_diffusion_unknown_format": "해당 게시 형식을 처리하는 확산 작성기가 없습니다",
 	"error_diffusion_unported_fn": "이 게시는 이 엔진이 아직 구현하지 않은 온톨로지 함수를 사용합니다",
+	"error_diffusion_value_rejected": "게시된 값이 대상 열에 맞지 않습니다",
 	"error_engine_uncovered_scope": "이 서버에서는 이 작업을 사용할 수 없습니다",
 	"error_envelope_not_an_envelope": "서버 응답이 API 봉투가 아닙니다",
 	"error_export_artifact_busy": "이 내보내기가 아직 실행 중이거나 이로부터 파일을 만드는 중입니다. 중지하거나 끝날 때까지 기다린 후 다시 시도하세요",

@@ -269,7 +269,10 @@ const SCANNED_CALL_FLOOR = 60;
 // 48 → 49 (2026-11-22, A1-01 owner ruling 5): media/component_lock.ts, the
 // cross-process av component lock (see the call ceiling below). Bounded, sync by
 // design — a new door, not a regression of an existing one.
-const CEILING_FILES = 49;
+// 49 → 50 (2026-11-23, retired-key rename): src/config/env_retired_rename.ts
+// reads/appends ../private/.env ONCE at boot (config.ts) or in the updater's
+// spawned rename entry, before any listener — env.ts's class; never per request.
+const CEILING_FILES = 50;
 // 93 → 88 (2026-09-30, OPS-2 review): the backup's hand-written process-record
 // writes left backup.ts when the dump became a registered maintenance job.
 // 88 → 86 (2026-10-01, DIFF-1/PERF-2): files.ts stages through a numeric fd
@@ -306,7 +309,10 @@ const CEILING_FILES = 49;
 // heartbeat file (its own, separate from the immutable lock) and, once at load,
 // /proc/sys/kernel/random/boot_id (the machine identity) — both a few bytes.
 // MEASURED: 143.
-const CEILING_CALLS = 143;
+// 143 → 146 (2026-11-23, retired-key rename): env_retired_rename.ts — the .env
+// read, the read-back after the append, the smoke child's read of the live file;
+// boot/updater-entry only (see the files ceiling). MEASURED: 146.
+const CEILING_CALLS = 146;
 
 const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
@@ -317,6 +323,11 @@ const EXEMPTIONS: { file: string; reason: string }[] = [
 	{
 		file: 'src/config/env.ts',
 		reason: 'reads ../private/.env ONCE at boot to build the typed config catalog',
+	},
+	{
+		file: 'src/config/env_retired_rename.ts',
+		reason:
+			'reads/appends ../private/.env ONCE at boot (config.ts settleRetiredEnvKeys) or in the updater-spawned rename entry, before any listener; never per request',
 	},
 	{
 		file: 'src/config/install_state.ts',

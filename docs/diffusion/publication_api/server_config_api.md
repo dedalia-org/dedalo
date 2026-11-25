@@ -1057,4 +1057,4 @@ Schema could resolve dd_relations fields in the same way, but in this case the v
 }
 ```
 
-for change the publication schema, change the diffusion_element in ontology and save it. This action will create a table named `publication_schema` in MariaDB / MySQL with the schema.
+To change the publication schema, edit `properties.diffusion.publication_schema` of the diffusion element in the ontology. The next diffusion run of that element writes it to a table named `publication_schema` in MariaDB / MySQL. `dd_relations` is filled automatically with every section the element publishes and its table; entries you declare take precedence. The run merges its entries over the row already stored (other elements of the same database, older field maps); to remove a stale entry, delete the row and re-run the elements of that database.

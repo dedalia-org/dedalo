@@ -117,10 +117,12 @@ jobs:
     # runner user that owns the mounted workspace — never root, which defeats the
     # uid/permission gates. ci_workflow_tripwire holds this digest equal to the lock.
     container:
-      image: ghcr.io/dedalia-org/dedalo-ci@sha256:f40b0d5ca679ec421daca32611efd5c98837228a432e326668fad8cb599f1f0b
+      image: ghcr.io/dedalia-org/dedalo-ci@sha256:c0fa4faa78b655a08c54fc3b95174a8faabb515dfd5763213f4378a1054c0d73
       options: --user 1001 --shm-size 1g
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # install_host_render_tripwire judges every committed render of the unit templates
       - name: Hermetic tier (install + tsc + biome + static tripwires)
         run: bash scripts/ci/hermetic.sh
       # The daemon packages' logs, kept as files by hermetic.sh (HERMETIC_LOG_DIR, default

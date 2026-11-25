@@ -33,7 +33,8 @@
 
 import { legacyAwareDefaultDir, parseMediaWebBase } from './catalog/media.ts';
 import { declaredDataLangs, NO_LANG, resolveCurrentDataLang } from './data_langs.ts';
-import { RETIRED_ENV_KEYS, readEnv } from './env.ts';
+import { readEnv } from './env.ts';
+import { settleRetiredEnvKeys } from './env_retired_rename.ts';
 import { UNCONFIGURED } from './install_state.ts';
 import { resolveInstanceColor } from './instance_color.ts';
 import { isDiffusionLangCode } from './lang_code.ts';
@@ -989,14 +990,11 @@ function buildMediaConfig(): MediaConfig {
 // A retired spelling configures NOTHING (see RETIRED_ENV_KEYS in env.ts): left in
 // place it would silently fall back to the new key's default — e.g. an empty
 // ACTIVE_ONTOLOGY_TLDS shrinks the update panel's manifest to ontology/
-// ontologytype alone. Refuse to boot instead, naming the one line to edit.
-for (const [retired, replacement] of Object.entries(RETIRED_ENV_KEYS)) {
-	if (readEnv(replacement) === undefined && readEnv(retired) !== undefined) {
-		throw new Error(
-			`Config key '${retired}' is RETIRED: rename that line to '${replacement}' in ../private/.env. See private/sample.env.`,
-		);
-	}
-}
+// ontologytype alone. So a retired line in ../private/.env is RENAMED (an
+// appended replacement line) before the config is built, and what cannot be
+// renamed refuses the boot, every such key named at once (env_retired_rename.ts).
+const retiredKeyRefusal = settleRetiredEnvKeys();
+if (retiredKeyRefusal !== null) throw new Error(retiredKeyRefusal);
 
 /**
  * Build the config once at import time and freeze it. A boot failure here is a

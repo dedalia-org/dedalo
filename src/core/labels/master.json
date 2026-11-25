@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "The publication target is busy with another run; retry when it finishes",
 	"error_diffusion_unknown_format": "No diffusion writer serves that publication format",
 	"error_diffusion_unported_fn": "The publication uses an ontology function this engine does not implement yet",
+	"error_diffusion_value_rejected": "A published value does not fit its target column",
 	"error_engine_uncovered_scope": "This operation is not available on this server",
 	"error_envelope_not_an_envelope": "The server response is not an API envelope",
 	"error_export_artifact_busy": "This export is still running or a file is being built from it. Stop it, or wait until it ends, then try again",

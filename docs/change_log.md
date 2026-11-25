@@ -198,6 +198,11 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The Stop button of a running process shows a stop icon.**
+
+    The button that stops a running process (publishing, exports, updates) showed a gear icon,
+    which suggests settings. It now shows a cancel icon.
+
 - **"Activating or repairing a hierarchy links its root term only when it is unambiguous — the one term without a parent — and keeps every valid root."**
 
     The *General term* of a hierarchy is the root its thesaurus tree hangs from. When it was
@@ -540,6 +545,25 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **On a phone, a list can be turned to the next page from its end.**
+
+    On a phone, reaching the end of a list meant scrolling all the way back up to the paginator to
+    see the next records. The end of each list now has its own previous / next buttons with the
+    current page ("Page 3 of 120"); turning the page brings the top of the new page into view. The top paginator on a phone now reads in
+    clean lines: "Page [n] of N" on one, "Displayed records …" on the next, instead of one
+    sentence wrapped mid-way. On a desktop nothing changes.
+
+- **Lists show the section's identifying colour, as the edit form does.**
+
+    A section with its own colour (for example Oral History) already paints the Id box of the edit
+    form in that colour. Its list now shows the same colour as a thin stripe on the left of the Id
+    column (on a phone, down the left edge of each record card), so you can tell at a glance which
+    section you are working in. Sections without a colour look as before.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-25-section-context-color`.
+
 - **Thesaurus and ontology tree searches can now step through the found terms.**
 
     When a search in the thesaurus or ontology tree finds more than one term, a small bar at the
@@ -590,6 +614,68 @@ Merged since the last release; these ship with the next one.
     from leaving the record. The reload and add-point icons now explain themselves on hover.
 
 #### Fixed
+
+- **On a phone, the record graph view stacks the graph above the record panel.**
+
+    On a phone, the relations graph of a record was squeezed into a narrow strip beside a fixed-width
+    record panel. The graph now takes the full width at the top of the screen, with the selected
+    node's record panel below it, and the hint text gets its own row above the controls.
+
+- **On a phone, the Id header of each record card lines up with the rest of the card.**
+
+    In a list on a phone, each record is a card headed by its Id. In Activity and Time Machine lists
+    that header was out of line: the "ID" label hung below its row (white on light grey in the light
+    theme, so hard to read), and the number sat off-centre instead of under the other values. The
+    label now fills its row, keeps readable text in both themes, and the number starts where the
+    other values do, without the shadow line under it.
+
+    The cards themselves are now separate rounded cards on the page background, with a small gap
+    between them, instead of sitting on one white sheet with wide white bands between records. In the light theme the label column is now one shade darker,
+    so it no longer blends into the page background.
+
+- **On a phone, a long menu can be scrolled to its last entries.**
+
+    On a phone, an open menu taller than the screen could not be scrolled, so its last entries were
+    out of reach. The open menu now scrolls on its own, below the top bar.
+
+- **On a phone, the top bar's buttons are finger-sized and line up.**
+
+    On a phone, the top bar's buttons (quit, Dédalo logo, menu, theme) were narrow targets that were
+    hard to hit with a finger, the icons had different sizes, and the text sat lower than the icons.
+    The bar is now taller, each button is a finger-sized target with an icon of the same size, and
+    icons and text share one centre line. A long section name is shortened instead of wrapping to a
+    second line.
+
+- **On a phone, the list edit and delete-record dialogs fit the screen.**
+
+    On a phone, editing a field from a list or deleting a record opened a dialog wider than the screen,
+    so the page scrolled sideways. Both dialogs now fill the screen width, and the delete buttons sit
+    right under the dialog's content instead of halfway down an empty sheet.
+
+- **Escape closes a dialog while typing in a text field.**
+
+    Pressing Escape while editing a text field inside a dialog (for example, editing a field from a
+    list) did nothing. Escape now closes the dialog, as it does everywhere else.
+
+- **On a phone or touch screen, the thesaurus tree is easier to tap.**
+
+    On a phone, the add, move, delete, order and edit buttons under each thesaurus term were small
+    icons packed edge to edge, so a near miss hit the neighbouring button. Each button is now a
+    visible, finger-sized tile with a gap between them and a larger icon, lined up with the start of
+    the term. On any touch screen the expand arrow is larger, and the loading spinner shown while a
+    branch opens now sits exactly where the arrow was.
+
+- **On a phone, the multi-language tool's controls fit the screen and each language is set apart.**
+
+    On a phone, the multi-language tool's translator selector wrapped awkwardly under the button, and
+    its configuration panel ran off the right edge and covered the first language. The selector now
+    fills its own row with the settings gear at its end, the panel opens below them within the screen
+    width, and the model choice wraps under its label. A thin line now separates each language.
+
+- **The JSON editor's indent guides are readable in the dark theme.**
+
+    In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn
+    almost white and drowned out the content. They are now faint lines, as in the light theme.
 
 - **"An audiovisual record without a stored duration shows its measured duration, or nothing — no longer an invented 00:00:00."**
 
@@ -2031,7 +2117,8 @@ Merged since the last release; these ship with the next one.
     `DATA_LANG_SYNC` in early v7 installations, unlike its siblings (`DEDALO_DATA_LANG_SELECTOR`,
     `DEDALO_DATA_LANG_DEFAULT`). It is now `DEDALO_DATA_LANG_SYNC`, the v6 name, so a v6
     configuration carries over unchanged. The old spelling no longer configures anything: if it
-    is still in `../private/.env`, the server refuses to start and names the line to rename.
+    is still in `../private/.env`, the update (or the next start) appends the new name with the same
+    value and keeps the old line.
     See [Defining data language sync](./administration/configuration/config.md#defining-data-language-sync).
 
 - **"The language settings now all carry their v6 DEDALO_ names."**
@@ -2041,9 +2128,10 @@ Merged since the last release; these ship with the next one.
     `DEDALO_DATA_NOLAN` (was `DATA_NOLAN`) and `DEDALO_PROJECTS_DEFAULT_LANGS` (was
     `PROJECTS_DEFAULT_LANGS`) — the v6 names, so a v6 configuration carries over unchanged. The
     installer has written `PROJECTS_DEFAULT_LANGS`, `APPLICATION_LANG` and `DATA_LANG` into
-    `../private/.env` since 7.0.0-beta.6: rename those lines before updating. An old spelling no
-    longer configures anything — if it is still there, the server refuses to start and names the line
-    to rename. See [Defining application language](./administration/configuration/config.md#defining-application-language).
+    `../private/.env` since 7.0.0-beta.6: nothing to do — the update (or the next start) appends
+    each new name with the same value and keeps the old line, which no longer configures anything.
+    An old spelling set in the process environment (a systemd unit, a container) is not renamed: the
+    server refuses to start and names every such key. See [Defining application language](./administration/configuration/config.md#defining-application-language).
 
 - **A text field cleared in every language is stored as absent, not as an empty item.**
 
@@ -2339,6 +2427,36 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **Maintenance map panel fits a phone screen.**
+
+    On a phone, choosing some subsystems in the Maintenance map (Backups, Ontology, Development)
+    made the page wider than the screen. Long file paths and long button labels now wrap inside
+    the panel instead.
+
+- **"Diffusion: a `text_format` pattern no longer strips a leading `/` (or other separator) from the value itself."**
+
+    The `text_format` parser trims separators left over when a placeholder is empty. It also trimmed the first or last character of a real value when that character was `/`, `-`, `,` or `|`, so a media path published through a pattern lost its leading slash (`dedalo/media/…` instead of `/dedalo/media/…`, next to columns that kept it). Only the pattern's own separators are trimmed now. Re-publish the affected sections to correct the published values.
+
+- **"Diffusion: a value MariaDB refuses names the record instead of stopping the run with an unexpected error."**
+
+    When a MariaDB target in strict mode refused a published value (too long for its column, out of range, or of the wrong type), the whole run stopped with *An unexpected error stopped the diffusion run* and no clue which record caused it. It now stops as `diffusion.value_rejected`, naming the table, column, `section_id`, language and the type the ontology declares. Published columns are never retyped: after widening a field in the ontology, `ALTER` the live column or drop the table and re-publish (see [Native engine](./diffusion/native_engine.md)).
+
+- **"Diffusion writes the `publication_schema` table again, so `resolve_inverse_relations=true` works on v7 publications."**
+
+    Version 6 wrote a `publication_schema` table when a diffusion element was saved in the ontology. Version 7 stopped writing it, so on every database it published `resolve_inverse_relations=true` (and v1's `resolve_portal`) had no map to read. Each run of an `sql` element now writes the table. Its `dd_relations` lists every section the element publishes with its table. The element's `properties.diffusion.publication_schema` is kept as written, and its own `dd_relations` entries take precedence. A malformed map stops the plan with a named error. A `publication_schema` still at the top level of `properties` (the v6 location) is read when `diffusion` has none, with a warning to move it. Each run merges its entries over the stored row, so elements sharing a database and field maps a v6 install wrote are kept. Existing databases get the table on their next run (see [Native engine](./diffusion/native_engine.md)).
+
+- **A code update renames retired configuration keys itself instead of failing.**
+
+    Updating an installation whose `../private/.env` still held a renamed setting (for example
+    `DATA_LANG_SYNC`, `APPLICATION_LANG`, `DATA_LANG` or `PROJECTS_DEFAULT_LANGS`, which the
+    installer itself wrote) failed at the pre-swap boot check, naming one key per attempt. The update
+    now appends each new name to `../private/.env` with the old line's value — the old line is kept,
+    nothing is edited or removed — and the new release does the same at its first start when the
+    installation's updater is older than this change. A renamed setting that is set in the process
+    environment (a systemd unit, a container) cannot be renamed by the engine: the update is refused,
+    naming every such key at once. See
+    [Defining application language](./administration/configuration/config.md#defining-application-language).
 
 - **"lg-nolan can no longer be configured as the working data language."**
 
@@ -2970,6 +3088,10 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **"Publication API v2: fulltext search takes `lang`."**
+
+    `GET /{db}/tables/{table}/search` and the MCP `fulltext_search` / `count_records` (with `q`) accept `lang`. Without it a multilingual record matches once per language row, so a page of hits held the same record several times and `pagination.total` counted rows. On a table without a `lang` column the parameter is a `400`, as on the record list (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
+
 - **Tools can open attached to their component, with no modal or window.**
 
     A tool's `properties.open_as` now takes a third value, `attach`, beside `modal` and `window`;
@@ -3012,6 +3134,18 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-25-implicit-component-target-caller-section`.
 
+- **"Publication API v2: AV fragments on a database without the AV tables answer 400, not 500."**
+
+    `…/records/{id}/av-fragments` and `av-indexation-fragment` join the tables and columns named by the `AV_*` settings. On a publication without them (a numismatic one, say, whose `audiovisual` table has no `image` column) MariaDB's *table doesn't exist* / *unknown column* reached the client as a 500 *An unexpected error occurred*. It is now a 400 naming what is missing (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
+
+- **"Publication API v2: `resolve_inverse_relations=true` on a database without a `publication_schema` table answers 400, not 500."**
+
+    A publication written without a `publication_schema` table (every database the v7 diffusion engine published before it began writing one) made `resolve_inverse_relations=true` fail with a 500 *An unexpected error occurred*. It now answers the documented 400 problem *publication_schema table not found or empty*; pass an explicit `section_tipo` → table map instead (see [Querying](./diffusion/publication_api/v2/querying.md)).
+
+- **"Publication API v2: range filters compare numbers as numbers, so BC dates work."**
+
+    `gt`, `gte`, `lt` and `lte` bound every value as text. Publication columns often store numbers as text (a type's `date_in` is `-150`), and compared as text `filter[date_in][gte]=-150&filter[date_in][lte]=-100` matched nothing. A plain number is now compared as a number; any other value (an ISO date, a code) still compares as text (see [Querying](./diffusion/publication_api/v2/querying.md)).
+
 - **Object identification's grouping run refuses a language the installation does not have.**
 
     The `cluster` action of the identification tool accepted any `lang` the caller sent
@@ -3043,7 +3177,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 124 entries"
+??? note "Wire contract — 125 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3169,6 +3303,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-25-publication-host-ipv6-listener`
     - `WC-2026-11-25-publication-host-one-machine-install`
     - `WC-2026-11-25-publication-host-public-url-http-upgrade`
+    - `WC-2026-11-25-section-context-color`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

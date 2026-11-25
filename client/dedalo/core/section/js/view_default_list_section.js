@@ -64,6 +64,26 @@
 
 
 /**
+* APPLY_SECTION_COLOR
+* Mark a list body with the section's identifying colour (WC-2026-11-25-section-context-color):
+* the ontology properties.color the server stamps on the section context.
+* list.less paints it as the Id-column stripe (desktop/print) or the card's
+* left edge (phone). No colour → the list body is left untouched.
+* @param {HTMLElement} list_body - the .list_body.layout_table node
+* @param {string|null|undefined} color - context.color
+* @returns {void}
+*/
+export const apply_section_color = function(list_body, color) {
+	if (!color) {
+		return
+	}
+	list_body.classList.add('has_section_color')
+	list_body.style.setProperty('--section_color', color)
+}//end apply_section_color
+
+
+
+/**
 * VIEW_DEFAULT_LIST_SECTION
 * Namespace constructor — never instantiated; all functionality is exposed as
 * static-style properties (view_default_list_section.render, etc.).
@@ -181,6 +201,9 @@ view_default_list_section.render = async function(self, options) {
 		})
 		// fix last list_body (for pagination selection)
 		self.node_body = list_body
+
+		// section colour (WC-2026-11-25-section-context-color)
+		apply_section_color(list_body, self.context?.color)
 
 		const set_list_body_css = (replace) => {
 

@@ -17,11 +17,11 @@ The record-listing endpoint `GET /{db}/tables/{table}/records` is the main query
 | `limit` | integer | `100` | list, search | `0`–`1000`. `0` = count-only. |
 | `offset` | integer | `0` | list, search | Rows to skip. |
 | `count` | boolean | `false` | list, search | Adds `pagination.total` via an extra `COUNT(*)`. |
-| `lang` | string | — | list, single, fragments | `lg-xxx` format. Rejected on tables without a `lang` column. |
+| `lang` | string | — | list, single, search, fragments | `lg-xxx` format. Rejected on tables without a `lang` column. |
 | `resolve_relations` | JSON string | — | list, single, search | Forward relation resolution. |
 | `resolve_inverse_relations` | `true` \| JSON string | — | list, single, search | Resolves the `dd_relations` column. |
 
-The single-record endpoint (`GET /{db}/tables/{table}/records/{id}`) accepts only `fields`, `lang`, `resolve_relations` and `resolve_inverse_relations` — no `filter`, `sort`, `limit`, `offset` or `count`. The fulltext search endpoint (`GET /{db}/tables/{table}/search`) accepts `q`, `column`, `limit`, `offset`, `count`, `resolve_relations` and `resolve_inverse_relations` (it has no `filter`/`sort`). For the full endpoint catalogue see [endpoints](endpoints.md).
+The single-record endpoint (`GET /{db}/tables/{table}/records/{id}`) accepts only `fields`, `lang`, `resolve_relations` and `resolve_inverse_relations` — no `filter`, `sort`, `limit`, `offset` or `count`. The fulltext search endpoint (`GET /{db}/tables/{table}/search`) accepts `q`, `column`, `lang`, `limit`, `offset`, `count`, `resolve_relations` and `resolve_inverse_relations` (it has no `filter`/`sort`). For the full endpoint catalogue see [endpoints](endpoints.md).
 
 !!! note "URL-encode the brackets"
     Filter parameter names contain `[` and `]`. In a real request these must be percent-encoded: `[` → `%5B`, `]` → `%5D`. The examples below show both the readable form (in prose) and the encoded form (in the `curl` lines).
@@ -65,6 +65,7 @@ Rules:
 - `is_null` / `is_not_null` take **no** value (`filter[parent][is_null]=` — the empty value is ignored).
 - `in` / `not_in` take **pipe-separated** values; each is trimmed and empties are dropped, and at least one non-empty value is required (`filter[section_id][in]=1|2|3`).
 - An unknown operator (e.g. `lke`) returns a `400` listing the valid operators.
+- `gt` / `gte` / `lt` / `lte` compare a **plain number** (`-150`, `2.5`) as a number, even on a text column — publication columns often hold numbers as text, and as text `'-150' >= '-100'` would be true. Any other value (an ISO date such as `1936-05-01`, a code) compares as text. `eq`, `ne`, `in` and `not_in` always compare as text.
 
 ### Examples
 
@@ -78,7 +79,7 @@ curl "http://localhost:3100/publication/server_api/v2/dedalo_web/tables/intervie
 # IN list: WHERE `section_id` IN (1,2,3)
 curl "http://localhost:3100/publication/server_api/v2/dedalo_web/tables/interview/records?filter%5Bsection_id%5D%5Bin%5D=1%7C2%7C3"
 
-# Range (two filters ANDed): WHERE `date` >= '1936' AND `date` <= '1939'
+# Range (two filters ANDed): WHERE `date` >= 1936 AND `date` <= 1939
 curl "http://localhost:3100/publication/server_api/v2/dedalo_web/tables/interview/records?filter%5Bdate%5D%5Bgte%5D=1936&filter%5Bdate%5D%5Blte%5D=1939"
 
 # NULL test (no value): WHERE `parent` IS NULL
@@ -213,7 +214,7 @@ Three forms are supported:
 
 `resolve_inverse_relations` resolves the `dd_relations` column — the inbound locators pointing **at** the current record. Each locator carries a `section_tipo`, which is mapped to a target table.
 
-- Pass `true` (or `1`) to load the `section_tipo`→table mapping from the database's `publication_schema` (cached ~30 s).
+- Pass `true` (or `1`) to load the `section_tipo`→table mapping from the database's `publication_schema` (cached ~30 s). Every diffusion run of an `sql` element writes that table: its `dd_relations` maps each section the element publishes to its table, and the element's `properties.diffusion.publication_schema` adds or overrides entries. Elements that share a database merge their entries into the one row. A database without the table (published before this was added, or never republished) answers `400` until its next run; pass an explicit map there.
 - Or pass a JSON object that maps `section_tipo` to table directly, e.g. `{"rsc170":"interview"}`.
 
 ```bash

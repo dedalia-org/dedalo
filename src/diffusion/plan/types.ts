@@ -502,4 +502,14 @@ export interface PublicationPlan {
 	 * plan stays byte-equal.
 	 */
 	targetSectionTables?: Record<string, string>;
+	/**
+	 * sql elements only: the row the writer stores as `publication_schema` id 1
+	 * (the v6 table the publication APIs read for `resolve_portal` /
+	 * `resolve_inverse_relations=true`). The element's
+	 * `properties.diffusion.publication_schema` verbatim, with `dd_relations`
+	 * = this element's section tipo → table map (getTargetSectionTableNames)
+	 * under the ontology's own entries. Optional so hand-built plan literals
+	 * stay valid; absent = nothing written.
+	 */
+	publicationSchema?: Record<string, unknown>;
 }

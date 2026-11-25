@@ -1152,6 +1152,60 @@ dd-modal.dd_presets {
 
 //end dd-modal.dd_presets
 
+// dd-modal.dd_edit_modal
+// A list cell opened for edit (ui.render_edit_modal): a 30rem card on a desktop,
+// the full sheet on a phone. Declarative for the same reason as dd_presets.
+dd-modal.dd_edit_modal {
+
+	&::part(content) {
+		width: 30rem;
+		max-width: 92vw;
+
+		@media screen and (max-width: @width_break_point_phone) {
+			width: 100vw;
+			max-width: 100vw;
+		}
+	}
+}
+
+//end dd-modal.dd_edit_modal
+
+// dd-modal.dd_delete_record
+// The record delete dialog (render_delete_record_dialog): relation list + the
+// diffusion checkbox, then the two delete buttons in one right-aligned row that
+// wraps on a phone. Declarative width, like dd_confirm.
+dd-modal.dd_delete_record {
+
+	&::part(content) {
+		width: 34rem;
+		max-width: 92vw;
+
+		@media screen and (max-width: @width_break_point_phone) {
+			width: 100vw;
+			max-width: 100vw;
+		}
+	}
+
+	.body.content {
+		padding-top: 1.5rem;
+		padding-bottom: 0.5rem;
+	}
+
+	.footer.content {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		padding-bottom: 1.25rem;
+
+		>button {
+			margin: 0;
+		}
+	}
+}
+
+//end dd-modal.dd_delete_record
+
 // disabled_component
 .disabled_component {
 	// pointer-events: none !important;

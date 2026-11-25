@@ -93,6 +93,25 @@ lookups or attributes (\`engineering/PRODUCTION.md\` §8.1). The pre-swap boot r
 verdict on this directory — read only, nothing is created — so an update that would not start
 is refused before the installation tree is replaced. Ignored outside that boot.`,
 	},
+	DEDALO_SMOKE_ENV_FILE: {
+		// Read only under DEDALO_SMOKE_BOOT (src/config/env_retired_rename.ts
+		// smokeVerdict): the smoke child's own private dir is a throwaway, so the
+		// updater names the LIVE .env explicitly, for a read-only verdict.
+		type: 'string',
+		scope: 'environment',
+		default: undefined,
+		heading: 'Live private .env, for the pre-swap boot check',
+		typeLabel: 'absolute path',
+		typeSuffix: '(set by the updater; never by hand)',
+		doc: `Set by the code updater on its pre-swap boot CHILD (see \`DEDALO_SMOKE_BOOT\`), never by an
+administrator: the \`.env\` file the RUNNING installation reads.
+
+A key RETIRED by a rename is renamed by the real boot of the new release (it appends the
+new key's line, keeping the old one). The pre-swap boot reads this file — read only — to give
+the same verdict: a retired key the real boot can rename is accepted, one it cannot (set in
+the process environment, or an unwritable file) refuses the update before the installation
+tree is replaced. Ignored outside that boot.`,
+	},
 	DEDALO_CLIENT_PUBLISH_DIR: {
 		// Read from the PROCESS environment only (src/core/install/client_publish.ts):
 		// it names a mount of the container the launcher built, which a value in

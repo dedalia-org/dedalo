@@ -56,6 +56,24 @@ export class ValidationError extends ApiError {
   }
 }
 
+/**
+ * MariaDB errno 1146 (no such table) on a table the API names itself (publication_schema,
+ * the AV_* join tables): this publication simply lacks the feature — the client's 400,
+ * never a 500. Bun's MySQLError carries the server's number in `errno`.
+ */
+export function isNoSuchTableError(error: unknown): boolean {
+  return error instanceof Error && (error as { errno?: number }).errno === 1146;
+}
+
+/**
+ * 1146 or 1054 (unknown column) on a join whose every name comes from configuration (the
+ * AV_* keys): the publication does not have the tables in the shape the feature expects —
+ * a numismatic database may well have an `audiovisual` table without an `image` column.
+ */
+export function isMissingTableOrColumnError(error: unknown): boolean {
+  return isNoSuchTableError(error) || (error instanceof Error && (error as { errno?: number }).errno === 1054);
+}
+
 // Only ever raised when API_KEYS is non-empty; with no keys configured the API is open by
 // design and this is unreachable. No WWW-Authenticate header is sent — the scheme is a
 // bare X-API-Key header, not one of the HTTP authentication schemes.

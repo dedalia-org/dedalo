@@ -21,6 +21,46 @@
 	text-wrap: unset;
 }
 
+// bottom pager (render_common_section.render_list_pager): phone only — on a
+// desktop the whole page fits near the top paginator
+.list_after>.list_pager {
+	display: none;
+
+	@media screen and (max-width: @width_break_point_0) {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		padding: 0.5rem 0 1.5rem 0;
+
+		>button {
+			// a thumb-sized target (WCAG 2.5.5)
+			min-width: 3rem;
+			min-height: 3rem;
+			justify-content: center;
+
+			// the icon by hand: .fn_append_icon nests its own @media, which
+			// inside this one compiles to an invalid (ignored) query
+			&:before {
+				content: '';
+				display: inline-block;
+				height: 1.25rem;
+				width: 1.25rem;
+				background-color: currentColor;
+				.fn_add_mask('chevron_light.svg');
+			}
+
+			&:disabled {
+				opacity: 0.35;
+			}
+		}
+
+		>.list_pager_prev:before {
+			transform: scaleX(-1);
+		}
+	}
+}
+
 // list_body. Used in sections and portals in list mode
 .list_body {
 	// 'style' (NOT 'layout') — the same rule already applied to
@@ -131,20 +171,43 @@
 		display: none;
 	}
 
+	// no sheet behind the cards: each card is its own surface (below), so the
+	// gaps between cards show the page, not a white band
+	.list_body.layout_table:where(:not(.column *)) {
+		background-color: transparent;
+	}
+
 	// the content_data becomes a block of cards
 	.list_body.layout_table:where(:not(.column *))>.content_data,
 	:where(.list_body:not(.layout_table))>.content_data.list.section {
 		display: block;
 		padding-top: 0.25rem;
 
-		>.section_record:first-child:not(.placeholder)>.column:first-child {
-			margin-top: 0.25rem;
-		}
-
 		>.section_record:not(.placeholder) {
 			display: grid;
 			grid-template-columns: 1fr;
 			width: 100%;
+			// the card: rounded by its first/last cells, NOT by a clip (row-box
+			// ring law: the portal drag handle in the id cell stays hit-testable)
+			background-color: var(--bg_surface);
+			border-radius: .7rem;
+			margin-bottom: 1rem;
+
+			>.column:first-child,
+			>.column:first-child:before {
+				border-top-left-radius: .7rem;
+			}
+			>.column:first-child {
+				border-top-right-radius: .7rem;
+			}
+			// the row separator under the last cell would draw outside the card
+			>.column:last-child {
+				box-shadow: none;
+			}
+			>.column:last-child:before {
+				border-bottom-left-radius: .7rem;
+				border-bottom: none;
+			}
 
 			>.column {
 				font-size: 0.9rem;
@@ -169,7 +232,7 @@
 					display: flex;
 					align-items: center;
 					width: 22%;
-					background-color: @color_grey_14;
+					background-color: var(--list_card_label_bg);
 					padding: 0.25rem;
 					padding-left: 0.5rem;
 					word-break: break-word;
@@ -179,7 +242,7 @@
 					left: -0.2rem;
 					top: -0.5rem;
 					height: calc(100% + 0.5rem);
-					border-bottom: 1px solid @color_grey_13;
+					border-bottom: 1px solid var(--list_card_label_border);
 				}
 
 				// the card's Id header, pinned while its card scrolls. NO
@@ -191,19 +254,34 @@
 					position: sticky;
 					top: 0px;
 					z-index: 1;
-					box-shadow: 0px 4px 2px 0px @color_grey_9;
 					font-size: 1.5rem;
-					margin-top: 2rem;
-					margin-bottom: 0.25rem;
 					grid-template-columns: 22% 1fr 1fr;
 					display: grid;
+
+					// no top padding to compensate: the label stretches over the
+					// whole grid row, so it neither drops below the cell nor leaves
+					// a strip of the cell's colour under it, and centres with the id
+					padding-top: 0;
 
 					&:before {
 						font-size: 1.5rem;
 						text-transform: uppercase;
 						width: auto;
-						top: 0rem;
+						top: 0;
+						height: auto;
 						margin-right: 0rem;
+						// a coloured header (activity / TM) sets an inverse ink on
+						// the cell; the label keeps its own surface, so its own ink
+						color: var(--fg_default);
+					}
+
+					// activity / TM id: one value spanning the value tracks,
+					// left-aligned like the other card values
+					>.section_id_container {
+						grid-column: 2 / -1;
+						align-self: center;
+						text-align: left;
+						padding-left: 0.5rem;
 					}
 
 					.button_edit {
@@ -1006,6 +1084,32 @@ screen and (min-width: (@width_break_point_0 + 1)) {
 }
 
 //end @media layout_table (desktop + print)
+
+// section colour (WC-2026-11-25-section-context-color) — view_default_list_section
+// (apply_section_color; gate: test_section_color_stripe.js) sets `.has_section_color` + `--section_color` from context.color (the section's
+// ontology properties.color; edit mode paints the same colour as the Id band).
+// A border, not an inset shadow: the Id button's hover fill would cover a shadow.
+// Direct children only, so a list nested in a column keeps its own colour.
+// Placeholders are left alone (their red inset stripe means "build failed").
+@media not screen,
+screen and (min-width: (@width_break_point_0 + 1)) {
+	.list_body.layout_table.has_section_color {
+		>.header_wrapper_list>.head_column.section_id,
+		>.content_data>.section_record:not(.placeholder)>.column.column_section_id {
+			border-left: 4px solid var(--section_color);
+		}
+		// the list body's rounded top corner (no clip on .layout_table, as the last row's)
+		>.header_wrapper_list>.head_column.section_id {
+			border-top-left-radius: .7rem;
+		}
+	}
+}
+// phone: the stripe runs down the whole card edge (the card IS the record)
+@media screen and (max-width: @width_break_point_0) {
+	.list_body.layout_table.has_section_color:where(:not(.column *))>.content_data>.section_record:not(.placeholder) {
+		border-left: 4px solid var(--section_color);
+	}
+}
 
 // placeholder (row-box WC entry) — an unbuilt row of a window above 200 rows:
 // `<div class="section_record placeholder" data-index="i" aria-hidden="true">`,

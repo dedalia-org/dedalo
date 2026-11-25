@@ -18,7 +18,9 @@
  * One live fact IS judged, read only: the mount of the LIVE media processes dir
  * (`DEDALO_SMOKE_PROCESSES_DIR`, passed below) — the new release's real boot
  * refuses an incoherent NFS mount (processes_mount.ts), so its smoke boot
- * refuses it first and nothing is swapped.
+ * refuses it first and nothing is swapped. Likewise the LIVE `.env`
+ * (`DEDALO_SMOKE_ENV_FILE`): a RETIRED key the real boot cannot rename
+ * (env_retired_rename.ts) is refused here.
  *
  * HONEST LIMITS — what a green smoke boot does NOT prove:
  *  - that the release's BOOT MIGRATIONS succeed: they are deliberately
@@ -32,7 +34,7 @@
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { envSnapshot } from '../../config/env.ts';
+import { envSnapshot, privateDir } from '../../config/env.ts';
 import { configuredProcessesDir } from '../media/jobs.ts';
 import { refuseUpdate } from './refuse.ts';
 
@@ -95,6 +97,10 @@ export async function smokeBootQuarantine(codeRoot: string, stagingDir: string):
 			// dir is the throwaway above, so it cannot derive it — and a release
 			// whose real boot would refuse that mount is refused HERE, pre-swap.
 			DEDALO_SMOKE_PROCESSES_DIR: configuredProcessesDir(),
+			// The LIVE .env, for the child's READ-ONLY retired-key verdict
+			// (env_retired_rename.ts smokeVerdict): a retired key the real boot can
+			// rename is tolerated, one it cannot is refused HERE, pre-swap.
+			DEDALO_SMOKE_ENV_FILE: join(privateDir, '.env'),
 		},
 	});
 	const stderrPromise = new Response(child.stderr).text();

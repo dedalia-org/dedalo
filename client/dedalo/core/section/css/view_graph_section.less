@@ -629,6 +629,47 @@
 				}
 			}
 		}
+		// phone: a 340px side panel leaves the canvas a sliver. Stack instead —
+		// hint on its own row, canvas on top, detail panel under it (page scrolls)
+		@media screen and (max-width: @width_break_point_phone) {
+
+			.graph_toolbar {
+				flex-wrap: wrap;
+				row-gap: 0.5rem;
+
+				.graph_hint {
+					flex: 1 0 100%;
+					order: -1;
+				}
+			}
+
+			>.content_data {
+				grid-template-columns: minmax(0, 1fr);
+				grid-template-rows: 60vh auto;
+				height: auto;
+
+				.graph_canvas {
+					border-radius: 6px 6px 0 0;
+				}
+
+				.node_detail {
+					height: auto;
+					border-left: 1px solid @color_grey_12;
+					border-top: none;
+					border-radius: 0 0 6px 6px;
+					overflow-y: visible;
+
+					// the page scrolls now, not the panel: sticky would slide under the menu
+					.node_detail_header {
+						position: relative; // still anchors the absolute close button
+					}
+				}
+
+				&.detail_hidden {
+					grid-template-rows: 60vh;
+				}
+			}
+		}
 	}//end &.edit
 
 }//end .view_graph_section

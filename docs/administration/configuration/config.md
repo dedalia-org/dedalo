@@ -215,9 +215,10 @@ ENTITY="my_entity_name"
 DEDALO_APPLICATION_LANG `string`
 
 !!! info "Renamed — was `APPLICATION_LANG`"
-    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
-    is retired — if it is still in your `.env` the server refuses to boot and names the line to
-    change.
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 This parameter defines the language will us Dédalo for the user interface.
 
@@ -239,9 +240,10 @@ DEDALO_APPLICATION_LANG="lg-spa"
 DEDALO_DATA_LANG `string`
 
 !!! info "Renamed — was `DATA_LANG`"
-    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
-    is retired — if it is still in your `.env` the server refuses to boot and names the line to
-    change.
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 It defines the data language used by Dédalo to process and render textual information.
 
@@ -267,8 +269,10 @@ DEDALO_DATA_LANG_SYNC `bool`
 
 !!! info "Renamed — was `DATA_LANG_SYNC`"
     The key now follows its siblings (`DEDALO_DATA_LANG_SELECTOR`, `DEDALO_DATA_LANG_DEFAULT`) and
-    the v6 name. The old spelling is retired — if it is still in your `.env` the server refuses to
-    boot and names the line to change.
+    the v6 name. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 Defines whether the application language and data language selection remain synchronized.
 
@@ -288,9 +292,10 @@ DEDALO_DATA_LANG_SYNC=false
 DEDALO_DATA_NOLAN `string`
 
 !!! info "Renamed — was `DATA_NOLAN`"
-    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
-    is retired — if it is still in your `.env` the server refuses to boot and names the line to
-    change.
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 This parameter defines the tld used by Dédalo to tag data without translation possibility.
 
@@ -473,9 +478,10 @@ DEDALO_STRUCTURE_LANG="lg-spa"
 DEDALO_PROJECTS_DEFAULT_LANGS `array`
 
 !!! info "Renamed — was `PROJECTS_DEFAULT_LANGS`"
-    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling
-    is retired — if it is still in your `.env` the server refuses to boot and names the line to
-    change.
+    The key now carries its v6 name and the `DEDALO_` prefix of its siblings. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 This parameter defines the languages that will use for export and publish data.
 
@@ -503,9 +509,10 @@ ACTIVE_ONTOLOGY_TLDS `array`
 
 !!! info "Renamed in v7 — was `DEDALO_PREFIX_TIPOS`"
     The old name did not describe the value: this is the set of ontology
-    **top-level domains** active in the installation. The old spelling is retired —
-    if it is still in your `.env` the server refuses to boot and names the line to
-    change.
+    **top-level domains** active in the installation. The old spelling is retired — if it is still in your `.env`, the server appends
+    the new key with the same value at its next start (a code update does it before the swap);
+    the old line is kept and configures nothing. Set in the process environment (a systemd
+    unit, a container) it cannot be renamed: the server refuses to boot, naming every such key.
 
 This parameter defines the ontology TLDs to be used in the Dédalo installation.
 

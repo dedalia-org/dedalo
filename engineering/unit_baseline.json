@@ -1704,6 +1704,11 @@
 			"skipped": 0,
 			"assertions": 69
 		},
+		"test/unit/diffusion_publication_schema_native.test.ts": {
+			"tests": 11,
+			"skipped": 0,
+			"assertions": 23
+		},
 		"test/unit/diffusion_published_filename.test.ts": {
 			"tests": 22,
 			"skipped": 0,
@@ -1829,6 +1834,11 @@
 			"skipped": 0,
 			"assertions": 27
 		},
+		"test/unit/diffusion_value_rejected.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 9
+		},
 		"test/unit/dispatch_error_native.test.ts": {
 			"tests": 14,
 			"skipped": 0,
@@ -1903,6 +1913,11 @@
 			"tests": 3,
 			"skipped": 0,
 			"assertions": 4
+		},
+		"test/unit/env_retired_rename_native.test.ts": {
+			"tests": 15,
+			"skipped": 0,
+			"assertions": 87
 		},
 		"test/unit/environment_view.test.ts": {
 			"tests": 2,
@@ -5748,6 +5763,11 @@
 			"tests": 13,
 			"skipped": 0,
 			"assertions": 81
+		},
+		"test/unit/section_context_color_native.test.ts": {
+			"tests": 3,
+			"skipped": 0,
+			"assertions": 5
 		},
 		"test/unit/section_definition_defects_native.test.ts": {
 			"tests": 2,

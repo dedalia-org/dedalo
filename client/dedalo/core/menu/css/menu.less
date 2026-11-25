@@ -347,6 +347,10 @@
 			background-color: var(--menu_mobile_bg);
 			font-size: 1.25rem;
 			padding: 1rem;
+			// the menu is sticky, so a panel taller than the viewport can't be page-scrolled: scroll it itself
+			max-height: calc(100dvh - var(--menu_offset));
+			overflow-y: auto;
+			overscroll-behavior: contain;
 
 			display: none;
 
@@ -585,6 +589,72 @@
 				}
 			}
 
+		}
+
+		// PHONE: finger-sized targets + one optical centre line. Icons become
+		// equal square-ish boxes (same glyph size, centred background); text
+		// items centre by flex + cap-height trim instead of line-height, which
+		// sat their glyphs below the icons' centre.
+		@media screen and (max-width: @width_break_point_phone) {
+			padding-left: 0.25rem; // clear the 3px role line
+
+			>.top_item {
+				margin-left: 0;
+				height: var(--menu_heigth);
+				line-height: normal;
+			}
+
+			>.quit,
+			>.dedalo_icon_top,
+			>.menu_mobile_icon,
+			>.theme_toggle,
+			>.ai_assistant_button {
+				flex: 0 0 auto;
+				width: 2.6rem;
+				margin: 0;
+				background-size: 1.3rem 1.3rem;
+			}
+			>.menu_mobile_icon {
+				background-size: 1.15rem 1.15rem; // bars read heavier than the outline glyphs
+			}
+
+			>.logged_user_name {
+				display: flex;
+				align-items: center;
+				margin-left: 0.25rem;
+				flex: 0 1 auto;
+				min-width: 0;
+			}
+
+			>.dedalo_aplication_langs_selector {
+				flex: 0 1 auto;
+				width: auto;
+				min-width: 0;
+				margin-left: 0.5rem;
+				padding-right: 1.25em;
+				line-height: normal;
+			}
+
+			// the label takes the spare width (right-aligned) and ellipsizes
+			// instead of wrapping to a second bar line
+			>.menu_spacer {
+				display: none;
+			}
+			>.section_label_container {
+				flex: 1 1 0;
+				min-width: 0;
+				justify-content: flex-end;
+
+				>.section_label {
+					display: block;
+					height: var(--menu_heigth);
+					line-height: var(--menu_heigth);
+					margin-right: 0.75rem;
+					overflow: hidden;
+					white-space: nowrap;
+					text-overflow: ellipsis;
+				}
+			}
 		}
 	}
 

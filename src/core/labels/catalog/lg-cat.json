@@ -185,6 +185,7 @@
 	"error_diffusion_target_busy": "La destinació de publicació està ocupada amb una altra execució; torneu-ho a provar quan acabi",
 	"error_diffusion_unknown_format": "Cap escriptor de difusió serveix aquest format de publicació",
 	"error_diffusion_unported_fn": "La publicació fa servir una funció de l'ontologia que aquest motor encara no implementa",
+	"error_diffusion_value_rejected": "Un valor publicat no cap a la seva columna de destinació",
 	"error_engine_uncovered_scope": "Aquesta operació no està disponible en aquest servidor",
 	"error_envelope_not_an_envelope": "La resposta del servidor no és un sobre de l'API",
 	"error_export_artifact_busy": "Aquesta exportació encara s'està executant o se n'està generant un fitxer. Atureu-la, o espereu que acabi, i torneu-ho a provar",

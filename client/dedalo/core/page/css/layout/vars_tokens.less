@@ -59,7 +59,7 @@
 	// menu height. Declared at :root (not on .menu) so the LOADING PLACEHOLDERS can
 	// reserve exactly the space the menu will occupy before it exists — a placeholder
 	// is a sibling of .menu, so a var scoped to .menu is unreachable from it.
-	--menu_heigth: 2.2rem;
+	--menu_heigth: 2.2rem; // phone override after this block
 	--inspector_width: 19rem;
 	--inspector_rail_width: 48px; // width when inspector collapses into the icon rail
 	--inspector_block_radius: 8px; // corner radius of inspector content cards
@@ -330,6 +330,11 @@
 	--transition-slow: 400ms var(--ease-standard); // theme / modal cross-fades
 
 	// ---- COMPONENT SEMANTIC TOKENS ----
+	// list phone cards — the label column. Light's grey_14 IS the canvas
+	// (--bg_app), so the labels melted into the page: one step darker, with
+	// surface-coloured gutters (a grey_13 rule would vanish on a grey_13 fill)
+	--list_card_label_bg:       var(--color_grey_13);
+	--list_card_label_border:   var(--bg_surface);
 	--menu_dropdown_text:       var(--color_grey_14);
 	--menu_dropdown_bg:         var(--color_grey_16);
 	--menu_dropdown_border:     var(--color_grey_9);
@@ -511,4 +516,12 @@
 	--ut_pending: #afb8c1;
 	--ut_shadow: 0 1px 2px rgba(27,31,36,.06), 0 8px 24px -16px rgba(27,31,36,.25);
 	--ut_grain: .018;
+}
+
+// phone: a finger-sized bar (~45px); sticky offsets + placeholders follow the token.
+// Outside :root on purpose — a nested @media ends the :root block for scripts/tool_colors.ts.
+@media screen and (max-width: @width_break_point_phone) {
+	:root {
+		--menu_heigth: 3rem;
+	}
 }
