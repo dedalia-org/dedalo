@@ -347,6 +347,10 @@
 			background-color: var(--menu_mobile_bg);
 			font-size: 1.25rem;
 			padding: 1rem;
+			// the menu is sticky, so a panel taller than the viewport can't be page-scrolled: scroll it itself
+			max-height: calc(100dvh - var(--menu_offset));
+			overflow-y: auto;
+			overscroll-behavior: contain;
 
 			display: none;
 

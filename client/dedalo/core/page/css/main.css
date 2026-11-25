@@ -10485,6 +10485,9 @@ body:has(.component_av.view_viewer) {
   background-color: var(--menu_mobile_bg);
   font-size: 1.25rem;
   padding: 1rem;
+  max-height: calc(100dvh - var(--menu_offset));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: none;
 }
 .menu > .content_data > .menu_mobile_wrapper .menu_mobile_item {

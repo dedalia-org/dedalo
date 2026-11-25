@@ -605,6 +605,11 @@ Merged since the last release; these ship with the next one.
     between them, instead of sitting on one white sheet with wide white bands between records. In the light theme the label column is now one shade darker,
     so it no longer blends into the page background.
 
+- **On a phone, a long menu can be scrolled to its last entries.**
+
+    On a phone, an open menu taller than the screen could not be scrolled, so its last entries were
+    out of reach. The open menu now scrolls on its own, below the top bar.
+
 - **The JSON editor's indent guides are readable in the dark theme.**
 
     In the dark theme, the vertical indent guides in the JSON editor's text mode were drawn
