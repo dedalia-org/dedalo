@@ -6,18 +6,17 @@
  * test/unit/publication_host_init_pair_native.test.ts.
  */
 import { describe, expect, test } from 'bun:test';
-import { classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
 import { AUDIT_ACTION_ORIGIN, type AuditAction } from '../src/audit';
 import type { SyncSpawner, SyncSpawnOptions } from '../src/exec';
 import { initExec } from '../src/exec';
 import type { ExecResult, PairInvocation } from '../src/provision/exec_contract';
+import { classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
 import {
   ALREADY_REGISTERED,
   detectWorkSystem,
   engineContactSince,
   PACKAGE_KEEP,
   PACKAGE_REMOVE,
-  writtenPackageItem,
   PAIR_CHILD_PATH,
   type PairPorts,
   pairEnv,
@@ -27,10 +26,11 @@ import {
   pairPlan,
   pairPortResult,
   pairPreconditions,
-  twoMachineInstructions,
-  writePairingPackage,
   TWIN_REGISTERED,
+  twoMachineInstructions,
   unitOptionId,
+  writePairingPackage,
+  writtenPackageItem,
 } from '../src/provision/init/pair';
 import type { HostFacts, WorkUnit } from '../src/provision/init/types';
 import { derive } from '../src/provision/layout';

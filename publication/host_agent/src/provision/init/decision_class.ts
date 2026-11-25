@@ -25,7 +25,7 @@
  *
  * PURE, ZERO-DEPENDENCY (tests/provision_zero_dep.test.ts): ./types only.
  */
-import type { InitActionKind, InitAction, Item, ItemOption } from './types';
+import type { InitAction, InitActionKind, Item, ItemOption } from './types';
 
 export type DecisionKind = 'needs_action' | 'typed' | 'auto' | 'choose';
 

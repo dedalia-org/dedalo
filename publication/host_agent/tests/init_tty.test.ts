@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { TtyInput, TtyOutput, TtySignals } from '../src/provision/init/tty';
-import { SCRIPTED_ENTER, SECRET_ATTEMPTS, enterAnswer, scriptedPrompter, ttyPrompter } from '../src/provision/init/tty';
+import { enterAnswer, SCRIPTED_ENTER, SECRET_ATTEMPTS, scriptedPrompter, ttyPrompter } from '../src/provision/init/tty';
 import type { Item } from '../src/provision/init/types';
 
 class FakeInput implements TtyInput {

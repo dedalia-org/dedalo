@@ -5,7 +5,7 @@
  * (Enter takes the shown default). Plus typedMarkProblems, the gate the producers' marks must pass.
  */
 import { describe, expect, test } from 'bun:test';
-import { TYPED_ACTION_KINDS, classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
+import { classifyDecision, TYPED_ACTION_KINDS, typedMarkProblems } from '../src/provision/init/decision_class';
 import type { Item, ItemOption } from '../src/provision/init/types';
 
 const MANUAL: ItemOption = { id: 'manual', label: 'by hand', resolves: 'manual' };
