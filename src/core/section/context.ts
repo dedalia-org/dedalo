@@ -9,7 +9,7 @@
  * block (class.common.php:2056-2101).
  */
 
-import { getMatrixTableFromTipo } from '../ontology/resolver.ts';
+import { getMatrixTableFromTipo, getNode } from '../ontology/resolver.ts';
 import { getSectionMap } from '../ontology/section_map.ts';
 import type { StructureContextEntry } from '../resolve/structure_context.ts';
 import { getPermissions, type Principal } from '../security/permissions.ts';
@@ -79,6 +79,16 @@ export async function stampSectionContext(
 	// the writer. ALS-read at call time.
 	const { currentRequestContext } = await import('../security/request_context.ts');
 	entry.sqo_session = currentRequestContext()?.session?.sqoSession?.[params.tipo] ?? null;
+
+	// color (WC-2026-11-25-section-context-color): the section node's OWN
+	// properties.color — the same source component_section_id's edit colour reads
+	// (structure_context.ts). Read from the node, not params.properties: in list
+	// mode those are already the section_list child's (the emitted-properties
+	// swap), which is why the colour never reached the list. Every mode; only an
+	// explicit colour (no grey fallback — an uncoloured list stays unmarked).
+	// The client paints it as the list Id-column stripe.
+	const color = ((await getNode(params.tipo))?.properties as { color?: unknown } | null)?.color;
+	if (typeof color === 'string' && color.trim() !== '') entry.color = color.trim();
 
 	// Tools: the section's toolbar (PHP common::get_tools). PHP's `$simple`
 	// (build_structure_context:1865) is the only MODE gate — a section satisfies

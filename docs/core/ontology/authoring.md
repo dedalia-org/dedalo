@@ -349,7 +349,7 @@ skip — never guessed. Full rules, counters and diagnostics:
 
 | key | used by | meaning |
 | --- | --- | --- |
-| `color` | sections / TLD roots | UI accent; read as `node.properties.color`, falling back to `#b9b9b9` at each call site (e.g. `src/core/relations/request_config/explicit.ts`). |
+| `color` | sections / TLD roots | The section's identifying colour, read as `node.properties.color`. In edit mode it fills the Id band (`component_section_id` context `color`, falling back to `#b9b9b9`); in list mode it is a stripe on the Id column, or down each card's left edge on a phone (the section context `color`, sent only when the colour is set — [Section list](../sections/section_list.md#section-colour)). Other call sites fall back to `#b9b9b9` themselves (e.g. `src/core/relations/request_config/explicit.ts`). |
 | `tool_config` | sections/components | per-tool config keyed by tool name, overlaid onto the tool's ontology properties. |
 | `main_tld` | `<tld>0` roots | the official TLD string for the namespace. |
 | `mode` | tools | restrict a tool to one mode (`edit`/`list`/…); tools whose `mode` ≠ the current mode are skipped. |

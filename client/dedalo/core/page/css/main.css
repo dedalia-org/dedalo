@@ -7264,6 +7264,20 @@ dd-modal.dd_delete_record .footer.content > button {
     border-right: 0px;
   }
 }
+@media not screen, screen and (min-width: 1025px) {
+  .list_body.layout_table.has_section_color > .header_wrapper_list > .head_column.section_id,
+  .list_body.layout_table.has_section_color > .content_data > .section_record:not(.placeholder) > .column.column_section_id {
+    border-left: 4px solid var(--section_color);
+  }
+  .list_body.layout_table.has_section_color > .header_wrapper_list > .head_column.section_id {
+    border-top-left-radius: 0.7rem;
+  }
+}
+@media screen and (max-width: 1024px) {
+  .list_body.layout_table.has_section_color:where(:not(.column *)) > .content_data > .section_record:not(.placeholder) {
+    border-left: 4px solid var(--section_color);
+  }
+}
 .content_data > .section_record.placeholder {
   block-size: var(--row_size, var(--placeholder_size, 2.5rem));
 }

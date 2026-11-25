@@ -1085,6 +1085,32 @@ screen and (min-width: (@width_break_point_0 + 1)) {
 
 //end @media layout_table (desktop + print)
 
+// section colour (WC-2026-11-25-section-context-color) — view_default_list_section
+// (apply_section_color; gate: test_section_color_stripe.js) sets `.has_section_color` + `--section_color` from context.color (the section's
+// ontology properties.color; edit mode paints the same colour as the Id band).
+// A border, not an inset shadow: the Id button's hover fill would cover a shadow.
+// Direct children only, so a list nested in a column keeps its own colour.
+// Placeholders are left alone (their red inset stripe means "build failed").
+@media not screen,
+screen and (min-width: (@width_break_point_0 + 1)) {
+	.list_body.layout_table.has_section_color {
+		>.header_wrapper_list>.head_column.section_id,
+		>.content_data>.section_record:not(.placeholder)>.column.column_section_id {
+			border-left: 4px solid var(--section_color);
+		}
+		// the list body's rounded top corner (no clip on .layout_table, as the last row's)
+		>.header_wrapper_list>.head_column.section_id {
+			border-top-left-radius: .7rem;
+		}
+	}
+}
+// phone: the stripe runs down the whole card edge (the card IS the record)
+@media screen and (max-width: @width_break_point_0) {
+	.list_body.layout_table.has_section_color:where(:not(.column *))>.content_data>.section_record:not(.placeholder) {
+		border-left: 4px solid var(--section_color);
+	}
+}
+
 // placeholder (row-box WC entry) — an unbuilt row of a window above 200 rows:
 // `<div class="section_record placeholder" data-index="i" aria-hidden="true">`,
 // childless, listener-free. It holds the row's block size so scrolling is

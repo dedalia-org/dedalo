@@ -550,6 +550,17 @@ Merged since the last release; these ship with the next one.
     clean lines: "Page [n] of N" on one, "Displayed records …" on the next, instead of one
     sentence wrapped mid-way. On a desktop nothing changes.
 
+- **Lists show the section's identifying colour, as the edit form does.**
+
+    A section with its own colour (for example Oral History) already paints the Id box of the edit
+    form in that colour. Its list now shows the same colour as a thin stripe on the left of the Id
+    column (on a phone, down the left edge of each record card), so you can tell at a glance which
+    section you are working in. Sections without a colour look as before.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-25-section-context-color`.
+
 - **Thesaurus and ontology tree searches can now step through the found terms.**
 
     When a search in the thesaurus or ontology tree finds more than one term, a small bar at the
@@ -3079,7 +3090,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 119 entries"
+??? note "Wire contract — 120 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3200,6 +3211,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
     - `WC-2026-11-22-tool-availability-context`
     - `WC-2026-11-23-tool-lang-browser-translation-labels`
+    - `WC-2026-11-25-section-context-color`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

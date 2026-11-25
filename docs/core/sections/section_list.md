@@ -451,6 +451,7 @@ instances only, never a node: `size`, `generation`, `signal`, `entry_of(i)`,
 | `get_content_data(self, rows, options)` | Create an empty `.content_data`, hand `rows` (`self.data.entries`) to `window_section_rows`, and attach the `.list_after` node (no-records node, print notice) as `content_data.list_after`. Returns the filled `.content_data`. |
 | `rebuild_columns_map(self)` | Prepend the synthetic `section_id` control column; idempotent via `self.fixed_columns_map`. |
 | `adapt_section_id_column(list_body_node, self)` | Set `--section_id_font_size` / `--column_id_width` CSS vars to fit the longest id on the page. |
+| `apply_section_color(list_body, color)` | Mark the list body with the section's colour: the `.has_section_color` class plus the `--section_color` var. No colour → untouched. See [Section colour](#section-colour). |
 
 ### Id-cell renderer (`render_list_section.js`)
 
@@ -544,6 +545,29 @@ instances only, never a node: `size`, `generation`, `signal`, `entry_of(i)`,
 `section.build()` stores the `entries` item as `self.data` (matched by
 `tipo===self.tipo && typo==='sections'`) and the `oh1` context as
 `self.context`.
+
+### Section colour
+
+A section whose ontology node sets `properties.color` is marked with that colour in
+its list, as the edit form's Id band is in edit mode, so users can tell which section
+they are working in:
+
+- The server stamps `color` on the section's context entry in every mode
+  (`stampSectionContext`, `src/core/section/context.ts`). It reads the node's OWN
+  properties: in list mode the emitted `properties` are the `section_list` child's,
+  so they never carry it. A section without a colour sends no `color` key (no grey
+  fallback — that belongs to the edit band).
+- `view_default_list_section.render` calls `apply_section_color(list_body, context.color)`.
+- `page/css/layout/list.less` paints a 4px `border-left` on the Id header cell and on
+  every built row's Id cell (desktop and print), with the header's top-left corner
+  rounded like the last row's bottom-left; on a phone the border runs down each
+  record card's left edge. Placeholders are left alone.
+
+Portal lists and the thesaurus list use their own views and are not marked. Contract:
+`engineering/wire_contract/WC-2026-11-25-section-context-color.md`. Gates:
+`test/unit/section_context_color_native.test.ts` (server) and
+`client/dedalo/test/client/js/test_section_color_stripe.js` (class, var and the real
+stylesheet on desktop and phone).
 
 ### Building and rendering a list (the page pattern)
 
