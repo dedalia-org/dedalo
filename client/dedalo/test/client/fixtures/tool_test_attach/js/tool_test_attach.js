@@ -1,6 +1,7 @@
 // @license magnet:?xt=urn:btih:0b31508aeb0634b347b8270c7bee4d411b5d4109&dn=agpl-3.0.txt AGPL-3.0
 /*eslint no-undef: "error"*/
 
+import { common } from '../../../../../core/common/js/common.js';
 import { tool_common, wire_tool } from '../../../../../core/tools_common/js/tool_common.js';
 
 /**
@@ -56,8 +57,6 @@ export const tool_test_attach = function () {
 // standard wiring (render, destroy, refresh, tool_request)
 wire_tool(tool_test_attach);
 
-const base_destroy = tool_test_attach.prototype.destroy;
-
 tool_test_attach.prototype.init = async function (options) {
 	attach_fixture.log.push({ op: 'init', id: this.id });
 	return tool_common.prototype.init.call(this, options);
@@ -106,5 +105,5 @@ tool_test_attach.prototype.detach = async function () {
 
 tool_test_attach.prototype.destroy = async function (...args) {
 	attach_fixture.log.push({ op: 'destroy', id: this.id });
-	return base_destroy.apply(this, args);
+	return common.prototype.destroy.apply(this, args);
 };
