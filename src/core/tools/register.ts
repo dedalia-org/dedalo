@@ -33,6 +33,7 @@ import { getLoadedTool } from './loader.ts';
 import { DD64_SECTION_TIPO, TIPO, TOOLS_REGISTER_SECTION_TIPO } from './ontology_map.ts';
 import { getRoots } from './paths.ts';
 import { authoringRegisterSchema } from './register_schema.ts';
+import { TOOL_OPEN_AS_VALUES } from './types.ts';
 
 /** Column-keyed tool record (the register.json dump shape / import unit). */
 export interface ToolRecord {
@@ -255,6 +256,41 @@ async function resolveAffectedModelLocators(
 /** The dd1342 model-name component (kept local to the resolver above). */
 const TIPO_MODEL_NAME = 'dd1345';
 
+/** `name`: present, tool_*-shaped, equal to its directory. Returns it, or null. */
+function validateName(record: ToolRecord, basename: string, errors: string[]): string | null {
+	const name = getItems(record, TIPO.NAME)?.[0]?.value;
+	if (typeof name !== 'string' || name === '') {
+		errors.push(`Missing required 'name' (component ${TIPO.NAME})`);
+		return null;
+	}
+	if (!/^tool_[a-z0-9_]+$/.test(name)) {
+		errors.push(`Invalid tool name '${name}': must match ^tool_[a-z0-9_]+$`);
+	}
+	if (name !== basename) {
+		errors.push(`Tool name '${name}' does not match its directory name '${basename}'`);
+	}
+	return name;
+}
+
+/** `version`: present and semantic. */
+function validateVersion(record: ToolRecord, errors: string[]): void {
+	const version = getItems(record, TIPO.VERSION)?.[0]?.value;
+	if (typeof version !== 'string' || version === '') {
+		errors.push("Missing required 'version'");
+	} else if (!/^\d+\.\d+(\.\d+)?([.-][0-9A-Za-z.]+)?$/.test(version)) {
+		errors.push(`Invalid version '${version}': expected a semantic version like 1.0.0`);
+	}
+}
+
+/** `label`: at least one non-empty language label. */
+function validateLabel(record: ToolRecord, errors: string[]): void {
+	const labelItems = getItems(record, TIPO.LABEL) ?? [];
+	const hasLabel = labelItems.some(
+		(item) => typeof (item as { value?: unknown }).value === 'string' && item.value !== '',
+	);
+	if (!hasLabel) errors.push("Missing required 'label': at least one language label is required");
+}
+
 /**
  * Validate a column-keyed tool record (PHP validate_register). `basename` is the
  * directory name the tool.name must equal.
@@ -267,30 +303,9 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 		return errors;
 	}
 
-	const name = getItems(record, TIPO.NAME)?.[0]?.value;
-	if (typeof name !== 'string' || name === '') {
-		errors.push(`Missing required 'name' (component ${TIPO.NAME})`);
-	} else {
-		if (!/^tool_[a-z0-9_]+$/.test(name)) {
-			errors.push(`Invalid tool name '${name}': must match ^tool_[a-z0-9_]+$`);
-		}
-		if (name !== basename) {
-			errors.push(`Tool name '${name}' does not match its directory name '${basename}'`);
-		}
-	}
-
-	const version = getItems(record, TIPO.VERSION)?.[0]?.value;
-	if (typeof version !== 'string' || version === '') {
-		errors.push("Missing required 'version'");
-	} else if (!/^\d+\.\d+(\.\d+)?([.-][0-9A-Za-z.]+)?$/.test(version)) {
-		errors.push(`Invalid version '${version}': expected a semantic version like 1.0.0`);
-	}
-
-	const labelItems = getItems(record, TIPO.LABEL) ?? [];
-	const hasLabel = labelItems.some(
-		(item) => typeof (item as { value?: unknown }).value === 'string' && item.value !== '',
-	);
-	if (!hasLabel) errors.push("Missing required 'label': at least one language label is required");
+	const name = validateName(record, basename, errors);
+	validateVersion(record, errors);
+	validateLabel(record, errors);
 
 	// JSON components: present items must carry a `value`.
 	for (const tipo of MISC_TIPOS) {
@@ -320,6 +335,8 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 		}
 	}
 
+	errors.push(...validateOpenAs(record, name ?? basename));
+
 	// Minimum-Dédalo-version gate (PHP: strip a trailing .dev before comparing).
 	const minVersion = getItems(record, TIPO.DEDALO_VERSION_MIN)?.[0]?.value;
 	if (typeof minVersion === 'string' && minVersion !== '') {
@@ -328,6 +345,45 @@ export function validateRegister(record: ToolRecord, basename: string): string[]
 		}
 	}
 
+	return errors;
+}
+
+/**
+ * The open-mode law (`properties.open_as`, dd1335). When present it is one of
+ * TOOL_OPEN_AS_VALUES; 'attach' (built onto the live caller component, no
+ * modal/window) additionally requires show_in_component YES and
+ * show_in_inspector NOT yes — an attached tool has no inspector button to open
+ * it from. Runs inside validateRegister, so both register formats (authoring,
+ * converted first; column-keyed dumps) meet it at importTools. The client half
+ * (attach()/detach() on the tool class) is gated in
+ * test/unit/tools_register_validate.test.ts.
+ */
+export function validateOpenAs(record: ToolRecord, toolName: string): string[] {
+	const properties = getItems(record, TIPO.PROPERTIES)?.[0]?.value;
+	if (!isPlainObject(properties) || !('open_as' in properties)) return [];
+	const openAs = properties.open_as;
+	if (!(TOOL_OPEN_AS_VALUES as readonly unknown[]).includes(openAs)) {
+		return [
+			`Tool '${toolName}': invalid properties.open_as ${JSON.stringify(openAs)} — must be one of ${TOOL_OPEN_AS_VALUES.map((v) => `'${v}'`).join(', ')}`,
+		];
+	}
+	return openAs === 'attach' ? attachPlacementErrors(record, toolName) : [];
+}
+
+/** A plain (non-null, non-array) object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** open_as 'attach' placement: a component button, never an inspector one. */
+function attachPlacementErrors(record: ToolRecord, toolName: string): string[] {
+	const errors: string[] = [];
+	if (!radioYes(record, TIPO.SHOW_IN_COMPONENT)) {
+		errors.push(`Tool '${toolName}': open_as 'attach' requires show_in_component: true`);
+	}
+	if (radioYes(record, TIPO.SHOW_IN_INSPECTOR)) {
+		errors.push(`Tool '${toolName}': open_as 'attach' requires show_in_inspector: false`);
+	}
 	return errors;
 }
 

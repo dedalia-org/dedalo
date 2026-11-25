@@ -191,6 +191,8 @@
 			// STATIC ASSETS with no JS/TS in them.
 			"!**/tools/**/*/css",
 			"!**/tools/**/*/img",
+			// the client suite's scratch tools: same built css as a tools/ sheet
+			"!**/test/client/fixtures/tool_*/css",
 
 			// THE PUBLICATION DAEMONS — excluded from `biome check .`, but NOT unmeasured.
 			// (Corrected 2026-10-21. This was one `!**/publication` "read-only and gated

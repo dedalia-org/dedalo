@@ -5,6 +5,19 @@
  */
 
 /**
+ * The closed set of tool open modes (`properties.open_as` in register.json /
+ * dd1335). Absent = 'modal'.
+ *   - 'modal':  the tool renders in a modal over the page (default).
+ *   - 'window': the tool renders in a separate browser window.
+ *   - 'attach': the tool is built straight onto its live caller component (no
+ *     modal/window); its client class implements attach()/detach(), render() is
+ *     unused. Requires show_in_component: true and show_in_inspector: false.
+ * Enforced at registration by validateRegister (./register.ts).
+ */
+export const TOOL_OPEN_AS_VALUES = ['modal', 'window', 'attach'] as const;
+export type ToolOpenAs = (typeof TOOL_OPEN_AS_VALUES)[number];
+
+/**
  * One toolbar-entry DDO (PHP tool_common::create_tool_simple_context). This is
  * the object the client toolbar renders and the object `open_tool` clones as a
  * tool's caller context.

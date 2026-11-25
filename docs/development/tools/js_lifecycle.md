@@ -91,12 +91,55 @@ The helper builds the full rqo (source via `create_source`, `prevent_lock: true`
 !!! note "`prevent_lock` is vestigial"
     There is no per-session write-lock to release — request state is scoped per-request via `AsyncLocalStorage` (see `engineering/REWRITE_SPEC.md`), so a long tool request never blocks the user's other tabs. The field is still accepted by the RQO schema (`src/core/concepts/rqo.ts`) for wire compatibility with the unchanged client, but the dispatcher does not read it.
 
-## Modal and window modes
+## Modal, window and attach modes
 
-`open_tool` routes by `open_as` (from the call or the tool `properties.open_as`, default `modal`):
+`open_tool` routes by `open_as` (from the call or the tool `properties.open_as`, default `modal`). Three values exist — `modal`, `window`, `attach` — and register.json accepts no other ([`properties.open_as`](register_json.md#propertiesopen_as)):
 
 - **modal** — the tool renders inside a Dédalo modal; CSS is awaited before first paint; on close, `on_close_actions('modal')` is called if you define it, otherwise the caller is refreshed.
 - **window** — the caller state is LZString-compressed into the URL and the tool opens at `/core/page/?tool={name}&raw_data=...`; the caller refreshes on window focus. Size/position via `properties.windowFeatures`.
+- **attach** — no modal and no window: the tool decorates its caller in place (a toolbar on a component's map, for instance). Only for component tools: register.json must set `show_in_component: true` and `show_in_inspector: false`.
+
+### The attach lifecycle
+
+An `attach` tool runs **init → build → attach**; `render()` is never called, so it needs no `edit()` view. Core loads the tool instance and its CSS in parallel, calls `build(true)`, then `attach()`. The tool implements two methods:
+
+- **`attach()`** — async. Puts the tool's UI on `self.caller` (its node, its map, its toolbar) and returns a truthy value on success. It must be safe to call again: core calls it once more after every re-render of the caller.
+- **`detach()`** — async. Removes everything `attach()` added — nodes, listeners, map layers — and must not fail when that surface is already gone (the caller's DOM may have been replaced before it runs).
+
+``` js
+tool_x.prototype.attach = async function() {
+	const self = this
+	const node = self.caller.node
+	if (!node) return false
+	self.bar = self.bar || build_bar(self)   // your own builder
+	node.appendChild(self.bar)
+	return true
+}
+
+tool_x.prototype.detach = async function() {
+	const self = this
+	self.bar?.remove()                       // tolerates an already-removed node
+	return true
+}
+```
+
+Core owns everything around those two calls; the tool does not wire any of it:
+
+| Event | What core does |
+|---|---|
+| The tool button is pressed (mouse, or Enter / Space on the focused button) | Loads and attaches the tool. While loading, the button carries `aria-busy="true"` and the class `loading`; a further click is ignored. |
+| The tool button is pressed while attached | Toggles the tool off: `detach()`, then `destroy()`. |
+| The caller's DOM goes away (`destroy_<caller.id>`, also sent at the start of every refresh) | `detach()` straight away, so the tool never stays on a dead surface. The tool is destroyed only when the caller itself is destroyed. |
+| The caller re-renders (`render_<caller.id>`) | `attach()` on the new DOM (after `detach()` if the tool was still on the old one). A re-render during the first `attach()` is handled after it. |
+| Loading, `build` or `attach()` fails (or `attach()` returns a falsy value) | The error is shown once, through the client's standard error path; nothing is left attached. |
+
+Every attach and detach of one tool on one caller runs in order, one at a time.
+
+Attachment belongs to one live caller instance, not to the record: two instances of the same component (an edit form and a hover window, say) each attach their own copy of the tool, and changing the caller's language in place does not lose it.
+
+While the tool is attached its button carries `aria-pressed="true"`, and the caller's root node carries `data-tools-attached` — the names of its attached tools, space-separated — for styling and for tests.
+
+Use `attach` for a tool whose whole job is to add controls to its caller. Before it existed such a tool opened as a modal with nothing in it and closed it straight away, which showed as a flash on screen.
 
 ## Labels
 

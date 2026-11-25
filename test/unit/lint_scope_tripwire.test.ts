@@ -74,6 +74,8 @@ const EXPECTED_EXCLUSIONS = [
 	// Static assets with no JS/TS in them.
 	'!**/tools/**/*/css',
 	'!**/tools/**/*/img',
+	// The client suite's scratch tools (never shipped): the same built css as a tools/ sheet.
+	'!**/test/client/fixtures/tool_*/css',
 	// The publication daemons — excluded from lint, but carried by the shrink-only
 	// per-package budget below (PUBLICATION_BUDGETS).
 	'!**/publication/site_builder',
