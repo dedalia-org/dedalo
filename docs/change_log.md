@@ -637,6 +637,14 @@ Merged since the last release; these ship with the next one.
     Pressing Escape while editing a text field inside a dialog (for example, editing a field from a
     list) did nothing. Escape now closes the dialog, as it does everywhere else.
 
+- **On a phone or touch screen, the thesaurus tree is easier to tap.**
+
+    On a phone, the add, move, delete, order and edit buttons under each thesaurus term were small
+    icons packed edge to edge, so a near miss hit the neighbouring button. Each button is now a
+    visible, finger-sized tile with a gap between them and a larger icon, lined up with the start of
+    the term. On any touch screen the expand arrow is larger, and the loading spinner shown while a
+    branch opens now sits exactly where the arrow was.
+
 - **On a phone, the multi-language tool's controls fit the screen and each language is set apart.**
 
     On a phone, the multi-language tool's translator selector wrapped awkwardly under the button, and
