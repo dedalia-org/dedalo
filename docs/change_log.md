@@ -274,14 +274,14 @@ Merged since the last release; these ship with the next one.
 
     The "+" of the thesaurus tree used to set *descriptor* and *indexable* to Yes on every new
     term, even where the thesaurus defines another default (a term defined to start as a
-    non-descriptor was created as a descriptor). A new term now starts with exactly the
-    defaults its thesaurus defines. The shipped ontology defines them for the thesauri it ships:
-    a new publication starts as a non-descriptor; a new person, entity or thesaurus term as a
-    descriptor, and as indexable where its thesaurus has that field. Where a thesaurus defines none, the field starts empty: set it
-    on the new term yourself. Until
-    *descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
-    a term's children has it set, the term shows no arrow to open its children after the page is
-    reloaded, and the new term is reached from its section's list until you set it.
+    non-descriptor was created as a descriptor). A new term now starts with exactly the defaults
+    its thesaurus defines. The shipped ontology defines them for the thesauri it ships: a new
+    publication starts as a non-descriptor; a new person, entity or thesaurus term as a
+    descriptor, and as indexable where its thesaurus has that field. Where a thesaurus defines
+    none, the field starts empty: set it on the new term yourself. Until *descriptor* is set,
+    the term is not counted as a descriptor or a non-descriptor: when none of a term's children
+    has it set, the term shows no arrow to open its children after the page is reloaded, and the
+    new term is reached from its section's list until you set it.
 
     Wire contract: `WC-2026-08-09-record-birth-defaults`.
 
@@ -2968,7 +2968,11 @@ Merged since the last release; these ship with the next one.
     with an empty target (`sqo.section_tipo: []`): columns with nothing to read them from. It now
     targets the section the component is shown in, as earlier Dédalo versions did. A section
     named in the relations, or the component model's own default target (the typology selector),
-    still wins, and a component with no relations at all still gets no configuration. The
+    still wins, and a component with no relations at all still gets no configuration; an index
+    component never reads from its own section, and a relation to a storage table is no longer
+    emitted as a column. Every door built on the same configuration — the record picker, the
+    option lists, the import target check and the new-record target check — now sees that
+    section too. The
     projects-administration filter of a user record relates to the projects section in the
     shipped ontology, so it keeps its projects list.
 

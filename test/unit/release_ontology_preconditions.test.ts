@@ -46,6 +46,9 @@ const FLAG_KEYS = ['is_descriptor', 'is_indexable'] as const;
  * owner decision on the master ontology (never fixed here: ontology nodes
  * belong to the master). Shrink-only.
  */
+/** Birth-seed checks on a fresh suite DB (measured 2026-11-25). */
+const CHECKED_FLOOR = 12;
+
 const UNDECLARED_PENDING_OWNER: Readonly<Record<string, string>> = {
 	dd1445:
 		"is_descriptor of dd1100's section_map (the 'web dedalo' thesaurus) — not among the five " +
@@ -91,10 +94,13 @@ function declaredDefault(flag: string): unknown[] | null {
 
 describe('the vendored release is read (floors)', () => {
 	test('records, section_maps and flag uses are all present', () => {
+		// Floors = the 7.0 release as measured 2026-11-25 (fbbd8e9bd8). SHRINK-ONLY:
+		// a release that carries fewer is a reviewed edit here, never a silent pass.
 		const { maps, uses } = flagUses();
-		expect(records.size).toBeGreaterThan(10_000);
-		expect(maps.length).toBeGreaterThanOrEqual(20);
-		expect(uses.length).toBeGreaterThanOrEqual(30);
+		expect(records.size).toBeGreaterThanOrEqual(16_221);
+		expect(maps.length).toBeGreaterThanOrEqual(35);
+		expect(uses.length).toBeGreaterThanOrEqual(36);
+		expect(new Set(uses.map((use) => use.flag)).size).toBeGreaterThanOrEqual(34);
 	});
 });
 
@@ -177,7 +183,8 @@ describe('the record-birth seed applies each declared flag default AS DECLARED (
 		}
 		expect(mismatches).toEqual([]);
 		// The suite DB installs the core TLDs (dd, hierarchy, ontology, rsc): their
-		// thesauri carry most of the release's flags.
-		expect(checked).toBeGreaterThanOrEqual(8);
+		// thesauri carry most of the release's flags. Floor = the count measured on
+		// a fresh suite DB, 2026-11-25 — SHRINK-ONLY, as above.
+		expect(checked).toBeGreaterThanOrEqual(CHECKED_FLOOR);
 	});
 });

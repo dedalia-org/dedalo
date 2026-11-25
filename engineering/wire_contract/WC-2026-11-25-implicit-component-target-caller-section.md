@@ -2,9 +2,11 @@
 
 - **Date:** 2026-11-25 (T2-RC-3; held for master-ontology fix M2, which landed in the vendored
   7.0 release at fbbd8e9bd8).
-- **Decision:** T2 owner table row T2-RC-3 (port; precedence = section node > model
-  `targetSource` > caller's section; no descriptor default for `component_filter_master`, M2
-  option a); DEC-12 (gated below).
+- **Decision:** T2 owner table row T2-RC-3 (port the PHP default as the LAST rung; no
+  descriptor default for `component_filter_master`, M2 option a); DEC-12 (gated below). The
+  real precedence: model `targetSource` (beats the walk since 2026-08-14, 169f6f2148 —
+  hierarchy27) > the walk's `section` node / the list-mode main related section > the caller's
+  section.
 - **Shape before (TS):** `request_config/implicit.ts buildImplicitComponentListConfig` — a
   COMPONENT owner whose relation walk found no `section` node (and whose list-mode
   `section_list` fallback and model `targetSource` gave none either) kept a NULL target: the
@@ -23,7 +25,24 @@
     thesaurus as its model list;
   - a node with NO relation graph (the walk produced no column) keeps the configless answer —
     no config, or the `component_relation_index` base item. PHP emitted a config there too; that
-    remains a TS divergence, not widened here.
+    remains a TS divergence, not widened here;
+  - a `component_relation_index` never takes the caller rung: its `sqo.section_tipo` is the
+    POINTING sections only, merged per read, never its own section
+    (WC-2026-11-11-relation-index-related-list-context D2).
+- **A `matrix_table` relation node is never a column** (same change): it is a storage pointer
+  (which table holds the records), not a target — it does not even make a section virtual.
+  Before, it was emitted as a junk ddo no client module renders, which also made a
+  relation_index related only to a matrix_table node (e.g. `dd22`) look as if it had columns.
+  No consumer read such a ddo: the principal-free walk's consumers (`implicitComponentChildren`
+  → export / flat children) already kept only `component_*` links.
+- **Other doors that now see the caller's section** — every consumer of the same config
+  (`getElementTargetSectionTipos` / `buildRequestConfigForElement`): the import conform target
+  check (`tools/import_conform.ts`), the picker constraint (`relations/picker_constraint.ts
+  resolveCallerTargets`), the datalist option and label configs (`relations/datalist.ts`), the
+  `add_new_element` declared-target check (`relations/save.ts`) and the element context's
+  `target_section_tipo` (`resolve/section_elements_context.ts`). For a sibling-only
+  autocomplete / autocomplete_hi / portal node they resolve the caller's section where they
+  resolved none — as in PHP.
 - **Precondition (the former hold):** `dd170` (`component_filter_master`) related only `dd156`;
   under this rule it would have retargeted to the users section. The release relates it to
   `dd153` + `dd156`, so the walk's section node (dd153) wins. Mechanical:
@@ -31,13 +50,14 @@
 - **Reason:** a column map with no target section is unreadable; the caller's section is where
   every earlier engine read those columns.
 - **Callers whose config changes** (measured 2026-11-25 on the development install, every
-  component without `source.request_config` across its full ontology): ~45 nodes, all with
+  component without `source.request_config` across its full ontology): 44 nodes, all with
   relations naming sibling components and no section — mostly literal/media pairs
   (`component_text_area` ↔ image/av/pdf/geolocation), plus a few relation models
-  (`component_autocomplete` / `component_autocomplete_hi`, one `component_portal`, one
-  `component_relation_index` relating a matrix-table node). Each now targets its caller's
-  section, as in PHP.
+  (`component_autocomplete` / `component_autocomplete_hi`, one `component_portal`). Each now
+  targets its caller's section, as in PHP. (The one `component_relation_index` the first
+  measure counted — related only to the matrix-table node `dd22` — is not among them: see the
+  two exclusions above.)
 - **Gate reconciliation:** TS-native: `test/unit/request_config_implicit.test.ts` → "RC-3 — a
   component whose relations name no section targets the caller's section" (red before; the
-  targetSource and no-graph scopes each mutation-checked). No frozen fixture changed
+  targetSource, no-graph, relation_index and matrix_table scopes each mutation-checked). No frozen fixture changed
   (`request_config_differential` unchanged); no re-harvest.

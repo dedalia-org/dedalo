@@ -248,6 +248,10 @@ const EXPLICIT_PORTAL = 'zzrqw80';
 const NO_SECTION = 'zzrqw70';
 const NO_GRAPH = 'zzrqw71';
 const MODEL_DEFAULT = 'zzrqw72';
+const STORAGE_NODE = 'zzrqw90';
+const INDEX_STORAGE_ONLY = 'zzrqw91';
+const INDEX_WITH_SIBLING = 'zzrqw92';
+const SELECT_WITH_STORAGE = 'zzrqw93';
 
 const selfDdo = (tipo: string) => ({ tipo, section_tipo: 'self', parent: 'self' });
 
@@ -325,6 +329,29 @@ const WALK = situation({
 			model: 'component_relation_model',
 			order_number: 8,
 			relations: [{ tipo: TEXT_A }],
+		},
+		// a matrix_table node: a storage pointer, never a column or a target
+		{ tipo: STORAGE_NODE, parent: 'test1', model: 'matrix_table' },
+		{
+			tipo: INDEX_STORAGE_ONLY,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 10,
+			relations: [{ tipo: STORAGE_NODE }],
+		},
+		{
+			tipo: INDEX_WITH_SIBLING,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 11,
+			relations: [{ tipo: TEXT_A }],
+		},
+		{
+			tipo: SELECT_WITH_STORAGE,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 12,
+			relations: [{ tipo: STORAGE_NODE }, { tipo: TEXT_A }],
 		},
 		{
 			tipo: EXPLICIT_PORTAL,
@@ -479,6 +506,28 @@ describe('the implicit walk (zzrqw situation)', () => {
 			const degraded = await build(MODEL_DEFAULT, NO_MODEL_SECTION_CALLER, 'edit');
 			expect(shown(degraded)).toEqual([TEXT_A]);
 			expect(extractSqoSectionTipos(degraded[0])).toEqual([]);
+		});
+
+		test('a matrix_table relation node is never a ddo (storage pointer, not a column)', async () => {
+			for (const mode of ['edit', 'list']) {
+				const config = await build(SELECT_WITH_STORAGE, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [HOST]]);
+			}
+		});
+
+		test('a relation_index never targets its own section (WC-2026-11-11 D2)', async () => {
+			for (const mode of ['edit', 'list']) {
+				// related only to a matrix_table node: the configless base item
+				const storageOnly = await build(INDEX_STORAGE_ONLY, HOST, mode);
+				expect([mode, storageOnly.length]).toEqual([mode, 1]);
+				expect([mode, shown(storageOnly)]).toEqual([mode, []]);
+				expect([mode, extractSqoSectionTipos(storageOnly[0])]).toEqual([mode, []]);
+				// related to a sibling column: the column stays, the own section never comes
+				const withSibling = await build(INDEX_WITH_SIBLING, HOST, mode);
+				expect([mode, shown(withSibling)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(withSibling[0])]).toEqual([mode, []]);
+			}
 		});
 
 		test('a node with NO relation graph keeps the configless answer (no config)', async () => {

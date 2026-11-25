@@ -186,10 +186,18 @@ function applyModelDefaultTarget(
 	return context.modelDefaultTargets[0] ?? null;
 }
 
-/** Section_list relations that never become a column (marker + inert label nodes). */
+/**
+ * Relation nodes that never become a column: markers, inert label nodes, and a
+ * `matrix_table` node — a STORAGE pointer (which table holds the records), not
+ * a target and not a column (a matrix_table relation does not even make a
+ * section virtual). Emitted, it was a junk ddo no client module renders, and it
+ * made a sibling-less component look like it had columns (T2-RC-3 review: a
+ * relation_index relating only dd22 reached the caller-section rung).
+ */
 const NEVER_A_COLUMN_MODELS: ReadonlySet<string | null> = new Set([
 	'exclude_elements',
 	LABEL_NODE_MODEL,
+	'matrix_table',
 ]);
 
 /** One map entry of an implicit relation walk (principal-free). */
@@ -415,17 +423,21 @@ export async function buildImplicitComponentListConfig(
 	// PHP clean_and_extract_related :508-520 (= v6 :3844) starts from the
 	// caller's section_tipo and only a section node overwrites it. The old "keep
 	// null" emitted an empty sqo — ddos with no section to read from.
-	// Precedence: section node of the walk / model targetSource (above,
-	// unchanged) > this default. A model that DECLARES a targetSource owns the
-	// answer even when it resolves nothing (component_relation_model with no
+	// Precedence (all earlier rungs unchanged): model targetSource (above, beats
+	// the walk since 2026-08-14) > the walk's section node / the list-mode main
+	// related section > this default. A model that DECLARES a targetSource owns
+	// the answer even when it resolves nothing (component_relation_model with no
 	// model section stays degraded-empty: the caller's own thesaurus is not its
 	// model list). Scoped to a walk that produced links: a node with NO relation
-	// graph keeps the configless branch below.
+	// graph keeps the configless branch below. Never a component_relation_index:
+	// its sqo.section_tipo is the POINTING sections only, merged per read, never
+	// its own section (WC-2026-11-11-relation-index-related-list-context D2).
 	// WC-2026-11-25-implicit-component-target-caller-section
 	if (
 		targetSectionTipo === null &&
 		ddoMap.length > 0 &&
-		context.modelDefaultTargets === undefined
+		context.modelDefaultTargets === undefined &&
+		ownerModel !== 'component_relation_index'
 	) {
 		targetSectionTipo = context.ownerSectionTipo;
 	}
