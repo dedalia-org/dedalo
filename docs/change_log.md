@@ -2295,6 +2295,12 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Maintenance map panel fits a phone screen.**
+
+    On a phone, choosing some subsystems in the Maintenance map (Backups, Ontology, Development)
+    made the page wider than the screen. Long file paths and long button labels now wrap inside
+    the panel instead.
+
 - **"Diffusion: a `text_format` pattern no longer strips a leading `/` (or other separator) from the value itself."**
 
     The `text_format` parser trims separators left over when a placeholder is empty. It also trimmed the first or last character of a real value when that character was `/`, `-`, `,` or `|`, so a media path published through a pattern lost its leading slash (`dedalo/media/…` instead of `/dedalo/media/…`, next to columns that kept it). Only the pattern's own separators are trimmed now. Re-publish the affected sections to correct the published values.

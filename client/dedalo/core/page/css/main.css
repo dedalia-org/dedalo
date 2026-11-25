@@ -16349,6 +16349,10 @@ dd-modal .find_and_replace .options_container .check input[type="checkbox"]:chec
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_body {
   padding: 0.9rem 1.15rem 1.2rem;
+  overflow-wrap: anywhere;
+}
+.area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_body button {
+  max-width: 100%;
 }
 .area_maintenance > .content_data.maintenance_v2 .maintenance_map .map_context .ctx_body .map_ctx_lead {
   max-width: 100ch;
