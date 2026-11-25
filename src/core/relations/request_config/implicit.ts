@@ -327,45 +327,9 @@ export async function buildImplicitComponentListConfig(
 	// component_filter_master does NOT (owner decision D2, T0-9 2026-11-11): its
 	// OWN ontology `relations` decide its target and columns (the walk below) —
 	// one derivation for the edit form and the export (implicitComponentChildren).
-	if (ownerModel === 'component_filter') {
-		// PHP STEP 5 filter_authorized_related applies to this branch too.
-		const projectsDdoMap = (
-			await filterAuthorizedRelated([PROJECTS_NAME_TIPO], SECTION_PROJECTS_TIPO)
-		).has(PROJECTS_NAME_TIPO)
-			? [
-					await withImplicitView(
-						{
-							tipo: PROJECTS_NAME_TIPO,
-							model: (await getModelByTipo(PROJECTS_NAME_TIPO)) ?? 'component_input_text',
-							section_tipo: SECTION_PROJECTS_TIPO,
-							parent: context.ownerTipo,
-							mode: 'list',
-							label: await contextLabelOf(PROJECTS_NAME_TIPO),
-						},
-						context,
-					),
-				]
-			: [];
-		return [
-			{
-				api_engine: 'dedalo',
-				type: 'main',
-				sqo: { section_tipo: await buildSqoSectionTipoDdos([SECTION_PROJECTS_TIPO]) },
-				show: {
-					ddo_map: projectsDdoMap,
-				},
-				search: null,
-				choose: null,
-				hide: null,
-				// Implicit configs are always the dedalo engine; PHP emits the key
-				// as null on every item (the client reads it unconditionally).
-				api_config: null,
-			},
-		];
-	}
+	if (ownerModel === 'component_filter') return filterProjectsConfig(context);
 
 	const walk = await implicitRelationWalk(sourceTipo);
-	let targetSectionTipo = walk.targetSectionTipo;
 	const ddoMap: ProcessedDdo[] = [];
 	for (const link of walk.links) {
 		ddoMap.push(
@@ -384,63 +348,13 @@ export async function buildImplicitComponentListConfig(
 			),
 		);
 	}
-	// section_list nodes may omit the target section — fall back to the
-	// COMPONENT's main related section (PHP resolve_ar_related_list_component
-	// :454-473). SECTION owners are excluded: PHP branches on the caller model
-	// (resolve_ar_related_list :354) and resolve_ar_related_list_section returns
-	// the section_list relation nodes VERBATIM — it never prepends a main
-	// related section. A section's columns belong to the section itself, so the
-	// target stays context.ownerSectionTipo (PHP clean_and_extract_related's
-	// $section_tipo default). Stamping the section's *related* section here
-	// keyed every dd774 permission lookup to the wrong section, so every column
-	// was dropped for non-superusers (root passes via getPermissions' -1
-	// short-circuit, which is why this only showed up for real users).
-	if (targetSectionTipo === null && !context.ownerIsSection && sourceTipo !== context.ownerTipo) {
-		targetSectionTipo = await getMainRelatedSectionTipo(context.ownerTipo);
-	}
-	// PHP clean_and_extract_related :508 is handed the CALLER's section_tipo as
-	// the default target and only overwrites it when a section node is found —
-	// so a section whose section_list carries no section node targets ITSELF.
-	// This is what puts the section back on the sqo (and on every ddo below).
-	// Component owners get the same default as the LAST rung, below the model
-	// default (T2-RC-3, next statement).
-	if (targetSectionTipo === null && context.ownerIsSection) {
-		targetSectionTipo = context.ownerSectionTipo;
-	}
-	// MODEL DEFAULT BEATS THE WALK'S PICK (2026-08-14). The section node found
-	// above is the component's *belongs-to* ontology link, not a statement about
-	// where its options come from — for a component_relation_model like
-	// hierarchy27 (relations [hierarchy20, hierarchy25]) it resolves to
-	// hierarchy20, the raw 69,148-row thesaurus TEMPLATE, which is plausible,
-	// silent and wrong. A model that declares a `targetSource` therefore
-	// overrides it here (context.modelDefaultTargets, resolved in ./build.ts).
-	// This is NOT the "declared sqo wins" case: an implicit config is precisely
-	// the node that declared nothing. Section owners are excluded — a section is
-	// its own target and carries no component-model facet.
-	targetSectionTipo = applyModelDefaultTarget(targetSectionTipo, context);
-	// T2-RC-3 — the CALLER'S OWN SECTION is the last rung for a component owner
-	// whose relations name no section and whose model declares no targetSource:
-	// PHP clean_and_extract_related :508-520 (= v6 :3844) starts from the
-	// caller's section_tipo and only a section node overwrites it. The old "keep
-	// null" emitted an empty sqo — ddos with no section to read from.
-	// Precedence (all earlier rungs unchanged): model targetSource (above, beats
-	// the walk since 2026-08-14) > the walk's section node / the list-mode main
-	// related section > this default. A model that DECLARES a targetSource owns
-	// the answer even when it resolves nothing (component_relation_model with no
-	// model section stays degraded-empty: the caller's own thesaurus is not its
-	// model list). Scoped to a walk that produced links: a node with NO relation
-	// graph keeps the configless branch below. Never a component_relation_index:
-	// its sqo.section_tipo is the POINTING sections only, merged per read, never
-	// its own section (WC-2026-11-11-relation-index-related-list-context D2).
-	// WC-2026-11-25-implicit-component-target-caller-section
-	if (
-		targetSectionTipo === null &&
-		ddoMap.length > 0 &&
-		context.modelDefaultTargets === undefined &&
-		ownerModel !== 'component_relation_index'
-	) {
-		targetSectionTipo = context.ownerSectionTipo;
-	}
+	const targetSectionTipo = await resolveImplicitTargetSection(
+		walk.targetSectionTipo,
+		ddoMap.length,
+		sourceTipo,
+		ownerModel,
+		context,
+	);
 	// Fix section_tipo for ddos read before the section node appeared.
 	if (targetSectionTipo !== null) {
 		for (const ddo of ddoMap) {
@@ -482,6 +396,135 @@ export async function buildImplicitComponentListConfig(
 			api_config: null, // dedalo engine (PHP emits the key on every item)
 		},
 	];
+}
+
+/**
+ * component_filter's implicit config: always the projects section (PHP :261-264),
+ * its one column dropped per user like any implicit ddo (PHP STEP 5).
+ */
+async function filterProjectsConfig(
+	context: RequestConfigContext,
+): Promise<ParsedRequestConfigItem[]> {
+	// PHP STEP 5 filter_authorized_related applies to this branch too.
+	const projectsDdoMap = (
+		await filterAuthorizedRelated([PROJECTS_NAME_TIPO], SECTION_PROJECTS_TIPO)
+	).has(PROJECTS_NAME_TIPO)
+		? [
+				await withImplicitView(
+					{
+						tipo: PROJECTS_NAME_TIPO,
+						model: (await getModelByTipo(PROJECTS_NAME_TIPO)) ?? 'component_input_text',
+						section_tipo: SECTION_PROJECTS_TIPO,
+						parent: context.ownerTipo,
+						mode: 'list',
+						label: await contextLabelOf(PROJECTS_NAME_TIPO),
+					},
+					context,
+				),
+			]
+		: [];
+	return [
+		{
+			api_engine: 'dedalo',
+			type: 'main',
+			sqo: { section_tipo: await buildSqoSectionTipoDdos([SECTION_PROJECTS_TIPO]) },
+			show: {
+				ddo_map: projectsDdoMap,
+			},
+			search: null,
+			choose: null,
+			hide: null,
+			// Implicit configs are always the dedalo engine; PHP emits the key
+			// as null on every item (the client reads it unconditionally).
+			api_config: null,
+		},
+	];
+}
+
+/**
+ * The implicit config's TARGET SECTION — the precedence ladder below, top rung
+ * first once a rung answers. `walkTarget` is the walk's section node (null when
+ * the relations name none); `linkCount` the ddos the walk produced.
+ */
+async function resolveImplicitTargetSection(
+	walkTarget: string | null,
+	linkCount: number,
+	sourceTipo: string,
+	ownerModel: string | null,
+	context: RequestConfigContext,
+): Promise<string | null> {
+	const walked = walkTarget ?? (await ownerFallbackTarget(sourceTipo, context));
+	// MODEL DEFAULT BEATS THE WALK'S PICK (2026-08-14). The section node found
+	// above is the component's *belongs-to* ontology link, not a statement about
+	// where its options come from — for a component_relation_model like
+	// hierarchy27 (relations [hierarchy20, hierarchy25]) it resolves to
+	// hierarchy20, the raw 69,148-row thesaurus TEMPLATE, which is plausible,
+	// silent and wrong. A model that declares a `targetSource` therefore
+	// overrides it here (context.modelDefaultTargets, resolved in ./build.ts).
+	// This is NOT the "declared sqo wins" case: an implicit config is precisely
+	// the node that declared nothing. Section owners are excluded — a section is
+	// its own target and carries no component-model facet.
+	const modelTarget = applyModelDefaultTarget(walked, context);
+	if (modelTarget !== null) return modelTarget;
+	return callerSectionRungApplies(linkCount, ownerModel, context) ? context.ownerSectionTipo : null;
+}
+
+/** The rung under the walk's section node, by owner kind (see the two comments). */
+async function ownerFallbackTarget(
+	sourceTipo: string,
+	context: RequestConfigContext,
+): Promise<string | null> {
+	// PHP clean_and_extract_related :508 is handed the CALLER's section_tipo as
+	// the default target and only overwrites it when a section node is found —
+	// so a section whose section_list carries no section node targets ITSELF.
+	// This is what puts the section back on the sqo (and on every ddo below).
+	// Component owners get the same default as the LAST rung, below the model
+	// default (T2-RC-3, callerSectionRungApplies).
+	if (context.ownerIsSection) return context.ownerSectionTipo;
+	// section_list nodes may omit the target section — fall back to the
+	// COMPONENT's main related section (PHP resolve_ar_related_list_component
+	// :454-473). SECTION owners are excluded: PHP branches on the caller model
+	// (resolve_ar_related_list :354) and resolve_ar_related_list_section returns
+	// the section_list relation nodes VERBATIM — it never prepends a main
+	// related section. A section's columns belong to the section itself, so the
+	// target stays context.ownerSectionTipo (PHP clean_and_extract_related's
+	// $section_tipo default). Stamping the section's *related* section here
+	// keyed every dd774 permission lookup to the wrong section, so every column
+	// was dropped for non-superusers (root passes via getPermissions' -1
+	// short-circuit, which is why this only showed up for real users).
+	if (sourceTipo !== context.ownerTipo) return getMainRelatedSectionTipo(context.ownerTipo);
+	return null;
+}
+
+/**
+ * Whether the caller-section rung answers (it runs only when every rung above
+ * resolved nothing).
+ */
+function callerSectionRungApplies(
+	linkCount: number,
+	ownerModel: string | null,
+	context: RequestConfigContext,
+): boolean {
+	// T2-RC-3 — the CALLER'S OWN SECTION is the last rung for a component owner
+	// whose relations name no section and whose model declares no targetSource:
+	// PHP clean_and_extract_related :508-520 (= v6 :3844) starts from the
+	// caller's section_tipo and only a section node overwrites it. The old "keep
+	// null" emitted an empty sqo — ddos with no section to read from.
+	// Precedence (all earlier rungs unchanged): model targetSource (above, beats
+	// the walk since 2026-08-14) > the walk's section node / the list-mode main
+	// related section > this default. A model that DECLARES a targetSource owns
+	// the answer even when it resolves nothing (component_relation_model with no
+	// model section stays degraded-empty: the caller's own thesaurus is not its
+	// model list). Scoped to a walk that produced links: a node with NO relation
+	// graph keeps the configless branch below. Never a component_relation_index:
+	// its sqo.section_tipo is the POINTING sections only, merged per read, never
+	// its own section (WC-2026-11-11-relation-index-related-list-context D2).
+	// WC-2026-11-25-implicit-component-target-caller-section
+	return (
+		linkCount > 0 &&
+		context.modelDefaultTargets === undefined &&
+		ownerModel !== 'component_relation_index'
+	);
 }
 
 /**
