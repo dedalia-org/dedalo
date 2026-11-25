@@ -1063,12 +1063,17 @@ function homeItems(env: Env): ComparedItem[] {
         action: { kind: 'mkdir', path: home, uid: 0, gid: 0, mode: HOME_ROOT_MODE },
       }),
     );
-  } else if (own.uid === 0 && (own.mode & 0o022) === 0) {
+  } else if (own.uid === 0 && (own.mode & 0o022) === 0 && (own.mode & 0o001) !== 0) {
+    // Right only when root-owned, not group/other-writable AND traversable by the instance's own
+    // accounts (agent, v2, v1 are "other" to a root:root home): a root:root 0700 home — what a
+    // re-run leaves after the operator tightened it — would pass the first two and then be
+    // refused by apply's traversal check with nothing in the plan to fix it.
     out.push(right('home.root', 'home', `${home} is root's`, [`${home} is root-owned (${modeText(own.mode)})`]));
   } else {
     const nameOf = (uid: number) => facts.accounts.users.find(row => row.uid === uid)?.name ?? `uid ${uid}`;
     const groupOf = (gid: number) => facts.accounts.groups.find(row => row.gid === gid)?.name ?? `gid ${gid}`;
-    const homeFacts = [`${home} is ${nameOf(own.uid)}:${groupOf(own.gid)} ${modeText(own.mode)}; root runs bun_bin and agent_dir from beneath it, so it becomes root:root ${mode} (decision B)`];
+    const why = own.uid === 0 ? `the instance's accounts cannot traverse it` : 'root runs bun_bin and agent_dir from beneath it';
+    const homeFacts = [`${home} is ${nameOf(own.uid)}:${groupOf(own.gid)} ${modeText(own.mode)}; ${why}, so it becomes root:root ${mode} (decision B)`];
     if ((HOME_ROOT_MODE & ~own.mode & 0o077) !== 0) {
       homeFacts.push(
         `the mode widens from ${modeText(own.mode)} to ${mode}: other local accounts, including other sites' PHP-FPM users, gain r-x on ${home}: its listing and every file whose own mode allows it become reachable`,
@@ -1088,7 +1093,7 @@ function homeItems(env: Env): ComparedItem[] {
     }
     if (declared.home.poolRefs.length > 0) homeFacts.push(`PHP-FPM pool paths point into it: ${declared.home.poolRefs.join('; ')}`);
     out.push(
-      item('home.root', 'home', 'change', `give ${home} to root`, {
+      item('home.root', 'home', 'change', own.uid === 0 ? `make ${home} ${mode}` : `give ${home} to root`, {
         facts: homeFacts,
         commands: [`chown root:root ${home} && chmod ${mode} ${home}`],
         action: { kind: 'path_meta', path: home, uid: 0, gid: 0, mode: HOME_ROOT_MODE },

@@ -32,5 +32,8 @@ wc: WC-2026-11-25-publication-host-public-url-http-upgrade, WC-2026-11-25-public
 - **IPv6 between two machines.** The agent of a publication host on another server may listen on
   a unique local IPv6 address (`fc00::/7`; in practice one starting with `fd`), written in its short form; link-local addresses are
   refused.
+- **A tightened site home on a re-run.** When the site's home is already `root:root` but other
+  accounts cannot enter it (for example `0700`), init now makes it `0755` again instead of
+  calling it right and then refusing to apply because the agent cannot reach its own files.
 
 **Action needed:** none.

@@ -331,7 +331,8 @@ const ROWS: readonly (readonly [string, () => Scn, string, Expect])[] = [
   ['home missing', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: null } } }), 'home.root', { list: 'change', action: 'mkdir', command: /^mkdir -m 0755 \/home\/example\.org$/ }],
   ['home 0700 widens', () => ({}), 'home.root', { list: 'change', action: 'path_meta', command: /^chown root:root \/home\/example\.org && chmod 0755 \/home\/example\.org$/, fact: /widens from 0700 to 0755/ }],
   ['home root-owned but group-writable', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 1002, mode: 0o775 } } } }), 'home.root', { list: 'change', action: 'path_meta' }],
-  ['home root right', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o711 } } } }), 'home.root', { list: 'right' }],
+  ['home root-owned 0700 (a re-run after tightening): not traversable, a change', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o700 } } } }), 'home.root', { list: 'change', action: 'path_meta', command: /^chown root:root \/home\/example\.org && chmod 0755 \/home\/example\.org$/, fact: /cannot traverse it/ }],
+  ['home root right',() => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o711 } } } }), 'home.root', { list: 'right' }],
   ['home under system: absent', () => ({ draft: draft({ layout: 'system' }) }), 'home.root', { absent: true }],
   ['home on nfs4: no home.root', () => ({ facts: { ...debianHost(), mounts: [...debianHost().mounts, { mountPoint: '/home', fsType: 'nfs4', readOnly: false, noexec: false, seclabel: false, context: null }] } }), 'home.root', { absent: true }],
   // selinux.*
