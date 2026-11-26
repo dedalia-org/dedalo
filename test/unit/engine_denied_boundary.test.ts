@@ -68,10 +68,13 @@ const ROOT = { userId: -1, isGlobalAdmin: true };
 // the cutover: the dump it writes is THIS engine's vendored seed
 // (install/paths.ts SEED_DUMP_PATH, restored by installDbFromSeed). Native builder:
 // core/install/seed_build.ts, gated by seed_build_native.test.ts.
+//
+// 2026-11-26: build_database_version.build_matrix_hierarchy_main_sql was RETIRED (the
+// action and its panel deleted): its PHP output had no consumer on this engine
+// (WC-2026-11-26-build-database-version-panel).
 const DENIED: [string, string][] = [
 	['update_ontology', 'export_to_translate'],
 	['update_ontology', 'rebuild_lang_files'],
-	['build_database_version', 'build_matrix_hierarchy_main_sql'],
 ];
 
 describe('closed-by-design boundary (explicit engine_denied refusals)', () => {

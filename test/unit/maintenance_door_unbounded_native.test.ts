@@ -853,7 +853,8 @@ const REQUEST_BOUNDED: Readonly<Record<string, string>> = {
 	'register_tools.register_tools': 'one dd1324 row per tool on disk (tools-sized, not data-sized)',
 	'build_database_version.build_install_version':
 		'spawns pg_dump/psql child processes against a scratch database it creates; the pool runs no statement',
-	'build_database_version.build_matrix_hierarchy_main_sql': 'engine_denied: runs no statement',
+	'build_database_version.seed_preflight':
+		'spawns short psql probes (role, advisory lock) and fetches a configured master manifest under its own deadline; the pool runs no statement',
 	'update_data_version.update_data_version':
 		'the engine enters withUnboundedStatements itself (a detached job inherits no door scope — gated above)',
 	'update_code.update_code': 'code-tree file operations; no data-sized statement',

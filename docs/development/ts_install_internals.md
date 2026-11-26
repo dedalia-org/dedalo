@@ -486,7 +486,31 @@ The seed is committed with `install/db/dedalo_install.manifest.json`: the seed's
 digest, its row counts, and a digest of every source file. Changing what an install
 is born with is a change to a source, then `bun run seed:build`, then commit the seed
 and the manifest together — a source changed without a recompile is reported STALE.
-To ship a newer ontology, export the release packages from the ontology master first.
+To ship a newer ontology, export the release packages on the ontology master first, then
+`bun run seed:build --from <name>` (`<name>` = an `ONTOLOGY_SERVERS` entry): it downloads that
+master's release through the ontology update's own manifest + download doors
+(`src/core/install/ontology_release_pull.ts`), refuses a file without a published sha256, and
+compiles from that verified copy in a scratch dir (never the suite's `test` package, nor a package in
+`RELEASE_EXCLUDED_TLDS` — an installation's own ontology, by owner ruling, its catalog entry kept). Only once the seed is verified by a fresh
+install does the copy replace the release dir (`.copy.gz` + `ontology.json` replaced, packages
+the master no longer lists removed, other files kept): a build that fails or is stopped before the verify changes nothing (the promotion itself is
+per file, not one atomic swap: a crash during it shows as a STALE manifest). Pull,
+compile and promotion all run under the cluster lock (`buildInstallVersion`'s
+`prepareRelease` / `promoteRelease`, `seed_panel.ts` `stagedRelease`), so no other build reads a
+half-written release. With `--out` the copy is never promoted. Commit the release files with the
+seed and manifest.
+
+The maintenance panel (*Build database version*, `src/core/install/seed_panel.ts`) builds the
+same seed from a chosen release SOURCE — this ontology master's own export
+(`ONTOLOGY_DATA_IO_DIR`), a configured master, or the shipped release — after a preflight
+(`seed_preflight`: psql/pg_dump, CREATEDB, the build lock, the source, the output, disk), as a
+background job, into `<private>/seed_builds/<stamp>/` (seed, manifest, `build.json`, the copied
+release; only the newest kept) or, on a writable git checkout, into this checkout (the
+release promoted only after verification, as above). The compiler
+takes the release dir as an option (`releaseDir`); its manifest keys the release files by their
+SHIPPED path, so a seed built from a copy equals the committed one once those files are vendored. The
+panel downloads the newest private build through `GET /dedalo/install/seed_build/<file>`
+(`seed_build_download.ts`: the seed, its manifest or `build.json`; maintenance-area callers only).
 
 ## Front ends (the interactive installer)
 

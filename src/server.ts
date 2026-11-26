@@ -99,6 +99,7 @@ import { rqoSchema } from './core/concepts/rqo.ts';
 import { toErrorEnvelope } from './core/errors/convert.ts';
 import { DedaloError } from './core/errors/dedalo_error.ts';
 import { HIERARCHY_IMPORT_DIR } from './core/install/paths.ts';
+import { SEED_BUILD_URL_PREFIX, serveSeedBuildFile } from './core/install/seed_build_download.ts';
 import { HIERARCHY_MANIFEST_FILE } from './core/ontology/hierarchy_manifest_format.ts';
 import { corsPreflightResponse, corsResponseHeaders } from './core/security/cors.ts';
 import {
@@ -1199,6 +1200,14 @@ export async function handleRequest(request: Request, context: RequestContext): 
 	// the ontology route: no client subtree serves this path.
 	if (request.method === 'GET' && url.pathname.startsWith(HIERARCHY_EXPORT_URL_PREFIX)) {
 		return serveHierarchyExportFile(url.pathname, request, context.requestId);
+	}
+
+	// The newest private install-seed build (maintenance-area callers only; 404 otherwise).
+	if (request.method === 'GET' && url.pathname.startsWith(SEED_BUILD_URL_PREFIX)) {
+		return (
+			(await serveSeedBuildFile(url.pathname, request.headers.get('cookie'))) ??
+			notFoundResponse(context.requestId)
+		);
 	}
 
 	// Ontology-master snapshot files (fail-closed on IS_AN_ONTOLOGY_SERVER).

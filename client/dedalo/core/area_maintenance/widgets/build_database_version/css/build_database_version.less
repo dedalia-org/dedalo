@@ -2,9 +2,79 @@
 * build_database_version
 *
 * Included from area_maintenance.less file.
-* Each operation is a section (divider + helper text + button + console response).
+* The install-database panel (.seed_panel) on the widget kit: eyebrows, readouts,
+* the shared server picker (.dd_server_picker(), update_ontology.less) for the
+* source and output choices, the preflight checks, the build log (.dd_console())
+* and the result. Below it, the folded recovery-file pair (.recovery_fold).
+* Scoped under the widget + its own element classes, never `> .content_data`.
 */
 .wrapper_widget.build_database_version {
+
+	.seed_panel {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+
+		> .dd_eyebrow {
+			margin-top: 0.6rem;
+		}
+
+		.dd_server_picker();
+
+		.dd_readout .dd_v {
+			> .dd_badge + .v_text {
+				margin-left: 0.5rem;
+			}
+		}
+
+		.seed_downloads {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+
+		> .button_build {
+			align-self: flex-start;
+			margin-top: 0.4rem;
+		}
+
+		.seed_response {
+			display: flex;
+			flex-direction: column;
+			gap: 0.6rem;
+
+			&:empty {
+				display: none;
+			}
+		}
+
+		.seed_log {
+			.dd_console();
+			white-space: pre-wrap;
+		}
+
+		// the shared tracker's own status nodes: the log above is the operator surface
+		.seed_stream {
+			display: none;
+		}
+
+		.seed_result {
+			display: flex;
+			flex-direction: column;
+			gap: 0.6rem;
+		}
+
+		&.running .server_picker {
+			opacity: 0.6;
+			pointer-events: none;
+		}
+	}
+
+	.recovery_fold {
+		margin-top: 1.25rem;
+		border-top: 1px solid var(--border_default);
+		padding-top: 0.75rem;
+	}
 
 	.info_text {
 		margin-bottom: 0.5rem;
@@ -17,7 +87,6 @@
 		border-top: 1px solid var(--border_default);
 
 		&:first-of-type {
-			padding-top: 0;
 			border-top: 0;
 		}
 	}

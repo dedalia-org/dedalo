@@ -70,8 +70,12 @@ function spawnErrorCode(error: unknown): string {
  * env it is given). Never throws. Exported with its inputs so a gate drives
  * it over a PATH that holds no psql — the fresh host — on any machine.
  */
-export function probePsqlAt(candidates: readonly string[], env: Record<string, string>): PsqlProbe {
-	const path = candidates.find((candidate) => existsSync(candidate)) ?? 'psql';
+export function probePsqlAt(
+	candidates: readonly string[],
+	env: Record<string, string>,
+	name: 'psql' | 'pg_dump' = 'psql',
+): PsqlProbe {
+	const path = candidates.find((candidate) => existsSync(candidate)) ?? name;
 	try {
 		return ranAnswer(
 			path,
@@ -108,6 +112,15 @@ function spawnFailure(path: string, error: unknown): PsqlProbe {
 export function probePsql(): PsqlProbe {
 	// Explicit env: Bun's default spawn env is the ORIGINAL environ (config/env.ts liveProcessEnv).
 	return probePsqlAt(pgBinaryCandidates('psql', config.ops.pgBinPath), liveProcessEnv());
+}
+
+/** THIS machine's pg_dump, resolved like psql (the seed compiler dumps with it). */
+export function probePgDump(): PsqlProbe {
+	return probePsqlAt(
+		pgBinaryCandidates('pg_dump', config.ops.pgBinPath),
+		liveProcessEnv(),
+		'pg_dump',
+	);
 }
 
 /** True when a psql client can be resolved AND runs (never throws — see PsqlProbe). */

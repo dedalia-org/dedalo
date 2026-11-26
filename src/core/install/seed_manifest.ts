@@ -101,11 +101,19 @@ export function seedSourceFiles(): string[] {
 	return absolute.map((path) => relative(projectRoot, path)).sort();
 }
 
-/** sha256 per source file (a missing file is reported as such, not thrown). */
-export async function seedSourceDigests(): Promise<Record<string, string>> {
+/**
+ * sha256 per source file (a missing file is reported as such, not thrown). `releaseDir`:
+ * the release files are READ from there, still KEYED by their shipped path.
+ */
+export async function seedSourceDigests(
+	releaseDir: string = ONTOLOGY_RELEASE_DIR,
+): Promise<Record<string, string>> {
+	const shipped = `${relative(projectRoot, ONTOLOGY_RELEASE_DIR)}/`;
 	const digests: Record<string, string> = {};
 	for (const file of seedSourceFiles()) {
-		const path = join(projectRoot, file);
+		const path = file.startsWith(shipped)
+			? join(releaseDir, file.slice(shipped.length))
+			: join(projectRoot, file);
 		digests[file] = existsSync(path) ? await sha256File(path) : 'MISSING';
 	}
 	return digests;
@@ -168,6 +176,8 @@ export async function buildSeedManifest(input: {
 	seedFile: string;
 	ontologyRelease: { version: string; date: string };
 	verifiedChecks: string[];
+	/** The release the seed was compiled from (default: the shipped one). */
+	releaseDir?: string;
 }): Promise<SeedManifest> {
 	const dump = await readSeedDump(input.seedPath);
 	const bytes = await readFile(input.seedPath);
@@ -181,7 +191,7 @@ export async function buildSeedManifest(input: {
 			content_sha256: seedContentDigest(dump),
 			pg_dump_version: /^-- Dumped by pg_dump version (.*)$/m.exec(dump)?.[1] ?? 'unknown',
 		},
-		sources: await seedSourceDigests(),
+		sources: await seedSourceDigests(input.releaseDir),
 		rules_digest: seedRulesDigest(),
 		ontology_release: input.ontologyRelease,
 		tables: copyRowCounts(dump),

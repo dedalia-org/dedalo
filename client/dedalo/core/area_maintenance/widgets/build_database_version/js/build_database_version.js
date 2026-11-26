@@ -17,10 +17,11 @@
 * Area-maintenance widget that exposes three server-side database operations to
 * privileged Dédalo administrators:
 *
-*   1. build_install_version — compiles the install seed
-*      (install/db/dedalo_install.pgsql.gz) from the repository's own sources,
-*      verifies it with a fresh install, and writes it with its manifest
-*      (server: core/install/seed_build.ts). No database is read.
+*   1. build_install_version — compiles the install seed from the repository's
+*      own sources plus a chosen ontology release, verifies it with a fresh
+*      install, as a background job, into the private folder or this checkout
+*      (server: core/install/seed_panel.ts; seed_preflight checks it first).
+*      No installation database is read.
 *
 *   2. build_recovery_version_file — exports the live `dd_ontology` table to the
 *      recovery SQL file `dd_ontology_recovery.sql` kept under /install/db/.
@@ -140,48 +141,69 @@ build_database_version.prototype.build = async function (autoload = false) {
 
 /**
 * BUILD_INSTALL_VERSION
-* Triggers the server-side seed compiler, which:
-*   1. Compiles the install database in a scratch database from the repository
-*      sources (schema + migrations, the ontology release packages, the seed
-*      data files, the canonical records).
-*   2. Verifies the result by a real fresh install in a second scratch database.
-*   3. Writes install/db/dedalo_install.pgsql.gz and its manifest.
+* Submits the install-seed build as a BACKGROUND JOB (server:
+* core/install/seed_panel.ts runPanelSeedBuild): preflight → the chosen ontology
+* release brought in → compiled in a scratch database → verified by a fresh
+* install → written to the chosen output. The answer is the job's poll handle
+* (`pid` / `pfile` extension keys) for update_process_status; each finished step
+* rides the job's `data.steps`, the job result is the build readout.
 *
-* The operation is long-running; the timeout is raised to 1 hour and retries are
-* reduced to 1 so a transient network hiccup never starts a second compile.
-*
-* The request dispatches to:
-*   dd_area_maintenance_api → widget_request → build_database_version.build_install_version
-*   → core/install/seed_build.ts buildInstallVersion
-*
-* `prevent_lock: true`: the compile writes no application record.
-* `background_running: false`: synchronous; the response carries the step readout.
-*
-* @returns {Promise<Object>} API response object with result/errors/msg fields.
+* @param {Object} options
+* @param {string} options.source - 'shipped' | 'local_export' | 'master:<name>'
+* @param {string} options.target - 'private' | 'checkout'
+* @returns {Promise<Object>} API response (extension keys pid, pfile)
 */
-build_database_version.prototype.build_install_version = async function () {
+build_database_version.prototype.build_install_version = async function (options) {
 
-	const api_response = await data_manager.request({
+	return data_manager.request({
 		body: {
-			dd_api: 'dd_area_maintenance_api',
-			action: 'widget_request',
+			dd_api		: 'dd_area_maintenance_api',
+			action		: 'widget_request',
 			prevent_lock: true,
-			source: {
-				type: 'widget',
-				model: 'build_database_version',
-				action: 'build_install_version'
+			source		: {
+				type	: 'widget',
+				model	: 'build_database_version',
+				action	: 'build_install_version'
 			},
-			options: {
-				background_running: false // set run in background CLI
+			options		: {
+				source	: options.source,
+				target	: options.target
 			}
 		},
-		retries: 1, // one try only
-		timeout: 3600 * 1000 // 1 hour waiting response
+		retries: 1 // one try only: never a second build
 	})
-
-
-	return api_response
 }//end build_install_version
+
+
+
+/**
+* SEED_PREFLIGHT
+* What a build with this source and output needs, checked now on the server:
+* `{ok, checks:[{id, ok, detail, fix?}]}` (core/install/seed_panel.ts seedPreflight).
+*
+* @param {Object} options - {source, target} as build_install_version
+* @returns {Promise<Object>} API response (data = the report)
+*/
+build_database_version.prototype.seed_preflight = async function (options) {
+
+	return data_manager.request({
+		body: {
+			dd_api		: 'dd_area_maintenance_api',
+			action		: 'widget_request',
+			prevent_lock: true,
+			source		: {
+				type	: 'widget',
+				model	: 'build_database_version',
+				action	: 'seed_preflight'
+			},
+			options		: {
+				source	: options.source,
+				target	: options.target
+			}
+		},
+		retries: 1
+	})
+}//end seed_preflight
 
 
 
@@ -270,39 +292,6 @@ build_database_version.prototype.restore_dd_ontology_recovery_from_file = async 
 	return api_response
 }//end restore_dd_ontology_recovery_from_file
 
-
-
-/**
-* BUILD_MATRIX_HIERARCHY_MAIN_SQL
-* RETIRED server action (refused by the engine). The hierarchy registry seed is
-* install/db/seed/matrix_hierarchy_main.copy.gz (core rows only, compiled by
-* `bun run seed:build`); optional thesauri are described by
-* install/import/hierarchy/hierarchy.json (WC-2026-10-10-hierarchy-json-manifest).
-* @return object api_response
-*/
-build_database_version.prototype.build_matrix_hierarchy_main_sql = async function () {
-
-	const api_response = await data_manager.request({
-		body: {
-			dd_api: 'dd_area_maintenance_api',
-			action: 'widget_request',
-			prevent_lock: true,
-			source: {
-				type: 'widget',
-				model: 'build_database_version',
-				action: 'build_matrix_hierarchy_main_sql'
-			},
-			options: {
-				background_running: false
-			}
-		},
-		retries: 1, // one try only
-		timeout: 3600 * 1000 // 1 hour waiting response
-	})
-
-
-	return api_response
-}//end build_matrix_hierarchy_main_sql
 
 
 

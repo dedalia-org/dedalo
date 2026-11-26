@@ -203,10 +203,10 @@ export const DOOR_CLASSES: Readonly<Record<string, DoorDeclaration>> = Object.fr
 	'error_reports.get_reports': R,
 	'make_backup.get_dedalo_backup_files': R,
 	'database_info.relation_integrity_report': R,
+	'build_database_version.seed_preflight': R,
 	// engine_denied doors refuse themselves (support.ts engineDenied): nothing runs
 	'update_ontology.export_to_translate': { ...R, reason: 'engine_denied' },
 	'update_ontology.rebuild_lang_files': { ...R, reason: 'engine_denied' },
-	'build_database_version.build_matrix_hierarchy_main_sql': { ...R, reason: 'engine_denied' },
 });
 
 /** The class a request to `what` runs under: a dry run of a destructive door is a rehearsal. */

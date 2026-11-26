@@ -3031,6 +3031,27 @@ Merged since the last release; these ship with the next one.
 
 #### Added
 
+- **"The install seed can be built from an ontology master's latest release — from the command line or the maintenance panel."**
+
+    Building the install seed with the latest ontology used to mean copying the exported release files
+    from the ontology master by hand into `install/import/ontology/<major.minor>/`. `--from` takes the
+    name of an `ONTOLOGY_SERVERS` entry, downloads that master's published release with the same
+    checks an ontology update uses (configured origin, size caps, sha256 of every file — a file without
+    a published digest refuses the pull), compiles from it, and replaces the release directory only
+    once the new seed passed its verification install — a build that fails or is stopped before then changes nothing. Review the
+    diff and commit the release files with the seed and its manifest.
+
+    The maintenance panel's *Build database version* action builds from the same choices: this
+    server's own ontology export (on an ontology master), a configured master, or the release
+    shipped with the code. It checks first that it can run (the database user may create databases,
+    the PostgreSQL tools are present, no other build is running, the source answers, there is disk
+    space), names the fix for each failed check, runs in the background, and writes the result to
+    `<private>/seed_builds/` instead of the code directory, with download buttons for the seed and its manifest.
+
+    **Action needed:** export the release on the master first; the pull takes what it last exported.
+
+    Wire contract: `WC-2026-11-26-build-database-version-panel`.
+
 - **"Publication API v2: fulltext search takes `lang`."**
 
     `GET /{db}/tables/{table}/search` and the MCP `fulltext_search` / `count_records` (with `q`) accept `lang`. Without it a multilingual record matches once per language row, so a page of hits held the same record several times and `pagination.total` counted rows. On a table without a `lang` column the parameter is a `400`, as on the record list (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
@@ -3090,7 +3111,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 120 entries"
+??? note "Wire contract — 121 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3212,6 +3233,7 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-tool-availability-context`
     - `WC-2026-11-23-tool-lang-browser-translation-labels`
     - `WC-2026-11-25-section-context-color`
+    - `WC-2026-11-26-build-database-version-panel`
 
 ## 7.0.0-beta.8 — 2026-11-08
 

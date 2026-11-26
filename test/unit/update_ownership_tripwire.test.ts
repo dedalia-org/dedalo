@@ -160,6 +160,7 @@ const EXPECTED_GATED: Readonly<Record<string, { stub: boolean }>> = {
 	'build_database_version.build_recovery_version_file': { stub: false }, // phase 2 — LANDED
 	'build_database_version.restore_dd_ontology_recovery_from_file': { stub: false }, // phase 2 — LANDED
 	'build_database_version.build_install_version': { stub: false }, // 2026-10-09 — native seed builder (install/seed_build.ts)
+	'build_database_version.seed_preflight': { stub: false }, // 2026-11-26 — the build's checks (install/seed_panel.ts)
 };
 
 interface ActionEntry {

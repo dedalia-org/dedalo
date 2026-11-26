@@ -62,6 +62,7 @@ import { copyBlockRecords, copyBlocks, splitCopyRow } from '../../src/core/db/co
 import { MATRIX_COPY_COLUMNS } from '../../src/core/db/matrix_write.ts';
 import { CORE_HIERARCHIES } from '../../src/core/install/hierarchy_meta.ts';
 import { manifestCatalog } from '../../src/core/install/ontology_catalog.ts';
+import { RELEASE_EXCLUDED_TLDS } from '../../src/core/install/ontology_release_pull.ts';
 import { SEED_DUMP_PATH } from '../../src/core/install/paths.ts';
 import { releaseDataFiles } from '../../src/core/install/release_files.ts';
 import { type ReleaseOntology, releaseDependencies } from '../../src/core/install/seed_build.ts';
@@ -360,6 +361,22 @@ describe('the vendored ontology release carries no suite fixture', () => {
 		const fixtureEntries = releaseEntries.map((entry) => entry.tld).filter(isSuiteTld);
 		expect(fixtureFiles, 'remove the file and re-run bun run seed:build').toEqual([]);
 		expect(fixtureEntries, 'remove the entry and re-run bun run seed:build').toEqual([]);
+	});
+
+	test('no RELEASE_EXCLUDED_TLDS package: no data file, no digest (owner rulings)', () => {
+		const excluded = Object.keys(RELEASE_EXCLUDED_TLDS);
+		expect(excluded.length).toBeGreaterThan(0);
+		const info = JSON.parse(readFileSync(join(ONTOLOGY_RELEASE_DIR, 'ontology.json'), 'utf8')) as {
+			files_sha256?: Record<string, string>;
+		};
+		const shipped = releaseFiles.filter((name) =>
+			excluded.includes(name.replace(/\.copy\.gz$/, '')),
+		);
+		const digested = Object.keys(info.files_sha256 ?? {}).filter((name) =>
+			excluded.includes(name.replace(/\.copy\.gz$/, '')),
+		);
+		expect(shipped, 'remove the file and re-run bun run seed:build').toEqual([]);
+		expect(digested, 'remove the digest and re-run bun run seed:build').toEqual([]);
 	});
 
 	test('the installer catalog drops the test TLD a source offers, and says so (planted)', () => {

@@ -348,6 +348,8 @@ export const RUNTIME_PATH_SCAN_EXEMPTIONS: Readonly<Record<string, string>> = Ob
 		'the install seed SOURCES: repo files (install/db/seed, the ontology release, the migrations) the compiler READS — code-tree assets, never runtime state',
 	'src/core/install/seed_manifest.ts':
 		'fingerprints the repo-owned seed sources and the compiler files in the checkout (reads only); the manifest it writes is the committed artefact beside the vendored seed',
+	'src/core/install/seed_panel.ts':
+		"the seed panel's CHECKOUT target: probes `<tree>/.git` and writes the vendored seed + release on purpose only on a writable git checkout (the developer's commit flow) — its private builds go to <private>/seed_builds, outside the tree",
 	'src/core/install/seed_build.ts':
 		'the install seed COMPILER: reads repo sources and writes the vendored seed + manifest INTO the checkout on purpose — a committed build artefact (like docs/change_log.md), not installation state; its child script is a code path',
 	'src/config/env.ts':

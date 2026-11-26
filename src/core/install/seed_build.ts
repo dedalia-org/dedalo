@@ -142,6 +142,33 @@ export interface SeedBuildOptions {
 	outFile?: string;
 	/** Where its manifest lands. Default: SEED_MANIFEST_PATH for the vendored seed, else `<outFile>.manifest.json`. */
 	manifestFile?: string;
+	/**
+	 * The ontology release to compile (ontology.json + `<tld>.copy.gz`). Default: the shipped
+	 * ONTOLOGY_RELEASE_DIR. The manifest still records its files under their shipped names, so a
+	 * seed built from a copy is consistent once the same files are placed there.
+	 */
+	releaseDir?: string;
+	/** Called with each finished step line, as it finishes (a job's progress). */
+	onStep?: (line: string) => void;
+	/**
+	 * Runs once the cluster lock is held, before the release is read: brings the release into
+	 * `releaseDir` (a pull, a copy). Under the lock so no other build reads or writes it meanwhile.
+	 * A returned line is recorded as the build's first timed step.
+	 */
+	prepareRelease?: () => Promise<string | null>;
+	/**
+	 * Runs under the lock after the verify-by-install, before the seed lands: promotes the
+	 * verified release (e.g. into this checkout), so a build that fails or stops before the verify
+	 * never leaves it there. (shortcut: the per-file mirror is not one atomic swap — a crash DURING
+	 * the promotion or a failed landing after it leaves release and seed apart; git restores it and
+	 * install_seed_manifest_tripwire reports it. Upgrade: a whole-dir rename swap.)
+	 */
+	promoteRelease?: () => Promise<void>;
+	/**
+	 * A stop (the job's signal): checked before every phase that writes — the release, the
+	 * compile, the verify, the promotion, the landing — so a stopped build writes nothing more.
+	 */
+	signal?: AbortSignal;
 }
 
 /** The ontology release manifest entry for one TLD (ontology.json active_ontologies). */
@@ -199,7 +226,7 @@ export interface ChildAnswer {
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 const SAFE_PATH = /^[A-Za-z0-9_/.-]+$/;
-const LOCK_KEY = 'dedalo_seed_build';
+export const SEED_BUILD_LOCK_KEY = 'dedalo_seed_build';
 const CHILD_SCRIPT = join(projectRoot, 'scripts/seed_build_child.ts');
 
 /** A refused / failed step: the operator's sentence, under the registered code. */
@@ -337,7 +364,7 @@ async function acquireClusterLock(conn: DbConnDescriptor): Promise<ClusterLock> 
 		{ stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: pgClientEnv(conn) },
 	);
 	session.stdin.write(
-		`SELECT pg_try_advisory_lock(hashtext('${LOCK_KEY}'));\nSELECT pg_backend_pid();\n`,
+		`SELECT pg_try_advisory_lock(hashtext('${SEED_BUILD_LOCK_KEY}'));\nSELECT pg_backend_pid();\n`,
 	);
 	await session.stdin.flush();
 	const reader = session.stdout.getReader();
@@ -519,16 +546,16 @@ export interface OntologyRelease {
 }
 
 /** The release manifest (ontology.json) of the shipped ontology. */
-export async function readOntologyRelease(): Promise<OntologyRelease> {
-	const manifest = JSON.parse(
-		await readFile(join(ONTOLOGY_RELEASE_DIR, 'ontology.json'), 'utf8'),
-	) as {
+export async function readOntologyRelease(
+	releaseDir: string = ONTOLOGY_RELEASE_DIR,
+): Promise<OntologyRelease> {
+	const manifest = JSON.parse(await readFile(join(releaseDir, 'ontology.json'), 'utf8')) as {
 		version?: string;
 		date?: string;
 		active_ontologies?: ReleaseOntology[];
 	};
 	if (typeof manifest.date !== 'string' || Number.isNaN(Date.parse(manifest.date))) {
-		fail(`${displayPath(ONTOLOGY_RELEASE_DIR)}/ontology.json carries no valid release date`);
+		fail(`${displayPath(releaseDir)}/ontology.json carries no valid release date`);
 	}
 	return {
 		version: String(manifest.version ?? ''),
@@ -594,6 +621,7 @@ export function releaseDependencies(entry: ReleaseOntology): OntologyDependency[
 
 /** Every ontology package, staged with its release entry. */
 async function stagePackages(
+	releaseDir: string,
 	stagingDir: string,
 	entries: readonly ReleaseOntology[],
 	tally: CopySectionIdTally,
@@ -604,12 +632,7 @@ async function stagePackages(
 		staged.push({
 			tld,
 			sectionTipo: `${tld}0`,
-			stagedPath: await stageCopy(
-				join(ONTOLOGY_RELEASE_DIR, `${tld}.copy.gz`),
-				stagingDir,
-				tld,
-				tally,
-			),
+			stagedPath: await stageCopy(join(releaseDir, `${tld}.copy.gz`), stagingDir, tld, tally),
 			typologyId: entry.typology_id ?? null,
 			nameData: entry.name_data,
 			dependencies: releaseDependencies(entry),
@@ -1115,6 +1138,9 @@ interface SeedBuild {
 	conn: DbConnDescriptor;
 	outFile: string;
 	manifestFile: string;
+	releaseDir: string;
+	/** The verified release was promoted into the shipped dir (options.promoteRelease). */
+	promoted?: boolean;
 	partFile: string;
 	stagingDir: string;
 	readout: SeedReadout;
@@ -1124,11 +1150,16 @@ interface SeedBuild {
 	addresses: CopySectionIdTally;
 }
 
-function stepClock(readout: SeedReadout): (line: string) => void {
+function stepClock(
+	readout: SeedReadout,
+	onStep: ((line: string) => void) | undefined,
+): (line: string) => void {
 	let started = performance.now();
 	return (line) => {
 		const now = performance.now();
-		readout.steps.push(`${line} (${((now - started) / 1000).toFixed(1)}s)`);
+		const timed = `${line} (${((now - started) / 1000).toFixed(1)}s)`;
+		readout.steps.push(timed);
+		onStep?.(timed);
 		started = now;
 	};
 }
@@ -1144,9 +1175,14 @@ async function compileOntology(
 		database,
 		installationDatabase: privateFileValue('DB_NAME') ?? null,
 		clock: release.date,
-		packages: await stagePackages(build.stagingDir, release.entries, build.addresses),
+		packages: await stagePackages(
+			build.releaseDir,
+			build.stagingDir,
+			release.entries,
+			build.addresses,
+		),
 		privateListsPath: await stageCopy(
-			join(ONTOLOGY_RELEASE_DIR, 'matrix_dd.copy.gz'),
+			join(build.releaseDir, 'matrix_dd.copy.gz'),
 			build.stagingDir,
 			'matrix_dd',
 			build.addresses,
@@ -1280,6 +1316,7 @@ async function landSeed(
 		seedFile: build.outFile,
 		ontologyRelease: { version: release.version, date: release.date },
 		verifiedChecks: checks,
+		releaseDir: build.releaseDir,
 	});
 	renameSync(build.partFile, build.outFile);
 	await writeSeedManifest(manifest, build.manifestFile);
@@ -1289,7 +1326,11 @@ async function landSeed(
 
 function successMessage(build: SeedBuild): string {
 	if (build.readout.findings.length > 0) return 'Warning: install seed compiled with findings';
-	return `OK. Install seed compiled from the repository sources, verified by a fresh install, written to '${displayPath(build.outFile)}'`;
+	const from =
+		build.releaseDir === ONTOLOGY_RELEASE_DIR || build.promoted
+			? 'the repository sources'
+			: `the repository sources and the ontology release in '${displayPath(build.releaseDir)}'`;
+	return `OK. Install seed compiled from ${from}, verified by a fresh install, written to '${displayPath(build.outFile)}'`;
 }
 
 /** A failure, re-thrown with the readout the operator needs to see what ran. */
@@ -1309,42 +1350,72 @@ function withReadout(error: unknown, readout: SeedReadout): DedaloError {
 export async function buildInstallVersion(
 	options: SeedBuildOptions = {},
 ): Promise<SeedBuildResult> {
+	const build = newSeedBuild(options);
+	let lock: ClusterLock | null = null;
+	try {
+		safePath(build.partFile);
+		lock = await acquireClusterLock(build.conn);
+		await sweepOrphans(build.conn, build.readout.findings);
+		const manifest = await runLockedPhases(build, lock, options);
+		return {
+			msg: successMessage(build),
+			findings: build.readout.findings,
+			steps: build.readout.steps,
+			file_size: `${statSync(build.outFile).size} Bytes`,
+			manifest,
+		};
+	} catch (error) {
+		throw withReadout(error, build.readout);
+	} finally {
+		await finishBuild(build);
+		await lock?.release();
+	}
+}
+
+/** The build's state from its options (every default resolved here). */
+function newSeedBuild(options: SeedBuildOptions): SeedBuild {
 	const readout: SeedReadout = { findings: [], steps: [] };
 	const outFile = options.outFile ?? SEED_DUMP_PATH;
-	const build: SeedBuild = {
+	return {
 		conn: options.conn ?? connFromConfig(),
 		outFile,
 		manifestFile:
 			options.manifestFile ??
 			(outFile === SEED_DUMP_PATH ? SEED_MANIFEST_PATH : `${outFile}.manifest.json`),
+		releaseDir: options.releaseDir ?? ONTOLOGY_RELEASE_DIR,
 		partFile: `${outFile}.part`,
 		stagingDir: mkdtempSync(join(tmpdir(), 'dedalo_seed_build_')),
 		readout,
-		step: stepClock(readout),
+		step: stepClock(readout, options.onStep),
 		scratches: [],
 		addresses: newCopySectionIdTally(),
 	};
-	let lock: ClusterLock | null = null;
-	try {
-		safePath(build.partFile);
-		lock = await acquireClusterLock(build.conn);
-		await sweepOrphans(build.conn, readout.findings);
-		const release = await readOntologyRelease();
-		await compile(build, release);
-		const checks = await verifyByInstall(build);
-		await assertLockHeld(build.conn, lock);
-		const manifest = await landSeed(build, release, checks);
-		return {
-			msg: successMessage(build),
-			findings: readout.findings,
-			steps: readout.steps,
-			file_size: `${statSync(outFile).size} Bytes`,
-			manifest,
-		};
-	} catch (error) {
-		throw withReadout(error, readout);
-	} finally {
-		await finishBuild(build);
-		await lock?.release();
+}
+
+/**
+ * Everything that runs under the cluster lock, in order: the release (prepareRelease), the
+ * compile, the verify-by-install, the promotion (promoteRelease), the landing. A stop (signal) is
+ * honoured before each phase that writes.
+ */
+async function runLockedPhases(
+	build: SeedBuild,
+	lock: ClusterLock,
+	options: SeedBuildOptions,
+): Promise<SeedManifest> {
+	const stopped = () => options.signal?.throwIfAborted();
+	stopped();
+	const prepared = await options.prepareRelease?.();
+	if (prepared) build.step(prepared);
+	stopped();
+	const release = await readOntologyRelease(build.releaseDir);
+	await compile(build, release);
+	stopped();
+	const checks = await verifyByInstall(build);
+	await assertLockHeld(build.conn, lock);
+	stopped();
+	if (options.promoteRelease) {
+		await options.promoteRelease();
+		build.promoted = true;
 	}
+	return landSeed(build, release, checks);
 }
