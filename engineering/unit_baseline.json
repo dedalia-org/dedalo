@@ -7,22 +7,12 @@
 	"measured": {
 		"tier_files": 1524,
 		"tier_tests": 25077,
-		"tier_pass": 25024,
+		"tier_pass": 25027,
 		"tier_skip": 50,
-		"failing_files": 3,
-		"failing_tests": 3
+		"failing_files": 0,
+		"failing_tests": 0
 	},
-	"files": {
-		"test/unit/media_upload.test.ts": [
-			"resent join — idempotent per upload_id > a resend while the join runs is a conflict; after it finishes, it replays the result"
-		],
-		"test/unit/suite_assertion_floor_tripwire.test.ts": [
-			"the unit baseline carries the CI image it was recorded in — --check refuses another image > LIVE: the real unit baseline is stamped, or IS the pinned pre-stamp artifact — never a hand edit"
-		],
-		"test/unit/tier_wiring_tripwire.test.ts": [
-			"tier wiring — every gate is reached by a workflow that executes > B. every run: payload of the parked self-hosted tier is delivered by a hosted chain (or the workflow is exempt with a reason)"
-		]
-	},
+	"files": {},
 	"per_file": {
 		"test/integration/diffusion_mariadb.test.ts": {
 			"tests": 12,
@@ -3832,7 +3822,7 @@
 		"test/unit/media_upload.test.ts": {
 			"tests": 28,
 			"skipped": 0,
-			"assertions": 105
+			"assertions": 108
 		},
 		"test/unit/media_upload_endpoint.test.ts": {
 			"tests": 20,
@@ -6207,7 +6197,7 @@
 		"test/unit/suite_assertion_floor_tripwire.test.ts": {
 			"tests": 37,
 			"skipped": 2,
-			"assertions": 255
+			"assertions": 256
 		},
 		"test/unit/suite_mariadb_target_native.test.ts": {
 			"tests": 34,
@@ -6457,7 +6447,7 @@
 		"test/unit/tier_wiring_tripwire.test.ts": {
 			"tests": 17,
 			"skipped": 0,
-			"assertions": 199
+			"assertions": 206
 		},
 		"test/unit/time_machine_read.test.ts": {
 			"tests": 3,
