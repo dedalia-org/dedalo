@@ -126,10 +126,11 @@
 				grid-template-columns: 1fr;
 			}
 
+			// own grid row, right-aligned (absolute, it collided with the active
+			// buttons_container)
 			.select_all {
-				position: absolute;
-				top: 1rem;
-				right: 1rem;
+				grid-column: 1 / -1;
+				justify-self: end;
 				cursor: pointer;
 
 				>.input_checkbox {
@@ -151,12 +152,21 @@
 				align-items: flex-start;
 				line-height: 1.4rem;
 
+				// checked: soft Dédalo-orange tint (brand token, follows the theme)
+				&:has(>.input_label>.input_checkbox:checked) {
+					background-color: color-mix(in srgb, var(--color_orange_dedalo) 8%, transparent);
+				}
+
 				// img
 				>.tool_icon {
 					height: 1.33rem;
 					width: 1.33rem;
 					margin-right: 0.5rem;
 					margin-left: 0px;
+					// dark: the black tool svgs (an <img>, no fill) turn light grey
+					:root[data-theme="dark"] & {
+						filter: brightness(0) invert(0.8);
+					}
 				}
 
 				// label input: takes the free width and wraps its own text, so a long
@@ -175,20 +185,22 @@
 					}
 				}
 
-				// shown on activation: own line under the label (inline, it was squeezed
-				// to a per-character column and pushed the label)
+				// always shown (debug), not show_on_active: activation must not resize
+				// the rows. Own line under the label (inline, it was squeezed to a
+				// per-character column and pushed the label)
 				>.developer_info {
 					order: 1;
 					flex-basis: 100%;
-					padding-left: 4rem; // aligned under the label, like .tool_description
+					// under the label text: icon 1.33 + its margin 0.5 + checkbox 1 + its margin 0.33
+					padding-left: 3.16rem;
 					font-size: 0.9em;
 					line-height: 1.3;
 					overflow-wrap: anywhere;
 				}
 
 				// last grid line: no separator. The last item always; the one before
-				// only when it sits in the left column (even nth-child: the
-				// absolute-positioned .select_all label is child 1, outside the grid flow),
+				// only when it sits in the left column (even nth-child: the full-row
+				// .select_all label is child 1),
 				// and only while there are two columns
 				&:last-child {
 					border-bottom: none;
@@ -207,8 +219,7 @@
 					margin-top: 0.2rem; // centred on the 1.4rem label line
 					width: 1rem;
 					height: 1rem;
-					// pinned right: the show_on_active developer_info appearing on
-					// activation must not move it under the pointer mid-click
+					// pinned right, past the label
 					margin-left: auto;
 					cursor: pointer;
 					opacity: 0.35;
@@ -222,7 +233,7 @@
 					display: none;
 					order: 2; // below the developer_info line
 					flex-basis: 100%;
-					padding: 0.25rem 0 0.33rem 4rem; // aligned under the label (icon + checkbox)
+					padding: 0.25rem 0 0.33rem 3.16rem; // under the label text, like .developer_info
 					font-size: 0.9em;
 					line-height: 1.3;
 					white-space: pre-line; // content_data is .nowrap; keep paragraph breaks
@@ -237,7 +248,7 @@
 					}
 				}
 
-				// phone: one column; the 4rem indent gives back to the text
+				// phone: one column; the 3.16rem indent gives back to the text
 				@media screen and (max-width: @width_break_point_phone) {
 					margin-left: 0;
 					>.developer_info,

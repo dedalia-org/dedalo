@@ -260,6 +260,10 @@
 	>.button_options {
 		background-color: @color_grey_5;
 	}
+	// options open: the gear sits on the dark .source_selector bar — take its ink
+	&:has(>.options_hidden.visible) >.button_options {
+		background-color: var(--fg_inverse);
+	}
 }
 // the RISEN card (no band) draws its edge as an OUTER 1px ring (see the headroom
 // block): an inset bar edge stood 1px inside it on each side and hid the card's

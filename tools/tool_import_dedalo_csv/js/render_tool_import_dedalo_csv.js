@@ -315,7 +315,7 @@ const get_content_data = async function(self) {
 	// import_button
 		const import_button = ui.create_dom_element({
 			element_type	: 'button',
-			class_name		: 'warning import_button csv',
+			class_name		: 'primary import_button csv',
 			text_content		: self.get_tool_label('import') || 'Import',
 			parent			: submit_container
 		})
@@ -1632,7 +1632,7 @@ const copy_button = (self, parent, label_key, fallback_label, get_text) => {
 
 	const button = ui.create_dom_element({
 		element_type	: 'button',
-		class_name		: 'warning copy_button copy',
+		class_name		: 'primary copy_button copy',
 		text_content		: self.get_tool_label(label_key) || fallback_label,
 		parent			: parent
 	})

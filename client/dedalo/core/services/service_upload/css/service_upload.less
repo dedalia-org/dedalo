@@ -22,14 +22,16 @@
 				padding-left: 1.75em;
 				padding-right: 1.75em;
 				background-color: @color_grey_13;
-				border: 1px dashed @color_orange_dedalo;
+				// inside a tool: its identity colour (tool_colors.less); elsewhere the brand
+				border: 1px dashed var(--tool_edge, @color_orange_dedalo);
 				border-radius: 0.25em;
 				cursor: pointer;
 				width: 100%;
 
 				&.hover {
-					background-color: @color_orange_dedalo;
-					color: var(--fg_on_brand);
+					// fill + ink travel as a pair (tool_mixins .tool_action_button)
+					background-color: var(--tool_fill, @color_orange_dedalo);
+					color: var(--tool_on_fill, var(--fg_on_brand));
 					cursor: move !important;
 				}
 
@@ -206,7 +208,7 @@
 			// renderer highlights its <label> instead; here the drop target IS the
 			// content_data, so the feedback has to live on it.
 			&.hover {
-				outline: 2px dashed @color_orange_dedalo;
+				outline: 2px dashed var(--tool_edge, @color_orange_dedalo);
 				outline-offset: -2px;
 			}
 

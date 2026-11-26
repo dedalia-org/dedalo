@@ -198,6 +198,22 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **CSV import buttons use the tool's colour**
+
+    In the Dédalo CSV import tool, the Import and Copy buttons are now painted in the tool's own colour instead of the generic orange warning style, matching the other tools.
+
+- **Publication field keeps its switch in the time machine preview**
+
+    When a tool shows a Publication field read-only (both panes of the Time machine, for example), it now shows the familiar on/off switch, locked, instead of the plain yes/no text, so the state can be recognised at a glance.
+
+- **Time machine buttons use the tool's colour**
+
+    In the Time machine tool, the "Apply and save" button and the selected version's Id in the history list are now painted in the tool's own colour, with matching text, instead of the generic warning style.
+
+- **File drop zone uses the tool's colour**
+
+    In tools that upload files (CSV import, file import, upload and others), the "Select or drop a file here" area now takes the tool's own colour for its dashed border, its drag-over outline and its hover fill. Outside a tool it keeps the Dédalo orange.
+
 - **The Stop button of a running process shows a stop icon.**
 
     The button that stops a running process (publishing, exports, updates) showed a gear icon,
@@ -615,6 +631,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Menu bar items vertically centred when an instance colour is set**
+
+    The instance-colour line under the menu bar was painted over the bar's last 3px, so its labels and icons sat below the visible centre. The line now has its own space (the bar is 3px taller with an instance colour), and menu labels centre on their capital letters whatever the system font.
+
 - **Searching a number in an autocomplete whose fields include the record id no longer fails.**
 
     Typing a number into an autocomplete (or any search) that looks in the record id **and**
@@ -623,6 +643,10 @@ Merged since the last release; these ship with the next one.
     value as a number, a date or an id in one field and as text in another. Each field now
     compares its own copy of the typed value, so mixed searches return results in any field
     order.
+
+- **Tool permissions list keeps its size on activation and highlights checked tools**
+
+    In a profile's Tool permissions, activating the field no longer makes it grow: the developer line under each tool now shows in both states, aligned under the tool name. The "All" box has its own row so it no longer overlaps the field buttons. Checked tools get a soft highlight, and the tool icons are light grey in dark mode.
 
 - **On a phone, the record graph view stacks the graph above the record panel.**
 

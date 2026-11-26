@@ -10,12 +10,13 @@
 @menu_box_shadow: var(--shadow-3);
 
 // --menu_offset: the sticky menu's real height, for things that stick below it
-:root { --menu_offset: 0px; } // no menu (tool windows): stick to the top
-:root:has(.menu) { --menu_offset: var(--menu_heigth); }
+// --menu_line: extra bar height for the instance-colour line (instance_identity.less)
+:root { --menu_offset: 0px; --menu_line: 0px; } // no menu (tool windows): stick to the top
+:root:has(.menu) { --menu_offset: calc(var(--menu_heigth) + var(--menu_line)); }
 :root:has(.menu.with_debug_info) {
-	--menu_offset: calc(var(--menu_heigth) * 2);
+	--menu_offset: calc(var(--menu_heigth) * 2 + var(--menu_line));
 	@media screen and (max-width: @width_break_point_0) {
-		--menu_offset: calc(var(--menu_heigth) + 1.7rem);
+		--menu_offset: calc(var(--menu_heigth) + 1.7rem + var(--menu_line));
 	}
 }
 
@@ -208,13 +209,14 @@
 				padding: 0px;
 				min-width: 175px;
 				position: absolute;
-				top: var(--menu_heigth);
 				box-shadow: @menu_box_shadow;
 				border: 1px solid @color_grey_9;
 				border-radius: 4px;
 				border-top-left-radius: 0;
 				max-height: calc(100vh - var(--menu_heigth));
 				overflow: auto;
+				// under the li however tall the bar grew (level 3+ resets it below)
+				top: 100%;
 
 				a {
 					color: @color_grey_3;
@@ -662,6 +664,23 @@
 				}
 			}
 		}
+
+		// OPTICAL centring of the bar's text. line-height = bar height centres
+		// the em box, whose ascent/descent split is font-specific (system-ui
+		// differs per OS), so caps sat 1-2px off the icons' centre. Trimmed to
+		// cap-height + equal padding, the CAPS are centred exactly; min-height
+		// (not height) lets the bar grow when an item wraps.
+		@supports (text-box: trim-both cap alphabetic) {
+			>.logged_user_name,
+			>.section_label_container>.section_label,
+			>.menu_hierarchy ul#dd1>li>a {
+				text-box: trim-both cap alphabetic;
+				line-height: normal;
+				height: auto;
+				min-height: var(--menu_heigth);
+				padding-block: calc((var(--menu_heigth) - 1cap) / 2);
+			}
+		}
 	}
 
 	//end content_data
@@ -825,20 +844,21 @@
 // Reserve EXACTLY the menu's own box so swapping the placeholder for the real
 // menu moves nothing below it. Same var, same sticky top offset.
 .menu_placeholder {
-	height: var(--menu_heigth);
-	min-height: var(--menu_heigth); // overrides the generic placeholder min height
+	height: var(--menu_offset);
+	min-height: var(--menu_offset); // overrides the generic placeholder min height
 	margin: 0px;
+
+	// --menu_offset only sees the real menu: before it exists, size by the flag
+	--menu_offset: calc(var(--menu_heigth) + var(--menu_line));
 
 	// placeholder_debug is taller because the real menu then carries the debug_info_bar
 	// (.menu.with_debug_info === --menu_heigth * 2)
 	&.placeholder_debug {
-		height: calc(var(--menu_heigth) * 2);
-		min-height: calc(var(--menu_heigth) * 2);
+		--menu_offset: calc(var(--menu_heigth) * 2 + var(--menu_line));
 
 		// compact: match the thin one-line debug strip (see .debug_info_bar)
 		@media screen and (max-width: @width_break_point_0) {
-			height: calc(var(--menu_heigth) + 1.7rem);
-			min-height: calc(var(--menu_heigth) + 1.7rem);
+			--menu_offset: calc(var(--menu_heigth) + 1.7rem + var(--menu_line));
 		}
 	}
 }
