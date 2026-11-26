@@ -202,6 +202,10 @@ Merged since the last release; these ship with the next one.
 
     In the Dédalo CSV import tool, the Import and Copy buttons are now painted in the tool's own colour instead of the generic orange warning style, matching the other tools.
 
+- **Time machine buttons use the tool's colour**
+
+    In the Time machine tool, the "Apply and save" button and the selected version's Id in the history list are now painted in the tool's own colour, with matching text, instead of the generic warning style.
+
 - **The Stop button of a running process shows a stop icon.**
 
     The button that stops a running process (publishing, exports, updates) showed a gear icon,

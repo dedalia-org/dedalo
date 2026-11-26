@@ -6,6 +6,7 @@
 
 // imports
 @import (once) '../../../client/dedalo/core/page/css/layout/vars';
+@import (once, reference) '../../../client/dedalo/core/tools_common/css/tool_mixins';
 
 // local vars
 :root {
@@ -114,6 +115,16 @@
 		.button_view {
 			height: 100%;
 			width: 100%;
+
+			// the SELECTED version (core view_tm_list_section marks it `.warning`):
+			// the tool's fill + ink pair, not the core warning colours
+			&.warning {
+				.tool_action_button();
+
+				.icon {
+					background-color: var(--tool_on_fill);
+				}
+			}
 		}
 
 		// PHONE. The generic list phone rules stack every column of a row
@@ -239,20 +250,20 @@
 				// (the whole Id row, label band included — the `::before` is
 				// transparent here) and the button becomes the transparent
 				// surface holding the Id, the chip and the tap target, so its
-				// padding and margin stop painting. Same token as
-				// `button.warning`, so the band and a plain warning button are
+				// padding and margin stop painting. Same --tool_fill as
+				// the selected desktop button, so the band and that button are
 				// one colour.
 				>.section_record.list >.column.column_section_id:has(>.button_view.warning) {
-					background-color: @color_orange_dedalo;
+					background-color: var(--tool_fill);
 					// the generic first-of-type rule pins margin-top 0.25rem
 					// !important on the topmost card's first cell: a pale strip
 					// above the fill
 					margin-top: 0px !important;
 
 					// the `ID` label rides the fill now, so it takes the fill's
-					// declared ink (--fg_on_brand, dark in both themes)
+					// declared ink (--tool_on_fill)
 					&::before {
-						color: var(--fg_on_brand);
+						color: var(--tool_on_fill);
 					}
 
 					>.button_view.warning {

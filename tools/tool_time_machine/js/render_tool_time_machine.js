@@ -286,7 +286,7 @@ const get_content_data = async function(self) {
 			// button apply
 				self.button_apply = ui.create_dom_element({
 					element_type	: 'button',
-					class_name		: 'warning button_apply lock history',
+					class_name		: 'primary button_apply lock history',
 					inner_html		: self.get_tool_label('apply_and_save') || 'Apply and save',
 					parent			: tool_bar
 				})

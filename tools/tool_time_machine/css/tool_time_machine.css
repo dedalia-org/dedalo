@@ -77,6 +77,21 @@
   height: 100%;
   width: 100%;
 }
+.wrapper_tool.tool_time_machine > .content_data .button_view.warning {
+  background-color: var(--tool_fill);
+  border-color: var(--tool_fill);
+  color: var(--tool_on_fill);
+}
+.wrapper_tool.tool_time_machine > .content_data .button_view.warning:not(.button_spinner)::before {
+  background-color: var(--button-bg-color, var(--tool_on_fill)) !important;
+}
+.wrapper_tool.tool_time_machine > .content_data .button_view.warning:hover {
+  background-color: var(--tool_fill_hover);
+  border-color: var(--tool_fill_hover);
+}
+.wrapper_tool.tool_time_machine > .content_data .button_view.warning .icon {
+  background-color: var(--tool_on_fill);
+}
 @media screen and (max-width: 1024px) {
   .wrapper_tool.tool_time_machine > .content_data {
     display: flex;
@@ -141,11 +156,11 @@
     pointer-events: none;
   }
   .wrapper_tool.tool_time_machine > .content_data .wrapper_section.dd15 .content_data.list.section > .section_record.list > .column.column_section_id:has(>.button_view.warning) {
-    background-color: var(--color_orange_dedalo);
+    background-color: var(--tool_fill);
     margin-top: 0px !important;
   }
   .wrapper_tool.tool_time_machine > .content_data .wrapper_section.dd15 .content_data.list.section > .section_record.list > .column.column_section_id:has(>.button_view.warning)::before {
-    color: var(--fg_on_brand);
+    color: var(--tool_on_fill);
   }
   .wrapper_tool.tool_time_machine > .content_data .wrapper_section.dd15 .content_data.list.section > .section_record.list > .column.column_section_id:has(>.button_view.warning) > .button_view.warning {
     background-color: transparent;
