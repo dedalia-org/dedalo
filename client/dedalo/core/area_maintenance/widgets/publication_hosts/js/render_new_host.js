@@ -510,13 +510,16 @@ const FIRST_USE_STOPS = Object.freeze(['relogin', 'no_access_page']);
  */
 export const run_first_use = async function (self, host_name, body_response, button_node) {
 	const title = get_label.publication_hosts_first_use || 'First use';
-	if (self.confirm_action(`${get_label.sure || 'Are you sure?'}\n${title}: ${host_name}`) !== true) {
+	if (
+		self.confirm_action(`${get_label.sure || 'Are you sure?'}\n${title}: ${host_name}`) !== true
+	) {
 		return null;
 	}
 	const outcomes = [];
 	const show = () => {
 		const lines = outcomes.map(
-			(o) => `${FIRST_USE_STATE_TEXT[o.state] || o.state} · ${o.label}${o.text ? `\n${o.text}` : ''}`,
+			(o) =>
+				`${FIRST_USE_STATE_TEXT[o.state] || o.state} · ${o.label}${o.text ? `\n${o.text}` : ''}`,
 		);
 		self.last_outcome = `${host_name} · ${title}\n${lines.join('\n\n')}`;
 		body_response.textContent = self.last_outcome;
@@ -748,10 +751,7 @@ const render_draft_form = function (self, parent, body_response) {
 		'listen.kind',
 		get_label.publication_hosts_draft_machines || 'Where the public website runs',
 		[
-			[
-				'unix',
-				get_label.publication_hosts_draft_machines_one || 'On this server (another vhost)',
-			],
+			['unix', get_label.publication_hosts_draft_machines_one || 'On this server (another vhost)'],
 			[
 				'tls',
 				get_label.publication_hosts_draft_machines_two ||
@@ -761,7 +761,8 @@ const render_draft_form = function (self, parent, body_response) {
 	);
 	text_field(
 		'listen.host',
-		get_label.publication_hosts_draft_listen_host || 'Private IPv4/IPv6 address of the publication host',
+		get_label.publication_hosts_draft_listen_host ||
+			'Private IPv4/IPv6 address of the publication host',
 	);
 	select_field('apis', get_label.publication_hosts_draft_apis || 'Publication APIs', [
 		['v2_only', get_label.publication_hosts_draft_apis_v2 || 'v2 only (recommended, no PHP)'],

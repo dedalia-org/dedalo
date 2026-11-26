@@ -99,12 +99,12 @@ const with_clipboard = async function (stub, fn) {
 		await fn();
 	} finally {
 		if (own) Object.defineProperty(navigator, 'clipboard', own);
-		else delete navigator.clipboard;
+		else Reflect.deleteProperty(navigator, 'clipboard');
 	}
 };
 
 const INSTALL_COMMAND =
-	"# On THIS server, as root.\n(umask 077 && cat > /root/museum_org.draft.json) <<'DEDALO_PUBLICATION_HOST_DRAFT'\n{\"instance\": \"<script>x</script>\"}\nDEDALO_PUBLICATION_HOST_DRAFT\nsh /opt/dedalo/master_dedalo/publication/host_agent/deploy/install.sh museum_org --source /opt/dedalo/master_dedalo --draft /root/museum_org.draft.json\n";
+	'# On THIS server, as root.\n(umask 077 && cat > /root/museum_org.draft.json) <<\'DEDALO_PUBLICATION_HOST_DRAFT\'\n{"instance": "<script>x</script>"}\nDEDALO_PUBLICATION_HOST_DRAFT\nsh /opt/dedalo/master_dedalo/publication/host_agent/deploy/install.sh museum_org --source /opt/dedalo/master_dedalo --draft /root/museum_org.draft.json\n';
 const one_machine_row = (overrides = {}) =>
 	draft_row(
 		Object.assign(
@@ -477,7 +477,11 @@ describe('PUBLICATION HOST SETUP (New publication host)', function () {
 		// AND the clipboard untouched): the clipboard takes exactly the block ...
 		const written = [];
 		await with_clipboard(
-			{ writeText: async (text) => { written.push(text); } },
+			{
+				writeText: async (text) => {
+					written.push(text);
+				},
+			},
 			async () => {
 				window.getSelection().removeAllRanges();
 				card.querySelector('.button_copy_command').click();
@@ -487,7 +491,11 @@ describe('PUBLICATION HOST SETUP (New publication host)', function () {
 		assert.deepEqual(written, [INSTALL_COMMAND], 'the clipboard received exactly the server text');
 		// ... and where the browser refuses it, the block is SELECTED for Ctrl+C.
 		await with_clipboard(
-			{ writeText: async () => { throw new Error('NotAllowedError'); } },
+			{
+				writeText: async () => {
+					throw new Error('NotAllowedError');
+				},
+			},
 			async () => {
 				window.getSelection().removeAllRanges();
 				card.querySelector('.button_copy_command').click();
@@ -548,7 +556,12 @@ describe('PUBLICATION HOST SETUP (New publication host)', function () {
 				};
 			}
 			if (action === 'push_apis') {
-				return { ok: true, data: true, msg: 'OK. Release 7.0.1_abcdef0 is current on 1 publication host(s).', running: false };
+				return {
+					ok: true,
+					data: true,
+					msg: 'OK. Release 7.0.1_abcdef0 is current on 1 publication host(s).',
+					running: false,
+				};
 			}
 			return {
 				ok: true,
@@ -584,7 +597,8 @@ describe('PUBLICATION HOST SETUP (New publication host)', function () {
 		const self = build_widget(value([]));
 		const console_node = document.createElement('div');
 		self.next_response = (action) => {
-			if (action === 'push_apis') return { ok: true, data: null, msg: 'Push started', running: true };
+			if (action === 'push_apis')
+				return { ok: true, data: null, msg: 'Push started', running: true };
 			if (action === 'probe_public') return { ok: true, data: { state: 'failed' }, msg: 'Error.' };
 			return { ok: true, data: { host: 'h' }, msg: 'OK. Media rules applied.' };
 		};
