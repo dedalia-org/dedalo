@@ -366,7 +366,9 @@ describe('relation_children builder (PHP trait.search_component_relation_childre
 		expect(rendered).toMatch(scanShape);
 		expect(rendered).toContain("elem->>'section_id' = te3.section_id::text");
 		expect(rendered).toContain("sub.section_id::text = ($2::text::jsonb->>'section_id')");
-		// _Q1_ appears 3× in the sentence but binds ONCE (ParamsCollector dedup).
+		// _Q1_ appears 3× in the sentence but binds ONCE: substitute() mints one
+		// placeholder per TOKEN (replaceAll) — one sentence, one typing context.
+		// Equal values in DIFFERENT fragments never share (params.ts header).
 		expect(params).toEqual(['test71', '{"section_tipo":"test3","section_id":"5"}']);
 	});
 

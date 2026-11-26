@@ -615,6 +615,15 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Searching a number in an autocomplete whose fields include the record id no longer fails.**
+
+    Typing a number into an autocomplete (or any search) that looks in the record id **and**
+    in text fields at the same time — the id field listed first — answered with a server
+    error instead of results. The same could happen whenever one search compared the same
+    value as a number, a date or an id in one field and as text in another. Each field now
+    compares its own copy of the typed value, so mixed searches return results in any field
+    order.
+
 - **On a phone, the record graph view stacks the graph above the record panel.**
 
     On a phone, the relations graph of a record was squeezed into a narrow strip beside a fixed-width

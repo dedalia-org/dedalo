@@ -1,17 +1,33 @@
 /**
  * Search params model — positional prepared-statement values (spec §7.7).
  *
- * PHP reference: trait.utils.php get_placeholder (:567) and
- * trait.where.php parse_search_object_sql (:539).
- *
  * Contract:
  * - `params` is a 0-indexed sequential list; `$N` ↔ params[N-1].
- * - getPlaceholder DEDUPS with STRICT comparison (PHP array_search(…, true)):
- *   1 (number) never collapses with '1' (string) or true — distinct typed
- *   values must produce distinct placeholders.
+ * - THE LAW: a placeholder is NEVER shared between fragments. getPlaceholder
+ *   mints a fresh `$N` on every call, whatever value it is given — equal
+ *   values from two fragments bind twice. Postgres infers ONE type per
+ *   parameter from its first typed use: a `$N` shared by
+ *   `section_id::integer = $N` and `f_unaccent($N)` is integer for both, and
+ *   the text use dies with "function f_unaccent(integer) does not exist" (an
+ *   autocomplete whose ddo_map searches a component_section_id FIRST and text
+ *   components after, same q). The same hazard stands between every typed
+ *   family (::integer, ::numeric, ::jsonpath, dates, iri vs text), in either
+ *   order.
+ * - PHP parity is DROPPED deliberately: PHP get_placeholder
+ *   (trait.utils.php) deduped with array_search(…, true), which is safe only
+ *   while every use of a value is typed alike — a property no builder can see
+ *   across fragments. The cost is a few repeated bound values; the gain is
+ *   that each fragment types its own placeholders independently.
  * - Component builders emit `sentence` fragments with named `_Q1_`/`_Q2_`
- *   tokens plus a token→value map; substitute() swaps tokens for `$N`
- *   placeholders, registering values in insertion order.
+ *   tokens plus a token→value map; substitute() mints ONE placeholder per
+ *   token (a token repeated inside its own sentence keeps that one `$N` via
+ *   replaceAll — one fragment, one typing context), registering values in
+ *   insertion order.
+ * - A site that knows several uses share one typing context (same column,
+ *   same cast) may memo its own placeholders locally — never the collector.
+ *
+ * Gate: test/unit/search_section_id_bind_native.test.ts — executes every typed
+ * family sharing a literal with a text leaf, in both orders.
  */
 
 import { DedaloError } from '../errors/dedalo_error.ts';
@@ -26,26 +42,22 @@ export class ParamsCollector {
 	 * (default `$1`). A fragment built for a statement that already binds N
 	 * values of its own starts at N+1 (search/sql_assembler.ts
 	 * buildRowsInScopeSql): the statement's params are then the other
-	 * fragment's followed by `toArray()`, and no value is deduplicated ACROSS
-	 * the two — a shared `$N` would have to carry one type in both, and the two
-	 * fragments cast independently.
+	 * fragment's followed by `toArray()` — nothing is shared across the two, as
+	 * nothing is shared anywhere (the header's law).
 	 */
 	constructor(private readonly firstPlaceholder = 1) {}
 
-	/** Register a value (strict-dedup) and return its '$N' placeholder. */
+	/** Register a value and return a FRESH '$N' placeholder (never shared — see the header). */
 	getPlaceholder(value: unknown): string {
-		// Strict search: types must match exactly (mirrors PHP array_search strict).
-		let index = this.values.indexOf(value);
-		if (index === -1) {
-			this.values.push(value);
-			index = this.values.length - 1;
-		}
-		return `$${index + this.firstPlaceholder}`;
+		this.values.push(value);
+		return `$${this.values.length - 1 + this.firstPlaceholder}`;
 	}
 
 	/**
 	 * Resolve a component fragment: replace each named token (e.g. '_Q1_')
-	 * with a positional placeholder for its value. Token iteration follows the
+	 * with a fresh positional placeholder for its value — every occurrence of
+	 * one token gets the SAME `$N` (one sentence, one typing context); two
+	 * tokens never share one, even when their values are equal. Token iteration follows the
 	 * map's insertion order, which must match token order in the sentence
 	 * (same contract as the PHP builders).
 	 */
@@ -85,25 +97,23 @@ export class ParamsCollector {
  * per-hop ACL (sql_assembler buildPathScope → recordPredicate) is built at
  * conform time, and a leaf that ends up emitting nothing (a refused or inert
  * leaf) must leave no bound value behind — an unreferenced `$N` is a
- * Postgres error ("could not determine data type of parameter"). Same strict
- * dedup as the base class; `tokenValues` is the substitute() map the real
+ * Postgres error ("could not determine data type of parameter"). Like the base
+ * class, every call mints a FRESH token (no value dedup); `tokenValues` is the substitute() map the real
  * collector consumes (substituteUsed) at render time. Tokens are
  * `_<prefix><n>_`: the trailing `_` keeps `_ACL1_` from being a substring of
  * `_ACL10_`.
  */
 export class NamedTokenCollector extends ParamsCollector {
 	readonly tokenValues: Record<string, unknown> = {};
-	private readonly tokens: [unknown, string][] = [];
+	private minted = 0;
 
 	constructor(private readonly prefix: string) {
 		super();
 	}
 
 	override getPlaceholder(value: unknown): string {
-		const found = this.tokens.find(([known]) => known === value);
-		if (found !== undefined) return found[1];
-		const token = `_${this.prefix}${this.tokens.length + 1}_`;
-		this.tokens.push([value, token]);
+		this.minted += 1;
+		const token = `_${this.prefix}${this.minted}_`;
 		this.tokenValues[token] = value;
 		return token;
 	}

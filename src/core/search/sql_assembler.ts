@@ -1867,14 +1867,30 @@ async function gateableSectionsOf(sectionTipos: readonly string[]): Promise<stri
 	return gateableSections;
 }
 
-/** filter_by_locators (dedicated shape, PHP :1382) → one OR'd clause ('' when none). */
+/**
+ * filter_by_locators (dedicated shape, PHP :1382) → one OR'd clause ('' when none).
+ *
+ * The section_tipo placeholders are memoed HERE, per value: every use is the
+ * same `<alias>.section_tipo=$n` typing context, so sharing is safe inside this
+ * one fragment (params.ts header) — and it keeps the bind count at
+ * locators + tipos, not 2 × locators, for long internal pin lists.
+ */
 function composeLocatorWhere(sqo: Sqo, alias: string, params: ParamsCollector): string {
 	if (!Array.isArray(sqo.filter_by_locators) || sqo.filter_by_locators.length === 0) return '';
+	const tipoPlaceholders = new Map<string, string>();
+	const tipoPlaceholder = (tipo: string): string => {
+		let placeholder = tipoPlaceholders.get(tipo);
+		if (placeholder === undefined) {
+			placeholder = params.getPlaceholder(tipo);
+			tipoPlaceholders.set(tipo, placeholder);
+		}
+		return placeholder;
+	};
 	const locatorClauses = sqo.filter_by_locators.map((locator) => {
 		const fields: string[] = [];
 		fields.push(`${alias}.section_id=${params.getPlaceholder(Number(locator.section_id))}`);
 		fields.push(
-			`${alias}.section_tipo=${params.getPlaceholder(assertValidTipo(locator.section_tipo, 'filter_by_locators'))}`,
+			`${alias}.section_tipo=${tipoPlaceholder(assertValidTipo(locator.section_tipo, 'filter_by_locators'))}`,
 		);
 		return `( ${fields.join(' AND ')} )`;
 	});
@@ -2162,7 +2178,7 @@ async function assemblePlainSearch(
 			const flatSql =
 				`SELECT ${select.join(',\n')}\nFROM ${fromClause}\n` +
 				`JOIN (\n${pageQuery}\n) page ON page.${key} = ${alias}.${key}\n` +
-				// mainWhere re-pins section_tipo (same $n — ParamsCollector dedups):
+				// mainWhere re-pins section_tipo (same $n — its rendered text is reused):
 				// another tipo in the same table may reuse a section_id (the `id` PK
 				// is globally unique, so the re-pin is a harmless no-op there).
 				`WHERE ${mainWhere.join('\n AND ')}\n` +
@@ -2203,7 +2219,7 @@ async function assemblePlainSearch(
 				`WITH filtered_ids AS MATERIALIZED (\nSELECT ${alias}.section_id\nFROM ${fromClause}\nWHERE ${whereAll.join('\n AND ')}\n)\n` +
 				`SELECT ${select.join(',\n')}\nFROM ${fromClause}\n` +
 				`JOIN (\nSELECT section_id FROM filtered_ids ORDER BY section_id ASC${limitSql}${offsetSql}\n) page ON page.section_id = ${alias}.section_id\n` +
-				// mainWhere re-pins section_tipo (same $n — ParamsCollector dedups):
+				// mainWhere re-pins section_tipo (same $n — its rendered text is reused):
 				// other tipos in the same table may reuse a section_id.
 				`WHERE ${mainWhere.join('\n AND ')}\n` +
 				`ORDER BY ${innerOrder};`;
@@ -2237,7 +2253,7 @@ async function assemblePlainSearch(
 			const lateSql =
 				`SELECT ${select.join(',\n')}\nFROM ${fromClause}\n` +
 				`JOIN (\n${pageQuery}\n) page ON page.section_id = ${alias}.section_id\n` +
-				// mainWhere re-pins section_tipo (same $n — ParamsCollector dedups):
+				// mainWhere re-pins section_tipo (same $n — its rendered text is reused):
 				// other tipos in the same table may reuse a section_id.
 				`WHERE ${mainWhere.join('\n AND ')}\n` +
 				`ORDER BY ${innerOrder};`;
