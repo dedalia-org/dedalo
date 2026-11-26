@@ -152,9 +152,9 @@
 				align-items: flex-start;
 				line-height: 1.4rem;
 
-				// checked: soft Dédalo-orange tint (literal rgba, reads on light and dark)
+				// checked: soft Dédalo-orange tint (brand token, follows the theme)
 				&:has(>.input_label>.input_checkbox:checked) {
-					background-color: rgba(247, 138, 28, 0.08);
+					background-color: color-mix(in srgb, var(--color_orange_dedalo) 8%, transparent);
 				}
 
 				// img

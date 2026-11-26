@@ -23935,7 +23935,7 @@ body.inspector_resizing {
   flex-wrap: wrap;
 }
 .component_check_box.view_tools > .content_data > .content_value:has(>.input_label>.input_checkbox:checked) {
-  background-color: rgba(247, 138, 28, 0.08);
+  background-color: color-mix(in srgb, var(--color_orange_dedalo) 8%, transparent);
 }
 .component_check_box.view_tools > .content_data > .content_value > .tool_icon {
   height: 1.33rem;
