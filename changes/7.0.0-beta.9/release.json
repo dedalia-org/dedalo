@@ -1,0 +1,1512 @@
+{
+	"version": "7.0.0-beta.9",
+	"date": "2026-11-26",
+	"from": "v7.0.0-beta.8",
+	"to": "v7.0.0-beta.9",
+	"commits": 704,
+	"wire_contract": [
+		"WC-2026-11-09-component-get-data-host-gate",
+		"WC-2026-11-09-export-frontier-fanout",
+		"WC-2026-11-09-export-relation-display",
+		"WC-2026-11-09-implicit-children-frontier-predicate",
+		"WC-2026-11-09-instance-identity",
+		"WC-2026-11-09-security-access-save-echo-no-datalist",
+		"WC-2026-11-09-start-deep-link-found-set-position",
+		"WC-2026-11-10-add-new-element-create-gate",
+		"WC-2026-11-10-hierarchy-rebuild-ownership",
+		"WC-2026-11-10-indexation-grid-read-door",
+		"WC-2026-11-10-iri-frame-and-tm-note-levels",
+		"WC-2026-11-10-own-user-activity-read",
+		"WC-2026-11-10-portal-get-data-children-lang",
+		"WC-2026-11-10-related-list-cells",
+		"WC-2026-11-10-save-never-creates",
+		"WC-2026-11-10-section-terms-read-door",
+		"WC-2026-11-10-tags-info-read-door",
+		"WC-2026-11-10-tm-restore-unchanged-notice",
+		"WC-2026-11-10-tm-subject-cell-page",
+		"WC-2026-11-10-translation-empty-result",
+		"WC-2026-11-10-widget-data-read-door",
+		"WC-2026-11-10-wipe-filter-user-default",
+		"WC-2026-11-11-export-inverse-callers",
+		"WC-2026-11-11-export-related-references-column",
+		"WC-2026-11-11-export-value-single-walker",
+		"WC-2026-11-11-iri-import-label-frame",
+		"WC-2026-11-11-ontology-model-rules",
+		"WC-2026-11-11-pdf-transcription-restored",
+		"WC-2026-11-11-relation-index-related-list-context",
+		"WC-2026-11-11-relation-list-column-grants",
+		"WC-2026-11-11-section-elements-target-groups",
+		"WC-2026-11-11-svg-tag-url-full-media-path",
+		"WC-2026-11-12-calculation-widget-port",
+		"WC-2026-11-12-datalist-principal-record-scope",
+		"WC-2026-11-12-db-bounds-on-by-default",
+		"WC-2026-11-12-diffusion-external-chain",
+		"WC-2026-11-12-diffusion-map-target-section-tipo",
+		"WC-2026-11-12-duplicate-image-svg-envelope",
+		"WC-2026-11-12-export-json-geolocation-cells",
+		"WC-2026-11-12-export-text-cell-clean",
+		"WC-2026-11-12-global-table-maps",
+		"WC-2026-11-12-image-id-media-file-stem",
+		"WC-2026-11-12-info-live-publication-export",
+		"WC-2026-11-12-lang-fallback-judges-emptiness",
+		"WC-2026-11-12-locator-target-deleted-refused",
+		"WC-2026-11-12-marc21-config-map-and-transforms",
+		"WC-2026-11-12-media-provenance-repair-one-kernel",
+		"WC-2026-11-12-number-type-precision-on-save",
+		"WC-2026-11-12-numisdata-widgets-locator-law",
+		"WC-2026-11-12-posterframe-identifying-image-scope",
+		"WC-2026-11-12-rdf-graph-interpretation",
+		"WC-2026-11-12-recovery-mode-retired",
+		"WC-2026-11-12-search-hop-join-record-address",
+		"WC-2026-11-12-section-id-open-between",
+		"WC-2026-11-12-select-dataframe-subdatum",
+		"WC-2026-11-12-tool-configuration-override",
+		"WC-2026-11-12-translation-write-value-gates",
+		"WC-2026-11-12-tree-term-escaped",
+		"WC-2026-11-12-unimplemented-component-models",
+		"WC-2026-11-12-update-cache-external-mirror-refresh",
+		"WC-2026-11-12-wipe-respects-virtual-exclusion",
+		"WC-2026-11-12-zotero-csl-json-import",
+		"WC-2026-11-13-calculation-tld-packages",
+		"WC-2026-11-13-calculation-total-records-no-frontier",
+		"WC-2026-11-13-csv-ingest-size-ceiling",
+		"WC-2026-11-13-csv-staged-file-read-error-card",
+		"WC-2026-11-13-datalist-labels-restricted-and-dynamic-filter",
+		"WC-2026-11-13-export-acl-components-exportable",
+		"WC-2026-11-13-export-media-cell-type",
+		"WC-2026-11-13-export-tag-marks-plain-text",
+		"WC-2026-11-13-external-empty-entry-dropped",
+		"WC-2026-11-13-external-outage-keeps-previous-row",
+		"WC-2026-11-13-geolocation-representative-point",
+		"WC-2026-11-13-info-derived-async-published",
+		"WC-2026-11-13-info-parsed-face-published",
+		"WC-2026-11-13-number-sort-numeric",
+		"WC-2026-11-13-observer-refresh-data",
+		"WC-2026-11-13-rdf-canonical-xsd-lexical",
+		"WC-2026-11-13-rdf-relation-list-config",
+		"WC-2026-11-13-section-map-term-uncovered-throws",
+		"WC-2026-11-13-sort-non-scalar-refused",
+		"WC-2026-11-13-tags-widget-original-lang",
+		"WC-2026-11-13-text-area-broken-tag-repair",
+		"WC-2026-11-13-use-real-sections-highest-grant",
+		"WC-2026-11-17-tm-restore-value-gates",
+		"WC-2026-11-19-data-version-unreachable",
+		"WC-2026-11-19-error-report-email-transport",
+		"WC-2026-11-19-external-api-url-unpublished",
+		"WC-2026-11-19-legacy-aes-lazy-rehash-retired",
+		"WC-2026-11-19-maintenance-legacy-passwords-widget",
+		"WC-2026-11-19-media-url-version-key",
+		"WC-2026-11-19-window-features-grammar",
+		"WC-2026-11-21-empty-literal-stored-absent",
+		"WC-2026-11-21-implicit-section-node-never-a-column",
+		"WC-2026-11-21-ontology-alias-target-defects",
+		"WC-2026-11-21-resolve-data-injected-value-bound",
+		"WC-2026-11-21-root-password-write-refused",
+		"WC-2026-11-21-text-area-edit-fallback-is-text",
+		"WC-2026-11-22-areas-deny-subtree",
+		"WC-2026-11-22-av-upload-build-running",
+		"WC-2026-11-22-change-lang-declared-data-lang",
+		"WC-2026-11-22-diffusion-dataframe-hop",
+		"WC-2026-11-22-diffusion-ddo-empty-value",
+		"WC-2026-11-22-diffusion-excluded-elements",
+		"WC-2026-11-22-hierarchy-root-link-rule",
+		"WC-2026-11-22-indexation-fragment-served",
+		"WC-2026-11-22-maintenance-access-predicate",
+		"WC-2026-11-22-media-icons-tc",
+		"WC-2026-11-22-permissions-tree-containment",
+		"WC-2026-11-22-properties-label-override-chain",
+		"WC-2026-11-22-regenerate-facet",
+		"WC-2026-11-22-section-containment-law",
+		"WC-2026-11-22-start-area-page-door",
+		"WC-2026-11-22-start-component-lang",
+		"WC-2026-11-22-state-of-component-msg-refused",
+		"WC-2026-11-22-term-fallback-chain",
+		"WC-2026-11-22-tm-recover-consumes-deleted-listing",
+		"WC-2026-11-22-tool-availability-context",
+		"WC-2026-11-23-tool-lang-browser-translation-labels",
+		"WC-2026-11-24-tool-open-as-attach",
+		"WC-2026-11-25-implicit-component-target-caller-section",
+		"WC-2026-11-25-publication-host-ipv6-listener",
+		"WC-2026-11-25-publication-host-one-machine-install",
+		"WC-2026-11-25-publication-host-public-url-http-upgrade",
+		"WC-2026-11-25-section-context-color",
+		"WC-2026-11-26-build-database-version-panel"
+	],
+	"notes": {
+		"action_needed": [
+			"Dédalo now runs on Bun 1.4.5, a security release.",
+			"The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser.",
+			"Error reports are stored on your installation and sent by email; the anonymous report intake is removed.",
+			"A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting",
+			"Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused",
+			"The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused.",
+			"Publication fills the global search and map tables again",
+			"RDF publication produces real Linked Data (Nomisma).",
+			"SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders.",
+			"The \"+\" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section.",
+			"A publication host in copy mode no longer answers \"not found\" for every published file."
+		],
+		"entries": [
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "\"Propagate component data now requires access to the section, not only to the field.\""
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Record text shown by widgets and tools is always displayed as text; markup stored in a record no longer runs there."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Selects, radio buttons and check boxes offer only the options you may see, and the ones that fit the record."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "A search through a linked record no longer matches links held in fields you cannot see in that record's section."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Automatic translation cleans rich text exactly like a normal save"
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Thesaurus and ontology tree terms are always shown as text; markup typed into a term no longer runs."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "The References panel and related-record lists show only the columns the user may read."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "The \"+\" of a portal (and Duplicate, add term, the assistant) now needs permission to create in the target section."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Graph labels and the thesaurus indexation list show only what the user may read."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "The transcription print feed now checks the section, the transcription field and every note it shows."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Info widgets are computed only for users who may read the widget's section and component."
+			},
+			{
+				"type": "security",
+				"audience": "user",
+				"title": "Exports no longer include linked records outside your projects."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "CSV import buttons use the tool's colour"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Publication field keeps its switch in the time machine preview"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Time machine buttons use the tool's colour"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "File drop zone uses the tool's colour"
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The Stop button of a running process shows a stop icon."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Activating or repairing a hierarchy links its root term only when it is unambiguous — the one term without a parent — and keeps every valid root.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Importing URIs as JSON: a property the URI field does not know is refused by name, the URL loses its surrounding spaces, and an empty item is refused.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"A field placed inside a `box elements` container of the ontology is no longer treated as a field of its section — deleting a record's data leaves it, and searches and lookups ignore it, as in v6.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "A term added from the thesaurus tree is no longer marked descriptor and indexable automatically."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Zotero import: a whole-number call number is the record number — checked, and refused when it would overwrite another reference.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Zotero import: the highest record number is the only limit of a call number, a Zotero key is checked in the whole section, and you are warned about a record you may not change.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Zotero import: a record taken over by a reference is listed apart, and a reference without a Zotero key that names another reference's record is refused with an explanation.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Exported text cells no longer carry the editor's tag marks."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Zenon search results show author names without the role labels."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "An image's file name (the `image_id` field) must be unique in its section and cannot be changed while the image's files exist; a duplicate gets its own file name."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "A selected value you may not see, or that no longer fits the record, now shows as *(restricted)* instead of vanishing."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "An open-ended Id range means what it says — `5...` is every id from 5 up, `...5` every id up to 5, and `...` alone is an empty input."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Translate all languages no longer offers the Local AI translator; Translation keeps it."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "\"Zotero import: an export over 64 MB is refused.\""
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Media versions: the thumb opens in the tool's preview, like the other qualities."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Search-as-you-type keeps the previous results on screen while it looks for the new ones, and answers sooner."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "Search-as-you-type in a field that links to many sections answers several times faster."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "A record that points at a term from a section you cannot read shows its section name and id, in the edit form, in panels and in exports."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The export tool scrolls to the download buttons when an export finishes."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The user's record filter list can be searched and sorted."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "IRI labels follow their IRI's permission; Time Machine notes belong to the change they annotate."
+			},
+			{
+				"type": "changed",
+				"audience": "user",
+				"title": "The Ontology and Thesaurus trees are now usable on phones and tablets."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "On a phone, a list can be turned to the next page from its end."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Lists show the section's identifying colour, as the edit form does."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Thesaurus and ontology tree searches can now step through the found terms."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "A field's search options now explain the search operators, with a sample for each and what it finds."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Exports can include the calculated relations of a related-terms column, in a column of their own."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "Users see their own activity statistics in their profile."
+			},
+			{
+				"type": "added",
+				"audience": "user",
+				"title": "The map field shows the common unsaved-changes line, and its reload and add-point icons have tooltips."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Menu bar items vertically centred when an instance colour is set"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Searching a number in an autocomplete whose fields include the record id no longer fails."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Tool permissions list keeps its size on activation and highlights checked tools"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the record graph view stacks the graph above the record panel."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the Id header of each record card lines up with the rest of the card."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, a long menu can be scrolled to its last entries."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the top bar's buttons are finger-sized and line up."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the list edit and delete-record dialogs fit the screen."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Escape closes a dialog while typing in a text field."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone or touch screen, the thesaurus tree is easier to tap."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "On a phone, the multi-language tool's controls fit the screen and each language is set apart."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The JSON editor's indent guides are readable in the dark theme."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"An audiovisual record without a stored duration shows its measured duration, or nothing — no longer an invented 00:00:00.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An audio/video upload is refused while a version of the same file is still being built."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Choosing a data language the installation does not have is refused."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"The text fragments of the indexation grid show their images on installations that serve media from a separate address, and a cut fragment never ends in half a tag mark.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"A refused language change no longer clears open sections or leaves the selector on the refused language.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Labels and defaults follow the language you chose, not the installation's."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Sorting a list by a translatable field follows your data language."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"A field that points to a list shared between installations (yes/no and the other common lists) no longer offers non-root users the buttons to open or edit that list's records.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A link that opens a single field now shows it in the right language."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"The tooltip of a component's state icon (an alternative or deprecated field) shows readable text in your language, naming the field it points to — no longer a label key.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"The state widget's edit options now show in the data language you chose.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A thesaurus term missing in your language now shows in another of your project languages, marked as untranslated, and shows every value it holds."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"A record recovered from the Time Machine no longer stays in the list of deleted records, and the section's list opens again without its old search.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"Tool names and help texts missing in the interface language fall back to its declared equivalent language (Valencian shows Catalan) instead of English.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Local AI translator no longer loses, reverses or invents marks silently"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Searching through a field without its own configuration uses the same columns as its list."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A field's dataframes are the same set when it is shown, saved, restored and exported."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search filter chips past the first page show their labels."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An empty text area shows the other language's text as plain text, and list previews load their images from the media server."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Uploading a very large file no longer fails while the server is still assembling it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Videos on some servers no longer show a 2-second duration in the edit view and the versions tool."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Reverting a batch run cleans the values it puts back like a normal save"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "\"CSV import: a record number above the limit skips only its row.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A field opened in fullscreen from the ontology or thesaurus tree fills the screen again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Fullscreen fields show their tools in every active-field style; Lift joins a portal's search bar to its card."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Lift active-field style no longer hides its tools or overlaps the ontology tree."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The ontology window opened from a Children/Parent row now always shows and highlights the term."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The thesaurus picker under a field lines up with it and fits a phone screen."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Parent and Children columns in lists read as one line again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Restoring a version from the Time Machine cleans the value like a normal save"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Local AI translation no longer reports success when the translation could not be saved"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A CSV too large to import is refused when it is uploaded, and the import panel shows why a staged file cannot be read"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A CSV the import tool cannot read now shows as a card you can delete."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Escape now leaves a text area or JSON field, as it does every other field."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An empty Zenon field no longer shows a blank column."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Long words in narrow list columns no longer spill over the next column."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Regenerating a media file now restores its original file name the same way from both tools."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Creating or duplicating a record that would link to a deleted record is refused."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Sorting a list by a number column orders the values numerically (2, 9, 10), not as text (10, 2, 9)."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Changing or clearing the person of a biographical milestone clears the milestone again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Searching the ontology or a thesaurus no longer stops working until the page is reloaded."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Long values in search-form autocomplete fields are readable again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Select options with a dataframe no longer end in a stray separator."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Transcription tag statistics count the interview's own-language text"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Transcriptions show again, in blue, the tags whose pair or indexation is broken."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A text area whose translation was emptied shows the other-language text in lists too."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The thesaurus and ontology search panels list each field once, and offer every field any of your hierarchies lets you read."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Calculated fields (totals, periods, amounts, date sums) compute again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An emptied translation shows the other-language text again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Searching or sorting through a link to external records no longer fails or matches the wrong record."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Deleting a record's data no longer empties fields its section hides."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A duplicated record's image opens in the edit view again, with its drawing layers."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "JSON and geolocation columns are no longer blank in exports."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Exported text cells read as plain text — paragraphs become line breaks, HTML entities are decoded."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Images named by their \"Filename\" field open, upload and regenerate under that name again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Relation fields without their own configuration show their linked records in the view the ontology asks for (e.g. mini, text)."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Linking to a record that was just deleted is now refused instead of leaving a broken link."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Archive weight statistics and coins-by-period counts are correct again"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The posterframe tool offers identifying images for records of virtual sections, and creates them through portals whose target is set only in their configuration."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The thesaurus “Parent” field no longer offers a “new record” button."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Sorting a list by a number or JSON column orders by its value again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Layout-only panels (`section_group_div`) render again without a header."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "An open-ended Id range (5... or ...5) in search no longer returns every record."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A select with a dataframe (such as the uncertainty of a coin's discovery method) shows and saves its frame again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Thesaurus labels drawn from a linked term, a list value or the record id are no longer blank or truncated."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Time Machine keeps the previous value on the first edit of imported data."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search filters and user-activity statistics no longer fill the Time Machine"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The thesaurus tree shows the equivalence (EQ) icon on both terms of an equivalence, not only on the one where it was entered."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Search, export and cache-update field lists no longer offer obsolete field types."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Zotero import works again — CSL JSON exports, PDFs and cover images are imported."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Exports now include the records that point at each record (the Relations field), instead of an empty column."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Export and search can pick fields from every section a field points to, not only the first."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Exports in the Standard format follow each column's configured fields and separators, and relation columns that came out blank now carry their values."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Importing a URI with a label now saves the label, and a text label is found or created."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A Word or OpenDocument file uploaded to a PDF field is no longer published as its PDF."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Uploading a PDF fills its transcription field again, and the OCR option works."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The Indexations field of a thesaurus term shows the columns of the records that point at it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The `=` exact-match search now ignores letter case, so `=vic` finds \"Vic\"."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "SVG glyphs in text tags now resolve in lists and publications for vector components stored in sub-folders."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Date fields inside portal rows no longer stack their buttons"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Emptying a record's data no longer moves it out of your project."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The close (×) button of a field inside a list row shows only while that field is hovered or active."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Open relationships dialog no longer jumps when switching scope"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A record edited in its own window now shows the saved value in the list or field that opened it."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A refreshed portal shows its values normally, with their separators."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Related-records columns show their values in lists and in the record history."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The References panel and delete dialogs show the columns of thesaurus terms and other virtual sections again."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Profiles: the permissions tree uses the full width and reads well on phones."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Restoring a Time Machine version that equals the current value no longer adds history."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Translation tool: Copy to target works again; panes fill the window and fit narrow screens"
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The multi-language tool's **Automatic translation** works: it offers the same engines as the single-language tool."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The transcription print tool shows why it cannot open instead of staying blank."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A portal no longer refuses to refresh when one of its target sections is closed to you."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Saving a hierarchical autocomplete on a duplicated record no longer fails with \"cannot delete path in scalar\"."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Fields whose value holds an empty object no longer look edited when they are not."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Exporting a related field no longer refuses what the record already shows you."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Refreshing a map with drawn points no longer throws errors or loses its layer control."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Records linked from the list's link button no longer store the stray `close_modal` key in their locator."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "The ontology tree shows each node's model name once, not twice."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Link resource now works from a component opened inside the Ontology or Thesaurus tree."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "A portal's \"Link resource\" picker now saves every pick, and unlinks too."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Reloading a record's edit page keeps the record's place in its search results."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Saving a profile's access permissions no longer reports an error on slow connections when the save went through."
+			},
+			{
+				"type": "fixed",
+				"audience": "user",
+				"title": "Opening a term in a new tree window now jumps straight to it and keeps it in view."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The `root` password can no longer be changed from inside the application"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Error reports are stored on your installation and sent by email; the anonymous report intake is removed."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "An external service's API addresses are no longer sent to the browser, and may not carry a query string"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "Maintenance mode now closes every route to non-root sessions, not only the API"
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The server unit runs on a read-only file system; the installer upgrades its own earlier templates and the update names the re-render command."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The installer verifies every ontology file against its source's digest; long boots are no longer restarted by the watchdog; the server unit runs sandboxed."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The Docker stacks now pin PostgreSQL, nginx, certbot, MariaDB and pgvector to an exact version and digest."
+			},
+			{
+				"type": "security",
+				"audience": "admin",
+				"title": "The Hierarchy tool's \"Force to create\" only rebuilds a hierarchy's own ontology, and deleting a hierarchy record no longer uninstalls an ontology it does not own."
+			},
+			{
+				"type": "removed",
+				"audience": "admin",
+				"title": "The setting TOOLS_REGISTRY_CACHE_TTL_MS is removed."
+			},
+			{
+				"type": "removed",
+				"audience": "admin",
+				"title": "The old `filtered_by_search_dynamic` option filter is no longer read; a field that still relies on it alone is refused."
+			},
+			{
+				"type": "removed",
+				"audience": "admin",
+				"title": "The \"recovery mode\" switch is gone; a damaged ontology is now repaired from the command line."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The PDF viewer is updated to pdf.js 6.5.438."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Dédalo now runs on Bun 1.4.5, a security release."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "\"Installing a publication host is easier: the guided install handles IPv4 + IPv6 and redirect virtual hosts, Enter takes ordinary defaults, the panel prints the one-server install, and the public check accepts an http address that moves to https.\""
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "\"The activity log no longer records actions on the search presets being edited, on the Time Machine itself or on the daily activity statistics.\""
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A denied area now hides everything under it, in the menu and in the profile permissions."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "\"The data-language sync setting is now called DEDALO_DATA_LANG_SYNC, as in v6.\""
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "\"The language settings now all carry their v6 DEDALO_ names.\""
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A text field cleared in every language is stored as absent, not as an empty item."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Update-code panel says when the database's data version blocks a code update"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The Update-data panel's \"Not updated\" notice is shown in your language"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Accounts still on a v6 password are counted at start, and the log names the command that fixes them"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Calculated fields: a formula definition must name the TypeScript engine and a `.ts` formula file; the earlier engine's definitions are refused"
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A publication aggregate table whose column mapping names a column that exists nowhere is refused at validation instead of being silently left out; a column only a table alias carries is filled by the alias."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "The image updater brings the stack's PostgreSQL, nginx, certbot, MariaDB and pgvector up to the release's pins — and refuses a new database major, which is a migration."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Information fields export every widget, the user-activity widget included; they are computed-only fields the cache and the CSV import leave alone."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Published information fields carry the readable value the record page shows (a duration as text, not its internal object); on-demand widgets are published too."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "\"MARC21 import: a conditional rule with no matching copy writes nothing, and a rule can join every repetition of one field (`occurrences: \\\"all\\\"`).\""
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "Database statements slower than five seconds are now logged by default."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A section whose term names a component the engine cannot render as text now fails loudly instead of showing blank labels."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A request now waits at most 30 seconds for a free database connection by default."
+			},
+			{
+				"type": "changed",
+				"audience": "admin",
+				"title": "A database statement of ordinary request traffic is now stopped after one minute by default."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The Local AI translator offers a choice of pinned models"
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The ontology check names alias components that point at a component they cannot stand in for."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Maintenance lists the records that lack a field's default value; the manual states when a default is written."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Every conversion of v6 passwords is recorded in the activity log"
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Accounts still on a v6 password can be converted from the Maintenance area"
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Permission matrices and record filters can be exported."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The ontology status panel names URL components that are wrongly marked as translatable"
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "Ontology update list can open full screen."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "The publication host draft form can set a custom site home."
+			},
+			{
+				"type": "added",
+				"audience": "admin",
+				"title": "An installation can now be given its own colour, so several installations open side by side can be told apart."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"A failed download of the IP-to-country database no longer stops the server while it starts.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Maintenance map panel fits a phone screen."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Diffusion: a `text_format` pattern no longer strips a leading `/` (or other separator) from the value itself.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Diffusion: a value MariaDB refuses names the record instead of stopping the run with an unexpected error.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Diffusion writes the `publication_schema` table again, so `resolve_inverse_relations=true` works on v7 publications.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A code update renames retired configuration keys itself instead of failing."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"lg-nolan can no longer be configured as the working data language.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Publication: a relation's `empty_value` keeps every item's place, and a field's frames publish only for the main field they belong to.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Diffusion elements excluded in the tool configuration are hidden and refused again."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Publication: the Download button of a file publication's report works when media is served from another address.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Publication: a table's `is_publishable` setting is honoured in every publication run.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"An information field observing another field now recomputes on the records its `server.config` names.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The command-line MCP server answers in its account's languages."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The profile permissions no longer offer fields that are not part of the section."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Thumbnails in similar-object, identification and characterisation results follow the media web address.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"The References panel no longer opens a column for a section, the exclude marker or the old security field.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A link to the Ontology area no longer opens a page that then refuses"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"The process-state widget now follows a multi-step path to its state field.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "After logging in as the superuser you land on the Maintenance area again."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "\"Update cache brings old stored formats up to date: legacy time codes in text areas and JSON stored as text.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A relation list that names two sections resolves to the last one, and never shows a section as a column."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Login reads an empty or malformed stored password the same way everywhere"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A node with two children of one model always resolves to the first by order."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The Update data panel speaks the administrator's language throughout"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A damaged server state file now keeps maintenance mode on instead of silently switching it off"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Starting v7 on a Dédalo v6 database now says the database is not migrated"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A system search across two or more linked sections no longer matches through a record stored in another table."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Published bibliography columns that read from Zenon now carry their values."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A publication run no longer empties a record's remote (Zenon) values when the remote service is down: the record is held back, reported, and retried by the next run."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A published geolocation column places an area or a route at one representative point instead of publishing the whole outline under the longitude."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The release-archive install has a worked example, and `install.sh` says what `--release-sha256` takes."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The installer says a checkout, instance or database is already installed on the System check or the Database screen, not after the Review."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Published RDF writes dates, years, integers and booleans in the standard XSD form, so the documents validate (a year -25 is written -0025)."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "An RDF property over a relation list may narrow the referencing records by section and by linking field (its `config`); such elements compile again."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A Tools configuration record that points a picker tool at another section lets that section's records be linked."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Publishing hierarchies and text-area geolocation fields no longer reports errors and leaves empty columns."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Publication fills the global search and map tables again"
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Information fields (calculated widgets) are published and exported with their current value."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A new installation's first update no longer rebuilds every search index."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "MARC21 import reads its field map from the Tools configuration and applies every mapping rule and the Values form."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Number fields are now stored with the type and decimals their definition declares, whichever way the value arrives."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "RDF publication produces real Linked Data (Nomisma)."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The activity-log and publication-ledger retention prunes now run in small committed batches."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A tool configuration record can again redefine which components a tool uses on one field or button."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Update cache now recomputes external portals instead of reporting a false success."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A failed code-only or same-version update now puts the previous code back by itself."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The **Latest changes** list in a profile's permissions shows the ontology updates again."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "The login page now opens in the installation's default interface language."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Profile tool permissions list is readable on a phone."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A publication host in copy mode no longer answers \"not found\" for every published file."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Publication host install accepts passwords with accented letters (ñ, ç, ü…) and any language's letters."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "Saving a field of a record that does not exist (or was deleted) is refused instead of creating the record."
+			},
+			{
+				"type": "fixed",
+				"audience": "admin",
+				"title": "A refused maintenance action now shows the server's reason in the panel, not only a generic sentence."
+			},
+			{
+				"type": "security",
+				"audience": "developer",
+				"title": "A tool's window size and position are read as data, never run as code"
+			},
+			{
+				"type": "changed",
+				"audience": "developer",
+				"title": "A field with no sortable value (links, IRIs, media, access rules, passwords) can no longer be used to sort a list."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "\"The install seed can be built from an ontology master's latest release — from the command line or the maintenance panel.\""
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "\"Publication API v2: fulltext search takes `lang`.\""
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "Tools can open attached to their component, with no modal or window."
+			},
+			{
+				"type": "added",
+				"audience": "developer",
+				"title": "\"An element's `properties.label` lang map now replaces its label in the edit and list contexts, chosen through the same language fallback as every ontology label.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "A component whose list configuration names no section now reads from the caller's own section."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "\"Publication API v2: AV fragments on a database without the AV tables answer 400, not 500.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "\"Publication API v2: `resolve_inverse_relations=true` on a database without a `publication_schema` table answers 400, not 500.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "\"Publication API v2: range filters compare numbers as numbers, so BC dates work.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "Object identification's grouping run refuses a language the installation does not have."
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "\"A tool's `affected_tipos` honours its declared wildcard (`test*` = every element of that TLD) and regular-expression entries, and a tool restricted to a mode (`properties.mode`) only shows in that mode.\""
+			},
+			{
+				"type": "fixed",
+				"audience": "developer",
+				"title": "\"A tool's availability check receives the real section and mode of the element it is offered on; inside Time Machine (dd15) only the export tool is offered.\""
+			}
+		]
+	}
+}
