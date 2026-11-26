@@ -4214,6 +4214,11 @@
 			"skipped": 0,
 			"assertions": 41
 		},
+		"test/unit/ontology_release_pull.test.ts": {
+			"tests": 7,
+			"skipped": 0,
+			"assertions": 37
+		},
 		"test/unit/ontology_root_node_typology_native.test.ts": {
 			"tests": 1,
 			"skipped": 0,
@@ -5884,6 +5889,11 @@
 			"skipped": 0,
 			"assertions": 70
 		},
+		"test/unit/seed_build_download_native.test.ts": {
+			"tests": 4,
+			"skipped": 0,
+			"assertions": 19
+		},
 		"test/unit/seed_build_native.test.ts": {
 			"tests": 13,
 			"skipped": 0,
@@ -5908,6 +5918,11 @@
 			"tests": 4,
 			"skipped": 0,
 			"assertions": 11
+		},
+		"test/unit/seed_panel_native.test.ts": {
+			"tests": 16,
+			"skipped": 0,
+			"assertions": 54
 		},
 		"test/unit/seed_restore_temp_confinement_native.test.ts": {
 			"tests": 3,
