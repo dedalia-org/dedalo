@@ -39,10 +39,12 @@
  * `core/ai/model_integrity.ts` (node-only imports; no ai/ graph comes with it).
  */
 
+import { randomUUID } from 'node:crypto';
 import {
 	createWriteStream,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -303,7 +305,9 @@ function watchSinkError(sink: ReturnType<typeof createWriteStream>): {
 	const watch: { promise: Promise<never>; error: Error | null } = {
 		error: null,
 		promise: new Promise<never>((_, reject) => {
-			sink.once('error', (error: Error) => {
+			// `on`, not `once`: a SECOND error event with no listener would be uncaught.
+			sink.on('error', (error: Error) => {
+				if (watch.error !== null) return;
 				watch.error = error;
 				reject(error);
 			});
@@ -407,6 +411,8 @@ export async function downloadCountryDb(
 	deps: {
 		streamToFile?: (url: string, destPath: string, pinToDbip: boolean) => Promise<number>;
 		gunzipWithCaps?: (srcPath: string, destPath: string) => Promise<number>;
+		/** The scratch-name token (a gate pins it to predict the names). */
+		scratchToken?: string;
 	} = {},
 ): Promise<GeoipDownloadResult> {
 	const fetchFile = deps.streamToFile ?? streamToFile;
@@ -417,7 +423,7 @@ export async function downloadCountryDb(
 		return { ok: false, error: (error as Error).message };
 	}
 
-	const paths = downloadPaths(dir);
+	const paths = downloadPaths(dir, deps.scratchToken);
 	if (paths === null) {
 		return { ok: false, error: 'unconfined geoip download path' };
 	}
@@ -431,6 +437,7 @@ export async function downloadCountryDb(
 	} catch (error) {
 		return { ok: false, error: `cannot create geoip dir: ${(error as Error).message}` };
 	}
+	sweepStaleScratch(dir);
 
 	let lastError = 'no candidate URL';
 	for (const url of urls) {
@@ -496,25 +503,66 @@ async function attemptCandidate(
 
 /**
  * The three files of one download in `dir`, each confined to it (null when any is
- * not). The .gz and the decompressed .part are THIS PROCESS's own files: two servers
- * on one private dir (the CI lanes, a restart overlap) booting together used to
- * stream into the same fixed names and clobber each other's partial bytes. Only the
- * finished database is published under the shared name, by an atomic rename.
+ * not). The .gz and the decompressed .part belong to THIS download (a random token,
+ * not the pid — a container's server is often pid 1, so two containers on one shared
+ * volume would collide again): two servers on one private dir (the CI lanes, a
+ * restart overlap) booting together used to stream into the same fixed names and
+ * clobber each other's partial bytes. Only the finished database is published under
+ * the shared name, by an atomic rename.
  */
-function downloadPaths(dir: string): { gzPath: string; partPath: string; mmdbPath: string } | null {
-	const gzPath = confinedPath(dir, downloadScratchName('gz'));
-	const partPath = confinedPath(dir, downloadScratchName('part'));
+function downloadPaths(
+	dir: string,
+	token: string = randomUUID(),
+): { gzPath: string; partPath: string; mmdbPath: string } | null {
+	const gzPath = confinedPath(dir, downloadScratchName('gz', token));
+	const partPath = confinedPath(dir, downloadScratchName('part', token));
 	const mmdbPath = confinedPath(dir, DB_BASENAME);
 	if (gzPath === null || partPath === null || mmdbPath === null) return null;
 	return { gzPath, partPath, mmdbPath };
 }
 
+/** One download's scratch file name: `<db>.<token>.<kind>`. */
+export function downloadScratchName(kind: 'gz' | 'part', token: string): string {
+	return `${DB_BASENAME}.${token}.${kind}`;
+}
+
+/** A scratch file this old belongs to a download that died (a crash, a SIGKILL). */
+const STALE_SCRATCH_MS = 24 * 60 * 60 * 1000;
+
 /**
- * This process's scratch file name for a download in flight: `<db>.<pid>.<kind>`.
- * Per process, so concurrent servers on one cache dir never share partial bytes.
+ * Remove scratch files a dead download left in `dir` (per-download names are never
+ * overwritten, so nothing else would). Only files older than a day: a fresh one may
+ * be another server's download in flight. Best-effort, never throws.
  */
-export function downloadScratchName(kind: 'gz' | 'part'): string {
-	return `${DB_BASENAME}.${process.pid}.${kind}`;
+export function sweepStaleScratch(dir: string, now: number = Date.now()): string[] {
+	const removed: string[] = [];
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return removed;
+	}
+	for (const name of names.filter(isScratchName)) {
+		const path = confinedPath(dir, name);
+		if (path === null || !isOlderThan(path, now - STALE_SCRATCH_MS)) continue;
+		safeRemove(path);
+		removed.push(name);
+	}
+	return removed;
+}
+
+/** A download scratch name (`<db>.<token>.gz|part`) — never the database itself. */
+function isScratchName(name: string): boolean {
+	return name.startsWith(`${DB_BASENAME}.`) && /\.(gz|part)$/.test(name);
+}
+
+/** Whether `path` was last modified before `cutoff` (false when it cannot be read). */
+function isOlderThan(path: string, cutoff: number): boolean {
+	try {
+		return statSync(path).mtimeMs < cutoff;
+	} catch {
+		return false;
+	}
 }
 
 /**

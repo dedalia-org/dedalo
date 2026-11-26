@@ -19,10 +19,11 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
 	assertAcceptableResponse,
@@ -34,10 +35,13 @@ import {
 	gunzipWithCaps,
 	pumpToFile,
 	sidecarPath,
+	sweepStaleScratch,
 	validateDownloadUrl,
 } from '../../src/core/geoip/download.ts';
 
 const SCRATCH = mkdtempSync(join(tmpdir(), 'dd-geoip-dl-'));
+/** The scratch-name token the downloadCountryDb gates pin (deps.scratchToken). */
+const TOKEN = 'gate-token';
 
 afterAll(() => {
 	rmSync(SCRATCH, { recursive: true, force: true });
@@ -354,6 +358,7 @@ describe('downloadCountryDb', () => {
 		const seenDest: string[] = [];
 		let mmdbDuringDecompress = null as boolean | null;
 		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
+			scratchToken: TOKEN,
 			streamToFile: async (_url, dest) => {
 				seenDest.push(dest);
 				writeFileSync(dest, 'GZ');
@@ -361,23 +366,57 @@ describe('downloadCountryDb', () => {
 			},
 			gunzipWithCaps: async (src, dest) => {
 				seenDest.push(dest);
-				expect(src).toBe(join(dir, downloadScratchName('gz')));
+				expect(src).toBe(join(dir, downloadScratchName('gz', TOKEN)));
 				writeFileSync(dest, 'MMDB-BYTES');
 				mmdbDuringDecompress = existsSync(join(dir, DB_BASENAME));
 				return 10;
 			},
 		});
 		expect(result).toEqual({ ok: true, mmdbPath: join(dir, DB_BASENAME) });
-		// Both partial files carry THIS process's id; the shared name appears only
+		// Both partial files carry THIS download's token; the shared name appears only
 		// once the bytes are whole (rename), and the scratch files are gone after.
 		expect(seenDest).toEqual([
-			join(dir, `${DB_BASENAME}.${process.pid}.gz`),
-			join(dir, `${DB_BASENAME}.${process.pid}.part`),
+			join(dir, `${DB_BASENAME}.${TOKEN}.gz`),
+			join(dir, `${DB_BASENAME}.${TOKEN}.part`),
 		]);
 		expect(mmdbDuringDecompress).toBe(false);
 		expect(readFileSync(join(dir, DB_BASENAME), 'utf8')).toBe('MMDB-BYTES');
-		expect(existsSync(join(dir, downloadScratchName('gz')))).toBe(false);
-		expect(existsSync(join(dir, downloadScratchName('part')))).toBe(false);
+		expect(existsSync(join(dir, downloadScratchName('gz', TOKEN)))).toBe(false);
+		expect(existsSync(join(dir, downloadScratchName('part', TOKEN)))).toBe(false);
+	});
+
+	test('a download draws a FRESH token each time — never the pid (a container server is often pid 1)', async () => {
+		const dir = join(SCRATCH, 'fresh_token');
+		const seen: string[] = [];
+		const stub = {
+			streamToFile: async (_url: string, dest: string) => {
+				seen.push(basename(dest));
+				throw new Error('stop');
+			},
+		};
+		await downloadCountryDb(dir, 'https://mirror.test/db.gz', stub);
+		await downloadCountryDb(dir, 'https://mirror.test/db.gz', stub);
+		expect(seen).toHaveLength(2);
+		expect(seen[0]).not.toBe(seen[1]);
+		for (const name of seen) expect(name).not.toContain(String(process.pid));
+	});
+
+	test('scratch a dead download left is swept after a day; a fresh one (in flight) is kept', () => {
+		const dir = join(SCRATCH, 'sweep');
+		mkdirSync(dir, { recursive: true });
+		const old = join(dir, downloadScratchName('gz', 'dead'));
+		const oldPart = join(dir, downloadScratchName('part', 'dead'));
+		const fresh = join(dir, downloadScratchName('part', 'live'));
+		const unrelated = join(dir, 'notes.gz');
+		for (const path of [old, oldPart, fresh, unrelated]) writeFileSync(path, 'x');
+		const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+		for (const path of [old, oldPart, unrelated]) utimesSync(path, twoDaysAgo, twoDaysAgo);
+		writeFileSync(join(dir, DB_BASENAME), 'DB');
+		utimesSync(join(dir, DB_BASENAME), twoDaysAgo, twoDaysAgo);
+		expect(sweepStaleScratch(dir).sort()).toEqual([basename(old), basename(oldPart)].sort());
+		expect(existsSync(fresh)).toBe(true);
+		expect(existsSync(unrelated)).toBe(true);
+		expect(existsSync(join(dir, DB_BASENAME))).toBe(true); // the database is never scratch
 	});
 
 	test('a failed attempt never removes a database it did not publish', async () => {
@@ -386,6 +425,7 @@ describe('downloadCountryDb', () => {
 		// Another process's good database under the shared name.
 		writeFileSync(join(dir, DB_BASENAME), 'OTHER-PROCESS-DB');
 		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
+			scratchToken: TOKEN,
 			streamToFile: async (_url, dest) => {
 				writeFileSync(dest, 'GZ');
 				return 2;
@@ -397,7 +437,7 @@ describe('downloadCountryDb', () => {
 		});
 		expect(result).toEqual({ ok: false, error: 'corrupt gzip' });
 		expect(readFileSync(join(dir, DB_BASENAME), 'utf8')).toBe('OTHER-PROCESS-DB');
-		expect(existsSync(join(dir, downloadScratchName('part')))).toBe(false);
+		expect(existsSync(join(dir, downloadScratchName('part', TOKEN)))).toBe(false);
 	});
 
 	test('D11 (wired 2026-08-09): a hard failure does NOT consume the second candidate', async () => {
@@ -428,8 +468,9 @@ describe('downloadCountryDb', () => {
 		const dir = join(SCRATCH, 'unremovable');
 		mkdirSync(dir, { recursive: true });
 		// A DIRECTORY at the .gz path: rmSync(force:true) on it raises ERR_FS_EISDIR.
-		mkdirSync(join(dir, downloadScratchName('gz')), { recursive: true });
+		mkdirSync(join(dir, downloadScratchName('gz', TOKEN)), { recursive: true });
 		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
+			scratchToken: TOKEN,
 			streamToFile: async () => {
 				throw Object.assign(new Error('not found: u'), { notFound: true });
 			},
