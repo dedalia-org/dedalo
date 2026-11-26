@@ -10861,6 +10861,7 @@ body:has(.component_av.view_viewer) {
   .menu > .content_data > .section_label_container {
     flex: 1 1 0;
     min-width: 0;
+    contain: inline-size;
     justify-content: flex-end;
   }
   .menu > .content_data > .section_label_container > .section_label {
