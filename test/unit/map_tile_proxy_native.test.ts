@@ -2348,28 +2348,42 @@ describe.if(DB_READY)('map tile proxy — gates, door and memory, end to end', (
 		const holder = `user:${IDENTITIES.allowed.user}`;
 		const tiles = Array.from({ length: 6 }, (_, index) => `z=5&x=${index}&y=1`);
 		const mine = tiles.flatMap((view) => [ask(stored(12, view)), ask(stored(11, view))]);
-		await until(
-			() => peer.received.length === INTERACTIVE_MAX_STORED_PER_HOLDER,
-			'the person’s cap reached the wire',
-		);
-		await new Promise((resolve) => setTimeout(resolve, 40));
-		expect(peer.received.length, 'and no more, with 12 asked on two hosts').toBe(
-			INTERACTIVE_MAX_STORED_PER_HOLDER,
-		);
-		expect(interactiveHolderState(holder)).toMatchObject({
-			inFlight: INTERACTIVE_MAX_STORED_PER_HOLDER,
-			waiting: 12 - INTERACTIVE_MAX_STORED_PER_HOLDER,
-		});
-		expect(interactiveState(siteKey(new URL('https://slow.example.org/'))).stored).toBe(
-			INTERACTIVE_MAX_STORED_PER_HOLDER,
-		);
-		// another person, another source of the same record: not starved
-		const other = await ask(stored(1), { who: 'root' });
-		expect(other.status).toBe(200);
-		release();
-		const responses = await Promise.all(mine);
-		expect(responses.every((response) => response.status === 200)).toBe(true);
-		expect(interactiveHolderState(holder)).toMatchObject({ holders: 0, inFlight: 0, waiting: 0 });
+		try {
+			await until(
+				() => peer.received.length === INTERACTIVE_MAX_STORED_PER_HOLDER,
+				'the person’s cap reached the wire',
+			);
+			// ALL twelve must have cleared their gates and reached the person's queue before the
+			// count means anything — a fixed sleep read 3 in flight + 4 waiting under the full
+			// concurrent gate (pre-push at 16e94939b5), the other 5 still in their gates.
+			await until(() => {
+				const state = interactiveHolderState(holder);
+				return state.inFlight + state.waiting === 12;
+			}, 'all twelve reached the person’s queue');
+			// …and a beat for an over-send, if the cap leaked, to reach the wire.
+			await new Promise((resolve) => setTimeout(resolve, 40));
+			expect(peer.received.length, 'and no more, with 12 asked on two hosts').toBe(
+				INTERACTIVE_MAX_STORED_PER_HOLDER,
+			);
+			expect(interactiveHolderState(holder)).toMatchObject({
+				inFlight: INTERACTIVE_MAX_STORED_PER_HOLDER,
+				waiting: 12 - INTERACTIVE_MAX_STORED_PER_HOLDER,
+			});
+			expect(interactiveState(siteKey(new URL('https://slow.example.org/'))).stored).toBe(
+				INTERACTIVE_MAX_STORED_PER_HOLDER,
+			);
+			// another person, another source of the same record: not starved
+			const other = await ask(stored(1), { who: 'root' });
+			expect(other.status).toBe(200);
+			release();
+			const responses = await Promise.all(mine);
+			expect(responses.every((response) => response.status === 200)).toBe(true);
+			expect(interactiveHolderState(holder)).toMatchObject({ holders: 0, inFlight: 0, waiting: 0 });
+		} finally {
+			// a red leg must not leave its held flights to the next test (FLIGHT read them as its own)
+			release();
+			await Promise.allSettled(mine);
+		}
 	});
 
 	// -----------------------------------------------------------------------
