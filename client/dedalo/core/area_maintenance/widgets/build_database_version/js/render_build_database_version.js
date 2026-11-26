@@ -41,6 +41,8 @@
 
 // the job handle kept across a reload (data_manager local db, 'status' table)
 const JOB_KEY = 'process_build_install_version'
+// the last source/output choice (localStorage, origin-scoped like update_ontology's)
+const CHOICE_KEY = 'dedalo_seed_panel_choice'
 // the download route of the newest private build (src/core/install/seed_build_download.ts)
 const DOWNLOAD_URL = '/dedalo/install/seed_build/'
 
@@ -360,7 +362,7 @@ const build_picker = function (name, items, selected, on_change) {
 		input.checked	= item.id===selected
 		input.disabled	= item.disabled===true
 		input.addEventListener('change', () => {
-			picker.querySelectorAll('.server_row').forEach(el => el.classList.remove('on'))
+			picker.querySelectorAll('.server_row').forEach(el => { el.classList.remove('on') })
 			row.classList.add('on')
 			on_change(item.id)
 		})
@@ -635,10 +637,15 @@ const render_seed_panel = function (self, value) {
 	// choices: source + output
 		const sources = Array.isArray(value.sources) ? value.sources : []
 		const targets = Array.isArray(value.targets) ? value.targets : []
+		// the last choice survives a reload, but only while it is still an offered, enabled option
+		let stored = {}
+		try { stored = JSON.parse(window.localStorage.getItem(CHOICE_KEY)) || {} } catch { /* corrupt: defaults */ }
+		const offered = (list, id) => list.some(item => item.id===id && item.available!==false)
 		const choice = {
-			source : value.default_source || sources[0]?.id || 'shipped',
-			target : 'private'
+			source : offered(sources, stored.source) ? stored.source : (value.default_source || sources[0]?.id || 'shipped'),
+			target : offered(targets, stored.target) ? stored.target : 'private'
 		}
+		const save_choice = () => { window.localStorage.setItem(CHOICE_KEY, JSON.stringify(choice)) }
 
 		eyebrow(get_label.source || 'Source', panel)
 		panel.appendChild(build_picker('seed_source', sources.map(option => ({
@@ -647,6 +654,7 @@ const render_seed_panel = function (self, value) {
 			meta	: [option.location, option.release ? release_text(option.release) : null].filter(Boolean).join(' — ')
 		})), choice.source, (id) => {
 			choice.source = id
+			save_choice()
 			run_checks()
 		}))
 
@@ -661,6 +669,7 @@ const render_seed_panel = function (self, value) {
 			note		: target.available!==true ? (get_label.seed_output_unavailable || 'Not a writable git checkout') : null
 		})), choice.target, (id) => {
 			choice.target = id
+			save_choice()
 			run_checks()
 		}))
 

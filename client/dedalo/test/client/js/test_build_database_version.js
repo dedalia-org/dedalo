@@ -21,11 +21,11 @@
  * pins on the server.
  */
 
+import { build_database_version } from '../../../core/area_maintenance/widgets/build_database_version/js/build_database_version.js';
 import {
 	release_text,
 	seed_state_badge,
 } from '../../../core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js';
-import { build_database_version } from '../../../core/area_maintenance/widgets/build_database_version/js/build_database_version.js';
 import { data_manager } from '../../../core/common/js/data_manager.js';
 
 // DOM container
@@ -102,6 +102,8 @@ const patch_request = (answers) => {
 	const original = data_manager.request;
 	const original_local = data_manager.get_local_db_data;
 	const sent = [];
+	// the panel's remembered choice (render_build_database_version.js CHOICE_KEY): each test starts clean
+	window.localStorage.removeItem('dedalo_seed_panel_choice');
 	data_manager.request = async (options) => {
 		sent.push(options.body);
 		const next = answers.shift();
@@ -116,6 +118,7 @@ const patch_request = (answers) => {
 		restore: () => {
 			data_manager.request = original;
 			data_manager.get_local_db_data = original_local;
+			window.localStorage.removeItem('dedalo_seed_panel_choice');
 		},
 	};
 };
@@ -142,10 +145,17 @@ describe('BUILD_DATABASE_VERSION WIDGET', function () {
 
 		it('release_text: version · day · host, and a dash for nothing', () => {
 			assert.equal(
-				release_text({ version: '7.0.0', date: '2026-11-25T19:36:25+01:00', host: 'zz-master.test' }),
+				release_text({
+					version: '7.0.0',
+					date: '2026-11-25T19:36:25+01:00',
+					host: 'zz-master.test',
+				}),
 				'7.0.0 · 2026-11-25 · zz-master.test',
 			);
-			assert.equal(release_text({ version: '7.0.0', date: '2026-11-25T19:36:25+01:00' }), '7.0.0 · 2026-11-25');
+			assert.equal(
+				release_text({ version: '7.0.0', date: '2026-11-25T19:36:25+01:00' }),
+				'7.0.0 · 2026-11-25',
+			);
 			assert.equal(release_text(null), '—');
 		});
 	});
@@ -187,6 +197,35 @@ describe('BUILD_DATABASE_VERSION WIDGET', function () {
 				assert.equal(patch.sent.length, 2);
 				assert.deepEqual(patch.sent[1].options, { source: 'shipped', target: 'private' });
 				content_data.remove();
+			} finally {
+				patch.restore();
+			}
+		});
+
+		it('the last choice survives a re-render; a stale or disabled one falls back to the default', async () => {
+			const patch = patch_request([ok(report(true)), ok(report(true)), ok(report(true)), ok(report(true))]);
+			try {
+				const first = await render(build_self(panel_value()));
+				await settle();
+				const shipped = first.querySelector('input[name="seed_source"][value="shipped"]');
+				shipped.checked = true;
+				shipped.dispatchEvent(new Event('change'));
+				await settle();
+				first.remove();
+
+				// "reload": a fresh render preflights and checks the remembered pick
+				const second = await render(build_self(panel_value()));
+				await settle();
+				assert.deepEqual(patch.sent[2].options, { source: 'shipped', target: 'private' });
+				assert.isTrue(second.querySelector('input[name="seed_source"][value="shipped"]').checked);
+				second.remove();
+
+				// a remembered option the server no longer offers (or offers disabled) is ignored
+				window.localStorage.setItem('dedalo_seed_panel_choice', JSON.stringify({ source: 'master:gone', target: 'checkout' }));
+				const third = await render(build_self(panel_value()));
+				await settle();
+				assert.deepEqual(patch.sent[3].options, { source: 'master:zz_master', target: 'private' });
+				third.remove();
 			} finally {
 				patch.restore();
 			}

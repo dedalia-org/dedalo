@@ -18,6 +18,7 @@ server's own ontology export (on an ontology master), a configured master, or th
 shipped with the code. It checks first that it can run (the database user may create databases,
 the PostgreSQL tools are present, no other build is running, the source answers, there is disk
 space), names the fix for each failed check, runs in the background, and writes the result to
-`<private>/seed_builds/` instead of the code directory, with download buttons for the seed and its manifest.
+`<private>/seed_builds/` instead of the code directory, with download buttons for the seed and its manifest. The chosen source and output
+are remembered in the browser across reloads, as long as the server still offers them.
 
 **Action needed:** export the release on the master first; the pull takes what it last exported.
