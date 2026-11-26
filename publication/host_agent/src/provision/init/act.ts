@@ -620,9 +620,18 @@ function webIncludePath(ctx: ActContext, server: WebServer): string {
 function vhostAfter(ctx: ActContext, action: Extract<InitAction, { kind: 'vhost_reference' | 'vhost_manual_removal' }>, text: string): string {
   if (action.kind === 'vhost_manual_removal') return ctx.ports.webEdit.removeManualLines(text, action.lines);
   const include = webIncludePath(ctx, action.server);
-  return action.server === 'apache'
-    ? ctx.ports.webEdit.insertApacheReference(text, ctx.instance, include, action.line)
-    : ctx.ports.webEdit.insertNginxReference(text, ctx.instance, include, action.line);
+  // The site's address-family twins in this file (compare siteFiles) are inserted in the same
+  // edit, BOTTOM-UP: an insertion shifts only the lines below it, so every opener line still
+  // names its opener when its turn comes. Each insertion is idempotent per opener.
+  const openers = [...new Set([action.line, ...(action.alsoLines ?? [])])].sort((x, y) => y - x);
+  let after = text;
+  for (const line of openers) {
+    after =
+      action.server === 'apache'
+        ? ctx.ports.webEdit.insertApacheReference(after, ctx.instance, include, line)
+        : ctx.ports.webEdit.insertNginxReference(after, ctx.instance, include, line);
+  }
+  return after;
 }
 
 /* ── one item ─────────────────────────────────────────────────────────────────────── */

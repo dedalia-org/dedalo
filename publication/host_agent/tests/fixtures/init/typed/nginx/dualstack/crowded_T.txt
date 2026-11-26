@@ -1,0 +1,25 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events { }
+http {
+    include /etc/nginx/sites-enabled/*;
+}
+
+# configuration file /etc/nginx/sites-enabled/museum.org:
+server {
+    listen 443 ssl;
+    server_name museum.org;
+    root /home/museum.org/httpdocs;
+}
+
+# configuration file /etc/nginx/sites-enabled/museum-old.org:
+server {
+    listen 443 ssl;
+    server_name museum.org;
+    root /var/www/old;
+    if ($scheme = http) {
+        return 301 https://museum.org$request_uri;
+    }
+}
+

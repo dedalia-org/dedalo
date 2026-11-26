@@ -15,6 +15,9 @@
  *   1. The fragment was read with the ENGINE's env parser (parseFragment): unknown keys, a
  *      pending fingerprint, both or neither of URL/SOCKET are refused before any connection.
  *   2. The address is a plain https URL ending in the agent base path, or an absolute socket.
+ *      An IPv6 host (bracketed in the URL) is held to the agent's own listen-host grammar
+ *      (layout.ts listenHostProblem: a unique local address or ::1, never a link-local that needs
+ *      a zone id) and kept in its RFC 5952 form — the one spelling every comparison reads.
  *   3. The caller's binding check (the panel: instance + address equal the draft's).
  *   4. The token (never argv, never echoed) and the instance must hash to the fragment's
  *      fingerprint: a mis-pasted token names itself before any connection.
@@ -39,7 +42,13 @@
 
 import { randomBytes } from 'node:crypto';
 import { lstat, readdir, rmdir } from 'node:fs/promises';
+import { isIPv6 } from 'node:net';
 import { join } from 'node:path';
+import {
+	comparableHost,
+	listenHostProblem,
+	sameListenHost,
+} from '../../../publication/host_agent/src/provision/layout.ts';
 import { parseEnvFile } from '../../config/env.ts';
 import { DedaloError } from '../errors/dedalo_error.ts';
 import { proveHostPairing } from './agent_client.ts';
@@ -286,11 +295,24 @@ function tlsAddress(url: URL): Address {
 			`${FRAGMENT_KEYS.url} must end in the agent base path ${AGENT_BASE_PATH}.`,
 		);
 	}
-	return {
-		kind: 'tls',
-		host: url.hostname.replace(/^\[(.*)\]$/, '$1'),
-		port: url.port === '' ? 443 : Number(url.port),
-	};
+	return { kind: 'tls', host: fragmentHost(url), port: url.port === '' ? 443 : Number(url.port) };
+}
+
+/**
+ * The fragment URL's host, unbracketed. WHATWG URL already serializes an IPv6 literal in its
+ * RFC 5952 form (comparableHost re-asserts it), and an IPv6 is judged by the AGENT's listen-host
+ * grammar: the agent can only ever have declared a unique local address or ::1, so anything
+ * else (a link-local, a global, a mapped IPv4) is a hand-made URL that names some other
+ * interface — refused before anything is dialled. An IPv4 or name is kept as the URL gives it.
+ */
+function fragmentHost(url: URL): string {
+	const host = comparableHost(url.hostname);
+	if (!isIPv6(host)) return host;
+	const problem = listenHostProblem(host);
+	if (problem !== null) {
+		refuse('address_invalid', `${FRAGMENT_KEYS.url}: the IPv6 host '${host}' ${problem}.`);
+	}
+	return host;
 }
 
 export function resolveToken(fragmentToken: string | null, supplied: string | null): string {
@@ -420,9 +442,10 @@ export function addressLabel(address: Address): string {
 	return `https://${host}:${address.port}`;
 }
 
+/** One agent address? A TLS host compares canonically (an IPv6 has one RFC 5952 spelling). */
 export function sameAddress(a: Address, b: Address): boolean {
 	if (a.kind === 'unix') return b.kind === 'unix' && a.socket === b.socket;
-	return b.kind === 'tls' && a.host === b.host && a.port === b.port;
+	return b.kind === 'tls' && sameListenHost(a.host, b.host) && a.port === b.port;
 }
 
 // ---------------------------------------------------------------------------- registry slot

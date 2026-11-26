@@ -30,11 +30,17 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+	FIRST_USE_NEXT,
+	loadDefaultSetupDeps,
+	type SetupDeps,
+} from '../../src/core/area_maintenance/widgets/publication_host_setup.ts';
+import {
 	addressLabel,
 	createPublicationHostsWidget,
 	normalizePublicUrl,
 	PROBE_PROBLEMS_MAX,
 	PROBE_TEXT_MAX,
+	PUBLIC_URL_HTTP_NOTICE,
 	type PublicationHostsDeps,
 	releaseIdOrMalformed,
 	widget,
@@ -43,6 +49,11 @@ import { ownershipMark } from '../../src/core/area_maintenance/widgets/support.t
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import type { AgentStatus, MediaProbe } from '../../src/core/publication_host/agent_client.ts';
 import { buildApiLockstepPanel } from '../../src/core/publication_host/api_reconcile.ts';
+import type {
+	InstallSource,
+	PanelDraft,
+	StoredDraft,
+} from '../../src/core/publication_host/drafts.ts';
 import {
 	HOST_CHECK_IDS,
 	type HostStatusInput,
@@ -1249,17 +1260,45 @@ describe('set_host_fields', () => {
 		expect(b).toEqual(record('pub_b'));
 	});
 
+	test('an http public_url is stored, NOT refused, and the answer carries the notice (§7)', async () => {
+		const h = harness([record('pub_a')]);
+		const response = await run(h, 'set_host_fields', {
+			name: 'pub_a',
+			public_url: 'http://intranet.museum.test',
+		});
+		expect(h.registry().hosts[0]?.public_url).toBe('http://intranet.museum.test');
+		expect(response.msg).toBe(`OK. Host 'pub_a' updated: public_url. ${PUBLIC_URL_HTTP_NOTICE}`);
+		expect(PUBLIC_URL_HTTP_NOTICE).toContain('https://');
+
+		const https = await run(h, 'set_host_fields', {
+			name: 'pub_a',
+			public_url: 'https://www.museum.test',
+		});
+		expect(https.msg).toBe(`OK. Host 'pub_a' updated: public_url.`);
+		// No notice for a save that does not set the public URL, whatever is stored.
+		const other = await run(h, 'set_host_fields', { name: 'pub_a', qualities: null });
+		expect(other.msg).not.toContain('Notice');
+	});
+
 	test('null resets a field (qualities null = follow the engine)', async () => {
 		const h = harness([record('pub_a', { qualities: ['image/thumb'] })]);
 		await run(h, 'set_host_fields', { name: 'pub_a', qualities: null });
 		expect(h.registry().hosts[0]?.qualities).toBeNull();
 	});
 
-	test('public_url: only an https origin', () => {
+	test('public_url: an http(s) origin only — http accepted (an http-only intranet, §7)', () => {
 		expect(normalizePublicUrl('https://www.museum.test')).toBe('https://www.museum.test');
+		expect(normalizePublicUrl('https://www.museum.test/')).toBe('https://www.museum.test');
+		expect(normalizePublicUrl('http://www.museum.test')).toBe('http://www.museum.test');
+		expect(normalizePublicUrl('http://intranet.museum.test:8080')).toBe(
+			'http://intranet.museum.test:8080',
+		);
 		expect(normalizePublicUrl(null)).toBeNull();
 		for (const bad of [
-			'http://www.museum.test',
+			'ftp://www.museum.test',
+			'www.museum.test',
+			'http://www.museum.test/site',
+			'http://u:pw@www.museum.test',
 			'https://www.museum.test/site',
 			'https://user:pw@www.museum.test',
 			'https://www.museum.test/?q=1',
@@ -1404,5 +1443,153 @@ describe('set_host_fields against the REAL registry (one grammar)', () => {
 			expect(code, JSON.stringify(options)).toBe('maintenance.action_refused');
 			expect(loadRegistry().hosts).toEqual([record('pub_a')]);
 		}
+	});
+});
+
+// ─────────────────────── New publication host: one machine first (§1.1), First use (step 10)
+
+describe('New publication host on the panel: one machine first, then First use', () => {
+	const SOURCE: InstallSource = {
+		root: '/home/ded_1/dedalo',
+		bun: '/opt/dedalo/bun/1.4.4/bun',
+		user: 'ded_1',
+		agentDeps: true,
+	};
+	const oneMachine = (instance: string): PanelDraft => ({
+		instance,
+		layout: 'home',
+		apis: 'v2_only',
+		listen: { kind: 'unix' },
+		agent_user: `${instance}_agent`,
+		engine_group: 'ded_1',
+		web: { server: 'apache' },
+		site: { domain: `${instance}.test` },
+		media: { mode: 'shared', root: '/home/ded_1/media' },
+		v2: { unit: `dedalo-publication-api-v2-${instance}`, user: `${instance}_v2`, port: 3100 },
+	});
+	const stored = (name: string, draft: PanelDraft): StoredDraft => ({
+		name,
+		created_at: '2026-11-25T00:00:00.000Z',
+		created_by: -1,
+		draft,
+	});
+	const DRAFTS: StoredDraft[] = [
+		stored('museum_org', oneMachine('museum_org')),
+		stored('museum_www', oneMachine('museum_www')),
+		stored('archive_org', {
+			...oneMachine('archive_org'),
+			listen: { kind: 'tls', host: '10.20.0.9', port: 8471 },
+			engine_group: undefined,
+			media: { mode: 'copy', root: '/srv/pub/archive_org' },
+		}),
+	];
+
+	async function setupWith(sourceCalls: { n: number }): Promise<SetupDeps> {
+		const real = await loadDefaultSetupDeps();
+		return {
+			...real,
+			loadDrafts: () => ({ version: 1, drafts: structuredClone(DRAFTS) }),
+			cachedKit: async () => null,
+			installSource: async () => {
+				sourceCalls.n += 1;
+				return { ...SOURCE };
+			},
+		};
+	}
+
+	test("root's awaiting ONE-MACHINE draft carries the install block; a paired or two-machine draft none; a non-root admin sees no draft at all", async () => {
+		// museum_www is paired (init paired it itself, over the socket): the registry holds it
+		const h = harness([
+			record('pub_a'),
+			record('museum_www', {
+				instance: 'museum_www',
+				address: { kind: 'unix', socket: '/run/dedalo_publication_host/museum_www.sock' },
+			}),
+		]);
+		const sourceCalls = { n: 0 };
+		const setup = await setupWith(sourceCalls);
+		const module = createPublicationHostsWidget(
+			async () => h.deps,
+			async () => setup,
+		);
+		const data = (await module.getValue?.({}, ROOT))?.data as Record<string, unknown>;
+		expect(data.drafts_state).toBe('ok');
+		const drafts = data.drafts as Record<string, unknown>[];
+		const byName = Object.fromEntries(drafts.map((row) => [row.name, row]));
+		expect(byName.museum_org).toMatchObject({ state: 'awaiting', paired_as: null });
+		expect(byName.museum_www).toMatchObject({ state: 'paired', paired_as: 'museum_www' });
+		expect(byName.archive_org).toMatchObject({ state: 'awaiting' });
+		const install = byName.museum_org?.install as Record<string, unknown>;
+		expect(install).toMatchObject({
+			source: SOURCE.root,
+			draft_file: '/root/museum_org.draft.json',
+			agent_deps: true,
+		});
+		expect(install.command).toContain(
+			'sh /home/ded_1/dedalo/publication/host_agent/deploy/install.sh museum_org --source /home/ded_1/dedalo --draft /root/museum_org.draft.json\n',
+		);
+		expect(byName.museum_www?.install).toBeNull(); // paired: nothing to install
+		expect(byName.archive_org?.install).toBeNull(); // two machines: the kit + the package
+		expect(sourceCalls.n).toBe(1); // read once per panel load, not per draft
+
+		// a non-root admin: no drafts key, and nothing of the block in the payload
+		const admin = (await module.getValue?.({}, ADMIN))?.data as Record<string, unknown>;
+		expect('drafts' in admin).toBe(false);
+		expect('drafts_state' in admin).toBe(false);
+		const serialized = JSON.stringify(admin);
+		expect(serialized).not.toContain('install.sh');
+		expect(serialized).not.toContain(SOURCE.root);
+		expect(sourceCalls.n).toBe(1);
+	});
+
+	test("FIRST USE is the widget's own actions in docs step 10 order — apply_rules, push_apis for that ONE host, probe_public — each root-only", async () => {
+		const pushed: unknown[] = [];
+		const h = harness([record('pub_a')], {
+			reconcilePublicationApis: async (options) => {
+				pushed.push(options);
+				h.calls.push('reconcilePublicationApis');
+				return {
+					release: '7.0.1_abcdef0',
+					refused: null,
+					hosts: [
+						{
+							name: 'pub_a',
+							v1: { action: 'install', result: 'ok' },
+							v2: { action: 'install', result: 'ok' },
+						},
+					],
+				};
+			},
+		});
+		// the chain the client runs (render_new_host.js FIRST_USE_STEPS), step by step
+		const rules = await run(h, 'apply_rules', { name: 'pub_a' });
+		const push = await run(h, 'push_apis', { hosts: ['pub_a'] });
+		const probe = await run(h, 'probe_public', { name: 'pub_a' });
+		expect(rules.msg).toStartWith('OK. Media rules applied');
+		expect(push.data).toBe(true); // the client reads `true` as the step's ok
+		expect(push.extend).toMatchObject({ running: false });
+		expect(pushed).toEqual([expect.objectContaining({ apply: true, hosts: ['pub_a'] })]);
+		expect((probe.data as { state: string }).state).toBe('ok');
+		const order = h.calls.filter((call) =>
+			/^(hostApplyRules|reconcilePublicationApis|probePublicGate)/.test(call),
+		);
+		expect(order.map((call) => call.split(':')[0])).toEqual([
+			'hostApplyRules',
+			'reconcilePublicationApis',
+			'probePublicGate',
+		]);
+		// root-only, each one (a non-root admin is refused before anything loads)
+		for (const action of ['apply_rules', 'push_apis', 'probe_public'] as const) {
+			const fresh = harness([record('pub_a')]);
+			expect(await codeOf(run(fresh, action, { name: 'pub_a', hosts: ['pub_a'] }, ADMIN))).toBe(
+				'perm.denied',
+			);
+			expect(fresh.loads()).toBe(0);
+		}
+	});
+
+	test('the pairing answer names First use as the next step', () => {
+		expect(FIRST_USE_NEXT).toContain('First use');
+		expect(FIRST_USE_NEXT).toContain('media rules, API releases, public check');
 	});
 });

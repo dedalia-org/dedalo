@@ -48,7 +48,8 @@ www.museum.org   (public)  → website + API v1 + API v2; media = the §5.1 prof
 - **Control:** the SAME agent (§2, §6) listening on a local unix socket (the
   `publication/site_builder` precedent). One code path for one or two machines: the
   registry (phase 3) treats "local" as an ordinary publication host whose address is a
-  socket.
+  socket. The panel's path for it needs no kit and no package (§9.14 *One machine first*):
+  one block, run as root on this server, and init pairs the host itself.
 - Backups must leave the machine (one disk carries work and public data).
 
 ## 2. The control channel (trust law)
@@ -63,8 +64,8 @@ daemon on the publication host (`publication/host_agent/`, its own package, its 
 2. **The channel is private and mutually authenticated (decided in phase 2).** Over a
    network: **mTLS** on a non-public port, firewalled to the work host's address, never
    routed through the public vhost. The provisioner runs a private CA on the publication
-   host and issues a server certificate (SAN = the declared listen address: a canonical
-   private IPv4 literal, never a hostname or wildcard — `LISTEN_HOST_PATTERN`) plus ONE
+   host and issues a server certificate (SAN = the declared listen address, never a hostname
+   or wildcard — the listen-host grammar below) plus ONE
    engine client certificate and key. The agent pins exactly that client CA (`Bun.serve`
    `requestCert` + `rejectUnauthorized`, constants in `src/boot.ts`, never configuration).
    A TLS listener whose certificate, key or client CA is missing, unreadable or not PEM
@@ -76,6 +77,26 @@ daemon on the publication host (`publication/host_agent/`, its own package, its 
    engine's. **Plain TCP does not exist**: the listener is `unix` or `tls` and nothing
    else. The agent's suite listens on a unix socket, and its mTLS gates bind TLS on
    `127.0.0.1` with their own scratch CA.
+   **The listen-host grammar** is ONE function, `publication/host_agent/src/provision/layout.ts`
+   `listenHostProblem` (zero-dependency; the declaration's zod schema, `derive()`, the init
+   draft, the panel's `save_draft`/`propose_draft` and the pairing all call it): a canonical
+   non-zero IPv4 dotted quad (`LISTEN_HOST_PATTERN`; its privacy is not checked — the
+   operator's interface and firewall), OR a private IPv6 — ULA `fc00::/7`, or `::1` as the twin
+   of the loopback IPv4 the first form admits — written bare in its RFC 5952 canonical form
+   (`canonicalIpv6`: the WHATWG URL IPv6 serializer, `node:net` `isIPv6` first). Refused by name:
+   link-local `fe80::/10` (DECISION 2026-11-25: bindable only with a zone id, which the cert SAN,
+   an https URL — WHATWG refuses `%` — and the registry cannot carry; the message points to a
+   ULA), brackets and zone ids, `::`, multicast, the IPv4-mapped and IPv4-compatible forms
+   ("write the IPv4 itself"), and global, documentation and site-local addresses ("not a
+   private IPv6"). The FAMILY refusal is named before the SPELLING one, so `::ffff:10.0.0.2` is
+   refused as mapped, never told to respell itself; an accepted family in another spelling is
+   refused with its canonical form, because downstream compares text. Every comparison of two
+   hosts (`siblings.ts`, the engine's same-machine, paired-record, pairing-binding and
+   registry-slot checks) goes through `comparableHost`/`sameListenHost`. Gates:
+   `publication/host_agent/tests/provision_listen_ipv6.test.ts` (the grammar, the IP SAN with
+   `checkIP`, a real mTLS handshake on `[::1]`), `test/unit/publication_host_ipv6_native.test.ts`
+   (draft canonicalization, pairing, registry, a real `pairWith` → registry → `dialAgent` run
+   against a mock agent on `[::1]`).
    The agent trusts any client certificate its OWN instance CA signed, so reissuing the
    engine bundle revokes nothing. Revoking a leaked bundle = rotating the CA (remove
    `tls/ca.pem` + `tls/ca.key`, `provision apply`): new CA and leaves, and the running
@@ -205,7 +226,11 @@ then be enough to drive the host. With mTLS it is useless without the engine's c
   agent's instance, the expected pairing fingerprint, the address (`tls` host + port, or
   `unix` socket), and the three panel-editable fields: `public_url`, `qualities`
   (null = the engine's public qualities) and the `probe` paths (phase 6). It holds no
-  secret. It is written tmp → fsync → rename under a lock
+  secret. `public_url` is an http(s) bare origin (`isPublicUrlOrigin`): the panel proposes
+  `https://`, prefixes it to a scheme-less entry, and accepts `http://` (an http-only
+  intranet site) with a save notice (`PUBLIC_URL_HTTP_NOTICE`), never a refusal. A `tls` host
+  is stored in RFC 5952 form when it is IPv6 (`validatedTlsHost`, on load and save); a zone id
+  is a shape error. It is written tmp → fsync → rename under a lock
   (`src/core/publication_host/registry.ts`). An absent file means no host. A file that is
   unreadable, malformed or carries a duplicate name makes the panel show `registry_invalid`;
   it is never treated as empty and never as a partial list. The registry decides where the
@@ -656,7 +681,8 @@ one (must answer 404): `src/core/publication_host/probe.ts` (`validateProbePaths
 `probePublicGate`).
 
 - **The public URL is a bare origin** (`http(s)://host[:port]`, no path, query, fragment or
-  credentials). The probe requests `<origin>/dedalo/<mediaDir>/<path>`.
+  credentials). The probe requests `<origin>/dedalo/<mediaDir>/<path>`. https is the default
+  the panel proposes; http is accepted with a notice (§2.1), for an http-only intranet site.
 - **The operator chooses the two files.** They are the registry's `probe.published` and
   `probe.unpublished`: paths relative to `/dedalo/<mediaDir>/`, edited in the panel. There
   are no scratch records. A production database holds no test records, and a probe file
@@ -672,7 +698,25 @@ one (must answer 404): `src/core/publication_host/probe.ts` (`validateProbePaths
   "published" file whose record was later unpublished makes the probe `unknown`, never
   `ok`.
 - **Through the PUBLIC door** (`fetchGuardedText`, `engineering/OUTBOUND_SPEC.md` §2):
-  vetted and pinned, redirects refused, a one-byte `Range` request under a tiny byte cap. A
+  vetted and pinned, a one-byte `Range` request under a tiny byte cap. **Redirects
+  (2026-11-25): ONE http → https upgrade is followed, nothing else.** The door refuses every
+  redirect; the probe reads the refused `Location` (`refusedRedirectLocation`, never a log
+  coordinate) and follows it only when `httpsUpgradeOf(requested, location)` names the exact
+  https twin of the requested URL: same host, http → https, the https default port (from 80 or
+  any explicit port; an explicit https port is refused), same path and query, no credentials,
+  no fragment. The URL followed is BUILT from the probe's own URL, never from the `Location`
+  text, and goes through `fetchGuardedText` again (re-vetted, re-pinned, the host name kept for
+  Host and SNI); a redirect on that second request is refused, so there is never a second hop
+  (the re-call pattern, `engineering/OUTBOUND_SPEC.md` §2). Any other redirect (another host, a
+  downgrade, a chain) is not followed: its 3xx IS the answer (so the published side is
+  `failed`), and the detail names where it pointed (`…: redirected to <target>, not followed
+  (only one http → https upgrade of the same host, path and query is)`; credentials removed,
+  the target capped at 200 characters). When an upgrade was followed, the detail carries `http
+  redirects to https — set the public URL to https://<host>` on ANY verdict, `ok` included
+  (kept when the copy-host check turns a 404 into `unknown`). Each side may now take two
+  requests, so its worst-case time is twice the per-request deadline (gate:
+  `test/unit/publication_host_probe_native.test.ts`, the upgrade cases and the `httpsUpgradeOf`
+  table). A
   `public_url` that resolves to a non-public address is `unknown` (*not a public host … a
   private address*), never a pass. The guard is not relaxed for the institution's own
   site: a probe that reached an internal address would prove what an insider sees, not
@@ -691,7 +735,8 @@ one (must answer 404): `src/core/publication_host/probe.ts` (`validateProbePaths
 - **Verdict** (`probe.ts` `verdict()`, in this order): a definite bad answer on either side
   (published not 2xx, unpublished not 404) is `failed` (red), with both statuses recorded,
   even when the other side is `unknown`; otherwise any transport or validation failure is
-  `unknown`, never `ok`; otherwise (published 2xx AND unpublished 404) `ok`.
+  `unknown`, never `ok`; otherwise (published 2xx AND unpublished 404) `ok`. An `ok` may carry
+  a `detail` (the upgrade note above); the panel's OK sentence appends it.
 - **When it runs:** after every successful `apply_rules`, after every copy-mode
   publish/unpublish batch, on demand (the root-only `probe_public` action), and on a
   schedule (`PUBLICATION_PROBE_RECONCILE`, report-only: it records the observation and
@@ -736,7 +781,8 @@ two API configuration files, prove the agent (B4) and pair it (B5).
 
 - **Accounts.** init creates the missing accounts after confirmation and never modifies an
   existing one. `provision apply` never creates accounts. **Web server config.** init edits the
-  operator's vhost only on a typed answer, with backup, configtest and rollback. **Bun** is
+  operator's vhost only on a typed answer, with backup, configtest and rollback; which vhost
+  (and its address-family twins) is §9.17, and how every decision is asked is §9.16. **Bun** is
   downloaded on the publication host and verified (§9.10). **Pairing** through the work
   system's own CLI always exists: on one machine (unix listener, exactly one running
   `dedalo-ts`/`dedalo-ts@<site>` unit) B5 runs it as the engine user, token on stdin only; on
@@ -1101,8 +1147,9 @@ inside the CI image's container, with no privileged sibling and no SELinux kerne
   commit: `legs_inputs` (sha256 of the drill script and of every file a leg declares it proves,
   `Leg.inputs`), `legs_digest` over them, `sha` = the BASE HEAD only, and `tree_dirty` (those files
   differed from HEAD at the run); the root ratchet `test/unit/publication_host_el_drill_record.test.ts`
-  then turns any change to an EL-relevant input (`EL_DRILL_INPUTS`, `src/provision/selinux.ts`)
-  or to a leg input red until the drill runs again, and names each supported major not yet recorded
+  then turns any change to an EL-relevant input (`EL_DRILL_INPUTS`, `src/provision/selinux.ts`;
+  since 2026-11-25 it includes `src/provision/init/parse/redirect.ts`, which `parse/apache.ts`
+  imports for the redirect-only classification of §9.17) or to a leg input red until the drill runs again, and names each supported major not yet recorded
   (`PENDING_EL_HOSTS`, shrink-only). `--capture <dir>` keeps the raw discovery outputs (the argv
   init's exec door runs) for the typed EL fixtures. Recorded: RHEL 9.8 and RHEL 10.2 (aarch64, enforcing), 2026-10-09.
   **fapolicyd** (default rules, measured RHEL 9.8): root may execute an untrusted Bun, but that
@@ -1318,21 +1365,27 @@ hostagent:pack`, `dedalo:pair-publication-host`) stay (D5).
 **The draft** (`src/core/publication_host/drafts.ts`). The form makes a `provision init` draft
 restricted to what the panel asks: `instance`, `layout` (`home` = `/home/<domain>`, the default;
 `system` = `/opt` + `/srv`), `apis` (`v2_only`, the default, or `v1_and_v2` with `v1.user`),
-`listen` (one machine = `unix` + `engine_group`; two machines = `tls` at a private IPv4 and a
-port), `agent_user`, `web.server`, `site.domain`, `media` (mode + root) and `v2` (unit, user,
+`listen` (one machine = `unix` + `engine_group`, the DEFAULT; two machines = `tls` at a private
+IPv4 or a ULA IPv6 (§2 grammar) and a port), `agent_user`, `web.server`, `site.domain`, `media` (mode + root) and `v2` (unit, user,
 port). Everything discovery fills (the web unit, the PHP-FPM install, the OS family, the vhost,
 nginx's map mode) is left to init. `propose_draft` starts the form from the domain: the
 instance by the convention (`.` and `-` → `_`), init's own account and unit proposals
 (`init/draft.ts` `DEFAULTS`), the next free v2 port among the drafts on that machine (from
 3100), the next free TLS port on that address (from 8471) among the drafts and paired hosts
 there, the work system's own group (one machine) and its media root (one machine, shared).
+The form asks *Where the public website runs*: *On this server (another vhost)*, first and
+default, or *On another server (mTLS over a private network)*; a missing or unknown `machines`
+option of `propose_draft` is one machine (gated, with the client select's default). A typed
+listen host is canonicalized before it is judged (`readListenHost`: trimmed, brackets stripped,
+lower case, RFC 5952 — `FD00:0::1` and `[fd00::1]` are `fd00::1`), and proposed TLS ports, the
+same-machine and paired-record checks compare hosts canonically.
 
 **One rule set (D1).** `save_draft` reads the draft field by field (every shape issue at once),
 then judges it with the agent's OWN zero-dependency modules, in-process: `layout.ts` `derive()`
 on a stand-in declaration (the draft, init's proposals, and neutral values for what only
 discovery knows — a v1-floor PHP-FPM, a Debian-family web unit; never written into the draft)
 and `siblings.ts` `siblingRefusals()` against the drafts on the same machine (both sockets =
-the work system's; both TLS at one IPv4). The registry's hosts on that machine are judged on
+the work system's; both TLS at one address, compared canonically). The registry's hosts on that machine are judged on
 what the registry knows of them: their instance and their listener. A refusal is
 `publication_host_setup.draft_invalid` with `details.fields` (the form's fields, declaration
 paths) and one sentence per field (derive's `LayoutError.reason`). The registry name (`name`)
@@ -1349,6 +1402,40 @@ nothing and holds no credential. A corrupt or widened file is `drafts_state:
 never "no drafts". A draft's state is DERIVED: `paired` while the registry holds a host with
 its instance (on TLS, at its address), `awaiting` otherwise. `remove_draft` drops a draft and
 its cached kit; a paired host stays paired.
+
+**One machine first (2026-11-25).** Root's draft row of an AWAITING one-machine (`unix`) draft
+carries `install: {source, draft_file, agent_deps, command}` (`drafts.ts` `oneMachineInstall`;
+null for a paired draft, a two-machine draft, or when the install source could not be read):
+ONE block to paste into a root shell on this server, three steps with this installation's own
+paths — (1) the draft written to `/root/<instance>.draft.json` as a root-only 0600 file through
+a QUOTED heredoc (no expansion; the terminator `DRAFT_HEREDOC_END` is asserted absent from the
+draft), because `install.sh` refuses a `--draft` another account can write; (2) ONLY when the
+release tree lacks the agent's production dependencies (`agent_deps: false`), `su -s /bin/sh
+<engine user> -c 'cd <tree>/publication/host_agent && exec <pinned Bun> install
+--frozen-lockfile --production'` — what `hostagent:install` runs, with the Bun this engine runs
+on named outright (no PATH decides); `node_modules` is tolerated by the publication manifest,
+so this never drifts the verified release, and without it `--source` from an updater-installed
+tree fails at its first dependency import; an engine uid with no name gets the line as a
+comment to run by hand; (3) `sh <tree>/publication/host_agent/deploy/install.sh <instance>
+--source <tree> --draft <file>`, plus `-- --pair-name <name>` when the registry name is not the
+instance, so init's own pairing (§9.1 B5) lands under the name the panel shows. Every value is
+shell-quoted where it is not plainly safe (`shellWord`). The client shows the block with Copy
+and folds the kit under *Or install from a kit*. `save_draft`'s sentence follows the topology
+(`savedDraftSentence`: unix → run the install block, no kit, no package; tls → build the kit,
+install, pair with the sealed package).
+
+**First use.** A paired draft card (paired by `pair_package` or by init's one-machine pairing:
+the derived `paired` state) offers *First use*: client-side (`render_new_host.js`
+`run_first_use`, `FIRST_USE_STEPS`), one confirm, then the widget's own `apply_rules {name}` →
+`push_apis {hosts: [name]}` → `probe_public {name}` in the order of the operator page's step 10,
+each its own root-only request, each outcome shown as it lands (push_apis `data: true` ok,
+`running` running, false failed; the probe's verdict as it is). A failed step does not stop the
+next; a lost session or access (the `relogin` / `no_access_page` policies) does. The panel
+reloads once at the end. It is three bounded requests, not one server action, because
+`push_apis` alone may wait up to 60 s before answering `running` and the probe up to about 40 s
+more: one request holding all three could outrun the server's idle timeout. No new action, no
+new code. `pair_package`'s success sentence ends with `FIRST_USE_NEXT`, naming it. Wire:
+`engineering/wire_contract/WC-2026-11-25-publication-host-one-machine-install.md`.
 
 **The kit** (`src/core/publication_host/kit_build.ts`; the format is
 `src/core/publication_host/kit.ts`, shared with the CLI packer). `build_kit` builds the §9.13
@@ -1380,14 +1467,16 @@ both before the token is read and before anything is dialled — then the token 
 check, the registry slot, the live `/health` proof over mTLS (no bearer;
 `publication_host.pairing_mismatch` when the agent publishes another fingerprint), and the
 commit under the registry lock. Refusals are `publication_host_setup.pairing_refused` with a
-closed `details.reason`. Audited: one activity row (WHAT `NEW` on the maintenance area: the
-host, the instance, the address — never a secret). The passphrase and the package are never
+closed `details.reason`. Audited: one activity row (WHAT `SAVE` on the maintenance area —
+`AuditVerb`, `SAVE` for what the panel stores, `DELETE` for what it removes: the host, the
+instance, the address — never a secret). The passphrase and the package are never
 logged, echoed or stored; JS strings cannot be zeroed, so the passphrase and the decrypted
 token and bundle strings are dropped with the request (honest limit). Gates:
 `test/unit/publication_host_setup_native.test.ts` (drafts, multi-instance, the store, the kit
 build and its refusals, the upload's refusals and the secret scan),
-`test/unit/publication_host_widget_native.test.ts` (the action set, root only),
-`client/dedalo/test/client/js/test_publication_host_setup.js` (the view).
+`test/unit/publication_host_widget_native.test.ts` (the action set, root only, the
+one-machine default), `client/dedalo/test/client/js/test_publication_host_setup.js` (the
+view, the install block and its Copy, First use).
 
 ### 9.15 Retired artifacts (a declaration that drops something)
 
@@ -1430,3 +1519,129 @@ Gates: `publication/host_agent/tests/provision_retire.test.ts` (FakeHost: the pl
 convergence and the empty second plan, the FPM failure and restore, the resume, a moved pool, the
 guards one by one, SELinux), `tests/provision_host_io.test.ts` (a real tree: the v1 tree removed,
 a planted link not followed), `tests/provision_exec.test.ts` (the door's argv and refusals).
+
+### 9.16 Decisions: how each is asked (2026-11-25)
+
+Before, every decision had to be TYPED, even one whose only answer was `manual`. Now ONE pure
+module classifies a decision, `publication/host_agent/src/provision/init/decision_class.ts`
+`classifyDecision`, read by the terminal prompter (`init/tty.ts`), the scripted prompter, the
+report (`init/report.ts`) and the orchestrator (`init/run.ts` `settleDecisions`), so the rule
+cannot drift between them. Four kinds, decided in this order:
+
+1. **`needs_action`** — every option resolves `manual`: init can do nothing about it. Not
+   asked; answered with its manual option and listed under *needs your action* with its facts,
+   its commands and the re-run command.
+2. **`typed`** — an option carries `ItemOption.confirm: 'typed'`. The operator types an
+   option; Enter takes nothing (`enterRefusedLine`). The mark is the PRODUCER's, never a label
+   read later: `compare.ts` `ACT_TYPED` on `web.vhost.*`, `web.manual_lines.*` and
+   `web.nginx_manual_map.*`, the SELinux boolean options (`home_traverse`, `proxy_connect`,
+   `db_connect`, `media_access`), the `media_access` `mount` option and label act
+   (`operatorFile` + `hostWide`); `pair.ts` the `pair.package` remove option and the `replace`
+   option of an already-registered pairing. Gate: `typedMarkProblems` over EVERY row compare
+   emits (`tests/init_compare.test.ts`; it asserts it saw each kind, so it cannot pass empty) —
+   an acting option whose action is in `TYPED_ACTION_KINDS` (`vhost_reference`,
+   `vhost_manual_removal`, `nginx_map_seed`, `sebool`, `pair_package_remove`), that sits on an
+   `operatorFile`/`hostWide` item, or that replaces the pairing, must carry the mark.
+3. **`auto`** — exactly ONE option in total, neither `manual` nor typed: resolved without
+   asking and printed `[<id>] auto: the only option — <option>: <label>`. One acting option PLUS
+   `manual` (or `skip`) is NOT `auto`: `manual` is a real alternative (kind 4).
+4. **`choose`** — the rest: Enter takes the shown default; with none, Enter takes nothing.
+
+The prompt says which: `(default <id> — type it)` for a typed decision, `(default <id> — Enter
+takes it)` otherwise (the drill's prompt rule, `scripts/publication_host_init_drill.ts`,
+accepts both and still types the default by id).
+
+**Interactive runs only.** `--yes` and a run without a terminal consult none of this: no
+decision is resolved for the operator (§9.1), so a manual-only decision stays an OPEN decision
+in list 3, answered by `--decide <id>=<manual option>`, and the `--yes` refusal adds *init
+cannot do <ids>: do it by hand (the commands above), then: <re-run>*. `--decide` answers any
+decision before it is classified.
+
+**A blocking `needs_action` stops the run before anything is done** — *N item(s) need your
+action before anything is done: <ids> — do them (the commands are above), then: <re-run>*.
+Without that, an unsupported OS or a missing vhost (§9.17) would let every change not chained
+to it run, since nobody typed `manual`. An EXPLICIT `manual` (typed, or `--decide`) keeps the
+older rule (`heldBackByManual`): the other changes run and those after it wait.
+
+**The report** gains list **4. needs your action** — printed only when there is one, and only
+on a terminal (a `--dry-run` on a terminal included: it previews the interactive run; the
+`interactive` flag `renderLists` and `countLine` require is the prompter's terminal state, not
+the dry-run state). Each typed decision carries the hint line *type the option: this changes
+your files or the whole host, so Enter takes nothing*; the count line ends `…, N need your
+action`. After acting, `renderNeedsAction` lists the manual items left with their facts and
+commands, then `then re-run: <command>` (`rerunCommand`: `sh <agent_dir>/deploy/install.sh
+<instance>` once `rerun.env` exists, else the first run's `install.sh <instance>` with its
+`--source` or `--kit`).
+
+Gates: `publication/host_agent/tests/init_decision_class.test.ts` (the classification),
+`tests/init_tty.test.ts` (Enter takes the default, Enter refused for a typed one),
+`tests/init_run.test.ts` (each kind at `settleDecisions` level and in whole runs; the blocking
+stop; `--yes` keeps a blocking manual-only decision open; the dry run on a terminal),
+`tests/init_report.test.ts` (list 4, the hint, the count line), `tests/init_pair.test.ts`
+(`pair.package` remove is typed). The operator page quotes the printed lines
+(`test/unit/publication_host_operator_doc.test.ts`).
+
+### 9.17 The site's vhost: candidates, address-family twins, redirect-only blocks (2026-11-25)
+
+**Discovery makes one row per vhost and port, not per listen address**
+(`init/parse/apache.ts` `parseApacheS` keys the `-S` entries on file + line + port, with
+`addresses[]`; `init/parse/nginx.ts` groups a server's `listen` lines by port and TLS-ness;
+`init/observe.ts` → `Vhost.addresses`). A block under `*:443` and `[::]:443` (or `listen 443
+ssl; listen [::]:443 ssl;`) is ONE row; repeated aliases are kept once. The report names a row
+with every address (`draft.ts` `describeVhost`: `<file>:<line> port <p> on <a>, <b> (TLS)`).
+
+**Candidates (`draft.ts` `chooseVhost`).** Only an EXACT ServerName (`server_name`) match is a
+candidate: a vhost matched by alias or wildcard is named, never edited (security). Then:
+
+- **Redirect-only rows are never candidates** (`Vhost.redirectOnly`). Apache (`readVhostBlock`):
+  every request redirected to an absolute URL by `Redirect`, `RedirectPermanent`/`RedirectTemp`,
+  `RedirectMatch` with a catch-all pattern, or `RewriteRule <catch-all> <absolute URL> [..R..]`
+  with `RewriteEngine on` — at the block's top level or only inside `<IfModule>`. Its
+  `RewriteCond`s must hold for EVERY request the block serves (`conditionsWholeSite`, weighed
+  after the whole block against its names, TLS and ports; ANDed, `[OR]`/`[ornext]` joining one
+  to the next as mod_rewrite does): a positive `SERVER_NAME`/`HTTP_HOST` test counts only when
+  its OR chain matches the ServerName and every ServerAlias (case-insensitive); `HTTPS`,
+  `REQUEST_SCHEME` and `SERVER_PORT` are checked against the block's own scheme and ports
+  (`%{HTTPS} off` holds on :80, never on :443); the ACME `!…well-known` exception is allowed. A
+  negated host test, a wildcard name, a block without ServerName, X-Forwarded-Proto, an unknown
+  comparison form or a regex that does not compile keep the block a CANDIDATE — so a TLS site
+  that redirects only `www.` stays the site. nginx: a server-level `return 30x <URL>`, `return
+  <http(s) URL>` or `rewrite <catch-all> <absolute URL>`; one inside `if` or `location` does
+  not count. The catch-all patterns and the absolute-URL test are ONE closed list,
+  `init/parse/redirect.ts` (an unlisted form stays a candidate: the conservative side).
+- **Only redirects claim the name** → the blocking `needs_action` decision `declaration.vhost`:
+  *… only redirects claim it: the vhost they send to (the TLS one) is missing; init never
+  creates a vhost* (§9.16: the run stops before anything is done).
+- **Address-family twins.** On ONE port, rows with the same TLS-ness and pairwise-disjoint
+  families (one IPv4/wildcard, one IPv6 — `addressFamily`: bracketed or colon-bearing is IPv6,
+  everything else — `*`, `_default_`, an IPv4, a name — the IPv4/wildcard side) are ONE site.
+  The IPv4/wildcard row leads (then file, line: a fixed choice, so item ids stay stable); the
+  others are its twins (`DraftCompletion.vhostTwins`). No decision.
+- **Crowded** (blocking, manual only) now means only real ambiguity: one family claimed twice
+  on a port, or rows of one port that differ in TLS — which block the server answers with is
+  not init's to guess (*port <p> has <n> different vhosts claiming ServerName <d>*).
+- **Several sites on different ports** (a serving :80 and the TLS :443): a non-blocking
+  `choose` decision proposing the TLS one, as before.
+
+**Items, and the transaction choice (`compare.ts` `siteFiles`).** `web.vhost`,
+`web.manual_lines` and `web.logs` cover EVERY block of the site (nginx `log_dirs` include the
+twins'). One item — one operator-file transaction (re-read under the TOCTOU sha, backup,
+configtest, reload, rollback) — per FILE: twins in ONE file are ONE edit (`vhost_reference`
+`alsoLines`; `act.ts` `vhostAfter` inserts at every opener bottom-up, so earlier line numbers
+stay valid, each insertion idempotent; `diff.ts` `lineEditDiff` shows them all), because two
+items on one file would each carry discovery's sha and the second would always meet "changed
+since shown". Twins in DIFFERENT files are one item each, run in order: a failure rolls THAT
+file back and stops the run, so what can remain is the include in one family's block — a
+configuration its configtest already passed — and the next run proposes the rest. No
+cross-file transaction: it would need a multi-file journal begin and resume, and `act.ts`
+`resumeOpen` settles ONE file by its sha. Each item's id is the sha8 of its file's LEAD row
+(the chosen vhost in its own file, else that file's first twin): unique, since sha8 hashes the
+realpath, and a one-block site keeps its old id.
+
+Gates: `publication/host_agent/tests/init_parse_apache.test.ts`, `tests/init_parse_nginx.test.ts`
+(the typed dual-stack fixtures under `tests/fixtures/init/typed/{apache,nginx}/dualstack/`; the
+redirect MUTATION cases that must stay candidates and the forms that must stay redirect-only),
+`tests/init_observe.test.ts` (observe → `completeDraft`: dual-stack sites resolve with no
+decision; certbot :80 + a TLS www→bare rule chooses the TLS vhost), `tests/init_draft.test.ts`,
+`tests/init_compare.test.ts`, `tests/init_act.test.ts`, `tests/init_diff.test.ts`. A change to
+`parse/redirect.ts` trips the EL drill ratchet (§9.11).

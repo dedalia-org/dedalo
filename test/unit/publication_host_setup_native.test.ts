@@ -30,6 +30,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import {
 	chmodSync,
 	cpSync,
@@ -51,23 +52,30 @@ import {
 } from '../../publication/host_agent/src/provision/pairing_package.ts';
 import { extractBundle } from '../../publication/host_agent/src/releases/ustar.ts';
 import {
+	agentDepsInstalled,
 	createSetupActions,
 	draftRows,
+	FIRST_USE_NEXT,
 	loadDefaultSetupDeps,
 	packageBinding,
 	type SetupDeps,
+	savedDraftSentence,
 } from '../../src/core/area_maintenance/widgets/publication_host_setup.ts';
 import { DedaloError } from '../../src/core/errors/dedalo_error.ts';
 import {
+	DRAFT_HEREDOC_END,
 	DraftInvalid,
 	deriveDraft,
 	draftJson,
 	draftsPath,
+	type InstallSource,
 	instanceFromDomain,
+	oneMachineInstall,
 	type PanelDraft,
 	proposeDraft,
 	readPanelDraft,
 	type StoredDraft,
+	shellWord,
 	standInDeclaration,
 	validateDraft,
 	validateDraftsFile,
@@ -441,6 +449,147 @@ describe('drafts: read, judged by the agent rules, siblings on the machine', () 
 	});
 });
 
+// ---------------------------------------------------- 1b. the one-machine install block (§1.1)
+
+/** A one-machine draft as propose_draft makes it. */
+function unixDraft(over: Partial<PanelDraft> = {}): PanelDraft {
+	return v2Draft({
+		listen: { kind: 'unix' },
+		engine_group: 'dedalo',
+		media: { mode: 'shared', root: '/srv/dedalo/media' },
+		...over,
+	});
+}
+const SOURCE: InstallSource = {
+	root: '/opt/dedalo/master_dedalo',
+	bun: '/opt/dedalo/.bun/bin/bun',
+	user: 'dedalo',
+	agentDeps: true,
+};
+/** The lines of the heredoc body (the draft as the shell writes it). */
+function heredocBody(command: string): string {
+	const lines = command.split('\n');
+	const start = lines.findIndex((line) => line.endsWith(`<<'${DRAFT_HEREDOC_END}'`));
+	const end = lines.indexOf(DRAFT_HEREDOC_END);
+	expect(start).toBeGreaterThan(-1);
+	expect(end).toBeGreaterThan(start);
+	return `${lines.slice(start + 1, end).join('\n')}\n`;
+}
+
+describe('the one-machine install: ONE block, run here as root (§1.1)', () => {
+	test('the block: the draft as a root-only file, then install.sh --source <this release tree> — no kit, no package', () => {
+		const install = oneMachineInstall('museum_org', unixDraft(), SOURCE);
+		expect(install).toMatchObject({
+			source: '/opt/dedalo/master_dedalo',
+			draft_file: '/root/museum_org.draft.json',
+			agent_deps: true,
+		});
+		const lines = install.command.trimEnd().split('\n');
+		expect(lines.at(-1)).toBe(
+			'sh /opt/dedalo/master_dedalo/publication/host_agent/deploy/install.sh museum_org --source /opt/dedalo/master_dedalo --draft /root/museum_org.draft.json',
+		);
+		expect(lines).toContain(
+			`(umask 077 && rm -f /root/museum_org.draft.json && cat > /root/museum_org.draft.json) <<'${DRAFT_HEREDOC_END}'`,
+		);
+		// the heredoc carries EXACTLY the draft (the kit's draft.json bytes)
+		expect(heredocBody(install.command)).toBe(draftJson(unixDraft()));
+		expect(install.command).not.toContain('--kit');
+		expect(install.command).not.toContain('--pair-name'); // name = instance: init's default
+		expect(install.command).not.toMatch(/^su /m); // the dependencies are there
+		// the whole block is valid sh (syntax only: nothing runs)
+		const parsed = spawnSync('sh', ['-n'], { input: install.command, encoding: 'utf8' });
+		expect(parsed.status, parsed.stderr).toBe(0);
+	});
+
+	test("the agent's dependencies missing: installed first, as the account that runs Dédalo, by the pinned Bun named outright", () => {
+		const install = oneMachineInstall('museum_org', unixDraft(), { ...SOURCE, agentDeps: false });
+		expect(install.agent_deps).toBe(false);
+		const lines = install.command.split('\n');
+		const su = lines.findIndex((line) => line.startsWith('su '));
+		const sh = lines.findIndex((line) => line.startsWith('sh '));
+		expect(lines[su]).toBe(
+			"su -s /bin/sh dedalo -c 'cd /opt/dedalo/master_dedalo/publication/host_agent && exec /opt/dedalo/.bun/bin/bun install --frozen-lockfile --production'",
+		);
+		expect(su).toBeLessThan(sh); // before install.sh stages the source
+		expect(lines).toContain(
+			'# 3. The guided install from this release tree (it shows the source digest and asks first).',
+		);
+		// a nameless uid: the step is stated, never guessed as an account
+		const nameless = oneMachineInstall('museum_org', unixDraft(), {
+			...SOURCE,
+			agentDeps: false,
+			user: null,
+		});
+		expect(nameless.command).not.toMatch(/^su /m);
+		expect(nameless.command).toContain(
+			'#    cd /opt/dedalo/master_dedalo/publication/host_agent && exec',
+		);
+		expect(spawnSync('sh', ['-n'], { input: nameless.command }).status).toBe(0);
+	});
+
+	test('a registry name that is not the instance pairs under that name (--pair-name); a TLS draft has no block', () => {
+		const install = oneMachineInstall('museum_www', unixDraft(), SOURCE);
+		expect(install.command.trimEnd().split('\n').at(-1)).toEndWith(
+			'--draft /root/museum_org.draft.json -- --pair-name museum_www',
+		);
+		expect(() => oneMachineInstall('museum_org', v2Draft(), SOURCE)).toThrow(/two machines/);
+	});
+
+	test('paths are shell words: an odd release tree or Bun path reaches the shell unchanged', () => {
+		const odd = [
+			"/srv/dédalo tree/it's",
+			'/opt/$HOME/`id`/x',
+			'/a b/"c"/d;rm -rf /',
+			'/plain/path-1.2_x',
+		];
+		for (const value of odd) {
+			const echoed = spawnSync('sh', ['-c', `printf %s ${shellWord(value)}`], { encoding: 'utf8' });
+			expect(echoed.stdout, value).toBe(value);
+		}
+		expect(shellWord('/opt/dedalo/master_dedalo')).toBe('/opt/dedalo/master_dedalo'); // bare when safe
+		const install = oneMachineInstall('museum_org', unixDraft(), {
+			...SOURCE,
+			root: odd[0] as string,
+			bun: odd[1] as string,
+			user: 'ded_1',
+			agentDeps: false,
+		});
+		expect(spawnSync('sh', ['-n'], { input: install.command }).status).toBe(0);
+		expect(install.command).toContain(`--source ${shellWord(odd[0] as string)} `);
+	});
+
+	test('RUN, step 1 writes the exact draft 0600, replacing a wider file (the block itself, in a scratch dir)', () => {
+		const dir = mkdtempSync(join(scratch, 'one_machine_'));
+		const target = join(dir, 'museum_org.draft.json');
+		writeFileSync(target, 'stale\n', { mode: 0o666 });
+		chmodSync(target, 0o666);
+		const install = oneMachineInstall('museum_org', unixDraft(), SOURCE);
+		const lines = install.command.split('\n');
+		const stepOne = lines
+			.slice(0, lines.indexOf(DRAFT_HEREDOC_END) + 1)
+			.join('\n')
+			.replaceAll(install.draft_file, target);
+		const ran = spawnSync('sh', ['-c', stepOne], { encoding: 'utf8' });
+		expect(ran.status, ran.stderr).toBe(0);
+		expect(readFileSync(target, 'utf8')).toBe(draftJson(unixDraft()));
+		expect(statSync(target).mode & 0o777).toBe(0o600); // install.sh refuses group/other write
+	});
+
+	test('agentDepsInstalled reads the agent package: every production dependency present, or false', async () => {
+		const tree = mkdtempSync(join(scratch, 'agent_deps_'));
+		const agent = join(tree, 'publication', 'host_agent');
+		mkdirSync(join(agent, 'node_modules', 'zod'), { recursive: true });
+		writeFileSync(
+			join(agent, 'package.json'),
+			JSON.stringify({ dependencies: { zod: '^4' }, devDependencies: { typescript: '^7' } }),
+		);
+		expect(await agentDepsInstalled(tree)).toBe(false); // the directory, not the package
+		writeFileSync(join(agent, 'node_modules', 'zod', 'package.json'), '{}');
+		expect(await agentDepsInstalled(tree)).toBe(true); // dev dependencies are not asked for
+		expect(await agentDepsInstalled(join(tree, 'absent'))).toBe(false);
+	});
+});
+
 // --------------------------------------------------------------------------- 2. the actions
 
 interface Harness {
@@ -579,6 +728,107 @@ describe('the actions: root only, the store, the panel rows', () => {
 			state: 'drafts_invalid',
 			drafts: null,
 		});
+	});
+
+	test('ONE MACHINE IS THE DEFAULT: propose_draft without a topology proposes a socket listener + the work group', async () => {
+		const h = await harness();
+		for (const options of [{ domain: 'museum.org' }, { domain: 'museum.org', machines: 'x' }]) {
+			const answer = await h.actions.propose_draft(options, ROOT);
+			expect((answer.data as { draft: PanelDraft }).draft, JSON.stringify(options)).toMatchObject({
+				listen: { kind: 'unix' },
+				engine_group: 'dedalo',
+			});
+		}
+		const two = await h.actions.propose_draft(
+			{ domain: 'museum.org', machines: 'two', listen_host: '10.0.0.5' },
+			ROOT,
+		);
+		expect((two.data as { draft: PanelDraft }).draft.listen.kind).toBe('tls');
+	});
+
+	test('save_draft steers by topology: one machine → the install block (no kit); two → the kit', async () => {
+		const h = await harness();
+		const one = await h.actions.save_draft({ name: 'museum_org', draft: unixDraft() }, ROOT);
+		expect(one.msg).toBe(savedDraftSentence('museum_org', 'unix'));
+		expect(one.msg).toContain('install block');
+		expect(one.msg).not.toContain('Build its kit');
+		const two = await h.actions.save_draft(
+			{
+				name: 'archive_org',
+				draft: v2Draft({
+					instance: 'archive_org',
+					site: { domain: 'archive.org' },
+					agent_user: 'archive_org_agent',
+					v2: { unit: 'dedalo-publication-api-v2-archive_org', user: 'archive_org_v2', port: 3101 },
+					listen: { kind: 'tls', host: '10.0.0.7', port: 8471 },
+				}),
+			},
+			ROOT,
+		);
+		expect(two.msg).toBe(savedDraftSentence('archive_org', 'tls'));
+		expect(two.msg).toContain('Build its kit');
+	});
+
+	test('the panel rows: an awaiting one-machine draft carries its block; two machines none; the source is read once, and its failure hides only the block', async () => {
+		let reads = 0;
+		const h = await harness({
+			installSource: async () => {
+				reads += 1;
+				return { ...SOURCE, agentDeps: false };
+			},
+		});
+		await h.actions.save_draft({ name: 'museum_org', draft: unixDraft() }, ROOT);
+		await h.actions.save_draft(
+			{
+				name: 'archive_org',
+				draft: v2Draft({
+					instance: 'archive_org',
+					site: { domain: 'archive.org' },
+					agent_user: 'archive_org_agent',
+					v2: { unit: 'dedalo-publication-api-v2-archive_org', user: 'archive_org_v2', port: 3101 },
+					listen: { kind: 'tls', host: '10.0.0.7', port: 8471 },
+				}),
+			},
+			ROOT,
+		);
+		const rows = await draftRows(h.deps, loadRegistry());
+		const one = rows.drafts?.find((row) => row.name === 'museum_org');
+		const two = rows.drafts?.find((row) => row.name === 'archive_org');
+		expect(one?.install).toEqual(
+			oneMachineInstall('museum_org', unixDraft(), { ...SOURCE, agentDeps: false }),
+		);
+		expect(two?.install).toBeNull();
+		expect(reads).toBe(1);
+		// paired by init (the registry holds it over the socket): no block any more
+		saveRegistry({
+			version: 1,
+			hosts: [
+				host('museum_org', 'museum_org', {
+					kind: 'unix',
+					socket: '/run/dedalo_publication_host/museum_org.sock',
+				}),
+			],
+		});
+		const paired = (await draftRows(h.deps, loadRegistry())).drafts?.find(
+			(row) => row.name === 'museum_org',
+		);
+		expect(paired).toMatchObject({ state: 'paired', paired_as: 'museum_org', install: null });
+		// an unreadable source: the rows still render (kit path), the block is absent, logged
+		const broken = await harness({
+			installSource: async () => {
+				throw new Error('no release tree');
+			},
+		});
+		const spy = spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			saveRegistry({ version: 1, hosts: [] });
+			const rows2 = await draftRows(broken.deps, loadRegistry());
+			expect(rows2.state).toBe('ok');
+			expect(rows2.drafts?.find((row) => row.name === 'museum_org')?.install).toBeNull();
+			expect(spy).toHaveBeenCalled();
+		} finally {
+			spy.mockRestore();
+		}
 	});
 
 	test('propose_draft: the convention + the work group + the media root (one machine)', async () => {
@@ -958,6 +1208,8 @@ describe('pair_package: the sealed package completes a saved draft, through the 
 			instance: 'museum_org',
 			address_label: `https://127.0.0.1:${agent.port}`,
 		});
+		// the next step after a pairing: First use (docs step 10), offered under the draft
+		expect(answer.msg).toEndWith(FIRST_USE_NEXT);
 		const [record] = loadRegistry().hosts;
 		expect(record).toMatchObject({
 			name: 'museum_org',

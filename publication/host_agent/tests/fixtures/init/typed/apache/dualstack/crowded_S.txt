@@ -1,0 +1,11 @@
+VirtualHost configuration:
+*:443                  is a NameVirtualHost
+         default server museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+         port 443 namevhost museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+         port 443 namevhost museum.org (/etc/apache2/sites-enabled/museum-old.conf:1)
+[::]:443               is a NameVirtualHost
+         default server museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+         port 443 namevhost museum.org (/etc/apache2/sites-enabled/museum.org.conf:1)
+         port 443 namevhost museum.org (/etc/apache2/sites-enabled/museum-old.conf:1)
+User: name="www-data" id=33
+Group: name="www-data" id=33

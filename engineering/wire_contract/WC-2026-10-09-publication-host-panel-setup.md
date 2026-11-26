@@ -49,3 +49,11 @@
   panel-created draft and the live proof are what make the upload safe.
 - **Gate reconciliation:** no parity gate covers the publication-host channel (TS-only); no
   fixture changes, no re-harvest.
+
+## Addendum 2026-11-25 — one-machine install block, topology sentences, IPv6 listener
+
+Root's `drafts[]` rows gain `install` (the one-machine block), `save_draft`'s sentence follows
+the topology and `pair_package`'s names First use
+(`WC-2026-11-25-publication-host-one-machine-install`); a two-machine draft's `listen.host` may
+be a private IPv6, canonicalized, and the pairing binding compares hosts canonically
+(`WC-2026-11-25-publication-host-ipv6-listener`).

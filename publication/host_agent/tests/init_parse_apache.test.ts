@@ -22,6 +22,7 @@ import {
   parseWebVersion,
   readVhostBlock,
 } from '../src/provision/init/parse/apache';
+import { isAbsoluteRedirectTarget, isCatchAllPattern } from '../src/provision/init/parse/redirect';
 import { fixture } from './fixtures/init/load';
 
 const REFERENCE = '/etc/dedalo_publication_host/museum_org/web.apache.conf';
@@ -33,7 +34,7 @@ describe('-S (vhosts, run user)', () => {
     expect(parsed.user).toBe('www-data');
     expect(parsed.group).toBe('www-data');
     expect(parsed.entries.find(entry => entry.port === 8443)).toEqual({
-      address: '192.0.2.10',
+      addresses: ['192.0.2.10'],
       port: 8443,
       serverName: 'other.org',
       file: '/etc/apache2/sites-enabled/other.org.conf',
@@ -60,12 +61,60 @@ describe('-S (vhosts, run user)', () => {
   test('typed: duplicates, an IPv6 address, a `wild alias`', () => {
     const parsed = parseApacheS(fixture('typed/apache/apache_S_typed.txt'));
     expect(parsed.entries.filter(entry => entry.serverName === 'museum.org')).toHaveLength(3);
-    expect(parsed.entries.find(entry => entry.file.endsWith('ipv6.conf'))).toMatchObject({ address: '*', aliases: ['*.lan'] });
+    expect(parsed.entries.find(entry => entry.file.endsWith('ipv6.conf'))).toMatchObject({ addresses: ['*'], aliases: ['*.lan'] });
     expect(parsed.entries.find(entry => entry.file.endsWith('alias_only.conf'))?.isDefault).toBe(true);
   });
 
   test('empty output: no entries, no user', () => {
     expect(parseApacheS('')).toEqual({ entries: [], user: null, group: null });
+  });
+});
+
+describe('dual stack: ONE entry per vhost and port, every address kept (the IPv4 + IPv6 crowding bug)', () => {
+  const dual = (name: string) => parseApacheS(fixture(`typed/apache/dualstack/${name}`));
+
+  test('one block on 192.0.2.1:443 and [2001:db8::1]:443 (two single-vhost lines, IPv6 bracketed as -S prints it) is ONE entry', () => {
+    const parsed = dual('one_block_S.txt');
+    const tls = parsed.entries.filter(entry => entry.port === 443);
+    expect(tls).toEqual([
+      {
+        addresses: ['192.0.2.1', '[2001:db8::1]'],
+        port: 443,
+        serverName: 'museum.org',
+        file: '/etc/apache2/sites-enabled/museum.org-le-ssl.conf',
+        line: 2,
+        aliases: [],
+        isDefault: true,
+      },
+    ]);
+  });
+
+  test('a block under two NameVirtualHost sections (*:80 and [::]:80): one entry, the alias once, default on either address', () => {
+    const port80 = dual('one_block_S.txt').entries.filter(entry => entry.port === 80);
+    expect(port80.map(entry => [entry.serverName, entry.addresses])).toEqual([
+      ['172.17.0.4', ['*']],
+      ['museum.org', ['*', '[::]']],
+    ]);
+    // The default of the [::]:80 section only: still the default somewhere.
+    expect(port80[1]).toMatchObject({ aliases: ['www.museum.org'], isDefault: true });
+  });
+
+  test('separate blocks per address family stay separate entries (draft.ts pairs them as twins)', () => {
+    expect(dual('two_blocks_S.txt').entries.map(entry => [entry.file.split('/').pop(), entry.line, entry.port, entry.addresses])).toEqual([
+      ['museum.org-v4.conf', 1, 443, ['0.0.0.0']],
+      ['museum.org-v6.conf', 1, 443, ['[::]']],
+      ['museum.org-redirect.conf', 2, 80, ['0.0.0.0']],
+      ['museum.org-redirect.conf', 8, 80, ['[::]']],
+    ]);
+  });
+
+  test('two different dual-stack blocks claiming one name: two entries, each on both families', () => {
+    const parsed = dual('crowded_S.txt');
+    expect(parsed.entries.map(entry => [entry.file.split('/').pop(), entry.addresses])).toEqual([
+      ['museum.org.conf', ['*', '[::]']],
+      ['museum-old.conf', ['*', '[::]']],
+    ]);
+    expect(parsed.user).toBe('www-data');
   });
 });
 
@@ -228,6 +277,91 @@ describe('one vhost block', () => {
   test('a line that is not a <VirtualHost>, or one never closed, throws', () => {
     expect(() => readVhostBlock(site('alias_only.conf'), 2, { referencePath: REFERENCE })).toThrow('is not a <VirtualHost>');
     expect(() => readVhostBlock('<VirtualHost *:80>\n  ServerName a\n', 1, { referencePath: REFERENCE })).toThrow('has no </VirtualHost>');
+  });
+});
+
+describe('redirect-only blocks (never an APIs candidate)', () => {
+  const block = (text: string, line = 1) => readVhostBlock(text, line, { referencePath: REFERENCE });
+  const vhost = (body: string) => `<VirtualHost *:80>\n    ServerName museum.org\n${body}\n</VirtualHost>\n`;
+
+  test("certbot's :80 vhost (the captured Debian 12 input): RewriteCond on the names, RewriteRule ^ https://… [END,NE,R=permanent]", () => {
+    expect(block(site('debian_museum.org.conf')).redirectOnly).toBe(true);
+    expect(block(site('debian_museum.org-le-ssl.conf'), 2).redirectOnly).toBe(false);
+    expect(block(fixture('typed/apache/dualstack/redirect.conf')).redirectOnly).toBe(true);
+    expect(block(fixture('typed/apache/dualstack/one_block.conf'), 2).redirectOnly).toBe(false);
+  });
+
+  test('mod_alias forms: Redirect [status] /, RedirectPermanent /, RedirectMatch <catch-all>; inside <IfModule> too', () => {
+    const file = fixture('typed/apache/dualstack/two_blocks_redirect.conf');
+    expect(block(file, 2).redirectOnly).toBe(true);
+    expect(block(file, 8).redirectOnly).toBe(true);
+    expect(block(vhost('    Redirect / https://museum.org/')).redirectOnly).toBe(true);
+    expect(block(vhost('    Redirect 301 / https://museum.org/')).redirectOnly).toBe(true);
+    expect(block(vhost('    RedirectPermanent / https://museum.org/')).redirectOnly).toBe(true);
+    expect(block(vhost('    RedirectMatch permanent ^/?(.*)$ https://museum.org/$1')).redirectOnly).toBe(true);
+    expect(block(vhost('    <IfModule mod_rewrite.c>\n    RewriteEngine On\n    RewriteRule ^(.*)$ https://%{HTTP_HOST}$1 [R=301,L]\n    </IfModule>')).redirectOnly).toBe(true);
+  });
+
+  test('MUTATION: anything that still serves is NOT redirect-only (the block stays a candidate)', () => {
+    for (const body of [
+      // A path prefix, the root only, or a gone: some or no request is redirected.
+      '    Redirect /old https://museum.org/new',
+      '    RedirectMatch ^/$ https://museum.org/',
+      '    Redirect gone /',
+      '    Redirect / /elsewhere',
+      // A rule without R, without the engine, with a path pattern, or under a content condition.
+      '    RewriteEngine on\n    RewriteRule ^ https://museum.org%{REQUEST_URI} [L]',
+      '    RewriteRule ^ https://museum.org%{REQUEST_URI} [R=301,L]',
+      '    RewriteEngine off\n    RewriteRule ^ https://museum.org%{REQUEST_URI} [R=301,L]',
+      '    RewriteEngine on\n    RewriteRule ^/api https://museum.org/api [R]',
+      '    RewriteEngine on\n    RewriteCond %{REQUEST_URI} ^/shop\n    RewriteRule ^ https://museum.org%{REQUEST_URI} [R]',
+      // Per-path sections select.
+      '    <Location /old>\n        Redirect / https://museum.org/\n    </Location>',
+      '    <Directory /var/www>\n        RedirectMatch ^ https://museum.org/\n    </Directory>',
+      '    DocumentRoot /var/www/html',
+    ]) {
+      expect([body, block(vhost(body)).redirectOnly]).toEqual([body, false]);
+    }
+    // A host or scheme condition that can spare a request the block serves: the block still serves
+    // (review lane A — each of these came out redirect-only before, and the TLS site was dropped).
+    const tls = (body: string) =>
+      `<VirtualHost *:443>\n    ServerName museum.org\n    ServerAlias www.museum.org\n    DocumentRoot /var/www/museum\n    SSLEngine on\n${body}\n</VirtualHost>\n`;
+    const plain = (body: string) => `<VirtualHost *:80>\n    ServerName museum.org\n    ServerAlias www.museum.org\n    DocumentRoot /var/www/museum\n${body}\n</VirtualHost>\n`;
+    for (const text of [
+      // www → bare only, inside the TLS site.
+      tls('    RewriteEngine On\n    RewriteCond %{HTTP_HOST} ^www\\.museum\\.org$ [NC]\n    RewriteRule ^(.*)$ https://museum.org$1 [R=301,L]'),
+      // "not the canonical host" → canonical: the canonical name is served.
+      tls('    RewriteEngine On\n    RewriteCond %{HTTP_HOST} !^museum\\.org$ [NC]\n    RewriteRule ^(.*)$ https://museum.org$1 [R=301,L]'),
+      // %{HTTPS} off / %{SERVER_PORT} 80 / %{REQUEST_SCHEME} http inside a TLS block: never true there.
+      tls('    RewriteEngine On\n    RewriteCond %{HTTPS} off\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]'),
+      tls('    RewriteEngine On\n    RewriteCond %{SERVER_PORT} ^80$\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]'),
+      tls('    RewriteEngine On\n    RewriteCond %{REQUEST_SCHEME} =http\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]'),
+      // Behind a TLS-terminating proxy: the forwarded-https requests are served.
+      plain('    RewriteEngine On\n    RewriteCond %{HTTP:X-Forwarded-Proto} !https\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]'),
+      // certbot's chain that misses a served name (www is served).
+      plain('    RewriteEngine on\n    RewriteCond %{SERVER_NAME} =museum.org\n    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]'),
+      // Two host tests ANDed (no [OR]): no request is both names.
+      plain('    RewriteEngine on\n    RewriteCond %{SERVER_NAME} =museum.org\n    RewriteCond %{SERVER_NAME} =www.museum.org\n    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [R=permanent]'),
+      // A wildcard alias cannot be covered by a list of names.
+      '<VirtualHost *:80>\n    ServerName museum.org\n    ServerAlias *.museum.org\n    RewriteEngine on\n    RewriteCond %{SERVER_NAME} =museum.org\n    RewriteRule ^ https://museum.org%{REQUEST_URI} [R=301]\n</VirtualHost>\n',
+    ]) {
+      expect([text, block(text).redirectOnly]).toEqual([text, false]);
+    }
+    // A host/scheme condition that holds for every request the block serves (or spares ACME): still a whole-site redirect.
+    expect(block(plain('    RewriteEngine On\n    RewriteCond %{HTTPS} !=on\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]')).redirectOnly).toBe(true);
+    expect(block(plain('    RewriteEngine On\n    RewriteCond %{SERVER_PORT} 80\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]')).redirectOnly).toBe(true);
+    expect(block(plain('    RewriteEngine On\n    RewriteCond %{HTTP_HOST} ^(www\\.)?museum\\.org$ [NC]\n    RewriteRule ^ https://museum.org%{REQUEST_URI} [R=301,L]')).redirectOnly).toBe(true);
+    expect(block(plain('    RewriteEngine on\n    RewriteCond %{SERVER_NAME} =www.museum.org [OR]\n    RewriteCond %{SERVER_NAME} =museum.org\n    RewriteCond %{REQUEST_URI} !^/\\.well-known/acme-challenge/\n    RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]')).redirectOnly).toBe(true);
+    expect(block(vhost('    RewriteEngine on\n    RewriteCond %{HTTPS} off\n    RewriteCond %{REQUEST_URI} !^/\\.well-known/acme-challenge/\n    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]')).redirectOnly).toBe(true);
+    // The conditions bind to the NEXT rule only: a later unconditioned catch-all rule still redirects everything.
+    expect(block(vhost('    RewriteEngine on\n    RewriteCond %{REQUEST_URI} ^/shop\n    RewriteRule ^/shop https://shop.org [R]\n    RewriteRule ^ https://museum.org/ [R]')).redirectOnly).toBe(true);
+  });
+
+  test('the shared pieces: a closed catch-all list (`^/$` is not one), absolute targets only', () => {
+    for (const pattern of ['^', '^/', '(.*)', '^(.*)$', '^/(.*)$', '^/?(.*)$', '.*']) expect(isCatchAllPattern(pattern)).toBe(true);
+    for (const pattern of ['^/$', '^/old', '/api/(.*)', '^/.+$']) expect(isCatchAllPattern(pattern)).toBe(false);
+    for (const target of ['https://museum.org/', 'http://museum.org', '$scheme://museum.org', '%{REQUEST_SCHEME}://museum.org']) expect(isAbsoluteRedirectTarget(target)).toBe(true);
+    for (const target of ['/elsewhere', 'museum.org', '$host$request_uri']) expect(isAbsoluteRedirectTarget(target)).toBe(false);
   });
 });
 

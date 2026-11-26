@@ -18,7 +18,7 @@
  * sibling declarations (schema.ts), this module only judges the derived layouts.
  */
 import type { AgentLayout } from './layout';
-import { pathsOverlap } from './layout';
+import { isLoopbackListenHost, pathsOverlap, sameListenHost } from './layout';
 
 export interface Sibling {
   /** The declaration file, named in every refusal. */
@@ -130,12 +130,15 @@ export function siblingRefusals(own: AgentLayout, siblings: readonly Sibling[]):
       }
     }
     if (own.listen.kind === 'tls' && other.listen.kind === 'tls') {
-      if (own.listen.host === other.listen.host && own.listen.port === other.listen.port) {
+      // One address, one spelling: compared canonically (RFC 5952), so `fd00:0::1` and `fd00::1`
+      // are one interface even when a hand-written declaration did not use the canonical form.
+      if (sameListenHost(own.listen.host, other.listen.host) && own.listen.port === other.listen.port) {
         clash(`listen ${own.listen.host}:${own.listen.port}`, 'give each instance its own port (or address)');
       }
     }
-    // v2 binds loopback: a loopback agent listener on their v2 port collides.
-    if (own.listen.kind === 'tls' && own.listen.host.startsWith('127.') && own.listen.port === other.v2.port) {
+    // v2 binds loopback: a loopback agent listener (127.0.0.0/8 or ::1 — a v2 service bound to a
+    // dual-stack `localhost` holds both) on their v2 port collides.
+    if (own.listen.kind === 'tls' && isLoopbackListenHost(own.listen.host) && own.listen.port === other.v2.port) {
       clash(`listen ${own.listen.host}:${own.listen.port} is that instance's v2.port`, 'give each instance its own port');
     }
     const theirsWritten = writtenRoots(other);

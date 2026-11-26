@@ -27,15 +27,19 @@
  *   2. src/core/test_data/test_tld_ontology.json — the suite's own twins
  *      (flipped to the `.ts` / `engine:'ts'` shape at clone time, owner 2026-11-13).
  *
- * THE SHIPPED CORPUS IS TS-ERA (re-vendored 2026-11-26 from the v7 master's
- * release). Until then every shipped block was in the earlier engine's shape and
- * banked, shrink-only, as `SHIPPED_PHP_ERA` (ruling 2026-11-13); the bank is now
- * `{}` and stays the gate against a php-era block coming back:
- *   B. every shipped block is runnable as-is;
- *   C. the php-era histogram is EXACTLY `{}` — a re-vendored release that
- *      reintroduces one is red.
- * (Leg A — every php-era block refused ONLY by the engine/file rule — retired
- * with the last php-era block: it had nothing left to judge.)
+ * THE SHIPPED CORPUS IS TS-SHAPED (since the 2026-11-25 re-vendor, fbbd8e9bd8).
+ * Until then every shipped block carried the earlier engine's shape (`.php`,
+ * `engine:'php'`) and was banked as `SHIPPED_PHP_ERA`; the owner updated the v7
+ * master ontology (ruling 2026-11-13) and the bank went to `{}` with it. The
+ * corpus is pinned as histograms (file → fn → count), never a list of install
+ * tipos (a test names no install's tipo):
+ *   A. the shipped TS blocks match `SHIPPED_TS_BLOCKS` EXACTLY — the
+ *      mdcat/generic SPLIT (13 mdcat-file + 10 generic-file blocks) pinned
+ *      against the corpus, every banked file a dispatch key;
+ *   B. every shipped block is runnable as-is (a new unrunnable block is a
+ *      problem);
+ *   C. no php-era block remains (`SHIPPED_PHP_ERA` is `{}` and stays so — a
+ *      re-vendor that brings one back is red).
  *
  * WHAT IS PINNED, per `widgets[widget_name='calculation'].ipo[]` block:
  *   - process resolves through resolveCalculationFn (fn + file + engine);
@@ -66,11 +70,33 @@ import { vendoredOntologyNodes } from '../helpers/vendored_ontology_corpus.ts';
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 
 /**
- * THE SHIPPED PHP-ERA BANK — `<process.file>` → `<fn>` → block count, LIVE and
- * SHRINK-ONLY. Emptied 2026-11-26 when the release was re-vendored from the v7
- * master (every calculation block in the `.ts` / `engine:'ts'` shape).
+ * THE SHIPPED PHP-ERA BANK — `<process.file>` → `<fn>` → block count. EMPTY
+ * since the 2026-11-25 re-vendor (the owner's master-ontology update, ruling
+ * 2026-11-13); leg C keeps it empty.
  */
 const SHIPPED_PHP_ERA: Readonly<Record<string, Readonly<Record<string, number>>>> = {};
+
+/**
+ * THE SHIPPED TS BANK — `<process.file>` → `<fn>` → block count of the vendored
+ * release, EXACT (leg A). The same 23 blocks the php-era bank held, now in the
+ * engine's shape; a re-vendor that adds, drops or moves a block edits this in
+ * the same commit.
+ */
+const SHIPPED_TS_BLOCKS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+	'/mdcat/calculation/mdcat.ts': {
+		calculate_import_major: 2,
+		calculate_import_minor: 1,
+		calculate_period: 3,
+		days_correction_manually: 1,
+		final_total: 1,
+		range_to_days: 1,
+		subtract: 1,
+		to_euros: 3,
+	},
+	'/calculation/formulas.ts': {
+		summarize: 10,
+	},
+};
 
 /** A judged node: tipo, properties, resolved model name, corpus. */
 interface CorpusNode {
@@ -227,14 +253,15 @@ function isPhpEra(process: Record<string, unknown>): boolean {
 	);
 }
 
-/** file → fn → count over the php-era blocks of a corpus. */
-function phpEraHistogram(
+/** file → fn → count over the php-era (`phpEra`) or TS-shaped blocks of a corpus. */
+function blockHistogram(
 	blocks: readonly CalculationBlock[],
+	phpEra: boolean,
 ): Record<string, Record<string, number>> {
 	const histogram: Record<string, Record<string, number>> = {};
 	for (const entry of blocks) {
 		const process = processOf(entry);
-		if (!isPhpEra(process)) continue;
+		if (isPhpEra(process) !== phpEra) continue;
 		const file = String(process.file);
 		const fn = String(process.fn);
 		histogram[file] ??= {};
@@ -299,30 +326,32 @@ describe('calculation fn registry tripwire', () => {
 		expect(TEST_BLOCKS.flatMap((entry) => judgeBlock(entry, modelOf))).toEqual([]);
 	});
 
-	test('SHIPPED leg B: every block that is NOT php-era is runnable as-is', () => {
-		const modelOf = modelResolver(PACKAGE_NODES);
-		const tsEra = PACKAGE_BLOCKS.filter((entry) => !isPhpEra(processOf(entry)));
-		expect(tsEra.flatMap((entry) => judgeBlock(entry, modelOf))).toEqual([]);
-		expect(tsEra.length + PACKAGE_BLOCKS.filter((entry) => isPhpEra(processOf(entry))).length).toBe(
-			PACKAGE_BLOCKS.length,
-		);
-	});
-
-	test('SHIPPED leg C: the php-era bank is LIVE and EXACT — a new php-era block or a stale entry is red', () => {
-		expect(phpEraHistogram(PACKAGE_BLOCKS)).toEqual(SHIPPED_PHP_ERA);
-		// And the bank pins the mdcat / generic split: every banked file is a dispatch key once `.ts`.
-		for (const file of Object.keys(SHIPPED_PHP_ERA)) {
-			const tsFile = file.replace(/\.php$/, '.ts');
-			for (const fn of Object.keys(SHIPPED_PHP_ERA[file] as object)) {
+	test('SHIPPED leg A: the TS bank is LIVE and EXACT — the mdcat / generic split, every file a dispatch key', () => {
+		expect(blockHistogram(PACKAGE_BLOCKS, false)).toEqual(SHIPPED_TS_BLOCKS);
+		let banked = 0;
+		for (const [file, fns] of Object.entries(SHIPPED_TS_BLOCKS)) {
+			for (const [fn, count] of Object.entries(fns)) {
+				banked += count;
 				expect(
-					dispatchProblem({ fn, file: tsFile, engine: CALCULATION_ENGINE }, 0),
-					`${tsFile} ${fn}`,
+					dispatchProblem({ fn, file, engine: CALCULATION_ENGINE }, 0),
+					`${file} ${fn}`,
 				).toBeNull();
 			}
 		}
+		// The bank is the whole corpus — no block escapes it on either side of the php/ts split.
+		expect(banked).toBe(PACKAGE_BLOCKS.length);
+	});
+
+	test('SHIPPED leg B: every shipped block is runnable as-is', () => {
+		const modelOf = modelResolver(PACKAGE_NODES);
+		expect(PACKAGE_BLOCKS.flatMap((entry) => judgeBlock(entry, modelOf))).toEqual([]);
+	});
+
+	test('SHIPPED leg C: no php-era block remains — a re-vendor that brings one back is red', () => {
+		expect(blockHistogram(PACKAGE_BLOCKS, true)).toEqual(SHIPPED_PHP_ERA);
 	});
 
 	test('the suite twins carry NO php-era block (flipped at clone time, owner 2026-11-13)', () => {
-		expect(phpEraHistogram(TEST_BLOCKS)).toEqual({});
+		expect(blockHistogram(TEST_BLOCKS, true)).toEqual({});
 	});
 });

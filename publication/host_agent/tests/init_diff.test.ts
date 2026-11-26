@@ -171,6 +171,17 @@ describe('unifiedDiff', () => {
 });
 
 describe('lineEditDiff', () => {
+  test('several insertions (address-family twins in one file): each hunk shifted by the ones before it; two at one point refused', () => {
+    const lines = ['# marker', 'IncludeOptional /x'];
+    expect(lineEditDiff('/v', { inserted: [{ after: 20, lines }, { after: 2, lines }] })).toBe(
+      ['--- /v', '+++ /v', '@@ -2,0 +3,2 @@', '+# marker', '+IncludeOptional /x', '@@ -20,0 +23,2 @@', '+# marker', '+IncludeOptional /x', ''].join('\n'),
+    );
+    expect(lineEditDiff('/v', { inserted: [{ after: 2, lines }] })).toBe(lineEditDiff('/v', { inserted: { after: 2, lines } }));
+    expect(lineEditDiff('/v', { inserted: [] })).toBe('');
+    expect(() => lineEditDiff('/v', { inserted: [{ after: 2, lines }, { after: 2, lines }] })).toThrow('two insertions at one point');
+    expect(() => lineEditDiff('/v', { inserted: [{ after: -1, lines }] })).toThrow('must be ≥ 0');
+  });
+
   const file = ['<VirtualHost *:443>', '  ServerName example.org', '  Alias /x /y', '  <Directory /y>', '  </Directory>', '</VirtualHost>'].join('\n');
 
   test('inserted lines land after their line, numbered on both sides', () => {

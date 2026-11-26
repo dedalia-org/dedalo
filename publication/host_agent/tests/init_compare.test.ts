@@ -12,6 +12,7 @@ import type { HostDeclaration } from '../src/provision/layout';
 import { parseInitArgs } from '../src/provision/init/args';
 import type { ComparedItem } from '../src/provision/init/compare';
 import { ITEM_IDS, compare, isKnownItemId, unknownAnswers } from '../src/provision/init/compare';
+import { TYPED_ACTION_KINDS, classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
 import type { DraftDeclaration } from '../src/provision/init/draft';
 import { completeDraft, vhostSha8 } from '../src/provision/init/draft';
 import type { CompareCtx, DeclaredFacts, HostFacts, InitAction } from '../src/provision/init/types';
@@ -330,7 +331,8 @@ const ROWS: readonly (readonly [string, () => Scn, string, Expect])[] = [
   ['home missing', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: null } } }), 'home.root', { list: 'change', action: 'mkdir', command: /^mkdir -m 0755 \/home\/example\.org$/ }],
   ['home 0700 widens', () => ({}), 'home.root', { list: 'change', action: 'path_meta', command: /^chown root:root \/home\/example\.org && chmod 0755 \/home\/example\.org$/, fact: /widens from 0700 to 0755/ }],
   ['home root-owned but group-writable', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 1002, mode: 0o775 } } } }), 'home.root', { list: 'change', action: 'path_meta' }],
-  ['home root right', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o711 } } } }), 'home.root', { list: 'right' }],
+  ['home root-owned 0700 (a re-run after tightening): not traversable, a change', () => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o700 } } } }), 'home.root', { list: 'change', action: 'path_meta', command: /^chown root:root \/home\/example\.org && chmod 0755 \/home\/example\.org$/, fact: /cannot traverse it/ }],
+  ['home root right',() => ({ declared: { ...declaredFresh(), home: { ...declaredFresh().home, facts: { type: 'dir', uid: 0, gid: 0, mode: 0o711 } } } }), 'home.root', { list: 'right' }],
   ['home under system: absent', () => ({ draft: draft({ layout: 'system' }) }), 'home.root', { absent: true }],
   ['home on nfs4: no home.root', () => ({ facts: { ...debianHost(), mounts: [...debianHost().mounts, { mountPoint: '/home', fsType: 'nfs4', readOnly: false, noexec: false, seclabel: false, context: null }] } }), 'home.root', { absent: true }],
   // selinux.*
@@ -515,6 +517,71 @@ describe('compare: one row per §4.3 branch', () => {
 
 /* ── laws over every item ────────────────────────────────────────────────────────────── */
 
+describe('compare: a dual-stack site (address-family twins, draft.ts vhostTwins)', () => {
+  const V6 = '/etc/apache2/sites-available/example.org-v6.conf';
+  const v4 = (patch: Parameters<typeof vhost>[0] = {}) => vhost({ addresses: ['0.0.0.0'], ...patch });
+  const v6 = (patch: Parameters<typeof vhost>[0] = {}) => vhost({ addresses: ['[::]'], realpath: V6, file: V6, fileSha: 'b'.repeat(64), ...patch });
+  const site = (...vhosts: ReturnType<typeof vhost>[]): Scn => ({ facts: { ...debianHost(), web: { ...debianHost().web, vhosts } } });
+
+  test('twins in TWO files: one web.vhost item per file — its own path, sha, opener, transaction; the ids differ', () => {
+    const { get, items, completion } = run(site(v4(), v6()));
+    expect(completion.decisions.find(row => row.id === 'declaration.vhost')).toBeUndefined();
+    const ids = items.filter(row => row.id.startsWith('web.vhost.')).map(row => row.id);
+    expect(ids).toEqual([`web.vhost.${vhostSha8(v4())}`, `web.vhost.${vhostSha8(v6())}`]);
+    const first = get(ids[0] as string);
+    const second = get(ids[1] as string);
+    expect(first?.action).toEqual({ kind: 'vhost_reference', path: v4().realpath, beforeSha: 'a'.repeat(64), server: 'apache', edit: 'reference', line: 2 });
+    expect(second?.action).toEqual({ kind: 'vhost_reference', path: V6, beforeSha: 'b'.repeat(64), server: 'apache', edit: 'reference', line: 2 });
+    for (const row of [first, second]) {
+      expect(row).toMatchObject({ list: 'decision', operatorFile: true, defaultOption: 'act' });
+      expect(row?.facts.join('\n')).toContain('serve one site on two address families: each block gets the include, one configtest-and-rollback transaction per file');
+    }
+    // The report names both blocks, every address.
+    expect(get('declaration.vhost')?.facts[0]).toBe(`${v4().realpath}:2 port 443 on 0.0.0.0 (TLS) + ${V6}:2 port 443 on [::] (TLS)`);
+  });
+
+  test('twins in ONE file: ONE item, both openers (alsoLines), a diff with both insertions; the reference text is what web_edit inserts at each', () => {
+    const { items, get } = run(site(vhost({ addresses: ['*'], line: 2 }), vhost({ addresses: ['[::]'], line: 20 })));
+    expect(items.filter(row => row.id.startsWith('web.vhost.')).map(row => row.id)).toEqual([`web.vhost.${vhostSha8(vhost())}`]);
+    const row = get(`web.vhost.${vhostSha8(vhost())}`);
+    expect(row?.action).toEqual({ kind: 'vhost_reference', path: vhost().realpath, beforeSha: 'a'.repeat(64), server: 'apache', edit: 'reference', line: 2, alsoLines: [20] });
+    const hunks = (row?.diff?.unified ?? '').split('\n').filter(line => line.startsWith('@@'));
+    expect(hunks).toEqual(['@@ -2,0 +3,2 @@', '@@ -20,0 +23,2 @@']);
+    const text = ['<VirtualHost *:443>', '  ServerName example.org', '</VirtualHost>', '<VirtualHost [::]:443>', '  ServerName example.org', '</VirtualHost>', ''].join('\n');
+    const both = insertApacheReference(insertApacheReference(text, INSTANCE, '/etc/dedalo_publication_host/demo/web.apache.conf', 4), INSTANCE, '/etc/dedalo_publication_host/demo/web.apache.conf', 1);
+    expect(both.split('\n').filter(line => line.trim() === row?.commands?.[1])).toHaveLength(2);
+  });
+
+  test('a twin that already holds the reference: right for it, the item only for the other (in its file, or alone in a shared file)', () => {
+    const split = run(site(v4({ ourReference: true }), v6()));
+    expect(split.get(`web.vhost.${vhostSha8(v4())}`)?.list).toBe('right');
+    expect(split.get(`web.vhost.${vhostSha8(v6())}`)?.list).toBe('decision');
+    const shared = run(site(vhost({ addresses: ['*'], ourReference: true }), vhost({ addresses: ['[::]'], line: 20 })));
+    expect(shared.get(`web.vhost.${vhostSha8(vhost())}`)?.action).toEqual({ kind: 'vhost_reference', path: vhost().realpath, beforeSha: 'a'.repeat(64), server: 'apache', edit: 'reference', line: 20 });
+    const done = run(site(v4({ ourReference: true }), v6({ ourReference: true })));
+    expect([done.get(`web.vhost.${vhostSha8(v4())}`)?.list, done.get(`web.vhost.${vhostSha8(v6())}`)?.list]).toEqual(['right', 'right']);
+  });
+
+  test("a twin's own hand-written lines, an untrusted twin file, and a twin's logs are judged like the chosen vhost's", () => {
+    const manual = run(site(v4(), v6({ manualLines: [{ line: 5, text: '  Alias /dedalo/publication/server_api/v1 /x' }] })));
+    const removal = manual.get(`web.manual_lines.${vhostSha8(v6())}`);
+    expect(removal?.action).toEqual({ kind: 'vhost_manual_removal', path: V6, beforeSha: 'b'.repeat(64), server: 'apache', edit: 'remove_manual', lines: [5] });
+    expect(manual.get(`web.vhost.${vhostSha8(v6())}`)?.after).toContain(`web.manual_lines.${vhostSha8(v6())}`);
+    const untrusted = run(site(v4(), v6({ fileTrust: ['owned by uid 1002'] })));
+    expect(untrusted.get(`web.vhost.${vhostSha8(v6())}`)).toMatchObject({ blocking: true });
+    expect(untrusted.get(`web.vhost.${vhostSha8(v4())}`)?.list).toBe('decision');
+    const logs = run(site(v4(), v6({ errorLog: '/var/log/apache2/example.err' }))).get('web.logs');
+    expect(logs?.list).toBe('decision');
+    expect(logs?.facts).toContain(`${V6}: /var/log/apache2/example.err`);
+  });
+
+  test('a :80 redirect-only block beside the site gets nothing', () => {
+    const redirect = vhost({ port: 80, ssl: false, redirectOnly: true, addresses: ['*', '[::]'], realpath: '/etc/apache2/sites-available/example.org.conf' });
+    const { items } = run(site(redirect, vhost({ addresses: ['*', '[::]'] })));
+    expect(items.filter(row => row.id.startsWith('web.vhost.')).map(row => row.id)).toEqual([`web.vhost.${vhostSha8(vhost())}`]);
+  });
+});
+
 describe('compare: laws', () => {
   test('a converged host compares all right (the second run of init_run case 1), except the pairing call', () => {
     const { items } = run(converged());
@@ -569,6 +636,25 @@ describe('compare: laws', () => {
       if (row.list === 'decision') expect((row.options ?? []).length).toBeGreaterThan(0);
       if (row.defaultOption !== undefined) expect(row.options?.map(option => option.id)).toContain(row.defaultOption);
       for (const option of Object.keys(row.optionActions ?? {})) expect(row.options?.map(choice => choice.id)).toContain(option);
+    }
+  });
+
+  test('P2 typed law: every acting option that edits an operator file, sets a boolean or is host-wide is marked typed AT THE PRODUCER', () => {
+    const problems = [...new Set(ALL.flatMap(row => typedMarkProblems(row)))];
+    expect(problems).toEqual([]);
+    // Anti-vacuity: the scenarios really emit each compare-side typed kind as a decision option.
+    const seen = new Set<string>();
+    for (const row of ALL) {
+      for (const option of row.options ?? []) {
+        const action = row.optionActions?.[option.id] ?? (option.resolves === 'act' ? row.action : undefined);
+        if (action !== undefined && option.confirm === 'typed') seen.add(action.kind);
+      }
+    }
+    for (const kind of TYPED_ACTION_KINDS.filter(kind => kind !== 'pair_package_remove')) expect(seen).toContain(kind);
+    // And such a decision is never resolved by Enter nor as "the only option".
+    for (const row of ALL.filter(row => row.list === 'decision' && (row.options ?? []).some(option => option.confirm === 'typed'))) {
+      const kind = classifyDecision(row).kind;
+      expect(kind === 'typed' || kind === 'needs_action').toBe(true);
     }
   });
 

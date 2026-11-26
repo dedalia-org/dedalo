@@ -590,8 +590,10 @@ function observeWeb(
             realpath: file.realpath,
             line: block.line,
             endLine: block.endLine,
+            addresses: sEntry.addresses,
             port: sEntry.port,
             ssl: block.ssl,
+            redirectOnly: block.redirectOnly,
             serverName: block.serverName ?? sEntry.serverName,
             matchedBy,
             documentRoot: block.documentRoot,
@@ -641,15 +643,27 @@ function observeWeb(
         file = { realpath, sha: ports.io.readOperatorFile(realpath).sha, trust: fileTrustProblems(fs, realpath, rootUid) };
         read.set(server.file, file);
       }
+      // ONE row per port and TLS-ness, never per `listen`: `listen 443 ssl; listen [::]:443 ssl;`
+      // is one site on two address families (types.ts Vhost). A port listened on both with and
+      // without ssl is two rows — two different services, never merged.
+      const rows = new Map<string, { port: number; ssl: boolean; addresses: string[] }>();
       for (const listen of server.listens) {
+        const key = `${listen.port}\0${listen.ssl}`;
+        const row = rows.get(key) ?? { port: listen.port, ssl: listen.ssl, addresses: [] };
+        if (!row.addresses.includes(listen.address)) row.addresses.push(listen.address);
+        rows.set(key, row);
+      }
+      for (const listen of rows.values()) {
         vhosts.push(
           Object.freeze({
             file: server.file,
             realpath: file.realpath,
             line: server.line,
             endLine: server.endLine,
+            addresses: Object.freeze(listen.addresses),
             port: listen.port,
             ssl: listen.ssl,
+            redirectOnly: server.redirectOnly,
             serverName: server.names.find(name => name === domain.toLowerCase()) ?? server.names[0] ?? '',
             matchedBy,
             documentRoot: server.root,

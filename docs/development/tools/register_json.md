@@ -53,11 +53,23 @@ This is exactly what `bun run scripts/create_tool.ts --name=... --label=... --mo
 | `require_translatable` | bool | Only offer the tool on translatable components |
 | `always_active` | bool | Available to every user regardless of the tools-profile grant |
 | `active` | bool | Active status after registration (default `true`) |
-| `properties` | object\|null | UI/behavior hints: `{"open_as": "modal"}` or `{"open_as": "window", "windowFeatures": {...}}`, optional `events` (keyboard shortcuts), optional `tool_config` with `ddo_map` |
+| `properties` | object\|null | UI/behavior hints: `open_as` (`"modal"`, the default, `"window"` or `"attach"` — see [`properties.open_as`](#propertiesopen_as)), `windowFeatures`, optional `events` (keyboard shortcuts), optional `tool_config` with `ddo_map` |
 | `labels` | array | UI strings: `[{"lang": "lg-eng", "name": "key", "value": "Text"}, ...]`, retrieved in JS via `get_tool_label('key')` |
 | `ontology` | array\|null | Optional tool ontology extension nodes |
 | `config` | object\|null | Runtime configuration definition. Properties flagged `"client": true` are exposed to the browser (`getToolClientConfig`) — never put secrets there |
 | `default_config` | object\|null | Factory default configuration; per-install overridable in the Tools configuration section (dd996). May carry `properties.tool_config` entries that redefine the tool's components for one field or button ([Server contract](server_contract.md), section *Per-field override*) |
+
+### `properties.open_as`
+
+How the tool opens when its button is pressed. Exactly three values are accepted; any other value is a registration error.
+
+| Value | Opens | Requires |
+|---|---|---|
+| `modal` (default) | A Dédalo modal over the page | — |
+| `window` | Its own browser window or tab | — |
+| `attach` | Nothing of its own: the tool puts its UI on the caller (a toolbar on a component's map, for instance) and stays there until it is switched off | `show_in_component: true` and `show_in_inspector: false` — the caller must be a component on the page |
+
+An `attach` tool implements `attach()` and `detach()` instead of a rendered view; the lifecycle is in [JS lifecycle](js_lifecycle.md#modal-window-and-attach-modes).
 
 ### `properties.windowFeatures`
 
@@ -66,9 +78,9 @@ The size and position a tool asks for when it opens. The value is data, read aga
 | `open_as` | Keys | Values |
 |---|---|---|
 | `window` | `left`, `top`, `width`, `height` (aliases `screenX`, `screenY`, `innerWidth`, `innerHeight`); the flags `popup`, `noopener`, `noreferrer` | A number, or the relative form `"return screen.width -760"`: `return`, then one of `screen.width`, `screen.height`, `screen.availWidth`, `screen.availHeight`, `screen.availLeft`, `screen.availTop`, `window.innerWidth`, `window.innerHeight`, `window.outerWidth`, `window.outerHeight`, `window.screenX`, `window.screenY`, `window.screenLeft`, `window.screenTop`, optionally followed by `+` or `-` and a whole number. A flag takes `true`/`false`. |
-| `modal` (and `tab`, `popup`) | `width`, `minWidth`, `maxWidth`, `height`, `minHeight`, `maxHeight` | A number of pixels, a CSS length or percentage (`"40rem"`, `"100%"`), or `auto`, `none`, `fit-content`, `max-content`, `min-content`. |
+| `modal` | `width`, `minWidth`, `maxWidth`, `height`, `minHeight`, `maxHeight` | A number of pixels, a CSS length or percentage (`"40rem"`, `"100%"`), or `auto`, `none`, `fit-content`, `max-content`, `min-content`. |
 
-`tool_upload` opens at the right edge of the screen with `{"top": 0, "left": "return screen.width -760", "width": 760, "height": 708}`; `tool_ontology` sizes its modal with `{"width": "40rem"}`. `null` leaves the default (a new tab, or the modal's own size). The parser is `client/dedalo/core/tools_common/js/window_features.js`.
+`tool_upload` opens at the right edge of the screen with `{"top": 0, "left": "return screen.width -760", "width": 760, "height": 708}`; `tool_ontology` sizes its modal with `{"width": "40rem"}`. `null` leaves the default (a new tab, or the modal's own size). An `attach` tool opens no surface of its own, so `windowFeatures` does not apply to it. The parser is `client/dedalo/core/tools_common/js/window_features.js`.
 
 Every field maps to a fixed ontology tipo (`TOOL_NAME`, `TOOL_VERSION`, `CONFIG`, `DEFAULT_CONFIG`, `PROPERTIES`, `LABELS`, `AFFECTED_MODELS`, `AFFECTED_TIPOS`, `ACTIVE`, …) declared once in `src/core/tools/ontology_map.ts` — use those constants in any code reading registry data, never literal `dd1326`-style strings.
 

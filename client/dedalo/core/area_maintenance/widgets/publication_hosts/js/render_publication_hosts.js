@@ -629,11 +629,13 @@ const render_edit_form = function (self, host, card, body_response) {
 
 	const probe = host.probe || {};
 	const inputs = {
-		public_url: field(
-			fields,
-			'public_url',
-			get_label.publication_hosts_public_url || 'Public URL',
-			host.public_url,
+		public_url: propose_https(
+			field(
+				fields,
+				'public_url',
+				get_label.publication_hosts_public_url || 'Public URL',
+				host.public_url,
+			),
 		),
 		qualities: field(
 			fields,
@@ -669,12 +671,64 @@ const render_edit_form = function (self, host, card, body_response) {
 			action: 'set_host_fields',
 			options: read_host_fields(host.name, inputs),
 			confirm_text: null,
+			// the server sentence: it carries the notice an http public URL earns (§7)
+			result_text: (api_response) =>
+				String(
+					response_extension(api_response, 'msg') ||
+						JSON.stringify(response_data(api_response) ?? null, null, 2),
+				),
 			reload: true,
 		});
 	});
 
 	return details;
 }; //end render_edit_form
+
+/**
+ * The scheme the panel proposes for a public URL: https (§7). http is still
+ * accepted (an http-only intranet); the server's save sentence then carries a
+ * notice.
+ */
+const PROPOSED_SCHEME = 'https://';
+
+/**
+ * PROPOSE_HTTPS
+ * An empty public URL field shows the https scheme as its placeholder and
+ * receives it on focus, so the operator types the host after `https://`. A
+ * field left at the bare scheme is blank again on blur (read as null).
+ * @param {HTMLInputElement} input
+ * @returns {HTMLInputElement}
+ */
+const propose_https = function (input) {
+	input.placeholder = `${PROPOSED_SCHEME}www.example.org`;
+	input.addEventListener('focus', () => {
+		if (input.value.trim() === '') {
+			input.value = PROPOSED_SCHEME;
+		}
+	});
+	input.addEventListener('blur', () => {
+		if (input.value.trim() === PROPOSED_SCHEME) {
+			input.value = '';
+		}
+	});
+
+	return input;
+}; //end propose_https
+
+/**
+ * PUBLIC_URL_VALUE
+ * Pure: the public URL as set_host_fields sends it. Blank (or the bare proposed
+ * scheme) is null; a value typed without a scheme gets the proposed `https://`;
+ * an explicit `http://` is sent as typed (the server accepts it with a notice).
+ * @param {string} raw - the trimmed field text
+ * @returns {string|null}
+ */
+export const public_url_value = function (raw) {
+	if (raw === '' || raw === PROPOSED_SCHEME) {
+		return null;
+	}
+	return /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : PROPOSED_SCHEME + raw;
+}; //end public_url_value
 
 /**
  * FIELD
@@ -722,7 +776,7 @@ export const read_host_fields = function (name, inputs) {
 
 	return {
 		name: name,
-		public_url: text(inputs.public_url) || null,
+		public_url: public_url_value(text(inputs.public_url)),
 		qualities: qualities.length > 0 ? qualities : null,
 		probe: {
 			published: text(inputs.probe_published) || null,

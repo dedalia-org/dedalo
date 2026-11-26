@@ -10,13 +10,13 @@ import { AUDIT_ACTION_ORIGIN, type AuditAction } from '../src/audit';
 import type { SyncSpawner, SyncSpawnOptions } from '../src/exec';
 import { initExec } from '../src/exec';
 import type { ExecResult, PairInvocation } from '../src/provision/exec_contract';
+import { classifyDecision, typedMarkProblems } from '../src/provision/init/decision_class';
 import {
   ALREADY_REGISTERED,
   detectWorkSystem,
   engineContactSince,
   PACKAGE_KEEP,
   PACKAGE_REMOVE,
-  writtenPackageItem,
   PAIR_CHILD_PATH,
   type PairPorts,
   pairEnv,
@@ -26,10 +26,11 @@ import {
   pairPlan,
   pairPortResult,
   pairPreconditions,
-  twoMachineInstructions,
-  writePairingPackage,
   TWIN_REGISTERED,
+  twoMachineInstructions,
   unitOptionId,
+  writePairingPackage,
+  writtenPackageItem,
 } from '../src/provision/init/pair';
 import type { HostFacts, WorkUnit } from '../src/provision/init/types';
 import { derive } from '../src/provision/layout';
@@ -471,6 +472,9 @@ describe('the package after the pairing: engineContactSince + writtenPackageItem
       const item = writtenPackageItem(planned, path, { present: true, ...state });
       expect(item).toMatchObject({ list: 'decision', defaultOption: PACKAGE_REMOVE, action: { kind: 'pair_package_remove', path } });
       expect(item.options?.map(o => [o.id, o.resolves])).toEqual([[PACKAGE_REMOVE, 'act'], [PACKAGE_KEEP, 'skip']]);
+      // P2: removing the package is TYPED (decision_class.ts): Enter never takes the remove default.
+      expect(typedMarkProblems(item)).toEqual([]);
+      expect(classifyDecision(item)).toEqual({ kind: 'typed', enter: null });
     }
   });
 });

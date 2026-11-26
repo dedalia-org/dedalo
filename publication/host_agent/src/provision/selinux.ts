@@ -390,6 +390,8 @@ export const EL_DRILL_INPUTS: readonly string[] = Object.freeze([
   'src/provision/init/parse/fpm.ts',
   'src/provision/init/parse/mounts.ts',
   'src/provision/init/parse/os.ts',
+  // parse/apache.ts's redirect-only classification (which EL vhost may receive the include).
+  'src/provision/init/parse/redirect.ts',
   'src/provision/init/parse/selinux.ts',
   'src/provision/render/fpm_pool.ts',
   'src/provision/render/host_map_unit.ts',

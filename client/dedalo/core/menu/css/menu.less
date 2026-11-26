@@ -643,6 +643,12 @@
 			>.section_label_container {
 				flex: 1 1 0;
 				min-width: 0;
+				// no intrinsic width: a nowrap label's min-content is its WHOLE
+				// text, and the page's display:table boxes grow to the widest
+				// min-content — a long section name widened the page past 360px
+				// (crawl phone_overflow). min-width:0 only clamps up; this zeroes
+				// the contribution, so the ellipsis below can do its job.
+				contain: inline-size;
 				justify-content: flex-end;
 
 				>.section_label {

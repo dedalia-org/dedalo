@@ -2102,6 +2102,28 @@ html {
 .icon_button.transparent {
   background-color: transparent !important;
 }
+.button.tool[aria-pressed="true"] {
+  background-color: var(--fg_on_brand);
+  opacity: 1;
+}
+.button.tool.loading {
+  cursor: progress;
+  animation: tool_button_busy_pulse 900ms ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .button.tool.loading {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+@keyframes tool_button_busy_pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
 .icon.loading {
   border: 1px solid var(--color_grey_12);
   border-top-color: var(--color_orange_dedalo);
@@ -10839,6 +10861,7 @@ body:has(.component_av.view_viewer) {
   .menu > .content_data > .section_label_container {
     flex: 1 1 0;
     min-width: 0;
+    contain: inline-size;
     justify-content: flex-end;
   }
   .menu > .content_data > .section_label_container > .section_label {

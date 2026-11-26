@@ -16,11 +16,20 @@
  *      the relocations) → compare: the three lists. `--resume` settles the open records first and
  *      the host is observed again;
  *   5. the report, rendered WHOLE (report.ts redacts and sanitizes; every line then passes cli.ts
- *      `guarded`); every decision prompted (the default shown, never taken) and the list
- *      recomputed after each answer; `Apply these N changes? [y/N]`; then the secrets (hidden,
- *      twice). No TTY: without --yes a dry run; with --yes the change items run and every decision
- *      stays open (--yes never resolves a decision, never edits an operator file, never sets a
- *      boolean, never types a secret);
+ *      `guarded`); then, on a terminal, each unanswered decision by its class (decision_class.ts
+ *      classifyDecision, the one rule — owner-approved 2026-11, P2):
+ *        - needs_action (every option is `manual`: init can do nothing) — NOT asked: answered
+ *          manual, and listed at the end under "needs your action" with the re-run command;
+ *        - auto (exactly one option, not manual, not typed) — answered with it, reported
+ *          "auto: the only option";
+ *        - typed (edits an operator file, replaces a pairing, removes something, sets an SELinux
+ *          boolean / mount option) — asked; the option must be typed, Enter takes nothing;
+ *        - choose (the rest) — asked; Enter takes the shown default;
+ *      the list recomputed after each answer; `Apply these N changes? [y/N]`; then the secrets
+ *      (hidden, twice). No TTY: without --yes a dry run; with --yes the change items run and every
+ *      decision stays open — none of the classes above applies (--yes never resolves a decision,
+ *      never edits an operator file, never sets a boolean, never types a secret); `--decide`
+ *      answers any decision, of any class, before it is classified;
  *   6. act (init/act.ts executeItems, one journal) in §4.3 order — `provision apply` in-process
  *      with the held lock, so it does not take it again;
  *   7. B4 (verify.ts, async — run between the two act phases) and B5 (pair.ts: pairing runs after
@@ -58,7 +67,8 @@ import { initUsageLines, parseInitArgs } from './args';
 import { BunInstallFailed, BunInstallRefused, installBun } from './bun_install';
 import type { ComparedItem } from './compare';
 import { compare, isKnownItemId, unknownAnswers } from './compare';
-import { BUN_CONFIG_FLAG_PREFIX, BUN_HANDOVER_FLAGS, EMPTY_BUNFIG_NAME, KEPT_DIR_NAME, MARIADB_SOCKET_CANDIDATES, MARIADB_TCP_HOST, MARIADB_TCP_PORT } from './constants';
+import { classifyDecision } from './decision_class';
+import { BUN_CONFIG_FLAG_PREFIX, BUN_HANDOVER_FLAGS, EMPTY_BUNFIG_NAME, KEPT_DIR_NAME, MARIADB_SOCKET_CANDIDATES, MARIADB_TCP_HOST, MARIADB_TCP_PORT, RERUN_ENV_NAME } from './constants';
 import type { DraftCompletion, DraftDeclaration } from './draft';
 import { completeDraft } from './draft';
 import { DraftError, parseDraft } from './draft_schema';
@@ -71,10 +81,10 @@ import { hostObserveFs, observeDeclared, observeHostWide } from './observe';
 import { PACKAGE_REMOVE, engineContactSince, pairItem, pairOneMachine, pairPlan, pairPortResult, twoMachineInstructions, writePairingPackage, writtenPackageItem } from './pair';
 import { fsTypeOf } from './parse/mounts';
 import { parseSelinuxContext } from './parse/selinux';
-import { countLine, renderLists, sanitizeLine } from './report';
+import { countLine, renderLists, renderNeedsAction, sanitizeLine } from './report';
 import { SourceRefused, confirmedDigestProblem, readStagedSource } from './source';
 import { ttyPrompter } from './tty';
-import type { DeclaredFacts, HostFacts, InitAction, InitArgs, InitPorts, Item, JournalRecord, KeptRef, StagedSource } from './types';
+import type { DeclaredFacts, HostFacts, InitAction, InitArgs, InitPorts, Item, JournalRecord, KeptRef, Prompter, StagedSource } from './types';
 import type { HealthFetch } from './verify';
 import { verifyAgent, verifyPortResult } from './verify';
 import { editOperatorFile, seedNginxMap } from './web_txn';
@@ -851,9 +861,14 @@ async function act(a: ActWorld, items: readonly Item[]): Promise<ActReport> {
 
 /* ── the run ─────────────────────────────────────────────────────────────────────── */
 
-function printReport(sinks: Sinks, items: readonly Item[], answers: ReadonlyMap<string, string>): void {
-  for (const line of renderLists(items, { answers })) sinks.out(line);
-  sinks.out(`provision init: ${countLine(items)}`);
+/**
+ * The report. `terminal` is the prompter's (NOT `--dry-run`'s): a manual-only decision is "needs
+ * your action" only where run.ts applies needs_action — a run on a terminal; a dry run on one
+ * previews that run. Without a terminal it is an open decision, as the --yes refusal says.
+ */
+function printReport(sinks: Sinks, items: readonly Item[], answers: ReadonlyMap<string, string>, terminal: boolean): void {
+  for (const line of renderLists(items, { answers, interactive: terminal })) sinks.out(line);
+  sinks.out(`provision init: ${countLine(items, terminal)}`);
 }
 
 /**
@@ -867,22 +882,69 @@ export function observedDraft(draft: Inputs['draft'], answers: ReadonlyMap<strin
   return { ...draft, web: { ...draft.web, server: answered } };
 }
 
-/** Prompts every unanswered decision (interactive only), recomputing after each answer (host.web's: observing again). */
-async function askDecisions(world: InitWorld, inputs: Inputs, computed: Computed, answers: Map<string, string>, observe: () => HostFacts): Promise<Computed> {
+/** What settleDecisions settled without asking (decision_class.ts): the run reports both. */
+export interface Unasked {
+  /** `needs_action` decisions answered manual, by id (the end of the run lists them with the re-run command). */
+  readonly needsAction: Set<string>;
+  /** `auto` decisions: id → the only option. */
+  readonly auto: Map<string, string>;
+}
+
+/**
+ * Settles every unanswered decision (interactive only) by its class (decision_class.ts, the one
+ * rule): `needs_action` answered manual and `auto` answered with its only option WITHOUT asking;
+ * `typed` and `choose` asked through the prompter (which applies the Enter rule). The list is
+ * recomputed after each answer (`recompute`; run.ts: host.web's observes again) — an answer can
+ * bring a new decision. A decision the prompter returns null for (aborted, or Enter refused by a
+ * script) stays open. Exported for its gates (tests/init_run.test.ts), which recompute nothing.
+ */
+export async function settleDecisions<T extends { readonly items: readonly Item[] }>(
+  prompter: Prompter,
+  computed: T,
+  answers: Map<string, string>,
+  unasked: Unasked,
+  recompute: (current: T, id: string, answer: string) => T,
+): Promise<T> {
   const declined = new Set<string>();
   let current = computed;
   for (;;) {
     const next = current.items.find(item => item.list === 'decision' && !answers.has(item.id) && !declined.has(item.id) && (item.options?.length ?? 0) > 0);
     if (next === undefined) return current;
-    const answer = await world.prompter.choose(next);
+    const prompt = classifyDecision(next);
+    let answer: string | null;
+    if (prompt.kind === 'needs_action') {
+      answer = prompt.enter;
+      if (answer !== null) unasked.needsAction.add(next.id);
+    } else if (prompt.kind === 'auto') {
+      answer = prompt.enter;
+      if (answer !== null) unasked.auto.set(next.id, answer);
+    } else answer = await prompter.choose(next);
     if (answer === null) {
       declined.add(next.id);
       continue;
     }
     answers.set(next.id, answer);
-    const reobserve = next.id === 'host.web' && answer !== current.facts.web.server;
-    current = compute(world, inputs, reobserve ? observe() : current.facts, answers);
+    current = recompute(current, next.id, answer);
   }
+}
+
+/** settleDecisions on the run's world: host.web's answer, when it changes the server, observes again. */
+function askDecisions(world: InitWorld, inputs: Inputs, computed: Computed, answers: Map<string, string>, observe: () => HostFacts, unasked: Unasked): Promise<Computed> {
+  return settleDecisions(world.prompter, computed, answers, unasked, (current, id, answer) => {
+    const reobserve = id === 'host.web' && answer !== current.facts.web.server;
+    return compute(world, inputs, reobserve ? observe() : current.facts, answers);
+  });
+}
+
+/**
+ * The command that runs init again for this instance (the end of a run that left something to the
+ * operator). Once rerun.env exists (keep_ref wrote it: the agent code is installed), the installed
+ * install.sh needs no source; before that, the operator's own first command is the only one that
+ * works — init never saw it whole (install.sh hands over a staged copy), so it is named, not quoted.
+ */
+export function rerunCommand(instance: string, agentDir: string | null, rerunEnvPresent: boolean): string {
+  if (rerunEnvPresent && agentDir !== null) return `sh ${join(agentDir, 'deploy', 'install.sh')} ${instance}`;
+  return `sh install.sh ${instance} with the same --source or --kit as this run (no agent code is installed yet, so a re-run needs it)`;
 }
 
 function lockFailure(error: unknown, instance: string): Refusal | null {
@@ -985,15 +1047,21 @@ export async function runInit(argv: readonly string[], deps: InitDeps = initHost
     if (problems.length > 0) throw new Refusal(EXIT.USAGE, problems.map(line => `provision init: ${line}`));
 
     // 5. The report; the decisions; the confirmation; the secrets.
-    printReport(sinks, computed.items, answers);
+    printReport(sinks, computed.items, answers, world.prompter.interactive);
     const prompter = world.prompter;
     const interactive = prompter.interactive && !args.dryRun;
+    const unasked: Unasked = { needsAction: new Set(), auto: new Map() };
     if (interactive) {
       const before = new Map(answers);
-      computed = await askDecisions(world, inputs, computed, answers, observe);
+      computed = await askDecisions(world, inputs, computed, answers, observe, unasked);
+      for (const [id, option] of unasked.auto) {
+        // The label of the option as the final list shows it (a recompute may have reworded it).
+        const label = computed.items.find(row => row.id === id)?.options?.find(row => row.id === option)?.label ?? option;
+        sinks.out(`[${id}] auto: the only option — ${option}: ${label}`);
+      }
       if (answers.size !== before.size) {
         sinks.out('provision init: the report with your answers:');
-        printReport(sinks, computed.items, answers);
+        printReport(sinks, computed.items, answers, true);
       }
     }
     const resolution = resolve(computed.items, answers);
@@ -1007,10 +1075,33 @@ export async function runInit(argv: readonly string[], deps: InitDeps = initHost
       throw refuse(`provision init: skipping leaves required items undone: ${nonOptionalDropped.map(item => item.id).join(', ')}`);
     }
     const blockingOpen = resolution.open.filter(item => item.blocking);
-    if (blockingOpen.length > 0) {
+    // The decisions init can do nothing about (needs_action: answered manual WITHOUT asking). A
+    // blocking one stops the run BEFORE anything is done, exactly as an unanswered blocking decision
+    // does: the operator typed nothing, so an unsupported OS or a missing vhost must not let the
+    // independent changes run (only an explicit `manual` — typed or --decide — lets them, the
+    // pre-P2 rule, heldBackByManual). A non-blocking one is listed at the end of the run.
+    const needsAction = resolution.manual.filter(item => unasked.needsAction.has(item.id));
+    const blockingAction = needsAction.filter(item => item.blocking && !item.optional);
+    const rerun = () => rerunCommand(args.instance, computed.completion.layout?.agentDir ?? null, world.fs.lstat(join(initDir, RERUN_ENV_NAME)) !== null);
+    if (blockingOpen.length > 0 || blockingAction.length > 0) {
+      if (needsAction.length > 0) for (const line of renderNeedsAction(needsAction, rerun())) sinks.out(line);
+      // Without a terminal a manual-only decision stays open (--yes resolves none): the report kept
+      // it in list 3 with its --decide; the refusal names what is still the operator's to do by
+      // hand and how to run init again, as the report's own line does.
+      const manualOnlyOpen = blockingOpen.filter(item => classifyDecision(item).kind === 'needs_action');
       throw refuse(
-        `provision init: ${blockingOpen.length} item(s) need your decision before anything is done: ${blockingOpen.map(item => item.id).join(', ')}`,
-        ...blockingOpen.flatMap(item => item.commands.map(command => `  $ ${command}`)),
+        ...(blockingOpen.length > 0
+          ? [
+              `provision init: ${blockingOpen.length} item(s) need your decision before anything is done: ${blockingOpen.map(item => item.id).join(', ')}`,
+              ...blockingOpen.flatMap(item => item.commands.map(command => `  $ ${command}`)),
+              ...(manualOnlyOpen.length > 0
+                ? [`provision init: init cannot do ${manualOnlyOpen.map(item => item.id).join(', ')}: do it by hand (the commands above), then: ${rerun()}`]
+                : []),
+            ]
+          : []),
+        ...(blockingAction.length > 0
+          ? [`provision init: ${blockingAction.length} item(s) need your action before anything is done: ${blockingAction.map(item => item.id).join(', ')} — do them (the commands are above), then: ${rerun()}`]
+          : []),
       );
     }
     // A blocking item answered `manual` holds back what runs after it, exactly as an open decision does.
@@ -1079,7 +1170,7 @@ export async function runInit(argv: readonly string[], deps: InitDeps = initHost
     // 8. Still to do; cleanup.
     const still = [
       ...report.stillToDo.map(line => `$ ${line}`),
-      ...resolution.manual.flatMap(item => [`[${item.id}] ${item.title}`, ...item.commands.map(command => `  $ ${command}`)]),
+      ...resolution.manual.filter(item => !unasked.needsAction.has(item.id)).flatMap(item => [`[${item.id}] ${item.title}`, ...item.commands.map(command => `  $ ${command}`)]),
       ...stillOpen.map(item => `[${item.id}] ${item.title} (${item.optional ? 'optional' : 'needs your decision'})`),
       ...notReached.map(item => `[${item.id}] ${item.title} (not done: it runs after ${manualPrerequisites(item, resolution.manual, computed.items).join(', ')})`),
     ];
@@ -1087,6 +1178,10 @@ export async function runInit(argv: readonly string[], deps: InitDeps = initHost
       sinks.out('still to do:');
       for (const line of still) sinks.out(`  ${line}`);
     }
+    // The non-blocking needs_action decisions (a blocking one refused above): last, with their facts
+    // and commands, and how to run init again once they are done (rerun.env is read NOW: this run's
+    // keep_ref may just have written it).
+    if (needsAction.length > 0) for (const line of renderNeedsAction(needsAction, rerun())) sinks.out(line);
     if (!report.ok) return report.exit;
     const requiredOpen = stillOpen.filter(item => !item.optional);
     if (requiredOpen.length > 0) {

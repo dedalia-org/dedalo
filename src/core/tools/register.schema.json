@@ -6,6 +6,23 @@
 	"type": "object",
 	"required": ["name", "version", "label"],
 	"additionalProperties": false,
+	"if": {
+		"properties": {
+			"properties": {
+				"type": "object",
+				"required": ["open_as"],
+				"properties": { "open_as": { "const": "attach" } }
+			}
+		},
+		"required": ["properties"]
+	},
+	"then": {
+		"properties": {
+			"show_in_component": { "const": true },
+			"show_in_inspector": { "const": false }
+		},
+		"required": ["show_in_component"]
+	},
 	"properties": {
 		"$schema": {
 			"type": "string",
@@ -84,7 +101,14 @@
 		},
 		"properties": {
 			"type": ["object", "null"],
-			"description": "UI/behavior properties, e.g. {\"open_as\": \"modal\"} or {\"open_as\": \"window\", \"windowFeatures\": {...}}"
+			"description": "UI/behavior properties, e.g. {\"open_as\": \"modal\"} or {\"open_as\": \"window\", \"windowFeatures\": {...}}",
+			"properties": {
+				"open_as": {
+					"enum": ["modal", "window", "attach"],
+					"default": "modal",
+					"description": "How the client opens the tool: 'modal' (default) a modal over the page; 'window' a separate browser window; 'attach' built straight onto its live caller component (no modal/window) — the client class must implement attach() and detach(), and the tool must set show_in_component: true and show_in_inspector: false. Runtime mirror: validateRegister (src/core/tools/register.ts)."
+				}
+			}
 		},
 		"labels": {
 			"type": "array",

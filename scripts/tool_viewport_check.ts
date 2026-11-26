@@ -31,18 +31,23 @@
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import puppeteer, { type Page } from 'puppeteer';
+import puppeteer, { type ElementHandle, type Page } from 'puppeteer';
 import { readEnv } from '../src/config/env.ts';
 import { compareLocators, type Locator } from '../src/core/concepts/locator.ts';
 import { acquireSuiteRunLock } from '../test/helpers/suite_run_lock.ts';
 import {
+	attachMarkerSelector,
+	attachToggleInPage,
 	HIDDEN_BY_CAPABILITY,
+	judgeAttach,
 	NOT_YET_PHONE,
 	PHONE_CASES,
 	PHONE_HIT_TARGET_PX,
 	PHONE_RUN_ENV,
 	PHONE_VIEWPORT,
+	TOOL_OPEN_MODES,
 	type ToolPhoneProbe,
+	toolOpenMode,
 } from '../test/helpers/tool_phone_ratchet.ts';
 import {
 	findFreePort,
@@ -400,6 +405,18 @@ try {
 			problems.push(...(await judge(toolPage, tool, toolPage === opener, opened.root)));
 			if (shotsDir)
 				await toolPage.screenshot({ path: join(shotsDir, `${tool}.png`), fullPage: true });
+			if (opened.attached) {
+				// leave the page as found: toggle off, marker gone, still no modal
+				const off = await toolPage.evaluate(
+					attachToggleInPage,
+					opened.attached,
+					tool,
+					'off' as const,
+					30_000,
+				);
+				await opened.attached.dispose();
+				problems.push(...judgeAttach(tool, 'off', off));
+			}
 		} catch (err) {
 			problems.push(`did not render: ${(err as Error).message.split('\n')[0]}`);
 		} finally {
@@ -500,15 +517,20 @@ async function openProbe(
 	tool: string,
 	probe: ToolPhoneProbe,
 	onBuilt: (b: { sweep: () => Promise<unknown> }) => void,
-): Promise<{ page: Page; root?: string }> {
+): Promise<{ page: Page; root?: string; attached?: ElementHandle<Element> }> {
 	const openerTarget = page.target();
 	const popup = page
 		.browserContext()
 		.waitForTarget((t) => t.opener() === openerTarget, { timeout: 20_000 })
 		.then((t) => t.page())
 		.catch(() => null);
-	const follow = async (openAs: string): Promise<{ page: Page }> => {
+	const follow = async (raw: string): Promise<{ page: Page }> => {
+		const openAs = toolOpenMode(raw); // unknown open_as throws, never a silent modal
 		if (openAs === 'modal') return { page };
+		// the attach contract decorates a COMPONENT caller; a section button /
+		// section_tool caller has no tool button to toggle
+		if (openAs === 'attach')
+			throw new Error(`open_as 'attach' from a ${kind} probe is not supported`);
 		const child = await popup;
 		if (!child) throw new Error(`open_as '${openAs}' opened no window`);
 		return { page: child };
@@ -714,7 +736,13 @@ async function openProbe(
 		.map((c) => c.id);
 
 	const opened = await page.evaluate(
-		async (toolName: string, f: typeof find, ids: string[], notOffered: string) => {
+		async (
+			toolName: string,
+			f: typeof find,
+			ids: string[],
+			notOffered: string,
+			knownModes: readonly string[],
+		) => {
 			const instancesSpec = '/dedalo/core/common/js/instances.js';
 			const toolSpec = '/dedalo/core/tools_common/js/tool_common.js';
 			const { get_all_instances } = (await import(instancesSpec)) as {
@@ -779,16 +807,56 @@ async function openProbe(
 			// tool_dd_label reads) have built
 			instance.node?.scrollIntoView?.({ block: 'center' });
 			await new Promise((r) => setTimeout(r, 1500));
+			const openAs = String(tool_context?.properties?.open_as ?? 'modal');
+			if (!knownModes.includes(openAs)) return { error: `unknown open_as '${openAs}'` };
+			// attach: Node toggles it by the button's mousedown (the user's path);
+			// hand the caller node over instead of opening here
+			if (openAs === 'attach') {
+				(window as unknown as { __dd_probe_caller?: unknown }).__dd_probe_caller = instance.node;
+				return { openAs };
+			}
 			void open_tool({ tool_context, caller: instance });
-			return { openAs: String(tool_context?.properties?.open_as ?? 'modal') };
+			return { openAs };
 		},
 		tool,
 		find,
 		matchIds,
 		TOOL_NOT_OFFERED, // the page realm cannot see Node's constant
+		TOOL_OPEN_MODES,
 	);
 	if ('error' in opened) throw new Error(opened.error as string);
+	// only the component-caller path stashes a node for attach (the others reach follow, which refuses it)
+	if (opened.openAs === 'attach' && find.via !== 'button' && find.via !== 'section_tool')
+		return openAttached(page, tool);
 	return follow(opened.openAs as string);
+}
+
+/**
+ * open_as 'attach': no modal, no window — mousedown the tool's button on the
+ * caller the page stashed, and require the contract (marker, aria-pressed,
+ * never a <dd-modal>). The surface judged is the CALLER node, found by its
+ * marker; the run loop toggles it off after judging.
+ */
+async function openAttached(
+	page: Page,
+	tool: string,
+): Promise<{ page: Page; root: string; attached: ElementHandle<Element> }> {
+	const handle = await page.evaluateHandle(() => {
+		const w = window as unknown as { __dd_probe_caller?: Element };
+		const node = w.__dd_probe_caller;
+		w.__dd_probe_caller = undefined;
+		return node ?? null;
+	});
+	const node = handle.asElement() as ElementHandle<Element> | null;
+	if (!node) await handle.dispose();
+	if (!node) throw new Error('open_as attach: the caller instance has no node');
+	const on = await page.evaluate(attachToggleInPage, node, tool, 'on' as const, 30_000);
+	const problems = judgeAttach(tool, 'on', on);
+	if (problems.length > 0) {
+		await node.dispose();
+		throw new Error(problems.join('; '));
+	}
+	return { page, root: attachMarkerSelector(tool), attached: node };
 }
 
 /**

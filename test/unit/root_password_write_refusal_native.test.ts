@@ -87,11 +87,16 @@ let tmWatermark = 0;
 let scratchUserId = 0;
 let superuser: Principal;
 
-async function rootString(): Promise<Record<string, unknown>> {
-	const rows = (await sql.unsafe(
+/** Root's `string` column rows, unasserted (the poll below must not count expects). */
+async function rootStringRows(): Promise<{ string: Record<string, unknown> | null }[]> {
+	return (await sql.unsafe(
 		'SELECT string FROM matrix_users WHERE section_tipo = $1 AND section_id = $2',
 		[USERS, ROOT_ID],
 	)) as { string: Record<string, unknown> | null }[];
+}
+
+async function rootString(): Promise<Record<string, unknown>> {
+	const rows = await rootStringRows();
 	expect(rows.length, 'the suite database holds the root record').toBe(1);
 	return rows[0]?.string ?? {};
 }
@@ -155,14 +160,13 @@ beforeAll(async () => {
 	tmWatermark = Number(rows[0]?.max_id ?? 0);
 	originalRootString = structuredClone(await rootString());
 	rootStringCaptured = true;
-	// ROOT'S CREDENTIAL IS BUILT, NOT BORROWED: the install seed ships root passwordless.
-	const items = originalRootString[PASSWORD];
-	const stored = Array.isArray(items) ? (items[0] as { value?: unknown } | undefined)?.value : null;
-	if (typeof stored !== 'string' || !stored.startsWith('$argon2')) {
-		await plantRootPassword([
-			{ id: 1, lang: 'lg-nolan', value: await Bun.password.hash(`root-${RUN_TAG}`) },
-		]);
-	}
+	// ROOT'S CREDENTIAL IS BUILT, NOT BORROWED: the install seed ships root passwordless,
+	// and whatever an earlier file in the same shard left there is ambient state. Planted
+	// ALWAYS (afterAll puts the original back): a plant only "when absent" made this file's
+	// expect count depend on that state (rootString asserts) — 148 vs 147 in a sharded bin.
+	await plantRootPassword([
+		{ id: 1, lang: 'lg-nolan', value: await Bun.password.hash(`root-${RUN_TAG}`) },
+	]);
 	scratchUserId = await insertMatrixRecordWithCounter(USERS_TABLE, USERS, {
 		string: {
 			dd132: [{ id: 1, lang: 'lg-nolan', value: RUN_TAG }],
@@ -656,7 +660,11 @@ describe('the sanctioned writers of root’s password still write it', () => {
 			let stored = weak;
 			for (let attempt = 0; attempt < 100 && stored === weak; attempt++) {
 				await Bun.sleep(50);
-				stored = ((await rootPasswordItems()) as { value: string }[])[0]?.value ?? '';
+				// UNASSERTED read: through rootString each poll round was one more expect,
+				// so the file's assertion count tracked how fast the background rehash ran
+				// (148 on a desk, 147 on the CI box — a floor that measured timing).
+				const row = (await rootStringRows())[0]?.string ?? {};
+				stored = ((row[PASSWORD] ?? []) as { value: string }[])[0]?.value ?? '';
 			}
 			expect(stored).toContain('t=3');
 			expect(await Bun.password.verify(password, stored)).toBe(true);

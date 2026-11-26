@@ -17,6 +17,7 @@ Merged since the last release; these ship with the next one.
 
 !!! warning "Action needed when you update"
 
+    - Dédalo now runs on Bun 1.4.5, a security release.
     - The Maintenance area now needs a profile grant — global administrators and developers with Maintenance at level 2, and the superuser.
     - Error reports are stored on your installation and sent by email; the anonymous report intake is removed.
     - A malformed DEDALO_MEDIA_WEB_BASE now stops the server from starting
@@ -279,12 +280,14 @@ Merged since the last release; these ship with the next one.
 
     The "+" of the thesaurus tree used to set *descriptor* and *indexable* to Yes on every new
     term, even where the thesaurus defines another default (a term defined to start as a
-    non-descriptor was created as a descriptor). A new term now starts with exactly the
-    defaults its thesaurus defines. Where the thesaurus defines none — the case for the
-    standard thesauri — both fields start empty: set them on the new term yourself. Until
-    *descriptor* is set, the term is not counted as a descriptor or a non-descriptor: when none of
-    a term's children has it set, the term shows no arrow to open its children after the page is
-    reloaded, and the new term is reached from its section's list until you set it.
+    non-descriptor was created as a descriptor). A new term now starts with exactly the defaults
+    its thesaurus defines. The shipped ontology defines them for the thesauri it ships: a new
+    publication starts as a non-descriptor; a new person, entity or thesaurus term as a
+    descriptor, and as indexable where its thesaurus has that field. Where a thesaurus defines
+    none, the field starts empty: set it on the new term yourself. Until *descriptor* is set,
+    the term is not counted as a descriptor or a non-descriptor: when none of a term's children
+    has it set, the term shows no arrow to open its children after the page is reloaded, and the
+    new term is reached from its section's list until you set it.
 
     Wire contract: `WC-2026-08-09-record-birth-defaults`.
 
@@ -2022,6 +2025,63 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **Dédalo now runs on Bun 1.4.5, a security release.** *(action needed)*
+
+    The pinned runtime (`.bun-version`) moves from Bun 1.4.4 to 1.4.5, Bun's security release for
+    TLS, HTTP/3 and DNS (BoringSSL, c-ares and llhttp updated). The runtime behaviours the engine
+    depends on were re-checked on 1.4.5 and are unchanged. The update panel refuses this release until
+    the server runs Bun 1.4.5. The container images also move to nginx 1.31.9 and a rebuilt
+    MariaDB 11.8.9.
+
+    **Action needed, before you apply this update:**
+
+    - **Host installation:** as root, install the verified 1.4.5 runtime at `/opt/dedalo/bun/1.4.5/bun`
+      exactly as [the `host_runtime` step](./install/manual_install.md#manual-host_runtime) does (with
+      `PIN=1.4.5`, checked against this release's `.bun-sha256`), point the instance's `ExecStart` at
+      it ([the `host_units` step](./install/manual_install.md#manual-host_units)), run
+      `systemctl daemon-reload`, restart the instance, then apply the update.
+    - **Container installation:** nothing extra; the new image carries Bun 1.4.5
+      ([Upgrading](./install/docker.md#upgrading)).
+    - **Publication hosts:** each site's Bun must move to 1.4.5 as well, or its **Bun version** row
+      turns red ([Upgrading a site's Bun](./install/publication_host.md#upgrading-a-sites-bun)).
+
+- **"Installing a publication host is easier: the guided install handles IPv4 + IPv6 and redirect virtual hosts, Enter takes ordinary defaults, the panel prints the one-server install, and the public check accepts an http address that moves to https."**
+
+    - **Virtual hosts on IPv4 and IPv6.** `provision init` no longer stops when the site's virtual
+      host listens on both IPv4 and IPv6, in one block or in one block per address family: it is one
+      site, and each block gets the include. A block that only redirects (the `:80` → `https://`
+      block certbot writes) is left alone. init still stops when only redirects claim the domain (the
+      TLS virtual host is missing) or when two blocks really compete for it. See
+      [the site's virtual host](./install/publication_host.md#the-sites-virtual-host).
+    - **Fewer things to type.** Enter now takes the shown default of an ordinary decision. A decision
+      with a single option is taken for you (`auto: the only option`). What init cannot do is no
+      longer asked: it is listed under **needs your action**, with the commands and the command to
+      run init again; a blocking one stops init before anything changes. Decisions that change your
+      files or the whole host (the vhost, an SELinux boolean, replacing a pairing, removing the
+      pairing package) must still be typed. Without a terminal nothing changes: `--yes` answers no
+      decision. See [the report and its lists](./install/publication_host.md#the-three-lists).
+    - **One server, one block.** In **Maintenance → Publication hosts → New publication host**,
+      *On this server* is the default. A saved one-server draft shows an **Install on this server**
+      block to copy and run as root: it writes the draft, installs the agent's dependencies if the
+      release lacks them, and runs the guided install, which pairs the host itself. A paired draft
+      offers **First use**: media rules, API releases and the public check, in order. See
+      [New publication host](./install/publication_host.md#new-publication-host).
+    - **The public check and http.** The public URL may be `http://` (the panel proposes `https://`,
+      and shows a notice when you save an http one). When the http address redirects to the https
+      address of the same file, the check follows that one redirect and suggests switching the URL
+      to https; any other redirect is reported with the address it pointed to. See
+      [Checking the gate from the public side](./install/publication_host.md#checking-the-gate-from-the-public-side).
+    - **IPv6 between two machines.** The agent of a publication host on another server may listen on
+      a unique local IPv6 address (`fc00::/7`; in practice one starting with `fd`), written in its short form; link-local addresses are
+      refused.
+    - **A tightened site home on a re-run.** When the site's home is already `root:root` but other
+      accounts cannot enter it (for example `0700`), init now makes it `0755` again instead of
+      calling it right and then refusing to apply because the agent cannot reach its own files.
+
+    **Action needed:** none.
+
+    Wire contract: `WC-2026-11-25-publication-host-public-url-http-upgrade`, `WC-2026-11-25-publication-host-one-machine-install`, `WC-2026-11-25-publication-host-ipv6-listener`.
+
 - **"The activity log no longer records actions on the search presets being edited, on the Time Machine itself or on the daily activity statistics."**
 
     Three system sections keep no Time Machine history: the search preset a user is editing
@@ -2370,6 +2430,18 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-09-instance-identity`.
 
 #### Fixed
+
+- **"A failed download of the IP-to-country database no longer stops the server while it starts."**
+
+    At start-up the server downloads the free IP-to-country database in the background. A write
+    failure during that download — for example two servers sharing one private directory and
+    starting at the same moment — could stop the whole server instead of only skipping the
+    database. The failure is now reported like any other download problem and the server keeps
+    running. Each server also downloads into its own temporary files and replaces the database
+    only once it is complete, so two servers starting together no longer overwrite each other's
+    download.
+
+    **Action needed:** none.
 
 - **Maintenance map panel fits a phone screen.**
 
@@ -3056,6 +3128,19 @@ Merged since the last release; these ship with the next one.
 
     `GET /{db}/tables/{table}/search` and the MCP `fulltext_search` / `count_records` (with `q`) accept `lang`. Without it a multilingual record matches once per language row, so a page of hits held the same record several times and `pagination.total` counted rows. On a table without a `lang` column the parameter is a `400`, as on the record list (see [Search and fragments](./diffusion/publication_api/v2/search_and_fragments.md)).
 
+- **Tools can open attached to their component, with no modal or window.**
+
+    A tool's `properties.open_as` now takes a third value, `attach`, beside `modal` and `window`;
+    any other value is refused at registration. An `attach` tool puts its controls straight on
+    the component it was opened from — a toolbar on a map, for instance — and the engine
+    re-attaches it when the component redraws, removes it when the component goes away, and
+    switches it off on a second press of its button. Tools of this kind used to open an empty
+    modal and close it again, which users saw as a flash on screen; it is gone. How to write one:
+    [JS lifecycle](./development/tools/js_lifecycle.md#the-attach-lifecycle) and
+    [register.json](./development/tools/register_json.md#propertiesopen_as).
+
+    Wire contract: `WC-2026-11-24-tool-open-as-attach`.
+
 - **"An element's `properties.label` lang map now replaces its label in the edit and list contexts, chosen through the same language fallback as every ontology label."**
 
     An ontology node (or a request's properties override) whose `properties.label` is an object
@@ -3067,6 +3152,23 @@ Merged since the last release; these ship with the next one.
     Wire contract: `WC-2026-11-22-properties-label-override-chain`.
 
 #### Fixed
+
+- **A component whose list configuration names no section now reads from the caller's own section.**
+
+    A component without an explicit `request_config` builds its configuration from its ontology
+    relations. When those relations named columns but no section, the configuration came out
+    with an empty target (`sqo.section_tipo: []`): columns with nothing to read them from. It
+    now targets the section the component is shown in, as earlier Dédalo versions did. A section
+    named in the relations, or the component model's own default target (the typology selector),
+    still wins, and a component with no relations at all still gets no configuration; an index
+    component never reads from its own section, and a relation to a storage table is no longer
+    emitted as a column (a component related only to one gets no configuration). Every door
+    built on the same configuration — the record picker, the option lists, the import target
+    check and the new-record target check — now sees that section too. The
+    projects-administration filter of a user record relates to the projects section in the
+    shipped ontology, so it keeps its projects list.
+
+    Wire contract: `WC-2026-11-25-implicit-component-target-caller-section`.
 
 - **"Publication API v2: AV fragments on a database without the AV tables answer 400, not 500."**
 
@@ -3111,7 +3213,7 @@ Merged since the last release; these ship with the next one.
 
     Wire contract: `WC-2026-11-22-tool-availability-context`.
 
-??? note "Wire contract — 121 entries"
+??? note "Wire contract — 126 entries"
 
     - `WC-2026-11-09-component-get-data-host-gate`
     - `WC-2026-11-09-export-frontier-fanout`
@@ -3232,6 +3334,11 @@ Merged since the last release; these ship with the next one.
     - `WC-2026-11-22-tm-recover-consumes-deleted-listing`
     - `WC-2026-11-22-tool-availability-context`
     - `WC-2026-11-23-tool-lang-browser-translation-labels`
+    - `WC-2026-11-24-tool-open-as-attach`
+    - `WC-2026-11-25-implicit-component-target-caller-section`
+    - `WC-2026-11-25-publication-host-ipv6-listener`
+    - `WC-2026-11-25-publication-host-one-machine-install`
+    - `WC-2026-11-25-publication-host-public-url-http-upgrade`
     - `WC-2026-11-25-section-context-color`
     - `WC-2026-11-26-build-database-version-panel`
 

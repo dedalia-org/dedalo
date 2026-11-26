@@ -1324,12 +1324,45 @@ export async function fetchPinnedHop(
 // fetchGuardedText / fetchBoundedText — the single-call text doors
 // ---------------------------------------------------------------------------
 
-/** A 3xx whose `Location` a single-call door will not follow, typed. */
-function redirectRefusal(status: number): DedaloError {
-	return new DedaloError('security.outbound_failed', {
-		message: `redirect refused (HTTP ${status})`,
-		coordinates: { reason: 'redirect', status },
-	});
+/**
+ * The longest raw `Location` a redirect refusal carries. A Location is the PEER's text:
+ * bounded so a hostile header cannot bloat the error. A caller that compares it (the
+ * publication-host probe's one http→https upgrade) reads a cut value as a mismatch, so
+ * the cap can only refuse more.
+ */
+const REDIRECT_LOCATION_MAX = 2048;
+
+/**
+ * A 3xx whose `Location` a single-call door will not follow, typed
+ * (`security.outbound_failed`, coordinates `reason` redirect + `status`).
+ *
+ * The raw `Location` rides a field of its OWN (`location`), never the coordinates: the
+ * coordinates are printed RAW into the operator's log line (`formatErrorLine`, ` k=v`
+ * joined by spaces, no escaping), and a header value is the peer's text — it may carry
+ * spaces, so `Location: /x reason=timeout status=200` would forge k=v pairs in the log, and
+ * a legitimate presigned URL would write its signature there. Kept off the coordinates,
+ * the Location reaches only a caller that ASKS for it (`refusedRedirectLocation`): one
+ * that SAYS where it pointed (display-sanitised by that caller), or judges it under a
+ * policy of its own and issues a NEW call through this same door (the publication-host
+ * probe, OUTBOUND_SPEC §2) — the door itself never follows it.
+ */
+export class RedirectRefused extends DedaloError {
+	/** The peer's raw `Location` (bounded) — NOT log-safe; never put it in coordinates. */
+	readonly location: string;
+
+	constructor(status: number, location: string) {
+		super('security.outbound_failed', {
+			message: `redirect refused (HTTP ${status})`,
+			coordinates: { reason: 'redirect', status },
+		});
+		this.name = 'RedirectRefused';
+		this.location = location.slice(0, REDIRECT_LOCATION_MAX);
+	}
+}
+
+/** The raw `Location` a single-call door refused to follow, or null for any other failure. */
+export function refusedRedirectLocation(error: unknown): string | null {
+	return error instanceof RedirectRefused ? error.location : null;
 }
 
 /**
@@ -1351,7 +1384,7 @@ function httpStatusFailure(status: number): DedaloError {
 
 /** The body of a 2xx answer as text; a redirect or any other status is a typed throw. */
 function textOfAnswer(answer: PinnedHopResponse): string {
-	if (answer.location !== null) throw redirectRefusal(answer.status);
+	if (answer.location !== null) throw new RedirectRefused(answer.status, answer.location);
 	if (answer.status < 200 || answer.status > 299) throw httpStatusFailure(answer.status);
 	return new TextDecoder().decode(answer.bytes);
 }
@@ -1413,9 +1446,16 @@ function guardedTextRequest(uri: string, options: GuardedFetchOptions): PinnedHo
  * and the body is read under the streamed ceiling (defaults 25 MiB, 15s).
  *
  * Every failure is typed: `security.ssrf_blocked` for an address refusal;
- * `security.outbound_failed` with `reason` redirect (a 3xx with a `Location` — a
- * redirect re-chooses the target, so a caller that must follow one goes through the
- * harvesting door, core/harvest/), with `status` for any other non-2xx (message
+ * `security.outbound_failed` with `reason` redirect and its `status` (a 3xx with a
+ * `Location`, thrown as `RedirectRefused`: the raw Location is read back with
+ * `refusedRedirectLocation`, never from the log-printed coordinates). A redirect
+ * re-chooses the target, so this door never follows one. A caller that must follow
+ * redirects in general goes through the harvesting door (core/harvest/), which vets
+ * every hop. The ONE narrower pattern (OUTBOUND_SPEC §2): a caller judges the refused
+ * Location under a named policy of its own and makes a SECOND, fully re-vetted call
+ * through this door to a URL it BUILT itself — the publication-host probe's one
+ * http → https upgrade of the same URL, never a second hop. With `status` for any
+ * other non-2xx (message
  * `HTTP <n>`, the error page cancelled unread), with `reason` timeout | aborted |
  * transport and its `stage`, or
  * body_cap. A method other than GET/POST, or a body other than a string or

@@ -38,6 +38,7 @@ import { existsSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import { comparableHost } from '../../../publication/host_agent/src/provision/layout.ts';
 import { privateDir } from '../../config/env.ts';
 import { isTestProcess } from '../../config/suite_database.ts';
 import {
@@ -245,16 +246,33 @@ function validTlsHost(host: unknown): host is string {
 	return typeof host === 'string' && (isIP(host) !== 0 || DNS_NAME.test(host));
 }
 
+/**
+ * A TLS address. The host is a DNS name or a bare IP literal — never an IPv6 zone id
+ * (`fe80::1%eth0`): no https URL authority can carry one (WHATWG URL refuses it), so the
+ * transport could never dial it, and no writer produces one (the pairing takes the host from a
+ * parsed URL). An IPv6 literal is held in its RFC 5952 form (layout.ts comparableHost), so a
+ * hand-written `FD00:0::1` and the pairing's `fd00::1` are one host to every comparison.
+ */
 function validateTlsAddress(value: unknown, where: string): PublicationHostAddress {
 	const address = exactKeys(value, ['kind', 'host', 'port'], where);
-	if (!validTlsHost(address.host)) {
-		throw shapeError(`${where}.host`, 'must be a DNS name or an IP address');
-	}
+	const host = validatedTlsHost(address.host, `${where}.host`);
 	const port = address.port;
 	if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
 		throw shapeError(`${where}.port`, 'must be an integer 1-65535');
 	}
-	return { kind: 'tls', host: address.host, port };
+	return { kind: 'tls', host, port };
+}
+
+/** The host of a TLS address (see validateTlsAddress), in the one spelling comparisons read. */
+function validatedTlsHost(host: unknown, where: string): string {
+	if (!validTlsHost(host)) throw shapeError(where, 'must be a DNS name or an IP address');
+	if (host.includes('%')) {
+		throw shapeError(
+			where,
+			'must not carry an IPv6 zone id (no https URL can dial one): use a unique local address',
+		);
+	}
+	return comparableHost(host);
 }
 
 function validateUnixAddress(value: unknown, where: string): PublicationHostAddress {
@@ -274,10 +292,18 @@ function validateAddress(value: unknown, where: string): PublicationHostAddress 
 	throw shapeError(`${where}.kind`, "must be 'tls' or 'unix'");
 }
 
-function isHttpsOrigin(value: string): boolean {
+/**
+ * `public_url` is an http(s) ORIGIN exactly as `url.origin` spells it: no credentials,
+ * path, query, fragment or trailing slash. https is the default the panel proposes, but
+ * http is NOT refused — some intranets serve http only (§7: the probe follows one
+ * http → https upgrade and tells the operator to store the https URL when the site has
+ * one). Exported so the panel's writer judges by this same grammar (one grammar, no
+ * drift where the writer accepts what saveRegistry then refuses as a corrupt file).
+ */
+export function isPublicUrlOrigin(value: string): boolean {
 	try {
 		const url = new URL(value);
-		return url.protocol === 'https:' && url.origin === value;
+		return (url.protocol === 'https:' || url.protocol === 'http:') && url.origin === value;
 	} catch {
 		return false;
 	}
@@ -285,8 +311,11 @@ function isHttpsOrigin(value: string): boolean {
 
 function validatePublicUrl(value: unknown, where: string): string | null {
 	if (value === null) return null;
-	if (typeof value !== 'string' || !isHttpsOrigin(value)) {
-		throw shapeError(where, 'must be null or an https origin (https://host[:port], no path)');
+	if (typeof value !== 'string' || !isPublicUrlOrigin(value)) {
+		throw shapeError(
+			where,
+			'must be null or an http(s) origin (https://host[:port] or http://host[:port], no path)',
+		);
 	}
 	return value;
 }

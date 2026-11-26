@@ -146,17 +146,24 @@ export function unifiedDiff(path: string, before: string, after: string, context
   return `${out.join('\n')}\n`;
 }
 
+/** One insertion: `lines` after line `after` (0 = before the first line). */
+export interface LineInsertion {
+  readonly after: number;
+  readonly lines: readonly string[];
+}
+
 /**
  * The hunks of an edit compare knows only by line (facts never carry an operator file's whole
  * text, spec §3.2): `removed` lines (1-based numbers, as discovered) and/or `inserted` lines after
- * line `insertAfter` (0 = before the first line). No context lines — the file's other lines are
- * not in the facts; act re-reads the file and shows nothing it did not show here (beforeSha).
+ * line `after` (0 = before the first line) — one insertion, or several (a site's address-family
+ * twins in one file each get the reference: compare web.vhost). No context lines — the file's other
+ * lines are not in the facts; act re-reads the file and shows nothing it did not show here (beforeSha).
  */
 export function lineEditDiff(
   path: string,
   edit: {
     readonly removed?: readonly { readonly line: number; readonly text: string }[];
-    readonly inserted?: { readonly after: number; readonly lines: readonly string[] };
+    readonly inserted?: LineInsertion | readonly LineInsertion[];
   },
 ): string {
   const removed = [...(edit.removed ?? [])].sort((x, y) => x.line - y.line);
@@ -165,26 +172,29 @@ export function lineEditDiff(
     if (row.text.includes('\n')) throw new Error('diff: a removed line holds a newline');
   }
   if (new Set(removed.map(row => row.line)).size !== removed.length) throw new Error('diff: a line is removed twice');
-  const inserted = edit.inserted;
-  if (inserted !== undefined && (!Number.isInteger(inserted.after) || inserted.after < 0)) {
-    throw new Error(`diff: insertion point ${inserted.after} must be ≥ 0`);
+  const insertions: readonly LineInsertion[] = edit.inserted === undefined ? [] : 'after' in edit.inserted ? [edit.inserted] : edit.inserted;
+  for (const inserted of insertions) {
+    if (!Number.isInteger(inserted.after) || inserted.after < 0) throw new Error(`diff: insertion point ${inserted.after} must be ≥ 0`);
   }
-  if (removed.length === 0 && (inserted === undefined || inserted.lines.length === 0)) return '';
+  if (new Set(insertions.map(inserted => inserted.after)).size !== insertions.length) throw new Error('diff: two insertions at one point');
+  const added = insertions.filter(inserted => inserted.lines.length > 0);
+  if (removed.length === 0 && added.length === 0) return '';
   const out = [`--- ${path}`, `+++ ${path}`];
   // Every hunk shifts the new side by the lines added minus removed before it.
   let shift = 0;
-  const hunks: { at: number; render: () => string[] }[] = [];
-  for (const row of removed) hunks.push({ at: row.line, render: () => [`@@ -${row.line} +${row.line - 1 + shift},0 @@`, `-${row.text}`] });
-  if (inserted !== undefined && inserted.lines.length > 0) {
+  const hunks: { at: number; delta: number; render: () => string[] }[] = [];
+  for (const row of removed) hunks.push({ at: row.line, delta: -1, render: () => [`@@ -${row.line} +${row.line - 1 + shift},0 @@`, `-${row.text}`] });
+  for (const inserted of added) {
     hunks.push({
       at: inserted.after + 0.5,
+      delta: inserted.lines.length,
       render: () => [`@@ -${inserted.after},0 +${range(inserted.after + shift, inserted.lines.length)} @@`, ...inserted.lines.map(line => `+${line}`)],
     });
   }
   hunks.sort((x, y) => x.at - y.at);
   for (const hunk of hunks) {
     out.push(...hunk.render());
-    shift += Number.isInteger(hunk.at) ? -1 : (inserted?.lines.length ?? 0);
+    shift += hunk.delta;
   }
   return `${out.join('\n')}\n`;
 }

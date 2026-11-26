@@ -101,6 +101,8 @@ import { createSectionRecord } from '../../src/core/section/record/create_record
 import { saveComponentData } from '../../src/core/section/record/save_component.ts';
 import {
 	getPermissionGrant,
+	getPermissions,
+	getSectionPermissions,
 	type Principal,
 	resolvePrincipal,
 } from '../../src/core/security/permissions.ts';
@@ -125,6 +127,7 @@ import { assertActionPermission } from '../../src/core/tools/security.ts';
 import { saveTranscriptionResult } from '../../src/core/tools/transcription_asr.ts';
 import { setComponentsData } from '../../tools/tool_import_files/server/index.ts';
 import { executeRdfImport } from '../../tools/tool_import_rdf/server/rdf_import_execute.ts';
+import { tool as propagateTool } from '../../tools/tool_propagate_component_data/server/index.ts';
 import { toolTimeMachineBulkRevert } from '../../tools/tool_time_machine/server/bulk_revert.ts';
 import {
 	AUTHZ_3D,
@@ -136,6 +139,8 @@ import {
 	AUTHZ_READ_BUTTON_FILTER,
 	AUTHZ_READ_BUTTON_SECTION,
 	AUTHZ_READ_BUTTON_TEXT,
+	AUTHZ_RELATION,
+	AUTHZ_RELATION_TARGET,
 	AUTHZ_SECTION,
 	AUTHZ_STUB_MODEL_ID,
 	AUTHZ_TEXT,
@@ -2861,6 +2866,70 @@ async function deriveCensus(): Promise<Census> {
 	return { probes, delegated, derived, recordKind };
 }
 
+// --- FYI-1 / T2-S06: the propagate door never consults the relation's TARGET --
+
+/**
+ * OWNER RULING 2026-11-25 (FYI-1 / T2-S06): "If the user has permission ≥2 to
+ * propagate values, it can do it without permissions of the target sections" —
+ * a writer of a relation component propagates a locator INTO a section it may
+ * not even read (tch57 → material1 is the owner's example). The propagate door
+ * asks the record's OWN (section, component) only: authorizeSectionTarget up
+ * front, authorizeRecordAccess per row. This leg PINS that no target-section
+ * check is ever added: PROPAGATOR (test3=2, test9=2, testgeob1 at an explicit
+ * 0) adds a testgeob1 locator to two test3 records through the REAL handler —
+ * every row written, the locator stored; PROPAGATOR_NO_PAIR (the same grants,
+ * test9 at 0) is refused up front, so the leg is not vacuous.
+ */
+async function propagateRelationLocator(
+	principal: Principal,
+	sectionIds: readonly number[],
+	locator: Record<string, unknown>,
+) {
+	const handler = propagateTool.apiActions.propagate_component_data?.handler;
+	if (handler === undefined) throw new Error('propagate_component_data handler is missing');
+	const response = (await handler({
+		principal,
+		userId: principal.userId,
+		options: {
+			section_tipo: AUTHZ_SECTION,
+			component_tipo: AUTHZ_RELATION,
+			action: 'add',
+			lang: 'lg-nolan',
+			total: sectionIds.length,
+			sqo: {
+				section_tipo: [AUTHZ_SECTION],
+				filter_by_locators: sectionIds.map((id) => ({
+					section_tipo: AUTHZ_SECTION,
+					section_id: id,
+				})),
+			},
+			propagate_data_value: [locator],
+		},
+		background: false,
+	} as unknown as ToolActionContext)) as {
+		data?: { records?: number; counter?: number; errors?: string[]; bulk_process_id?: number };
+	};
+	const data = response.data ?? {};
+	if (typeof data.bulk_process_id === 'number') {
+		disposable.push({ sectionTipo: 'dd800', sectionId: data.bulk_process_id });
+	}
+	return data;
+}
+
+/** The locators test9 STORES on a test3 record (read straight from the row). */
+async function storedRelationLocators(sectionId: number): Promise<Record<string, unknown>[]> {
+	const { sql } = await import('../../src/core/db/postgres.ts');
+	const { getMatrixTableFromTipo } = await import('../../src/core/ontology/resolver.ts');
+	const table = await getMatrixTableFromTipo(AUTHZ_SECTION);
+	if (table === null) throw new Error(`no matrix table for ${AUTHZ_SECTION}`);
+	const rows = (await sql.unsafe(
+		`SELECT relation -> $3 AS items FROM "${table}" WHERE section_tipo = $1 AND section_id = $2`,
+		[AUTHZ_SECTION, sectionId, AUTHZ_RELATION],
+	)) as { items: unknown }[];
+	const items = rows[0]?.items;
+	return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
+}
+
 describe.if(DB_READY)('Step 3 — the authorization-door matrix', () => {
 	let census: Census;
 	let provider: ReturnType<typeof Bun.serve> | null = null;
@@ -3049,5 +3118,64 @@ describe.if(DB_READY)('Step 3 — the authorization-door matrix', () => {
 		// FLOOR: the matrix really ran (a probe table that emptied would pass `wrong`).
 		expect(cells).toBeGreaterThan(150);
 		expect(wrong).toEqual([]);
+	});
+
+	test('FYI-1 propagate_into_unreadable_target: a relation writer (pair 2, section floor 2) propagates a locator into a target section it holds at 0 — every row written, the locator stored, no refusal; the no-pair twin is refused (owner ruling 2026-11-25)', async () => {
+		const { resolveCallerTargets } = await import('../../src/core/relations/picker_constraint.ts');
+		const { sql } = await import('../../src/core/db/postgres.ts');
+		// THE SITUATION, asserted (not assumed): testgeob1 IS a declared target of
+		// test9, holds a term, and the propagator holds NOTHING on it.
+		expect(await resolveCallerTargets(AUTHZ_RELATION, AUTHZ_SECTION)).toContain(
+			AUTHZ_RELATION_TARGET,
+		);
+		const term = (await sql.unsafe(
+			'SELECT min(section_id)::int AS id FROM matrix_hierarchy WHERE section_tipo = $1',
+			[AUTHZ_RELATION_TARGET],
+		)) as { id: number | null }[];
+		const termId = term[0]?.id ?? null;
+		expect(termId).not.toBeNull();
+		const propagator = ids.propagator;
+		expect(await getSectionPermissions(propagator, AUTHZ_RELATION_TARGET)).toBe(0);
+		expect(await getPermissions(propagator, AUTHZ_SECTION, AUTHZ_RELATION)).toBe(2);
+		expect(await getSectionPermissions(propagator, AUTHZ_SECTION)).toBe(2);
+
+		const records = [
+			await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_P),
+			await createDoorRecord(AUTHZ_SECTION, AUTHZ_PROJECT_P),
+		];
+		const locator = {
+			type: 'dd151',
+			section_tipo: AUTHZ_RELATION_TARGET,
+			section_id: String(termId),
+			from_component_tipo: AUTHZ_RELATION,
+		};
+		const holdsTerm = async (sectionId: number) =>
+			(await storedRelationLocators(sectionId)).some(
+				(item) => item.section_tipo === AUTHZ_RELATION_TARGET && Number(item.section_id) === termId,
+			);
+		for (const sectionId of records) expect(await holdsTerm(sectionId)).toBe(false);
+
+		// CONTROL (anti-vacuity): the SAME grants with the pair at 0 — refused UP
+		// FRONT, nothing searched, nothing written.
+		const refused = await propagateRelationLocator(ids.propagatorNoPair, records, locator).then(
+			() => null,
+			(error: unknown) => error,
+		);
+		expect(refused).toBeInstanceOf(DedaloError);
+		expect((refused as DedaloError).code).toBe('perm.denied');
+		// the COMPONENT half refused (a section-floor shortfall carries the same code)
+		expect((refused as DedaloError).message).toContain('component grant on (test3, test9)');
+		for (const sectionId of records) expect(await holdsTerm(sectionId)).toBe(false);
+
+		// THE RULING: served, every row written, the locator stored on each.
+		const data = await propagateRelationLocator(propagator, records, locator);
+		expect({ errors: data.errors, records: data.records, counter: data.counter }).toEqual({
+			errors: [],
+			records: records.length,
+			counter: records.length,
+		});
+		for (const sectionId of records) {
+			expect({ sectionId, holds: await holdsTerm(sectionId) }).toEqual({ sectionId, holds: true });
+		}
 	});
 });

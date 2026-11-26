@@ -18,6 +18,7 @@
  * tests/provision_zero_dep.test.ts holds both. Written to compile under the engine's
  * `noUncheckedIndexedAccess`.
  */
+import { isIPv4, isIPv6 } from 'node:net';
 import { join, normalize } from 'node:path';
 import {
   AUDIT_DIR,
@@ -42,10 +43,137 @@ export const UNIX_NAME_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const UNIT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9@._-]{0,63}$/;
 /** Absolute, conservative character set: every path lands unquoted in a unit or sudoers line. */
 export const ABSOLUTE_PATH_PATTERN = /^\/[A-Za-z0-9._/-]*$/;
-/** A canonical, non-zero IPv4 dotted quad (no DNS name, no leading zeros) — it becomes the server
- *  certificate's SAN and the agent's TLS_HOST, which refuses anything else (spec §2.2). */
+/** The IPv4 half of the listen-host grammar: a canonical, non-zero dotted quad (no DNS name, no
+ *  leading zeros) — it becomes the server certificate's SAN and the agent's TLS_HOST, which
+ *  refuses anything else (spec §2.2). The whole grammar (IPv4 OR a private IPv6) is
+ *  listenHostProblem(); this pattern stays exported for the IPv4 examples the docs carry. */
 export const LISTEN_HOST_PATTERN =
   /^(?!0\.0\.0\.0$)(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+/* ── the listen host: IPv4 or a private IPv6 (spec §2.2) ──────────────────────────── */
+
+/**
+ * The RFC 5952 canonical text of an IPv6 literal (lower case, no leading zeros, the FIRST
+ * longest run of two or more zero hextets compressed to `::`), or null when `text` is not a
+ * bare IPv6 literal. A zone id (`fe80::1%eth0`) or brackets are NOT a bare literal: neither a
+ * certificate SAN nor an https URL authority can carry a zone, so it has no canonical form here.
+ *
+ * WHATWG URL's IPv6 serializer IS RFC 5952 §4 (minus §5's dotted tail for IPv4-mapped forms,
+ * which the listen grammar refuses anyway): one standard algorithm, the same in Bun, Node and
+ * every browser, instead of a second hand-written compressor. `node:net` isIPv6 gates the input
+ * first, so the URL parser only ever sees a literal.
+ */
+export function canonicalIpv6(text: string): string | null {
+  if (!isIPv6(text) || text.includes('%')) return null;
+  try {
+    const host = new URL(`http://[${text}]/`).hostname;
+    return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The 16 bytes of a CANONICAL IPv6 literal (canonicalIpv6's output: hex hextets, at most one `::`). */
+function ipv6Bytes(canonical: string): number[] {
+  const [head = '', tail] = canonical.split('::');
+  const hextets = (part: string): number[] => (part === '' ? [] : part.split(':').map(h => Number.parseInt(h, 16)));
+  const left = hextets(head);
+  const right = tail === undefined ? [] : hextets(tail);
+  const all = tail === undefined ? left : [...left, ...new Array<number>(8 - left.length - right.length).fill(0), ...right];
+  return all.flatMap(h => [h >> 8, h & 0xff]);
+}
+
+/**
+ * Why an IPv6 listen host cannot be the channel's, or null. The channel binds ONE PRIVATE
+ * interface (spec §2.2), so the IPv6 universe is closed to:
+ *   - a unique local address, fc00::/7 (RFC 4193; in practice fd00::/8): the private network
+ *     a WireGuard peer or a LAN segment gives two machines;
+ *   - the loopback ::1, the IPv6 twin of the 127.0.0.0/8 the IPv4 grammar admits (one host).
+ * Refused, each by name:
+ *   - link-local fe80::/10: binding it needs a zone id (fe80::1%eth0) the certificate SAN, the
+ *     engine's https URL and the registry cannot carry, and the address is ambiguous without
+ *     one — use a ULA on the private link instead;
+ *   - the unspecified ::, and multicast ff00::/8: never one interface;
+ *   - an IPv4-mapped (::ffff:0:0/96) or IPv4-compatible (::/96) form: write the IPv4 itself;
+ *   - every other address (global unicast, documentation, 6to4, Teredo, the retired site-local
+ *     fec0::/10): not a private interface.
+ * `canonical` is canonicalIpv6()'s output.
+ */
+function ipv6ListenProblem(canonical: string): string | null {
+  const bytes = ipv6Bytes(canonical);
+  const first = bytes[0] ?? 0;
+  const second = bytes[1] ?? 0;
+  if (canonical === '::1') return null;
+  if ((first & 0xfe) === 0xfc) return null;
+  if (canonical === '::') return 'is the unspecified address (every interface), never one private interface';
+  if (first === 0xfe && (second & 0xc0) === 0x80) {
+    return (
+      'is a link-local address: binding it needs a zone id (fe80::1%eth0) that neither the certificate ' +
+      "SAN nor the engine's https URL can carry. Use a unique local address (fd00::/8) on the private network"
+    );
+  }
+  if (first === 0xff) return 'is a multicast address, never one interface';
+  const top80Zero = bytes.slice(0, 10).every(b => b === 0);
+  if (top80Zero && bytes[10] === 0xff && bytes[11] === 0xff) return 'is an IPv4-mapped IPv6 address: write the IPv4 address itself';
+  if (top80Zero && bytes[10] === 0 && bytes[11] === 0) return 'is an IPv4-compatible IPv6 address: write the IPv4 address itself';
+  return (
+    'is not a private IPv6 address: the channel binds one private interface (spec §2.2) — a unique local ' +
+    'address (fc00::/7, e.g. fd00::/8) or ::1'
+  );
+}
+
+/**
+ * THE LISTEN-HOST GRAMMAR (spec §2.2): why `value` is not a TLS listen host, or null. A host is
+ * EITHER a canonical non-zero IPv4 dotted quad (LISTEN_HOST_PATTERN) OR a private IPv6 literal
+ * (ipv6ListenProblem) written in its RFC 5952 canonical form — a non-canonical spelling is
+ * refused WITH the canonical one (only once the address itself is admissible: a refused
+ * family is named first), because the declared text is compared verbatim downstream
+ * (the sibling check, the engine's draft ↔ registry ↔ pairing-fragment binding) and must have
+ * exactly one spelling. Never a DNS name, a wildcard, brackets or a zone id.
+ */
+export function listenHostProblem(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return 'must be an IP address literal';
+  if (LISTEN_HOST_PATTERN.test(value)) return null;
+  if (isIPv4(value) || /^[0-9.]+$/.test(value)) {
+    return 'must be a canonical non-zero IPv4 dotted quad (no leading zeros, not 0.0.0.0)';
+  }
+  if (value.startsWith('[') || value.includes('%')) {
+    return 'must be a bare IPv6 literal: no brackets, no zone id (fe80::1%eth0 cannot be bound by the channel)';
+  }
+  const canonical = canonicalIpv6(value);
+  if (canonical === null) {
+    return 'must be an IP address literal (a private IPv4 or a unique local IPv6), never a hostname or wildcard';
+  }
+  // The FAMILY refusal wins over the SPELLING one: an address that can never be a listen
+  // host (IPv4-mapped `::ffff:10.0.0.2`, link-local, global…) must be refused for what it
+  // IS, not told to rewrite itself into a canonical form the next run refuses anyway.
+  const familyProblem = ipv6ListenProblem(canonical);
+  if (familyProblem !== null) return familyProblem;
+  if (canonical !== value) return `must be written in its canonical form (RFC 5952): '${canonical}'`;
+  return null;
+}
+
+/**
+ * The ONE spelling of a host for a COMPARISON: an IPv6 literal (bracketed or bare) → its RFC 5952
+ * canonical text; anything else (an IPv4, a DNS name) unchanged. Every place two listen hosts
+ * are compared goes through this — the sibling check here, the engine's same-machine, paired-
+ * record, pairing-binding and registry-slot checks — so `FD00:0::1` and `fd00::1` are one machine
+ * even where a hand-written file did not use the canonical form.
+ */
+export function comparableHost(host: string): string {
+  const bare = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  return canonicalIpv6(bare) ?? host;
+}
+
+/** Are two listen hosts the same address (comparableHost on both sides)? */
+export function sameListenHost(a: string, b: string): boolean {
+  return comparableHost(a) === comparableHost(b);
+}
+
+/** A loopback listen host (127.0.0.0/8 or ::1): it shares the loopback the v2 API binds. */
+export function isLoopbackListenHost(host: string): boolean {
+  return host.startsWith('127.') || comparableHost(host) === '::1';
+}
 export const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
 /** An env key that names a credential. The env file may never carry one (render/env.ts). */
 export const SECRET_LOOKING_KEY = /(TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|_KEY)$/;
@@ -703,6 +831,13 @@ function unitName(field: string, value: unknown): string {
   return unit;
 }
 
+/** `listen.host` through the one grammar (listenHostProblem): IPv4, or a private canonical IPv6. */
+function listenHost(value: unknown): string {
+  const problem = listenHostProblem(value);
+  if (problem !== null) throw new LayoutError('listen.host', `'${String(value)}' ${problem}`);
+  return value as string;
+}
+
 function tcpPort(field: string, value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) {
     throw new LayoutError(field, `'${String(value)}' must be an integer port 1-65535`);
@@ -1163,7 +1298,7 @@ export function derive(decl: HostDeclaration, host: DeriveHost = {}): AgentLayou
     engineGroup = null;
     listen = Object.freeze({
       kind: 'tls',
-      host: matches(LISTEN_HOST_PATTERN, 'listen.host', decl.listen.host),
+      host: listenHost(decl.listen.host),
       port: tcpPort('listen.port', decl.listen.port),
     });
   } else {

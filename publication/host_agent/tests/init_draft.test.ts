@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { DraftCompletion, DraftDeclaration } from '../src/provision/init/draft';
-import { DEFAULTS, LAYOUTS, completeDraft, draftServesV1, fpmOptionId, homeCannotBeRoot, layoutDecisionFor, versionAtLeast, vhostSha8 } from '../src/provision/init/draft';
+import { DEFAULTS, LAYOUTS, addressFamily, completeDraft, describeVhost, draftServesV1, fpmOptionId, homeCannotBeRoot, layoutDecisionFor, versionAtLeast, vhostSha8 } from '../src/provision/init/draft';
 import { DRAFT_APIS, DraftError, draftSchema, parseDraft } from '../src/provision/init/draft_schema';
 import type { HostFacts } from '../src/provision/init/types';
 import { DECLARATION_KEY_ORDER, canonicalDeclaration, parseDeclaration } from '../src/provision/schema';
@@ -266,6 +266,109 @@ describe('completeDraft: fields', () => {
     expect(decision(crowded, 'declaration.vhost')?.blocking).toBe(true);
     const none = completeDraft(draft(), { ...debianHost(), web: { ...debianHost().web, vhosts: [] } });
     expect(decision(none, 'declaration.vhost')?.facts.join(' ')).toMatch(/never creates a vhost/);
+  });
+
+  /* ── dual stack: one site on IPv4 + IPv6 is never "crowded" ── */
+  const withVhosts = (vhosts: ReturnType<typeof vhost>[], patch: Partial<HostFacts['web']> = {}): HostFacts =>
+    ({ ...debianHost(), web: { ...debianHost().web, ...patch, vhosts } }) as HostFacts;
+  const V6 = '/etc/apache2/sites-available/example.org-v6.conf';
+
+  test('dual stack: ONE row on both families is one site — no decision at all', () => {
+    const completion = completeDraft(draft(), withVhosts([vhost({ addresses: ['192.0.2.1', '[2001:db8::1]'] })]));
+    expect(decision(completion, 'declaration.vhost')).toBeUndefined();
+    expect(completion.vhost?.addresses).toEqual(['192.0.2.1', '[2001:db8::1]']);
+    expect(completion.vhostTwins).toEqual([]);
+  });
+
+  test('dual stack: two blocks per family (same name, port, TLS) are one site — the IPv4/wildcard one leads, the IPv6 one is its twin', () => {
+    const v4 = vhost({ addresses: ['0.0.0.0'] });
+    const v6 = vhost({ addresses: ['[::]'], realpath: V6, file: V6 });
+    for (const order of [[v4, v6], [v6, v4]]) {
+      const completion = completeDraft(draft(), withVhosts(order));
+      expect(decision(completion, 'declaration.vhost')).toBeUndefined();
+      expect(completion.vhost?.realpath).toBe(v4.realpath);
+      expect(completion.vhostTwins.map(row => row.realpath)).toEqual([V6]);
+    }
+    // Twins in ONE file (two openers) pair the same way.
+    const same = completeDraft(draft(), withVhosts([vhost({ addresses: ['*'], line: 2 }), vhost({ addresses: ['[::]'], line: 20 })]));
+    expect([same.vhost?.line, same.vhostTwins.map(row => row.line)]).toEqual([2, [20]]);
+    // nginx: the twins' own log directories all reach web.log_dirs.
+    const nginx = completeDraft(
+      draft(),
+      withVhosts([vhost({ addresses: ['*'], errorLog: '/var/log/nginx/a/error.log', accessLogs: [] }), vhost({ addresses: ['[::]'], realpath: V6, errorLog: '/var/log/nginx/b/error.log', accessLogs: [] })], {
+        candidates: ['nginx'],
+        server: 'nginx',
+        unit: 'nginx',
+        confDInHttp: true,
+      }),
+    );
+    expect(nginx.declaration?.web.log_dirs).toEqual(['/var/log/nginx/a', '/var/log/nginx/b']);
+  });
+
+  test('dual stack: a :80 redirect (any family) is never a candidate; with the TLS site it is no decision, alone it is a clear blocker', () => {
+    const redirect80 = vhost({ port: 80, ssl: false, addresses: ['*', '[::]'], redirectOnly: true, realpath: '/etc/apache2/sites-available/example.org.conf' });
+    const site = completeDraft(draft(), withVhosts([redirect80, vhost({ addresses: ['*', '[::]'] })]));
+    expect(decision(site, 'declaration.vhost')).toBeUndefined();
+    expect(site.vhost?.port).toBe(443);
+    // Per-family redirects + per-family TLS blocks: still one site, no decision.
+    const four = completeDraft(
+      draft(),
+      withVhosts([
+        { ...redirect80, addresses: ['0.0.0.0'] },
+        { ...redirect80, addresses: ['[::]'], line: 9 },
+        vhost({ addresses: ['0.0.0.0'] }),
+        vhost({ addresses: ['[::]'], realpath: V6 }),
+      ]),
+    );
+    expect(decision(four, 'declaration.vhost')).toBeUndefined();
+    expect([four.vhost?.port, four.vhostTwins.map(row => row.realpath)]).toEqual([443, [V6]]);
+    // ONLY redirects claim the name: blocking, manual, the fact names the missing TLS vhost — not a crash.
+    const only = completeDraft(draft(), withVhosts([redirect80]));
+    const row = decision(only, 'declaration.vhost');
+    expect(row).toMatchObject({ blocking: true, defaultOption: 'manual' });
+    expect(row?.options.map(option => option.id)).toEqual(['manual']);
+    expect(row?.facts[0]).toBe(`${redirect80.realpath}:2 port 80 on *, [::] only redirects every request: it never receives the APIs include`);
+    expect(row?.facts[1]).toMatch(/only redirects claim it: the vhost they send to \(the TLS one\) is missing; init never creates a vhost$/);
+    expect(only.vhost).toBeNull();
+  });
+
+  test('crowded stays crowded for genuine ambiguity: one family claimed twice, or twins that differ in TLS', () => {
+    const v6 = vhost({ addresses: ['[::]'], realpath: V6 });
+    for (const rows of [
+      // Two different blocks on the IPv4/wildcard side.
+      [vhost({ addresses: ['*'] }), vhost({ addresses: ['0.0.0.0'], realpath: '/etc/apache2/sites-available/old.conf' })],
+      // A dual-stack block and an IPv6 block: the IPv6 family is claimed twice.
+      [vhost({ addresses: ['*', '[::]'] }), v6],
+      // Per-family blocks that are not the same service (one TLS, one plain).
+      [vhost({ addresses: ['*'] }), { ...v6, ssl: false }],
+    ]) {
+      const crowded = completeDraft(draft(), withVhosts(rows));
+      const row = decision(crowded, 'declaration.vhost');
+      expect(row).toMatchObject({ blocking: true, defaultOption: 'manual' });
+      expect(row?.facts[0]).toBe(`port 443 has 2 different vhosts claiming ServerName ${DOMAIN}:`);
+      expect(crowded.vhost).toBeNull();
+    }
+  });
+
+  test('several sites (a plain :80 that serves, and dual-stack twins on :443): a decision whose options name every block; the answer brings its twins', () => {
+    const port80 = vhost({ port: 80, ssl: false, addresses: ['*'], realpath: '/etc/apache2/sites-available/example.org.conf' });
+    const v4 = vhost({ addresses: ['*'] });
+    const v6 = vhost({ addresses: ['[::]'], realpath: V6 });
+    const completion = completeDraft(draft(), withVhosts([port80, v4, v6]));
+    const row = decision(completion, 'declaration.vhost');
+    expect(row?.blocking).toBe(false);
+    expect(row?.defaultOption).toBe(`v-${vhostSha8(v4)}`);
+    expect(row?.options.map(option => option.label)).toEqual([describeVhost(port80), `${describeVhost(v4)} + ${describeVhost(v6)}`]);
+    expect(completion.vhostTwins.map(twin => twin.realpath)).toEqual([V6]);
+    const answered = completeDraft(draft(), withVhosts([port80, v4, v6]), { answers: answers({ 'declaration.vhost': `v-${vhostSha8(port80)}` }) });
+    expect([answered.vhost?.port, answered.vhostTwins]).toEqual([80, []]);
+  });
+
+  test('describeVhost names every address; addressFamily: brackets/colons are IPv6, the rest the IPv4/wildcard side', () => {
+    expect(describeVhost(vhost({ addresses: ['192.0.2.1', '[2001:db8::1]'] }))).toBe('/etc/apache2/sites-available/example.org-le-ssl.conf:2 port 443 on 192.0.2.1, [2001:db8::1] (TLS)');
+    expect(describeVhost(vhost({ addresses: [], ssl: false }))).toBe('/etc/apache2/sites-available/example.org-le-ssl.conf:2 port 443');
+    expect(['*', '_default_', '0.0.0.0', '192.0.2.1', 'localhost'].map(addressFamily)).toEqual(['ipv4', 'ipv4', 'ipv4', 'ipv4', 'ipv4']);
+    expect(['[::]', '[2001:db8::1]', '::1'].map(addressFamily)).toEqual(['ipv6', 'ipv6', 'ipv6']);
   });
 
   test('two web servers: host.web decides; nginx fills nginx_map from conf.d and the vhost log dirs', () => {

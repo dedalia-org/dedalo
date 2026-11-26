@@ -48,6 +48,7 @@ import { FOREIGN_MODULE_HINT, SELINUX_MODULE_NAME, SELINUX_MODULE_PRIORITY, V2_T
 import { unifiedDiff, lineEditDiff } from './diff';
 import type { DraftCompletion, DraftDecision } from './draft';
 import {
+  describeVhost,
   fpmCandidates,
   homeCannotBeRoot,
   isNetworkFs,
@@ -206,6 +207,11 @@ export function unknownAnswers(items: readonly Item[], answers: ReadonlyMap<stri
 const MANUAL: ItemOption = Object.freeze({ id: 'manual', label: 'I will do it by hand (the commands are printed)', resolves: 'manual' });
 const ACT: ItemOption = Object.freeze({ id: 'act', label: 'do it', resolves: 'act' });
 const SKIP: ItemOption = Object.freeze({ id: 'skip', label: 'leave it as it is', resolves: 'skip' });
+/**
+ * `act`, answered only by typing it (decision_class.ts): the option edits an operator file or sets
+ * an SELinux boolean / label on the operator's path — Enter never takes it as a default.
+ */
+const ACT_TYPED: ItemOption = Object.freeze({ ...ACT, confirm: 'typed' });
 
 type Draft = { -readonly [K in keyof ComparedItem]: ComparedItem[K] };
 
@@ -390,6 +396,8 @@ interface Env {
   readonly homeReasons: readonly string[];
   readonly fpm: FpmInstall | null;
   readonly vhost: Vhost | null;
+  /** The chosen vhost's address-family twins (completion.vhostTwins): each gets the same include. */
+  readonly vhostTwins: readonly Vhost[];
   /**
    * The instance serves the Publication API v1 (completion.servesV1). False = v2-only: no PHP item
    * at all — no FPM, PHP CLI or PHP-handler fact, no v1 account, no v1 database transport, no v1
@@ -433,6 +441,7 @@ export function compare(
     homeReasons: reasons,
     fpm: completion.fpm,
     vhost: completion.vhost,
+    vhostTwins: completion.vhostTwins,
     v1: completion.servesV1,
   };
   const items: ComparedItem[] = [
@@ -860,7 +869,7 @@ function declarationItems(env: Env): ComparedItem[] {
     echo('declaration.fpm', 'PHP-FPM install', env.fpm === null ? null : `${env.fpm.flavor} PHP ${env.fpm.version} (${env.fpm.unit})`);
   }
   if (site !== undefined) {
-    echo('declaration.vhost', 'vhost', env.vhost === null ? null : `${env.vhost.realpath}:${env.vhost.line} port ${env.vhost.port}`);
+    echo('declaration.vhost', 'vhost', env.vhost === null ? null : [env.vhost, ...env.vhostTwins].map(describeVhost).join(' + '));
   }
   if (decl?.listen.kind !== 'tls') {
     echo('declaration.work_unit', 'work engine unit', completion.workUnit === null ? null : `${completion.workUnit.unit} (group ${completion.workUnit.group})`);
@@ -1054,12 +1063,17 @@ function homeItems(env: Env): ComparedItem[] {
         action: { kind: 'mkdir', path: home, uid: 0, gid: 0, mode: HOME_ROOT_MODE },
       }),
     );
-  } else if (own.uid === 0 && (own.mode & 0o022) === 0) {
+  } else if (own.uid === 0 && (own.mode & 0o022) === 0 && (own.mode & 0o001) !== 0) {
+    // Right only when root-owned, not group/other-writable AND traversable by the instance's own
+    // accounts (agent, v2, v1 are "other" to a root:root home): a root:root 0700 home — what a
+    // re-run leaves after the operator tightened it — would pass the first two and then be
+    // refused by apply's traversal check with nothing in the plan to fix it.
     out.push(right('home.root', 'home', `${home} is root's`, [`${home} is root-owned (${modeText(own.mode)})`]));
   } else {
     const nameOf = (uid: number) => facts.accounts.users.find(row => row.uid === uid)?.name ?? `uid ${uid}`;
     const groupOf = (gid: number) => facts.accounts.groups.find(row => row.gid === gid)?.name ?? `gid ${gid}`;
-    const homeFacts = [`${home} is ${nameOf(own.uid)}:${groupOf(own.gid)} ${modeText(own.mode)}; root runs bun_bin and agent_dir from beneath it, so it becomes root:root ${mode} (decision B)`];
+    const why = own.uid === 0 ? `the instance's accounts cannot traverse it` : 'root runs bun_bin and agent_dir from beneath it';
+    const homeFacts = [`${home} is ${nameOf(own.uid)}:${groupOf(own.gid)} ${modeText(own.mode)}; ${why}, so it becomes root:root ${mode} (decision B)`];
     if ((HOME_ROOT_MODE & ~own.mode & 0o077) !== 0) {
       homeFacts.push(
         `the mode widens from ${modeText(own.mode)} to ${mode}: other local accounts, including other sites' PHP-FPM users, gain r-x on ${home}: its listing and every file whose own mode allows it become reachable`,
@@ -1079,7 +1093,7 @@ function homeItems(env: Env): ComparedItem[] {
     }
     if (declared.home.poolRefs.length > 0) homeFacts.push(`PHP-FPM pool paths point into it: ${declared.home.poolRefs.join('; ')}`);
     out.push(
-      item('home.root', 'home', 'change', `give ${home} to root`, {
+      item('home.root', 'home', 'change', own.uid === 0 ? `make ${home} ${mode}` : `give ${home} to root`, {
         facts: homeFacts,
         commands: [`chown root:root ${home} && chmod ${mode} ${home}`],
         action: { kind: 'path_meta', path: home, uid: 0, gid: 0, mode: HOME_ROOT_MODE },
@@ -1127,7 +1141,7 @@ function selinuxItems(env: Env): ComparedItem[] {
             commands: [`semanage fcontext -a -f d -t ${HOME_TRAVERSE_TYPE} '${escapeSpec(home)}'`, `restorecon -v ${home}`],
             options: [
               { id: 'act', label: `an exact ${HOME_TRAVERSE_TYPE} rule on ${home}`, resolves: 'act' },
-              { id: 'boolean', label: 'setsebool -P httpd_enable_homedirs on (every home, host-wide)', resolves: 'act' },
+              { id: 'boolean', label: 'setsebool -P httpd_enable_homedirs on (every home, host-wide)', resolves: 'act', confirm: 'typed' },
               { id: 'relocate', label: 'use the system layout instead', resolves: 'relocate' },
             ],
             defaultOption: 'act',
@@ -1153,8 +1167,8 @@ function selinuxItems(env: Env): ComparedItem[] {
             facts: [`httpd connects to 127.0.0.1:${port} (${type ?? 'http_port_t after provision apply'}); neither httpd_graceful_shutdown nor httpd_can_network_relay is on`, 'option connect: httpd_can_network_connect lets httpd connect to any port (host-wide)'],
             commands: ['setsebool -P httpd_can_network_relay on'],
             options: [
-              { id: 'act', label: 'setsebool -P httpd_can_network_relay on', resolves: 'act' },
-              { id: 'connect', label: 'setsebool -P httpd_can_network_connect on (any port)', resolves: 'act' },
+              { id: 'act', label: 'setsebool -P httpd_can_network_relay on', resolves: 'act', confirm: 'typed' },
+              { id: 'connect', label: 'setsebool -P httpd_can_network_connect on (any port)', resolves: 'act', confirm: 'typed' },
               MANUAL,
             ],
             defaultOption: 'act',
@@ -1203,7 +1217,7 @@ function selinuxItems(env: Env): ComparedItem[] {
           : item('selinux.db_connect', 'selinux', 'decision', 'let v1 reach MariaDB over TCP', {
               facts: ['the v1 pool runs as httpd_t: a TCP connection to MariaDB needs httpd_can_network_connect_db (host-wide)'],
               commands: ['setsebool -P httpd_can_network_connect_db on'],
-              options: [ACT, MANUAL],
+              options: [ACT_TYPED, MANUAL],
               defaultOption: 'act',
               action: sebool(env, 'httpd_can_network_connect_db'),
               hostWide: true,
@@ -1278,8 +1292,10 @@ function mediaAccessItem(env: Env, root: string, mount: ReturnType<typeof mountO
         `in /etc/fstab, add context="system_u:object_r:httpd_sys_content_t:s0" to the options of ${mount.mountPoint} (it labels only that mount), then: umount ${mount.mountPoint} && mount ${mount.mountPoint}`,
       ],
       options: [
-        { id: 'mount', label: 'add the context= mount option (only this mount)', resolves: 'manual' },
-        { id: 'boolean', label: `setsebool -P ${boolean} on (every ${mount.fsType} mount)`, resolves: 'act' },
+        // Both typed: a mount option (done by hand, but a choice about the operator's fstab) and a
+        // host-wide boolean are never taken by Enter.
+        { id: 'mount', label: 'add the context= mount option (only this mount)', resolves: 'manual', confirm: 'typed' },
+        { id: 'boolean', label: `setsebool -P ${boolean} on (every ${mount.fsType} mount)`, resolves: 'act', confirm: 'typed' },
       ],
       defaultOption: 'mount',
       optionActions: { boolean: sebool(env, boolean) },
@@ -1299,7 +1315,7 @@ function mediaAccessItem(env: Env, root: string, mount: ReturnType<typeof mountO
   return item('selinux.media_access', 'selinux', 'decision', title, {
     facts: [`${root} is ${label ?? 'unlabelled'}: labels the operator's media directory ${root} httpd_sys_content_t (provision apply registers the rule)`],
     commands: [`semanage fcontext -a -f a -t httpd_sys_content_t '${escapeSpec(root)}(/.*)?'`, `restorecon -R -v ${root}`],
-    options: [ACT, MANUAL],
+    options: [ACT_TYPED, MANUAL],
     defaultOption: 'act',
     hostWide: true,
     operatorFile: true,
@@ -1619,6 +1635,34 @@ export interface ForeignMapFacts extends MapDef {
   readonly parseProblem?: string | null;
 }
 
+/**
+ * The site's blocks grouped by FILE: the chosen vhost and its address-family twins (draft.ts
+ * vhostTwins), the chosen vhost's file first.
+ *
+ * THE TRANSACTION CHOICE (spec §5.10): one item — one operator-file transaction (re-read under the
+ * TOCTOU sha, backup, configtest, reload, rollback, web_txn.ts editOperatorFile) — per FILE, never
+ * one per block and never one across files:
+ * - twins in ONE file are ONE edit (vhost_reference `alsoLines`): two items on one file would each
+ *   carry the sha discovery read, and the second would always meet "changed since shown".
+ * - twins in different files are one item each, run in order. A failure rolls THAT file back and
+ *   stops the run (act: the later items are not reached), so what can remain is the include in one
+ *   family's block only — a configuration its configtest already passed, never a broken server —
+ *   and the next run proposes the rest. One transaction across files would need a multi-file
+ *   journal begin and resume (act.ts resumeOpen settles ONE file by its sha), a grammar that does
+ *   not exist; it is not invented here for a state that is safe and converges.
+ *
+ * Each group's id is the sha8 of its LEAD row — the chosen vhost in its own file (the id a
+ * one-block site always had), else that file's first twin — so ids are unique (sha8 hashes the realpath).
+ */
+function siteFiles(primary: Vhost, twins: readonly Vhost[]): { readonly lead: Vhost; readonly rows: readonly Vhost[] }[] {
+  const groups = new Map<string, Vhost[]>();
+  for (const row of [primary, ...twins]) groups.set(row.realpath, [...(groups.get(row.realpath) ?? []), row]);
+  return [...groups.values()].map(rows => {
+    const sorted = [...rows].sort((x, y) => x.line - y.line);
+    return { lead: rows.includes(primary) ? primary : (sorted[0] as Vhost), rows: sorted };
+  });
+}
+
 function webItems(env: Env): ComparedItem[] {
   const { facts, layout, decl } = env;
   if (decl === null || layout === null || layout.site === null) return [];
@@ -1658,23 +1702,24 @@ function webItems(env: Env): ComparedItem[] {
     }
   }
 
-  const sha = vhost === null ? null : vhostSha8(vhost);
-  const untrusted = vhost !== null && vhost.fileTrust.length > 0;
+  const groups = vhost === null ? [] : siteFiles(vhost, env.vhostTwins);
 
-  // web.manual_lines.<sha8>
+  // web.manual_lines.<sha8>: one item per file of the site (the guide's lines may sit in every block).
   const manualIds: string[] = [];
-  if (vhost !== null && sha !== null && vhost.manualLines.length > 0) {
-    const id = `web.manual_lines.${sha}`;
+  for (const { lead, rows } of groups) {
+    const manualLines = rows.flatMap(row => row.manualLines).sort((x, y) => x.line - y.line);
+    if (manualLines.length === 0) continue;
+    const id = `web.manual_lines.${vhostSha8(lead)}`;
     manualIds.push(id);
     out.push(
-      untrusted
-        ? blocked(id, 'web', `hand-written Dédalo lines in ${vhost.realpath}`, [...vhost.fileTrust, 'this file is reported, never edited'], vhost.manualLines.map(row => `remove line ${row.line}: ${row.text}`))
-        : item(id, 'web', 'decision', `remove the hand-written Dédalo lines from ${vhost.realpath}`, {
-            facts: [`${plural(vhost.manualLines.length, 'line')} from the manual guide; the provisioned include replaces them`],
-            diff: { path: vhost.realpath, unified: lineEditDiff(vhost.realpath, { removed: vhost.manualLines }) },
-            options: [ACT, MANUAL],
+      lead.fileTrust.length > 0
+        ? blocked(id, 'web', `hand-written Dédalo lines in ${lead.realpath}`, [...lead.fileTrust, 'this file is reported, never edited'], manualLines.map(row => `remove line ${row.line}: ${row.text}`))
+        : item(id, 'web', 'decision', `remove the hand-written Dédalo lines from ${lead.realpath}`, {
+            facts: [`${plural(manualLines.length, 'line')} from the manual guide; the provisioned include replaces them`],
+            diff: { path: lead.realpath, unified: lineEditDiff(lead.realpath, { removed: manualLines }) },
+            options: [ACT_TYPED, MANUAL],
             defaultOption: 'act',
-            action: { kind: 'vhost_manual_removal', path: vhost.realpath, beforeSha: vhost.fileSha, server, edit: 'remove_manual', lines: vhost.manualLines.map(row => row.line) },
+            action: { kind: 'vhost_manual_removal', path: lead.realpath, beforeSha: lead.fileSha, server, edit: 'remove_manual', lines: manualLines.map(row => row.line) },
             operatorFile: true,
             after: ['provision.apply', 'web.modules'],
           }),
@@ -1704,7 +1749,7 @@ function webItems(env: Env): ComparedItem[] {
           item(id, 'web', 'decision', `move the media map from ${file} into the host map`, {
             facts: [why, first.standalone === true ? `${file} holds only those maps: it is removed (backed up)` : `the three map blocks are removed from ${file} (backed up)`],
             commands: [`one configtest and reload under the host web lock; on failure ${file} is restored`],
-            options: [ACT, MANUAL],
+            options: [ACT_TYPED, MANUAL],
             defaultOption: 'act',
             action: { kind: 'nginx_map_seed', path: file, beforeSha: first.fileSha, standalone: first.standalone === true },
             operatorFile: true,
@@ -1715,26 +1760,44 @@ function webItems(env: Env): ComparedItem[] {
     }
   }
 
-  // web.vhost.<sha8>
-  if (vhost !== null && sha !== null) {
-    const id = `web.vhost.${sha}`;
+  // web.vhost.<sha8>: one item per file of the site (siteFiles: the transaction choice).
+  const twinned = groups.length > 1 || (groups[0]?.rows.length ?? 0) > 1;
+  for (const { lead, rows } of groups) {
+    const id = `web.vhost.${vhostSha8(lead)}`;
     const includePath = join(layout.instanceDir, `web.${server}.conf`);
     const lines =
       server === 'apache'
         ? [referenceComment(decl.instance), `IncludeOptional ${includePath}`]
         : [referenceComment(decl.instance), `include ${join(layout.instanceDir, 'web.nginx.con')}[f];`];
-    const where = `${vhost.realpath}:${vhost.line} (${vhost.serverName}, port ${vhost.port})`;
-    if (vhost.ourReference) out.push(right(id, 'web', 'the vhost includes the instance', [`${where} holds the reference`]));
-    else if (untrusted) out.push(blocked(id, 'web', `the vhost ${vhost.realpath}`, [...vhost.fileTrust, 'this file is reported, never edited'], lines));
+    const where = (row: Vhost) => `${row.realpath}:${row.line} (${row.serverName}, port ${row.port}${row.addresses.length > 0 ? ` on ${row.addresses.join(', ')}` : ''})`;
+    const pending = rows.filter(row => !row.ourReference).sort((x, y) => x.line - y.line);
+    const twinFact = twinned
+      ? [`${[vhost, ...env.vhostTwins].filter((row): row is Vhost => row !== null).map(where).join(' and ')} serve one site on two address families: each block gets the include, one configtest-and-rollback transaction per file`]
+      : [];
+    if (pending.length === 0) out.push(right(id, 'web', 'the vhost includes the instance', rows.map(row => `${where(row)} holds the reference`)));
+    else if (lead.fileTrust.length > 0) out.push(blocked(id, 'web', `the vhost ${lead.realpath}`, [...lead.fileTrust, 'this file is reported, never edited', ...twinFact], lines));
     else {
+      const [first, ...also] = pending as [Vhost, ...Vhost[]];
+      const opener = server === 'apache' ? '<VirtualHost>' : 'server {';
       out.push(
-        item(id, 'web', 'decision', `add the instance's include to ${vhost.realpath}`, {
-          facts: [`${where}: two lines after the ${server === 'apache' ? '<VirtualHost>' : 'server {'} line; a removed instance never breaks the server (zero-match include)`],
+        item(id, 'web', 'decision', `add the instance's include to ${lead.realpath}`, {
+          facts: [
+            ...pending.map(row => `${where(row)}: two lines after the ${opener} line; a removed instance never breaks the server (zero-match include)`),
+            ...twinFact,
+          ],
           commands: lines,
-          diff: { path: vhost.realpath, unified: lineEditDiff(vhost.realpath, { inserted: { after: vhost.line, lines } }) },
-          options: [ACT, MANUAL],
+          diff: { path: lead.realpath, unified: lineEditDiff(lead.realpath, { inserted: pending.map(row => ({ after: row.line, lines })) }) },
+          options: [ACT_TYPED, MANUAL],
           defaultOption: 'act',
-          action: { kind: 'vhost_reference', path: vhost.realpath, beforeSha: vhost.fileSha, server, edit: 'reference', line: vhost.line },
+          action: {
+            kind: 'vhost_reference',
+            path: lead.realpath,
+            beforeSha: lead.fileSha,
+            server,
+            edit: 'reference',
+            line: first.line,
+            ...(also.length > 0 ? { alsoLines: also.map(row => row.line) } : {}),
+          },
           operatorFile: true,
           after: ['provision.apply', 'web.modules', ...manualIds, ...mapIds],
         }),
@@ -1764,7 +1827,12 @@ function webItems(env: Env): ComparedItem[] {
   // its rotation (render/logrotate.ts); init never edits the vhost's log destinations.
   if (env.homeLayout && vhost !== null) {
     const logsDir = layout.site.webLogsDir;
-    const logs = [vhost.errorLog, ...vhost.accessLogs].filter((file): file is string => file !== null);
+    // Every block of the site logs somewhere: the twins' logs are judged with the chosen vhost's.
+    const logOf = new Map<string, Vhost>();
+    for (const row of [vhost, ...env.vhostTwins]) {
+      for (const file of [row.errorLog, ...row.accessLogs]) if (file !== null && !logOf.has(file)) logOf.set(file, row);
+    }
+    const logs = [...logOf.keys()];
     const outside = logs.filter(file => !file.startsWith(`${logsDir}/`));
     const inHome = outside.filter(file => file === layout.site?.home || file.startsWith(`${layout.site?.home}/`));
     const sandboxed = facts.web.unitSandbox !== null && facts.web.unitSandbox.protectHome !== 'no' && facts.web.unitSandbox.protectHome !== '';
@@ -1777,7 +1845,7 @@ function webItems(env: Env): ComparedItem[] {
         : item('web.logs', 'web', 'decision', `move the vhost logs to ${logsDir}`, {
             facts: [
               `${logsDir}: root's, created by provision apply, rotated by ${layout.logrotatePath}; init never edits log destinations`,
-              ...outside.map(file => `${vhost.realpath}: ${file}`),
+              ...outside.map(file => `${(logOf.get(file) ?? vhost).realpath}: ${file}`),
               ...(inHome.length > 0
                 ? [
                     sandboxed

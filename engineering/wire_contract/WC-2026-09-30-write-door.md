@@ -136,3 +136,20 @@
   probes; NOT_YET_PROBED ceiling 60 → 59), `test/unit/dd128_write_census_tripwire.test.ts`
   (rows `delegates`, derived DELEGATING_ENGINES, positive control),
   `test/unit/media_timecode.test.ts` (tipo/component_tipo conflict, id grammar).
+
+## Addendum 2026-11-25 — propagate never consults the relation's target section (owner ruling, FYI-1 / T2-S06)
+
+- **Date:** 2026-11-25 (owner ruling on FYI-1).
+- **Shape before:** unpinned. Neither PHP nor TS asked any grant on the section a propagated
+  locator points to; nothing held that, so a later check could have been added silently.
+- **Shape after:** unchanged behaviour, now law: propagate asks the RECORD's side only —
+  section floor 1 on the record's own section, then component level 2 on (section,
+  component) — and never the relation's TARGET section. A user editing a relation
+  component (e.g. a material component) without any access to the thesaurus it points to
+  may set terms of that thesaurus and propagate them.
+- **Reason:** the right to write a relation value is the component grant; the target
+  thesaurus is the value's vocabulary, not the record being written.
+- **Gate reconciliation:** no parity fixture; no re-harvest. Gate:
+  `test/unit/authz_door_matrix_native.test.ts` leg `FYI-1 propagate_into_unreadable_target`
+  (PROPAGATOR, target section at 0, writes; control PROPAGATOR_NO_PAIR refused on the
+  component grant; mutation — a target-section check in the propagate server — turns it red).

@@ -9,8 +9,11 @@
  *     "aborted by operator; nothing was written for this item"). Raw mode is restored in `finally`
  *     and on SIGINT (a signal sent from outside while a question is open).
  *   - A secret is asked twice and must match; three mismatches abort.
- *   - A decision shows its options; the default is shown but must be TYPED (an empty answer asks
- *     again): init never takes a default on the operator's behalf.
+ *   - A decision shows its options. How it is answered is decision_class.ts classifyDecision's
+ *     (the one rule): Enter takes the shown default of an ordinary decision; a `typed` one (it edits
+ *     an operator file, replaces a pairing, removes something, sets an SELinux boolean or a mount
+ *     option) must be TYPED — an empty answer asks again, naming why. A decision with no default
+ *     takes nothing on Enter either. (run.ts never asks a `needs_action` or `auto` decision.)
  *   - Prompts are our own sentences; an item's title and option labels pass sanitizeLine.
  *
  * `scriptedPrompter(answers)` is the same contract with answers given in advance (init_run's
@@ -18,6 +21,7 @@
  *
  * I/O: the streams are injected (production: process.stdin/stdout); nothing else is touched.
  */
+import { classifyDecision } from './decision_class';
 import { sanitizeLine } from './report';
 import type { Item, Prompter } from './types';
 
@@ -237,11 +241,17 @@ export function ttyPrompter(streams: TtyStreams = { input: process.stdin, output
           write(`  ${option.id}: ${option.label}${option.id === item.defaultOption ? ' (default)' : ''}\n`);
         }
         const ids = options.map(option => option.id);
+        const enter = enterAnswer(item);
+        // The prompt's wording is a contract: scripts/publication_host_init_drill.ts PROMPTS reads
+        // `(default <id> — type it)` and `(default <id> — Enter takes it)`.
+        const hint =
+          item.defaultOption === undefined ? '' : enter === null ? ` (default ${item.defaultOption} — type it)` : ` (default ${enter} — Enter takes it)`;
         for (;;) {
-          write(`choose ${ids.join(' | ')}${item.defaultOption === undefined ? '' : ` (default ${item.defaultOption} — type it)`}: `);
+          write(`choose ${ids.join(' | ')}${hint}: `);
           const answer = (await readLine(reader, streams.output, true)).trim();
           if (ids.includes(answer)) return answer;
-          write(answer === '' ? 'the default is shown, never taken: type an option\n' : `'${answer}' is not one of ${ids.join(', ')}\n`);
+          if (answer === '' && enter !== null) return enter;
+          write(answer === '' ? `${enterRefusedLine(item)}\n` : `'${answer}' is not one of ${ids.join(', ')}\n`);
         }
       }),
     visible: (label, defaultValue) =>
@@ -266,12 +276,36 @@ export function ttyPrompter(streams: TtyStreams = { input: process.stdin, output
   };
 }
 
+/**
+ * What an empty answer (Enter) takes for `item`: the shown default of a `choose` decision, else
+ * null (a `typed` one, or one without a default). Both prompters use it, so the TTY and the scripted
+ * gates cannot disagree.
+ */
+export function enterAnswer(item: Item): string | null {
+  const prompt = classifyDecision(item);
+  return prompt.kind === 'choose' ? prompt.enter : null;
+}
+
+/** Why Enter took nothing (the operator reads it before typing again). */
+export function enterRefusedLine(item: Item): string {
+  return classifyDecision(item).kind === 'typed'
+    ? 'this decision changes your files or the whole host: Enter takes nothing, type an option'
+    : 'this decision has no default: type an option';
+}
+
 /* ── scripted ─────────────────────────────────────────────────────────────────────── */
+
+/** In ScriptedAnswers.choices: the operator pressed Enter (an empty answer). */
+export const SCRIPTED_ENTER = '';
 
 export interface ScriptedAnswers {
   /** The confirmation's answer ("Apply these N changes?"); default false. */
   readonly confirm?: boolean;
-  /** Decision id → option id. A decision not listed is aborted (null). */
+  /**
+   * Decision id → option id. A decision not listed is aborted (null). SCRIPTED_ENTER ('') is Enter:
+   * it takes what the terminal's Enter takes (enterAnswer), and where Enter takes nothing the
+   * scripted operator gives up (null) — the terminal would ask again, a script cannot.
+   */
   readonly choices?: Readonly<Record<string, string>>;
   /** Visible prompt label → value; a label not listed takes the default, or aborts without one. */
   readonly visible?: Readonly<Record<string, string>>;
@@ -300,7 +334,14 @@ export function scriptedPrompter(answers: ScriptedAnswers = {}): Prompter & { re
     choose: async item => {
       asked.push(`choose ${item.id}`);
       if (!interactive) return null;
-      return answers.choices?.[item.id] ?? null;
+      const answer = answers.choices?.[item.id];
+      if (answer === undefined) return null;
+      if (answer === SCRIPTED_ENTER) {
+        const enter = enterAnswer(item);
+        asked.push(enter === null ? `enter refused ${item.id}` : `enter ${item.id}=${enter}`);
+        return enter;
+      }
+      return answer;
     },
     visible: async (label, defaultValue) => {
       asked.push(`visible ${label}`);

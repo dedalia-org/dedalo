@@ -10,10 +10,11 @@
  * keeping the include node, so a walker knows both what is loaded and where the include
  * stood. The dump lives in observe.ts's memory only and never leaves it.
  *
- * PURE, ZERO-DEPENDENCY (tests/provision_zero_dep.test.ts): node:path and ../types only.
+ * PURE, ZERO-DEPENDENCY (tests/provision_zero_dep.test.ts): node:path, ../types and ./redirect only.
  */
 import { dirname, isAbsolute, join } from 'node:path';
 import type { MapDef } from '../types';
+import { isAbsoluteRedirectTarget, isCatchAllPattern } from './redirect';
 
 /* ── -T → files ──────────────────────────────────────────────────────────────────── */
 
@@ -294,6 +295,12 @@ export function findMapDefinitions(tree: readonly NginxDirective[], vars: readon
 /* ── server blocks ───────────────────────────────────────────────────────────────── */
 
 export interface NginxListen {
+  /**
+   * The address part, as written: `*` for a bare port (nginx binds 0.0.0.0 — IPv4 only),
+   * `[::]` / `[2001:db8::1]` (IPv6, bracketed), `127.0.0.1`, `localhost`. observe.ts keeps every
+   * address of one port on ONE vhost row (a dual-stack `listen 443; listen [::]:443;` is one site).
+   */
+  readonly address: string;
   readonly port: number;
   readonly ssl: boolean;
   readonly defaultServer: boolean;
@@ -301,11 +308,25 @@ export interface NginxListen {
 
 /** `listen 443 ssl http2` / `[::]:443 ssl` / `127.0.0.1:8080` / `80 default_server`; null for a unix socket. */
 export function parseListen(args: readonly string[]): NginxListen | null {
-  const address = args[0] ?? '';
-  if (address.startsWith('unix:')) return null;
-  const port = /(?:^|:)(\d{1,5})$/.exec(address)?.[1] ?? (/^[\w.-]+$/.test(address) && !/^\d+$/.test(address) ? '80' : null);
-  if (port === null) throw new Error(`parse(nginx): listen '${address}' has no port`);
+  const spec = args[0] ?? '';
+  if (spec.startsWith('unix:')) return null;
+  let address: string;
+  let port: string | null;
+  const withPort = /^(.+):(\d{1,5})$/.exec(spec);
+  if (withPort) {
+    address = withPort[1] as string;
+    port = withPort[2] as string;
+  } else if (/^\d{1,5}$/.test(spec)) {
+    address = '*';
+    port = spec;
+  } else {
+    // An address without a port (`localhost`, `127.0.0.1`) listens on 80.
+    address = spec;
+    port = /^[\w.-]+$/.test(spec) ? '80' : null;
+  }
+  if (port === null) throw new Error(`parse(nginx): listen '${spec}' has no port`);
   return Object.freeze({
+    address,
     port: Number(port),
     ssl: args.includes('ssl') || args.includes('quic'),
     defaultServer: args.includes('default_server') || args.includes('default'),
@@ -330,6 +351,31 @@ export interface NginxServer {
   readonly fpmHandler: string | null;
   readonly ourReference: boolean;
   readonly manualLines: readonly { readonly line: number; readonly text: string }[];
+  /**
+   * The server answers every request with a redirect to an absolute URL, decided at the server's
+   * own level (not inside `if`/`location`, which select): `return 301|302|303|307|308 <URL>`,
+   * `return <http(s) URL>`, or `rewrite <catch-all> <absolute URL> …`. A server-level `return` runs
+   * before any location is chosen, so it holds whatever locations follow. Never an APIs candidate.
+   */
+  readonly redirectOnly: boolean;
+}
+
+const REDIRECT_CODES = new Set(['301', '302', '303', '307', '308']);
+
+/** One server-level directive that redirects every request away (see NginxServer.redirectOnly). */
+function wholeServerRedirect(directive: NginxDirective): boolean {
+  if (directive.name === 'return') {
+    const [code = '', target] = directive.args;
+    // `return <URL>` (one argument) is a 302 when the URL starts with http://, https:// or $scheme.
+    if (target === undefined) return isAbsoluteRedirectTarget(code);
+    return REDIRECT_CODES.has(code) && isAbsoluteRedirectTarget(target);
+  }
+  if (directive.name === 'rewrite') {
+    const [pattern = '', target = ''] = directive.args;
+    // An absolute replacement redirects whatever the flag (nginx: http://, https://, $scheme).
+    return isCatchAllPattern(pattern) && isAbsoluteRedirectTarget(target);
+  }
+  return false;
 }
 
 const MEDIA_RULES_INCLUDE = /\/dedalo_media_publication\.nginx\.conf$/;
@@ -358,6 +404,7 @@ export function findServers(tree: readonly NginxDirective[], files: readonly Dum
     let fpmHandler: string | null = null;
     let ourReference = false;
     let sslOn = false;
+    let redirectOnly = false;
     const manual = new Map<string, Set<number>>();
     const mark = (file: string, from: number, to: number) => {
       const set = manual.get(file) ?? new Set<number>();
@@ -367,6 +414,7 @@ export function findServers(tree: readonly NginxDirective[], files: readonly Dum
     walk(server.block, (directive, parents) => {
       const top = parents.length === 0;
       const insideManual = parents.some(parent => parent.name === 'location' && GUIDE_LOCATION.test(parent.args[parent.args.length - 1] ?? ''));
+      if (top && wholeServerRedirect(directive)) redirectOnly = true;
       switch (directive.name) {
         case 'server_name':
           if (top) names.push(...directive.args.map(name => name.toLowerCase()));
@@ -408,7 +456,7 @@ export function findServers(tree: readonly NginxDirective[], files: readonly Dum
         }
       }
     });
-    const listen = listens.length > 0 ? listens : [Object.freeze({ port: 80, ssl: false, defaultServer: false })];
+    const listen = listens.length > 0 ? listens : [Object.freeze({ address: '*', port: 80, ssl: false, defaultServer: false })];
     const manualLines = (manual.get(server.file) ? [...(manual.get(server.file) as Set<number>)] : [])
       .filter(at => at > server.line && at < server.endLine)
       .sort((a, b) => a - b)
@@ -426,6 +474,7 @@ export function findServers(tree: readonly NginxDirective[], files: readonly Dum
         fpmHandler,
         ourReference,
         manualLines: Object.freeze(manualLines),
+        redirectOnly,
       }),
     );
   }

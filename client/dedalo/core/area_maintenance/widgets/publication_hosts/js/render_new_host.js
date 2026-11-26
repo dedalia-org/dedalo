@@ -23,7 +23,17 @@ import { fact_row, section } from '../../update_code/js/render_update_status.js'
  *   drafts_state : 'ok' | 'drafts_invalid'
  *   drafts       : Array<{name, created_at, draft, state:'awaiting'|'paired',
  *                  paired_as, kit:{name, instance, release, sha256, size,
- *                  built_at, file_name}|null}> | null
+ *                  built_at, file_name}|null,
+ *                  install:{source, draft_file, agent_deps, command}|null}> | null
+ *
+ * ONE MACHINE FIRST (spec §1.1): the form asks where the public website runs —
+ * on THIS server (another vhost: the default, a socket listener, init pairs it
+ * itself) or on another server (mTLS, the kit + the sealed package). An
+ * awaiting one-machine draft shows the ONE block to run on this server as
+ * root (`install`, built by the server: drafts.ts oneMachineInstall); its kit
+ * stays available, folded. A PAIRED draft offers First use (docs step 10):
+ * run_first_use chains the widget's own apply_rules → push_apis →
+ * probe_public, each step's outcome shown as it lands.
  *
  * THE FORM SENDS A DRAFT, NEVER A CREDENTIAL, and the server judges it with the
  * publication agent's own rules; a refusal names its fields
@@ -248,7 +258,8 @@ const render_draft = function (self, row, parent, body_response) {
 		facts,
 		get_label.publication_hosts_draft_listen || 'Agent listens on',
 		two
-			? `${listen.host}:${listen.port}`
+			? // an IPv6 host is bracketed so its port reads apart: [fd00:20::2]:8471
+				`${String(listen.host).includes(':') ? `[${listen.host}]` : listen.host}:${listen.port}`
 			: get_label.publication_hosts_draft_one_machine || 'a socket (this machine)',
 		true,
 	);
@@ -269,15 +280,25 @@ const render_draft = function (self, row, parent, body_response) {
 		fact_row(facts, get_label.publication_hosts_kit_release || 'Kit release', kit.release, true);
 	}
 
+	const awaiting = row.state !== 'paired';
+	// one machine, awaiting: the block to run here is THE path; the kit folds under it
+	const one_machine_install = !two && awaiting && row.install ? row.install : null;
+	if (one_machine_install) {
+		render_one_machine_install(one_machine_install, card);
+	}
+
 	const actions = ui.create_dom_element({
 		element_type: 'div',
 		class_name: 'host_actions',
 		parent: card,
 	});
-	const awaiting = row.state !== 'paired';
+	if (!awaiting && row.paired_as) {
+		render_first_use_button(self, row.paired_as, actions, body_response);
+	}
+	const kit_actions = one_machine_install ? kit_fold(card) : actions;
 
 	const build_label = get_label.publication_hosts_build_kit || 'Build kit';
-	const button_build = button(actions, 'button_build_kit', build_label, !awaiting);
+	const button_build = button(kit_actions, 'button_build_kit', build_label, !awaiting);
 	button_build.addEventListener('click', async (e) => {
 		e.stopPropagation();
 		await run(self, {
@@ -291,7 +312,7 @@ const render_draft = function (self, row, parent, body_response) {
 	});
 
 	const button_download = button(
-		actions,
+		kit_actions,
 		'button_download_kit',
 		get_label.publication_hosts_download_kit || 'Download kit',
 		!kit,
@@ -328,6 +349,256 @@ const render_draft = function (self, row, parent, body_response) {
 
 	return card;
 }; //end render_draft
+
+/**
+ * RENDER_ONE_MACHINE_INSTALL
+ * The ONE block an awaiting one-machine draft is installed with, on THIS
+ * server, as root (the server builds it: drafts.ts oneMachineInstall — the
+ * draft as a root-only file, the agent's dependencies when the release tree
+ * lacks them, install.sh --source <this release tree>). Pairing happens during
+ * that install; the card then reads "Paired as". Shown as TEXT, with a copy
+ * button.
+ * @param {{command: string}} install
+ * @param {HTMLElement} card
+ * @returns {HTMLElement}
+ */
+const render_one_machine_install = function (install, card) {
+	const block = ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'one_machine_install',
+		parent: card,
+	});
+	ui.create_dom_element({
+		element_type: 'h4',
+		class_name: 'one_machine_install_title',
+		text_content: get_label.publication_hosts_install_here || 'Install on this server',
+		parent: block,
+	});
+	ui.create_dom_element({
+		element_type: 'p',
+		class_name: 'one_machine_install_note',
+		text_content:
+			get_label.publication_hosts_install_here_note ||
+			'Run this block on this server, as root. The host pairs itself during the install: no kit and no package are needed. Once paired, this draft shows it.',
+		parent: block,
+	});
+	const pre = ui.create_dom_element({
+		element_type: 'pre',
+		class_name: 'one_machine_command',
+		text_content: String(install.command || ''),
+		parent: block,
+	});
+	const button_copy = button(block, 'button_copy_command', get_label.copy || 'Copy', false);
+	button_copy.addEventListener('click', async (e) => {
+		e.stopPropagation();
+		await copy_text(pre);
+	});
+
+	return block;
+}; //end render_one_machine_install
+
+/**
+ * COPY_TEXT
+ * The node's text to the clipboard; where the browser refuses (no secure
+ * context, no permission) the text is selected instead, for Ctrl+C.
+ * @param {HTMLElement} node
+ * @returns {Promise<boolean>} true when the clipboard took it
+ */
+export const copy_text = async function (node) {
+	try {
+		if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+			await navigator.clipboard.writeText(node.textContent);
+			return true;
+		}
+	} catch (error) {
+		console.warn('publication_hosts: clipboard refused, selecting the text instead', error);
+	}
+	const selection = window.getSelection();
+	if (selection) {
+		const range = document.createRange();
+		range.selectNodeContents(node);
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}
+	return false;
+}; //end copy_text
+
+/**
+ * KIT_FOLD
+ * One machine: the kit is the alternative, not the path — folded.
+ * @param {HTMLElement} card
+ * @returns {HTMLElement} the fold's action row
+ */
+const kit_fold = function (card) {
+	const details = ui.create_dom_element({
+		element_type: 'details',
+		class_name: 'dd_fold kit_fold',
+		parent: card,
+	});
+	ui.create_dom_element({
+		element_type: 'summary',
+		text_content: get_label.publication_hosts_kit_fold || 'Or install from a kit',
+		parent: details,
+	});
+	return ui.create_dom_element({
+		element_type: 'div',
+		class_name: 'host_actions',
+		parent: details,
+	});
+}; //end kit_fold
+
+/**
+ * FIRST_USE_STEPS
+ * Docs step 10, in its order: the widget's OWN root-only actions, each its own
+ * request. Chained here, not in one server action, because each is already
+ * bounded below the server idle timeout (push_apis answers `running` and goes
+ * on detached): three bounded requests cannot overrun it, one request holding
+ * all three could. `state` reads each answer (push_apis answers false when a
+ * host×API failed; probe_public answers the probe's own verdict).
+ */
+export const FIRST_USE_STEPS = Object.freeze([
+	Object.freeze({
+		action: 'apply_rules',
+		label: () => get_label.publication_hosts_apply_rules || 'Apply media rules',
+		options: (host_name) => ({ name: host_name }),
+		state: () => 'ok',
+	}),
+	Object.freeze({
+		action: 'push_apis',
+		label: () => get_label.publication_hosts_push_apis || 'Push API releases',
+		options: (host_name) => ({ hosts: [host_name] }),
+		state: (api_response) => {
+			if (response_extension(api_response, 'running') === true) return 'running';
+			return response_data(api_response) === true ? 'ok' : 'failed';
+		},
+	}),
+	Object.freeze({
+		action: 'probe_public',
+		label: () => get_label.publication_hosts_probe_public || 'Probe public gate',
+		options: (host_name) => ({ name: host_name }),
+		state: (api_response) => {
+			const probe_state = response_data(api_response)?.state;
+			return probe_state === 'ok' ? 'ok' : probe_state === 'failed' ? 'failed' : 'warning';
+		},
+	}),
+]);
+
+/** How a step's state reads in the console (the server's sentence follows it). */
+const FIRST_USE_STATE_TEXT = Object.freeze({
+	ok: 'OK',
+	failed: 'Error',
+	running: 'Running',
+	warning: 'Warning',
+	not_run: 'Not run',
+});
+
+/** The policy actions after which a later step cannot succeed (session gone, access refused). */
+const FIRST_USE_STOPS = Object.freeze(['relogin', 'no_access_page']);
+
+/**
+ * RUN_FIRST_USE
+ * One confirm, then FIRST_USE_STEPS in order, each outcome (its label, its
+ * state, the server's sentence) shown as it lands. A failed step does not stop
+ * the next — each proves something of its own, and the operator reads all
+ * three — unless the session or the access is gone; the steps not run are
+ * named. The panel reloads once at the end, so the host row shows each result.
+ * @param {Object} self - the widget instance
+ * @param {string} host_name - the paired host's registry name
+ * @param {HTMLElement} body_response - the shared result console
+ * @param {HTMLElement|null} button
+ * @returns {Promise<Array<{action: string, state: string, text: string}>|null>} null when declined
+ */
+export const run_first_use = async function (self, host_name, body_response, button_node) {
+	const title = get_label.publication_hosts_first_use || 'First use';
+	if (
+		self.confirm_action(`${get_label.sure || 'Are you sure?'}\n${title}: ${host_name}`) !== true
+	) {
+		return null;
+	}
+	const outcomes = [];
+	const show = () => {
+		const lines = outcomes.map(
+			(o) =>
+				`${FIRST_USE_STATE_TEXT[o.state] || o.state} · ${o.label}${o.text ? `\n${o.text}` : ''}`,
+		);
+		self.last_outcome = `${host_name} · ${title}\n${lines.join('\n\n')}`;
+		body_response.textContent = self.last_outcome;
+	};
+	if (button_node) button_node.classList.add('button_spinner');
+	try {
+		let stopped = false;
+		for (const step of FIRST_USE_STEPS) {
+			if (stopped) {
+				outcomes.push({ action: step.action, label: step.label(), state: 'not_run', text: '' });
+				continue;
+			}
+			const outcome = await first_use_step(self, step, host_name, body_response);
+			outcomes.push(outcome);
+			stopped = outcome.stop === true;
+			show();
+		}
+		show();
+	} finally {
+		if (button_node) button_node.classList.remove('button_spinner');
+	}
+	await self.reload();
+
+	return outcomes.map(({ action, state, text }) => ({ action, state, text }));
+}; //end run_first_use
+
+/**
+ * FIRST_USE_STEP
+ * One step: the request, its state, its text (a refusal: label AND sentence,
+ * as `run` shows them). Never throws: a transport error is the step's outcome.
+ * @returns {Promise<{action, label, state, text, stop?: boolean}>}
+ */
+const first_use_step = async function (self, step, host_name, body_response) {
+	const label = step.label();
+	try {
+		const api_response = await self.widget_request(step.action, step.options(host_name));
+		if (request_failed(api_response)) {
+			const api_error = api_response.error || {};
+			const label_text = error_text(api_error);
+			const sentence = typeof api_error.message === 'string' ? api_error.message : '';
+			const handled = await handle_api_error(api_error, { wrapper: body_response });
+			return {
+				action: step.action,
+				label: label,
+				state: 'failed',
+				text: sentence && sentence !== label_text ? `${label_text}\n${sentence}` : label_text,
+				stop: FIRST_USE_STOPS.includes(handled?.action) && handled?.recovered !== true,
+			};
+		}
+		return {
+			action: step.action,
+			label: label,
+			state: step.state(api_response),
+			text: String(response_extension(api_response, 'msg') || ''),
+		};
+	} catch (error) {
+		console.error('publication_hosts first use step failed:', step.action, error);
+		return { action: step.action, label: label, state: 'failed', text: error_text(error) };
+	}
+}; //end first_use_step
+
+/**
+ * RENDER_FIRST_USE_BUTTON
+ * A paired draft (by pair_package, or by init on one machine): the one action
+ * that runs docs step 10 against the host it is paired as.
+ */
+const render_first_use_button = function (self, host_name, parent, body_response) {
+	const node = button(
+		parent,
+		'button_apply button_first_use',
+		get_label.publication_hosts_first_use || 'First use',
+		false,
+	);
+	node.addEventListener('click', async (e) => {
+		e.stopPropagation();
+		await run_first_use(self, host_name, body_response, node);
+	});
+	return node;
+}; //end render_first_use_button
 
 /**
  * SAVE_KIT
@@ -474,17 +745,24 @@ const render_draft_form = function (self, parent, body_response) {
 	};
 
 	text_field('site.domain', get_label.publication_hosts_draft_domain || 'Site domain');
-	select_field('listen.kind', get_label.publication_hosts_draft_machines || 'Machines', [
-		['unix', get_label.publication_hosts_draft_machines_one || 'One machine (this server)'],
+	// asked by what the operator knows — where the website runs — not by topology jargon;
+	// THIS server (another vhost) is the first option, so the default (spec §1.1)
+	select_field(
+		'listen.kind',
+		get_label.publication_hosts_draft_machines || 'Where the public website runs',
 		[
-			'tls',
-			get_label.publication_hosts_draft_machines_two ||
-				'Two machines (mTLS over a private network)',
+			['unix', get_label.publication_hosts_draft_machines_one || 'On this server (another vhost)'],
+			[
+				'tls',
+				get_label.publication_hosts_draft_machines_two ||
+					'On another server (mTLS over a private network)',
+			],
 		],
-	]);
+	);
 	text_field(
 		'listen.host',
-		get_label.publication_hosts_draft_listen_host || 'Private IPv4 address of the publication host',
+		get_label.publication_hosts_draft_listen_host ||
+			'Private IPv4/IPv6 address of the publication host',
 	);
 	select_field('apis', get_label.publication_hosts_draft_apis || 'Publication APIs', [
 		['v2_only', get_label.publication_hosts_draft_apis_v2 || 'v2 only (recommended, no PHP)'],

@@ -112,6 +112,7 @@ import {
 } from '../../publication_host/probe.ts';
 import {
 	HOST_NAME,
+	isPublicUrlOrigin,
 	loadRegistry,
 	type PublicationHostRecord,
 	RegistryError,
@@ -408,8 +409,11 @@ function readRegistry(deps: PublicationHostsDeps): RegistryRead {
 	}
 }
 
+/** `host:port` (an IPv6 host bracketed, `[fd00::1]:8471`, so the port reads apart), or `unix:<socket>`. */
 export function addressLabel(address: PublicationHostRecord['address']): string {
-	return address.kind === 'tls' ? `${address.host}:${address.port}` : `unix:${address.socket}`;
+	if (address.kind !== 'tls') return `unix:${address.socket}`;
+	const host = address.host.includes(':') ? `[${address.host}]` : address.host;
+	return `${host}:${address.port}`;
 }
 
 /** Dial only a host whose required secrets are present AND accepted (bundle: TLS hosts only). */
@@ -590,17 +594,41 @@ function parseUrl(value: string): URL | null {
 }
 
 /**
- * An https ORIGIN and nothing else: no credentials, path, query or fragment. Stored as
- * `url.origin`. Syntax only — the phase-6 probe dials it through the SSRF guard, which
- * is where an address is judged (at fetch time, not at save time).
+ * An http(s) ORIGIN and nothing else: no credentials, path, query or fragment. Stored as
+ * `url.origin`, then judged by the registry's own grammar (`isPublicUrlOrigin`, the one
+ * saveRegistry applies). https is the default the panel proposes; http is accepted —
+ * some intranets serve http only — and the save answers `PUBLIC_URL_HTTP_NOTICE`
+ * (§7). Syntax only — the phase-6 probe dials it through the SSRF guard, which is where
+ * an address is judged (at fetch time, not at save time).
  */
 export function normalizePublicUrl(value: unknown): string | null {
 	if (value === null) return null;
 	const url = typeof value === 'string' ? parseUrl(value) : null;
-	if (url === null || url.href !== `https://${url.host}/`) {
-		refuseAction('Error. public_url must be an https origin (https://host[:port]), or null.');
+	if (
+		url === null ||
+		url.href !== `${url.protocol}//${url.host}/` ||
+		!isPublicUrlOrigin(url.origin)
+	) {
+		refuseAction(
+			'Error. public_url must be an http(s) origin (https://host[:port], or http://host[:port] for an http-only site), or null.',
+		);
 	}
 	return url.origin;
+}
+
+/**
+ * The sentence a save of an http public URL adds (§7). Not a refusal: an intranet may
+ * serve http only. But a public site that also answers https is better probed — and
+ * reached — there; the probe follows one http → https upgrade and says so in its detail.
+ */
+export const PUBLIC_URL_HTTP_NOTICE =
+	'Notice: the public URL is http://. Media is then served unencrypted; if the site also answers https, set the public URL to https://… (keep http only for an http-only intranet).';
+
+/** The http notice for a patch that stores an http public URL; null otherwise. */
+export function publicUrlNotice(patch: HostFieldPatch): string | null {
+	return typeof patch.public_url === 'string' && patch.public_url.startsWith('http:')
+		? PUBLIC_URL_HTTP_NOTICE
+		: null;
 }
 
 function assertQualityList(value: unknown): asserts value is string[] {
@@ -866,7 +894,9 @@ const applyRulesAction: BoundAction = async (options, principal, loadDeps) => {
 
 function probeSentence(name: string, probe: GateProbe): string {
 	if (probe.state === 'ok') {
-		return `OK. '${name}': the public gate serves published media and refuses unpublished media.`;
+		const proven = `OK. '${name}': the public gate serves published media and refuses unpublished media.`;
+		// An ok proof can still carry a note (§7: an http public URL that upgraded to https).
+		return probe.detail === null ? proven : `${proven} ${probe.detail}.`;
 	}
 	const level = probe.state === 'failed' ? 'Error' : 'Warning';
 	return `${level}. '${name}': ${probe.detail ?? probe.state}`;
@@ -982,9 +1012,11 @@ const setHostFieldsAction: BoundAction = async (options, principal, loadDeps) =>
 	writeRegistry(deps, (current) => replaceHost(current, name, patch));
 	const fields = Object.keys(patch);
 	logMutation('set_host_fields', name, principal, `fields=${fields.join(',')}`);
+	const notice = publicUrlNotice(patch);
+	const updated = `OK. Host '${name}' updated: ${fields.join(', ')}.`;
 	return {
 		data: { host: name, fields },
-		msg: `OK. Host '${name}' updated: ${fields.join(', ')}.`,
+		msg: notice === null ? updated : `${updated} ${notice}`,
 	};
 };
 

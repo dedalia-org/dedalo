@@ -340,3 +340,10 @@
   with an operator sentence (fix that folder's owner or permissions); it reaches the panel as
   `details.reason` like every agent reason. Gates: `test/unit/publication_host_copy_wire_native.test.ts`,
   agent `tests/media_copy.test.ts`, `tests/media_repair.test.ts`.
+
+## Addendum 2026-11-25 — http public URL, one http → https upgrade
+
+`set_host_fields` accepts an `http://` `public_url` (with a notice in `msg`), and the probe
+follows exactly one http → https upgrade of the same URL, so a verdict's `detail` may be
+non-null on `ok` and a refused redirect's `detail` names its target. Entry:
+`WC-2026-11-25-publication-host-public-url-http-upgrade`.

@@ -2,12 +2,12 @@
 	"generated_by": "bun run scripts/unit_baseline.ts (runs `bun test --timeout=30000 $(bun scripts/lib/test_order.ts test/unit test/integration)` under bun's JUnit reporter and parses it via scripts/lib/parity_census.ts — never a hand-edited list)",
 	"rule": "SHRINK-ONLY red baseline for the test/unit + test/integration tier, keyed per FILE and per TEST NAME (the name is the full describe chain + test name, ' > '-joined, exactly as bun prints it). A failing test that is not listed here is a REGRESSION and fails the gate — that is the whole point: the known reds must never hide the next real one. A LISTED test that now PASSES is ALSO a gate failure. A stale entry is the ratchet quietly stopping; re-freeze so the win is locked in. Likewise a listed test that no longer exists (renamed, deleted, moved file) or is now SKIPPED: it is no longer the red it was frozen as, so the entry is stale. Keying per NAME and not per count is deliberate: a file that stops failing test A and starts failing test B has an unchanged count, and that is exactly the regression a count-only ratchet would miss. The generator REFUSES to add a failing test without --allow-regression, and the commit message MUST then say why the new red is acceptable. `measured` freezes the DEBT (failing_files/failing_tests) exactly; the SIZE counts are advisory here because this tier grows on most commits, and reddening on every added test would train the regenerate-to-green reflex the ratchet exists to prevent. The size is held by the anti-vacuity FLOORS instead, so a tier that silently stopped running is still red. `per_file` is the PER-FILE FLOOR: for every file of the tier, the cases it ran, the cases it skipped and the `expect` calls that EXECUTED (bun's own file-level JUnit attributes). Skips may only shrink; cases and assertions may only rise — a drop, or a skip that appears, is a regression the generator refuses without --allow-regression, because a test that returns before its first assertion is a PASS with assertions=0 and this count is the only thing that notices. An unrecorded file, or a recorded file that no longer reports, is stale: re-freeze. DO NOT hand-edit. Regenerate with: bun run scripts/unit_baseline.ts Why these reds exist — and why, UNLIKE the parity tier, they are NOT permanent. RECORDED IN THE CI IMAGE (2026-10-02, `bun run ci:local --docker --record-unit-baseline` on the sorted tier order; the writer refuses anywhere else): 0 frozen reds. History: 7 reds (2026-08-29) -> 3 (2026-08-30: the RAG gates stopped inheriting the machine's embedding provider; a leaked setTimeout in client_request_coalescing_tripwire stopped killing arbitrary victims) -> 2 (gate_vacuity's banked-budget case passes) -> 0 (2026-10-02: the dd1 install seed re-synced for ontology_parser; info_widget's media_icons golden builds its own term target). The stage is BLOCKING in scripts/ci/db_tier.sh since 2026-10-02 (zero drift on three executed GitHub db runs of 674c1f4f76; the 'loaded runner' leg of the old criterion was not separately exercised — engineering/CI.md): any drift from this file fails the db tier, on the runner and on the desk gate alike. Per-file floors are the image's, and a desk differs from them in BOTH directions: it asserts more where it has what a runner lacks (the sibling v6 tree, audits/, a GeoIP database, translated locales, its own ../private config) and less where the image has what the desk lacks (librsvg: media_svg_thumb skips 7 on a Mac, 0 in the image) — so a desk number is never a floor, either way. Any entry a future recording accepts (--allow-regression --reason) is expected to be FIXED; the list is shrink-only and a listed test that passes is red, so these numbers may only go DOWN.",
 	"ci_image": {
-		"fingerprint": "f5ee5260187de451599495a828a844e2536e299e20a5006ad91a7ad4e89de833"
+		"fingerprint": "5936f5dce277185a765ef8017bf2a1cf72b503ef6a287cee5e6d7838003da015"
 	},
 	"measured": {
-		"tier_files": 1518,
-		"tier_tests": 24962,
-		"tier_pass": 24912,
+		"tier_files": 1524,
+		"tier_tests": 25084,
+		"tier_pass": 25034,
 		"tier_skip": 50,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -340,9 +340,9 @@
 			"assertions": 32
 		},
 		"test/unit/authz_door_matrix_native.test.ts": {
-			"tests": 12,
+			"tests": 13,
 			"skipped": 0,
-			"assertions": 312
+			"assertions": 327
 		},
 		"test/unit/authz_substring_gate_tripwire.test.ts": {
 			"tests": 17,
@@ -482,7 +482,7 @@
 		"test/unit/calculation_fn_registry_tripwire.test.ts": {
 			"tests": 7,
 			"skipped": 0,
-			"assertions": 26
+			"assertions": 23
 		},
 		"test/unit/calculation_widget_native.test.ts": {
 			"tests": 37,
@@ -642,7 +642,7 @@
 		"test/unit/client_gate_inventory_tripwire.test.ts": {
 			"tests": 43,
 			"skipped": 0,
-			"assertions": 496
+			"assertions": 498
 		},
 		"test/unit/client_idempotency_tripwire.test.ts": {
 			"tests": 75,
@@ -925,9 +925,9 @@
 			"assertions": 32
 		},
 		"test/unit/code_update.test.ts": {
-			"tests": 83,
+			"tests": 84,
 			"skipped": 0,
-			"assertions": 323
+			"assertions": 329
 		},
 		"test/unit/code_update_smoke_boot.test.ts": {
 			"tests": 8,
@@ -1192,7 +1192,7 @@
 		"test/unit/css_corpus_tripwire.test.ts": {
 			"tests": 14,
 			"skipped": 0,
-			"assertions": 40
+			"assertions": 42
 		},
 		"test/unit/css_source_tripwire.test.ts": {
 			"tests": 4,
@@ -1362,7 +1362,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 26,
 			"skipped": 0,
-			"assertions": 1401
+			"assertions": 1402
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -1685,9 +1685,9 @@
 			"assertions": 22
 		},
 		"test/unit/diffusion_parsers.test.ts": {
-			"tests": 88,
+			"tests": 91,
 			"skipped": 0,
-			"assertions": 174
+			"assertions": 177
 		},
 		"test/unit/diffusion_plan_compile.test.ts": {
 			"tests": 24,
@@ -1932,7 +1932,7 @@
 		"test/unit/error_envelope_native.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 3157
+			"assertions": 3168
 		},
 		"test/unit/error_registry_native.test.ts": {
 			"tests": 15,
@@ -2315,9 +2315,9 @@
 			"assertions": 171
 		},
 		"test/unit/geoip_download_native.test.ts": {
-			"tests": 32,
+			"tests": 38,
 			"skipped": 0,
-			"assertions": 83
+			"assertions": 103
 		},
 		"test/unit/geoip_ensure_native.test.ts": {
 			"tests": 10,
@@ -3147,7 +3147,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 48811
+			"assertions": 49027
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -3820,9 +3820,9 @@
 			"assertions": 156
 		},
 		"test/unit/media_upload.test.ts": {
-			"tests": 28,
+			"tests": 29,
 			"skipped": 0,
-			"assertions": 108
+			"assertions": 110
 		},
 		"test/unit/media_upload_endpoint.test.ts": {
 			"tests": 20,
@@ -4699,6 +4699,11 @@
 			"skipped": 0,
 			"assertions": 14
 		},
+		"test/unit/publication_host_ipv6_native.test.ts": {
+			"tests": 19,
+			"skipped": 0,
+			"assertions": 63
+		},
 		"test/unit/publication_host_kit_pack.test.ts": {
 			"tests": 12,
 			"skipped": 0,
@@ -4745,9 +4750,9 @@
 			"assertions": 11
 		},
 		"test/unit/publication_host_operator_doc.test.ts": {
-			"tests": 31,
+			"tests": 33,
 			"skipped": 0,
-			"assertions": 127
+			"assertions": 146
 		},
 		"test/unit/publication_host_pack_bounded_native.test.ts": {
 			"tests": 3,
@@ -4775,9 +4780,9 @@
 			"assertions": 25
 		},
 		"test/unit/publication_host_probe_native.test.ts": {
-			"tests": 42,
+			"tests": 52,
 			"skipped": 0,
-			"assertions": 147
+			"assertions": 209
 		},
 		"test/unit/publication_host_provision_durability.test.ts": {
 			"tests": 3,
@@ -4795,9 +4800,9 @@
 			"assertions": 66
 		},
 		"test/unit/publication_host_registry_native.test.ts": {
-			"tests": 72,
+			"tests": 77,
 			"skipped": 0,
-			"assertions": 112
+			"assertions": 117
 		},
 		"test/unit/publication_host_rules_allowlist_tripwire.test.ts": {
 			"tests": 32,
@@ -4820,9 +4825,9 @@
 			"assertions": 129
 		},
 		"test/unit/publication_host_setup_native.test.ts": {
-			"tests": 28,
+			"tests": 37,
 			"skipped": 0,
-			"assertions": 224
+			"assertions": 272
 		},
 		"test/unit/publication_host_spec_refs_tripwire.test.ts": {
 			"tests": 4,
@@ -4835,9 +4840,9 @@
 			"assertions": 206
 		},
 		"test/unit/publication_host_widget_native.test.ts": {
-			"tests": 60,
+			"tests": 64,
 			"skipped": 0,
-			"assertions": 438
+			"assertions": 480
 		},
 		"test/unit/publication_host_wire_native.test.ts": {
 			"tests": 22,
@@ -5289,6 +5294,11 @@
 			"skipped": 0,
 			"assertions": 29
 		},
+		"test/unit/release_ontology_preconditions.test.ts": {
+			"tests": 6,
+			"skipped": 0,
+			"assertions": 13
+		},
 		"test/unit/release_root_entries_tripwire.test.ts": {
 			"tests": 3,
 			"skipped": 0,
@@ -5350,9 +5360,9 @@
 			"assertions": 259
 		},
 		"test/unit/request_config_implicit.test.ts": {
-			"tests": 22,
+			"tests": 31,
 			"skipped": 0,
-			"assertions": 77
+			"assertions": 123
 		},
 		"test/unit/request_config_permission_gate.test.ts": {
 			"tests": 8,
@@ -5427,7 +5437,7 @@
 		"test/unit/root_password_write_refusal_native.test.ts": {
 			"tests": 27,
 			"skipped": 0,
-			"assertions": 148
+			"assertions": 145
 		},
 		"test/unit/root_user_hidden_tripwire.test.ts": {
 			"tests": 29,
@@ -6192,7 +6202,7 @@
 		"test/unit/suite_mariadb_target_native.test.ts": {
 			"tests": 34,
 			"skipped": 0,
-			"assertions": 307
+			"assertions": 309
 		},
 		"test/unit/supervision_declaration_tripwire.test.ts": {
 			"tests": 16,
@@ -6207,7 +6217,7 @@
 		"test/unit/sync_io_on_request_path_tripwire.test.ts": {
 			"tests": 28,
 			"skipped": 0,
-			"assertions": 176
+			"assertions": 178
 		},
 		"test/unit/system_info.test.ts": {
 			"tests": 7,
@@ -6920,9 +6930,9 @@
 			"assertions": 259
 		},
 		"test/unit/tool_phone_tripwire.test.ts": {
-			"tests": 13,
+			"tests": 21,
 			"skipped": 0,
-			"assertions": 28
+			"assertions": 51
 		},
 		"test/unit/tool_picker_wiring_tripwire.test.ts": {
 			"tests": 3,
@@ -7035,9 +7045,9 @@
 			"assertions": 48
 		},
 		"test/unit/tools_register_validate.test.ts": {
-			"tests": 53,
+			"tests": 59,
 			"skipped": 0,
-			"assertions": 107
+			"assertions": 151
 		},
 		"test/unit/tools_register_write.test.ts": {
 			"tests": 3,

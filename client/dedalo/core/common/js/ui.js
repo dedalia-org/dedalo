@@ -17,7 +17,7 @@
 	import {get_instance, get_all_instances} from '../../common/js/instances.js'
 	import '../../common/js/dd-modal.js'
 	import {check_unsaved_data, deactivate_components} from '../../component_common/js/component_common.js'
-	import {open_tool} from '../../../core/tools_common/js/tool_common.js'
+	import {open_tool, is_tool_attached} from '../../../core/tools_common/js/tool_common.js'
 	import {set_element_css} from '../../page/js/css.js'
 	// a11y. THE shared operability/naming helper (audit P1-18 / CLI-10, CLI-11, CLI-22):
 	// every non-native control and every component label is named and keyboard-
@@ -1888,9 +1888,18 @@ export const ui = {
 		* caller skips appending anything (the tool simply does not appear in that component).
 		* The tool name in data-tool allows CSS/JS selectors to target specific tool buttons.
 		*
+		* Attach-mode tools (`tool_context.properties.open_as==='attach'`, see
+		* tool_common.view_attach) are toggles: the button gets `aria-pressed` from
+		* `is_tool_attached(tool_context.name, self)`, so a button rebuilt by a caller
+		* re-render keeps showing the attached state. view_attach updates it on
+		* attach/detach (and adds `aria-busy` + class `loading` while it loads).
+		* Such a button is made a real control through `a11y.make_activable`
+		* (role=button, tab stop, Enter/Space toggle the tool like the mousedown).
+		*
 		* @param {Object} tool_context - The tool descriptor from component.tools[];
 		*   must include name, icon, and label (used as the tooltip title); show_in_component
-		*   controls whether the button is rendered at all.
+		*   controls whether the button is rendered at all; `properties.open_as` selects
+		*   the visualisation mode ('attach' makes the button a pressed/released toggle).
 		* @param {Object} self - The component instance acting as the tool caller.
 		* @returns {HTMLElement|null} tool_button - The icon <span> element, or null when
 		*   show_in_component is false.
@@ -1926,7 +1935,24 @@ export const ui = {
 							caller			: self
 						})
 				}
-				tool_button.addEventListener('mousedown', mousedown_handler)
+
+			// attach mode: a toggle button, operable by pointer AND keyboard
+			// (a11y.make_activable: role=button, tab stop, Enter/Space → the same
+			// handler). The pressed state is read from the attached-tools registry,
+			// so a re-rendered button keeps it.
+				if (tool_context.properties?.open_as==='attach') {
+					a11y.make_activable(tool_button, {
+						pointer_event	: 'mousedown',
+						label			: tool_context.label,
+						on_activate		: mousedown_handler
+					})
+					tool_button.setAttribute(
+						'aria-pressed',
+						is_tool_attached(tool_context.name, self) ? 'true' : 'false'
+					)
+				}else{
+					tool_button.addEventListener('mousedown', mousedown_handler)
+				}
 
 
 			return tool_button

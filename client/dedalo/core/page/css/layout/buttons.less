@@ -119,6 +119,35 @@
 	}
 }//end .button
 
+// component tool button states (attach-mode tools, tool_common.view_attach).
+// A tool button is a mask-painted icon: its background-color IS the icon's
+// colour, and the mask clips any ring/shadow, so the state is told by colour.
+//   pressed — the tool is attached to its caller (toggle on): the icon takes the
+//             brand ink (--fg_on_brand), dark on the orange tool strip where the
+//             released icons are white.
+//   loading — the tool is being attached (aria-busy): the icon pulses; a static
+//             dim under prefers-reduced-motion.
+// Specificity (0,3,0) beats `.buttons_container .button` (white icons).
+.button.tool {
+	&[aria-pressed="true"] {
+		background-color: var(--fg_on_brand);
+		opacity: 1;
+	}
+	&.loading {
+		cursor: progress;
+		animation: tool_button_busy_pulse 900ms ease-in-out infinite alternate;
+
+		@media (prefers-reduced-motion: reduce) {
+			animation: none;
+			opacity: 0.5;
+		}
+	}
+}
+@keyframes tool_button_busy_pulse {
+	from { opacity: 1; }
+	to { opacity: 0.35; }
+}
+
 // icon
 .icon {
 	&.loading {

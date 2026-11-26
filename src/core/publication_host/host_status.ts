@@ -419,8 +419,11 @@ export function buildHostChecks(input: HostStatusInput): HostCheck[] {
 	];
 }
 
+/** `host:port` (an IPv6 host bracketed, `[fd00::1]:8471`, so the port reads apart), or `unix:<socket>`. */
 function addressLabel(address: PublicationHostRecord['address']): string {
-	return address.kind === 'tls' ? `${address.host}:${address.port}` : `unix:${address.socket}`;
+	if (address.kind !== 'tls') return `unix:${address.socket}`;
+	const host = address.host.includes(':') ? `[${address.host}]` : address.host;
+	return `${host}:${address.port}`;
 }
 
 function apiVersions(status: AgentStatus | null): HostPanelRow['apis'] {

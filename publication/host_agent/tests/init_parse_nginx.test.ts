@@ -144,8 +144,8 @@ describe('servers', () => {
       endLine: 23,
       names: ['museum.org', 'www.museum.org'],
       listens: [
-        { port: 443, ssl: true, defaultServer: false },
-        { port: 443, ssl: true, defaultServer: false },
+        { address: '*', port: 443, ssl: true, defaultServer: false },
+        { address: '[::]', port: 443, ssl: true, defaultServer: false },
       ],
       root: '/home/museum.org/httpdocs',
       errorLog: '/home/museum.org/logs/error.log',
@@ -161,9 +161,9 @@ describe('servers', () => {
   });
 
   test('default_server and quoted names; a server without listen is *:80; `ssl on;`', () => {
-    expect(servers[1]).toMatchObject({ names: ['_', '.museum.org', 'museum.*'], listens: [{ port: 80, ssl: false, defaultServer: true }], ourReference: false });
-    expect(servers[2]?.listens).toEqual([{ port: 8080, ssl: false, defaultServer: false }]);
-    expect(servers[3]).toMatchObject({ names: ['other.org'], listens: [{ port: 80, ssl: true, defaultServer: false }] });
+    expect(servers[1]).toMatchObject({ names: ['_', '.museum.org', 'museum.*'], listens: [{ address: '*', port: 80, ssl: false, defaultServer: true }], ourReference: false });
+    expect(servers[2]?.listens).toEqual([{ address: '127.0.0.1', port: 8080, ssl: false, defaultServer: false }]);
+    expect(servers[3]).toMatchObject({ names: ['other.org'], listens: [{ address: '*', port: 80, ssl: true, defaultServer: false }] });
     expect(servers).toHaveLength(4);
   });
 
@@ -175,12 +175,62 @@ describe('servers', () => {
   });
 
   test('listen forms', () => {
-    expect(parseListen(['[::]:443', 'ssl', 'http2'])).toEqual({ port: 443, ssl: true, defaultServer: false });
-    expect(parseListen(['127.0.0.1:8080'])).toEqual({ port: 8080, ssl: false, defaultServer: false });
-    expect(parseListen(['8443', 'quic', 'default'])).toEqual({ port: 8443, ssl: true, defaultServer: true });
-    expect(parseListen(['localhost'])).toEqual({ port: 80, ssl: false, defaultServer: false });
+    expect(parseListen(['[::]:443', 'ssl', 'http2'])).toEqual({ address: '[::]', port: 443, ssl: true, defaultServer: false });
+    expect(parseListen(['127.0.0.1:8080'])).toEqual({ address: '127.0.0.1', port: 8080, ssl: false, defaultServer: false });
+    expect(parseListen(['8443', 'quic', 'default'])).toEqual({ address: '*', port: 8443, ssl: true, defaultServer: true });
+    expect(parseListen(['localhost'])).toEqual({ address: 'localhost', port: 80, ssl: false, defaultServer: false });
+    expect(parseListen(['[2001:db8::1]:8443', 'ssl'])).toEqual({ address: '[2001:db8::1]', port: 8443, ssl: true, defaultServer: false });
+    expect(parseListen(['*:80'])).toEqual({ address: '*', port: 80, ssl: false, defaultServer: false });
+    expect(parseListen(['127.0.0.1'])).toEqual({ address: '127.0.0.1', port: 80, ssl: false, defaultServer: false });
     expect(parseListen(['unix:/run/x.sock'])).toBeNull();
     expect(() => parseListen(['[::]'])).toThrow('has no port');
+  });
+});
+
+describe('dual stack and redirect-only servers', () => {
+  const servers = (name: string) => {
+    const files = splitNginxT(fixture(`typed/nginx/dualstack/${name}`));
+    return findServers(expandIncludes(files), files, { referenceInclude: REFERENCE });
+  };
+
+  test('one server per family pair: every listen keeps its address (observe groups them by port into ONE row)', () => {
+    const [redirect, tls] = servers('one_block_T.txt');
+    expect(redirect?.listens.map(listen => [listen.address, listen.port, listen.ssl])).toEqual([
+      ['*', 80, false],
+      ['[::]', 80, false],
+    ]);
+    expect(tls?.listens.map(listen => [listen.address, listen.port, listen.ssl])).toEqual([
+      ['*', 443, true],
+      ['[::]', 443, true],
+    ]);
+    expect([redirect?.redirectOnly, tls?.redirectOnly]).toEqual([true, false]);
+  });
+
+  test('one server per family: `rewrite ^ https://… permanent` and `return 301 https://…` are redirect-only, the TLS servers are not', () => {
+    const found = servers('two_blocks_T.txt');
+    expect(found.map(server => [server.line, server.listens[0]?.address, server.listens[0]?.port, server.redirectOnly])).toEqual([
+      [2, '*', 80, true],
+      [7, '[::]', 80, true],
+      [12, '*', 443, false],
+      [19, '[::]', 443, false],
+    ]);
+  });
+
+  test('MUTATION: a redirect inside `if`/`location`, a non-redirect return, a path rewrite or a relative target still serve', () => {
+    expect(servers('crowded_T.txt').map(server => server.redirectOnly)).toEqual([false, false]);
+    const one = (body: string) => {
+      const files = splitNginxT(`# configuration file /etc/nginx/nginx.conf:\nhttp { server { listen 80; server_name museum.org; ${body} } }\n`);
+      return findServers(expandIncludes(files), files, { referenceInclude: REFERENCE })[0]?.redirectOnly;
+    };
+    expect(one('return https://museum.org$request_uri;')).toBe(true);
+    expect(one('return 308 $scheme://museum.org$request_uri;')).toBe(true);
+    expect(one('rewrite ^(.*)$ https://museum.org$1;')).toBe(true);
+    expect(one('location / { return 301 https://museum.org$request_uri; }')).toBe(false);
+    expect(one('return 200 "ok";')).toBe(false);
+    expect(one('return 444;')).toBe(false);
+    expect(one('return 301 /elsewhere;')).toBe(false);
+    expect(one('rewrite ^/old https://museum.org/new permanent;')).toBe(false);
+    expect(one('root /var/www;')).toBe(false);
   });
 });
 

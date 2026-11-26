@@ -26,6 +26,7 @@ import {
   observeDeclared,
   observeHostWide,
 } from '../src/provision/init/observe';
+import { completeDraft } from '../src/provision/init/draft';
 import type { TreeReader } from '../src/provision/init/tree_copy';
 import { treeDigest } from '../src/provision/init/tree_copy';
 import type { ExecResult, HostFacts } from '../src/provision/init/types';
@@ -676,12 +677,11 @@ describe('observeHostWide — Debian 12 nginx, the guide\'s hand map', () => {
     expect(row.parseProblem).toMatch(/^line \d+: /);
   });
 
-  test('vhosts: the exact server (both listens, our reference, guide lines); the .x wildcard; the uncompilable regex claims', () => {
-    expect(facts.web.vhosts.map(vhost => [vhost.port, vhost.matchedBy, vhost.serverName])).toEqual([
-      [443, 'servername', 'museum.org'],
-      [443, 'servername', 'museum.org'],
-      [80, 'wildcard', '_'],
-      [8080, 'regex', '~^www\\d+\\.museum\\.org$'],
+  test('vhosts: the exact server ONCE for both listens (443 + [::]:443), our reference, guide lines; the .x wildcard (a redirect); the uncompilable regex claims', () => {
+    expect(facts.web.vhosts.map(vhost => [vhost.port, vhost.matchedBy, vhost.serverName, vhost.addresses, vhost.redirectOnly])).toEqual([
+      [443, 'servername', 'museum.org', ['*', '[::]'], false],
+      [80, 'wildcard', '_', ['*'], true],
+      [8080, 'regex', '~^www\\d+\\.museum\\.org$', ['127.0.0.1'], false],
     ]);
     expect(facts.web.vhosts[0]).toMatchObject({ ourReference: true, fpmHandler: '/run/php-fpm/www.sock', ssl: true, documentRoot: '/home/museum.org/httpdocs' });
     expect(facts.web.vhosts[0]?.manualLines).toHaveLength(10);
@@ -823,6 +823,133 @@ function declaredHost(homeUid = 1002): { host: FakeHost; declared: DeclaredPorts
   };
   return { host, declared, layout };
 }
+
+/* ── dual stack: one vhost per VHOST, not per listen address ──────────────────────── */
+
+/**
+ * The guided install on a site served on IPv4 + IPv6 (the bug: init blocked with a manual-only
+ * "crowded" decision). Each world is the Debian 12 host with its vhosts replaced by a typed
+ * dual-stack case; the gate runs discovery AND the draft completion: one site, no decision.
+ */
+describe('observeHostWide → completeDraft — dual-stack sites resolve to ONE vhost, no blocking decision', () => {
+  const DRAFT = { apis: 'v1_and_v2', instance: 'museum_org', site: { domain: 'museum.org' }, media: { mode: 'shared', root: '/mnt/dedalo_media' } } as const;
+  const dual = (name: string) => fixture(`typed/apache/dualstack/${name}`);
+  const nginxDual = (name: string) => fixture(`typed/nginx/dualstack/${name}`);
+
+  /** The Debian Apache world with these `-S` text and vhost files (real files at the -S paths, no links). */
+  function apacheWorld(sText: string, files: Readonly<Record<string, string>>): FakeHost {
+    const host = debianApacheHost();
+    for (const [path, text] of Object.entries(files)) {
+      host.links.delete(path);
+      put(host, path, text);
+    }
+    host.handlers.apacheVhosts = () => r('', 0, sText);
+    return host;
+  }
+
+  /** The Debian nginx world with this `-T` dump; every dumped file also on disk (observe hashes it). */
+  function nginxWorld(dump: string): FakeHost {
+    const host = debianNginxHost();
+    const sections = dump.split(/^# configuration file (\/.+):$/m);
+    for (let index = 1; index < sections.length; index += 2) put(host, sections[index] as string, sections[index + 1] ?? '');
+    host.handlers.nginxDump = () => r(dump);
+    return host;
+  }
+
+  const SITES = '/etc/apache2/sites-enabled';
+  const resolve = (host: FakeHost) => {
+    const facts = observeHostWide(DRAFT, ports(host));
+    const completion = completeDraft(DRAFT, facts);
+    return { facts, completion, decision: completion.decisions.find(row => row.id === 'declaration.vhost') };
+  };
+
+  test('Apache, ONE block on 192.0.2.1:443 + [2001:db8::1]:443 and a dual-stack :80 redirect: one row each, the redirect excluded, no decision', () => {
+    const host = apacheWorld(dual('one_block_S.txt'), {
+      [`${SITES}/museum.org-le-ssl.conf`]: dual('one_block.conf'),
+      [`${SITES}/museum.org.conf`]: dual('redirect.conf'),
+    });
+    const { facts, completion, decision } = resolve(host);
+    expect(facts.web.vhosts.map(row => [row.port, row.addresses, row.redirectOnly])).toEqual([
+      [443, ['192.0.2.1', '[2001:db8::1]'], false],
+      [80, ['*', '[::]'], true],
+    ]);
+    expect(decision).toBeUndefined();
+    expect(completion.vhost).toMatchObject({ port: 443, line: 2, ssl: true, addresses: ['192.0.2.1', '[2001:db8::1]'] });
+    expect(completion.vhostTwins).toEqual([]);
+    assertReadOnly(host);
+  });
+
+  test('Apache, the :80 certbot redirect + a TLS site that redirects ONLY www → bare: the TLS site still serves, is chosen, no decision (review lane A)', () => {
+    // Before: any %{HTTP_HOST} condition counted as "selects the host only", so the TLS site came
+    // out redirect-only and init blocked on "the vhost they send to (the TLS one) is missing".
+    const site = dual('one_block.conf').replace(
+      '    SSLEngine on\n',
+      '    RewriteEngine On\n    RewriteCond %{HTTP_HOST} ^www\\.museum\\.org$ [NC]\n    RewriteRule ^(.*)$ https://museum.org$1 [R=301,L]\n    SSLEngine on\n',
+    );
+    expect(site).toContain('RewriteCond %{HTTP_HOST}');
+    const host = apacheWorld(dual('one_block_S.txt'), {
+      [`${SITES}/museum.org-le-ssl.conf`]: site,
+      [`${SITES}/museum.org.conf`]: dual('redirect.conf'),
+    });
+    const { facts, completion, decision } = resolve(host);
+    expect(facts.web.vhosts.map(row => [row.port, row.redirectOnly])).toEqual([
+      [443, false],
+      [80, true],
+    ]);
+    expect(decision).toBeUndefined();
+    expect(completion.vhost).toMatchObject({ port: 443, line: 2, ssl: true });
+  });
+
+  test('Apache, one block PER FAMILY (0.0.0.0:443 and [::]:443, separate files) + two :80 redirect blocks: one site of two twins, no decision', () => {
+    const host = apacheWorld(dual('two_blocks_S.txt'), {
+      [`${SITES}/museum.org-v4.conf`]: dual('two_blocks_v4.conf'),
+      [`${SITES}/museum.org-v6.conf`]: dual('two_blocks_v6.conf'),
+      [`${SITES}/museum.org-redirect.conf`]: dual('two_blocks_redirect.conf'),
+    });
+    const { facts, completion, decision } = resolve(host);
+    expect(facts.web.vhosts.map(row => [row.port, row.addresses, row.redirectOnly])).toEqual([
+      [443, ['0.0.0.0'], false],
+      [443, ['[::]'], false],
+      [80, ['0.0.0.0'], true],
+      [80, ['[::]'], true],
+    ]);
+    expect(decision).toBeUndefined();
+    expect(completion.vhost?.realpath).toBe(`${SITES}/museum.org-v4.conf`);
+    expect(completion.vhostTwins.map(row => row.realpath)).toEqual([`${SITES}/museum.org-v6.conf`]);
+  });
+
+  test('nginx, ONE server with `listen 443 ssl; listen [::]:443 ssl;` and a dual-stack :80 `return 301`: one row each, no decision', () => {
+    const { facts, completion, decision } = resolve(nginxWorld(nginxDual('one_block_T.txt')));
+    expect(facts.web.vhosts.map(row => [row.port, row.ssl, row.addresses, row.redirectOnly])).toEqual([
+      [80, false, ['*', '[::]'], true],
+      [443, true, ['*', '[::]'], false],
+    ]);
+    expect(decision).toBeUndefined();
+    expect(completion.vhost).toMatchObject({ port: 443, line: 7 });
+    expect(completion.vhostTwins).toEqual([]);
+  });
+
+  test('nginx, one server PER FAMILY in one file (+ a :80 redirect per family): one site of two twins in the same file, no decision', () => {
+    const { completion, decision } = resolve(nginxWorld(nginxDual('two_blocks_T.txt')));
+    expect(decision).toBeUndefined();
+    expect([completion.vhost?.line, completion.vhost?.addresses]).toEqual([12, ['*']]);
+    expect(completion.vhostTwins.map(row => [row.line, row.addresses])).toEqual([[19, ['[::]']]]);
+  });
+
+  test('NEGATIVE: two genuinely different TLS blocks for one name on one family stay crowded — blocking, manual only (Apache and nginx)', () => {
+    const apache = resolve(
+      apacheWorld(dual('crowded_S.txt'), { [`${SITES}/museum.org.conf`]: dual('crowded_a.conf'), [`${SITES}/museum-old.conf`]: dual('crowded_b.conf') }),
+    );
+    expect(apache.decision).toMatchObject({ blocking: true, defaultOption: 'manual' });
+    expect(apache.decision?.options.map(option => option.id)).toEqual(['manual']);
+    expect(apache.decision?.facts[0]).toBe('port 443 has 2 different vhosts claiming ServerName museum.org:');
+    expect(apache.decision?.facts[1]).toContain('on *, [::] (TLS)');
+    expect(apache.completion.vhost).toBeNull();
+    const nginx = resolve(nginxWorld(nginxDual('crowded_T.txt')));
+    expect(nginx.decision).toMatchObject({ blocking: true, defaultOption: 'manual' });
+    expect(nginx.completion.vhost).toBeNull();
+  });
+});
 
 describe('observeDeclared — the home layout on the EL 9 enforcing host', () => {
   const { host, declared, layout } = declaredHost();

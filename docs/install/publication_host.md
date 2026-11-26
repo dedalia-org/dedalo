@@ -166,6 +166,9 @@ flowchart LR
     # or, with ufw (Debian, Ubuntu):
     ufw allow from 10.20.0.1 to any port 8471 proto tcp
     ```
+
+    Over IPv6 the rule names the IPv6 addresses: `rule family=ipv6 source
+    address=fd00:20::1/128 …`, or `ufw allow from fd00:20::1 to any port 8471 proto tcp`.
 - **One machine: a local socket.** The agent listens on a unix socket that only the
   work system's group can open. Nothing listens on the network.
 - **Never plain, unencrypted TCP.** The agent has exactly two ways to listen, the two above.
@@ -232,6 +235,17 @@ optional for a site that serves v2 only).
 # publication host, as root — the first run, from the source (one machine shown)
 sh /opt/dedalo/master_dedalo/publication/host_agent/deploy/install.sh museum_org \
   --source /opt/dedalo/master_dedalo --draft /root/museum_org.draft.json
+```
+
+On one machine the panel prints this for you, with your own paths: save a one-machine draft in
+[New publication host](#new-publication-host) and copy its **Install on this server** block.
+On a work system installed by the code updater, the release tree has no agent dependencies
+until someone installs them (`--source` needs them, or init stops at its first import). The
+block then adds that step, run as the account that runs Dédalo:
+
+```bash
+# publication host (= the work host), as root — only when the block shows this step
+su -s /bin/sh dedalo -c 'cd /opt/dedalo/master_dedalo/publication/host_agent && exec /opt/dedalo/.bun/bin/bun install --frozen-lockfile --production'
 ```
 
 #### Two machines: the kit {#the-kit}
@@ -321,8 +335,9 @@ init reads the host before it proposes anything, and writes nothing while it loo
   sudo and the policy file the installed sudo reads (`/etc/sudoers`; with sudo-rs, Ubuntu 26.04's
   `sudo`, `/etc/sudoers-rs` when it exists), `chattr`, the CPU (for the Bun archive), and how
   accounts are resolved (`/etc/nsswitch.conf`);
-- **the web server**: Apache or nginx, its unit and version, its modules, the TLS virtual host
-  that serves the draft's domain, and on nginx whether `conf.d` is included inside `http{}`.
+- **the web server**: Apache or nginx, its unit and version, its modules, the virtual hosts
+  that serve the draft's domain ([below](#the-sites-virtual-host)), and on nginx whether
+  `conf.d` is included inside `http{}`.
   With both installed and the draft naming neither, init asks which one serves the site
   (`host.web`), proposing the one that runs, and reads the server you choose (a stopped Apache
   can stay listed beside a running nginx: Ubuntu 24.04 keeps a disabled `apache2` loaded);
@@ -338,6 +353,46 @@ init reads the host before it proposes anything, and writes nothing while it loo
 
 Nothing it reads leaves the run: the vhost and pool files are reduced to the few facts it needs,
 and no password, token or configuration value is kept.
+
+### The site's virtual host {#the-sites-virtual-host}
+
+init adds the [two include lines](#9-map-the-apis-into-the-sites-virtual-host) only to a
+virtual host whose `ServerName` (nginx: `server_name`) is exactly the draft's domain. A host
+that matches only by `ServerAlias` or a wildcard is named, never edited. init never creates a
+virtual host.
+
+- **IPv4 and IPv6.** A block that listens on several addresses (`<VirtualHost *:443
+  [::]:443>`, or nginx `listen 443 ssl;` plus `listen [::]:443 ssl;`) is one virtual host. Two
+  separate blocks of the same site on the same port, one for IPv4 (or `*`) and one for IPv6,
+  both with TLS or both without, are also one site: each block gets the include. Neither case is
+  a decision. The report lists every address of every block, for example
+  `/etc/apache2/sites-available/museum.org.conf:12 port 443 on *, [::] (TLS)`.
+- **Two blocks in one file** are one change, shown as one diff. **Two blocks in two files** are
+  one change per file, each with its own backup, configuration test and reload. If the second
+  file fails its test, that file is restored and the run stops: the first file keeps the include
+  it was tested with, and the next run proposes the rest.
+- **Redirect-only blocks are left alone.** A block that sends every request to another address,
+  such as the `:80` block certbot writes to move visitors to `https://`, never receives the
+  include. init recognizes `Redirect`, `RedirectPermanent`, `RedirectTemp` and `RedirectMatch`
+  with a pattern that matches everything, `RewriteRule` with such a pattern and the `[R]` flag
+  (nginx: `return 301 https://…`, or `rewrite` with such a pattern to a full URL) — at the top
+  of the block, or only inside `<IfModule>`. The `RewriteCond` lines must hold for every
+  request the block serves: certbot's `%{SERVER_NAME}` lines naming the `ServerName` and every
+  alias, an `%{HTTPS}` test that holds on this block's port, and the ACME
+  `.well-known` exception all qualify. A block that redirects only some requests (only
+  `www.`, for example) still serves the site, and stays a candidate. A form init does not
+  know also keeps the block a candidate.
+- **Only redirects claim the domain.** When every block with that `ServerName` only redirects,
+  init stops before it changes anything: `declaration.vhost` says *only redirects claim it: the
+  vhost they send to (the TLS one) is missing*. Create the TLS virtual host (certbot does), then
+  run init again.
+- **Two blocks really compete.** Two blocks of one port that both answer on IPv4 (or both on
+  IPv6), or one with TLS and one without, are two servings of the name, and which one the web
+  server uses is not init's to guess. `declaration.vhost` lists them (*port 443 has 2 different
+  vhosts claiming ServerName museum.org*) and init stops: keep one, test, reload, run init
+  again.
+- **The site on several ports**, for example a plain `:80` that still serves pages and the TLS
+  `:443`, is a decision that proposes the TLS one.
 
 ### The draft
 
@@ -388,16 +443,41 @@ any name the declaration gives works, as long as the steps use the same one.)
 init writes the final declaration to `/etc/dedalo_publication_host/museum_org.json`. On a
 re-run that file is the draft; a `--draft` that differs from it is shown as a diff to accept.
 
-### The three lists
+### The report and its lists {#the-three-lists}
 
 Before it changes anything, init prints the whole report:
 
 1. **Already right**: nothing to do.
 2. **Will change**: each change with its exact command, and a diff for every file (secrets
    removed from it). Then one question: `Apply these N changes? [y/N]`.
-3. **Needs your decision**: one question per item, with its options. The default is shown, but
-   you type it. An item that touches every site on the host (an SELinux boolean, fapolicyd), or
-   a file of yours (the vhost, a hand-written nginx map), is always a decision.
+3. **Needs your decision**: one question per item, with its options. An item that touches every
+   site on the host (an SELinux boolean, fapolicyd), or a file of yours (the vhost, a
+   hand-written nginx map), is always a decision.
+4. **Needs your action** (only when there is one, on a terminal): what init cannot do, with the
+   facts and the commands to do it by hand. These are not asked.
+
+How a decision is asked depends on its options:
+
+| The decision | How init asks it |
+| --- | --- |
+| it changes a file of yours or the whole host: the vhost's include, the removal of hand-written lines, a hand-placed nginx map, an SELinux boolean or mount option, the media label, replacing a pairing, removing the pairing package | you **type** the option. The prompt shows `(default act — type it)`, and Enter takes nothing |
+| every option is *do it by hand* (`manual`) | not asked: listed under **needs your action** |
+| it has exactly one option, and that option is neither *by hand* nor a typed one | not asked: init takes it and prints `[<item>] auto: the only option — <option>: <label>` |
+| any other | Enter takes the shown default: `(default socket — Enter takes it)`. Without a default, type an option |
+
+When a blocking item needs your action, init stops before it changes anything: *N item(s) need
+your action before anything is done: … — do them (the commands are above), then: <command>*. A
+run that ends with items left to do by hand lists them again under *needs your action*, followed
+by `then re-run:` and the command to run init again: `sh
+/home/museum.org/host_agent/deploy/install.sh museum_org` once init has installed the agent's
+code, or, before that, the same `install.sh` command with its `--source` or `--kit`. Typing
+`manual` yourself (or `--decide <item>=manual`) keeps the older rule: the other changes run, and
+only those that depend on that item wait.
+
+Without a terminal no decision is taken for you, not even the single-option ones: an item that
+can only be done by hand stays under *needs your decision*, with the hint `--decide
+<item>=manual`, and `--yes` ends with exit 3 and the line *init cannot do …: do it by hand
+(the commands above), then: <command>*.
 
 Then, if they are missing, it asks for the API configuration files' secrets: the database
 password and, for v1 only, the v1 `API_WEB_USER_CODE`, typed without echo, twice. They are never printed,
@@ -421,7 +501,7 @@ another machine is `tcp` with its host and port typed in.
 | 0 | done: everything is right, the agent answers its health check, and it is paired or the pairing commands were printed. Optional items may remain under *still to do* |
 | 1 | a dry run (or no terminal without `--yes`) found something to change; nothing was written |
 | 2 | the command line is wrong |
-| 3 | refused: a decision is still open, you declined, a check failed, a secret was needed without a terminal, or another run holds the instance |
+| 3 | refused: a decision is still open, a blocking item needs your action, you declined, a check failed, a secret was needed without a terminal, or another run holds the instance |
 | 4 | a change failed: what was rolled back, and how, is printed |
 | 5 | `provision check` only: init or `provision apply` is changing the instance; nothing was checked |
 
@@ -437,7 +517,7 @@ another machine is `tcp` with its host and port typed in.
 | `--yes` | apply every *will change* item without asking. It never answers a decision, never edits a file of yours, never sets an SELinux boolean and never types a secret |
 | `--decide <item-id>=<option>` | answer one decision, for example `--decide declaration.layout=system`. Repeat it for each |
 | `--resume` | continue a run that stopped halfway (the journal shows it); without it such a run is refused |
-| `--dry-run` | look and compare only; write nothing, not even the journal |
+| `--dry-run` | look and compare only; write nothing, not even the journal. On a terminal the report is the one the real run would print, *needs your action* included |
 | `--pair-name <name>` | the work system's name for this host (default: the instance) |
 | `--no-pair` | print the pairing commands instead of pairing |
 
@@ -1303,7 +1383,7 @@ On **two machines**, the listener is the private address the agent binds, and th
 | Field | What to put |
 | --- | --- |
 | `instance` | a name for this publication host: lowercase letters, digits and `_`, starting with a letter, 2 to 32 characters. The file is named after it. Name it after the site's domain, with each `.` and `-` replaced by `_`: `museum.org` becomes `museum_org`, its declaration `/etc/dedalo_publication_host/museum_org.json` and its agent service `dedalo-publication-host-museum_org` (a hyphenated `my-hosts.org` becomes `my_hosts_org`). Shorten a longer domain, and prefix one that starts with a digit |
-| `listen` | `{"kind": "unix"}` on one machine (the socket path is derived). On two machines `{"kind": "tls", "host": …, "port": …}`: the host is the **private IPv4 address** the agent binds, written as a literal such as `10.20.0.2`: no hostname, no wildcard (`0.0.0.0`). It also becomes the server certificate's name, so the work system connects to that address. The provisioner does not check that the address is private: choosing a private interface and firewalling it is yours |
+| `listen` | `{"kind": "unix"}` on one machine (the socket path is derived). On two machines `{"kind": "tls", "host": …, "port": …}`: the host is the **private IPv4 address** the agent binds, written as a literal such as `10.20.0.2`, or a unique local IPv6 address (`fc00::/7`; in practice one starting with `fd`) such as `fd00:20::2`: no hostname, no wildcard (`0.0.0.0`). Write an IPv6 address bare (no brackets) in its short canonical form (`fd00:20::2`, not `FD00:20:0::2`): another spelling is refused with the canonical one. A link-local address (`fe80::…`) is refused: it needs a zone id (`%eth0`), which the certificate, an https address and the work system's registry cannot carry. An IPv4-mapped one (`::ffff:10.20.0.2`) is refused too: write the IPv4. The address also becomes the server certificate's name, so the work system connects to that address. For IPv4 the provisioner does not check that the address is private (for IPv6 it does): choosing a private interface and firewalling it is yours |
 | `agent_user` | a new account for the agent alone (step 3 creates it), named after the site |
 | `engine_group` | one machine only: the group the work system's **process** runs with, never the agent's. Find it with `systemctl show -p Group --value dedalo-ts` (on a work system with several instances, `dedalo-ts@<site>`); when that prints nothing, the service runs with its user's primary group, `id -gn dedalo`. The agent's service runs with this group (`Group=`), and every member of it can open the agent's socket, so it must hold the work system's user **alone**: never `www-data` or any PHP-FPM pool's group. On a host upgraded from an older install, the work system's user often has `www-data` as its primary group: give it a group of its own first (see the comment in `deploy/dedalo-ts.service`). Check with `getent group <group>`: it must list no members, and its third field is the group id; then `awk -F: '$4 == <group id> {print $1}' /etc/passwd` must print `dedalo` alone. `check` refuses a group that is certainly wrong: the primary group of `agent_user`, of `v1.user` or of `v2.user`, or `v2.group` itself, with `engine_group '<group>' is the agent's own group — it must be the work system's group: id -gn <the account that runs Dédalo>` (or *the v1 user's group*, *the v2 group*, *the v2 user's group*). It cannot tell whether `dedalo` is in the group, or whether another account is: get it right here, and step 7 proves it |
 | `agent_dir` | where you copied the agent's code in step 1: `/home/museum.org/host_agent`. Beside the state root, never inside it: the two may not contain each other |
@@ -1632,7 +1712,7 @@ The answer is `{"status":"ok","service":"dedalo-publication-host-agent","instanc
 The socket path is also the fragment's `DEDALO_PUBLICATION_HOST_SOCKET`.
 
 **Two machines.** Split the bundle once and ask for the health answer. Use the listener's
-IPv4 address exactly as declared in step 2 (here the example's `10.20.0.2`, port `8471`): the
+address exactly as declared in step 2 (here the example's IPv4 `10.20.0.2`, port `8471`): the
 certificate names that address, not a hostname.
 
 ```bash
@@ -1642,6 +1722,14 @@ sed -n '1,/-----END PRIVATE KEY-----/p' engine_bundle.pem > client.pem   # certi
 sed '1,/-----END PRIVATE KEY-----/d'    engine_bundle.pem > ca.pem       # the authority
 curl --cacert ca.pem --cert client.pem \
   https://10.20.0.2:8471/publication/host_agent/health
+```
+
+With an IPv6 listener the address goes in brackets, and `curl` needs `-g` (`--globoff`) so it
+does not read the brackets as a pattern:
+
+```bash
+curl -g --cacert ca.pem --cert client.pem \
+  'https://[fd00:20::2]:8471/publication/host_agent/health'
 ```
 
 The same request without `--cert client.pem` must fail at the TLS handshake.
@@ -1975,7 +2063,15 @@ this order:
    `systemctl status dedalo-publication-api-v2-museum_org` shows the v2 service running.
 3. **Edit settings.** Set the public URL, `https://www.museum.org`, and the two probe files
    (see [Checking the gate from the public side](#checking-the-gate-from-the-public-side)).
+   The field proposes `https://`, and a name typed without a scheme gets it. An `http://`
+   address is accepted (for a site served only over http on an intranet), and the save says so
+   in a notice.
 4. **Probe public gate.** Success: the *Public gate* row passes.
+
+After a pairing done from the panel, the draft's **First use** button runs these steps in
+order (Apply media rules, Push API releases for this host, Probe public gate) and shows each
+outcome: [New publication host](#new-publication-host). Set the public URL and the probe files
+first, or the public check says **unknown**.
 
 [The Publication hosts panel](#the-publication-hosts-panel) describes every row and action.
 
@@ -2177,33 +2273,54 @@ drafts this work system keeps for hosts not yet paired, and a form to make one. 
 command-line paths (`bun run hostagent:pack`, `dedalo:pair-publication-host`) do the same
 things and stay.
 
-1. **Create a draft.** Type the site's domain, choose one machine (the publication host is
-   this server) or two (type the publication host's private IPv4 address), and which APIs it
-   serves (v2 only, the default, or v1 and v2), then **Propose**. The panel proposes the
-   instance (the domain with `.` and `-` as `_`: `museum.org` → `museum_org`), the layout
-   (`/home/<domain>`, or `/opt` and `/srv`), the agent, v1 and v2 accounts, the v2 service and
-   its local port (the next one free among this work system's drafts on that machine), on two
-   machines the agent's port, and on one machine the work system's own group and media
-   directory. Change any field, then **Save draft**. The draft is checked with the agent's own
-   rules, and against the other instances on the same machine (accounts, ports, service names,
-   directories); a refusal names the field. Fields that only the publication host can know (the
-   web server unit, the PHP-FPM install, the site's virtual host) are left to `provision init`,
-   which shows each value before it changes anything. A draft holds no password and no token:
-   the database passwords are typed on the publication host.
-2. **Build kit**, then **Download kit** (two machines; on one machine you can use the work
-   system's checkout as the source instead). The panel builds the [kit](#the-kit) from the
-   release the code updater installed and verified: a work system cloned from git cannot build
-   one here (use `bun run hostagent:pack`). The first build installs the agent's dependencies
-   and can take a minute. The panel shows the kit's **sha256**: carry the kit to the publication
-   host and run `sha256sum`, `tar -xzf … install.sh` and `sh install.sh <instance> --kit <file>
-   --kit-sha256 <sha256>` as [above](#the-kit).
-3. **Pair.** One machine: `provision init` pairs the host itself; the draft then reads *Paired
-   as* `<name>`. Two machines: init writes the sealed package and shows its passphrase once.
-   Under the draft, **Pair from the sealed package**: choose the `.pairing` file, type the
-   passphrase, **Pair**. The package must be this draft's: its instance and the agent address
-   inside it must be the draft's, or nothing is dialled. Then the agent must prove the package's
-   fingerprint over mTLS before anything is stored. The passphrase and the package are never
-   kept. Delete the package on the publication host afterwards.
+1. **Create a draft.** Type the site's domain and choose **Where the public website runs**:
+   **On this server (another vhost)**, the default, or **On another server (mTLS over a private
+   network)**, where you type the publication host's private address: an IPv4 such as
+   `10.20.0.2`, or a unique local IPv6 such as `fd00:20::2` (`[fd00:20::2]` and upper case are
+   accepted and stored in the short form). Choose which APIs it serves (v2 only, the default, or
+   v1 and v2), then **Propose**. The panel proposes the instance (the domain with `.` and `-` as
+   `_`: `museum.org` → `museum_org`), the layout (`/home/<domain>`, or `/opt` and `/srv`), the
+   agent, v1 and v2 accounts, the v2 service and its local port (the next one free among this
+   work system's drafts on that machine), on two machines the agent's port, and on one machine
+   the work system's own group and media directory. Change any field, then **Save draft**. The
+   draft is checked with the agent's own rules, and against the other instances on the same
+   machine (accounts, ports, service names, directories); a refusal names the field. Fields that
+   only the publication host can know (the web server unit, the PHP-FPM install, the site's
+   virtual host) are left to `provision init`, which shows each value before it changes
+   anything. A draft holds no password and no token: the database passwords are typed on the
+   publication host.
+2. **Install.**
+    - **On this server.** Under the draft, **Install on this server** shows one block, with
+      **Copy**. Run it on this server, as root. It writes the draft to
+      `/root/<instance>.draft.json` (only root can write it, which `install.sh` requires); only
+      when the release tree lacks the agent's dependencies, it installs them as the account that
+      runs Dédalo ([why](#run-it)); then it runs `install.sh <instance> --source <this release
+      tree> --draft /root/<instance>.draft.json`, with `-- --pair-name <name>` when the draft's
+      name is not its instance. `install.sh` shows the source's digest and asks before anything
+      runs as root. No kit and no package: init pairs the host itself at the end. The kit stays
+      available, folded under **Or install from a kit**.
+    - **On another server.** **Build kit**, then **Download kit**. The panel builds the
+      [kit](#the-kit) from the release the code updater installed and verified: a work system
+      cloned from git cannot build one here (use `bun run hostagent:pack`). The first build
+      installs the agent's dependencies and can take a minute. The panel shows the kit's
+      **sha256**: carry the kit to the publication host and run `sha256sum`, `tar -xzf …
+      install.sh` and `sh install.sh <instance> --kit <file> --kit-sha256 <sha256>` as
+      [above](#the-kit).
+3. **Pair.** On this server, `provision init` pairs the host itself; the draft then reads
+   *Paired as* `<name>`. On another server, init writes the sealed package and shows its
+   passphrase once. Under the draft, **Pair from the sealed package**: choose the `.pairing`
+   file, type the passphrase, **Pair**. The package must be this draft's: its instance and the
+   agent address inside it must be the draft's (the same address, however it is spelled), or
+   nothing is dialled. Then the agent must prove the package's fingerprint over mTLS before
+   anything is stored. The passphrase and the package are never kept. Delete the package on the
+   publication host afterwards.
+4. **First use.** A paired draft offers **First use**. After one confirmation it runs, in the
+   order of [step 10](#10-first-use-rules-releases-public-check), **Apply media rules**, **Push
+   API releases** (for this host only) and **Probe public gate**, and shows each outcome: done,
+   still running (the releases keep installing; the host's row shows when they land), failed,
+   or, for the public check, unknown. A failed step does not stop the next one; only an expired
+   session or a lost permission does. The panel reloads once at the end. Set the public URL and
+   the probe files with **Edit settings** first, or the public check says **unknown**.
 
 **Remove draft** forgets a draft (and its kit); a host already paired stays paired.
 
@@ -2304,7 +2421,9 @@ checks this through the public address, exactly as a visitor would.
 1.  In the publication hosts panel, use **Edit settings** to set the host's **public
     URL** (the site's origin only, such as `https://www.museum.org`, with no path) and
     two **probe files**, written as they appear in a file's address after
-    `/dedalo/<media folder>/`:
+    `/dedalo/<media folder>/`. Use `https://`: the field proposes it, and adds it to a name
+    typed without a scheme. An `http://` address is accepted, for a site served only over
+    http on an intranet, and the save then shows a notice:
 
     - a file of a **published** record, in a public quality;
     - a file of an **unpublished** record, in a public quality.
@@ -2322,6 +2441,15 @@ checks this through the public address, exactly as a visitor would.
     be reached or validated makes the check **unknown**, never a pass. On a **copy** server
     the unpublished file is normally not there at all, so its "not found" proves nothing:
     the check then says **unknown** (see [Troubleshooting](#public-check)).
+
+**Redirects.** The check follows one redirect, and only one kind: from the `http://`
+address to the `https://` address of the same host, path and query (on the standard https
+port). That second request is checked like the first (a public address, pinned) and may not
+redirect again. The check then passes or fails on the https answer, and adds the note *http
+redirects to https — set the public URL to https://…*: set it, and each check needs one request
+fewer. Any other redirect (to another host, from https to http, a second hop) is not followed:
+it counts as the answer, so the published file **fails** (*… must be 2xx: redirected to
+<address>, not followed …*), and the address it pointed to is named.
 
 The check runs after every rules apply, after every batch of copy-mode changes, on demand
 (**Probe public gate**), and on a schedule (every fifteen minutes, while the reconcile
@@ -2350,6 +2478,10 @@ The commands below use the example names; `provision` runs as in step 4.
 | init refuses with *start init through deploy/install.sh* | it was started by hand, with an environment, a working directory or flags `install.sh` never uses | start it through `install.sh`, never with `bun …/cli.ts init` |
 | init refuses: an unfinished run | the journal shows a change that began and did not end (a power cut, `kill`) | run it again with `-- --resume` |
 | init refuses, naming open decisions | `--yes` never answers a decision | answer each with `-- --decide <item-id>=<option>`, or run it on a terminal |
+| init stops: *N item(s) need your action before anything is done* | a blocking item can only be done by hand (an unsupported system, a missing vhost…); nothing was changed | do what each item's commands say, then run the command init prints after `then:` |
+| init says *this decision changes your files or the whole host: Enter takes nothing* | the decision edits a file of yours or the whole host, so it has no Enter default | type the option you want (`act`, `manual`…) |
+| `declaration.vhost`: *only redirects claim it* | every virtual host named after the domain only redirects (the `:80` block certbot writes); the TLS one is missing | create the TLS virtual host (certbot does), then run init again ([the site's virtual host](#the-sites-virtual-host)) |
+| `declaration.vhost`: *port 443 has 2 different vhosts claiming ServerName …* | two blocks on one port answer the same address family, or one has TLS and one does not | keep one serving block for each address family, test, reload, run init again |
 | init says the instance *is locked by …* | another `init` or `provision apply` of the same instance is running | wait for it; the lock disappears with its process, there is nothing to clean up |
 | `provision check` ends with exit 5 | init or `apply` is changing the instance | check again later: nothing was checked, this is not drift |
 | `install.sh` says *EL 8.x … is not supported* (RHEL, Rocky or Alma 8) | EL 8's systemd 239 and kernel 4.18 are older than the units and Bun need; nothing was downloaded | upgrade the host to EL 9 or 10 |
@@ -2393,7 +2525,7 @@ The commands below use the example names; `provision` runs as in step 4.
 | `provision check` says a field is "also used by instance …" | another declaration in `/etc/dedalo_publication_host/` uses the same user, group, unit, port or directory | give this instance its own (see [Several instances on one server](#several-instances-on-one-server)) |
 | `provision check` says "cannot check isolation against …" | another declaration in `/etc/dedalo_publication_host/` is not valid JSON, is not a valid declaration, is a symbolic link, or is not owned by root or writable by others | fix that file (replace a link with the file itself, `chown root:root` and `chmod go-w` it), or move it out of the directory |
 | `provision check` says another file "declares instance … too" | two declarations name the same instance, for example a copy kept as `museum_org.old.json` | remove one, or move the copy out of `/etc/dedalo_publication_host/` |
-| `provision check` refuses `listen.host` | the host is a hostname, a wildcard or not a canonical IPv4 address | declare the private IPv4 address literal the agent binds (step 2) |
+| `provision check` refuses `listen.host` | the host is a hostname, a wildcard, not a canonical IPv4 address, or an IPv6 address that is not unique local (`fc00::/7`), carries brackets or a zone id, or is not written in its canonical form | declare the private IPv4 or unique local IPv6 address literal the agent binds, as the refusal spells it (step 2) |
 | `provision check` refuses `php_bin` as not an executable file | the PHP command-line package is not installed | `apt install php8.3-cli` and declare `/usr/bin/php8.3` (step 2) |
 | `check` accepts the declaration, but the first v1 install fails (`php_lint_failed`) on every file | `php_bin` names the FastCGI server, `/usr/sbin/php-fpm8.3`: it is a real root-owned program, so `check` accepts it, but it cannot check PHP files | declare the command-line PHP, `/usr/bin/php8.3`, run `provision apply museum_org`, and push again |
 | `provision check` says none of the `web.configtest_bin` candidates is a real file | the web server is not installed, or installed outside the standard `/usr/sbin` paths | install the distribution's `apache2` / `httpd` / `nginx` package, then `check` again |
@@ -2432,7 +2564,7 @@ The commands below use the example names; `provision` runs as in step 4.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `curl` fails at the TLS handshake | the client certificate is missing, from another host's authority, or the server name does not match the certificate | use the bundle this host issued, split as in step 7, and the exact IPv4 address declared in the instance |
+| `curl` fails at the TLS handshake | the client certificate is missing, from another host's authority, or the server name does not match the certificate | use the bundle this host issued, split as in step 7, and the exact address declared in the instance (an IPv6 one in brackets, with `curl -g`) |
 | the fingerprints differ | wrong instance name or wrong token; the two are indistinguishable by design | check both against the declaration and the credential file (step 7) |
 | every request answers 401 | the bearer token the work system holds does not match | compute the work side's fingerprint: `sudo -u dedalo sh -c 'printf "dedalo-publication-host:%s\n%s" museum_org "$(cat /opt/dedalo/private/publication_hosts/museum_org/token)" | sha256sum'`. It must equal the health answer's; otherwise run `replace` (step 8) |
 
@@ -2507,5 +2639,7 @@ The commands below use the example names; `provision` runs as in step 4.
 | --- | --- | --- |
 | the public check says **unknown**, naming a path | one of the two chosen files changed publication state, or is not in a public quality | choose two new files in the panel |
 | the public check says **unknown**: *the copy host does not hold the unpublished probe file* | the publication server is in **copy** mode: it only ever receives published files, so the unpublished one is not there and its "not found" proves nothing about the rules | expected on a copy host: the check can prove the rules there only while the server still holds an unpublished file waiting for deletion. It never reports a pass it cannot prove |
+| the public check passes, with *http redirects to https — set the public URL to https://…* | the public URL is `http://` and the site moves visitors to `https://` | set the public URL to the `https://` address in **Edit settings** |
+| the public check fails: *… redirected to <address>, not followed* | the site redirects the file to another host, from https to http, or more than once (a CDN, a canonical-host redirect) | set the public URL to the address that serves the files without a redirect |
 | the public check says **unknown**: *not a public host* | the public address resolves to an internal address from the work system, or does not resolve | use the address visitors use, resolvable from outside; the check never accepts an internal one |
 | the public check fails: the unpublished file is publicly served | the gate is not active on the public site: rules not applied, the rules file not included by the virtual host (step 9), the media folder under a document root, or another virtual host serving it | apply the rules from the panel, check the virtual host, and run the check again |

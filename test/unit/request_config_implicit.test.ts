@@ -245,6 +245,17 @@ const LIST_OWNER = 'zzrqw60';
 const LIST_OWNER_NODE = 'zzrqw61';
 const LIST_OWNER_TEXT = 'zzrqw62';
 const EXPLICIT_PORTAL = 'zzrqw80';
+const NO_SECTION = 'zzrqw70';
+const NO_GRAPH = 'zzrqw71';
+const MODEL_DEFAULT = 'zzrqw72';
+const STORAGE_NODE = 'zzrqw90';
+const INDEX_STORAGE_ONLY = 'zzrqw91';
+const INDEX_WITH_SIBLING = 'zzrqw92';
+const SELECT_WITH_STORAGE = 'zzrqw93';
+const SELECT_STORAGE_ONLY = 'zzrqw94';
+const INDEX_WITH_SECTION = 'zzrqw95';
+const STORAGE_LIST_OWNER = 'zzrqw96';
+const STORAGE_LIST_NODE = 'zzrqw97';
 
 const selfDdo = (tipo: string) => ({ tipo, section_tipo: 'self', parent: 'self' });
 
@@ -307,6 +318,66 @@ const WALK = situation({
 			model: 'section_list',
 			order_number: 9,
 			relations: [{ tipo: TARGET_A }, { tipo: LIST_OWNER_TEXT }, { tipo: TARGET_B }],
+		},
+		{
+			tipo: NO_SECTION,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 6,
+			relations: [{ tipo: TEXT_A }, { tipo: TEXT_B }],
+		},
+		{ tipo: NO_GRAPH, parent: HOST, model: 'component_select', order_number: 7 },
+		{
+			tipo: MODEL_DEFAULT,
+			parent: HOST,
+			model: 'component_relation_model',
+			order_number: 8,
+			relations: [{ tipo: TEXT_A }],
+		},
+		// a matrix_table node: a storage pointer, never a column or a target
+		{ tipo: STORAGE_NODE, parent: 'test1', model: 'matrix_table' },
+		{
+			tipo: INDEX_STORAGE_ONLY,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 10,
+			relations: [{ tipo: STORAGE_NODE }],
+		},
+		{
+			tipo: INDEX_WITH_SIBLING,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 11,
+			relations: [{ tipo: TEXT_A }],
+		},
+		{
+			tipo: SELECT_WITH_STORAGE,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 12,
+			relations: [{ tipo: STORAGE_NODE }, { tipo: TEXT_A }],
+		},
+		{
+			tipo: SELECT_STORAGE_ONLY,
+			parent: HOST,
+			model: 'component_select',
+			order_number: 13,
+			relations: [{ tipo: STORAGE_NODE }],
+		},
+		{
+			tipo: INDEX_WITH_SECTION,
+			parent: HOST,
+			model: 'component_relation_index',
+			order_number: 14,
+			relations: [{ tipo: TARGET_A }, { tipo: TEXT_A }],
+		},
+		{ tipo: STORAGE_LIST_OWNER, parent: 'test1', model: 'section' },
+		{
+			tipo: STORAGE_LIST_NODE,
+			parent: STORAGE_LIST_OWNER,
+			model: 'section_list',
+			order_number: 9,
+			relations: [{ tipo: STORAGE_NODE }],
 		},
 		{
 			tipo: EXPLICIT_PORTAL,
@@ -412,6 +483,100 @@ describe('the implicit walk (zzrqw situation)', () => {
 				{ tipo: TEXT_A, model: 'component_input_text', sectionTipo: TARGET_B },
 				{ tipo: TEXT_C, model: 'component_input_text', sectionTipo: TARGET_B },
 			]);
+		});
+	});
+
+	// RC-3 (WC-2026-11-25-implicit-component-target-caller-section): PHP
+	// clean_and_extract_related :508-520 starts from the CALLER's section and
+	// only a section node overwrites it — was: null target, empty sqo.
+	describe("RC-3 — a component whose relations name no section targets the caller's section", () => {
+		test('no section node, no model targetSource → the caller section, on the sqo and every ddo', async () => {
+			for (const mode of ['edit', 'list', 'search']) {
+				const config = await build(NO_SECTION, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A, TEXT_B]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [HOST]]);
+				for (const ddo of config[0]?.show?.ddo_map ?? []) {
+					expect([mode, ddo.tipo, ddo.section_tipo]).toEqual([mode, ddo.tipo, HOST]);
+				}
+			}
+		});
+
+		test("it is the CALLER's section, not the node's ontology parent", async () => {
+			const config = await build(NO_SECTION, VIRTUAL_HOST, 'edit');
+			expect(extractSqoSectionTipos(config[0])).toEqual([VIRTUAL_HOST]);
+		});
+
+		test('a declared section node still wins over the caller default', async () => {
+			expect(extractSqoSectionTipos((await build(SELECT_NO_LIST, HOST, 'edit'))[0])).toEqual([
+				TARGET_A,
+			]);
+		});
+
+		test('a model targetSource ranks above the caller default (whatever it resolves)', async () => {
+			const { resolveTargetSourceFor } = await import(
+				'../../src/core/relations/request_config/target_sources.ts'
+			);
+			const declared = await resolveTargetSourceFor('component_relation_model', HOST);
+			expect(declared).not.toBeNull();
+			const config = await build(MODEL_DEFAULT, HOST, 'edit');
+			expect(shown(config)).toEqual([TEXT_A]);
+			expect(extractSqoSectionTipos(config[0])).toEqual((declared ?? []).slice(0, 1));
+			expect(extractSqoSectionTipos(config[0])).not.toContain(HOST);
+			// …and when it resolves NONE the model still owns the answer: degraded
+			// empty, never the caller's own section. dd153's `<tld>2` (dd2) is no
+			// section and it has no registry pairing → [].
+			const NO_MODEL_SECTION_CALLER = 'dd153';
+			expect(
+				await resolveTargetSourceFor('component_relation_model', NO_MODEL_SECTION_CALLER),
+			).toEqual([]);
+			const degraded = await build(MODEL_DEFAULT, NO_MODEL_SECTION_CALLER, 'edit');
+			expect(shown(degraded)).toEqual([TEXT_A]);
+			expect(extractSqoSectionTipos(degraded[0])).toEqual([]);
+		});
+
+		test('a matrix_table relation node is never a ddo (storage pointer, not a column)', async () => {
+			for (const mode of ['edit', 'list']) {
+				const config = await build(SELECT_WITH_STORAGE, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [HOST]]);
+			}
+		});
+
+		test('a matrix_table node as the ONLY relation: no ddo, no target → the configless answer', async () => {
+			for (const mode of ['edit', 'list']) {
+				// a non-index component: no config at all (was: one junk matrix_table ddo)
+				expect([mode, await build(SELECT_STORAGE_ONLY, HOST, mode)]).toEqual([mode, []]);
+				// a section whose section_list names only the storage node: itself, no column
+				const section = await build(STORAGE_LIST_OWNER, STORAGE_LIST_OWNER, 'list', true);
+				expect(shown(section)).toEqual([]);
+				expect(extractSqoSectionTipos(section[0])).toEqual([STORAGE_LIST_OWNER]);
+			}
+		});
+
+		test('a relation_index that DECLARES a section node keeps it as its target', async () => {
+			for (const mode of ['edit', 'list']) {
+				const config = await build(INDEX_WITH_SECTION, HOST, mode);
+				expect([mode, shown(config)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(config[0])]).toEqual([mode, [TARGET_A]]);
+			}
+		});
+
+		test('a relation_index never targets its own section (WC-2026-11-11 D2)', async () => {
+			for (const mode of ['edit', 'list']) {
+				// related only to a matrix_table node: the configless base item
+				const storageOnly = await build(INDEX_STORAGE_ONLY, HOST, mode);
+				expect([mode, storageOnly.length]).toEqual([mode, 1]);
+				expect([mode, shown(storageOnly)]).toEqual([mode, []]);
+				expect([mode, extractSqoSectionTipos(storageOnly[0])]).toEqual([mode, []]);
+				// related to a sibling column: the column stays, the own section never comes
+				const withSibling = await build(INDEX_WITH_SIBLING, HOST, mode);
+				expect([mode, shown(withSibling)]).toEqual([mode, [TEXT_A]]);
+				expect([mode, extractSqoSectionTipos(withSibling[0])]).toEqual([mode, []]);
+			}
+		});
+
+		test('a node with NO relation graph keeps the configless answer (no config)', async () => {
+			expect(await build(NO_GRAPH, HOST, 'edit')).toEqual([]);
 		});
 	});
 
