@@ -103,7 +103,7 @@ bound to the bytes. A bump updates the manifest row and this table together.
 
 | id | Package | Version | Notes |
 |---|---|---|---|
-| pdfjs | *(vendor)* | 6.2.108 | Committed, minus 4 sourcemaps + the demo PDF. **Bumped 2026-08-28** for CVE-2026-16633. See below. |
+| pdfjs | *(vendor)* | 6.5.438 | Committed, minus 5 sourcemaps + the demo PDF. **Bumped 2026-11-26** (latest stable). See below. |
 | ckeditor | *(vendor)* | CKEditor 5 42.0.1 | Custom build. See below. |
 | transformers | *(vendor)* | 4.3.0 | The in-browser AI runtime (`tool_transcription`, `tool_lang`, the remove-background processor). **Vendored 2026-09-04** — was the `@huggingface/transformers` npm pin, which no engine module imported and which shipped 567 MB of native Node code to every install. Moves together with the `onnxruntime` pin. See below. |
 | lz-string | *(vendor)* | 1.5.0 | URL-state compression (`tool_common`, `component_text_area`). UMD-only upstream; committed with one declared patch. See below. |
@@ -180,20 +180,20 @@ Each carries its `reason` in the registry, next to the code, not only here.
   sentence is precisely what `xlsx` used to rely on, which is why it was vendored
   until tool_export stopped loading it (removed 2026-09-24).
 
-    So it is committed, taken from the sha256-verified **6.2.108** release
-    (archive digest `7bf642d5…e95ba` — the full digest GitHub publishes for the
+    So it is committed, taken from the sha256-verified **6.5.438** release
+    (archive digest `fcbe9ba2…c6ba1` — the full digest GitHub publishes for the
     asset, not a prefix copied by hand). Two prunes make that affordable —
-    21 MB → **3.5 MB gzipped** (3,694,821 bytes, measured 2026-08-28):
+    **3.6 MB gzipped** (3,735,923 bytes, measured 2026-11-26):
 
-    - **4 sourcemaps, 9,034,413 bytes.** A browser never fetches a `.map` unless
+    - **5 sourcemaps, 9,913,349 bytes.** A browser never fetches a `.map` unless
       devtools is open. Verified: loading the viewer issues zero requests for them.
     - **the 1,016,315-byte demo PDF** (`compressed.tracemonkey-pldi-09.pdf`). The
       client sets `defaultUrl` to `''` precisely to stop pdf.js auto-loading it, so
       it can never be reached.
 
-    Re-measured 2026-08-28 against a fresh download of that archive: it holds 409
-    files, the tree holds **404**, the 5 missing ones are exactly those, and every
-    one of the 404 is **byte-identical** to the archive's copy. The trim is
+    Re-measured 2026-11-26 against a fresh download of that archive: it holds 415
+    files, the tree holds **409**, the 6 missing ones are exactly those, and every
+    one of the 409 is **byte-identical** to the archive's copy. The trim is
     reproducible rather than hand-done —
     `scripts/vendor_fetch.ts --drop '**/*.map' --drop 'web/compressed.tracemonkey-pldi-09.pdf'`.
 
@@ -210,6 +210,11 @@ Each carries its `reason` in the registry, next to the code, not only here.
     The mount additionally forces `enableScripting:false` — the advisory's own stated
     workaround — behind `disablePreferences:true`, which is what stops a stored
     `pdfjs.preferences` entry from putting scripting back on.
+
+    **Bumped 2026-11-26 from 6.2.108 to 6.5.438** when its 90-day review window
+    closed: the advisory feed listed nothing new for `pdfjs-dist`, so this is the
+    latest-stable law, not a fix. Upstream added `build/pdf.renderer.mjs`, two
+    toolbar icons and the QuickJS licence texts; the trim is unchanged.
 - **highlightjs** — the `highlight.js` package's `es/` entry is a bundler stub that
   chains into a CommonJS `lib/`; it cannot load in a browser without a bundler.
   `@highlightjs/cdn-assets` ships the same release as browser-ready ESM.
@@ -385,7 +390,7 @@ version the row *declares*, so a row reading 6.2.108 over a 5.7.284 tree would h
 satisfied the digest, the range check and the feed query at once. `version_evidence`
 closes that: clauses naming a file **inside the lib's own tree** and a literal that
 must appear in it, where the literal must itself contain the declared version
-(`vendor/pdfjs/build/pdf.mjs` must contain `const version = "6.2.108";`, and two more
+(`vendor/pdfjs/build/pdf.mjs` must contain `const version = "6.5.438";`, and two more
 in the worker and the viewer). `scripts/vendor_verify.ts --write` **refuses** to write
 a digest for a tree whose bytes do not state its declared version.
 
@@ -463,5 +468,5 @@ from `package.json`. See [Services](../core/system/services.md).
 - Manifest: `vendor/vendor_manifest.json`; scripts `scripts/vendor_verify.ts`,
   `scripts/vendor_fetch.ts`
 - Audit finding **SEC-103** (phase-2 master register); companion **SEC-097** (pdfjs
-  CVE-2024-4367 — the pinned 6.2.108 is well past the 4.2.67 fix line), and
+  CVE-2024-4367 — the pinned 6.5.438 is well past the 4.2.67 fix line), and
   **CLI-26** (2026-08-28), the 22 days at 5.7.284 that produced the advisory axis.

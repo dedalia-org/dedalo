@@ -948,6 +948,15 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
     if (account === 'control') db.run("INSERT INTO control_account VALUES ('a@b', 'https://console.example')");
     db.close();
   }
+  /**
+   * Every leg here spawns the fake binary (each spawn a bun start) — 2 for the positive control,
+   * many more for a probe or a turn. Idle the control takes ~0.4 s; under the full concurrent gate
+   * (pre-push at 587432b715, hermetic beside db + instance) it ran 5357 ms and bun's 5000 ms
+   * built-in cap killed it with no bug behind it. The heavier legs carry the same exposure. A
+   * measured bound for this describe, not a package-wide widening (scripts/lib/test_flags.ts keeps
+   * the daemon packages on the default).
+   */
+  const SPAWN_BOUND_MS = 20_000;
   const record = (sink: (env: Record<string, string>) => void) => async (argv: readonly string[], options: { cwd: string; env: Readonly<Record<string, string>> }) => {
     sink({ ...options.env });
     const out = spawnSync(argv[0] as string, argv.slice(1) as string[], { cwd: options.cwd, env: { ...options.env }, encoding: 'utf8' });
@@ -962,7 +971,7 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
     const mcp = (extra: Record<string, string>) =>
       Object.keys(JSON.parse(spawnSync(bin, ['debug', 'config'], { cwd: root, env: { ...env, ...extra }, encoding: 'utf8' }).stdout).mcp ?? {});
     expect({ open: mcp({}).includes('zorgmcp'), proxied: mcp(childEgressEnv('turn')).includes('zorgmcp') }).toEqual({ open: true, proxied: false });
-  });
+  }, SPAWN_BOUND_MS);
 
   test('the restricted leg asks under the TURN CHILD’s environment: same keys but the offline one, same values but the per-run HOME and the stated configuration, no proxy', async () => {
     const bin = obedientBin();
@@ -992,7 +1001,7 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
     }).toEqual({ onlyInProbe: offline, onlyInTurn: [], valuesDiffer: [...differing].sort(), proxy: [] });
     // …and the turn carries the driver's statement under `none`: the traffic switches, the database.
     expect(Object.fromEntries([...Object.keys(TRAFFIC), 'OPENCODE_DB'].map(key => [key, turn[key] ?? '(absent)']))).toEqual({ ...TRAFFIC, OPENCODE_DB: 'opencode.db' });
-  });
+  }, SPAWN_BOUND_MS);
 
   test('the probe asks with the turn’s own network: an org configuration a dead proxy would have hidden is NAMED', async () => {
     const root = scratchDir('oc-org-probe-');
@@ -1003,7 +1012,7 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
       transient: false,
       named: true,
     });
-  });
+  }, SPAWN_BOUND_MS);
 
   test('a console account refuses admission, detect and the turn — after a probe that ADMITTED (never cached)', async () => {
     const bin = obedientBin();
@@ -1029,7 +1038,7 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
       reason: 'confinement.agent_cli_unsupported',
       ran: false,
     });
-  });
+  }, SPAWN_BOUND_MS);
 
   test('the account question on every shape of the database: absent or empty admits; any account, an old control account, an unreadable file refuse', () => {
     const ask = (setup: (root: string) => void) => {
@@ -1090,7 +1099,7 @@ describe('O13 — the probe’s environment IS the turn child’s; a console acc
         named: true,
       });
     }
-  });
+  }, SPAWN_BOUND_MS);
 });
 
 describe('O3b (behavioural) — the operator’s environment cannot reopen a permission, and the probe asks under it', () => {

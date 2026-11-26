@@ -44,7 +44,7 @@ hermetic:
   variables:
     GIT_DEPTH: 0 # install_host_render_tripwire judges every committed render of the unit templates
   image:
-    name: ghcr.io/dedalia-org/dedalo-ci@sha256:c0fa4faa78b655a08c54fc3b95174a8faabb515dfd5763213f4378a1054c0d73
+    name: ghcr.io/dedalia-org/dedalo-ci@sha256:04a0d326338fb259c515fbd40a14ccee4b09e8de0b1c372f9c534c310f569f63
     docker:
       user: "1001"
   # uid 1001 has no passwd entry in the image, so HOME would be `/` (unwritable): bun's
