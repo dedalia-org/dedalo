@@ -44,6 +44,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -257,6 +258,11 @@ export async function pumpToFile(
 ): Promise<number> {
 	const reader = body.getReader();
 	const sink = createWriteStream(destPath);
+	// A write stream with no 'error' listener turns its first I/O failure into an
+	// UNCAUGHT exception — this boot task then killed the whole server ("Cannot call
+	// write after a stream was destroyed", CI client lane). The error is recorded and
+	// thrown into the loop instead, so the download fails soft like any other cause.
+	const sinkFailure = watchSinkError(sink);
 	let total = 0;
 	try {
 		for (;;) {
@@ -265,24 +271,69 @@ export async function pumpToFile(
 				new Promise<never>((_, reject) =>
 					setTimeout(() => reject(new Error('download stalled')), stallMs),
 				),
+				sinkFailure.promise,
 			]);
 			if (chunk.done) break;
 			total += chunk.value.byteLength;
 			if (total > maxBytes) {
 				throw new Error(`download exceeds the ${maxBytes}-byte cap`);
 			}
-			if (!sink.write(chunk.value)) {
-				await new Promise<void>((drain) => sink.once('drain', () => drain()));
-			}
+			await writeWithBackpressure(sink, chunk.value, sinkFailure.promise);
 		}
 	} finally {
-		await new Promise<void>((end) => sink.end(() => end()));
+		await closeSink(sink);
 		reader.releaseLock();
 	}
+	if (sinkFailure.error !== null) throw sinkFailure.error;
 	if (total === 0) {
 		throw new Error('empty data');
 	}
 	return total;
+}
+
+/**
+ * Record a write stream's first 'error' (so it is never an uncaught exception) and
+ * expose it as a promise that REJECTS with it — raced against the stream's other
+ * waits. The promise never rejects unhandled: it carries its own no-op catch.
+ */
+function watchSinkError(sink: ReturnType<typeof createWriteStream>): {
+	promise: Promise<never>;
+	error: Error | null;
+} {
+	const watch: { promise: Promise<never>; error: Error | null } = {
+		error: null,
+		promise: new Promise<never>((_, reject) => {
+			sink.once('error', (error: Error) => {
+				watch.error = error;
+				reject(error);
+			});
+		}),
+	};
+	watch.promise.catch(() => {});
+	return watch;
+}
+
+/** Write one chunk; on backpressure wait for 'drain' — or for the sink's failure. */
+async function writeWithBackpressure(
+	sink: ReturnType<typeof createWriteStream>,
+	chunk: Uint8Array,
+	failure: Promise<never>,
+): Promise<void> {
+	if (sink.write(chunk)) return;
+	await Promise.race([new Promise<void>((drain) => sink.once('drain', () => drain())), failure]);
+}
+
+/**
+ * End (or, after a failure, settle) a file write stream and wait until its fd is
+ * closed — also when it already closed, where a bare `once('close')` would wait forever.
+ */
+async function closeSink(sink: ReturnType<typeof createWriteStream>): Promise<void> {
+	if (sink.closed) return;
+	await new Promise<void>((closed) => {
+		sink.once('close', () => closed());
+		// An ended or destroyed stream closes on its own; only a live one is ended.
+		if (!sink.destroyed && !sink.writableEnded) sink.end();
+	});
 }
 
 /** Ceilings for `gunzipWithCaps`; each defaults to this module's constant. */
@@ -323,6 +374,11 @@ export async function gunzipWithCaps(
 				}
 			});
 			gunzip.on('error', reject);
+			// Without a listener a sink failure is an uncaught exception (see pumpToFile).
+			sink.on('error', (error) => {
+				gunzip.destroy();
+				reject(error);
+			});
 			gunzip.on('end', () => sink.end(() => resolveDone()));
 			gunzip.end(readFileSync(srcPath));
 		});
@@ -334,7 +390,7 @@ export async function gunzipWithCaps(
 		// measured at 27-45% of failures. Wait for 'close', which fires only after
 		// the pending open has resolved, so the unlink is deterministic.
 		sink.destroy();
-		await new Promise<void>((closed) => sink.once('close', () => closed()));
+		await closeSink(sink);
 		rmSync(destPath, { force: true });
 		throw error;
 	}
@@ -361,11 +417,11 @@ export async function downloadCountryDb(
 		return { ok: false, error: (error as Error).message };
 	}
 
-	const gzPath = confinedPath(dir, `${DB_BASENAME}.gz`);
-	const mmdbPath = confinedPath(dir, DB_BASENAME);
-	if (gzPath === null || mmdbPath === null) {
+	const paths = downloadPaths(dir);
+	if (paths === null) {
 		return { ok: false, error: 'unconfined geoip download path' };
 	}
+	const { mmdbPath } = paths;
 
 	const pinToDbip = !hasOperatorOverride(urlOverride);
 	const urls = candidateUrls(urlOverride);
@@ -378,7 +434,7 @@ export async function downloadCountryDb(
 
 	let lastError = 'no candidate URL';
 	for (const url of urls) {
-		const attempt = await attemptCandidate(url, gzPath, mmdbPath, pinToDbip, fetchFile, decompress);
+		const attempt = await attemptCandidate(url, paths, pinToDbip, fetchFile, decompress);
 		if (attempt.ok) return { ok: true, mmdbPath };
 		lastError = attempt.error;
 		// D11 (wired 2026-08-09): ONLY a 404 — "this month is not published yet"
@@ -398,15 +454,20 @@ export async function downloadCountryDb(
  */
 async function attemptCandidate(
 	url: string,
-	gzPath: string,
-	mmdbPath: string,
+	paths: { gzPath: string; partPath: string; mmdbPath: string },
 	pinToDbip: boolean,
 	fetchFile: (url: string, destPath: string, pinToDbip: boolean) => Promise<number>,
 	decompress: (srcPath: string, destPath: string) => Promise<number>,
 ): Promise<{ ok: true } | { ok: false; error: string; notFound: boolean }> {
+	const { gzPath, partPath, mmdbPath } = paths;
+	let published = false;
 	try {
 		await fetchFile(url, gzPath, pinToDbip);
-		await decompress(gzPath, mmdbPath);
+		await decompress(gzPath, partPath);
+		// Atomic publish: a reader (or another process) sees the old database or the
+		// whole new one, never a half-written file under the shared name.
+		renameSync(partPath, mmdbPath);
+		published = true;
 		// The sidecar is written from the bytes just decompressed: the ONLY
 		// integrity claim this download can make (see the file header).
 		await writeDigestSidecar(mmdbPath);
@@ -414,18 +475,46 @@ async function attemptCandidate(
 		return { ok: true };
 	} catch (error) {
 		safeRemove(gzPath);
-		safeRemove(sidecarPath(mmdbPath));
-		// Defence in depth: a half-written .mmdb must never survive a failed
-		// candidate. A leftover zero-byte file dates to NOW, so decideGeoipAction
-		// reads it as present+fresh and suppresses the re-download for the whole
-		// REFRESH_AFTER_MS window — one bad response would disable geoip for 30 days.
-		safeRemove(mmdbPath);
+		safeRemove(partPath);
+		// Defence in depth: a database this attempt published but could not vouch for
+		// (no sidecar) must not survive. A leftover file dates to NOW, so
+		// decideGeoipAction reads it as present+fresh and suppresses the re-download
+		// for the whole REFRESH_AFTER_MS window — one bad response would disable geoip
+		// for 30 days. Only what THIS attempt published is removed: the shared name
+		// may hold another process's good database.
+		if (published) {
+			safeRemove(sidecarPath(mmdbPath));
+			safeRemove(mmdbPath);
+		}
 		return {
 			ok: false,
 			error: (error as Error).message,
 			notFound: (error as { notFound?: boolean }).notFound === true,
 		};
 	}
+}
+
+/**
+ * The three files of one download in `dir`, each confined to it (null when any is
+ * not). The .gz and the decompressed .part are THIS PROCESS's own files: two servers
+ * on one private dir (the CI lanes, a restart overlap) booting together used to
+ * stream into the same fixed names and clobber each other's partial bytes. Only the
+ * finished database is published under the shared name, by an atomic rename.
+ */
+function downloadPaths(dir: string): { gzPath: string; partPath: string; mmdbPath: string } | null {
+	const gzPath = confinedPath(dir, downloadScratchName('gz'));
+	const partPath = confinedPath(dir, downloadScratchName('part'));
+	const mmdbPath = confinedPath(dir, DB_BASENAME);
+	if (gzPath === null || partPath === null || mmdbPath === null) return null;
+	return { gzPath, partPath, mmdbPath };
+}
+
+/**
+ * This process's scratch file name for a download in flight: `<db>.<pid>.<kind>`.
+ * Per process, so concurrent servers on one cache dir never share partial bytes.
+ */
+export function downloadScratchName(kind: 'gz' | 'part'): string {
+	return `${DB_BASENAME}.${process.pid}.${kind}`;
 }
 
 /**

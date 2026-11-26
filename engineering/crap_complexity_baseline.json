@@ -5,7 +5,7 @@
 	"root": "src/core",
 	"summary": {
 		"files": 955,
-		"functions": 17251,
+		"functions": 17258,
 		"functionsOverCap": 639,
 		"filesOverCap": 251
 	},
@@ -344,7 +344,7 @@
 		"src/core/db/postgres.ts": 8,
 		"src/core/diffusion_bridge/diffusion_delete.ts": 14,
 		"src/core/diffusion_bridge/diffusion_graph.ts": 14,
-		"src/core/geoip/download.ts": 10,
+		"src/core/geoip/download.ts": 9,
 		"src/core/geoip/ensure.ts": 9,
 		"src/core/geoip/ip_ranges.ts": 37,
 		"src/core/identify/criteria.ts": 19,

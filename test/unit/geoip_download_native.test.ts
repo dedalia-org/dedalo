@@ -30,6 +30,7 @@ import {
 	confinedPath,
 	DB_BASENAME,
 	downloadCountryDb,
+	downloadScratchName,
 	gunzipWithCaps,
 	pumpToFile,
 	sidecarPath,
@@ -154,6 +155,16 @@ describe('pumpToFile', () => {
 		await expect(pumpToFile(body, dest, 1000, 50)).rejects.toThrow(/download stalled/);
 	}, 2000); // explicit short timeout: a deleted stall guard hangs rather than asserts
 
+	test('a sink that cannot be written REJECTS the pump — never an uncaught stream error', async () => {
+		// A write stream with no 'error' listener turns its I/O failure into an
+		// uncaught exception: the boot task killed the whole server (CI client lane,
+		// "Cannot call write after a stream was destroyed"). The destination's parent
+		// does not exist, so the sink's open fails while chunks are being written.
+		const dest = join(SCRATCH, 'no_such_dir', 'sink.bin');
+		const chunks = Array.from({ length: 8 }, () => new Uint8Array(64 * 1024));
+		await expect(pumpToFile(streamOf(chunks), dest, 10_000_000)).rejects.toThrow(/ENOENT/);
+	}, 5000); // short: the unguarded sink HANGS (or kills the run) rather than rejecting
+
 	test('an empty stream is empty data', async () => {
 		const dest = join(SCRATCH, 'empty.bin');
 		await expect(pumpToFile(streamOf([]), dest, 1000)).rejects.toThrow(/empty data/);
@@ -170,6 +181,14 @@ describe('gunzipWithCaps', () => {
 		expect(out).toBe(5000);
 		expect(readFileSync(dest).equals(payload)).toBe(true);
 	});
+
+	test('a sink that cannot be written REJECTS the gunzip — never an uncaught stream error', async () => {
+		const src = join(SCRATCH, 'sinkfail.gz');
+		writeFileSync(src, gzipSync(Buffer.alloc(200_000, 7)));
+		await expect(gunzipWithCaps(src, join(SCRATCH, 'no_such_dir', 'sinkfail.out'))).rejects.toThrow(
+			/ENOENT/,
+		);
+	}, 5000); // short: the unguarded sink HANGS (or kills the run) rather than rejecting
 
 	test('the byte cap removes the partial output', async () => {
 		const src = join(SCRATCH, 'big.gz');
@@ -330,6 +349,57 @@ describe('downloadCountryDb', () => {
 		);
 	});
 
+	test('a download in flight never touches the shared name: per-process scratch, atomic publish', async () => {
+		const dir = join(SCRATCH, 'scratch_names');
+		const seenDest: string[] = [];
+		let mmdbDuringDecompress = null as boolean | null;
+		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
+			streamToFile: async (_url, dest) => {
+				seenDest.push(dest);
+				writeFileSync(dest, 'GZ');
+				return 2;
+			},
+			gunzipWithCaps: async (src, dest) => {
+				seenDest.push(dest);
+				expect(src).toBe(join(dir, downloadScratchName('gz')));
+				writeFileSync(dest, 'MMDB-BYTES');
+				mmdbDuringDecompress = existsSync(join(dir, DB_BASENAME));
+				return 10;
+			},
+		});
+		expect(result).toEqual({ ok: true, mmdbPath: join(dir, DB_BASENAME) });
+		// Both partial files carry THIS process's id; the shared name appears only
+		// once the bytes are whole (rename), and the scratch files are gone after.
+		expect(seenDest).toEqual([
+			join(dir, `${DB_BASENAME}.${process.pid}.gz`),
+			join(dir, `${DB_BASENAME}.${process.pid}.part`),
+		]);
+		expect(mmdbDuringDecompress).toBe(false);
+		expect(readFileSync(join(dir, DB_BASENAME), 'utf8')).toBe('MMDB-BYTES');
+		expect(existsSync(join(dir, downloadScratchName('gz')))).toBe(false);
+		expect(existsSync(join(dir, downloadScratchName('part')))).toBe(false);
+	});
+
+	test('a failed attempt never removes a database it did not publish', async () => {
+		const dir = join(SCRATCH, 'keep_foreign');
+		mkdirSync(dir, { recursive: true });
+		// Another process's good database under the shared name.
+		writeFileSync(join(dir, DB_BASENAME), 'OTHER-PROCESS-DB');
+		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
+			streamToFile: async (_url, dest) => {
+				writeFileSync(dest, 'GZ');
+				return 2;
+			},
+			gunzipWithCaps: async (_src, dest) => {
+				writeFileSync(dest, 'HALF');
+				throw new Error('corrupt gzip');
+			},
+		});
+		expect(result).toEqual({ ok: false, error: 'corrupt gzip' });
+		expect(readFileSync(join(dir, DB_BASENAME), 'utf8')).toBe('OTHER-PROCESS-DB');
+		expect(existsSync(join(dir, downloadScratchName('part')))).toBe(false);
+	});
+
 	test('D11 (wired 2026-08-09): a hard failure does NOT consume the second candidate', async () => {
 		// Before the fix `notFound` was written and read nowhere, so ANY error
 		// fell through: an origin mismatch or a cap trip burned the previous-month
@@ -358,7 +428,7 @@ describe('downloadCountryDb', () => {
 		const dir = join(SCRATCH, 'unremovable');
 		mkdirSync(dir, { recursive: true });
 		// A DIRECTORY at the .gz path: rmSync(force:true) on it raises ERR_FS_EISDIR.
-		mkdirSync(join(dir, `${DB_BASENAME}.gz`), { recursive: true });
+		mkdirSync(join(dir, downloadScratchName('gz')), { recursive: true });
 		const result = await downloadCountryDb(dir, 'https://mirror.test/db.gz', {
 			streamToFile: async () => {
 				throw Object.assign(new Error('not found: u'), { notFound: true });
@@ -430,7 +500,7 @@ describe('rewire proof — the inline copies are gone from download.ts', () => {
 
 	test('downloadCountryDb calls the injected seams, not the module locals', () => {
 		expect(source).toContain('await fetchFile(url, gzPath, pinToDbip);');
-		expect(source).toContain('await decompress(gzPath, mmdbPath);');
+		expect(source).toContain('await decompress(gzPath, partPath);');
 		expect(source).not.toContain('await streamToFile(url, gzPath, pinToDbip);');
 		expect(source).not.toContain('await gunzipWithCaps(gzPath, mmdbPath);');
 	});
