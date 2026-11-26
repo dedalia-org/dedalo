@@ -5,9 +5,9 @@
 		"fingerprint": "5936f5dce277185a765ef8017bf2a1cf72b503ef6a287cee5e6d7838003da015"
 	},
 	"measured": {
-		"tier_files": 1524,
-		"tier_tests": 25084,
-		"tier_pass": 25034,
+		"tier_files": 1527,
+		"tier_tests": 25112,
+		"tier_pass": 25062,
 		"tier_skip": 50,
 		"failing_files": 0,
 		"failing_tests": 0
@@ -622,7 +622,7 @@
 		"test/unit/client_error_contract_tripwire.test.ts": {
 			"tests": 26,
 			"skipped": 0,
-			"assertions": 169
+			"assertions": 170
 		},
 		"test/unit/client_error_signal.test.ts": {
 			"tests": 3,
@@ -642,7 +642,7 @@
 		"test/unit/client_gate_inventory_tripwire.test.ts": {
 			"tests": 43,
 			"skipped": 0,
-			"assertions": 498
+			"assertions": 499
 		},
 		"test/unit/client_idempotency_tripwire.test.ts": {
 			"tests": 75,
@@ -1362,7 +1362,7 @@
 		"test/unit/dd128_write_census_tripwire.test.ts": {
 			"tests": 26,
 			"skipped": 0,
-			"assertions": 1402
+			"assertions": 1405
 		},
 		"test/unit/dd_mcp_api.test.ts": {
 			"tests": 10,
@@ -1897,7 +1897,7 @@
 		"test/unit/engine_denied_boundary.test.ts": {
 			"tests": 2,
 			"skipped": 0,
-			"assertions": 18
+			"assertions": 13
 		},
 		"test/unit/engine_install_tld_tripwire.test.ts": {
 			"tests": 9,
@@ -2947,7 +2947,7 @@
 		"test/unit/install_restart_supervisor_tripwire.test.ts": {
 			"tests": 34,
 			"skipped": 0,
-			"assertions": 301
+			"assertions": 314
 		},
 		"test/unit/install_resume_drill.test.ts": {
 			"tests": 5,
@@ -2990,9 +2990,9 @@
 			"assertions": 128
 		},
 		"test/unit/install_seed_drift_tripwire.test.ts": {
-			"tests": 17,
+			"tests": 18,
 			"skipped": 0,
-			"assertions": 56
+			"assertions": 59
 		},
 		"test/unit/install_seed_manifest_tripwire.test.ts": {
 			"tests": 5,
@@ -3147,7 +3147,7 @@
 		"test/unit/labels_tripwire.test.ts": {
 			"tests": 11,
 			"skipped": 0,
-			"assertions": 49027
+			"assertions": 50215
 		},
 		"test/unit/lang_alias.test.ts": {
 			"tests": 10,
@@ -3352,7 +3352,7 @@
 		"test/unit/map_tile_proxy_native.test.ts": {
 			"tests": 74,
 			"skipped": 0,
-			"assertions": 3253
+			"assertions": 3254
 		},
 		"test/unit/marc21.test.ts": {
 			"tests": 3,
@@ -5462,7 +5462,7 @@
 		"test/unit/runtime_paths_census_tripwire.test.ts": {
 			"tests": 8,
 			"skipped": 0,
-			"assertions": 117
+			"assertions": 120
 		},
 		"test/unit/save_add_new_element_page_native.test.ts": {
 			"tests": 3,
@@ -7357,7 +7357,7 @@
 		"test/unit/update_ownership_tripwire.test.ts": {
 			"tests": 9,
 			"skipped": 0,
-			"assertions": 89
+			"assertions": 90
 		},
 		"test/unit/update_preconditions.test.ts": {
 			"tests": 16,
