@@ -12039,14 +12039,14 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_ser
   padding-left: 1.75em;
   padding-right: 1.75em;
   background-color: var(--color_grey_13);
-  border: 1px dashed var(--color_orange_dedalo);
+  border: 1px dashed var(--tool_edge, var(--color_orange_dedalo));
   border-radius: 0.25em;
   cursor: pointer;
   width: 100%;
 }
 .service_upload > .content_data > form > label.hover {
-  background-color: var(--color_orange_dedalo);
-  color: var(--fg_on_brand);
+  background-color: var(--tool_fill, var(--color_orange_dedalo));
+  color: var(--tool_on_fill, var(--fg_on_brand));
   cursor: move !important;
 }
 .service_upload > .content_data > form > label.loading_file {
@@ -12157,7 +12157,7 @@ dd-modal .wrapper_component.edit.active:not(.hilite_element):has( > .wrapper_ser
   margin-bottom: 1rem;
 }
 .service_upload.multiple > .content_data.hover {
-  outline: 2px dashed var(--color_orange_dedalo);
+  outline: 2px dashed var(--tool_edge, var(--color_orange_dedalo));
   outline-offset: -2px;
 }
 .service_upload.multiple > .content_data > .row {

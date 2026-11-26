@@ -210,6 +210,10 @@ Merged since the last release; these ship with the next one.
 
     In the Time machine tool, the "Apply and save" button and the selected version's Id in the history list are now painted in the tool's own colour, with matching text, instead of the generic warning style.
 
+- **File drop zone uses the tool's colour**
+
+    In tools that upload files (CSV import, file import, upload and others), the "Select or drop a file here" area now takes the tool's own colour for its dashed border, its drag-over outline and its hover fill. Outside a tool it keeps the Dédalo orange.
+
 - **The Stop button of a running process shows a stop icon.**
 
     The button that stops a running process (publishing, exports, updates) showed a gear icon,
