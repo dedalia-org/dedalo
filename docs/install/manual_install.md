@@ -907,6 +907,11 @@ server {
 		proxy_http_version 1.1;
 		proxy_set_header Host $host;
 	}
+	location /dedalo/install/seed_build/ {
+		proxy_pass http://dedalo_@@INSTANCE@@;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+	}
 	location /dedalo/ai_models/ {
 		proxy_pass http://dedalo_@@INSTANCE@@;
 		proxy_http_version 1.1;
@@ -1009,6 +1014,7 @@ render > "$SITE" <<'EOF'
 	ProxyPass /dedalo/install/import/ontology/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/install/import/ontology/
 	ProxyPass /dedalo/install/code/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/install/code/
 	ProxyPass /dedalo/install/import/hierarchy/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/install/import/hierarchy/
+	ProxyPass /dedalo/install/seed_build/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/install/seed_build/
 	ProxyPass /dedalo/ai_models/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/ai_models/
 	ProxyPass /dedalo/upload_tmp/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/upload_tmp/
 	ProxyPass /dedalo/core/component_text_area/tag/ unix:/run/dedalo-@@INSTANCE@@/dedalo_ts.sock|http://localhost/dedalo/core/component_text_area/tag/

@@ -189,9 +189,9 @@ describe('pullOntologyRelease', () => {
 
 	test('ontology.json disagreeing with the manifest refuses', async () => {
 		const dir = releaseDir();
-		expect(await refusal(pullOntologyRelease('m', deps(dir, { sha: 'zzz' })))).toContain(
-			'ontology.json disagrees',
-		);
+		expect(
+			await refusal(pullOntologyRelease('m', deps(dir, { sha: 'not-the-manifest-sha' }))),
+		).toContain('ontology.json disagrees');
 		expect(await Bun.file(join(dir, 'dd.copy.gz')).text()).toBe('old');
 	});
 

@@ -1142,7 +1142,6 @@ const RENDER_SURFACE_EXEMPTIONS: ReadonlyArray<{ file: string; expr: string; rea
 const REMAINDER_RATCHET: Readonly<Record<string, number>> = {
 	'client/dedalo/core/area_maintenance/js/render_area_maintenance.js': 6,
 	'client/dedalo/core/area_maintenance/widgets/ai_models/js/render_ai_models.js': 2,
-	'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/check_config/js/render_check_config.js': 1,
 	'client/dedalo/core/area_maintenance/widgets/diffusion_server_control/js/render_diffusion_server_control.js': 2,
 	'client/dedalo/core/area_maintenance/widgets/diffusion_server_control/js/rollup_panel.js': 1,
