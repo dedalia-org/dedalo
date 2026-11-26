@@ -198,6 +198,10 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **CSV import buttons use the tool's colour**
+
+    In the Dédalo CSV import tool, the Import and Copy buttons are now painted in the tool's own colour instead of the generic orange warning style, matching the other tools.
+
 - **The Stop button of a running process shows a stop icon.**
 
     The button that stops a running process (publishing, exports, updates) showed a gear icon,
