@@ -155,14 +155,13 @@ beforeAll(async () => {
 	tmWatermark = Number(rows[0]?.max_id ?? 0);
 	originalRootString = structuredClone(await rootString());
 	rootStringCaptured = true;
-	// ROOT'S CREDENTIAL IS BUILT, NOT BORROWED: the install seed ships root passwordless.
-	const items = originalRootString[PASSWORD];
-	const stored = Array.isArray(items) ? (items[0] as { value?: unknown } | undefined)?.value : null;
-	if (typeof stored !== 'string' || !stored.startsWith('$argon2')) {
-		await plantRootPassword([
-			{ id: 1, lang: 'lg-nolan', value: await Bun.password.hash(`root-${RUN_TAG}`) },
-		]);
-	}
+	// ROOT'S CREDENTIAL IS BUILT, NOT BORROWED: the install seed ships root passwordless,
+	// and whatever an earlier file in the same shard left there is ambient state. Planted
+	// ALWAYS (afterAll puts the original back): a plant only "when absent" made this file's
+	// expect count depend on that state (rootString asserts) — 148 vs 147 in a sharded bin.
+	await plantRootPassword([
+		{ id: 1, lang: 'lg-nolan', value: await Bun.password.hash(`root-${RUN_TAG}`) },
+	]);
 	scratchUserId = await insertMatrixRecordWithCounter(USERS_TABLE, USERS, {
 		string: {
 			dd132: [{ id: 1, lang: 'lg-nolan', value: RUN_TAG }],
