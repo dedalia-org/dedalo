@@ -27,6 +27,7 @@ flowchart LR
 | `/dedalo/install/import/ontology/…` | **web server → socket** | only when this instance is an ontology master |
 | `/dedalo/install/code/…` | **web server → socket** | the release archives a code master serves |
 | `/dedalo/install/import/hierarchy/…` | **web server → socket** | hierarchy export downloads (admin-session-gated) |
+| `/dedalo/install/seed_build/…` | **web server → socket** | install-seed build downloads (maintenance-area session-gated) |
 | `/dedalo/ai_models/…` | **web server → socket** | the local AI model store; session-gated |
 | `/dedalo/upload_tmp/…` | **web server → socket** | staged-upload previews, before the record is saved |
 | `/dedalo/export/artifact/…` | **web server → socket**, unbuffered | tool_export's built files; owner-only, session-gated, often many gigabytes |
@@ -285,6 +286,7 @@ server {
 	location /dedalo/install/import/ontology/        { proxy_pass http://dedalo_ts; }
 	location /dedalo/install/code/                   { proxy_pass http://dedalo_ts; }
 	location /dedalo/install/import/hierarchy/       { proxy_pass http://dedalo_ts; }
+	location /dedalo/install/seed_build/             { proxy_pass http://dedalo_ts; }
 	location /dedalo/ai_models/                      { proxy_pass http://dedalo_ts; }
 	location /dedalo/upload_tmp/                     { proxy_pass http://dedalo_ts; }
 	location /dedalo/export/artifact/                { proxy_buffering off; proxy_pass http://dedalo_ts; }
@@ -372,6 +374,7 @@ a2enmod ssl headers http2 rewrite proxy proxy_http
     ProxyPass /dedalo/install/import/ontology/      unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/install/import/ontology/
     ProxyPass /dedalo/install/code/                 unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/install/code/
     ProxyPass /dedalo/install/import/hierarchy/     unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/install/import/hierarchy/
+    ProxyPass /dedalo/install/seed_build/           unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/install/seed_build/
     ProxyPass /dedalo/ai_models/                    unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/ai_models/
     ProxyPass /dedalo/upload_tmp/                   unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/upload_tmp/
     ProxyPass /dedalo/export/artifact/              unix:/run/dedalo/dedalo_ts.sock|http://localhost/dedalo/export/artifact/

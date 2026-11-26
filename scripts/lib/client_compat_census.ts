@@ -190,6 +190,12 @@ export const NON_ENVELOPE_READS: readonly NonEnvelopeRead[] = [
 			"`final_frame` is the update_ontology job's server-owned STATUS FRAME {pid, pfile, is_running, data, errors, total_time} (src/core/media/jobs.ts JobStatusFrame), not an envelope: `errors` there is the job's collected lines (a stop / the lane deadline say why there).",
 	},
 	{
+		file: 'client/dedalo/core/area_maintenance/widgets/build_database_version/js/render_build_database_version.js',
+		pattern: /\bresult\.(?:msg|errors)\b/g,
+		reason:
+			"`result` is the build_install_version JOB's RESULT payload — the final status frame's `data` (src/core/area_maintenance/widgets/build_database_version.ts: {msg, errors?, steps, output, …}), not an envelope: `msg` is the build sentence, `errors` the seed findings.",
+	},
+	{
 		file: 'client/dedalo/core/area_maintenance/widgets/update_code/js/update_code_phases.js',
 		pattern: /\bframe\.errors\b/g,
 		reason:

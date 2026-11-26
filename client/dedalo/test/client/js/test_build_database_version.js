@@ -203,7 +203,12 @@ describe('BUILD_DATABASE_VERSION WIDGET', function () {
 		});
 
 		it('the last choice survives a re-render; a stale or disabled one falls back to the default', async () => {
-			const patch = patch_request([ok(report(true)), ok(report(true)), ok(report(true)), ok(report(true))]);
+			const patch = patch_request([
+				ok(report(true)),
+				ok(report(true)),
+				ok(report(true)),
+				ok(report(true)),
+			]);
 			try {
 				const first = await render(build_self(panel_value()));
 				await settle();
@@ -221,7 +226,10 @@ describe('BUILD_DATABASE_VERSION WIDGET', function () {
 				second.remove();
 
 				// a remembered option the server no longer offers (or offers disabled) is ignored
-				window.localStorage.setItem('dedalo_seed_panel_choice', JSON.stringify({ source: 'master:gone', target: 'checkout' }));
+				window.localStorage.setItem(
+					'dedalo_seed_panel_choice',
+					JSON.stringify({ source: 'master:gone', target: 'checkout' }),
+				);
 				const third = await render(build_self(panel_value()));
 				await settle();
 				assert.deepEqual(patch.sent[3].options, { source: 'master:zz_master', target: 'private' });

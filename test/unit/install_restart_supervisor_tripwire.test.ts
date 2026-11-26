@@ -426,6 +426,7 @@ describe('restart supervisor contract', () => {
 			'/dedalo/export/artifact',
 			'/dedalo/install/code',
 			'/dedalo/install/import/hierarchy',
+			'/dedalo/install/seed_build',
 			'/dedalo/lib',
 			'/dedalo/tools',
 			'/dedalo/upload_tmp',

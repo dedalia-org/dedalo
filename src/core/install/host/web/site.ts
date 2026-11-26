@@ -58,6 +58,7 @@ export const ENGINE_PREFIXES: readonly string[] = Object.freeze([
 	'/dedalo/install/import/ontology/',
 	'/dedalo/install/code/',
 	'/dedalo/install/import/hierarchy/',
+	'/dedalo/install/seed_build/',
 	'/dedalo/ai_models/',
 	'/dedalo/upload_tmp/',
 ]);
