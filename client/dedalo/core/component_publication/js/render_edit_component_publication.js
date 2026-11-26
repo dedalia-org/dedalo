@@ -136,11 +136,14 @@ export const get_content_data = function(self) {
 		// appears in the UI and the user can toggle it to set a value.
 		const inputs_value	= (entries.length<1) ? [''] : entries
 		const value_length	= inputs_value.length
+		// a tool showing the component read-only (time machine panes, tool_lang…)
+		// keeps the edit switch, locked, so the state reads at a glance
+		const locked_switch	= self.permissions===1 && self.show_interface?.read_only===true
 		for (let i = 0; i < value_length; i++) {
 			// get the content_value
-			const content_value = (self.permissions===1)
+			const content_value = (self.permissions===1 && !locked_switch)
 				? get_content_value_read(i, inputs_value[i], self)
-				: get_content_value(i, inputs_value[i], self)
+				: get_content_value(i, inputs_value[i], self, locked_switch)
 			// add node to content_data
 			content_data.appendChild(content_value)
 			// set the pointer
@@ -176,9 +179,10 @@ export const get_content_data = function(self) {
 *   {type:string, section_id:string, section_tipo:string, from_component_tipo:string}
 *   or '' (empty string) when entries is empty and no value has been set yet
 * @param {Object} self - component_publication instance
+* @param {boolean} [disabled=false] - locked switch (read-only tool view)
 * @returns {HTMLElement} content_value container node
 */
-const get_content_value = (i, current_value, self) => {
+const get_content_value = (i, current_value, self, disabled=false) => {
 
 	// content_value
 		const content_value = ui.create_dom_element({
@@ -200,6 +204,7 @@ const get_content_value = (i, current_value, self) => {
 			value			: JSON.stringify(current_value),
 			parent			: div_switcher
 		})
+		input.disabled = disabled
 		input.addEventListener('change', function() {
 
 			const checked		= input.checked

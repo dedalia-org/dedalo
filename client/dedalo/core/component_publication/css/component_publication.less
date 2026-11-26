@@ -64,6 +64,18 @@
 			transform: translate3d(16px, 2px, 0);
 		}
 
+		// locked (read-only tool view): no pointer, no press stretch
+		&:has(input:disabled) {
+			cursor: default;
+
+			&:active i::after {
+				transform: translate3d(2px, 2px, 0);
+			}
+			&:active input:checked + i::after {
+				transform: translate3d(22px, 2px, 0);
+			}
+		}
+
 		input {
 			display: none;
 

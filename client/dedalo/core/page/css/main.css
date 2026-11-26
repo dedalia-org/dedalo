@@ -28727,6 +28727,15 @@ body.inspector_resizing {
 .component_publication .switcher_publication:active input:checked + i::after {
   transform: translate3d(16px, 2px, 0);
 }
+.component_publication .switcher_publication:has(input:disabled) {
+  cursor: default;
+}
+.component_publication .switcher_publication:has(input:disabled):active i::after {
+  transform: translate3d(2px, 2px, 0);
+}
+.component_publication .switcher_publication:has(input:disabled):active input:checked + i::after {
+  transform: translate3d(22px, 2px, 0);
+}
 .component_publication .switcher_publication input {
   display: none;
 }

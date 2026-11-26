@@ -202,6 +202,10 @@ Merged since the last release; these ship with the next one.
 
     In the Dédalo CSV import tool, the Import and Copy buttons are now painted in the tool's own colour instead of the generic orange warning style, matching the other tools.
 
+- **Publication field keeps its switch in the time machine preview**
+
+    When a tool shows a Publication field read-only (both panes of the Time machine, for example), it now shows the familiar on/off switch, locked, instead of the plain yes/no text, so the state can be recognised at a glance.
+
 - **Time machine buttons use the tool's colour**
 
     In the Time machine tool, the "Apply and save" button and the selected version's Id in the history list are now painted in the tool's own colour, with matching text, instead of the generic warning style.
