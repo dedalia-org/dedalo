@@ -615,6 +615,10 @@ Merged since the last release; these ship with the next one.
 
 #### Fixed
 
+- **Menu bar items vertically centred when an instance colour is set**
+
+    The instance-colour line under the menu bar was painted over the bar's last 3px, so its labels and icons sat below the visible centre. The line now has its own space (the bar is 3px taller with an instance colour), and menu labels centre on their capital letters whatever the system font.
+
 - **On a phone, the record graph view stacks the graph above the record panel.**
 
     On a phone, the relations graph of a record was squeezed into a narrow strip beside a fixed-width
