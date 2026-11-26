@@ -31381,6 +31381,9 @@ dd-modal > .text_area_draw_selector .layer_selector_container .layer_ul > li:hov
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search) > .button_options {
   background-color: var(--color_grey_5);
 }
+:root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *) > .wrapper_service_autocomplete:not(.search):has(>.options_hidden.visible) > .button_options {
+  background-color: var(--fg_inverse);
+}
 :root[data-active_style="lift"] .wrapper_component.edit.active:not(.hilite_element):not(.wrapper_tool *):not(.tab_lifted):not(.component_text_area):not(.fullscreen) > .wrapper_service_autocomplete:not(.search) {
   box-shadow: 0 0 0 1px var(--lift_edge), var(--lift_shadow);
 }
