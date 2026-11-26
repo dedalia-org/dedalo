@@ -10,7 +10,7 @@
 // or a locator here, so no corpus and no DB round-trip were added.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../../src/config/config.ts';
 import { mediaTypeOf } from '../../src/core/concepts/media.ts';
@@ -829,15 +829,44 @@ describe('resent join — idempotent per upload_id', () => {
 		});
 
 	test('a resend while the join runs is a conflict; after it finishes, it replays the result', async () => {
+		// A join IN FLIGHT is planted, not raced: a real first join of two tiny parts
+		// can finish before the resend's catch looks for a recorded result, and the
+		// resend then (correctly) REPLAYS — the conflict leg went red on a fast box.
+		// A fresh `assembled` with no writer identity yet is exactly what a running
+		// join looks like (writerIsGone: a missing identity is live).
 		const uploadId = stageTwoParts('resend.jpg');
-		const running = join2('resend.jpg', uploadId);
-		// The first join holds the assembly output until it settles.
+		const assembled = join(stagingDir(USER, KEY, ROOT), `.up_${uploadId}`, 'assembled');
+		writeFileSync(assembled, 'partial');
 		expect((await refusalOf(join2('resend.jpg', uploadId))).code).toBe('media.upload_assembling');
-		const first = await running;
+		// The "running" join ends (its output gone, as a finished join leaves it).
+		rmSync(assembled);
+		const first = await join2('resend.jpg', uploadId);
 		const again = await join2('resend.jpg', uploadId);
 		expect(again).toEqual(first);
 		// One staged file, not a second copy with a -1 suffix.
 		expect(readdirSync(stagingDir(USER, KEY, ROOT)).filter((e) => !e.startsWith('.'))).toEqual([
+			first.tmpName as string,
+		]);
+	});
+
+	test('two REAL concurrent joins: the second is a conflict or the identical replay — never a second copy', async () => {
+		// Timing decides WHICH of the two correct answers the resend gets, so the leg
+		// asserts the set (one expect either way: the count must not read timing).
+		const uploadId = stageTwoParts('race.jpg');
+		const running = join2('race.jpg', uploadId);
+		const second = await join2('race.jpg', uploadId).then(
+			(result) => ({ result }),
+			(error: unknown) => ({ code: (error as { code?: string }).code }),
+		);
+		const first = await running;
+		const verdict =
+			'code' in second
+				? (second.code ?? 'NO CODE')
+				: JSON.stringify(second.result) === JSON.stringify(first)
+					? 'replay'
+					: 'A SECOND, DIFFERENT RESULT';
+		expect(['media.upload_assembling', 'replay']).toContain(verdict);
+		expect(readdirSync(stagingDir(USER, KEY, ROOT)).filter((e) => e.startsWith('race'))).toEqual([
 			first.tmpName as string,
 		]);
 	});
