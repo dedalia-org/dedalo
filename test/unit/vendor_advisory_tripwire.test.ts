@@ -15,7 +15,7 @@
  *   - `dependency_integrity_tripwire` says in its own header that it proves a
  *     digest EXISTS and matches, never that the bytes are benign.
  * Three green gates over an unpatched remote-code-execution surface. This file is
- * the axis none of them covered. The tree is now 6.2.108 (also the npm dist-tag
+ * the axis none of them covered. The tree went to 6.2.108 (also the npm dist-tag
  * `latest`, so the advisory fix and the latest-stable law were one move) — but the
  * gate, not the bump, is the durable half: the bump ages, the question does not.
  *
@@ -185,6 +185,12 @@ describe('vendor advisory tripwire — the declared version is the version the b
 	// gates, same unpatched surface, no bump required. This is the axis that costs the
 	// label something.
 
+	// The two tests that run against the REAL pdfjs bytes take the declared version from
+	// the manifest, so a bump re-points them instead of turning them red (2026-11-26,
+	// 6.2.108 → 6.5.438). The synthetic-only REDs keep a literal: they never read bytes
+	// that hold it.
+	const PDFJS_VERSION = readManifest().libs.pdfjs?.version ?? 'pdfjs row missing';
+
 	test('every row either evidences its version in its own bytes, or says why it cannot', () => {
 		expect(checkVendorVersionEvidence()).toEqual([]);
 	});
@@ -214,15 +220,15 @@ describe('vendor advisory tripwire — the declared version is the version the b
 	});
 
 	test('CONSTRUCTED RED — a row whose bytes do not carry the declared version', () => {
-		// The exact mislabel: 6.2.108 on the row, and a literal from 5.7.284 that the
-		// vendored bytes do not contain.
+		// The exact mislabel: the declared version on the row, and a viewer literal the
+		// vendored bytes do not contain (what an older tree under a newer label looks like).
 		const problems = checkEvidenceSynthetic({
-			version: '6.2.108',
+			version: PDFJS_VERSION,
 			clauses: [
-				{ file: 'vendor/pdfjs/build/pdf.mjs', must_contain: 'const version = "6.2.108";' },
+				{ file: 'vendor/pdfjs/build/pdf.mjs', must_contain: `const version = "${PDFJS_VERSION}";` },
 				{
 					file: 'vendor/pdfjs/web/viewer.mjs',
-					must_contain: 'const viewerVersion = "6.2.108-nope";',
+					must_contain: `const viewerVersion = "${PDFJS_VERSION}-nope";`,
 				},
 			],
 		});
@@ -282,16 +288,19 @@ describe('vendor advisory tripwire — the declared version is the version the b
 		// red: the shipped clauses, run through the same function, over the real tree.
 		expect(
 			checkEvidenceSynthetic({
-				version: '6.2.108',
+				version: PDFJS_VERSION,
 				clauses: [
-					{ file: 'vendor/pdfjs/build/pdf.mjs', must_contain: 'const version = "6.2.108";' },
+					{
+						file: 'vendor/pdfjs/build/pdf.mjs',
+						must_contain: `const version = "${PDFJS_VERSION}";`,
+					},
 					{
 						file: 'vendor/pdfjs/build/pdf.worker.mjs',
-						must_contain: 'const workerVersion = "6.2.108";',
+						must_contain: `const workerVersion = "${PDFJS_VERSION}";`,
 					},
 					{
 						file: 'vendor/pdfjs/web/viewer.mjs',
-						must_contain: 'const viewerVersion = "6.2.108";',
+						must_contain: `const viewerVersion = "${PDFJS_VERSION}";`,
 					},
 				],
 			}),

@@ -2025,6 +2025,13 @@ Merged since the last release; these ship with the next one.
 
 #### Changed
 
+- **The PDF viewer is updated to pdf.js 6.5.438.**
+
+    The viewer that opens PDF documents in the edit form moves from pdf.js 6.2.108 to
+    the latest stable release, 6.5.438. No security advisory touches the previous
+    version; this keeps the bundled viewer current. Scripting inside PDFs stays
+    disabled, as before.
+
 - **Dédalo now runs on Bun 1.4.5, a security release.** *(action needed)*
 
     The pinned runtime (`.bun-version`) moves from Bun 1.4.4 to 1.4.5, Bun's security release for
