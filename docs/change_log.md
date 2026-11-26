@@ -619,6 +619,10 @@ Merged since the last release; these ship with the next one.
 
     The instance-colour line under the menu bar was painted over the bar's last 3px, so its labels and icons sat below the visible centre. The line now has its own space (the bar is 3px taller with an instance colour), and menu labels centre on their capital letters whatever the system font.
 
+- **Tool permissions list keeps its size on activation and highlights checked tools**
+
+    In a profile's Tool permissions, activating the field no longer makes it grow: the developer line under each tool now shows in both states, aligned under the tool name. The "All" box has its own row so it no longer overlaps the field buttons. Checked tools get a soft highlight, and the tool icons are light grey in dark mode.
+
 - **On a phone, the record graph view stacks the graph above the record panel.**
 
     On a phone, the relations graph of a record was squeezed into a narrow strip beside a fixed-width

@@ -383,7 +383,7 @@ const get_input_element = (i, current_value, self) => {
 		if(SHOW_DEBUG===true){
 			ui.create_dom_element({
 				element_type	: 'span',
-				class_name		: 'developer_info show_on_active',
+				class_name		: 'developer_info',
 				text_content	: `[${tool_name} - ${section_id}]`,
 				parent			: content_value
 			})

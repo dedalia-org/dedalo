@@ -23913,9 +23913,8 @@ body.inspector_resizing {
   }
 }
 .component_check_box.view_tools > .content_data .select_all {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
+  grid-column: 1 / -1;
+  justify-self: end;
   cursor: pointer;
 }
 .component_check_box.view_tools > .content_data .select_all > .input_checkbox {
@@ -23935,11 +23934,17 @@ body.inspector_resizing {
   line-height: 1.4rem;
   flex-wrap: wrap;
 }
+.component_check_box.view_tools > .content_data > .content_value:has(>.input_label>.input_checkbox:checked) {
+  background-color: rgba(247, 138, 28, 0.08);
+}
 .component_check_box.view_tools > .content_data > .content_value > .tool_icon {
   height: 1.33rem;
   width: 1.33rem;
   margin-right: 0.5rem;
   margin-left: 0px;
+}
+:root[data-theme="dark"] .component_check_box.view_tools > .content_data > .content_value > .tool_icon {
+  filter: brightness(0) invert(0.8);
 }
 .component_check_box.view_tools > .content_data > .content_value > .input_label {
   flex: 1 1 0;
@@ -23955,7 +23960,7 @@ body.inspector_resizing {
 .component_check_box.view_tools > .content_data > .content_value > .developer_info {
   order: 1;
   flex-basis: 100%;
-  padding-left: 4rem;
+  padding-left: 3.16rem;
   font-size: 0.9em;
   line-height: 1.3;
   overflow-wrap: anywhere;
@@ -23987,7 +23992,7 @@ body.inspector_resizing {
   display: none;
   order: 2;
   flex-basis: 100%;
-  padding: 0.25rem 0 0.33rem 4rem;
+  padding: 0.25rem 0 0.33rem 3.16rem;
   font-size: 0.9em;
   line-height: 1.3;
   white-space: pre-line;
